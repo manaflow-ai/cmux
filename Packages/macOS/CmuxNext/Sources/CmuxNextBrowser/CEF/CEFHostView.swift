@@ -33,7 +33,7 @@ final class CEFHostView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         updateBackground()
-        registerForDraggedTypes([.fileURL])
+        fileDrag.view = self
         #if DEBUG
         Self.registerMotionSampler()
         #endif

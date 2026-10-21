@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 /// Files dragged in from another app (Finder) over a Chromium page reach the page as a real drop.
 ///
@@ -11,8 +12,12 @@ import AppKit
 /// When the page window does take a drag itself, Chromium handles it and this relay sees nothing.
 @MainActor
 final class CEFFileDragRelay {
-    /// The tab the pane shows; nil refuses the drag.
-    var target: (() -> CEFTab?)?
+    /// The tab the pane shows; nil refuses the drag. Setting it registers `view` for file drags, so
+    /// a host view no pane drives (DevTools) leaves file drags to the views behind it.
+    var target: (() -> CEFTab?)? {
+        didSet { if target != nil { view?.registerForDraggedTypes([.fileURL]) } }
+    }
+    weak var view: NSView?
 
     /// The files of the current drag, read once when it enters (a pasteboard read per move lags).
     private var files: [URL] = []
@@ -21,6 +26,9 @@ final class CEFFileDragRelay {
     private var chain: Task<Void, Never>?
     /// A dragOver waiting in the chain reads the newest point when it runs, so moves never pile up.
     private var pendingOver: CGPoint?
+    /// The last point sent or queued (AppKit repeats updates while the pointer rests).
+    private var lastPoint: CGPoint?
+    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef.file-drag")
 
     /// Copy, link and move (DevTools `DragOperationsMask`), as Chrome offers a page a Finder drag.
     private static let operations = 1 | 2 | 16
@@ -34,26 +42,27 @@ final class CEFFileDragRelay {
         files = urls
         self.tab = tab
         tab.pageFilesDragged?(urls)
+        lastPoint = point
         send("dragEnter", at: point)
         return .copy
     }
 
     func updated(at point: CGPoint) -> NSDragOperation {
         guard tab != nil else { return [] }
-        if pendingOver != nil {
-            pendingOver = point
-        } else {
-            pendingOver = point
-            send("dragOver", at: nil)
-        }
+        guard point != lastPoint else { return .copy }
+        lastPoint = point
+        if pendingOver == nil { send("dragOver", at: nil) }
+        pendingOver = point
         return .copy
     }
 
+    /// The drag left the page, or the session ended without a drop here.
     func exited() {
-        guard tab != nil else { return }
-        // DevTools has no dragLeave: a move off the page ends the page's hover (dragleave), then the drag ends.
+        guard let tab else { return }
+        // DevTools has no dragLeave, and a move off the page fires none: the page's drop zones
+        // hear one from a script (the element under the last point, bubbling), then the drag ends.
         pendingOver = nil
-        send("dragOver", at: CGPoint(x: -1, y: -1))
+        if let lastPoint { leave(tab, at: lastPoint) }
         send("dragCancel", at: .zero)
         reset()
     }
@@ -69,6 +78,14 @@ final class CEFFileDragRelay {
         files = []
         tab = nil
         pendingOver = nil
+        lastPoint = nil
+    }
+
+    /// The tab's page coordinates (CSS pixels) of a view point: under a fit's or device's scale
+    /// (cx-mogig) and the page zoom, which Chromium multiplies back in.
+    private static func css(_ point: CGPoint, in tab: CEFTab) -> CGPoint {
+        let scale = tab.emulationInputScale / max(tab.state.zoom, 0.01)
+        return CGPoint(x: point.x * scale, y: point.y * scale)
     }
 
     /// Queues one DevTools drag event; `point` nil is the pending dragOver's newest point.
@@ -76,7 +93,7 @@ final class CEFFileDragRelay {
         guard let tab else { return }
         let files = files.map(\.path)
         let previous = chain
-        chain = Task { [weak self] in
+        chain = Task { [weak self, logger] in
             await previous?.value
             let at: CGPoint
             if let point {
@@ -86,18 +103,39 @@ final class CEFFileDragRelay {
                 self?.pendingOver = nil
                 at = over
             }
-            // View points under a fit's or device's scale (cx-mogig), as link hints and agent input convert.
-            let scale = tab.emulationInputScale
-            _ = try? await tab.devTools(method: "Input.dispatchDragEvent", params: [
-                "type": type, "x": at.x * scale, "y": at.y * scale,
-                "data": ["items": [[String: any Sendable]](), "files": files, "dragOperationsMask": Self.operations] as [String: any Sendable],
-            ])
+            let css = Self.css(at, in: tab)
+            do {
+                _ = try await tab.devTools(method: "Input.dispatchDragEvent", params: [
+                    "type": type, "x": css.x, "y": css.y,
+                    "data": ["items": [[String: any Sendable]](), "files": files, "dragOperationsMask": Self.operations] as [String: any Sendable],
+                ])
+            } catch {
+                logger.error("file drag \(type, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// Queues a `dragleave` for the element under `point` (and its ancestors).
+    private func leave(_ tab: CEFTab, at point: CGPoint) {
+        let css = Self.css(point, in: tab)
+        let script = """
+        (() => { const el = document.elementFromPoint(\(css.x), \(css.y)); if (!el) return false;
+          el.dispatchEvent(new DragEvent('dragleave', {bubbles: true, cancelable: true, clientX: \(css.x), clientY: \(css.y)})); return true; })()
+        """
+        let previous = chain
+        chain = Task { [logger] in
+            await previous?.value
+            do {
+                _ = try await tab.evaluate(script, world: .isolated)
+            } catch {
+                logger.error("file drag leave failed: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 }
 
 extension CEFHostView {
-    /// The drag's location in page coordinates: view points from the top left.
+    /// The drag's location in the page: view points from the top left.
     private func pagePoint(_ info: any NSDraggingInfo) -> CGPoint {
         let local = convert(info.draggingLocation, from: nil)
         return CGPoint(x: local.x, y: isFlipped ? local.y : bounds.height - local.y)
@@ -117,5 +155,11 @@ extension CEFHostView {
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         fileDrag.dropped(at: pagePoint(sender))
+    }
+
+    /// A session that ended with no exit or drop here (the view left its window mid-drag).
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        super.draggingEnded(sender)
+        fileDrag.exited()
     }
 }
