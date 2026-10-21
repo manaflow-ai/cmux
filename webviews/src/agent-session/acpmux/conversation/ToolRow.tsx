@@ -17,6 +17,8 @@ import { experimentArm } from "../../../experiments/experiment";
 import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
+import { BackgroundMark } from "./BackgroundMark";
+import { toolDuration } from "./toolGroups";
 import { OutputMore, useOutput } from "./toolOutput";
 import { cleanText } from "./mcpCalls";
 import { ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
@@ -64,8 +66,11 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const files = useMemo(() => (open && hasDiff ? toolFiles([tool]) : []), [open, hasDiff, tool]);
   const cwd = useContext(SessionCwdContext);
   const label = toolLabel(tool, item.text, (command) => t("tools.ranCommand", { command }), cwd);
-  const running = tool.status === "pending" || tool.status === "in_progress";
+  const running = tool.status === "pending" || tool.status === "in_progress" || tool.background?.state === "running";
   const failed = tool.status === "failed";
+  // A shell that went on in the background says how it stands there, and its time once it ended.
+  const background = !failed && tool.status !== "pending" && tool.status !== "in_progress" && tool.background;
+  const backgroundTime = background ? toolDuration(t, tool) : undefined;
   // Only a call with a command line is a shell; an MCP call can also say "execute".
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // A shell prints what it printed; any other output loses the context a host injects into it.
@@ -81,6 +86,12 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
         {label}
         {failed && <span className="cv-tool__detail"> {t("tools.failed")}</span>}
       </span>
+      {background && (
+        <span className="cv-command__meta cv-tool__meta">
+          <BackgroundMark background={background} />
+          {backgroundTime && <span className="cv-command__time">{backgroundTime}</span>}
+        </span>
+      )}
     </>
   );
   return (
