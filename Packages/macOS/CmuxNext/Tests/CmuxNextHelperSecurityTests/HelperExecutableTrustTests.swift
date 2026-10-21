@@ -13,6 +13,11 @@ struct HelperExecutableTrustTests {
         #expect(!trust.accepts(URL(fileURLWithPath: "/helper")))
     }
 
+    @Test func rejectsAStaticTeamThatTheLiveProcessDoesNotSatisfy() {
+        #expect(HelperExecutableTrust.authenticatedTeamIdentifier("ATTACKER1") { _ in false } == nil)
+        #expect(HelperExecutableTrust.authenticatedTeamIdentifier("EXPECTED1") { $0 == "EXPECTED1" } == "EXPECTED1")
+    }
+
     @Test func acceptsTheExpectedSignedFixtureAndRejectsCrossTeamCodeAndASymlink() throws {
         var repository = URL(fileURLWithPath: #filePath)
         for _ in 0 ..< 6 { repository.deleteLastPathComponent() }

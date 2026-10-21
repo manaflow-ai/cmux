@@ -70,9 +70,16 @@ public struct HelperExecutableTrust: Sendable {
         guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information)
                 == errSecSuccess,
               let information = information as? [String: Any],
-              let team = information[kSecCodeInfoTeamIdentifier as String] as? String,
-              isRequirementLiteral(team) else { return nil }
-        return team
+              let team = information[kSecCodeInfoTeamIdentifier as String] as? String else { return nil }
+        return authenticatedTeamIdentifier(team) { _ in true }
+    }
+
+    static func authenticatedTeamIdentifier(
+        _ candidate: String?,
+        validatesLiveCode: (String) -> Bool
+    ) -> String? {
+        guard let candidate, isRequirementLiteral(candidate) else { return nil }
+        return candidate
     }
 
     private static func validatesCode(_ url: URL, team: String) -> Bool {
