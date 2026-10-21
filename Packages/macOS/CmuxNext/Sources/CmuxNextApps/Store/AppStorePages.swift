@@ -23,9 +23,9 @@ public final class AppStorePages {
 
     public func model(for key: String) -> AppStoreModel? { models[key] }
 
-    /// Shows a listing or the Installed tab in tab `key`.
-    public func present(_ key: String, appID: String?, installed: Bool) {
-        models[key]?.present(appID: appID, installed: installed)
+    /// Shows a listing or a store tab (Features, Installed) in tab `key`.
+    public func present(_ key: String, appID: String?, tab: AppStoreModel.Tab?) {
+        models[key]?.present(appID: appID, tab: tab)
     }
 
     /// Drops tab `key`'s model. A Remove still in its undo window commits: the closed tab has no
