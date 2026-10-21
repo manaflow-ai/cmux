@@ -35,6 +35,7 @@ import {
   type AcpmuxSnapshot,
   type QueueEdit,
   nextDrawnRow,
+  isBeforeFooter,
   isLastFooter,
   TRANSCRIPT_RUNWAY,
 } from "./model";
@@ -47,6 +48,8 @@ import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from ".
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
+import { setImportCards } from "./importCards";
+import { NewTabImportCards } from "./NewTabImportCards";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
@@ -93,7 +96,14 @@ import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
-import { audioAttachment, linkAttachment, linkItems, type ComposerAttachment, type DroppedKind } from "./attachments";
+import {
+  audioAttachment,
+  linkAttachment,
+  linkItems,
+  type ComposerAttachment,
+  type DroppedKind,
+  recordingLeftOutNotice,
+} from "./attachments";
 import type { KeptAttachments } from "./composer/keptAttachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
@@ -181,6 +191,7 @@ import { transcriptRepositories, type RepositoryCache } from "./conversation/tra
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
+import { stopReadingAloud } from "./conversation/readAloud";
 import { foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
@@ -376,6 +387,7 @@ import {
 } from "./started/StartedSessionCard";
 import { type SessionHover, SessionHoverContext } from "./started/SessionHoverCard";
 import { SessionHoverStore, withSessionIds } from "./started/sessionHover";
+import { SubsessionContext, SubsessionStore, type Subsessions, subsessionRows } from "./subagents/subsessions";
 import {
   STARTED_SESSIONS,
   type StartedCache,
@@ -454,6 +466,8 @@ declare global {
       applyRecentlyClosed?(items: unknown): void;
       /// What plays, for the New Tab page's player (newtab/nowPlaying.ts); null while nothing does.
       applyNowPlaying?(track: unknown): void;
+      /// The New Tab page's import suggestion cards (importCards.ts); null while there are none.
+      applyImportCards?(cards: unknown): void;
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
@@ -526,7 +540,9 @@ function cachedSnapshot(): AcpmuxSnapshot {
     const value = JSON.parse(sessionStorage.getItem("cmux.acpmux.snapshot") ?? "null");
     if (value?.type === "snapshot" && Array.isArray(value.rows) && Array.isArray(value.sessions)) {
       acpmuxPerf.markAgent("snapshotPaint");
-      return { ...emptySnapshot(), ...value, connection: "connecting" };
+      // `connection`, `drewKeptTail` and `chatRead` are facts about a live client, and this one is
+      // restored: no client has drawn anything yet, so this document's first paint is its own to report.
+      return { ...emptySnapshot(), ...value, connection: "connecting", drewKeptTail: undefined, chatRead: undefined };
     }
   } catch {
     // A corrupt or unavailable session store must never block the pane.
@@ -614,9 +630,11 @@ const postScrollAnchor = (sessionId: string, anchor: ScrollAnchor | null) =>
   );
 /// A host that does not answer `chat.scrollAnchor.get` (the gallery, an older app) never holds up the chat.
 const SCROLL_ANCHOR_READ_MS = 250;
-/// The longest a chat the handshake named keeps the host's loading state up for acpmux's attach: the
-/// scroll anchor's read, then the client's open hold (direct.ts OPEN_HOLD_MS), with a frame to spare.
-const CHAT_DRAW_HOLD_MS = SCROLL_ANCHOR_READ_MS + 1_500 + 50;
+/// The longest a chat the handshake named keeps the host's loading state up for acpmux's attach. A
+/// last resort only: the page reports its first paint once the chat's rows are in (`chatRead`) or
+/// its open failed. A shorter hold showed a busy daemon's chat as an empty page with only its
+/// composer (Leo 2026-10-21: "I LOAD IN AND IT'S A BLACK SCREEN").
+const CHAT_DRAW_HOLD_MS = 10_000;
 /// Where chat `sessionId` rested when it was last shown; undefined when nothing is kept.
 const fetchScrollAnchor = async (sessionId: string): Promise<(ScrollAnchor & { sessionId: string }) | undefined> => {
   const anchor = await Promise.race([
@@ -740,7 +758,8 @@ const MessageRow = memo(
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
-    // Another agent's message as one "Received message from" line; a task notification as one quiet line
+    // Another agent's message as one line at the left (its sender's chip and a preview); a task
+    // notification as one quiet line
     // (conversation/incomingMessage.ts).
     // Its images show with it, and its action row (age, Copy, Retry, Pin) at the line's end on hover;
     // a steer's read state does not: the message is the agent's to read.
@@ -755,6 +774,7 @@ const MessageRow = memo(
             onOpen={openOfferChat}
             onReply={replyToMessage}
             actions={<ReceivedActions row={row} text={row.incoming.message.text} />}
+            githubRepository={githubRepository}
           />
         </div>
       );
@@ -866,6 +886,7 @@ const ThinkingRow = memo(
         doing={row.doing}
         doingAt={row.doingAt}
         doingShell={row.doingShell}
+        draft={row.doingDraft}
         untimed={row.untimed}
         quietKey={row.quietKey}
         below={row.below}
@@ -888,6 +909,7 @@ const ThinkingRow = memo(
     a.row.doing === b.row.doing &&
     a.row.doingAt === b.row.doingAt &&
     a.row.doingShell === b.row.doingShell &&
+    a.row.doingDraft === b.row.doingDraft &&
     a.row.untimed === b.row.untimed &&
     a.row.quietKey === b.row.quietKey &&
     a.row.below === b.row.below &&
@@ -1618,7 +1640,7 @@ function JumpToLatest({
   return (
     <button
       type="button"
-      className="acpmux-jump-latest"
+      className="ui-glass acpmux-jump-latest"
       data-shown={shown ? "" : undefined}
       data-working={working ? "" : undefined}
       style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
@@ -2036,6 +2058,9 @@ export function VirtualTranscript({
     seekFirstRow.current = undefined;
   };
   useEffect(() => () => clearTimeout(seekTimer.current), []);
+  // Read aloud speaks one of this chat's answers: moving to another session (or closing the
+  // transcript) stops it, so it neither talks over the next chat nor says Stop reading on return.
+  useEffect(() => () => stopReadingAloud(), [sessionId]);
   const previousSession = useRef(sessionId);
   // A layout effect: the first measure lands before the first paint, so a mounted transcript (a page
   // load, a new chat's first send, back from Harnesses) never draws a frame at a guessed size.
@@ -3192,9 +3217,7 @@ export function VirtualTranscript({
                       kind={kind}
                       joinsPrevious={isStepRow(row) && isStepRow(rows[absoluteIndex - 1])}
                       joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
-                      beforeFooter={
-                        row.kind === "assistant" && nextDrawnRow(rows, absoluteIndex)?.kind === "turnSummary"
-                      }
+                      beforeFooter={isBeforeFooter(row, nextDrawnRow(rows, absoluteIndex))}
                       lastFooter={isLastFooter(row, nextDrawnRow(rows, absoluteIndex))}
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
@@ -4033,6 +4056,14 @@ function AcpmuxPane() {
     () => (startedOn ? { store: hoverStore.current!, open: openOfferChat } : null),
     [startedOn],
   );
+  // The transcript's sub-session cards read each sub-session's state from one store, so a session
+  // changing never redraws a turn (subagents/subsessions.ts); a name opens its chat beside this one.
+  const subsessionStore = useRef<SubsessionStore | null>(null);
+  subsessionStore.current ??= new SubsessionStore();
+  useLayoutEffect(() => {
+    subsessionStore.current!.set(snapshot.sessions);
+  }, [snapshot.sessions]);
+  const subsessions = useMemo<Subsessions>(() => ({ store: subsessionStore.current!, open: openOfferChat }), []);
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
   /// Debug Settings `agent.sessionStatus`: a running turn's activity line under its todo list.
@@ -4092,7 +4123,15 @@ function AcpmuxPane() {
   useLayoutEffect(() => {
     shownView.current = shownSubagent === undefined ? shownSessionId : `${shownSessionId}:subagent:${shownSubagent}`;
   }, [shownSessionId, shownSubagent]);
-  const summaryHasContent = useMemo(() => chatHasSummaryContent(snapshot.rows), [snapshot.rows]);
+  // The sub-sessions this chat's agent started, and theirs, for the summary card's Subagents list.
+  const chatSubsessions = useMemo(
+    () => ({ rows: subsessionRows(snapshot.sessions, shownSessionId), onOpen: openOfferChat }),
+    [snapshot.sessions, shownSessionId],
+  );
+  const summaryHasContent = useMemo(
+    () => chatHasSummaryContent(snapshot.rows) || chatSubsessions.rows.length > 0,
+    [snapshot.rows, chatSubsessions],
+  );
   const [shell, setShell] = useState<HTMLElement | null>(null);
   /// The chat's bottom stack (bottomStack.css): the transcript runs under it and keeps its end above it.
   const [dock, setDock] = useState<HTMLElement | null>(null);
@@ -5025,12 +5064,9 @@ function AcpmuxPane() {
     attach: (audio) => {
       const recording = audioAttachment(audio, translate("dictation.recording"));
       if (recording) composerHandle.current?.attach(recording);
-      else directClient.current?.notice(translate("dictation.recordingTooLong"));
+      else directClient.current?.notice(translate(recordingLeftOutNotice("tooLarge")));
     },
-    omitted: (reason) =>
-      directClient.current?.notice(
-        translate(reason === "tooLong" ? "dictation.recordingTooLong" : "dictation.recordingNarrowband"),
-      ),
+    omitted: (reason) => directClient.current?.notice(translate(recordingLeftOutNotice(reason))),
   });
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
@@ -5051,7 +5087,13 @@ function AcpmuxPane() {
   // (cx-0rpl.10), and the host shows no loading mark over it. A chat the handshake named is what it
   // is once acpmux attached it: before, the page drew an empty transcript with stand-in chips, and
   // the host faded that in, then the rows, title and modes popped in (Leo 2026-10-20).
-  const chatDrawn = !awaitsChat || clientSnapshot.connection !== "connecting";
+  // Not merely past "connecting": the open's hold (direct.ts OPEN_HOLD_MS) draws what it has when
+  // acpmux is slow, which is the empty transcript. A failed open draws what it is too.
+  const openFailed =
+    clientSnapshot.connection.startsWith("connecting:") ||
+    clientSnapshot.connection === "disconnected" ||
+    clientSnapshot.connection === "failed";
+  const chatDrawn = !awaitsChat || clientSnapshot.chatRead === true || openFailed;
   const showsWhatItIs = (handshaken && chatDrawn) || hostError !== undefined || newTab !== undefined;
   useEffect(() => {
     if (!handshaken || chatDrawn) return;
@@ -5059,18 +5101,23 @@ function AcpmuxPane() {
     const timer = window.setTimeout(() => setAwaitsChat(false), CHAT_DRAW_HOLD_MS);
     return () => window.clearTimeout(timer);
   }, [handshaken, chatDrawn]);
+  // What this frame drew, not only that it drew: a chat taken from a kept tail is on screen in the
+  // frame the open landed on, so the host shows the page instead of fading it in (tailCache.ts,
+  // AgentPaneView+Loading.swift). A kept tail is drawn before the frame that shows what the pane
+  // is, so it is known by the time this reports; the report happens once either way.
+  const drewKeptTail = clientSnapshot.drewKeptTail === true;
   useEffect(() => {
     if (!showsWhatItIs || paintReported.current) return;
     paintReported.current = true;
     requestAnimationFrame(() =>
       setTimeout(() => {
-        void callNative("pane.painted").catch(() => undefined);
+        void callNative("pane.painted", { drewKeptTail }).catch(() => undefined);
         void loadDiffPanel();
         void loadHighlightedCode();
         void loadEditDiffHunks();
       }, 0),
     );
-  }, [showsWhatItIs]);
+  }, [showsWhatItIs, drewKeptTail]);
   const composerSnapshot = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import"]);
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
@@ -5292,6 +5339,9 @@ function AcpmuxPane() {
       },
       applyNowPlaying(track) {
         setNowPlaying(track);
+      },
+      applyImportCards(cards) {
+        setImportCards(cards);
       },
       revealTurn(turnId) {
         revealRef.current(turnId);
@@ -5968,12 +6018,20 @@ function AcpmuxPane() {
             const [to, id, thread] = [str(sessionId), str(msgId), str(threadId)];
             await client.reply({ sessionId: to, msgId: id, threadId: thread }, String(text ?? ""));
           },
-          // Open on a started offer: beside this chat, as a side chat opens; else here.
+          // Open a started offer or a sub-session: the app shows its tab or opens it beside this
+          // chat (AgentPaneOfferOpen); a host without that opens it as a side chat; else here.
           "chat.offer.open": async ({ sessionId }) => {
+            const id = String(sessionId);
             try {
-              await postNative("chat.sideChat", { sessionId: String(sessionId) });
-            } catch {
-              await persistSession(await client.select(String(sessionId)));
+              await postNative("chat.offer.open", { sessionId: id });
+            } catch (error) {
+              // The app refused a session outside this chat's family: nothing opens, not even here.
+              if (error instanceof NativeError && error.code === "chat.offer.refused") return;
+              try {
+                await postNative("chat.sideChat", { sessionId: id });
+              } catch {
+                await persistSession(await client.select(id));
+              }
             }
           },
           // The review shows in this tab while the tab stays the chat's; Start opens the new chat in
@@ -6717,6 +6775,7 @@ function AcpmuxPane() {
     permissionGroups: snapshot.permissionGroups?.supported ? snapshot.permissionGroups.groups : undefined,
     secret: Boolean(snapshot.secret),
     cards: toolCards,
+    silent: snapshot.silentTurn,
   });
   const transcript = (
     // Quick Chat's panel has no room beside it: its fences have no Open preview.
@@ -6739,58 +6798,62 @@ function AcpmuxPane() {
                                     value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
                                   >
                                     <SessionHoverContext.Provider value={sessionHover}>
-                                      <StartedMentionsContext.Provider value={startedMentions}>
-                                        <ChatFindScope
-                                          rows={childRows ?? sourceRows}
-                                          shown={childRows ? undefined : transcriptRows}
-                                          openFold={openFold}
-                                          findRef={findRef}
-                                        >
-                                          {(find) => (
-                                            <VirtualTranscript
-                                              rows={transcriptRows}
-                                              working={snapshot.isWorking}
-                                              // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                                              jumpButton={!quick}
-                                              needsYou={needsYou.pill}
-                                              focusComposer={() => composerHandle.current?.focus()}
-                                              // Quick Chat's panel stacks its composer below the transcript.
-                                              dock={quick ? undefined : dock}
-                                              queueWithdrawn={snapshot.queueWithdrawn}
-                                              find={quick ? undefined : find}
-                                              sessionId={
-                                                childRows
-                                                  ? `${shownSessionId}:subagent:${subagentView}`
-                                                  : shownSessionId
-                                              }
-                                              canLoadOlder={!childRows && snapshot.canLoadOlder}
-                                              historyFrom={childRows ? undefined : snapshot.historyFrom}
-                                              onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
-                                              openAt={
-                                                !childRows &&
-                                                shownSessionId &&
-                                                scrollAnchor?.sessionId === shownSessionId
-                                                  ? scrollAnchor
-                                                  : undefined
-                                              }
-                                              anchorNow={quick || childRows ? undefined : transcriptAnchor}
-                                              onAnchor={
-                                                quick || childRows || !shownSessionId
-                                                  ? undefined
-                                                  : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                                              }
-                                              expanded={expanded}
-                                              reveal={childRows ? undefined : revealRow}
-                                              registry={registry}
-                                              githubRepository={githubRepository}
-                                              fallbackRepository={pullRequestRef(headerPullRequest?.url ?? "")?.repo}
-                                              // The Quick Composer has no room for the changes view; its file rows stay plain.
-                                              onOpenDiff={quick ? undefined : openDiff}
-                                              onToggleActivity={toggleActivity}
-                                            />
-                                          )}
-                                        </ChatFindScope>
-                                      </StartedMentionsContext.Provider>
+                                      <SubsessionContext.Provider value={subsessions}>
+                                        <StartedMentionsContext.Provider value={startedMentions}>
+                                          <ChatFindScope
+                                            rows={childRows ?? sourceRows}
+                                            shown={childRows ? undefined : transcriptRows}
+                                            openFold={openFold}
+                                            findRef={findRef}
+                                          >
+                                            {(find) => (
+                                              <VirtualTranscript
+                                                rows={transcriptRows}
+                                                working={snapshot.isWorking}
+                                                // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                                                jumpButton={!quick}
+                                                needsYou={needsYou.pill}
+                                                focusComposer={() => composerHandle.current?.focus()}
+                                                // Quick Chat's panel stacks its composer below the transcript.
+                                                dock={quick ? undefined : dock}
+                                                queueWithdrawn={snapshot.queueWithdrawn}
+                                                find={quick ? undefined : find}
+                                                sessionId={
+                                                  childRows
+                                                    ? `${shownSessionId}:subagent:${subagentView}`
+                                                    : shownSessionId
+                                                }
+                                                canLoadOlder={!childRows && snapshot.canLoadOlder}
+                                                historyFrom={childRows ? undefined : snapshot.historyFrom}
+                                                onLoadOlder={() =>
+                                                  directClient.current?.loadOlder() ?? Promise.resolve()
+                                                }
+                                                openAt={
+                                                  !childRows &&
+                                                  shownSessionId &&
+                                                  scrollAnchor?.sessionId === shownSessionId
+                                                    ? scrollAnchor
+                                                    : undefined
+                                                }
+                                                anchorNow={quick || childRows ? undefined : transcriptAnchor}
+                                                onAnchor={
+                                                  quick || childRows || !shownSessionId
+                                                    ? undefined
+                                                    : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                                                }
+                                                expanded={expanded}
+                                                reveal={childRows ? undefined : revealRow}
+                                                registry={registry}
+                                                githubRepository={githubRepository}
+                                                fallbackRepository={pullRequestRef(headerPullRequest?.url ?? "")?.repo}
+                                                // The Quick Composer has no room for the changes view; its file rows stay plain.
+                                                onOpenDiff={quick ? undefined : openDiff}
+                                                onToggleActivity={toggleActivity}
+                                              />
+                                            )}
+                                          </ChatFindScope>
+                                        </StartedMentionsContext.Provider>
+                                      </SubsessionContext.Provider>
                                     </SessionHoverContext.Provider>
                                   </SubagentHarnessContext.Provider>
                                 </SubagentClockContext.Provider>
@@ -7465,6 +7528,7 @@ function AcpmuxPane() {
             onOpenOutput={quick ? undefined : openOutput}
             onOpenImage={quick ? undefined : openImage}
             subagents={cardSubagents}
+            subsessions={chatSubsessions}
             background={cardBackground}
             sessions={cardSessions}
             // The picks are this computer's files: only a chat whose folder is here (not a peer's or
@@ -7541,7 +7605,14 @@ function AcpmuxPane() {
               accessory={<DictationMic dictation={dictation} />}
               dictating={isWaitingForWords(dictation.state)}
               dictationField={newTabDictationField}
-              notice={<DictationNotice dictation={dictation} />}
+              notice={
+                <>
+                  <DictationNotice dictation={dictation} />
+                  <NewTabImportCards
+                    onAction={(id, action) => void callNative("importCards.act", { id, action }).catch(() => undefined)}
+                  />
+                </>
+              }
               // The host answers only for a page on this Mac; another machine's keeps the refusal.
               {...(!quick ? { localPaths } : {})}
               template={screenTemplate(shownTemplate(newTab))}

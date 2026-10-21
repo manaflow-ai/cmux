@@ -62,10 +62,13 @@ export function ToolGroupRow({
   const detailsId = useId();
   const tools = useMemo(() => items.map((item) => item.tool!), [items]);
   const files = useMemo(() => (kind === "edits" ? toolFiles(tools) : []), [kind, tools]);
+  // The line's totals leave out a file a Write rewrote with old contents unknown (model.ts
+  // `contentsUnknown`), as the edited-files card does: its written text is not lines added.
+  const counted = useMemo(() => (kind === "edits" ? toolFiles(tools, { known: true }) : []), [kind, tools]);
   const running = tools.some(isRunning);
   const failures = tools.filter(isFailed).length;
-  const additions = files.reduce((sum, file) => sum + file.additions, 0);
-  const deletions = files.reduce((sum, file) => sum + file.deletions, 0);
+  const additions = counted.reduce((sum, file) => sum + file.additions, 0);
+  const deletions = counted.reduce((sum, file) => sum + file.deletions, 0);
   return (
     <>
       <button
@@ -83,7 +86,7 @@ export function ToolGroupRow({
             items,
             files.map((file) => file.path),
           )}
-          {files.length > 0 && (
+          {counted.length > 0 && (
             <span className="cv-tool__counts">
               <span className="cv-edit-diff__add">+{additions}</span>
               <span className="cv-edit-diff__del">-{deletions}</span>

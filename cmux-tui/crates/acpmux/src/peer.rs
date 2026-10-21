@@ -285,6 +285,7 @@ impl Peer {
             "localBuild": crate::hub::BUILD,
             "servedAs": self.served_as.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             "peerTokenWithheld": self.withheld.load(Ordering::SeqCst),
+            "canonicalEndpoint": canonical_endpoint(&self.url),
             "outdated": self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b != crate::hub::BUILD).unwrap_or(false),
             "state": link.state().as_str(),
             "lastSeen": link.last_seen,
@@ -310,7 +311,9 @@ impl Peer {
         // A request that times out, or whose caller stops waiting, takes its
         // entry with it rather than leaving it until the connection drops.
         let _forget = ForgetPending { pending: self.pending.clone(), key: Some(key) };
-        if self.out.send(Message::request(id, m, params).to_line()).await.is_err() {
+        // One frame larger than the peer reads with would drop the link and every chat on it.
+        let line = Message::request(id, m, params).bounded_line().map_err(RpcError::too_large)?;
+        if self.out.send(line).await.is_err() {
             return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
         }
         match tokio::time::timeout(Duration::from_secs(600), rx).await {
@@ -323,8 +326,9 @@ impl Peer {
     }
 
     pub async fn notify(&self, m: &str, params: Value) -> Result<(), RpcError> {
+        let line = Message::notification(m, params).bounded_line().map_err(RpcError::too_large)?;
         self.out
-            .send(Message::notification(m, params).to_line())
+            .send(line)
             .await
             .map_err(|_| RpcError::internal(format!("peer {} connection closed", self.name)))
     }
@@ -657,6 +661,17 @@ pub fn ssh_target(url: &str) -> Result<SshTarget, &'static str> {
         None => host.to_owned(),
     };
     Ok(SshTarget { destination, port })
+}
+
+/// A peer's canonical endpoint (hq plans/cmux-next/acpmux-one-daemon.md):
+/// `ssh://HOST`, the ssh config's user and the machine's one daemon on
+/// [`SSH_PEER_PORT`]. Some(it) when `url` is an `ssh://` URL that names a user
+/// or another port, so a listing can say where it should point; None when it
+/// already is canonical or is not an `ssh://` peer. It never re-points one.
+pub fn canonical_endpoint(url: &str) -> Option<String> {
+    let t = ssh_target(url).ok()?;
+    let host = t.destination.rsplit_once('@').map_or(t.destination.as_str(), |(_, h)| h);
+    (t.destination != host || t.port != SSH_PEER_PORT).then(|| format!("ssh://{host}"))
 }
 
 fn check_ssh_part(part: &str, what: &'static str) -> Result<(), &'static str> {

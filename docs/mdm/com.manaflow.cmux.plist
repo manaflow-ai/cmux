@@ -689,6 +689,38 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<integer>900</integer>
+			<key>pfm_description</key>
+			<string>A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart.</string>
+			<key>pfm_name</key>
+			<string>updates.idleInstallMaxWaitSeconds</string>
+			<key>pfm_range_max</key>
+			<real>7200</real>
+			<key>pfm_range_min</key>
+			<real>60</real>
+			<key>pfm_title</key>
+			<string>Install Within</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>60</integer>
+			<key>pfm_description</key>
+			<string>How long the keyboard and mouse must be idle before a downloaded nightly installs by itself.</string>
+			<key>pfm_name</key>
+			<string>updates.idleInstallQuietSeconds</string>
+			<key>pfm_range_max</key>
+			<real>600</real>
+			<key>pfm_range_min</key>
+			<real>5</real>
+			<key>pfm_title</key>
+			<string>Quiet Time Before Installing</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>Short cards from the cmux team above Settings, shown when the pointer is over the sidebar.</string>
@@ -869,6 +901,18 @@
 			<string>agents.subsessions.enabled</string>
 			<key>pfm_title</key>
 			<string>Let Agents Start Sub-sessions</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer.</string>
+			<key>pfm_name</key>
+			<string>agents.subsessions.answerQuestions</string>
+			<key>pfm_title</key>
+			<string>Let Sessions Answer Their Sub-sessions' Questions</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -1610,66 +1654,40 @@
 			<array>
 				<string>none</string>
 				<string>david-death-of-marat</string>
-				<string>goya-saturn</string>
 				<string>velde-small-ship-storm</string>
-				<string>bosch-garden-right</string>
 				<string>bosch-ascent-blessed</string>
 				<string>goya-witches-flight</string>
-				<string>bocklin-self-portrait-death</string>
-				<string>caravaggio-medusa</string>
 				<string>martin-pandemonium</string>
 				<string>moran-burning-philadelphia</string>
 				<string>goya-burial-sardine</string>
 				<string>arbo-wild-hunt</string>
-				<string>caravaggio-david-goliath</string>
-				<string>van-gogh-skeleton-cigarette</string>
 				<string>altdorfer-battle-of-issus</string>
-				<string>gentileschi-judith</string>
 				<string>munch-madonna</string>
-				<string>bocklin-isle-of-the-dead</string>
 				<string>klee-fish-magic</string>
 				<string>friedrich-forest-moonlight</string>
-				<string>goya-witches-sabbath</string>
 				<string>bosch-garden-left</string>
 				<string>rembrandt-storm-galilee</string>
 				<string>cole-voyage-manhood</string>
-				<string>fuseli-nightmare-2</string>
-				<string>hiremy-hirschl-souls-of-acheron</string>
 				<string>munch-scream</string>
-				<string>klimt-judith</string>
-				<string>repin-ivan</string>
-				<string>millais-ophelia</string>
 				<string>bruegel-fall-rebel-angels</string>
-				<string>fuseli-nightmare</string>
-				<string>bundy-death-general</string>
 				<string>wright-vesuvius</string>
 				<string>gerome-botsaris</string>
-				<string>durer-knight-death-devil</string>
 				<string>martin-joshua</string>
 				<string>velde-gale</string>
 				<string>hogai-nio</string>
-				<string>klimt-death-and-life</string>
-				<string>klimt-medicine</string>
 				<string>bosch-garden-central</string>
 				<string>martin-great-day-wrath</string>
 				<string>bonheur-wounded-eagle</string>
-				<string>gerome-pollice-verso</string>
 				<string>cole-voyage-old-age</string>
 				<string>friedrich-abbey-oakwood</string>
 				<string>goya-sleep-of-reason</string>
 				<string>bosch-garden-fragment</string>
-				<string>bruegel-triumph-death</string>
 				<string>spilliaert-vertigo</string>
 				<string>rothaug-melpomene</string>
-				<string>schiele-death-and-the-maiden</string>
 				<string>aivazovsky-ship-stormy-seas</string>
-				<string>vereshchagin-apotheosis-war</string>
-				<string>ensor-skeleton-painter</string>
 				<string>cabanel-fallen-angel</string>
 				<string>spilliaert-woman-shoreline</string>
 				<string>el-greco-view-of-toledo</string>
-				<string>gericault-raft-of-the-medusa</string>
-				<string>moreau-apparition</string>
 				<string>rembrandt-prodigal-son</string>
 				<string>velazquez-las-meninas</string>
 				<string>matejko-stanczyk</string>
@@ -1679,7 +1697,6 @@
 				<string>rembrandt-night-watch</string>
 				<string>vigee-lebrun-madame-grand</string>
 				<string>waterhouse-lady-shalott</string>
-				<string>draper-lament-icarus</string>
 				<string>fragonard-swing</string>
 				<string>rubens-st-francis-xavier</string>
 				<string>vermeer-pearl-earring</string>
@@ -1776,7 +1793,6 @@
 				<string>hokusai-umezawa</string>
 				<string>whistler-falling-rocket</string>
 				<string>dore-fall-of-satan</string>
-				<string>dore-flood</string>
 				<string>dore-wolves-sheep</string>
 				<string>dore-leviathan</string>
 				<string>dore-paradise-lost-book-vi</string>
@@ -1801,66 +1817,40 @@
 				<string>none</string>
 				<string>daily</string>
 				<string>david-death-of-marat</string>
-				<string>goya-saturn</string>
 				<string>velde-small-ship-storm</string>
-				<string>bosch-garden-right</string>
 				<string>bosch-ascent-blessed</string>
 				<string>goya-witches-flight</string>
-				<string>bocklin-self-portrait-death</string>
-				<string>caravaggio-medusa</string>
 				<string>martin-pandemonium</string>
 				<string>moran-burning-philadelphia</string>
 				<string>goya-burial-sardine</string>
 				<string>arbo-wild-hunt</string>
-				<string>caravaggio-david-goliath</string>
-				<string>van-gogh-skeleton-cigarette</string>
 				<string>altdorfer-battle-of-issus</string>
-				<string>gentileschi-judith</string>
 				<string>munch-madonna</string>
-				<string>bocklin-isle-of-the-dead</string>
 				<string>klee-fish-magic</string>
 				<string>friedrich-forest-moonlight</string>
-				<string>goya-witches-sabbath</string>
 				<string>bosch-garden-left</string>
 				<string>rembrandt-storm-galilee</string>
 				<string>cole-voyage-manhood</string>
-				<string>fuseli-nightmare-2</string>
-				<string>hiremy-hirschl-souls-of-acheron</string>
 				<string>munch-scream</string>
-				<string>klimt-judith</string>
-				<string>repin-ivan</string>
-				<string>millais-ophelia</string>
 				<string>bruegel-fall-rebel-angels</string>
-				<string>fuseli-nightmare</string>
-				<string>bundy-death-general</string>
 				<string>wright-vesuvius</string>
 				<string>gerome-botsaris</string>
-				<string>durer-knight-death-devil</string>
 				<string>martin-joshua</string>
 				<string>velde-gale</string>
 				<string>hogai-nio</string>
-				<string>klimt-death-and-life</string>
-				<string>klimt-medicine</string>
 				<string>bosch-garden-central</string>
 				<string>martin-great-day-wrath</string>
 				<string>bonheur-wounded-eagle</string>
-				<string>gerome-pollice-verso</string>
 				<string>cole-voyage-old-age</string>
 				<string>friedrich-abbey-oakwood</string>
 				<string>goya-sleep-of-reason</string>
 				<string>bosch-garden-fragment</string>
-				<string>bruegel-triumph-death</string>
 				<string>spilliaert-vertigo</string>
 				<string>rothaug-melpomene</string>
-				<string>schiele-death-and-the-maiden</string>
 				<string>aivazovsky-ship-stormy-seas</string>
-				<string>vereshchagin-apotheosis-war</string>
-				<string>ensor-skeleton-painter</string>
 				<string>cabanel-fallen-angel</string>
 				<string>spilliaert-woman-shoreline</string>
 				<string>el-greco-view-of-toledo</string>
-				<string>gericault-raft-of-the-medusa</string>
-				<string>moreau-apparition</string>
 				<string>rembrandt-prodigal-son</string>
 				<string>velazquez-las-meninas</string>
 				<string>matejko-stanczyk</string>
@@ -1870,7 +1860,6 @@
 				<string>rembrandt-night-watch</string>
 				<string>vigee-lebrun-madame-grand</string>
 				<string>waterhouse-lady-shalott</string>
-				<string>draper-lament-icarus</string>
 				<string>fragonard-swing</string>
 				<string>rubens-st-francis-xavier</string>
 				<string>vermeer-pearl-earring</string>
@@ -1967,7 +1956,6 @@
 				<string>hokusai-umezawa</string>
 				<string>whistler-falling-rocket</string>
 				<string>dore-fall-of-satan</string>
-				<string>dore-flood</string>
 				<string>dore-wolves-sheep</string>
 				<string>dore-leviathan</string>
 				<string>dore-paradise-lost-book-vi</string>

@@ -1,4 +1,6 @@
-.acpmux-shell{position:relative;height:100%;display:flex;color:var(--agent-text);font:13px -apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;background:var(--agent-page-bg);overflow:clip}.acpmux-header{display:flex;justify-content:space-between;align-items:center;gap:8px;flex:0 0 44px;box-sizing:border-box;padding:0 8px;white-space:nowrap}.acpmux-scroll{flex:1;overflow:auto;contain:strict}.acpmux-spacer{position:relative;min-height:100%}.acpmux-thread{position:absolute;inset:0 0 auto;padding:16px var(--cv-inset,max(18px,calc((100% - 760px)/2)));}.acpmux-row{position:absolute;left:var(--cv-inset,max(18px,calc((100% - 760px)/2)));right:var(--cv-inset,max(18px,calc((100% - 760px)/2)));min-height:34px;box-sizing:border-box;padding-bottom:8px;contain:layout paint}.acpmux-row.acpmux-user,.acpmux-row.acpmux-assistant{padding-bottom:var(--cv-message-gap,8px)}.acpmux-user{display:flex;justify-content:flex-end}.acpmux-bubble,.acpmux-user-bubble{max-width:78%;padding:9px 12px;box-sizing:border-box;border-radius:16px;background:color-mix(in srgb,var(--agent-accent) 20%,transparent);white-space:pre-wrap}.acpmux-markdown{line-height:20px}.acpmux-markdown>*{margin:8px 0 0}.acpmux-markdown>:first-child{margin-top:0}.acpmux-markdown code{font:11.5px var(--font-mono)}.acpmux-markdown blockquote{padding-left:12px;border-left:2px solid var(--agent-border);color:var(--agent-soft)}.acpmux-markdown pre,.acpmux-activity-item pre{padding:9px;border-radius:8px;overflow:auto;background:var(--agent-input-bg);font:12px var(--font-mono)}.acpmux-summary,.acpmux-muted{color:var(--agent-muted);font-size:11px;padding:8px 0}.acpmux-activity-toggle{border:0;background:none;color:var(--agent-muted);padding:5px 0;cursor:pointer}.acpmux-activity-items{border-left:1px solid var(--agent-border);padding-left:12px;color:var(--agent-soft)}.acpmux-activity-item{padding:3px 0}.acpmux-glyph{display:inline-block;width:18px;color:var(--agent-accent)}.acpmux-permission{padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2)));min-width:0;min-height:0;flex-shrink:0}.acpmux-asks-stack{display:flex;flex-direction:column;gap:8px;padding-bottom:10px}.acpmux-asks-stack .acpmux-trust-ask{margin-bottom:0}.acpmux-permission-card{min-inline-size:0;margin:0;padding:11px;border:1px solid var(--agent-accent);border-radius:12px;background:var(--agent-surface-elevated)}.acpmux-permission-buttons{display:flex;gap:7px;margin-top:9px}.acpmux-permission-buttons button{border:0;border-radius:6px;padding:7px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff)}
+.acpmux-shell{position:relative;height:100%;display:flex;color:var(--agent-text);font:13px -apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;background:var(--agent-page-bg);overflow:clip}.acpmux-header{display:flex;justify-content:space-between;align-items:center;gap:8px;flex:0 0 var(--acpmux-header-height,44px);box-sizing:border-box;padding:0 8px;white-space:nowrap}.acpmux-scroll{flex:1;overflow:auto;contain:strict}.acpmux-spacer{position:relative;min-height:100%}.acpmux-thread{position:absolute;inset:0 0 auto;padding:16px var(--cv-inset,max(18px,calc((100% - 760px)/2)));}.acpmux-row{position:absolute;left:var(--cv-inset,max(18px,calc((100% - 760px)/2)));right:var(--cv-inset,max(18px,calc((100% - 760px)/2)));min-height:34px;box-sizing:border-box;padding-bottom:8px;contain:layout paint}.acpmux-row.acpmux-user,.acpmux-row.acpmux-assistant{padding-bottom:var(--cv-message-gap,8px)}.acpmux-user{display:flex;justify-content:flex-end}.acpmux-bubble,.acpmux-user-bubble{max-width:78%;padding:9px 12px;box-sizing:border-box;border-radius:16px;background:color-mix(in srgb,var(--agent-accent) 20%,transparent);white-space:pre-wrap}.acpmux-markdown{line-height:20px}.acpmux-markdown>*{margin:8px 0 0}.acpmux-markdown>:first-child{margin-top:0}.acpmux-markdown code{font:11.5px var(--font-mono)}.acpmux-markdown blockquote{padding-left:12px;border-left:2px solid var(--agent-border);color:var(--agent-soft)}.acpmux-markdown pre,.acpmux-activity-item pre{padding:9px;border-radius:8px;overflow:auto;background:var(--agent-input-bg);font:12px var(--font-mono)}.acpmux-summary,.acpmux-muted{color:var(--agent-muted);font-size:11px;padding:8px 0}.acpmux-activity-toggle{border:0;background:none;color:var(--agent-muted);padding:5px 0;cursor:pointer}.acpmux-activity-items{border-left:1px solid var(--agent-border);padding-left:12px;color:var(--agent-soft)}.acpmux-activity-item{padding:3px 0}.acpmux-glyph{display:inline-block;width:18px;color:var(--agent-accent)}.acpmux-permission{padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2)));min-width:0;min-height:0;flex-shrink:0}.acpmux-asks-stack{display:flex;flex-direction:column;gap:8px;padding-bottom:10px}.acpmux-asks-stack .acpmux-trust-ask{margin-bottom:0}.acpmux-permission-card{min-inline-size:0;margin:0;padding:11px;border:1px solid var(--agent-accent);border-radius:12px;background:var(--agent-surface-elevated)}.acpmux-permission-buttons{display:flex;gap:7px;margin-top:9px}.acpmux-permission-buttons button{border:0;border-radius:6px;padding:7px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff)}
+/* The chat header's height (.acpmux-header); the Inspector over the chat starts under it (inspector/inspector.css). */
+.acpmux-shell{--acpmux-header-height:44px}
 .acpmux-stage{position:relative;flex:1;display:flex;flex-direction:column;min-height:0}.acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{visibility:hidden}
 
 .acpmux-diff-add{color:var(--acpmux-add)}.acpmux-diff-del{color:var(--acpmux-del)}.acpmux-diff-main{flex:1;display:flex;min-height:0}.acpmux-diff-body{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden}.acpmux-diff-file{border-bottom:1px solid var(--agent-border)}.acpmux-fh-spacer{flex:1}
@@ -15,16 +17,16 @@
    opaque (the accent is the text color). A host that sends a different accent text must
    change this base too; without the bridge the base is the system Canvas. */
 .acpmux-shell,.ui-positioner{--acpmux-base:var(--agent-accent-text,Canvas);--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 18%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base));--acpmux-composer-dim:color-mix(in srgb,var(--agent-text) 56%,var(--acpmux-base));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,var(--acpmux-base));--acpmux-composer-hover:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-pill-fill:color-mix(in srgb,var(--agent-text) 6%,transparent);--acpmux-pill-hover:color-mix(in srgb,var(--agent-text) 11%,transparent);--acpmux-pill-open:color-mix(in srgb,var(--agent-text) 16%,transparent);--acpmux-pill-press:color-mix(in srgb,var(--agent-text) 22%,transparent);--acpmux-pill-edge:color-mix(in srgb,var(--agent-text) 24%,transparent);--acpmux-composer-tray:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-warning:var(--agent-warning,var(--agent-danger));--acpmux-send-off-bg:color-mix(in srgb,var(--agent-text) 18%,transparent);--acpmux-send-off-fg:color-mix(in srgb,var(--agent-text) 60%,transparent);--acpmux-send-fill:var(--agent-text);--acpmux-send-ink:var(--acpmux-composer-solid,var(--cmux-surface-solid,Canvas))}
-/* The shared popup surface (ui/popupSurface.css) takes the pane's ink; every popup, nested submenus included, is the solid popup surface (--surface-popup, the host's --cmux-popup-surface, else the pane's menu color). */
+/* The shared popup surface (ui/popupSurface.css) takes the pane's ink; every popup, nested submenus included, is the liquid glass (.ui-glass), whose plain and Reduce Transparency fill is the popup surface (--surface-popup, the host's --cmux-popup-surface, else the pane's menu color). */
 .acpmux-shell,.ui-positioner{--surface-popup:var(--cmux-popup-surface,var(--acpmux-menu-bg))}
 /* A menu row's highlight is the native themed menus' (Palette.menuHighlight, NSMenu.themeRows): the theme's accent (ThemeTokens.accent, --agent-accent) as a 20% wash, so labels keep their ink and a neutral theme gets a gray wash; never the system's saturated selection blue (test/pane-menu-highlight.test.ts). It sits on :root, where the theme sets --agent-accent, because ui/ContextMenu.tsx portals its menu into document.body, outside .acpmux-shell and .ui-positioner. */
 :root{--acpmux-menu-highlight:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 20%,transparent)}
 .ui-positioner{--ui-popup-fg:var(--agent-text);--ui-row:var(--acpmux-menu-highlight)}
-/* One elevation for every menu and popover in the pane (Leo 10-13, coherence pass): the shared popup shadow (ui/popupSurface.css), whose own hairline is the only edge, and no border of their own. A second composer-edge hairline here drew two edges (test/popup-one-hairline.test.ts). A Base UI popup with no surface class of its own still gets it. */
+/* One elevation for every menu and popover in the pane (Leo 10-13, coherence pass): the glass's rim and the shared popup drop (ui/popupSurface.css .ui-popup), whose own hairline is the only edge, and no border of their own. A second composer-edge hairline here drew two edges (test/popup-one-hairline.test.ts). --acpmux-popup-elevation stays the solid look for the pane's floating cards that are not popups. */
 :root{--acpmux-popup-elevation:var(--ui-popup-shadow)}
-:where(.ui-positioner)>.ui-popup{border-radius:var(--ui-popup-radius);box-shadow:var(--acpmux-popup-elevation)}
+:where(.ui-positioner)>.ui-popup{border-radius:var(--ui-popup-radius)}
 /* The point-anchored context menu (ui/ContextMenu.tsx; New Tab All chats rows, cx-j4sd): the pane does not load ui.css, so it draws the menu in its own menu look. */
-.ui-popup.ui-context-menu{box-sizing:border-box;padding:var(--ui-popup-padding);border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:18px;outline:none}
+.ui-popup.ui-context-menu{box-sizing:border-box;padding:var(--ui-popup-padding);border-radius:var(--ui-popup-radius);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:18px;outline:none}
 .ui-context-menu .ui-menu-item{display:flex;align-items:center;gap:8px;width:100%;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:transparent;color:inherit;font:inherit;text-align:start;white-space:nowrap;cursor:default}
 .ui-context-menu .ui-menu-item[data-highlighted]{background:var(--acpmux-menu-highlight);outline:none}
 .ui-context-menu .ui-menu-item:disabled{color:var(--agent-muted)}
@@ -36,7 +38,7 @@
 /* appearance.borders none (data-borders on the root, applyAgentTheme): the composer, menu and tray edges draw clear in place; their fills keep them apart. */
 :root[data-borders=none] .acpmux-shell{--acpmux-composer-edge:transparent}
 .acpmux-composer{position:relative;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 16px;font-family:system-ui;-webkit-font-smoothing:antialiased}
-.acpmux-composer-box{--acpmux-composer-radius:22px;position:relative;display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--acpmux-composer-radius);background:color-mix(in srgb,var(--acpmux-composer-bg) 72%,transparent);-webkit-backdrop-filter:blur(18px) saturate(1.08);backdrop-filter:blur(18px) saturate(1.08);--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);box-shadow:var(--acpmux-card-ring)}
+.acpmux-composer-box{--acpmux-composer-radius:22px;position:relative;display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--acpmux-composer-radius);--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);box-shadow:var(--acpmux-card-ring)}
 .acpmux-composer-box button{font:inherit;cursor:default}
 .acpmux-composer-field{display:block;box-sizing:border-box;width:100%;min-height:0;max-height:40vh;margin:0;padding:15px 16px 8px;border:0;outline:0;background:transparent;resize:none;field-sizing:content;font-family:inherit;font-size:15px;line-height:22px;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text))}
 .acpmux-composer-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
@@ -102,7 +104,7 @@
 .acpmux-context-ring:disabled{background:none;color:var(--agent-muted);opacity:.5}
 .acpmux-context-ring:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .acpmux-context-full .acpmux-context-ring,.acpmux-context-full .acpmux-context-ring:hover{color:var(--acpmux-warning)}
-.acpmux-context-pop{width:240px;box-sizing:border-box;padding:12px;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);transform-origin:var(--transform-origin,bottom);color:var(--agent-text);font:13px/18px -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
+.acpmux-context-pop{width:240px;box-sizing:border-box;padding:12px;border-radius:var(--ui-popup-radius);transform-origin:var(--transform-origin,bottom);color:var(--agent-text);font:13px/18px -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
 .acpmux-context-title{font-size:12px;color:var(--agent-muted)}
 .acpmux-context-percent{margin-top:2px;font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:var(--weight-emphasis)}
 .acpmux-context-bar{height:4px;margin-top:8px;border-radius:2px;background:color-mix(in srgb,var(--agent-text) 14%,transparent);overflow:hidden}
@@ -130,7 +132,7 @@
 .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):hover{background:color-mix(in srgb,var(--agent-text) 22%,transparent)}
 /* The picker menus open above the field at their chip (useUiAnchor). The chip is their containing block, so the width comes from the rows and the viewport, never the chip. */
 /* A picker on the dropdown layer (ui/README.md, "Layers and transparency"): above a field's suggestions on the New Tab page (Leo 10-15: the model menu opened under them). */
-.acpmux-menu{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);position:absolute;bottom:calc(100% + 6px);z-index:var(--layer-dropdown);width:max-content;min-width:min(220px,calc(100vw - 16px));max-width:min(420px,calc(100vw - 16px));height:auto;max-height:min(360px,50vh);overflow-x:hidden;overflow-y:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);color:var(--agent-text);line-height:18px;transform-origin:var(--transform-origin,bottom left)}
+.acpmux-menu{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);position:absolute;bottom:calc(100% + 6px);z-index:var(--layer-dropdown);width:max-content;min-width:min(220px,calc(100vw - 16px));max-width:min(420px,calc(100vw - 16px));height:auto;max-height:min(360px,50vh);overflow-x:hidden;overflow-y:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);color:var(--agent-text);line-height:18px;transform-origin:var(--transform-origin,bottom left)}
 /* The picker menus open above the field, aligned with its edges. */
 .acpmux-menu-start{left:0}
 .acpmux-menu-end{right:0;transform-origin:var(--transform-origin,bottom right)}
@@ -145,7 +147,7 @@
 .acpmux-menu-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-menu-description{color:var(--acpmux-composer-dim);font-size:var(--text-detail)}
 .acpmux-unrestricted .acpmux-menu-description{color:inherit}
-.acpmux-slash-menu{--popup-scroll-cap:296px;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:3;max-height:min(296px,50vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);font-size:13px;transform-origin:bottom}
+.acpmux-slash-menu{--popup-scroll-cap:296px;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:3;max-height:min(296px,50vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);font-size:13px;transform-origin:bottom}
 .acpmux-slash-row{display:flex;align-items:center;gap:8px;height:31px;padding:0 8px;border-radius:8px;cursor:default;white-space:nowrap}
 .acpmux-slash-active{background:var(--acpmux-menu-hover)}
 .acpmux-slash-name{flex:none;color:var(--agent-text)}
@@ -234,7 +236,7 @@
 @container (max-width:540px){.acpmux-newtab-kind kbd{display:none}}
 @container (max-width:460px){.acpmux-newtab-kind>span{display:none}}
 /* Queue (ComposerQueue.tsx): prompts waiting for the running turn, as compact rows attached to the composer's top edge, on the column's edges like every block in the chat. In the bottom stack's flow (bottomStack.css), so it never covers the dock or a question above it. */
-.acpmux-composer-queue{display:grid;grid-template-columns:auto minmax(0,1fr) auto;column-gap:8px;align-content:start;max-height:var(--acpmux-queue-max,132px);overflow-y:auto;margin:0;padding:4px 0;box-sizing:border-box;list-style:none;border-radius:12px 12px 0 0;background:color-mix(in srgb,var(--acpmux-composer-tray) var(--acpmux-queue-glass,100%),transparent);box-shadow:inset 0 var(--cmux-hairline,.5px) 0 var(--acpmux-composer-edge),inset var(--cmux-hairline,.5px) 0 0 var(--acpmux-composer-edge),inset calc(-1*var(--cmux-hairline,.5px)) 0 0 var(--acpmux-composer-edge);font-size:var(--text-body);line-height:var(--text-body--line-height)}
+.acpmux-composer-queue{display:grid;grid-template-columns:auto minmax(0,1fr) auto;column-gap:8px;align-content:start;max-height:var(--acpmux-queue-max,132px);overflow-y:auto;margin:0;padding:4px 0;box-sizing:border-box;list-style:none;border-radius:12px 12px 0 0;--acpmux-queue-fill:color-mix(in srgb,var(--acpmux-composer-tray) var(--acpmux-queue-glass,100%),transparent);background:var(--acpmux-queue-fill);box-shadow:inset 0 var(--cmux-hairline,.5px) 0 var(--acpmux-composer-edge),inset var(--cmux-hairline,.5px) 0 0 var(--acpmux-composer-edge),inset calc(-1*var(--cmux-hairline,.5px)) 0 0 var(--acpmux-composer-edge);font-size:var(--text-body);line-height:var(--text-body--line-height)}
 .acpmux-queued{position:relative;grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:start;min-width:0;min-height:26px;padding:4px 8px 4px 12px;box-sizing:border-box;color:var(--agent-text)}
 .acpmux-queued-mark{min-width:14px;line-height:18px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
 .acpmux-queued-text{display:block;min-width:0;margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;line-height:18px;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;cursor:default}
@@ -438,7 +440,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 /* A gallery stage (previewUrl.ts isGalleryFrame): one component at its own size, usable in place. */
 .acpmux-turn-preview-frame--live{height:360px;cursor:auto;resize:vertical}
 .acpmux-turn-preview-frame--live iframe{width:100%;height:100%;transform:none;pointer-events:auto}
-.cv-link-preview{min-width:280px;max-width:min(520px,calc(100vw - 24px));padding:0;overflow:hidden;border-radius:9px;background:var(--surface-popup,var(--agent-page-bg));color:var(--agent-text);box-shadow:var(--elevation-2);pointer-events:auto}
+.cv-link-preview{min-width:280px;max-width:min(520px,calc(100vw - 24px));padding:0;overflow:hidden;border-radius:9px;color:var(--agent-text);pointer-events:auto}
 .cv-link-preview__head{display:flex;align-items:center;gap:9px;min-height:42px;padding:7px 9px;border-bottom:1px solid var(--agent-border);background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
 .cv-link-preview__icon{display:flex;flex:none;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;background:var(--agent-page-bg);color:var(--agent-muted)}
 .cv-link-preview__icon .cv-chip__icon{width:15px;height:15px;margin:0}
@@ -447,8 +449,9 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .cv-link-preview__open:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent)}
 .cv-link-preview__open:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 .cv-link-preview__target{padding:9px 12px 10px;color:var(--agent-muted);font-size:var(--text-detail);line-height:1.35;overflow-wrap:anywhere}
-/* Every link's hover card (chips/LinkHoverCard.tsx; Leo 2026-10-20) sits on the tooltip's frosted glass (desktop.css --tooltip-*), ui-card's solid surface overridden. A pull request's adds (PullRequestCard.tsx) the full title, then owner/repo#N, the state in the header chip's colours and the author, then the checks with a dot in their state's colour. */
-.cv-link-preview.ui-card{border:var(--cmux-hairline) solid var(--cmux-separator,color-mix(in srgb,var(--agent-text) 12%,transparent));background:var(--tooltip-tint,var(--surface-popup));-webkit-backdrop-filter:var(--tooltip-blur,blur(20px) saturate(1.4));backdrop-filter:var(--tooltip-blur,blur(20px) saturate(1.4));box-shadow:var(--tooltip-shadow,var(--elevation-2))}
+/* Every link's hover card (chips/LinkHoverCard.tsx; Leo 2026-10-20) is the liquid glass (.ui-glass, ui/glass/glass.css) with the tooltip's shadow: its hairline border keeps its width, clear under the glass rim (desktop.css .ui-card.ui-glass). Plain glass keeps the tooltip's frosted glass it had before the lens (desktop.css --tooltip-*), which Reduce Transparency makes opaque. A pull request's adds (PullRequestCard.tsx) the full title, then owner/repo#N, the state in the header chip's colours and the author, then the checks with a dot in their state's colour. */
+.cv-link-preview.ui-card{border:var(--cmux-hairline) solid transparent;--glass-elevation:var(--tooltip-shadow,var(--elevation-2))}
+:root:not([data-glass="lens"], [data-glass="spectrum"]) .cv-link-preview.ui-card.ui-glass{--glass-tint:var(--tooltip-tint,var(--surface-popup));--glass-backdrop:var(--tooltip-blur,blur(20px) saturate(1.4))}
 .cv-link-preview.ui-card .cv-link-preview__head{background:transparent;border-bottom-color:var(--cmux-separator,var(--agent-border))}
 .acpmux-pr-card__body{display:grid;gap:5px;padding:9px 12px 10px;font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .acpmux-pr-card__title{color:var(--agent-text);font-size:var(--text-control);line-height:var(--text-control--line-height);font-weight:600;overflow-wrap:anywhere}
@@ -465,6 +468,40 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-pr-card__checks[data-state=passing]::before{background:var(--agent-success,var(--acpmux-add,#3fb950))}
 .acpmux-pr-card__checks[data-state=pending]::before{background:var(--agent-warning,#d29922)}
 .acpmux-pr-card__checks[data-state=failing]::before{background:var(--agent-danger)}
+/* Every failing check fails the same way on the base branch's tip, so the card's dot drops from danger to warning: there is nothing here for this pull request to fix. */
+.acpmux-pr-card__checks[data-state=failing][data-on-base=all]::before{background:var(--agent-warning,#d29922)}
+/* The rest of the pull request card (Leo 2026-10-20): the author with a monogram and when GitHub last saw the pull request change, base <- head, the review decision and labels, and the files with +/- whose hover breaks the lines down by kind (src/fileKinds.ts, the classifier the diff viewer groups by). */
+.acpmux-pr-card__state[data-state=draft]{color:var(--agent-muted)}
+.acpmux-pr-card__state[data-state=conflicts]{color:var(--agent-warning,#d29922)}
+.acpmux-pr-card__who{display:flex;align-items:center;gap:6px;min-width:0;color:var(--agent-muted)}
+.acpmux-pr-card__monogram{display:inline-flex;flex:none;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:color-mix(in srgb,var(--agent-muted) 22%,transparent);color:var(--agent-text);font-size:var(--text-caption);font-weight:600;line-height:1}
+.acpmux-pr-card__monogram[data-tone="0"]{background:color-mix(in srgb,var(--agent-ansi-1,var(--agent-muted)) 26%,transparent)}
+.acpmux-pr-card__monogram[data-tone="1"]{background:color-mix(in srgb,var(--agent-ansi-2,var(--agent-muted)) 26%,transparent)}
+.acpmux-pr-card__monogram[data-tone="2"]{background:color-mix(in srgb,var(--agent-ansi-3,var(--agent-muted)) 26%,transparent)}
+.acpmux-pr-card__monogram[data-tone="3"]{background:color-mix(in srgb,var(--agent-ansi-4,var(--agent-muted)) 26%,transparent)}
+.acpmux-pr-card__monogram[data-tone="4"]{background:color-mix(in srgb,var(--agent-ansi-5,var(--agent-muted)) 26%,transparent)}
+.acpmux-pr-card__monogram[data-tone="5"]{background:color-mix(in srgb,var(--agent-ansi-6,var(--agent-muted)) 26%,transparent)}
+.acpmux-pr-card__when{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-pr-card__branches{display:flex;align-items:center;gap:5px;min-width:0;color:var(--agent-muted);font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace))}
+.acpmux-pr-card__branch{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-pr-card__review{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;color:var(--agent-muted)}
+.acpmux-pr-card__decision{font-weight:500}
+.acpmux-pr-card__decision[data-review=approved]{color:var(--agent-success,var(--acpmux-add,#3fb950))}
+.acpmux-pr-card__decision[data-review=changes_requested]{color:var(--agent-danger)}
+.acpmux-pr-card__label{padding:0 6px;border:var(--cmux-hairline) solid var(--agent-border);border-radius:4px;font-size:var(--text-caption);line-height:16px}
+.acpmux-pr-card__changes{display:grid;gap:4px}
+.acpmux-pr-card__counts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;color:var(--agent-muted)}
+.acpmux-pr-card__lines{display:inline-flex;align-items:center;gap:6px;padding:0;border:0;background:none;color:inherit;font:inherit;font-variant-numeric:tabular-nums;cursor:default}
+.acpmux-pr-card__lines:not(:disabled){cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+.acpmux-pr-card__lines:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:2px;border-radius:3px}
+.acpmux-pr-card__added{color:var(--acpmux-add,var(--agent-success,#3fb950))}
+.acpmux-pr-card__removed{color:var(--acpmux-del,var(--agent-danger))}
+.acpmux-pr-card__warning{padding:0 6px;border-radius:4px;background:color-mix(in srgb,var(--agent-warning,#d29922) 20%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:16px}
+.acpmux-pr-card__kinds{display:grid;grid-template-columns:1fr auto auto;gap:1px 10px;margin:1px 0 0;padding:5px 8px;list-style:none;border:var(--cmux-hairline) solid var(--agent-border);border-radius:6px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-pr-card__kind{display:grid;grid-column:1/-1;grid-template-columns:subgrid;align-items:baseline}
+.acpmux-pr-card__kindName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-pr-card__kindPartial{grid-column:1/-1;padding-top:2px;font-size:var(--text-caption)}
+.acpmux-pr-card__age{color:var(--agent-muted);font-size:var(--text-caption)}
 .acpmux-edited-path{flex:1;min-width:0;display:flex;white-space:nowrap;overflow:hidden;font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace))}
 .acpmux-edited-dir{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--agent-muted)}
 .acpmux-edited-base{flex:none}
@@ -694,16 +731,15 @@ fieldset.acpmux-question[hidden]{display:none}
 @media (prefers-reduced-motion:no-preference){.acpmux-menu,.acpmux-context-pop,.acpmux-slash-menu{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 
 /* Keep the legacy cascade and slash surfaces on the same surface as Base UI's Menu and Popover: the
-   solid popup surface, unblurred (Leo, 2026-10-12: glass let the transcript read through). These
-   menus keep their bespoke layout, but never their own material, border, shadow or motion. */
+   liquid glass (.ui-glass, ui/popupSurface.css), whose frost keeps the transcript under it from
+   reading through (Leo, 2026-10-12, when plain glass let it). These menus keep their bespoke
+   layout, but never their own material, border, shadow or motion. */
 .acpmux-menu,
 .acpmux-context-pop,
 .acpmux-slash-menu,
 .acpmux-mp {
   border: 0;
   border-radius: var(--ui-popup-radius);
-  background-color: var(--surface-popup);
-  box-shadow: var(--acpmux-popup-elevation);
   color: var(--agent-text);
 }
 

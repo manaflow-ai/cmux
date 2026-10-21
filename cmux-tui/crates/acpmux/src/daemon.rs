@@ -276,6 +276,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let memory_store = config.store.mode == crate::config::StoreMode::Memory;
     // Only the session list before the ready line; the chat logs load right after it.
     let hub = Hub::new_deferred(config, store, mailbox);
+    // Temporary folders of sessions this daemon no longer has, before the
+    // socket serves (`agent/session_tmp.rs`).
+    #[cfg(unix)]
+    hub.sweep_session_tmp();
     // The forum log (`forum.rs`): on disk unless the store is in memory; a
     // log that cannot open leaves the posts in memory.
     if !memory_store && let Err(e) = hub.open_forum(&home().join("forum")) {
@@ -311,6 +315,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             codex_config: none.join("config.toml"),
             record: none.join("trust.json"),
             agent_home: None,
+            cmux_worktrees: None,
         }
     })));
     // Agents outlive this daemon unless the user opts out for this release.
@@ -333,6 +338,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.enable_agent_hosts();
     }
     hub.begin_startup(login_env);
+    // Pairing tickets and paired machines, hashes only (`crate::pairing`).
+    hub.pairing.persist_at(home().join("pairing.json"));
     // The ACP Registry and agent CLI health, off the startup path (`hub/health_view.rs`).
     hub.start_harness_checks();
     crate::config::write_atomic(

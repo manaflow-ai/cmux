@@ -333,6 +333,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/step_now",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/agent_pair_resume",
       "params": true,
       "result": true
@@ -661,6 +667,30 @@
     {
       "kind": "request",
       "name": "_acpmux/person_holds",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/approvers",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/approvers_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/new_chat_picks_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/workspace_roots_set",
       "params": true,
       "result": true
     },
@@ -1059,6 +1089,36 @@
     {
       "kind": "request",
       "name": "_acpmux/peer_remove",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/pair_ticket_new",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/pair_list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/pair_revoke",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/pair_issue",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/pair_redeem",
       "params": true,
       "result": true
     },
@@ -2809,7 +2869,28 @@
           "minimum": 0,
           "type": "integer"
         },
-        "usage": true
+        "usage": true,
+        "waitingOn": {
+          "description": "What it waits on the person for: `question` (an agent question) or\n`permission`; null while nothing is pending. Only the person allows a permission.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "waitingPrompt": {
+          "description": "The first prompt of the question it waits on, cut to 120 characters.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "watching": {
+          "description": "The family of a conversation another app runs that this chat only shows; null otherwise.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       },
       "required": [
         "sessionId",
@@ -3209,6 +3290,20 @@
           "minimum": 0,
           "type": "integer"
         },
+        "waitingOn": {
+          "description": "What it waits on the person for: `question` (an agent question) or\n`permission`; null while nothing is pending. Only the person allows a permission.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "waitingPrompt": {
+          "description": "The first prompt of the question it waits on, cut to 120 characters.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "watching": {
           "description": "The family of a conversation another app runs that this chat only shows; null otherwise.",
           "type": [
@@ -3333,8 +3428,22 @@
     "TurnSummary": {
       "description": "The running turn.",
       "properties": {
+        "activity": {
+          "description": "What the turn does right now: its latest tool call's title; null\nuntil it calls one (`hub/activity.rs`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "client": {
           "type": "string"
+        },
+        "planStep": {
+          "description": "Its plan's entry in progress; null without one.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "prompt": {
           "type": "string"
@@ -3357,7 +3466,9 @@
         }
       },
       "required": [
+        "activity",
         "client",
+        "planStep",
         "prompt",
         "promptId",
         "startedAt",

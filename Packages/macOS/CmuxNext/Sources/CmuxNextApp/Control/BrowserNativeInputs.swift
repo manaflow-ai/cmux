@@ -16,8 +16,8 @@ import Foundation
 ///   must have its browser.
 ///
 /// Neither moves the person's pointer or keyboard focus. Without an engine view (a WebKit page in
-/// no window, a page with no browser, a placeholder; for a wheel, a WebKit window that cannot
-/// refresh, decided before anything is sent) the answer is `{native: false, reason}` and
+/// no window, a page with no browser, a placeholder; for a wheel, a WebKit window on no screen,
+/// decided before anything is sent) the answer is `{native: false, reason}` and
 /// `BrowserPageService` runs page events instead. The buttons each page holds are kept here, so a
 /// move while one is down is a drag.
 @MainActor
@@ -95,9 +95,9 @@ final class BrowserNativeInputs {
     }
 
     /// Whether `window` can refresh its display, so WebKit runs a native wheel now: it is on a
-    /// screen and not occluded.
+    /// screen. An occluded window (an agent's background tab) still gets it.
     static func refreshes(_ window: NSWindow) -> Bool {
-        window.screen != nil && window.occlusionState.contains(.visible)
+        window.screen != nil
     }
 
     /// One script round trip: the web process handles its messages in order, so the key or text

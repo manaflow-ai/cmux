@@ -127,7 +127,9 @@ export type QueuedPrompt = {
   images?: QueuedPromptImage[];
 };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
-export type PromptImage = { id: string; mimeType: string; name?: string };
+/// A prompt's image as acpmux names it; `width`/`height` are its natural size when the record
+/// carries them, so its thumbnail is reserved at its own shape before it is read.
+export type PromptImage = { id: string; mimeType: string; name?: string; width?: number; height?: number };
 /// A queued prompt's image: `src` is its data URL when the pane has its bytes (it sent them, or
 /// the `queued` record carries them), else the row reads it by `id`. acpmux names an image by the
 /// SHA-256 of its bytes; one the pane only sent so far has the composer's id (`local`) until
@@ -220,11 +222,14 @@ export type AcpmuxRow = {
   below?: boolean;
   /// The Codex-style live line (conversation/turns.ts `codexLiveTurn`, Thinking.tsx): the call in
   /// flight's start on this computer's clock, which its time counts from; whether `doing` is a raw
-  /// command line, which reads "Running <command>" (or "Running a command" when empty); no time
-  /// beside "Thinking" (the turn's line over its work has it); and the streaming text it waits
+  /// command line, which reads "Running <command>" (or "Running a command" when empty); whether
+  /// the agent still writes that command (`doingDraft`: a pending shell call with no command yet,
+  /// "Writing a command"); no time beside "Thinking" (`untimed`, the older layout's line, whose
+  /// "Working for" over the work timed the turn); and the streaming text it waits
   /// behind, by id and version, while that text still moves.
   doingAt?: number;
   doingShell?: boolean;
+  doingDraft?: boolean;
   untimed?: boolean;
   quietKey?: string;
   /// The call it names is a command, so the line leads with the terminal glyph (WorkingFor.tsx).
@@ -484,12 +489,23 @@ export type AcpmuxSnapshot = {
   /// The client has read the daemon's chat list once: `sessions` is the daemon's, not the empty
   /// list a connection starts with (newtab/chatStore.ts publishes only such a list).
   listedSessions?: true;
+  /// This page drew the chat from a kept tail (tailCache.ts) rather than from acpmux's attach, so
+  /// its rows were on screen in the frame the open landed on. The pane's host reads it in the
+  /// page's first-paint report: a chat read cold fades in over the loading state, this one shows
+  /// in one frame (AgentPaneView+Loading.swift).
+  drewKeptTail?: true;
+  /// The selected chat's rows are in this snapshot (its attach page, or a kept tail), or none is
+  /// selected: the first-paint report may say the chat is on screen (App.tsx `chatDrawn`).
+  chatRead?: true;
   sessionId?: string;
   isWorking: boolean;
   /// The running turn's tokens so far, its model calls added up, subagents' included (direct.ts
   /// `turnTokens`); unset when the harness does not report each call or the client missed the
   /// turn's start.
   turnTokens?: number;
+  /// The running turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
+  /// (direct.ts `silentTurn`): the turn's line says the model has not answered.
+  silentTurn?: true;
   /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose
   /// events carry the peer's clock; unset when they share a clock or it is not known yet.
   clockOffsetMs?: number;
@@ -668,24 +684,25 @@ export function editedCardHeight(files: number, plain = 0): number {
 /// What edits without a diff list as in the edited-files card: each path they name, once
 /// (toolPaths.ts), and one entry with no path for each call that names none ("Unknown file"). A
 /// Write whose old contents are unknown (`contentsUnknown`) lists its diff's path the same way.
-/// Never the tool input itself.
-export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string; path?: string }[] {
-  const out: { key: string; path?: string }[] = [];
-  const seen = new Set<string>();
+/// `failed`: only calls that failed named it, so it lists as failed. Never the tool input itself.
+export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string; path?: string; failed?: true }[] {
+  const out: { key: string; path?: string; failed?: true }[] = [];
+  const at = new Map<string, number>();
   items.forEach((item, index) => {
-    if (!item.tool) return;
+    // An edit still waiting for its permission has changed nothing yet.
+    if (!item.tool || item.tool.status === "pending") return;
     const diffs = item.tool.diffs ?? [];
-    // A Write still waiting for its permission, or one that failed, wrote nothing.
-    const wrote = item.tool.status !== "pending" && item.tool.status !== "failed";
-    const paths = diffs.length
-      ? diffs.filter((diff) => wrote && contentsUnknown(diff)).map((diff) => diff.path)
-      : editedPaths(item.tool);
-    if (!diffs.length && !paths.length) out.push({ key: `unknown-${item.tool.id}-${index}` });
-    for (const path of paths)
-      if (!seen.has(path)) {
-        seen.add(path);
-        out.push({ key: `path-${path}`, path });
-      }
+    const failed = item.tool.status === "failed";
+    const mark = failed ? { failed: true as const } : {};
+    const paths = diffs.length ? diffs.filter(contentsUnknown).map((diff) => diff.path) : editedPaths(item.tool);
+    if (!diffs.length && !paths.length) out.push({ key: `unknown-${item.tool.id}-${index}`, ...mark });
+    for (const path of paths) {
+      const listed = at.get(path);
+      if (listed === undefined) {
+        at.set(path, out.length);
+        out.push({ key: `path-${path}`, path, ...mark });
+      } else if (!failed) out[listed] = { key: `path-${path}`, path };
+    }
   });
   return out;
 }
@@ -696,9 +713,13 @@ export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string
 /// The space under a message row: the meta gap over its turn's footer (`.acpmux-row--before-footer`,
 /// which also drops the row's 34px floor), else the message gap.
 const messageBelow = (beforeFooter: boolean) => (beforeFooter ? META_GAP : MESSAGE_GAP);
-/// A reply right over its turn's footer: App.tsx marks the same rows `acpmux-row--before-footer`.
-const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
-  row.kind === "assistant" && next?.kind === "turnSummary";
+/// A reply right over its turn's footer, or over the running turn's line drawn as its last row
+/// (`below`), which the footer takes the place of at its height when the turn ends: the reply keeps
+/// the one gap, so the end moves nothing (the message gap there slid the reply down 4px at every
+/// turn's end). App.tsx marks the same rows `acpmux-row--before-footer`.
+export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
+  row.kind === "assistant" &&
+  (next?.kind === "turnSummary" || ((next?.kind === WORKING || next?.kind === THINKING) && next.below === true));
 /// A row that draws nothing (a turn's bookkeeping, conversation/turns.ts).
 const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden";
 /// The row after `index` that draws something.
@@ -768,9 +789,9 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
     );
   // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
   if (row.kind === "agentPair") return row.agentPair?.resumed ? 37 : 37 + 24;
-  // A session start: its facts line, and the compaction note's one line under it until it is
-  // dismissed (conversation/SessionStartNote.tsx); either opens below when asked.
-  if (row.kind === "sessionStart") return 37 + 26;
+  // A session start: its facts line (conversation/SessionStartNote.tsx); the full facts open
+  // below when asked.
+  if (row.kind === "sessionStart") return 37;
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return 40 + row.plan.length * 24;
   // A turn's footer: its meta line, then the turn gap (the message gap for the chat's last one).

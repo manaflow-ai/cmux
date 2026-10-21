@@ -466,9 +466,14 @@ on:
         description: "Expected feat-cmux-next SHA for the scheduled dev channel"
         required: false
         default: ""
+      tip_swift_suite:
+        description: "Run only the CmuxNext Swift suite (every target) on the feat-cmux-next tip"
+        required: false
+        default: false
+        type: boolean
 
 run-name: >-
-  ${{ inputs.dev_daily == true && format('cmux NEXT DEV daily · {0}', inputs.dev_daily_sha || github.sha) || format('cmux-next · {0}', github.sha) }}
+  ${{ inputs.dev_daily == true && format('cmux NEXT DEV daily · {0}', inputs.dev_daily_sha || github.sha) || inputs.tip_swift_suite == true && format('cmux-next tip Swift suite · {0}', github.sha) || format('cmux-next · {0}', github.sha) }}
 
 permissions:
   contents: read
@@ -640,6 +645,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           DEV_DAILY: ${{ inputs.dev_daily || false }}
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha }}
+          TIP_SWIFT_SUITE: ${{ inputs.tip_swift_suite || false }}
           SAME_TREE_SHA: ${{ inputs.same_tree_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -705,6 +711,41 @@ jobs:
               echo '| full | false |'
               echo
               echo '- scheduled dev-daily dispatch: the exact feat-cmux-next SHA builds the Release cmux NEXT DEV artifact in the scheme job.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$EVENT_NAME" == workflow_dispatch && "$TIP_SWIFT_SUITE" == true ]]; then
+            # main's cmux-next-tip-swift-suite-dispatch.yml, every few hours: a
+            # feat-cmux-next push skips swift-test (push CI is the app build
+            # only), so a Swift suite red on the base stayed invisible for a day
+            # (2026-10-21). This run gives swift-test a verdict on the tip, the
+            # base run scripts/ci/base_red_excuse.py compares a PR's reds with.
+            # Only the Swift suite: no scheme, daemon, native or generated tier.
+            # It tests the tip it starts on, whatever the dispatcher saw.
+            [[ "$GITHUB_REF" == refs/heads/feat-cmux-next ]] || {
+              echo "error: tip_swift_suite runs on refs/heads/feat-cmux-next, got $GITHUB_REF" >&2
+              exit 1
+            }
+            {
+              echo 'native=false'
+              echo 'swift_canary=false'
+              echo 'cmuxnext_swift=false'
+              echo 'swift_canary_targets='
+              echo 'macos=true'
+              echo 'scheme=false'
+              echo 'generated=false'
+              echo 'swift=true'
+              echo 'daemon=false'
+              echo 'full=false'
+              echo 'swift_filter='
+              echo 'swift_targets=all'
+            } >> "$GITHUB_OUTPUT"
+            {
+              echo '### cmux-next tiers'
+              echo
+              echo '| tier | runs |'
+              echo '| --- | --- |'
+              echo '| swift | true (every target) |'
+              echo
+              echo '- scheduled tip Swift suite: every CmuxNext Swift target on the feat-cmux-next tip.'
             } >> "$GITHUB_STEP_SUMMARY"
           else
             python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \
@@ -1007,12 +1048,17 @@ jobs:
           echo '{}' > "$marker"
           echo "path=$marker" >> "$GITHUB_OUTPUT"
 
+      # With no free overflow slot a bot re-run takes the same side label
+      # (retry_runner is empty), so the rescue's cancel and re-run would only
+      # send the run to the back of that queue: run 39615562861 went round
+      # twice on 2026-10-21. The refusals marker has the sweeper re-run what a
+      # mini refuses and leave a long queue alone.
       - name: Upload the owned-pool watch marker
         if: ${{ steps.marker.outputs.path != '' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: owned-pool-watch
+          name: ${{ steps.place.outputs.free_retry_runner == '' && 'owned-pool-watch-refusals' || 'owned-pool-watch' }}
           path: ${{ steps.marker.outputs.path }}
           retention-days: 1
 
@@ -1108,8 +1154,11 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           FULL_CI: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
-        # A pull request that does not grow the App passes even over the cap
-        # (its merge commit's first parent is the base).
+          BEFORE: ${{ github.event.before }}
+        # A pull request or push that does not grow the App's source passes even
+        # over the cap: a pull request compares with its merge commit's first
+        # parent, a push with the commit before it (fetched: checkout is depth 2).
+        # A push with no before commit (a new branch) keeps the plain cap.
         run: |
           if [[ "$FULL_CI" != true ]]; then
             echo "Size cap is a batch cadence check; ordinary PRs receive the fast tier only."
@@ -1117,6 +1166,11 @@ jobs:
           fi
           base=()
           [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
+          if [[ "$EVENT_NAME" == push && -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
+            git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
+              || git fetch --no-tags --quiet --depth=1 origin "$BEFORE" || true
+            base=(--base "$BEFORE")
+          fi
           scripts/cmux-next/check-app-size.sh ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"
 
       - name: No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
@@ -1332,6 +1386,8 @@ jobs:
             bash scripts/cmux-next/tests/base-autofix-push.test.sh
             bash scripts/cmux-next/tests/base-autofix-land.test.sh
             bash scripts/cmux-next/tests/base-autofix-action-exports.test.sh
+            bash scripts/cmux-next/tests/base-autofix-changed.test.sh
+            bash scripts/cmux-next/tests/base-autofix-settings-landed.test.sh
             bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
             bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
             bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh
