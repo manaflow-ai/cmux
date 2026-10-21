@@ -47,6 +47,8 @@ struct SidebarPriorityRowActionsTests {
     }
 
     static let socket = "/tmp/pv-acpmux.sock"
+    /// One turn end for every fixture, so two fixtures' marks compare equal.
+    static let since = Date().addingTimeInterval(-20 * 60)
 
     /// Two chats on one acpmux: a finished result nobody saw, and a question waiting on the person.
     @MainActor final class Fixture {
@@ -58,7 +60,7 @@ struct SidebarPriorityRowActionsTests {
         init(bind: Bool = true) {
             store.socketPath = SidebarPriorityRowActionsTests.socket
             store.live = true
-            let since = Date().addingTimeInterval(-20 * 60)
+            let since = SidebarPriorityRowActionsTests.since
             for (id, state, unread) in [("done", AgentActivityLane.State.idle, true), ("asks", .input, false)] {
                 store.lanes[id] = AgentActivityLane(id: id, name: id, title: "Chat \(id)", peer: nil, parent: nil, state: state,
                                                     since: since, error: nil, unread: unread, project: "cmux")
