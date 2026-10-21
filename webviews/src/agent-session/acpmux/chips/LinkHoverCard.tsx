@@ -5,7 +5,7 @@
 // Open in as quiet borderless buttons. A web link's address, with secret-looking values as •••
 // (linkDisplay.ts), sits under its title when it says more than the host already does; a pull
 // request has no address line, and adds its author, checks and files (PullRequestCard.tsx). Tight
-// spacing, no dividers, on the tooltip's frosted glass (styles.css .cv-link-preview; Leo
+// spacing, no dividers, on the liquid glass (.ui-glass; styles.css .cv-link-preview; Leo
 // 2026-10-21: "the styling/layout/spacing could be a bit better").
 import type { PointerEvent, ReactNode } from "react";
 import { AnchoredCard } from "../../../ui/Tooltip";
@@ -82,7 +82,7 @@ export function LinkHoverCard({
     <AnchoredCard
       id={id}
       anchor={hover.open ? anchor : null}
-      className={pullRequest ? "cv-link-preview acpmux-pr-card" : "cv-link-preview"}
+      className={pullRequest ? "ui-glass cv-link-preview acpmux-pr-card" : "ui-glass cv-link-preview"}
       side={side}
       interactive
       // A pull request's page title only repeats its own title: the card is named by its reference.

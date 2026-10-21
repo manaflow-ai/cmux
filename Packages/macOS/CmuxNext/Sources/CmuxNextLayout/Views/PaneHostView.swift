@@ -96,8 +96,9 @@ final class PaneHostView: NSView, RestingPlacement {
     /// lays out once and the clip shows what each frame shows. It is pinned at the edge nearer its
     /// rest, so it rides that edge: a pane opening on the right slides in from the right while the
     /// chat keeps its width under it until the spring lands.
+    /// A host at its rest place and size holds nothing, whatever its spring flag says.
     private func contentFrame(in clip: CGRect) -> CGRect {
-        guard let held = heldContentSize, let restSize else { return clip }
+        guard let held = heldContentSize, let restSize, restOffset != .zero || frame.size != restSize else { return clip }
         let rest = CGSize(width: max(0, clip.width + restSize.width - frame.width),
                           height: max(0, clip.height + restSize.height - frame.height))
         let size = CGSize(width: max(clip.width, held.width, rest.width), height: max(clip.height, held.height, rest.height))
