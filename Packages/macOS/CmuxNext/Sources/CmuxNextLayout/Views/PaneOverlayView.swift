@@ -234,8 +234,7 @@ final class PaneOverlayView: NSView {
             for ((layer, value), leaves) in zip(targets, leaving) where !leaves { layer.opacity = value }
         }
         Motion.feedback.transaction(animated ? .paneDim : nil) { dimLayer.opacity = Float(dim) }
-        if Self.flashesFocus(wasFocused: isFocusedPane, focused: focused, requested: flashesFocus, animated: animated,
-                             ringShows: style != .none) {
+        if Self.flashesFocus(wasFocused: isFocusedPane, focused: focused, requested: flashesFocus, ringShows: style != .none) {
             Motion.feedback.set(focusFlash, "opacity", to: Float(0), fade: .focusFlash, from: Float(1))
         } else if !focused, focusFlash.animation(forKey: "opacity") != nil {
             // Focus moved on: the flash leaves with it.
@@ -247,9 +246,10 @@ final class PaneOverlayView: NSView {
     }
 
     /// Whether the ring flashes on this pane: focus just arrived, the screen asked for the flash
-    /// (`ScreenContentView.requestsFocusFlash`), the change animates and no ring already marks it.
-    static func flashesFocus(wasFocused: Bool, focused: Bool, requested: Bool, animated: Bool, ringShows: Bool) -> Bool {
-        requested && animated && focused && !wasFocused && !ringShows
+    /// (`ScreenContentView.requestsFocusFlash`, which also needs motion allowed) and no ring
+    /// already marks it.
+    static func flashesFocus(wasFocused: Bool, focused: Bool, requested: Bool, ringShows: Bool) -> Bool {
+        requested && focused && !wasFocused && !ringShows
     }
 
     /// The flash's stroke is at least this wide, so a 1 pt ring setting still reads at a glance.
