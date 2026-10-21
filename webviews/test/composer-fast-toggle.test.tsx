@@ -291,7 +291,8 @@ for (const [name, run] of [
     await render(snapshot({ options: twoState, current: "off" }, run));
     expect(host.querySelector(".acpmux-effort, .acpmux-effort-menu")).toBeNull();
     const named = [...host.querySelectorAll<HTMLElement>("button, [role=button]")].filter((button) =>
-      /\b(medium|reasoning|effort)\b/i.test(`${button.textContent} ${button.getAttribute("aria-label") ?? ""}`),
+      // No \b: the button's text runs the name into the level ("Opus 5.5Medium").
+      /medium|reasoning|effort/i.test(`${button.textContent} ${button.getAttribute("aria-label") ?? ""}`),
     );
     // Identity, not a deep compare: a JSDOM element's graph is circular.
     expect(named.length).toBe(1);
