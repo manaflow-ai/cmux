@@ -62,6 +62,23 @@ const openCard: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-card__changes"));
 };
 
+// A trusted click lands at the point the row is at when the step runs, so a row that is still
+// moving is clicked where it used to be -- and the pull request card moves twice after it opens:
+// the host's answer fills it in (the `+/−` row drops from 186 to 211) and the card's own entrance
+// settles it back (211 to 209 over about six frames). waitFor polls every frame, so holding the
+// same rounded top for twelve of them is the row standing still, not a gap between two moves.
+const stillRow = async (ctx: Parameters<Play>[0], selector: string, frames = 12): Promise<void> => {
+  let previous: number | null = null;
+  let held = 0;
+  await ctx.waitFor(() => {
+    const top = ctx.document.querySelector(selector)?.getBoundingClientRect().top;
+    if (top === undefined) return false;
+    held = previous !== null && Math.round(top) === previous ? held + 1 : 0;
+    previous = Math.round(top);
+    return held >= frames;
+  });
+};
+
 export default componentEntry<UrlChipProps>({
   id: "agent-pane.url-chip",
   title: "URL chips",
@@ -109,6 +126,7 @@ export default componentEntry<UrlChipProps>({
       play: async (ctx) => {
         await openCard(ctx);
         // A click pins the breakdown, so it stays open however the stage settles.
+        await stillRow(ctx, ".acpmux-pr-card__lines");
         await ctx.click({ selector: ".acpmux-pr-card__lines" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-card__kinds"));
       },
