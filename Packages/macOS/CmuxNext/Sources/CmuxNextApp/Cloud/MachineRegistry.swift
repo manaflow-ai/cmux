@@ -97,8 +97,14 @@ final class MachineRegistry {
     /// The reachable remote machine `name` names (its sidebar name, tab badge or id, any case, as
     /// `acpmux ls` shows a peer); nil when it names none or more than one.
     func remoteDaemon(named name: String) -> DaemonService? {
-        let named = remoteDaemons.filter { [$0.machineID, machineName($0.machineID), machineBadge($0.machineID)].contains { $0?.caseInsensitiveCompare(name) == .orderedSame } }
-        return named.count == 1 ? daemon(machine: named[0].machineID) : nil
+        Self.machine(named: name, among: remoteDaemons.map { ($0.machineID, [machineName($0.machineID), machineBadge($0.machineID)]) }).flatMap(daemon(machine:))
+    }
+
+    /// The one machine of `machines` (id, then its other names) that `name` names, any case; nil
+    /// for none or more than one.
+    nonisolated static func machine(named name: String, among machines: [(id: String, names: [String?])]) -> String? {
+        let named = machines.filter { ([$0.id] + $0.names).contains { $0?.caseInsensitiveCompare(name) == .orderedSame } }
+        return named.count == 1 ? named.first?.id : nil
     }
 
     /// What `daemon` can do for the app. A remote daemon never needs the

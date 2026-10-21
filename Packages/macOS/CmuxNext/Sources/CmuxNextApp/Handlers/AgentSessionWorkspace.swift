@@ -93,6 +93,11 @@ enum AgentSessionWorkspace {
         guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
         }
+        // A host that names no machine here is refused before anything is made (no empty workspace).
+        let agentTabs = services.agentTabs
+        if let refusal = AgentTabStore.hostRefusal(host, localHost: agentTabs.localHost, chiefHost: agentTabs.chiefHost, daemonIsLocal: daemon.isLocal) {
+            throw ActionFailure(message: refusal)
+        }
         let logger = daemon.logger
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
         // workspace the window shows, when it is in one (cx-caoh). A caller's
