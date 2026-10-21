@@ -76,8 +76,11 @@ struct ClickedLinkFocusTests {
             let opened = try await Self.click(services, from: pane, cmdClick: true)
             try await PinnedPageTests.until({ store.tab(id: opened).map { _ in right.pane.tabs.contains { $0.id == opened } } == true },
                                             report: { "the link's tab is not in the pane on the right" })
-            try await PinnedPageTests.until({ content.focusedPane === right && right.stripModel.selectedID?.rawValue == opened },
-                                            report: { Self.describe(content, opened) })
+            // The pane on the right by what it holds: the window may show it through a new controller by now.
+            try await PinnedPageTests.until({
+                content.focusedPane !== pane && content.focusedPane?.pane.tabs.contains { $0.id == opened } == true
+                    && content.focusedPane?.stripModel.selectedID?.rawValue == opened
+            }, report: { Self.describe(content, opened) })
 
             #expect(services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
             try await PinnedPageTests.until({ store.tab(id: opened) == nil }, report: { "the link's tab did not close" })
