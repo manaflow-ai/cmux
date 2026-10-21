@@ -15,8 +15,7 @@ extension ChatColumnPlacement {
     /// tracked run; optional page moves cannot fail the tool open or move keyboard focus.
     @MainActor static func moveNewTabPages(_ pages: [TabModel], with chat: TabModel, from source: PaneModel,
                                            in content: WorkspaceContentController, services: AppServices,
-                                           generation: UInt64, seed: @MainActor (PaneModel) -> Void = { _ in },
-                                           whenDocked: @MainActor (PaneModel) -> Void = { _ in }) async {
+                                           generation: UInt64, whenDocked: @MainActor (PaneModel) -> Void = { _ in }) async {
         let daemon = services.machines.daemon(forTab: chat)
         let appeared = await waitForDockUpdate {
             services.locateTab(chat.id).map { $0.1 !== source } ?? false
@@ -25,7 +24,7 @@ extension ChatColumnPlacement {
             daemon.logger.error("chat dock: the moved chat's pane did not appear; New Tab pages stayed in their pane")
             return
         }
-        await followNewTabPages(pages, isCurrentIntent: { content.focus.currentState().generation == generation }, isDockCurrent: {
+        await followNewTabPages(pages, start: generation, generation: { content.focus.currentState().generation }, isDockCurrent: {
             services.locateTab(chat.id)?.1 === dock
                 && content.workspace.screens.contains { $0.panes.contains { $0 === dock } }
                 && ChatDockRules.isChatDock(dock, in: daemon.store)
@@ -33,7 +32,6 @@ extension ChatColumnPlacement {
             // The dock is new and no page is in it yet: the chat is its selected tab, so the
             // daemon's active-tab default never shows a page that follows it.
             content.state.selection.select(chat.id, in: dock.id)
-            seed(dock)
         }, prepare: {
             // Focus only for the run's own intent: a newer click or key (FocusCoordinator's
             // generation) keeps the focus the person chose.
@@ -80,17 +78,23 @@ extension ChatColumnPlacement {
     /// be in a dock that just appeared), `prepare` focus while the run's own intent is current, then
     /// move each page after the chat, rechecking the dock between awaits. A page the person selected
     /// after the run began stays where they are working. A failed move leaves its slot to the next.
-    @MainActor static func followNewTabPages<Page>(_ pages: [Page], isCurrentIntent: @MainActor () -> Bool,
+    /// `start` is the focus generation when the run began; `prepare`'s own focus change moves it on,
+    /// so the generation after `prepare` is the run's, and only a later one is the person's.
+    @MainActor static func followNewTabPages<Page>(_ pages: [Page], start: UInt64, generation: @MainActor () -> UInt64,
                                                    isDockCurrent: @MainActor () -> Bool, seed: @MainActor () -> Void,
                                                    prepare: @MainActor () -> Void, isChosen: @MainActor (Page) -> Bool,
                                                    move: @MainActor (Page, Int) async -> Bool) async {
         guard isDockCurrent() else { return }
         seed()
-        if isCurrentIntent() { prepare() }
+        var expected = start
+        if generation() == expected {
+            prepare()
+            expected = generation()
+        }
         var index = 1
         for page in pages {
             guard isDockCurrent() else { return }
-            if !isCurrentIntent(), isChosen(page) { continue }
+            if generation() != expected, isChosen(page) { continue }
             if await move(page, index) { index += 1 }
         }
     }

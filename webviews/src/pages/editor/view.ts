@@ -491,9 +491,10 @@ export class MonacoView implements CodeView {
       if (color) for (const key of keys) chrome[key] = color;
     }
     // A theme that sets the sticky color itself keeps it; only the default yields to a solid editor.
-    const authored = style.getPropertyValue("--cmux-editor-sticky-background").replace(/\s+/g, "");
-    const themed =
-      authored !== "" && authored !== EDITOR_STYLE_DEFAULTS["--cmux-editor-sticky-background"].replace(/\s+/g, "");
+    // Compared as resolved colors: the computed value already has its var()s substituted.
+    const stickyDefault = cssColorToHex(EDITOR_STYLE_DEFAULTS["--cmux-editor-sticky-background"], this.container);
+    const resolvedSticky = chrome["editorStickyScroll.background"];
+    const themed = resolvedSticky !== undefined && resolvedSticky !== stickyDefault;
     const sticky = editorStickyBackground(
       chrome["editor.background"] ?? null,
       chrome["editorStickyScroll.background"] ?? null,

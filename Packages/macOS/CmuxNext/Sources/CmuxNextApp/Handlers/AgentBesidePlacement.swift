@@ -77,10 +77,9 @@ enum AgentBesidePlacement {
                 }
                 guard docked else { return "beside-caller: the chat did not dock (see the app log)" }
                 await ChatColumnPlacement.moveNewTabPages(newTabPages, with: chat, from: anchor,
-                                                          in: content, services: services, generation: intent, seed: { _ in
-                    // The agent's tool is selected beside the chat, as before the chat docked.
+                                                          in: content, services: services, generation: intent, whenDocked: { dock in
+                    // The agent's tool is selected beside the chat, unless the person chose a tab since.
                     services.paneController(for: anchor)?.selectWhenReportedKeepingFocus(surface: surface)
-                }) { dock in
                     // Keyboard focus stays in the chat before any New Tab pages follow it.
                     guard chatHadFocus || content.focusedPane?.pane === anchor else { return }
                     // Not a view change of the run: the run moved the focused chat out of its
@@ -89,7 +88,7 @@ enum AgentBesidePlacement {
                     ActionRunScope.carrying(ActionRunScope(origin: .script, allowsViewChange: true)) {
                         PaneHandlers.focus(LayoutPaneID(dock.id), in: content)
                     }
-                }
+                })
                 return nil
             }
             // Home's pinned dock alone takes no tab: the daemon made it in a new column right of

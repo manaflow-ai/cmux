@@ -74,7 +74,7 @@ extension ChatColumnPlacement {
                 guard moved else { return "move-tab-to-column failed (see the app log)" }
                 if let content {
                     await moveNewTabPages(pages, with: chat, from: source, in: content, services: services,
-                                          generation: intent) { _ in
+                                          generation: intent, whenDocked: { _ in
                         // Land focus as soon as the dock is listed, before optional page moves: on the
                         // respawned tab, else (not listed yet) on the pane it opens in.
                         if let respawned = source.tabs.first(where: { !originalSurfaces.contains($0.surface) }) {
@@ -82,7 +82,7 @@ extension ChatColumnPlacement {
                         } else {
                             PaneHandlers.focus(pane, in: content)
                         }
-                    }
+                    })
                 }
                 // A hidden tab bar was the chat's choice: the tab left in the pane shows its tab bar again.
                 if let controller, services.paneTabBars.choice(for: controller.paneKey) == false {

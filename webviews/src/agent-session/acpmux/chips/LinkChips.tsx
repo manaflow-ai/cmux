@@ -45,7 +45,7 @@ export function PathChip({ path, label, written, ...position }: PathChipProps) {
 }
 
 function HostPathChip({ path, label, written, location, suffix, code, bare }: PathChipProps) {
-  const { info, policy } = usePathInfo(path);
+  const { info, policy } = usePathInfo(path, bare);
   const plain =
     info?.place === "denied" ||
     info?.place === "missing" ||

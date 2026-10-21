@@ -8,18 +8,6 @@ extension AgentPaneReplyPaths {
         let ext = (text as NSString).pathExtension
         return !ext.isEmpty && ext.count <= 12 && ext.contains(where: \.isLetter) && (text as NSString).deletingPathExtension.count > 0
     }
-
-    /// The best of `candidates` (absolute paths of files named like `text`): the fewest folders
-    /// below a root first, then the shorter path, then by name, so the same reply always opens
-    /// the same file.
-    static func ranked(_ candidates: [String]) -> [String] {
-        candidates.sorted { a, b in
-            let (da, db) = (a.split(separator: "/").count, b.split(separator: "/").count)
-            if da != db { return da < db }
-            if a.count != b.count { return a.count < b.count }
-            return a < b
-        }
-    }
 }
 
 extension AgentPaneModel {
@@ -32,7 +20,8 @@ extension AgentPaneModel {
         let found = await replyLinks.findByName(names, resolver.roots)
         var out: [String: AgentPaneReplyPaths.Resolved] = [:]
         for name in names {
-            for candidate in AgentPaneReplyPaths.ranked(found[name] ?? []) {
+            // Best first (``AgentPaneReplyLinks/findByName``): the first that passes every check wins.
+            for candidate in found[name] ?? [] {
                 guard (candidate as NSString).lastPathComponent.caseInsensitiveCompare(name) == .orderedSame,
                       let resolved = resolver.resolve(candidate), resolved.place == .root, !resolved.isFolder else { continue }
                 out[name] = resolved

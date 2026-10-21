@@ -26,8 +26,12 @@ const asking = new Set<string>();
 let policy: ReplyPolicy = { outsideRoots: "confirm", remoteImages: "click" };
 let queuedPaths: string[] = [];
 let queuedUrls: string[] = [];
+/// Bare file names (`next-sync.py`): asked in their own batches, because the host may search the
+/// chat's folders for them, and that must never hold up the other paths, links and the policy.
+let queuedNames: string[] = [];
 let scheduled = false;
 let inFlight = false;
+let namesInFlight = false;
 /// The policy is asked once, with the first chip or image (an empty inspect when there is none).
 let policyAsked = false;
 let version = 0;
@@ -52,6 +56,7 @@ function scheduleFlush() {
 
 function flush() {
   scheduled = false;
+  flushNames();
   if (inFlight) return;
   const first = !policyAsked;
   if (!first && !queuedPaths.length && !queuedUrls.length) return;
@@ -78,7 +83,26 @@ function flush() {
     });
 }
 
-function ask(path?: string, url?: string) {
+function flushNames() {
+  if (namesInFlight || !queuedNames.length) return;
+  const batch = queuedNames.splice(0, MAX_BATCH);
+  namesInFlight = true;
+  void callChipHost("link.inspect", { paths: batch, urls: [] })
+    .then((reply) => {
+      const value = (reply ?? {}) as Inspect;
+      for (const name of batch) {
+        paths.set(name, value.paths?.[name] ?? null);
+        asking.delete(name);
+      }
+    })
+    .finally(() => {
+      namesInFlight = false;
+      changed();
+      if (queuedNames.length) scheduleFlush();
+    });
+}
+
+function ask(path?: string, url?: string, bare = false) {
   if (paths.size + sites.size > MAX_KEPT) {
     paths.clear();
     asking.clear();
@@ -87,13 +111,13 @@ function ask(path?: string, url?: string) {
   if (path !== undefined && !paths.has(path)) {
     paths.set(path, null);
     asking.add(path);
-    queuedPaths.push(path);
+    (bare ? queuedNames : queuedPaths).push(path);
   }
   if (url !== undefined && !sites.has(url)) {
     sites.set(url, null);
     queuedUrls.push(url);
   }
-  if (!scheduled && (!policyAsked || queuedPaths.length || queuedUrls.length)) {
+  if (!scheduled && (!policyAsked || queuedPaths.length || queuedUrls.length || queuedNames.length)) {
     scheduleFlush();
   }
 }
@@ -107,9 +131,13 @@ function subscribe(listener: () => void) {
 
 /// The host's answer for `path` (undefined while it is asked, or when the host had none), whether
 /// the host has answered, and the policy.
-export function usePathInfo(path: string): { info: PathInfo | undefined; answered: boolean; policy: ReplyPolicy } {
+/// `bare`: a bare file name, asked in the name batches (``flushNames``).
+export function usePathInfo(
+  path: string,
+  bare = false,
+): { info: PathInfo | undefined; answered: boolean; policy: ReplyPolicy } {
   useSyncExternalStore(subscribe, snapshot, snapshot);
-  ask(path);
+  ask(path, undefined, bare);
   return { info: paths.get(path) ?? undefined, answered: !asking.has(path), policy };
 }
 
@@ -134,6 +162,7 @@ export function resetLinkStore(): void {
   sites.clear();
   queuedPaths = [];
   queuedUrls = [];
+  queuedNames = [];
   scheduled = false;
   policy = { outsideRoots: "confirm", remoteImages: "click" };
   policyAsked = false;

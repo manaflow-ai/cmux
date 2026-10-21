@@ -51,8 +51,11 @@ public struct FolderNameIndex: Sendable {
     ///     search does not: false).
     ///   - entryLimit: stop after this many items and set ``truncated`` (memory bound: about 60
     ///     bytes per item).
+    ///   - skippingFolders: folder names neither indexed nor walked into (`node_modules`), so
+    ///     generated trees do not spend the entry limit. Empty by default.
     /// - Throws: ``FileBrowserError`` when `root` cannot be read.
-    public static func build(root: URL, includeHidden: Bool = false, entryLimit: Int = 2_000_000) throws -> FolderNameIndex {
+    public static func build(root: URL, includeHidden: Bool = false, entryLimit: Int = 2_000_000,
+                             skippingFolders: Set<String> = []) throws -> FolderNameIndex {
         let rootPath = root.standardizedFileURL.path
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: rootPath, isDirectory: &isDirectory), isDirectory.boolValue else {
@@ -81,6 +84,10 @@ public struct FolderNameIndex: Sendable {
                 let isDir = info == FTS_D || info == FTS_DC || info == FTS_DOT
                 if !includeHidden, name.hasPrefix(".") {
                     if isDir { fts_set(stream, entry, FTS_SKIP) }
+                    continue
+                }
+                if isDir, skippingFolders.contains(name) {
+                    fts_set(stream, entry, FTS_SKIP)
                     continue
                 }
                 if builder.count >= entryLimit { return true }

@@ -26,9 +26,10 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var sites: @MainActor ([URL]) -> [URL: AgentPaneReplySite] = { _ in [:] }
     /// Asks the user to open a file outside the project (the view's native sheet).
     public var confirmOutside: (@MainActor (_ path: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
-    /// The files named like each bare name (`next-sync.py`) inside the roots, as absolute paths:
-    /// the App searches off the main thread with a bounded name index. The pane ranks and checks
-    /// them like any written path (``AgentPaneModel/resolveNames(_:resolver:)``). The default finds
+    /// The files named like each bare name (`next-sync.py`) inside the roots, as absolute paths,
+    /// best first (the fewest folders below their root): the App searches off the main thread with
+    /// a bounded name index. The pane checks them like any written path
+    /// (``AgentPaneModel/resolveNames(_:resolver:)``). The default finds
     /// nothing, so a host that wires nothing keeps bare names that are not in the folder as text.
     public var findByName: @MainActor (_ names: [String], _ roots: [String]) async -> [String: [String]] = { _, _ in [:] }
     /// Tells the person why a path chip did not open (the App's refusal notice).
@@ -111,15 +112,16 @@ extension AgentPaneModel {
     /// cmux's file pages (a folder in Finder); outside, `agentPane.links.outsideRoots` decides.
     func openReplyPath(_ text: String, line: FileLineLocation? = nil) async -> Result<Void, AgentPaneReplyError> {
         let resolver = replyPaths()
-        guard var resolved = resolver.resolve(text) else { return .failure(.pathInvalid) }
+        // Only a person's click is told why a path did not open (the notice).
+        guard var resolved = resolver.resolve(text) else { return refusal(.pathInvalid) }
         if resolved.place == .missing, let found = await resolveNames([text], resolver: resolver)[text] { resolved = found }
         switch resolved.place {
-        case .denied: return .failure(.pathDenied)
-        case .missing: return .failure(.pathInvalid)
+        case .denied: return refusal(.pathDenied)
+        case .missing: return refusal(.pathInvalid)
         case .root: break
         case .outside:
             switch replyLinks.settings().outsideRoots {
-            case .text: return .failure(.pathOutsideRoots)
+            case .text: return refusal(.pathOutsideRoots)
             case .open: break
             case .confirm:
                 guard transport.gestures.consume() else { return .failure(.gestureRequired) }
@@ -129,6 +131,12 @@ extension AgentPaneModel {
         }
         guard transport.gestures.consume() else { return .failure(.gestureRequired) }
         return await openResolved(resolved.path, line: line)
+    }
+
+    /// `error` for a person's click, else ``AgentPaneReplyError/gestureRequired`` (which says
+    /// nothing). The click is not used up: nothing opened.
+    private func refusal(_ error: AgentPaneReplyError) -> Result<Void, AgentPaneReplyError> {
+        transport.gestures.isAvailable ? .failure(error) : .failure(.gestureRequired)
     }
 
     /// Opens `path` after every check: a folder in Finder, a file in the pane's file pages.
