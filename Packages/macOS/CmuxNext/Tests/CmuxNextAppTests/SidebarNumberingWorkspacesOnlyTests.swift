@@ -33,6 +33,16 @@ struct SidebarNumberingWorkspacesOnlyTests {
         #expect(order.number(for: .workspace(ids[0]), settings) == 1)
     }
 
+    /// The default (hq#1925): with no `sidebar.numbering` set, Cmd-1 is the first workspace, as the
+    /// shortcut hints already number them; Home and the App Store take no digit.
+    @Test func commandOneIsTheFirstWorkspaceByDefault() throws {
+        let (model, ids) = try Self.model()
+        let settings = SidebarNavigationSettings.defaults
+        #expect(settings.numbering == .workspacesOnly)
+        #expect(model.itemOrder.pick(1, settings) == .workspace(ids[0]))
+        #expect(model.itemOrder.number(for: .topItem(LayoutItemID("itm_home")), settings) == nil)
+    }
+
     @Test func steppingWorkspacesOnlySkipsTheTopBlock() throws {
         let (model, ids) = try Self.model()
         let order = model.itemOrder
