@@ -23,6 +23,13 @@ final class RecordingRestoreSpawnScheduler: TerminalSurfaceRuntimeSpawnSchedulin
         }
     }
 
+    func cancelRestoredSurfaceSpawn(surfaceId: UUID) {
+        guard let index = scheduledSurfaceIds.firstIndex(of: surfaceId) else { return }
+        scheduledSurfaceIds.remove(at: index)
+        scheduledResumesAgent.remove(at: index)
+        scheduledOperations.remove(at: index)
+    }
+
     func runScheduledOperation(at index: Int = 0) {
         scheduledOperations[index]()
     }

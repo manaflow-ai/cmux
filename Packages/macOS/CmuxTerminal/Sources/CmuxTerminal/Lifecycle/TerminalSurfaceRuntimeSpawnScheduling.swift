@@ -15,6 +15,10 @@ public protocol TerminalSurfaceRuntimeSpawnScheduling: AnyObject {
         resumesAgent: Bool,
         operation: @escaping @MainActor () -> Void
     )
+
+    /// Removes a queued restore-spawn request when its surface is torn down
+    /// before the global restore queue reaches it.
+    func cancelRestoredSurfaceSpawn(surfaceId: UUID)
 }
 
 extension TerminalSurfaceRuntimeSpawnScheduling {

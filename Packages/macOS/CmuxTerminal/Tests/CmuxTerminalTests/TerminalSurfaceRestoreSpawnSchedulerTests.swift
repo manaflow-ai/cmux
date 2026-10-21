@@ -135,6 +135,27 @@ import CmuxTerminalCore
         #expect(spawned.values == ids)
     }
 
+    @Test func cancelledSurfaceIsRemovedBeforeItsTurn() async {
+        let delayer = ManualRestoreSpawnDelayer()
+        let scheduler = TerminalSurfaceRestoreSpawnScheduler(
+            interSpawnDelay: .milliseconds(125),
+            delayer: delayer
+        )
+        let ids = (0..<3).map { _ in UUID() }
+        let spawned = RestoreSpawnRecorder<UUID>()
+
+        for id in ids {
+            scheduler.scheduleRestoredSurfaceSpawn(surfaceId: id) { spawned.append(id) }
+        }
+        scheduler.cancelRestoredSurfaceSpawn(surfaceId: ids[1])
+
+        await delayer.waitForDelayCount(1)
+        #expect(spawned.values == [ids[0]])
+        delayer.releaseNextDelay()
+        await spawned.waitForCount(2)
+        #expect(spawned.values == [ids[0], ids[2]])
+    }
+
     @Test func restorePacedTerminalSurfaceQueuesNativeCreationBeforeGhosttyWork() {
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)

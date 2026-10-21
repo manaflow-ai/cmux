@@ -61,6 +61,22 @@ public final class TerminalSurfaceRestoreSpawnScheduler: TerminalSurfaceRuntimeS
         }
     }
 
+    /// Drops a pending request and its retained operation before it reaches
+    /// the restore queue. Requests already being executed are unaffected.
+    public func cancelRestoredSurfaceSpawn(surfaceId: UUID) {
+        guard queuedSurfaceIds.remove(surfaceId) != nil,
+              pendingHead < pending.count,
+              let index = pending[pendingHead...].firstIndex(where: { $0.surfaceId == surfaceId }) else {
+            return
+        }
+        pending.remove(at: index)
+        if pendingHead == pending.count {
+            pending.removeAll(keepingCapacity: true)
+            pendingHead = 0
+            if scheduledDelay == nil { finishDraining() }
+        }
+    }
+
     private func beginDraining() {
         drainStartTask = nil
         guard !isDraining else { return }

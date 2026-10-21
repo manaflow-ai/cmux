@@ -104,6 +104,36 @@ struct TerminalSurfaceStartupRestorePolicyTests {
         #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 1)
     }
 
+    @Test("Tearing down an admitted restore removes its queued native spawn")
+    func teardownCancelsQueuedRestoreSpawn() {
+        let nativeView = FakeTerminalSurfaceNativeView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let paneHost = FakeTerminalSurfacePaneHost(
+            surfaceView: nativeView,
+            attachesThroughSurfaceModel: true
+        )
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let surface = makeSurface(
+            policy: .pacedSessionRestore.requiringStartupRestoreAdmission(),
+            scheduler: scheduler,
+            nativeView: nativeView,
+            paneHost: paneHost
+        )
+        surface.agentCommandShimInstallCompleted = true
+        defer { surface.closeHeadlessStartupWindowIfNeeded() }
+
+        surface.scheduleHeadlessRuntimeStartIfNeeded(reason: "teardown-cancels-restore")
+        surface.admitStartupRestoreRuntime()
+        surface.setRendererPortalVisible(true)
+
+        #expect(scheduler.scheduledSurfaceIds == [surface.id])
+
+        surface.teardownSurface()
+
+        #expect(scheduler.scheduledSurfaceIds.isEmpty)
+    }
+
     @Test("Explicit input cancels a deferred agent resume before admission")
     func explicitInputCancelsDeferredAgentResumeBeforeAdmission() {
         let nativeView = FakeTerminalSurfaceNativeView(
