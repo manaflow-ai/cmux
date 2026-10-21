@@ -5,6 +5,7 @@ import CmuxNextPages
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextUpdater
+import CmuxNextWebUpdates
 import Observation
 
 extension UpdaterService {
@@ -25,10 +26,7 @@ extension UpdaterService {
         // The check's progress and result show on the sidebar's notice card; with the
         // active window's sidebar hidden (or no window) nothing would show, so the sheet
         // answers instead (never a check with no visible feedback).
-        showsIndicator = { [weak services] in
-            guard let window = services?.windows.active else { return false }
-            return !window.state.sidebarHidden
-        }
+        showsIndicator = { [weak services] in (services?.windows.active).map { !$0.state.sidebarHidden } ?? false }
         openChangelog = { [weak services] in services.map { ChangelogPageTab.open($0) } ?? false }
         // "See What's New" on the Updated card: the React changelog page
         // for the releases this update crossed (`#/?from=&to=`).
@@ -102,6 +100,7 @@ extension UpdaterService {
     }
 
     func apply(_ updates: UpdatesSettings) {
+        WebUpdates.shared.follow(updates)
         let preferences = UpdatePreferences(
             installOnQuit: updates.installOnQuit,
             notify: UpdateNotifyMode(rawValue: updates.notify.rawValue) ?? .badge,
