@@ -21,13 +21,15 @@ field() {
   python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]][sys.argv[3]])' "$manifest" "$1" "$2"
 }
 
-# Prints the cached path of one verified manifest artifact.
+# Prints the cached path of one verified manifest artifact. Callers run it in
+# a command substitution, where bash ignores `set -e`, so every check returns.
 fetch() {
   local target="$1" url digest binary temporary
-  url="$(field "$target" url)"
-  digest="$(field "$target" sha256)"
-  [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
-  [[ "$url" == https://github.com/manaflow-ai/coderouter-releases/releases/download/* ]]
+  url="$(field "$target" url)" || return 1
+  digest="$(field "$target" sha256)" || return 1
+  [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || { echo "CodeRouter manifest digest for $target is malformed" >&2; return 1; }
+  [[ "$url" == https://github.com/manaflow-ai/coderouter-releases/releases/download/* ]] \
+    || { echo "CodeRouter manifest URL for $target is not an official release" >&2; return 1; }
   binary="$cache/$digest"
   if [[ ! -f "$binary" || "$(shasum -a 256 "$binary" | awk '{print $1}')" != "$digest" ]]; then
     temporary="$(mktemp "$cache/.download.XXXXXX")"
@@ -41,16 +43,15 @@ fetch() {
       echo "CodeRouter checksum mismatch for $target" >&2
       return 1
     fi
-    chmod 755 "$temporary"
-    mv "$temporary" "$binary"
+    chmod 755 "$temporary" && mv "$temporary" "$binary" || return 1
   fi
   printf '%s\n' "$binary"
 }
 
 destination="$app/Contents/Resources/bin/coderouter"
 if [[ "$mode" == --universal ]]; then
-  arm64="$(fetch darwin-arm64)"
-  x64="$(fetch darwin-x64)"
+  arm64="$(fetch darwin-arm64)" || exit 1
+  x64="$(fetch darwin-x64)" || exit 1
   staged="$(mktemp "$cache/.universal.XXXXXX")"
   trap 'rm -f "$staged"' EXIT
   lipo -create "$arm64" "$x64" -output "$staged"
@@ -63,7 +64,8 @@ else
     x86_64) target=darwin-x64 ;;
     *) echo "No CodeRouter artifact for $(uname -m); this build will use an installed CLI."; exit 0 ;;
   esac
-  install -m 755 "$(fetch "$target")" "$destination"
+  binary="$(fetch "$target")" || exit 1
+  install -m 755 "$binary" "$destination"
 fi
 cp "$manifest" "$app/Contents/Resources/coderouter-cli.json"
 expected="coderouter $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$manifest")"
