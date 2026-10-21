@@ -1145,6 +1145,11 @@ fn cmux_setup_mcp_with_neither_harness_installed_is_ok() {
     assert_eq!(result["user_action"], Value::Null, "{result}");
     let clients = result["clients"].as_array().unwrap();
     assert!(clients.iter().all(|c| c["state"] == "not_applicable"), "{result}");
+    // Named but not installed: the install comes before the switch.
+    let named = world.json(&["setup", "mcp", "claude"]);
+    assert_eq!(named["state"], "needs_user", "{named}");
+    assert_eq!(named["user_action"], named["clients"][0]["user_action"], "{named}");
+    assert_eq!(named["user_action"]["kind"], "install", "{named}");
 }
 
 /// A `cmux` server whose command is gone (an app that moved) is replaced,

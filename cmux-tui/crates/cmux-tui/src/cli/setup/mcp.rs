@@ -237,14 +237,15 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
         Err(error) => Some(switch(&settings, Some(error.as_str()))),
     };
     let mut user_action = Value::Null;
-    let (mut failed, mut planned, mut changed, mut wired) = (false, false, false, false);
+    let (mut failed, mut planned, mut changed, mut installed) = (false, false, false, false);
     for client in clients {
         let (next, found) = plan(client, request.clients.contains(&client), path.as_deref());
-        wired |= !matches!(next, Plan::Absent);
+        let here = on_path(path.as_deref(), client.id()).is_some();
+        installed |= here;
         let mut row = json!({
             "id": client.id(),
             "name": client.name(),
-            "installed": on_path(path.as_deref(), client.id()).is_some(),
+            "installed": here,
             "config": client.config(),
             "entry": found.as_ref().map(Entry::json),
             "undo": Value::Null,
@@ -292,8 +293,8 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
         rows.push(row);
     }
     // The switch comes first, but only when a harness is there to wire:
-    // with none installed there is nothing to do.
-    if let Some(action) = off.filter(|_| wired) {
+    // with none installed there is nothing to do, or the install comes first.
+    if let Some(action) = off.filter(|_| installed) {
         user_action = action;
     }
     let state = if failed {
