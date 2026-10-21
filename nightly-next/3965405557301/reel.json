@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "build": "3965405557301",
+  "notes": "notes/3965405557301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22683,
+      "title": "cmux NEXT: Chief view gallery, five experimental views beside the Chief",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23573,
+      "title": "fix(next tests): Chief Settings' Diagnostics is one accessibility control, and its test can see it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23595,
+      "title": "cmux NEXT App Store: Remove on a card an organization keeps on says why",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23569,
+      "title": "webviews: a gallery warm-up returns once Vite's dependency optimizer has settled (new-tab-list-motion red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23553,
+      "title": "fix(ci): three preflight guard reds on feat-cmux-next (tour display pid, reload shim test, fleet-test-compile runners)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23503,
+      "title": "cmux-next fast gates: check paths a merger reads, and the webviews checks on a dispatch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23594,
+      "title": "cmux-mobile-link: a Mac's STUN-silent roam keeps asking for the TURN allocation it missed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23590,
+      "title": "fix(next): Switch to tab focuses a tab with no surface yet; cold-tab and jump tests wait for the daemon's tab",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23537,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-baaef75ede8b (app FFI pin base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23571,
+      "title": "acpmux: a Claude subagent's late lines stay under its own session",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23543,
+      "title": "Markdown: color only the code near the viewport, so a long multi-language file opens fast",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
