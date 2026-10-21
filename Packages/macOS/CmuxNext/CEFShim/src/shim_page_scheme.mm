@@ -153,9 +153,10 @@ void DynamicResource::Cancel() {
 // Immutable after construction: Create runs off the UI thread.
 class PageFactory : public CefSchemeHandlerFactory {
  public:
-  PageFactory(std::string domain, std::string root, std::string csp, std::vector<std::string> dynamic_prefixes)
+  PageFactory(std::string domain, std::string root, std::string csp, std::vector<std::string> dynamic_prefixes,
+              std::string entry)
       : domain_(std::move(domain)), root_(std::move(root)), csp_(std::move(csp)),
-        dynamic_prefixes_(std::move(dynamic_prefixes)) {}
+        dynamic_prefixes_(std::move(dynamic_prefixes)), entry_(std::move(entry)) {}
 
   CefRefPtr<CefResourceHandler> Create(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, const CefString&,
                                        CefRefPtr<CefRequest> request) override {
@@ -186,7 +187,10 @@ class PageFactory : public CefSchemeHandlerFactory {
       static char kBody[] = "Not Found";
       return Respond(404, "Not Found", "text/plain", Headers(), kBody, sizeof(kBody) - 1);
     }
-    if (parsed && ResolvePagePath(root_, CefString(&parts.path).ToString(), &file, &mime)) {
+    std::string path = parsed ? CefString(&parts.path).ToString() : std::string();
+    // "/" is the page's entry document (a shared build folder names its own).
+    if ((path.empty() || path == "/") && !entry_.empty()) path = "/" + entry_;
+    if (parsed && ResolvePagePath(root_, path, &file, &mime)) {
       if (CefRefPtr<CefStreamReader> stream = CefStreamReader::CreateForFile(file)) {
         return new CefStreamResourceHandler(200, "OK", mime, Headers(), stream);
       }
@@ -212,6 +216,7 @@ class PageFactory : public CefSchemeHandlerFactory {
   const std::string root_;
   const std::string csp_;
   const std::vector<std::string> dynamic_prefixes_;
+  const std::string entry_;
   IMPLEMENT_REFCOUNTING(PageFactory);
 };
 
@@ -263,7 +268,13 @@ std::vector<std::string> SplitPrefixes(const char* text) {
 
 // first_party: only reserved ids; otherwise: never a reserved id.
 int AddPage(const char* id, const char* resource_root, const char* csp, bool first_party,
-            const char* dynamic_prefixes = nullptr) {
+            const char* dynamic_prefixes = nullptr, const char* entry = nullptr) {
+  // A plain file name: no path, no escape (ResolvePagePath checks it again).
+  std::string entry_name = entry && *entry ? entry : "";
+  if (entry_name.find('/') != std::string::npos || entry_name.find('\\') != std::string::npos || entry_name == "." ||
+      entry_name == "..") {
+    return 0;
+  }
   std::string domain;
   if (!id || !NormalizePageId(id, &domain) || !resource_root || !*resource_root) return 0;
   if (IsReservedPageId(domain) != first_party) return 0;
@@ -274,7 +285,7 @@ int AddPage(const char* id, const char* resource_root, const char* csp, bool fir
   // Pinned to its real path now (a later symlink swap of the given path
   // cannot move it); ResolvePagePath checks real paths again per request.
   CefRefPtr<PageFactory> factory =
-      new PageFactory(domain, root, csp ? csp : kCmuxPageDefaultCSP, SplitPrefixes(dynamic_prefixes));
+      new PageFactory(domain, root, csp ? csp : kCmuxPageDefaultCSP, SplitPrefixes(dynamic_prefixes), entry_name);
   pages()[domain] = factory;
   if (g_global_ready) CefRegisterSchemeHandlerFactory(kCmuxPageScheme, domain, factory);
   ForEachRequestContext([&](CefRefPtr<CefRequestContext> context) {
@@ -296,8 +307,8 @@ int cmux_shim_page_scheme_add_first_party(const char* id, const char* resource_r
 }
 
 int cmux_shim_page_scheme_add_first_party_dynamic(const char* id, const char* resource_root, const char* csp,
-                                                  const char* dynamic_prefixes) {
-  return AddPage(id, resource_root, csp, true, dynamic_prefixes);
+                                                  const char* dynamic_prefixes, const char* entry) {
+  return AddPage(id, resource_root, csp, true, dynamic_prefixes, entry);
 }
 
 int cmux_shim_page_resource_respond(int token, int status, const char* mime, const void* body, size_t length) {

@@ -30,7 +30,7 @@ enum FirstPartyPageSchemes {
     @MainActor static func bundledRoots(registered: (String) -> URL? = PageID.bundledRoot(for:)) -> [String: URL] {
         var roots: [String: URL] = [:]
         roots[PageDescriptor.agent.id] = agentPaneRoot
-        for page in descriptors where page != .agent { roots[page.id] = page.pagesBundleRoot }
+        for page in descriptors where page != .agent { roots[page.id] = page.pagesBundleRoot ?? registered(page.id) }
         return roots.filter { id, _ in descriptors.contains { $0.id == id } }
     }
 
@@ -61,7 +61,8 @@ enum FirstPartyPageSchemes {
         var out: [String: CEFPageSchemes.Entry] = [:]
         for (id, root) in accepted(roots: roots, bundleResources: bundleResources) {
             guard let page = descriptors.first(where: { $0.id == id }) else { continue }
-            out[id] = CEFPageSchemes.Entry(root: root, csp: page.csp.header, dynamicPrefixes: page.dynamicPrefixes.sorted())
+            out[id] = CEFPageSchemes.Entry(root: root, csp: page.csp.header, dynamicPrefixes: page.dynamicPrefixes.sorted(),
+                                           entry: page.entry)
         }
         return out
     }

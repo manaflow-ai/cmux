@@ -376,9 +376,10 @@ final class CEFRuntime {
         shim.setNewTabPageURL(BrowserNewTabPage.blankURL)
         // cmux-page:// first-party pages from their bundled roots (CEFPageSchemes).
         for (id, entry) in CEFPageSchemes.firstParty {
-            let added = entry.dynamicPrefixes.isEmpty
+            let added = entry.dynamicPrefixes.isEmpty && entry.entry == "index.html"
                 ? shim.pageSchemeAddFirstParty(id, entry.root.path, entry.csp)
-                : shim.pageSchemeAddFirstPartyDynamic(id, entry.root.path, entry.csp, entry.dynamicPrefixes.joined(separator: "\n"))
+                : shim.pageSchemeAddFirstPartyDynamic(id, entry.root.path, entry.csp, entry.dynamicPrefixes.joined(separator: "\n"),
+                                                      entry.entry)
             if added != 1 { logger.error("cmux-page \(id, privacy: .public) refused by the shim") }
         }
         // Google Chrome's native messaging hosts after cmux's own.

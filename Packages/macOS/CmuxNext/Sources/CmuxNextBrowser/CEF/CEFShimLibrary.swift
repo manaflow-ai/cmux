@@ -202,9 +202,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let pageSchemeAdd: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// The same for reserved (`cmux.`) ids only: the first-party path (`CEFPageSchemes`).
     let pageSchemeAddFirstParty: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
-    /// The same with the page's dynamic prefixes (newline-separated), which the page host answers.
+    /// The same with the page's dynamic prefixes (newline-separated), which the page host answers,
+    /// and the file `/` serves (NULL = index.html).
     let pageSchemeAddFirstPartyDynamic: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
-                                                        UnsafePointer<CChar>?) -> Int32
+                                                        UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// Answers a PAGE_RESOURCE request: token, status, MIME, body, length; 1 when it was waiting.
     let pageResourceRespond: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafeRawPointer?, Int) -> Int32
 
