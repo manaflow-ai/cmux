@@ -103,6 +103,20 @@ pub const OFF_ENV: &str = "ACPMUX_AGENT_TOOLS_OFF";
 pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
     agents_workspace_select,agents_terminal_split,agents_terminal_focus,agents_tab_select,\
     agents_dialog_list,agents_dialog_answer,agents_events,agents_wait,render";
+/// What every agent chat is told about asking the person, in the cmux MCP
+/// server's `instructions` (`cmux mcp serve`, both modes). Chats start in
+/// Full access (`hub/policy_mode.rs`), and an agent there asked Leo a
+/// multiple-choice question that read "Waiting for you: allow this?" (Leo
+/// 2026-10-21: decide, say why, continue). The bundled acpmux skill and the
+/// cmux skill say the same.
+pub const ASKING_RULE: &str = "Asking the person: the person allows tools through the chat's \
+    mode and the harness's own permission prompts, never through your questions, and a chat in \
+    Full access (Claude Code bypassPermissions, Codex full access) has already allowed every \
+    step. So never ask them to allow, confirm or approve a step, neither with AskUserQuestion \
+    nor in text (\"allow this?\", \"should I go ahead?\"): decide, say why in one line, and go \
+    on. Ask only about product taste you cannot settle from the request or the code (how \
+    something should look, read or behave), and ask it as that choice, never as a permission.";
+
 /// The plugin name Claude Code shows before each skill (`cmux:cmux-browser`).
 pub const PLUGIN_NAME: &str = "cmux";
 

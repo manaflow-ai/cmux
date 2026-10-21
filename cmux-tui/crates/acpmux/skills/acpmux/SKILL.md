@@ -52,6 +52,15 @@ refused (`subsessions.answers_off`, `subsessions.not_a_question`). A
 permission request or a plan approval is never a question: only the user
 allows it, in cmux NEXT, so tell the user which sub-session waits.
 
+Your own questions follow the same split. The user allows tools through the
+chat's mode and the harness's permission prompts, and a chat in Full access
+(Claude Code `bypassPermissions`, Codex full access) has already allowed
+every step. Never ask the user to allow, confirm or approve a step, with
+AskUserQuestion or in text ("allow this?", "should I go ahead?"): decide, say
+why in one line, and go on. Ask only about product taste you cannot settle
+from the request or the code (how something should look, read or behave),
+and ask it as that choice, never as a permission.
+
 ## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`
 
 One flag. The head is a family (`claude`, `codex`, `opencode`, `pi`, `omp`, `prime`,
