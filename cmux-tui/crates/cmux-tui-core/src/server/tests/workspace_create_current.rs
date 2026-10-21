@@ -52,4 +52,15 @@ fn create_workspace_places_against_the_clients_current_workspace() {
     // A current that is no workspace key counts as none.
     let e = create(&mux, "e", json!({"places_by_setting": true, "current": "not-a-key"}));
     assert_eq!(order(&mux, &[&a, &b, &c, &d, &e])[0], e, "no current workspace: the top");
+    drop(_after);
+    // The client's own value wins over this daemon's file: `top` here, `afterCurrent` sent.
+    let _top = NewWorkspacePlacement::Top.set_for_test();
+    let f = create(
+        &mux,
+        "f",
+        json!({"places_by_setting": true, "current": a, "placement": "afterCurrent"}),
+    );
+    let shown = order(&mux, &[&a, &b, &c, &d, &e, &f]);
+    let index = shown.iter().position(|key| key == &a).unwrap();
+    assert_eq!(shown.get(index + 1), Some(&f), "after a by the client's value: {shown:?}");
 }

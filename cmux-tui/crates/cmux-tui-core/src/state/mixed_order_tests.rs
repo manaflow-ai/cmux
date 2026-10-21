@@ -303,8 +303,9 @@ fn a_new_workspace_follows_the_creating_clients_current_workspace() {
     // `client`: None, a create that names no current workspace; Some(current), the client's
     // current workspace (None: the window shows a top page).
     let create = |name: &str, client: Option<Option<&str>>| {
-        let client = client.map(|current| {
-            crate::state::personal_order::ClientCurrent(current.map(str::to_string))
+        let client = client.map(|current| crate::state::personal_order::ClientCurrent {
+            current: current.map(str::to_string),
+            placement: None,
         });
         let key = crate::state::personal_order::with_client_current(client, || {
             mux.create_empty_workspace(Some(name.to_string()), None, None)

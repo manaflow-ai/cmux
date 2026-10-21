@@ -12,19 +12,23 @@ public struct CreateWorkspaceRequest: DaemonRequest {
     /// older daemon ignores both.
     public var placesBySetting: Bool
     public var current: WorkspaceKey?
+    /// The app's `workspaces.newPlacement` value (`top`, `beforeCurrent`, ...): the daemon places by it
+    /// rather than its own read of the settings file, so both use one value.
+    public var placement: String?
     public var mutation: MutationIdentity?
 
     public init(name: String? = nil, key: WorkspaceKey? = nil, placesBySetting: Bool = false, current: WorkspaceKey? = nil,
-                mutation: MutationIdentity?) {
+                placement: String? = nil, mutation: MutationIdentity?) {
         self.name = name
         self.key = key
         self.placesBySetting = placesBySetting
         self.current = current
+        self.placement = placement
         self.mutation = mutation
     }
 
     enum CodingKeys: String, CodingKey {
-        case name, key, current
+        case name, key, current, placement
         case placesBySetting = "places_by_setting"
     }
     public func encode(to encoder: any Encoder) throws {
@@ -33,6 +37,7 @@ public struct CreateWorkspaceRequest: DaemonRequest {
         try c.encodeIfPresent(key, forKey: .key)
         if placesBySetting { try c.encode(true, forKey: .placesBySetting) }
         try c.encodeIfPresent(current, forKey: .current)
+        try c.encodeIfPresent(placement, forKey: .placement)
         try MutationFields(identity: mutation).encode(to: encoder)
     }
 }

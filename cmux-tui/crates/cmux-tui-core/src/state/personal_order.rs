@@ -69,7 +69,12 @@ pub(crate) fn sidebar_workspace_ids(connection: &Connection) -> anyhow::Result<V
 /// its window shows, or none (the window shows a top page). Its own focus
 /// state holds it; the session's `active_workspace_id` is only a legacy default.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ClientCurrent(pub(crate) Option<String>);
+pub(crate) struct ClientCurrent {
+    /// The workspace the window shows; None: a top page.
+    pub(crate) current: Option<String>,
+    /// The client's `workspaces.newPlacement`; None: this daemon's settings file.
+    pub(crate) placement: Option<NewWorkspacePlacement>,
+}
 
 thread_local! {
     /// Set around a creation on this thread ([`with_client_current`]).
@@ -112,6 +117,9 @@ pub(crate) struct CreatedWorkspaces {
     /// `current` is the creating client's: `top` and `bottom` then keep the
     /// new row in the current workspace's group, as that client does.
     from_client: bool,
+    /// The creating client's `workspaces.newPlacement`, so the daemon places
+    /// the row by the value the client places it by, whatever its own file says.
+    placement: Option<NewWorkspacePlacement>,
 }
 
 /// The workspaces `patch` creates (no live resource row yet). Read before
@@ -138,8 +146,8 @@ pub(crate) fn created_workspaces(
         }
     }
     let client = if keys.is_empty() { None } else { client_current() };
-    if let Some(ClientCurrent(current)) = client {
-        return Ok(CreatedWorkspaces { keys, current, from_client: true });
+    if let Some(ClientCurrent { current, placement }) = client {
+        return Ok(CreatedWorkspaces { keys, current, from_client: true, placement });
     }
     let current = if keys.is_empty() {
         None
@@ -156,7 +164,7 @@ pub(crate) fn created_workspaces(
             None => None,
         }
     };
-    Ok(CreatedWorkspaces { keys, current, from_client: false })
+    Ok(CreatedWorkspaces { keys, current, from_client: false, placement: None })
 }
 
 /// Give each created workspace its personal row, unless it already has one
@@ -178,7 +186,11 @@ pub(crate) fn place_created_workspaces(
     if created.keys.is_empty() {
         return Ok(());
     }
-    place_created_workspaces_at(transaction, created, NewWorkspacePlacement::current())
+    place_created_workspaces_at(
+        transaction,
+        created,
+        created.placement.unwrap_or_else(NewWorkspacePlacement::current),
+    )
 }
 
 pub(crate) fn place_created_workspaces_at(

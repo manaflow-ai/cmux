@@ -1264,6 +1264,11 @@ enum Command {
         places_by_setting: bool,
         #[serde(default)]
         current: Option<String>,
+        /// The client's `workspaces.newPlacement` (`top`, `beforeCurrent`,
+        /// `afterCurrent`, `bottom`), used instead of this daemon's settings
+        /// file so both place the row by one value. Unknown or absent: the file.
+        #[serde(default)]
+        placement: Option<String>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },

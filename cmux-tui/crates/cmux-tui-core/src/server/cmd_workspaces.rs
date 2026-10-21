@@ -40,6 +40,7 @@ pub(super) fn create_workspace(
     key: Option<String>,
     places_by_setting: bool,
     current: Option<String>,
+    placement: Option<String>,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
     if let Some(key) = key.as_deref()
@@ -49,8 +50,10 @@ pub(super) fn create_workspace(
     }
     // A current workspace that is no workspace key counts as none.
     let current = current.filter(|key| crate::workspace_registry::is_canonical_workspace_key(key));
+    let placement =
+        placement.as_deref().and_then(crate::user_settings::NewWorkspacePlacement::from_name);
     let placed_by = (places_by_setting || current.is_some())
-        .then(|| crate::state::personal_order::ClientCurrent(current));
+        .then(|| crate::state::personal_order::ClientCurrent { current, placement });
     let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
     let placement = crate::state::personal_order::with_client_current(placed_by, || {
         mux.create_empty_workspace_with_mutation(

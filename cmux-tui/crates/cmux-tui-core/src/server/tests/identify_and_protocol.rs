@@ -93,6 +93,7 @@ fn receipted_workspace_create_keeps_legacy_workspace_cas_consistent() {
             key: Some("018f6e21-7b70-7e70-8000-0000000000aa".into()),
             places_by_setting: false,
             current: None,
+            placement: None,
             mutation: MutationRequest {
                 origin: Some("chrome-gui".into()),
                 mutation_id: Some("alt-n-create".into()),

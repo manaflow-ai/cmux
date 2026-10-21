@@ -102,6 +102,7 @@ enum NewWorkspacePlacements {
     static func expect(_ id: String, in windowID: String?, slot: WorkspaceSlot? = nil, byDefault: NewWorkspaceDefaultSlot?,
                        then: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = nil, windows: WindowManager) {
         guard slot != nil || byDefault != nil || then != nil else { return }
+        if let anchor = anchor(slot: slot, byDefault: byDefault, home: home(windows.services.machines)) { anchors[id] = anchor }
         windows.pendingPlacements[id] = PendingPlacement(window: windowID, slot: slot, byDefault: byDefault, then: then)
         if windows.services.machines.workspace(id: id) != nil { windows.applyPendingPlacements(live: [id]) }
     }
@@ -110,6 +111,37 @@ enum NewWorkspacePlacements {
     /// this Mac's daemon placed them at their slot in the commit that made them, under every value, so
     /// `applyPendingPlacements` sends no second write for them (a second state change and render).
     static var placedByDaemon: Set<String> = []
+
+    /// The neighbour each new workspace lists beside until the sidebar document places it
+    /// (`SidebarDocSections.unplacedAnchor`), where the daemon's create puts it. Dropped once the
+    /// document places the workspace or it is gone (`unplacedAnchor(of:)`).
+    static var anchors: [String: SidebarDocSections.UnplacedAnchor] = [:]
+
+    /// The neighbour of a new workspace placed at `slot`, else by `byDefault`: right before or after
+    /// the window's current workspace (not Home), or the one New Workspace Above or Below names.
+    static func anchor(slot: WorkspaceSlot?, byDefault: NewWorkspaceDefaultSlot?, home: String?) -> SidebarDocSections.UnplacedAnchor? {
+        switch slot {
+        case .above(let id)?: return .before(id)
+        case .below(let id)?: return .after(id)
+        case nil: break
+        default: return nil
+        }
+        guard let byDefault, let current = byDefault.current, current != home else { return nil }
+        switch byDefault.placement {
+        case .beforeCurrent: return .before(current)
+        case .afterCurrent: return .after(current)
+        case .top, .bottom: return nil
+        }
+    }
+
+    /// The neighbour `workspace` lists beside while the document does not place it; prunes the ones placed or gone.
+    static func unplacedAnchor(of workspace: WorkspaceModel, machines: MachineRegistry) -> SidebarDocSections.UnplacedAnchor? {
+        guard !anchors.isEmpty else { return nil }
+        if anchors.count > 16 {
+            anchors = anchors.filter { id, _ in machines.workspace(id: id) != nil && SidebarDocWiring.item(workspace: id, machines) == nil }
+        }
+        return anchors[workspace.id]
+    }
 
     /// The local home workspace (`workspace-kind-v1`), whose row `top` stays below.
     static func home(_ machines: MachineRegistry) -> String? {

@@ -66,7 +66,7 @@ enum WorkspaceCreation {
         if rule != nil { NewWorkspacePlacements.placedByDaemon.insert(key.rawValue) }
         return try await repair.populating(key) {
             try await withTerminal(
-                key, createWorkspace: { _ = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, placesBySetting: rule != nil, current: rule?.current.map { WorkspaceKey(rawValue: $0) }) },
+                key, createWorkspace: { _ = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, placesBySetting: rule != nil, current: rule?.current.map { WorkspaceKey(rawValue: $0) }, placement: rule?.placement.rawValue) },
                 createTerminal: terminal,
                 closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
             )
@@ -90,7 +90,7 @@ enum WorkspaceCreation {
         return try await repair.populating(key) {
             var created: WorkspaceMutationResult?
             return try await withTerminal(
-                key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, placesBySetting: rule != nil, current: rule?.current.map { WorkspaceKey(rawValue: $0) }) },
+                key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, placesBySetting: rule != nil, current: rule?.current.map { WorkspaceKey(rawValue: $0) }, placement: rule?.placement.rawValue) },
                 createTerminal: { _ in
                     guard let created else { throw DaemonError.notConnected }
                     return try await firstTab(created)
