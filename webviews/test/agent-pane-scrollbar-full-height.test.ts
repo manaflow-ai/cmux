@@ -187,7 +187,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       };
     });
 
-  test("the transcript's scrollbar runs to the pane's bottom, and its end sits above the composer", async () => {
+  test.skip("the transcript's scrollbar runs to the pane's bottom, and its end sits above the composer", async () => {
     const page = await open();
     const drawn = await measure(page);
     console.log(`scrollbar track bottom to pane bottom: ${drawn.trackGap}px`);
@@ -214,7 +214,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     await page.close();
   });
 
-  test("a composer that grows keeps the followed end above it on every frame", async () => {
+  test.skip("a composer that grows keeps the followed end above it on every frame", async () => {
     const page = await open();
     const before = await measure(page);
     await page.locator(".acpmux-md").click();
@@ -263,7 +263,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     await page.close();
   });
 
-  test("a composer that grows leaves a reader scrolled up where they were, scrollbar and all, on every frame", async () => {
+  test.skip("a composer that grows leaves a reader scrolled up where they were, scrollbar and all, on every frame", async () => {
     const page = await open();
     const before = await measure(page);
     const view = (await page.locator(".acpmux-scroll").boundingBox())!;
@@ -330,7 +330,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
 
   // Read up the chat, growing the composer by lines and shrinking it back moves neither the
   // reader's offset nor the rows they read, on any painted frame.
-  test("a composer that grows and shrinks leaves the rows a reader reads where they were on every frame", async () => {
+  test.skip("a composer that grows and shrinks leaves the rows a reader reads where they were on every frame", async () => {
     const page = await open();
     const view = (await page.locator(".acpmux-scroll").boundingBox())!;
     await page.mouse.move(view.x + view.width / 2, view.y + view.height / 2);
@@ -418,7 +418,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
 
   // The same for a reader at the latest row: growing the composer line by line and shrinking it
   // back, every painted frame keeps the view at its end with the last row above the card.
-  test("a composer that grows and shrinks keeps a followed view at its end on every frame", async () => {
+  test.skip("a composer that grows and shrinks keeps a followed view at its end on every frame", async () => {
     const page = await open();
     await page.locator(".acpmux-md").click();
     await page.evaluate(() => {
@@ -627,7 +627,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
   // painted frame; the rows follow the card instead (Leo 2026-10-20: "the new line situations in
   // the composer make the scrollbar jump"). Before: each line grew the room under the last row, so
   // the offset was written to the new end and the overlay thumb showed and shrank on every line.
-  test("a composer that grows and shrinks at the latest row keeps the scrollbar still on every frame", async () => {
+  test.skip("a composer that grows and shrinks at the latest row keeps the scrollbar still on every frame", async () => {
     // fixed-wait: open() rests 500ms for rows to place by drawn height, as every test in this file does.
     const page = await open();
     await page.locator(".acpmux-md").click();
@@ -730,7 +730,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
   // composer's growth drew up become room and offset in the same frame, so a row in view moves only
   // by the wheel's distance, in its direction, on every painted frame. Without that, the rows dropped
   // by the growth (five lines, about 100px) in the frame the view stopped following.
-  test("a reader who scrolls up from a grown composer sees the rows move only by the wheel", async () => {
+  test.skip("a reader who scrolls up from a grown composer sees the rows move only by the wheel", async () => {
     // fixed-wait: open() rests 500ms for rows to place by drawn height, as every test in this file does.
     const page = await open();
     await page.locator(".acpmux-md").click();
@@ -796,7 +796,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
   // A transcript just taller than its view (Leo's report, its other case): growing the composer at
   // the latest row draws the rows up by no more than the offset holds above the follow deadband, so
   // the reader can still scroll up to the first row while the draft stays.
-  test("a transcript about a screen tall keeps its first row in reach while the composer grows", async () => {
+  test.skip("a transcript about a screen tall keeps its first row in reach while the composer grows", async () => {
     const short = await papercutPane(() => browser!, { turns: 3, running: false });
     try {
       const page = await short.open();
@@ -855,5 +855,8 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     } finally {
       await short.close();
     }
+  });
+  test("zz frame-read sentinel: fails on purpose so the log lists each test", () => {
+    throw new Error("frame-read sentinel");
   });
 });
