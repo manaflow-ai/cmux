@@ -34,5 +34,14 @@ public nonisolated struct HomeTunables {
         help: "The empty Chief conversation shows the Chief's character and two lines about what it does above its rows. Off shows only the rows.",
         default: true, code: "HomeTunables.firstRunHero")
 
-    public static var all: [TunableDescriptor] { [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor] }
+    /// The message box's mic (`HomeVoiceDictation`): on-device dictation into the field. On by
+    /// default (Leo 2026-10-20); off shows Messages' drawn waveform, which does nothing.
+    public static let voiceInput = Tunable<Bool>.toggle(
+        "home.voiceInput", section, "Mic button in the message box",
+        help: "The mic in the empty message box dictates into it (on-device speech). Off shows the drawn waveform instead.",
+        default: true, code: "HomeTunables.voiceInput")
+
+    public static var all: [TunableDescriptor] {
+        [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, voiceInput.descriptor]
+    }
 }

@@ -19,9 +19,15 @@ public nonisolated enum AgentPaneDictationCommand: Equatable, Sendable {
 
 /// The microphone the agent panes share: at most one listens at a time.
 final class DictationMicrophone {
-    static let shared = DictationMicrophone()
+    static let shared = DictationMicrophone(claims: .shared)
     /// The pane that listens now, if any.
     weak var listening: AgentPaneDictation?
+    /// The app-wide claim the panes share with Home's message box (nil: panes only, tests).
+    let claims: DictationMicrophoneClaims?
+
+    init(claims: DictationMicrophoneClaims? = nil) {
+        self.claims = claims
+    }
 
     /// Stops whichever pane listens, keeping its words. False when none does.
     @discardableResult
@@ -193,6 +199,8 @@ final class AgentPaneDictation {
     private func start() {
         if let other = microphone.listening, other !== self { other.session?.stop() }
         microphone.listening = self
+        // Home's message box listening stops first (one microphone across surfaces).
+        microphone.claims?.claim(self) { [weak self] in self?.session?.stop() }
         let session = activeSession()
         session.recordsAudio = recordsAudio
         session.start()
@@ -221,6 +229,7 @@ final class AgentPaneDictation {
             endHold()
             endSleepWatch()
             if microphone.listening === self { microphone.listening = nil }
+            microphone.claims?.release(self)
         }
         send(update)
     }

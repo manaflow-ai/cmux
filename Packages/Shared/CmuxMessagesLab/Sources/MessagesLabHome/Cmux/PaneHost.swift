@@ -56,6 +56,9 @@ final class HostView: NSView {
     let fieldChrome = FieldChrome()
     /// cmux: the field's send button (the waveform's slot when the field has text; ComposeSendButton).
     let sendButton = ComposeSendButton(frame: .zero)
+    /// cmux: the voice input's mic, waveform and finish buttons, and "Listening…" (ComposeVoiceControls.swift).
+    let voiceControls = ComposeVoiceControls(frame: .zero)
+    let listeningLine = ComposeListeningLine(frame: .zero)
     /// The blurred, darkened transcript under the header controls.
     let headerBackdrop = HeaderBackdropView(frame: .zero)
     /// cmux: the in-pane header controls (HeaderBar's avatar and name pill).
@@ -110,6 +113,8 @@ final class HostView: NSView {
         addSubview(demo.compose.textView.clip)
         // cmux: above the text view's clip (the text leaves its slot free).
         addSubview(sendButton)
+        addSubview(listeningLine)
+        addSubview(voiceControls)
         addSubview(paneHeader)
         addSubview(above)
         // The in-pane header replaces the shared drawn header (fitted blur,
@@ -400,6 +405,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var isWorking = false { didSet { if isWorking != oldValue { updateStopButton() } } }
     /// cmux: opens the system emoji picker (ChatController+Emoji.swift; tests count the calls).
     var openEmojiPalette: () -> Void = { NSApp.orderFrontCharacterPalette(nil) }
+    /// cmux: the message box's dictation (ComposeVoice.swift).
+    private(set) lazy var voice = ComposeVoice(controller: self)
     /// cmux: Up and Down in the field browse the sent messages (PaneHost+History.swift).
     var composerHistory = ComposerHistory()
     var clock: Double { CACurrentMediaTime() - start }
@@ -412,6 +419,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         super.init()
         host.controller = self
         host.fieldChrome.onEmoji = { [weak self] in self?.roundButtonClicked() }
+        host.voiceControls.onMic = { [weak self] in self?.voice.toggle() }
+        host.voiceControls.onFinish = { [weak self] in self?.voice.finish() }
     }
 
     deinit {
@@ -473,17 +482,18 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
         let tv = demo.compose.textView
         tv.view.delegate = self
-        tv.onSend = { [weak self] in self?.send() }
+        // cmux: Return while dictating finishes it (the words stay to edit), it does not send.
+        tv.onSend = { [weak self] in if self?.voice.finish() != true { self?.send() } }
         // cmux: the send button sends as Return does, and follows the field and the draft.
         host.sendButton.onSend = { [weak self] in self?.send(); self?.focusCompose() }
         demo.compose.onSlotChange = { [weak self] in self?.placeSendButton(animated: true) }
+        voiceChromeChanged(animated: false)  // cmux: the mic, when the host gave an engine before the field existed
         tv.onEscape = { [weak self] in self?.escape() }
         // cmux: files and pictures go through the host's intake (Home's type
         // rule, prepared by HomeStore); a picture it refuses is not attached.
         tv.view.onPastePasteboard = { [weak self] pb in self?.intents?.takeAttachments(from: pb) ?? false }
         tv.view.acceptsPastePasteboard = { [weak self] pb in self?.intents?.acceptsAttachments(from: pb) ?? false }
         tv.view.onDropPasteboard = { [weak self] pb in self?.takeDrop(pb) ?? false }
-        tv.view.onPasteImage = { _ in }
         tv.view.onMarkedTextChange = { [weak self] in
             guard let self, let demo = self.demo, let store = self.store else { return }
             let s = demo.compose.textView.view.string
@@ -633,6 +643,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         guard let demo else { return }
         let tv = demo.compose.textView.view
+        voice.fieldChanged()  // cmux: the person typed while dictating: the words stay, the session stops
         let draft = store?.state.ui.draft.attachments ?? []
         // cmux: attachments are in the text (Draft+InlineMarks.swift). An attachment character that
         // stands for no draft attachment (a pasted U+FFFC, an undo of a removal) leaves the text.
@@ -651,6 +662,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func escape() {
         if picker != nil { closePicker(); return }
+        // cmux: Esc while dictating drops the words and leaves the draft as it was.
+        if voice.cancel() { return }
         // In the field a working agent stops first (one Esc), as before threads; then the
         // thread view. The pane's Esc monitor (focus on the transcript) only closes the view.
         if isWorking { onStop?(); return }
