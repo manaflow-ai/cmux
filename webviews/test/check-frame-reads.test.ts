@@ -31,7 +31,7 @@ test("a frame callback that reads layout is named; one that only writes passes",
   expect(check(`requestAnimationFrame(() => setTimeout(() => read(el.offsetTop), 0));`)).toEqual([]);
 });
 
-test("a named frame awaiter is named; an inline two-frame wait from the test passes", () => {
+test("a frame awaiter is named, named or awaited before a read; a wait the test awaits passes", () => {
   const errors = check(`const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));`);
   expect(errors).toHaveLength(1);
   expect(errors[0]).toContain("awaits a frame in frame()");
@@ -39,6 +39,19 @@ test("a named frame awaiter is named; an inline two-frame wait from the test pas
     check(
       `await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));`,
     ),
+  ).toEqual([]);
+  // Awaited inside the page and then read, the read runs before that frame's layout and paint.
+  expect(
+    check(`await page.evaluate(async () => {
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  return box.getBoundingClientRect().top;
+});`)[0],
+  ).toContain(":3: awaits a frame and then reads layout before the frame paints");
+  expect(
+    check(`await page.evaluate(async () => {
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  shown = true;
+});`),
   ).toEqual([]);
 });
 

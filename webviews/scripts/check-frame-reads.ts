@@ -82,7 +82,8 @@ function readsLayout(fn: ts.Node): boolean {
  * a requestAnimationFrame callback, which runs before the frame's ResizeObservers and paint and so
  * can see a state nobody saw. Flagged: a callback that reschedules itself (a per-frame sampler); a
  * frame callback that reads layout; a named function that awaits a frame (`new Promise((resolve) =>
- * requestAnimationFrame(resolve))`), whose caller reads in the same microtask. A frame callback
+ * requestAnimationFrame(resolve))`), whose caller reads in the same microtask; a function that awaits
+ * such a frame inline and then reads layout. A frame callback
  * that has to read there says why in a `// raf-read: <reason>` comment on one of the two lines above.
  */
 export function checkFrameReadsSource(file: string, text: string): string[] {
@@ -114,9 +115,11 @@ export function checkFrameReadsSource(file: string, text: string): string[] {
             flag(node, `samples every frame in a requestAnimationFrame callback (${callback.text})`);
             break;
           }
-        // A frame awaiter: `const frame = () => new Promise((resolve) => requestAnimationFrame(resolve))`.
+        // A frame awaiter: `const frame = () => new Promise((resolve) => requestAnimationFrame(resolve))`,
+        // or the same wait over two frames, `requestAnimationFrame(() => requestAnimationFrame(resolve))`.
         let executor: ts.Node | undefined = node.parent;
-        while (executor && !isFunction(executor)) executor = executor.parent;
+        while (executor && !(isFunction(executor) && executor.parameters[0]?.name.getText(source) === callback.text))
+          executor = executor.parent;
         const promise = executor?.parent;
         if (
           executor &&
@@ -130,6 +133,9 @@ export function checkFrameReadsSource(file: string, text: string): string[] {
           while (owner && !isFunction(owner)) owner = owner.parent;
           if (owner && boundName(owner))
             flag(node, `awaits a frame in ${boundName(owner)}(), so its caller reads before the frame paints`);
+          // `await new Promise(...)` then a read: the read runs in a microtask of the frame's callbacks.
+          else if (owner && ts.isAwaitExpression(promise.parent) && readsLayout(owner))
+            flag(node, "awaits a frame and then reads layout before the frame paints");
         }
       } else if (callback && isFunction(callback) && readsLayout(callback)) {
         flag(node, "reads layout in a requestAnimationFrame callback");

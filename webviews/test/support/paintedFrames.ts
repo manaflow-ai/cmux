@@ -34,8 +34,8 @@ function definePaintedFrames() {
   };
   window.cmuxAfterPaint = (read, drive) => {
     let stopped = false;
-    // The next frame is asked for in this one's callback, so no frame goes unread; a read that
-    // runs late still reads a painted state, as tasks run between frames.
+    // The next frame is asked for in this one's callback, so no frame goes unread. A read runs as
+    // the first task after its frame; under heavy load Chromium can start the next frame first.
     const tick = (frame: number) => {
       if (stopped) return;
       requestAnimationFrame(tick);
