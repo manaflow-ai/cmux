@@ -28,7 +28,6 @@ import {
   type ComposerPermissionAccess,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
-import { FastToggle, SpeedToggleHost, type SpeedTiers } from "./FastToggle";
 import { ComposerFoot } from "./ComposerFoot";
 import { Icon } from "./icons/Icon";
 import { MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
@@ -61,6 +60,7 @@ import { useComposerSettings } from "./composerSettings";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
 import { AttachmentStrip, attachmentErrorText, useAttachmentIntake } from "./composer/attachmentIntake";
+import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
@@ -136,6 +136,10 @@ export type ComposerHandle = {
   send(): boolean;
   /// Puts the caret in the prompt (Edit and Resend).
   focus(): void;
+  /// Starts the prompt with `prefix` (the palette's Side Question writes `/btw `), keeping what is
+  /// typed after it, and puts the caret at the end. A prompt that already starts with it only
+  /// takes focus.
+  prefill(prefix: string): void;
   /// What it holds that acpmux's draft does not, for a page about to let go (`pane.wakeState`):
   /// file chips and shell mode's unrun command. Shell runs and move chips stay with their page.
   wakeState(): ComposerWake;
@@ -186,11 +190,16 @@ type Props = {
   /// The context menu's Cut, Copy, Paste and Paste as Plain Text: the host runs the web view's own
   /// editing command (`pane.edit`). Without it those items are disabled.
   onEdit?(command: ComposerEditCommand): void;
-  /// Handles a cmux-owned slash command after the user submits it.
-  onCmuxCommand?(command: CmuxCommand, args?: string): boolean | void;
+  /// Handles a cmux-owned slash command after the user submits it. False keeps the prompt; a
+  /// promise keeps it until it settles, clearing it only when it resolves.
+  onCmuxCommand?(command: CmuxCommand, args?: string): boolean | void | Promise<unknown>;
+  /// The empty prompt's text in place of the usual one (a side session's "Reply in this session…").
+  placeholder?: string;
   /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
   /// keeps it with the tab, so a relaunch opens the chat with it (cx-z5vd).
   onUnsentDraft?(text: string): void;
+  /// Where the host keeps the chat's unsent chips, so they come back when the chat shows again.
+  keptAttachments?: KeptAttachments;
   /// Reads a transcript chosen by the cmux-owned `/import` command.
   onImportFile?(file: File): void | Promise<void>;
   /// Searches the session's files; the + menu offers Search files only when set.
@@ -199,8 +208,9 @@ type Props = {
   /// or a window, attached as an image; an error for one too large to attach (shown as the
   /// composer's note); undefined when the person cancelled the pick.
   capture?(mode: "screen" | "window"): Promise<File | AttachmentError | undefined>;
-  /// Sends dropped or pasted files the composer can't attach to the chat's Cloud machine (a moved
-  /// chat): their machine paths go into the prompt. Undefined when this chat takes none.
+  /// Saves dropped, pasted or chosen files the composer can't attach where the agent reads them (a
+  /// moved chat's machine, or this Mac): each becomes a chip that sends its path. Undefined when this
+  /// chat takes none.
   upload?(files: File[]): Promise<UploadResult>;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
@@ -265,6 +275,7 @@ export function Composer({
   onEdit,
   onCmuxCommand,
   onUnsentDraft,
+  keptAttachments,
   onImportFile,
   searchFiles,
   capture,
@@ -289,6 +300,7 @@ export function Composer({
   sessionId,
   switching,
   blocked,
+  placeholder,
 }: Props) {
   const t = useT();
   const chrome = useComposerChrome();
@@ -374,8 +386,6 @@ export function Composer({
   const sendButton = useRef<HTMLButtonElement>(null);
   // The controls row swaps whole units as it narrows (composerRowFit.ts).
   const bar = useRef<HTMLDivElement>(null);
-  // The session's speed option, which the chips hand up: the bolt left of the mic (FastToggle.tsx).
-  const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css), and
   // whether Esc stops a turn on a double press (escapeStop.ts).
   const { plainFooter, showContextUsage, escapeDoublePress } = useComposerSettings();
@@ -397,22 +407,11 @@ export function Composer({
           ? { uploads: true }
           : undefined,
     ...(upload ? { upload } : {}),
-    insertPaths: (paths) => insertPaths(paths),
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
   // + then Attach files clicks this input: the system file chooser (an open panel in the app).
   const chooser = useRef<HTMLInputElement>(null);
-  /// Puts machine paths at the caret, one per line.
-  const insertPaths = (paths: string[]) => {
-    const handle = field.current;
-    if (!handle || paths.length === 0) return;
-    const { value, selectionStart, selectionEnd } = handle.text();
-    const before = value.slice(0, selectionStart);
-    const inserted = (before && !before.endsWith("\n") && !before.endsWith(" ") ? " " : "") + paths.join("\n");
-    const caret = before.length + inserted.length;
-    handle.writeText(before + inserted + value.slice(selectionEnd), caret, caret);
-  };
   useLayoutEffect(() => {
     if (refocusField.current && !snapshot.isWorking) {
       refocusField.current = false;
@@ -465,6 +464,16 @@ export function Composer({
       },
       send: () => submitNow.current(true),
       focus: () => field.current?.focus(),
+      prefill(prefix) {
+        const typed = (field.current?.value() ?? textRef.current).trimStart();
+        if (!typed.startsWith(prefix.trimEnd())) {
+          const next = prefix + typed;
+          pendingCaret.current = next.length;
+          setText(next);
+          setCaret(next.length);
+        }
+        field.current?.focus();
+      },
       wakeState: () => ({
         attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
         shell: shellRef.current.shell,
@@ -516,6 +525,8 @@ export function Composer({
     setCaret(initial.length);
     pendingCaret.current = initial.length;
   }, [sessionId, text, draft]);
+  // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
+  useKeptAttachments(sessionId, attachments, setAttachments, keptAttachments, () => carryPrompt.current);
   // After the session effect, so a switch that ends with its session change still carries.
   useEffect(() => {
     if (!switching) carryPrompt.current = false;
@@ -705,6 +716,25 @@ export function Composer({
       } else {
         const accepted = onCmuxCommand(owned, commandArgs(prompt, owned));
         if (accepted === false) return false;
+        if (accepted instanceof Promise) {
+          // The prompt stays until the command is done; a refusal leaves it to send again.
+          const written = field.current?.value() ?? "";
+          sending.current = true;
+          accepted.then(
+            () => {
+              sending.current = false;
+              // What was typed meanwhile stays.
+              if ((field.current?.value() ?? written) !== written) return;
+              plusDraft.current = undefined;
+              edit("", 0);
+              sentAt.current = Date.now();
+            },
+            () => {
+              sending.current = false;
+            },
+          );
+          return true;
+        }
       }
       setAttachments((current) => current.filter((attachment) => !attachments.includes(attachment)));
       setAttachError(undefined);
@@ -1054,7 +1084,7 @@ export function Composer({
   // The Quick Composer's ⌘Return opens the window, so there it names Return alone; an agent that
   // cannot steer says it queues.
   // While the double press is armed, the placeholder says to press Esc again, as Stop's hint does.
-  const placeholder = escapeStop.armed
+  const placeholderKey = escapeStop.armed
     ? COMPOSER_LABELS.escapeAgainToStop
     : !queues
       ? COMPOSER_LABELS.placeholder
@@ -1063,6 +1093,10 @@ export function Composer({
         : onOpenInWindow
           ? COMPOSER_LABELS.placeholderSteerQuick
           : COMPOSER_LABELS.placeholderSteer;
+  // A side session's idle prompt reads "Reply in this session…" (the `placeholder` prop); the
+  // mid-turn and Esc hints still win, since they say what a key does now.
+  const placeholderText =
+    placeholder && placeholderKey === COMPOSER_LABELS.placeholder ? placeholder : t(placeholderKey);
   // A dictation waiting for words says so in the empty prompt, in italic (dictation.css).
   const dictating = useDictationListening();
   // An idle new chat suggests the open PR another chat in this checkout made, Tab to take it
@@ -1400,7 +1434,7 @@ export function Composer({
               shell ? "acpmux-composer-prompt is-hidden" : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}`
             }
             value={text}
-            placeholder={dictating ? t("dictation.listening") : (suggested ?? t(placeholder))}
+            placeholder={dictating ? t("dictation.listening") : (suggested ?? placeholderText)}
             placeholderKey={suggested && !dictating ? t(COMPOSER_LABELS.suggestionKey) : undefined}
             attributes={{
               "aria-description": suggested ? `${suggested}. ${t(COMPOSER_LABELS.suggestionHint)}` : undefined,
@@ -1483,6 +1517,7 @@ export function Composer({
             ) : (
               <Picker
                 label={t(COMPOSER_LABELS.add)}
+                tooltip={t(capture && allowImages ? "composer.addTooltip" : "composer.addTooltipNoCapture")}
                 className="acpmux-composer-plus"
                 button={<PlusIcon />}
                 align="start"
@@ -1553,12 +1588,8 @@ export function Composer({
             )}
             {/* The granted-permission status gets no slot of its own in this row (hq#1957 item 15
                 compact row): grants live in the permission mode's Access menu, one lock. */}
-            {/* The chips hand up the speed option the bolt before the mic draws (FastToggle.tsx). */}
-            {!plainFooter && (
-              <SpeedToggleHost.Provider value={setSpeed}>
-                <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
-              </SpeedToggleHost.Provider>
-            )}
+            {/* Fast mode is a row of the model button's menu (Leo 2026-10-20: one button, no bolt). */}
+            {!plainFooter && <Chips snapshot={snapshot} permissionAccess={permissionAccess} />}
             <span className="acpmux-composer-actions">
               {/* While a turn runs, a typed prompt gets one icon control, not a word (Leo
                   2026-10-20): ↵ puts it into the turn now, as Return does; ⌘Return queues it. It
@@ -1582,7 +1613,6 @@ export function Composer({
                   <ReturnIcon />
                 </button>
               )}
-              {!plainFooter && speed && <FastToggle speed={speed} />}
               {plainFooter && stopButton}
               {/* The mic stays at every width; the prompt shrinks instead (composerRowFit.ts). */}
               {accessory && (
@@ -1627,10 +1657,7 @@ export function Composer({
       {plainFooter && (
         <ChromeArea className="acpmux-chrome-area" items={chrome.all}>
           <ComposerFoot ref={bar}>
-            <SpeedToggleHost.Provider value={setSpeed}>
-              <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
-            </SpeedToggleHost.Provider>
-            {speed && <FastToggle speed={speed} />}
+            <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
             {/* Claude Code ends the row on the context ring. It keeps its place before the chat
                 reports usage (inert, ContextRing), so the first report moves nothing in the row
                 (hq#1957: the composer holds still while a turn runs); the context-usage setting

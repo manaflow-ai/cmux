@@ -11,7 +11,8 @@ enum AgentPanePageHost {
         let page = PageWebView(descriptor: .agent, root: root,
                                routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)],
                                documentAttributes: AgentPaneTunables.documentAttributes,
-                               options: PageEngineOptions(fullFrameRate: renderRate != .capped))
+                               options: PageEngineOptions(fullFrameRate: renderRate != .capped,
+                                                                  chromiumAgentChat: AgentPaneTunables.chromium.value))
         // The composer menu's edits run as the page view's own responder actions.
         provider.onEdit = { [weak page] command in
             if let view = page?.webKitView { NSApp.sendAction(command.selector, to: view, from: nil) }
