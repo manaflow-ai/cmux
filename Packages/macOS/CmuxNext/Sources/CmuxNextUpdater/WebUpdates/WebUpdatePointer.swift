@@ -105,7 +105,7 @@ nonisolated public struct WebUpdatePointer: Sendable, Equatable, Codable {
 /// The ed25519 keys a pointer may be signed with: `Resources/web-update-keys.json` of this module,
 /// the same file CI's verify step reads.
 nonisolated public struct WebUpdateKeys: Sendable {
-    public var keys: [String: Curve25519.Signing.PublicKey]
+    var keys: [String: Curve25519.Signing.PublicKey]
 
     /// The keys in `data`; an entry whose id is not the first 16 hex digits of its key's SHA-256
     /// is dropped.
