@@ -96,6 +96,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextAgentActivity",
+        "CmuxNextApps",
         "CmuxNextBridge",
         "CmuxNextCompat",
         "CmuxNextDesign",
