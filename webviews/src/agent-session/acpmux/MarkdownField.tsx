@@ -90,9 +90,10 @@ export type MarkdownFieldProps = {
   /// Runs before the editor's own keys; preventDefault keeps the editor from handling the key.
   onKeyDown?(event: KeyboardEvent): void;
   onCompositionChange?(composing: boolean): void;
-  /// Typed or pasted text before the editor inserts it, and whether the prompt was empty and an
-  /// IME composition runs; true consumes it (the new tab's "!" rule converts the tab instead).
-  onBeforeInput?(data: string, state: { empty: boolean; composing: boolean }): boolean;
+  /// Typed or pasted text before the editor inserts it, and whether the prompt was empty, an IME
+  /// composition runs and it is a paste (then `data` is the clipboard's plain text as copied); true
+  /// consumes it (the new tab's "!" rule converts the tab instead, the composer makes a huge paste a chip).
+  onBeforeInput?(data: string, state: { empty: boolean; composing: boolean; paste: boolean }): boolean;
   /// Enter (with `cmd` for Cmd-Enter) that `onKeyDown` did not take; unset, Enter is the editor's.
   onSubmit?(markdown: string, modifiers: { cmd: boolean }): void;
   /// A new paragraph or line the browser inserts on its own, not from a key the field handled: the
@@ -111,6 +112,9 @@ export type MarkdownFieldProps = {
   className?: string;
   /// Attributes for the editable element (aria-label, role=combobox, aria-expanded...).
   attributes?: Record<string, string | undefined>;
+  /// Whose selection the field keeps for a focus with no click (the composer's chat session): a
+  /// selection kept under one key never comes back under another, even over the same text.
+  selectionKey?: string;
 };
 
 /** Markdown without the serializer's trailing newline, and empty for an empty document.
@@ -133,6 +137,10 @@ const looksLikeMarkupText = (text: string) => /<>|<\/?[A-Za-z][\w.-]*(?:\s[^<>]*
 
 /// How long after a focus with no click the browser's own caret placement is overruled.
 const KEEP_CARET_MS = 100;
+/// The soft band at a long draft's scrolled edges (markdownField.css reads it as
+/// `--acpmux-md-fade-band`). The caret reveal keeps the caret this far from the field's edge, so the
+/// caret's line never sits in the fade.
+const FADE_BAND_PX = 18;
 
 /** The document as the prompt's markdown, keeping the spaces typed at its end. */
 function promptMarkdown(editor: Editor | undefined, view: EditorView): string {
@@ -230,6 +238,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     placeholderKey,
     className,
     attributes,
+    selectionKey,
   },
   ref,
 ) {
@@ -264,7 +273,10 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   const pendingFocus = useRef(false);
   // The selection to put back when the field gets focus again without a click, and until when the
   // browser's own placement right after that focus is overruled (see `keepCaret`).
-  const refocus = useRef<{ doc: ProseNode; selection: Selection; until: number } | null>(null);
+  // It belongs to the `selectionKey` it was kept under, not to the text: two chats can hold the same draft.
+  const refocus = useRef<{ doc: ProseNode; selection: Selection; until: number; owner?: string } | null>(null);
+  const owner = useRef(selectionKey);
+  owner.current = selectionKey;
   const surfacePlugins = useRef(plugins);
   const lines = useRef(multiline);
   const empty = useRef<HTMLSpanElement>(null);
@@ -282,10 +294,11 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   };
 
   /// Asks the surface about typed or pasted text first; true when it consumed it.
-  const beforeInput = (editorView: EditorView, text: string) =>
+  const beforeInput = (editorView: EditorView, text: string, paste = false) =>
     latest.current.onBeforeInput?.(text, {
       empty: editorView.state.doc.textContent === "",
       composing: composing.current || editorView.composing,
+      paste,
     }) === true;
 
   const mount = useCallback((root: HTMLDivElement | null) => {
@@ -296,6 +309,16 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     // long paste left the field (it scrolls past eight lines) at the top. Set while a paste the
     // surface did not consume runs; the paste's dispatch is synchronous inside it.
     let pasting = false;
+    // A paste that ends the draft shows the field's whole end, its bottom inset too: the caret
+    // reveal stops a margin short in WebKit, which would leave the last line under the bottom fade
+    // (markdownField.css). Every paste path ends here.
+    const showPastedEnd = (state: EditorState) => {
+      if (Selection.atEnd(state.doc).to !== state.selection.to) return;
+      requestAnimationFrame(() => {
+        const field = root.parentElement;
+        if (!disposed && field) field.scrollTop = field.scrollHeight;
+      });
+    };
     // Keys reach the composer first, as a textarea's keydown would.
     const composerKeys = $prose(
       () =>
@@ -350,9 +373,10 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                   return false;
                 event.preventDefault();
                 const plain = pasteIsOnlyFileNames(data) ? "" : lifted.text;
-                if (!plain.trim() || beforeInput(editorView, plain)) return true;
+                if (!plain.trim() || beforeInput(editorView, plain, true)) return true;
                 const { from, to } = editorView.state.selection;
                 editorView.dispatch(editorView.state.tr.insertText(plain, from, to).scrollIntoView());
+                showPastedEnd(editorView.state);
                 return true;
               },
             },
@@ -360,12 +384,16 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
             handlePaste: (editorView, event, slice) => {
               const plain = event.clipboardData?.getData("text/plain");
               if (plain && looksLikeMarkupText(plain)) {
-                if (beforeInput(editorView, plain)) return true;
+                if (beforeInput(editorView, plain, true)) return true;
                 const { from, to } = editorView.state.selection;
                 editorView.dispatch(editorView.state.tr.insertText(plain, from, to).scrollIntoView());
+                showPastedEnd(editorView.state);
                 return true;
               }
-              if (beforeInput(editorView, slice.content.textBetween(0, slice.content.size, "\n", "\n"))) return true;
+              // The surface sees the text as copied (a huge paste becomes the composer's chip as it
+              // was), else the slice's text (a paste of HTML only).
+              if (beforeInput(editorView, plain || slice.content.textBetween(0, slice.content.size, "\n", "\n"), true))
+                return true;
               pasting = true;
               queueMicrotask(() => {
                 pasting = false;
@@ -378,14 +406,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           appendTransaction: (transactions, _previous, state) => {
             if (!pasting || !transactions.some((tr) => tr.docChanged)) return null;
             pasting = false;
-            // A paste that ends the draft shows the field's whole end, its bottom inset too: the
-            // caret reveal stops a margin short in WebKit, which would leave the last line under
-            // the bottom fade (markdownField.css).
-            if (Selection.atEnd(state.doc).to === state.selection.to)
-              requestAnimationFrame(() => {
-                const field = root.parentElement;
-                if (!disposed && field) field.scrollTop = field.scrollHeight;
-              });
+            showPastedEnd(state);
             return transactions.some((tr) => tr.scrolledIntoView) ? null : state.tr.scrollIntoView();
           },
           // Report every document and caret change; the composer's menu follows the caret.
@@ -417,14 +438,14 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     const keepCaret = $prose(() => {
       const kept = (state: EditorState) => {
         const saved = refocus.current;
-        if (!saved || !state.doc.eq(saved.doc)) return null;
+        if (!saved || saved.owner !== owner.current || !state.doc.eq(saved.doc)) return null;
         // The same document: the saved selection (text, node or all) holds as it was.
         const selection = Selection.fromJSON(state.doc, saved.selection.toJSON());
         return selection.eq(state.selection) ? null : selection;
       };
       const leave = (editorView: EditorView) => {
         const { doc, selection } = editorView.state;
-        refocus.current = { doc, selection, until: 0 };
+        refocus.current = { doc, selection, until: 0, owner: owner.current };
       };
       const enter = (editorView: EditorView) => {
         if (!refocus.current) return;
@@ -507,12 +528,12 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         }));
         // The field fills a box (the composer, a prompt editor) and its caret shows focus: a text
         // field is :focus-visible on every focus, so desktop.css's ring drew a rectangle inside it.
-        // The scroll margin covers the field's own padding, so a long draft scrolls the caret's
-        // whole line into view, not to 5px under the field's edge.
+        // The scroll margin covers the field's own padding and the fade band at a scrolled edge, so a
+        // long draft scrolls the caret's whole line into view, clear of the fade.
         ctx.update(editorViewOptionsCtx, (options) => ({
           ...options,
           attributes: { class: "acpmux-md", "data-focus-ring": "none" },
-          scrollMargin: 16,
+          scrollMargin: FADE_BAND_PX,
         }));
       })
       .use(composerKeys)
@@ -690,8 +711,19 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         pasteText: (text) => {
           const current = view.current;
           if (!current) return;
-          if (beforeInput(current, text)) return;
-          current.pasteText(text);
+          if (beforeInput(current, text, true)) return;
+          // A paste event that carries `text` as the clipboard's plain text, so the paste takes the
+          // path a person's does (Milkdown's markdown paste: blank lines kept, lines not split into
+          // paragraphs). Plain data, not a DataTransfer: jsdom has neither it nor ClipboardEvent.
+          const event = new Event("paste");
+          Object.defineProperty(event, "clipboardData", {
+            value: {
+              types: ["text/plain"],
+              files: [],
+              getData: (type: string) => (type === "text/plain" || type === "Text" ? text : ""),
+            },
+          });
+          current.pasteText(text, event as ClipboardEvent);
         },
         reset: (markdown = "") => {
           known.current = markdown;
@@ -711,6 +743,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   return (
     <div
       className={`acpmux-md-field ${className ?? ""}`}
+      style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
       ref={(element: MarkdownFieldElement | null) => {
         wrapper.current = element;
         // A getter: the handle is made after this element attaches.

@@ -6,6 +6,7 @@ import CmuxNextAgentPane
 import CmuxNextApps
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextChiefViews
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFeed
@@ -29,6 +30,8 @@ import Foundation
 /// store's validation and the exports agree.
 enum TunableCatalog {
     static var all: [TunableDescriptor] {
+        // The Chief view gallery's toggle (its own line, so the busy list below merges cleanly).
+        ChiefViewsPage.tunables +
         DesignTunables.all + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
             + [AgentPaneTunables.inspector.descriptor]
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all

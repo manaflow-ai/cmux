@@ -510,6 +510,17 @@ async fn dispatch_request(
             // The app pane signs a reply only as a chat it shows (`Hub::app_reply_fits`).
             let shows = |id: &str| conn.sub_opts(id).is_some_and(|o| !o.hidden);
             let provenance = hub.prompt_provenance(&params, conn.origin, &s.id, &shows)?;
+            // Sent from inside another session (its proven caller token) with none of its own:
+            // that session's message, so the receiver's transcript does not show it as the person's.
+            let provenance = match (provenance, conn.caller()) {
+                (None, Some(caller)) if !conn.is_person() && caller != s.id => {
+                    hub.resolve(caller).ok().map(|from| {
+                        let name = from.meta().name;
+                        crate::prompt_provenance::session_message(&from.id, &name, &s.id)
+                    })
+                }
+                (provenance, _) => provenance,
+            };
             // Another agent's message with no provenance (`hub/digest.rs`): one that names its
             // sender, or one from a connection that proved it runs in an acpmux session.
             let agent = crate::hub::declared_sender(&params)?
@@ -949,7 +960,7 @@ async fn dispatch_request(
             let after = params.get("afterSeq").and_then(Value::as_u64);
             let before = params.get("beforeSeq").and_then(Value::as_u64);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(2000) as usize;
-            let max_bytes = Some(events::page_bytes(&params));
+            let max_bytes = Some(crate::hub::page_bytes(&params));
             let detail = hub.session_detail(&s);
             // afterSeq alone pages forward (oldest first); otherwise the page
             // is the newest `limit` records before beforeSeq (or the end).
@@ -1060,6 +1071,7 @@ async fn dispatch_request(
                 .parse()
                 .map_err(RpcError::invalid_params)?;
             hub.set_policy_unless_moving(&s, policy).await?;
+            hub.follow_policy(&s).await;
             Ok(hub.session_summary(&s))
         }
         method::MUX_EXPORT => {

@@ -140,6 +140,19 @@ describe("attachment matrix: what the agent receives per file type", () => {
     });
   });
 
+  test("a PDF too large for one message goes as its saved path, not a document block", async () => {
+    // 12 MiB of PDF is 16 MiB of base64: past acpmux's one-message bound (#23247) and the
+    // WebSocket's 16 MiB frame, which reset the chat's connection with no error.
+    const result = await take([sized("scan.pdf", "application/pdf", 12 * 1024 * 1024)]);
+    expect(result.blocks.filter((block) => block.type === "document")).toEqual([]);
+    expect(only(result.blocks.filter((block) => block.type === "resource_link"))).toEqual({
+      type: "resource_link",
+      uri: "file:///saved/1-0/scan.pdf",
+      name: "scan.pdf",
+    });
+    expect(result.error).toBeUndefined();
+  });
+
   test("a PDF goes as a document block", async () => {
     const result = await take([file("spec.pdf", "application/pdf", "%PDF-1.4\n")]);
     expect(only(result.blocks.filter((block) => block.type === "document"))).toMatchObject({

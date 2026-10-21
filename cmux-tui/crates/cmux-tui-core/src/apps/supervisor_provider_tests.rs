@@ -140,14 +140,7 @@ fn cmux_next_memory_search_routes_a_scoped_read_to_the_verified_provider() {
     let rx = provider(&f, &["coderouter", "memory"]);
     let params = json!({"roots":["root_home"],"query":"deploy key","limit":5});
     f.supervisor
-        .dispatch(
-            CLIENT,
-            "m1",
-            "n1",
-            "tap",
-            json!({"op":"memory.search", "params":params.clone()}),
-            false,
-        )
+        .dispatch(CLIENT, "m1", "n1", "tap", json!({"op":"memory.search", "params":params}), false)
         .unwrap();
     let request = next_request(&rx);
     assert_eq!(request["op"], "memory.search");

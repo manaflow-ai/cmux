@@ -42,6 +42,8 @@ public final class HomeNativeTranscriptView: NSView {
     /// The chain of attachment preparations, in the order they arrived.
     // task-owner: replaced by the next intake; awaited by attachmentsReady
     var intake: Task<Void, Never>?
+    /// The pane's drop target state: its highlight, the current drag's answer, drops on their way.
+    let drop = HomeDropState()
     private var stopped = false
     /// The composer rect toasts last moved clear of (posted on change).
     private var lastToastAvoidance = NSRect.zero
@@ -340,8 +342,9 @@ public final class HomeNativeTranscriptView: NSView {
             if resized { transcript.layoutSubtreeIfNeeded() }
         }
         // Every pass: the field can grow (a multi-line draft) without a size
-        // change, and the first-run panel fits its agent rows above it.
-        let top = transcript.headerHeight
+        // change, and the first-run panel fits its agent rows above it, under any overlay over
+        // the column's top (Home's import cards).
+        let top = max(transcript.headerHeight, ColumnTopOverlays.shared.reach(over: self).map { $0 + 8 } ?? 0)
         let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
         if firstRun.frame != panel { firstRun.frame = panel }
         layoutNotice()
@@ -421,6 +424,9 @@ public final class HomeNativeTranscriptView: NSView {
                 MainActor.assumeIsolated { self?.windowStateChanged() } // main-proof: observer on queue: .main
             })
         }
+        observers.append(nc.addObserver(forName: .cmuxColumnTopOverlayDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.needsLayout = true } // main-proof: observer on queue: .main
+        })
         windowStateChanged()
         // A theme change while the tab was hidden (equal palettes return early).
         applyTheme()
@@ -429,10 +435,6 @@ public final class HomeNativeTranscriptView: NSView {
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()
-    }
-
-    private func windowStateChanged() {
-        transcript.isVisibleToUser = window.map { $0.isKeyWindow && $0.occlusionState.contains(.visible) } ?? false
     }
 
     /// The theme's palette (the key window's, for every window) for the MessagesLab
@@ -451,6 +453,7 @@ public final class HomeNativeTranscriptView: NSView {
                                  danger: Palette.danger, done: Palette.highlight)
             noticeLabel.textColor = Palette.textSecondary
         }
+        drop.highlight.applyTheme()
     }
 }
 
