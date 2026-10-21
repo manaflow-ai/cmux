@@ -106,6 +106,7 @@ pub(crate) mod views;
 mod warm;
 mod web_control;
 mod web_token;
+pub(crate) mod worktree_care;
 mod xai;
 pub use web_control::Control;
 pub(crate) use web_control::ModeWrite;
@@ -323,6 +324,8 @@ pub struct Hub {
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
+    /// Worktree cleanup passes (`worktree_care.rs`).
+    pub(super) care: worktree_care::CareState,
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
     pub health: Arc<crate::harness_health::HealthService>,
@@ -411,6 +414,7 @@ impl Hub {
             start_mode_state: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
+            care: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
