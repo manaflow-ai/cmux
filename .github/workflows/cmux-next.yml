@@ -1267,6 +1267,9 @@ jobs:
             python3 tests/test_job_input_fingerprint.py
             # A hand merge of a Swift PR waits for its Release compile (scripts/ci/merge_compile_guard.py).
             python3 tests/test_merge_compile_guard.py
+            # ci-guards.yml's `ci` group runs for feat-cmux-next too (cmux-next-guards.yml).
+            python3 tests/test_feat_ci_guard_group.py
+            python3 tests/test_guards_new_reds.py
             python3 tests/test_app_symbol_map.py
             bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
             bash scripts/cmux-next/tests/bundle-acpmux-alias.test.sh
@@ -3754,7 +3757,7 @@ jobs:
     needs: cmux-scheme-compile
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && needs.cmux-scheme-compile.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
     name: Request cmux NEXT DEV publication
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write
