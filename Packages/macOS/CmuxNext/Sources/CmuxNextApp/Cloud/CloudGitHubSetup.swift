@@ -114,13 +114,15 @@ nonisolated enum CloudGitHubSetup {
             "if gh auth status --hostname github.com >/dev/null 2>&1; then echo 'cmux-gh: logged_in'; exit 0; fi",
             #"d="$HOME/.cache/cmux"; log="$d/gh-login.log"; pidf="$d/gh-login.pid""#,
             #"mkdir -p "$d" || { echo 'cmux-gh: failed'; exit 0; }"#,
-            #"if [ -f "$pidf" ]; then p=$(cat "$pidf" 2>/dev/null); case "$p" in ''|*[!0-9]*) ;; *) kill -TERM -- "-$p" 2>/dev/null ;; esac; fi"#,
+            #"if [ -f "$pidf" ]; then while read -r p; do case "$p" in ''|*[!0-9]*) ;; *) kill -TERM "-$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null ;; esac; done <"$pidf"; fi"#,
             #"rm -f "$log" "$pidf""#,
             "s=; command -v setsid >/dev/null 2>&1 && s=setsid",
             // Detached from the exec (its own session) so the sign-in outlives it; git then uses
-            // gh as its credential helper.
-            #"$s nohup sh -c 'gh auth login --hostname github.com --git-protocol https --web --skip-ssh-key && gh auth setup-git --hostname github.com' </dev/null >"$log" 2>&1 &"#,
-            #"echo $! >"$pidf""#,
+            // gh as its credential helper. The detached shell writes its own pid (the session's
+            // process group when setsid ran; `$!` would be setsid's, which may fork and exit) and
+            // gh's, so a rerun stops both even without setsid. `kill -TERM -- -pid` is not dash's
+            // syntax (dash is /bin/sh on Debian and Ubuntu): the stop above uses `kill -TERM -pid`.
+            #"$s nohup sh -c 'echo $$ >"$1"; gh auth login --hostname github.com --git-protocol https --web --skip-ssh-key & echo $! >>"$1"; wait $! && gh auth setup-git --hostname github.com' sh "$pidf" </dev/null >"$log" 2>&1 &"#,
             "i=0; code=",
             #"while [ $i -lt 60 ]; do code=$(sed -n 's/.*one-time code: \([A-Z0-9][A-Z0-9]*-[A-Z0-9][A-Z0-9]*\).*/\1/p' "$log" 2>/dev/null | head -n 1); [ -n "$code" ] && break; sleep 0.25; i=$((i+1)); done"#,
             #"if [ -n "$code" ]; then echo "cmux-gh: pending $code"; else echo 'cmux-gh: failed'; fi"#,
