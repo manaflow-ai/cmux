@@ -33,8 +33,9 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const [copied, setCopied] = useState(false);
   const mark = usePromptRowMark(row);
   const through = edit?.seqs.get(row.id);
-  // A prompt this pane sent is read once the agent started on it (its delivery), else as before.
-  const unread = row.delivery ? row.delivery.state !== "read" : row.pending || row.steer === "waiting";
+  // A prompt this pane sent is read once the agent started on it (its delivery), else as before; a
+  // steer is unread while it still waits for the agent to take it, whatever its delivery says.
+  const unread = row.steer === "waiting" || (row.delivery ? row.delivery.state !== "read" : row.pending);
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
