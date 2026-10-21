@@ -59,6 +59,11 @@ class BaseMergeWarningTests(unittest.TestCase):
         self.git("update-ref", "refs/remotes/origin/topic", self.old_head)
         self.git("switch", "-q", "feat-cmux-next")
         self.commit("base.txt", "base moved\n")
+        # The base's own history has merges too; a base merge brings them in, and they are not the branch's.
+        self.git("switch", "-q", "-c", "side")
+        self.commit("side.txt", "side\n")
+        self.git("switch", "-q", "feat-cmux-next")
+        self.git("merge", "-q", "--no-ff", "--no-edit", "side")
         self.git("update-ref", "refs/remotes/origin/feat-cmux-next", self.rev("HEAD"))
         self.git("switch", "-q", "topic")
 
@@ -85,7 +90,7 @@ class BaseMergeWarningTests(unittest.TestCase):
                               input=line, env=self.env, capture_output=True, text=True, timeout=60)
 
     def claude_hook(self, command):
-        payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
+        payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(self.repo)})
         return subprocess.run(["bash", str(HOOK)], input=payload, env=self.env, capture_output=True,
                               text=True, timeout=60)
 
@@ -133,6 +138,15 @@ class BaseMergeWarningTests(unittest.TestCase):
         self.assertNotIn("permissionDecision", output)
         self.assertIn("update-branch on #22801 cancels the 3 check(s)", output["additionalContext"])
         self.assertIn(f"commits/{'f' * 40}/check-runs", self.gh_log.read_text())
+
+    def test_other_update_branch_forms_warn_too(self):
+        for command in ("gh pr update-branch 22801", "gh pr update-branch -R manaflow-ai/cmux 22801",
+                        "gh api -X PUT repos/{owner}/{repo}/pulls/22801/update-branch"):
+            with self.subTest(command=command):
+                self.gh_log.write_text("")
+                done = self.claude_hook(command)
+                self.assertIn("update-branch on #22801", json.loads(done.stdout)["hookSpecificOutput"]["additionalContext"])
+                self.assertIn("repos/manaflow-ai/cmux/pulls/22801", self.gh_log.read_text())
 
     def test_update_branch_with_nothing_running_says_nothing(self):
         self.running.write_text("0\n")

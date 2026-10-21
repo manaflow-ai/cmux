@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/ci/base-merge-warning-hook.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/ci/base-merge-warning-hook.sh",
             "timeout": 40
           }
         ]

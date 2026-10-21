@@ -25,15 +25,30 @@ from pathlib import Path
 
 ZERO_SHA = "0" * 40
 BASE_BRANCHES = ("feat-cmux-next", "main")
-TIMEOUT = 15  # seconds for one gh call: a slow GitHub never holds a push
-UPDATE_BRANCH = re.compile(r"repos/([\w.-]+/[\w.-]+)/pulls/(\d+)/update-branch")
+TIMEOUT = 15  # seconds for one gh or git call: a slow GitHub or a huge range never holds a push long
+# `gh api repos/OWNER/REPO/pulls/N/update-branch` ({owner}/{repo} is gh's placeholder for this checkout's repo)
+# and `gh pr update-branch N`.
+UPDATE_BRANCH = re.compile(r"repos/([\w.-]+/[\w.-]+|\{owner\}/\{repo\})/pulls/(\d+)/update-branch")
+PR_UPDATE_BRANCH = re.compile(r"\bgh\s+pr\s+update-branch\s+(?:.*?\s)?#?(\d+)\b")
+REPO_FLAG = re.compile(r"(?:-R|--repo)[\s=]+([\w.-]+/[\w.-]+)")
 ADVICE = ("Merge the base once, right before landing, or when GitHub says the PR conflicts; "
           "base reds never hold a merge.")
 
 
 def git(repo: Path, *args: str) -> str:
-    done = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+    try:
+        done = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, timeout=TIMEOUT)
+    except (OSError, subprocess.SubprocessError):
+        return ""
     return done.stdout.strip() if done.returncode == 0 else ""
+
+
+def is_ancestor(repo: Path, commit: str, ref: str) -> bool:
+    try:
+        return subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", commit, ref],
+                              capture_output=True, timeout=TIMEOUT).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def gh(*args: str) -> str | None:
@@ -58,20 +73,21 @@ def repo_slug(repo: Path) -> str | None:
 
 
 def clean_base_merges(repo: Path, old: str, new: str) -> list[str]:
-    """Merges among old..new whose second parent is on a base branch and whose tree is exactly what
-    merging the parents gives (no conflict resolution, no other change)."""
+    """The branch's own merges in old..new (first parent, none already on a base branch) whose second parent
+    is on a base branch and whose tree is exactly what merging the parents gives (no conflict resolution, no
+    other change). A base merge brings in the base's own merge commits; those are not the branch's."""
     bases = [ref for ref in (f"refs/remotes/origin/{name}" for name in BASE_BRANCHES)
              if git(repo, "rev-parse", "-q", "--verify", ref)]
     found = []
-    for merge in git(repo, "rev-list", "--merges", f"{old}..{new}").split():
+    for merge in git(repo, "rev-list", "--first-parent", "--merges", f"{old}..{new}", "--not", *bases).split():
         parents = git(repo, "rev-list", "--parents", "-n", "1", merge).split()[1:]
         if len(parents) != 2:
             continue
-        on_base = any(subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", parents[1], ref],
-                                     capture_output=True).returncode == 0 for ref in bases)
+        on_base = any(is_ancestor(repo, parents[1], ref) for ref in bases)
         merged = git(repo, "merge-tree", "--write-tree", *parents).splitlines()
         if on_base and merged and merged[0] == git(repo, "rev-parse", f"{merge}^{{tree}}"):
             found.append(merge)
+            break  # one is enough to warn
     return found
 
 
@@ -99,9 +115,18 @@ def pre_push(repo: Path, lines: list[str]) -> list[str]:
 def claude_hook(payload: dict) -> str | None:
     command = (payload.get("tool_input") or {}).get("command") or ""
     found = UPDATE_BRANCH.search(command)
-    if not found:
+    if found:
+        slug, number = found.groups()
+    elif (found := PR_UPDATE_BRANCH.search(command)):
+        number = found.group(1)
+        repo_flag = REPO_FLAG.search(command)
+        slug = repo_flag.group(1) if repo_flag else "{owner}/{repo}"
+    else:
         return None
-    slug, number = found.groups()
+    if slug == "{owner}/{repo}":
+        slug = repo_slug(Path(payload.get("cwd") or "."))
+        if not slug:
+            return None
     head = gh("api", f"repos/{slug}/pulls/{number}", "--jq", ".head.sha")
     running = running_checks(slug, head) if head else None
     if not running:
