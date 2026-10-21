@@ -73,10 +73,10 @@ def run_package_step(package: str, attempts: list[tuple[str, int]], ghosttykit: 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         (root / "Packages/macOS" / package).mkdir(parents=True)
-        if ghosttykit:
+        # The lane resolves a package name to a directory that holds a manifest.
+        (root / "Packages/macOS" / package / "Package.swift").write_text(
             # A binaryTarget on the root xcframework, as a GhosttyKit package declares.
-            (root / "Packages/macOS" / package / "Package.swift").write_text(
-                '.binaryTarget(name: "GhosttyKit", path: "../../../GhosttyKit.xcframework")\n')
+            '.binaryTarget(name: "GhosttyKit", path: "../../../GhosttyKit.xcframework")\n' if ghosttykit else "")
         (root / "scripts/ci").mkdir(parents=True)
         for helper in ("require_swift_test_execution.py", "hung_test_watchdog.py", "ci_process_tree.py"):
             shutil.copyfile(ROOT / "scripts/ci" / helper, root / "scripts/ci" / helper)
