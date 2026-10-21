@@ -15,6 +15,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
+#[path = "setup/cloud_machine.rs"]
+mod cloud_machine;
+
 struct World {
     home: PathBuf,
     acpmux: PathBuf,
@@ -137,6 +140,8 @@ exit 0
             .env_remove("CMUX_SOCKET_PATH")
             .env_remove("CMUX_BUNDLE_ID")
             .env_remove("CMUX_TAG")
+            // Setup's own state (the Cloud machine it made) stays in the world.
+            .env("CMUX_TUI_STATE_DIR", self.home.parent().unwrap().join("state").join("sessions"))
             .stdin(Stdio::null());
         if let Some(app) = &self.app {
             // Only the fake app: never the cmux app of the machine running the tests.
@@ -866,7 +871,8 @@ fn cmux_setup_harness_an_agent_hands_the_person_the_sign_in_and_checks_again() {
             &json!("machine"),
             &json!("harness"),
             &json!("mcp"),
-            &json!("computer_use")
+            &json!("computer_use"),
+            &json!("cloud_machine")
         ],
         "{status}"
     );
@@ -1173,6 +1179,39 @@ fn cmux_setup_mcp_replaces_a_moved_cmux_and_leaves_another_server_named_cmux() {
     assert_eq!(back["mcpServers"]["cmux"]["command"], gone, "{back}");
 }
 
+/// Answers the app control requests on `listener` with `answer(method,
+/// params)`, one connection after another, keeping every request in
+/// `requests` before it replies; `None` closes the connection unanswered.
+fn serve_app(
+    listener: UnixListener,
+    requests: Arc<Mutex<Vec<Value>>>,
+    answer: impl Fn(&str, &Value) -> Option<Result<Value, Value>> + Send + 'static,
+) {
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { break };
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut writer = stream;
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                let request: Value = serde_json::from_str(&line).unwrap();
+                line.clear();
+                let answer =
+                    answer(request["method"].as_str().unwrap_or_default(), &request["params"]);
+                let response = match answer {
+                    Some(Ok(result)) => json!({"id": request["id"], "ok": true, "result": result}),
+                    Some(Err(error)) => json!({"id": request["id"], "ok": false, "error": error}),
+                    None => Value::Null,
+                };
+                requests.lock().unwrap().push(request);
+                if response.is_null() || writeln!(writer, "{response}").is_err() {
+                    break;
+                }
+            }
+        }
+    });
+}
+
 /// A fake cmux app on a socket of the world's that serves what `cmux setup
 /// computer-use` and `cmux settings set` ask: `computer_use.status` answers
 /// `status`; `settings.set computerUse.enabled` with `confirm` is the
@@ -1198,51 +1237,31 @@ impl FakeApp {
             enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             requests: Arc::new(Mutex::new(Vec::new())),
         };
-        let (status, approve, enabled, requests) =
-            (app.status.clone(), app.approve.clone(), app.enabled.clone(), app.requests.clone());
-        std::thread::spawn(move || {
-            for stream in listener.incoming() {
-                let Ok(stream) = stream else { break };
-                let mut reader = BufReader::new(stream.try_clone().unwrap());
-                let mut writer = stream;
-                let mut line = String::new();
-                while reader.read_line(&mut line).unwrap_or(0) > 0 {
-                    let request: Value = serde_json::from_str(&line).unwrap();
-                    line.clear();
-                    let params = &request["params"];
-                    let answer = match request["method"].as_str() {
-                        Some("computer_use.status") => Ok(status.lock().unwrap().clone()),
-                        Some("settings.get") if params["path"] == "computerUse.enabled" => {
-                            Ok(json!({"value": enabled.load(Ordering::SeqCst)}))
-                        }
-                        Some("settings.set")
-                            if params["path"] == "computerUse.enabled"
-                                && params["confirm"] == true =>
-                        {
-                            if approve.load(Ordering::SeqCst) {
-                                let next = if params["value"] == true { &on } else { &off };
-                                enabled.store(params["value"] == true, Ordering::SeqCst);
-                                *status.lock().unwrap() = next.clone();
-                                Ok(json!({"path": params["path"], "value": params["value"]}))
-                            } else {
-                                Err(json!({"code": "setting_user_only", "message": "declined",
-                                    "data": {"declined": true}}))
-                            }
-                        }
-                        Some("settings.set") => Err(json!({"code": "setting_user_only",
-                            "message": "computerUse.enabled is the person's; pass --confirm"})),
-                        _ => Err(json!({"code": "method_not_found", "message": "unknown"})),
-                    };
-                    let response = match answer {
-                        Ok(result) => json!({"id": request["id"], "ok": true, "result": result}),
-                        Err(error) => json!({"id": request["id"], "ok": false, "error": error}),
-                    };
-                    requests.lock().unwrap().push(request);
-                    if writeln!(writer, "{response}").is_err() {
-                        break;
+        let (status, approve, enabled) =
+            (app.status.clone(), app.approve.clone(), app.enabled.clone());
+        serve_app(listener, app.requests.clone(), move |method, params| {
+            Some(match method {
+                "computer_use.status" => Ok(status.lock().unwrap().clone()),
+                "settings.get" if params["path"] == "computerUse.enabled" => {
+                    Ok(json!({"value": enabled.load(Ordering::SeqCst)}))
+                }
+                "settings.set"
+                    if params["path"] == "computerUse.enabled" && params["confirm"] == true =>
+                {
+                    if approve.load(Ordering::SeqCst) {
+                        let next = if params["value"] == true { &on } else { &off };
+                        enabled.store(params["value"] == true, Ordering::SeqCst);
+                        *status.lock().unwrap() = next.clone();
+                        Ok(json!({"path": params["path"], "value": params["value"]}))
+                    } else {
+                        Err(json!({"code": "setting_user_only", "message": "declined",
+                        "data": {"declined": true}}))
                     }
                 }
-            }
+                "settings.set" => Err(json!({"code": "setting_user_only",
+                "message": "computerUse.enabled is the person's; pass --confirm"})),
+                _ => Err(json!({"code": "method_not_found", "message": "unknown"})),
+            })
         });
         app
     }
