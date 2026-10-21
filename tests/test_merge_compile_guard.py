@@ -96,6 +96,21 @@ class Targets(unittest.TestCase):
             'gh api graphql -f query="mutation{mergePullRequest(input:{})}"': [(None, guard.UNKNOWN)],
             "GH_REPO=manaflow-ai/cmux gh pr merge 5": [(cmux, "5")],
             "git log && gh pr merge 3 -R manaflow-ai/cmux --squash": [(cmux, "3")],
+            # A redirect with no fd of its own leaves the number before it alone.
+            "gh pr merge 5 >out.txt 2>&1": [(None, "5")],
+            "gh pr merge 5 > /tmp/log 2>&1": [(None, "5")],
+            # A comment ends at its newline; the next line still runs.
+            "echo hi # merge next\ngh pr merge 5 --squash": [(None, "5")],
+            'git commit -m "a # b" && gh pr merge 9': [(None, "9")],
+            "gh pr merge feat#2": [(None, "feat#2")],
+            # Wrappers and shells run the merge too.
+            'bash -c "gh pr merge 5"': [(None, "5")],
+            "env GH_REPO=manaflow-ai/cmux gh pr merge 5": [(cmux, "5")],
+            "command gh pr merge 5": [(None, "5")],
+            "/opt/homebrew/bin/gh pr merge 5": [(None, "5")],
+            "nice -n 10 gh pr merge 5": [(None, "5")],
+            "gh pr merge 5 --squash; echo $'it\\'s'": [(None, "5")],
+            'echo "unbalanced && gh pr merge 5': [(None, guard.UNKNOWN)],
         }
         for command, want in cases.items():
             with self.subTest(command=command):
@@ -117,6 +132,13 @@ class Targets(unittest.TestCase):
     def test_other_repositories_are_not_guarded(self):
         reader = lambda *a: self.fail("read another repo")  # noqa: E731
         self.assertEqual(guard.refusal("gh pr merge 662 -R teamleaderleo/leo-workspace --squash", None, reader), "")
+
+    def test_a_merge_in_a_checkout_it_cannot_read_is_refused_unless_it_names_the_repo(self):
+        for command in ('ssh host "cd wt && gh pr merge 5"', 'cd "$WT" && gh pr merge 5'):
+            with self.subTest(command=command):
+                self.assertEqual(guard.merge_targets(command, "/tmp")[0][2], guard.REMOTE)
+                self.assertIn("can't read", guard.refusal(command, "/tmp", lambda *a: self.fail("read")))
+        self.assertEqual(guard.refusal('ssh host "gh pr merge 5 -R manaflow-ai/cmux"', "/tmp", lambda *a: ""), "")
 
     def test_a_merge_it_cannot_name_is_refused(self):
         why = guard.refusal('gh pr merge "$PR" -R manaflow-ai/cmux', None, lambda *a: self.fail("read"))
@@ -147,6 +169,9 @@ class Hook(unittest.TestCase):
     def run_hook(self, command: str, compile_state: tuple[str, str | None] | None):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
+            subprocess.run(["git", "init", "-q", str(tmp)], check=True)
+            subprocess.run(["git", "-C", str(tmp), "remote", "add", "origin", "https://github.com/manaflow-ai/cmux.git"],
+                           check=True)
             bin_dir = tmp / "bin"
             bin_dir.mkdir()
             log = tmp / "gh.log"
@@ -156,6 +181,7 @@ class Hook(unittest.TestCase):
             fake_gh(bin_dir, {
                 "repos/manaflow-ai/cmux/pulls/22835/files": "\n".join(json.dumps(f) for f in SWIFT),
                 "repos/manaflow-ai/cmux/pulls/22835": json.dumps(pr(22835)),
+                "view": json.dumps({"number": 22835}),
                 f"repos/manaflow-ai/cmux/commits/{HEAD}/check-runs": "\n".join(json.dumps(r) for r in runs),
             }, log)
             payload = json.dumps({"tool_name": "Bash", "cwd": str(tmp), "tool_input": {"command": command}})
@@ -176,6 +202,15 @@ class Hook(unittest.TestCase):
         out, calls = self.run_hook("gh pr merge 22835 -R manaflow-ai/cmux --squash", ("completed", "success"))
         self.assertIsNone(out)
         self.assertTrue(any("--paginate" in json.loads(c) for c in calls))
+
+    def test_a_bare_merge_checks_the_checkouts_branch(self):
+        """gh refuses `pr view -R` without a selector, so the branch is looked up in the checkout."""
+        out, calls = self.run_hook("gh pr merge --squash 2>&1", ("in_progress", None))
+        self.assertIn("#22835 changes Swift", out["hookSpecificOutput"]["permissionDecisionReason"])
+        view = [json.loads(c) for c in calls if json.loads(c)[:2] == ["pr", "view"]]
+        self.assertEqual(view, [["pr", "view", "--json", "number"]])
+        out, _ = self.run_hook("gh pr merge --squash", ("completed", "success"))
+        self.assertIsNone(out)
 
     def test_an_unreadable_github_refuses(self):
         out, _ = self.run_hook("gh pr merge 1 -R manaflow-ai/cmux --squash", None)

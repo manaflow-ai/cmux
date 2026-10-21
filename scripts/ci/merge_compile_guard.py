@@ -69,18 +69,56 @@ def checkout_repo(cwd: str | None) -> str | None:
     return found.group(1) if found else None
 
 
-def commands(text: str) -> list[list[str]]:
-    """The simple commands in `text`, each as its words, split the way the shell splits them."""
+FD_REDIRECT = re.compile(r"(?<![^\s;&|()])\d+(?=[<>])")  # the fd of `2>&1`, touching its operator
+ANSI_C = re.compile(r"\$'(?:[^'\\]|\\.)*'")
+WRAPPERS = frozenset(("env", "command", "builtin", "exec", "time", "nice", "nohup", "sudo", "xargs", "caffeinate"))
+SHELLS = frozenset(("bash", "sh", "zsh", "dash"))
+REMOTE = object()  # the cwd of a command run on another host: its checkout can't be read here
+
+
+def strip_comments(text: str) -> str:
+    """`text` without shell comments (a `#` that starts a word, outside quotes, up to its newline)."""
+    out, quote, i = [], None, 0
+    while i < len(text):
+        c = text[i]
+        if quote:
+            if c == "\\" and quote == '"' and i + 1 < len(text):
+                out.append(text[i:i + 2])
+                i += 2
+                continue
+            if c == quote:
+                quote = None
+        elif c == "\\" and i + 1 < len(text):
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        elif c in "'\"":
+            quote = c
+        elif c == "#" and (i == 0 or text[i - 1] in " \t\n;&|()"):
+            while i < len(text) and text[i] != "\n":
+                i += 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def commands(text: str) -> list[list[str]] | None:
+    """The simple commands in `text`, each as its words, split the way the shell splits them; None when
+    the text can't be split (an unbalanced quote)."""
     text = HEREDOC.sub("\n", text)
+    text = ANSI_C.sub("''", text)
+    text = FD_REDIRECT.sub("", strip_comments(text))
     lexer = shlex.shlex(text, posix=True, punctuation_chars=";&|()<>\n")
     lexer.whitespace = " \t\r"
     lexer.whitespace_split = True
+    lexer.commenters = ""
     try:
         tokens = list(lexer)
-    except ValueError:  # an unbalanced quote: bash would refuse the command too
-        return []
+    except ValueError:
+        return None
     out, words, skip = [], [], False
-    for i, token in enumerate(tokens):
+    for token in tokens:
         if skip:
             skip = False
             continue
@@ -89,8 +127,6 @@ def commands(text: str) -> list[list[str]]:
                 out.append(words)
             words = []
         elif REDIRECT.match(token):
-            if words and words[-1].isdigit() and i and tokens[i - 1] == words[-1]:
-                words.pop()  # the fd of `2>&1`, `2>/dev/null`
             skip = True  # its target
         else:
             words.append(token)
@@ -99,19 +135,55 @@ def commands(text: str) -> list[list[str]]:
     return out
 
 
-def merge_targets(command: str, cwd: str | None) -> list[tuple[str | None, str | None, str | None]]:
+def unwrap(words: list[str]) -> tuple[list[str], dict]:
+    """The command `words` runs once its env assignments and wrappers (env, nice -n 10, sudo...) are
+    peeled off, and the assignments."""
+    env = {}
+    while words:
+        if ASSIGNMENT.match(words[0]):
+            name, _, value = words[0].partition("=")
+            env[name] = value
+            words = words[1:]
+        elif os.path.basename(words[0]) in WRAPPERS:
+            words = words[1:]
+            while words and words[0].startswith("-"):
+                words = words[2:] if words[0] in ("-n", "-u", "-g", "-C") else words[1:]
+        else:
+            break
+    if words:
+        words = [os.path.basename(words[0]), *words[1:]]
+    return words, env
+
+
+def merge_targets(command: str, cwd) -> list[tuple[str | None, str | None, object]]:
     """(repo, selector, cwd) for each merge the command runs. repo None: the checkout's (or GH_REPO's);
     selector None: the checkout's branch; UNKNOWN: a PR the guard can't name."""
+    parsed = commands(command)
+    if parsed is None:
+        return [(None, UNKNOWN, cwd)] if "gh" in command and "merge" in command else []
     targets = []
-    for words in commands(command):
-        env = {}
-        while words and ASSIGNMENT.match(words[0]):
-            name, _, value = words.pop(0).partition("=")
-            env[name] = value
-        if words[:1] == ["cd"] and len(words) > 1:
-            cwd = os.path.join(cwd or os.getcwd(), os.path.expanduser(words[1]))
+    for words in parsed:
+        words, env = unwrap(words)
+        if not words:
             continue
-        if words[:1] != ["gh"]:
+        if words[0] == "cd":
+            target = words[1] if len(words) > 1 else "~"
+            if cwd is REMOTE or "$" in target or "`" in target:
+                cwd = REMOTE
+            else:
+                cwd = os.path.join(cwd or os.getcwd(), os.path.expanduser(target))
+            continue
+        if words[0] in SHELLS:
+            for i, word in enumerate(words[1:-1], 1):
+                if word.startswith("-") and "c" in word.lstrip("-"):
+                    targets += merge_targets(words[i + 1], cwd)
+                    break
+            continue
+        if words[0] == "ssh":
+            for word in words[2:]:
+                targets += merge_targets(word, REMOTE)
+            continue
+        if words[0] != "gh":
             continue
         default_repo = env.get("GH_REPO") or os.environ.get("GH_REPO")
         if words[1:3] == ["pr", "merge"]:
@@ -222,14 +294,20 @@ def read_pr(repo: str, number: int, cwd: str | None) -> str:
 
 def refusal(command: str, cwd: str | None, reader=read_pr) -> str:
     for repo, selector, where in merge_targets(command, cwd):
+        if repo is None and where is REMOTE:
+            return ("merge-compile-guard: this merges a pull request in a checkout the guard can't read (over "
+                    "ssh or after `cd $VAR`); run `gh pr merge N -R OWNER/REPO` so its compile is checked.")
         repo = repo or checkout_repo(where)
         if repo != GUARDED_REPO:
             continue
+        where = None if where is REMOTE else where
         if selector == UNKNOWN:
             return ("merge-compile-guard: this merges a manaflow-ai/cmux pull request the guard can't name (a shell "
                     "variable or a GraphQL mutation); run `gh pr merge N` with its number so its compile is checked.")
         if selector is None or not selector.isdigit():
-            found = gh_json(["pr", "view", *([selector] if selector else []), "-R", repo, "--json", "number"], where)
+            # gh refuses `pr view -R` without a selector: the checkout's branch is looked up in the checkout.
+            args = [selector, "-R", repo] if selector else []
+            found = gh_json(["pr", "view", *args, "--json", "number"], where)
             number = (found or {}).get("number")
             if not number:
                 return (f"merge-compile-guard: could not tell which pull request `gh pr merge {selector or ''}` merges; "
