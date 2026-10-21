@@ -980,8 +980,21 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-ambient-machine-icon {
   flex: none;
-  /* The machine's hue, mixed toward the theme's text so it reads on light and dark pages. */
-  color: color-mix(in oklab, hsl(var(--nt-machine-hue) 70% 50%) 65%, var(--agent-text));
+  /* One of the theme's terminal colors, by the machine's name (ambient.ts machineTone), as the
+     project badges pick theirs. */
+  color: var(--agent-ansi-4);
+}
+.nt-ambient-machine[data-tone="1"] .nt-ambient-machine-icon {
+  color: var(--agent-ansi-5);
+}
+.nt-ambient-machine[data-tone="2"] .nt-ambient-machine-icon {
+  color: var(--agent-ansi-6);
+}
+.nt-ambient-machine[data-tone="3"] .nt-ambient-machine-icon {
+  color: var(--agent-ansi-2);
+}
+.nt-ambient-machine[data-tone="4"] .nt-ambient-machine-icon {
+  color: var(--agent-ansi-3);
 }
 .nt-ambient-machine-name {
   min-width: 0;
@@ -997,6 +1010,6 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   box-shadow: inset 0 0 0 1px currentColor;
 }
 .nt-ambient-machine[data-online] .nt-ambient-dot {
-  background: var(--agent-ansi-2, #90b345);
+  background: var(--agent-ansi-2);
   box-shadow: none;
 }

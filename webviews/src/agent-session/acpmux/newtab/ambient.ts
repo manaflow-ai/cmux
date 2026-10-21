@@ -63,16 +63,20 @@ export function degrees(value: number): string {
 }
 
 export type MachineKind = "local" | "ssh" | "cloud";
-export type NewTabMachine = { id: string; label: string; kind: MachineKind; online: boolean; hue: number };
+export type NewTabMachine = { id: string; label: string; kind: MachineKind; online: boolean; tone: number };
 
-/// A hue (0-359) that stays the same for a machine's name, so each machine keeps its color.
-export function machineHue(name: string): number {
+/// How many theme colors a machine's icon picks from (screen.css `.nt-ambient-machine[data-tone]`).
+export const MACHINE_TONES = 5;
+
+/// One of the theme's colors (0 to MACHINE_TONES - 1) that stays the same for a machine's name, so
+/// each machine keeps its color.
+export function machineTone(name: string): number {
   let hash = 2166136261;
   for (let index = 0; index < name.length; index += 1) {
     hash ^= name.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return (hash >>> 0) % 360;
+  return (hash >>> 0) % MACHINE_TONES;
 }
 
 /// The machines a chat can run on: this Mac first (always online), then acpmux's peers (online),
@@ -84,11 +88,11 @@ export function newTabMachines(
   localName: string,
 ): NewTabMachine[] {
   const machines: NewTabMachine[] = [
-    { id: "local", label: localName, kind: "local", online: true, hue: machineHue(localName) },
+    { id: "local", label: localName, kind: "local", online: true, tone: machineTone(localName) },
   ];
   const online = new Set(snapshot.peers ?? []);
   for (const machine of knownMachines(snapshot.peers ?? [], snapshot.sessions, peerKinds)) {
-    machines.push({ ...machine, online: online.has(machine.id), hue: machineHue(machine.label) });
+    machines.push({ ...machine, online: online.has(machine.id), tone: machineTone(machine.label) });
   }
   return machines;
 }

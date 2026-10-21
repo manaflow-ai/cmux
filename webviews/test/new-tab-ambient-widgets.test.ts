@@ -7,7 +7,8 @@ import { newTabHost } from "../src/agent-session/acpmux/NewTabPage";
 import {
   WEATHER_MAX_AGE_MS,
   degrees,
-  machineHue,
+  MACHINE_TONES,
+  machineTone,
   newTabMachines,
   parseWeather,
   weatherGlyph,
@@ -65,10 +66,12 @@ test("machines: this Mac, then peers online, then older chats' hosts offline", (
 });
 
 test("a machine's color stays the same for its name", () => {
-  expect(machineHue("cosmic-gray")).toBe(machineHue("cosmic-gray"));
-  expect(machineHue("cosmic-gray")).not.toBe(machineHue("huge-blue"));
-  expect(machineHue("x")).toBeGreaterThanOrEqual(0);
-  expect(machineHue("x")).toBeLessThan(360);
+  expect(machineTone("cosmic-gray")).toBe(machineTone("cosmic-gray"));
+  expect(
+    new Set(["cosmic-gray", "huge-blue", "air-blue", "big-red", "lawrence"].map(machineTone)).size,
+  ).toBeGreaterThan(1);
+  expect(machineTone("x")).toBeGreaterThanOrEqual(0);
+  expect(machineTone("x")).toBeLessThan(MACHINE_TONES);
 });
 
 test("weather and machines are widgets on every layout, the old layouts keep what they drew", () => {

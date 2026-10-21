@@ -252,6 +252,7 @@ export default agentPaneEntry({
   },
   covers: [
     "agent-session/acpmux/newtab/NewTabScreen.tsx#NewTabScreen",
+    "agent-session/acpmux/newtab/AmbientWidgets.tsx#AmbientWidgets",
     "agent-session/acpmux/newtab/ChatCards.tsx",
     "agent-session/acpmux/newtab/NowPlayingPlayer.tsx#NowPlayingPlayer",
     "agent-session/acpmux/newtab/NowPlayingPlayer.tsx#NowPlayingCard",

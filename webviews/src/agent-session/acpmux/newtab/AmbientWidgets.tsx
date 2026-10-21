@@ -1,7 +1,6 @@
 // The New Tab page's ambient widgets (`tabs.newTabWidgets.weather|machines`, ambient.ts): one quiet
 // row under the composer in the greeting's dim color. The row takes its own height below the field,
 // so the field never moves when a widget turns on or a reading arrives.
-import type { CSSProperties } from "react";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxSnapshot } from "../model";
 import { Tooltip } from "../../../ui/Tooltip";
@@ -52,11 +51,7 @@ export function AmbientWidgets({
               key={machine.id}
               label={`${machine.label}: ${nt(machine.online ? "widgets.online" : "widgets.offline")}`}
             >
-              <span
-                className="nt-ambient-machine"
-                data-online={machine.online || undefined}
-                style={{ "--nt-machine-hue": String(machine.hue) } as CSSProperties}
-              >
+              <span className="nt-ambient-machine" data-online={machine.online || undefined} data-tone={machine.tone}>
                 <Icon name={MACHINE_ICONS[machine.kind]} size={14} className="nt-ambient-machine-icon" />
                 <span className="nt-ambient-machine-name">{machine.label}</span>
                 <span className="nt-ambient-dot" aria-hidden="true" />
