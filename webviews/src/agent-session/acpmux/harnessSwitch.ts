@@ -323,7 +323,8 @@ export class HarnessSwitch {
     let intent = this.intent;
     if (!intent) return undefined;
     // After a failure, sending is retrying with this prompt.
-    if (intent.phase === "failed") {
+    const restarts = intent.phase === "failed";
+    if (restarts) {
       void this.switchTo(intent.harness, intent.cwd, { deferred: !intent.shown });
       intent = this.intent!;
     }
@@ -345,8 +346,10 @@ export class HarnessSwitch {
     // The first prompt held behind the start keeps this send's gesture as its ticket now: the
     // relay grants a prompt only on a gesture under 30 s old, and a harness can take longer to
     // start, so the prompt came back "Not sent. Press Retry" (#23031). Not a seeded prompt (its
-    // host ticket stays), and not before a start on another machine, which needs this gesture.
+    // host ticket stays), not before a start on another machine, which needs this gesture, and not
+    // when this send restarts the switch: its session/new may need the gesture for its folder.
     else if (
+      !restarts &&
       intent.queued.length === 1 &&
       promptId === undefined &&
       this.port &&
@@ -606,14 +609,15 @@ export class HarnessSwitch {
     await Promise.all(applied);
     if (this.intent !== intent) return;
     // A ticket taken on an earlier connection is no good on this one: that prompt goes on a live gesture.
-    const firstTicket = intent.queued[0]?.ticket?.port === port ? await intent.queued[0].ticket.value : undefined;
-    if (this.intent !== intent) return;
+    const first = intent.queued[0];
+    const firstTicket = first?.ticket?.port === port ? await first.ticket.value : undefined;
+    if (this.intent !== intent || this.port !== port) return;
     const queued = intent.queued;
     intent.queued = [];
     this.intent = undefined;
     for (const prompt of queued) {
       port
-        .send(prompt.text, prompt.attachments, prompt.id, prompt === queued[0] ? firstTicket : undefined)
+        .send(prompt.text, prompt.attachments, prompt.id, prompt === first ? firstTicket : undefined)
         .then(prompt.resolve, prompt.reject);
       prompt.written?.();
     }

@@ -117,3 +117,21 @@ test("a ticket taken before a reconnect is not sent on the new connection", asyn
   await turn;
   expect(pane.sent).toEqual([{ text: "after reconnect", promptId: expect.any(String) }]);
 });
+
+test("a send that restarts a failed switch leaves the gesture to the new start", async () => {
+  const pane = harness();
+  let attempts = 0;
+  pane.store.connect(
+    pane.port(async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("harness exited");
+      return "s2";
+    }),
+  );
+  await pane.store.switchTo("claude", "/Users/dev");
+  expect(pane.store.view().intent?.phase).toBe("failed");
+  // Enter after the failure starts the harness again: its session/new may need this gesture.
+  await pane.store.send("retry");
+  expect(pane.intents).toEqual([]);
+  expect(pane.sent).toEqual([{ text: "retry", promptId: expect.any(String) }]);
+});

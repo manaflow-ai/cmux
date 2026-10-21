@@ -116,6 +116,26 @@ struct AgentPaneSlowStartPromptTests {
         #expect(await pane.transport.send(connection: pane.id, frames: [replay]) == .gestureRequired)
     }
 
+    /// The same, with the start answering inside the start credit's lifetime: the ticketed prompt
+    /// spends the start's credit too, so a later prompt with no gesture is refused (one grant per
+    /// gesture), never granted by the credit the ticket left behind.
+    @Test func aTicketedFirstPromptSpendsTheStartsCredit() async throws {
+        let pane = try await Self.pane()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
+
+        pane.transport.gestures.record(click: true)
+        #expect(await Self.start(pane, id: 1) == nil)
+        pane.clock.now += 20
+        pane.transport.gestures.record()
+        let request: [String: Any] = ["method": "session/prompt", "params": ["promptId": "p-1"] as [String: Any]]
+        let intent = try #require(AgentPaneGestureIntent(gestureParams: ["intent": request]))
+        let ticket = try #require(pane.transport.reserveGesture(intent))
+        pane.clock.now += 20
+        let frame = #"{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"s-new","prompt":[{"type":"text","text":"Add a remove command"}],"_meta":{"acpmux":{"promptId":"p-1"},"cmuxGesture":"\#(ticket)"}}}"#
+        #expect(await pane.transport.send(connection: pane.id, frames: [frame]) == nil)
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 3, promptId: "p-2")]) == .gestureRequired)
+    }
+
     /// A prompt acpmux held for the folder trust answer keeps the send's gesture as a ticket
     /// (heldPrompt.ts reserves it at the refusal). The start already took that gesture, so its
     /// credit becomes the ticket, which waits for the answer as long as a held prompt does.
