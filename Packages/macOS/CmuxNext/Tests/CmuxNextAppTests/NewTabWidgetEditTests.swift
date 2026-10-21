@@ -80,13 +80,14 @@ import Testing
         let (settings, directory) = try await Self.settings(#"{"tabs":{"newTabWidgets":{"projects":true,"chats":true}}}"#)
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        try await settings.setNewTabWidgetOrder(["chats"])
+        // The page shows Projects and Chats; Quick Actions (off) keeps its place in the saved order.
+        try await settings.setNewTabWidgetOrder(["chats", "projects"])
         #expect(settings.snapshot.newTabWidgets.ids == ["greeting", "chats", "projects"])
-        #expect(settings.fileRoot.value(at: NewTabWidgetSettings.orderPath) == .array([.string("chats"), .string("projects"), .string("actions")]))
-        try await settings.setNewTabWidgetOrder(["projects", "actions", "chats"])
+        #expect(settings.fileRoot.value(at: NewTabWidgetSettings.orderPath) == .array([.string("chats"), .string("actions"), .string("projects")]))
+        try await settings.setNewTabWidgetOrder(["projects", "chats"])
         #expect(settings.fileRoot.value(at: NewTabWidgetSettings.orderPath) == nil, "the default order leaves the file")
-        // A widget the page does not show (Quick Actions, off) keeps its place in the saved order.
         #expect(NewTabWidgetSettings.reordered(["actions", "chats", "projects"], shown: ["projects", "chats"]) == ["actions", "projects", "chats"])
+        #expect(NewTabWidgetSettings.reordered(NewTabWidgetSettings.movable, shown: ["chats", "chats", "projects"]) == ["chats", "actions", "projects"])
 
         // ✕ on a widget that is off by default takes its key out; on the greeting (on by default) writes false.
         try await settings.removeNewTabWidget("chats")

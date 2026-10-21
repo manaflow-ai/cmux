@@ -35,7 +35,8 @@ nonisolated extension NewTabWidgetSettings {
     /// `saved` with the widgets in `shown` put in `shown`'s order, in the places they held; the
     /// others stay where they are.
     static func reordered(_ saved: [String], shown: [String]) -> [String] {
-        let moved = shown.filter(movable.contains)
+        var seen = Set<String>()
+        let moved = shown.filter { movable.contains($0) && seen.insert($0).inserted }
         var next = moved.makeIterator()
         return completed(completed(saved).map { moved.contains($0) ? (next.next() ?? $0) : $0 })
     }
