@@ -410,7 +410,11 @@ test("compact mode lists asks without answers", () => {
   expect(html).not.toContain("acpmux-needs-you-answer");
 });
 
-test("answering another chat's ask opens that chat first, so the relay lets the answer through", async () => {
+test("another chat's ask opens in that chat's own tab; the chat on screen is never replaced", async () => {
+  // Leo 2026-10-21: a Needs you jump switched the coordinator's pane to another chat in place
+  // (`chat.select`), so the coordinator's chat was gone from its own tab. A jump, an answer or a
+  // side question for another chat asks the app to show that chat's tab or open one
+  // (`chat.asks.open`, AgentPaneAskOpen); only this chat's asks are answered here.
   const host = installDom();
   const calls: string[] = [];
   const callNative = (async (method: string, params?: Record<string, unknown>) => {
@@ -444,16 +448,40 @@ test("answering another chat's ask opens that chat first, so the relay lets the 
   await actions!.answer(here, here.answers[0]!);
   expect(calls).toEqual(["chat.permission:here"]);
   calls.length = 0;
-  await actions!.answer(other, other.answers[0]!);
-  expect(calls).toEqual(["chat.select:other", "chat.permission:other"]);
-  // A refused question answer rejects instead of throwing out of the click.
-  await expect(actions!.answer({ ...other, permissionId: undefined }, other.answers[0]!)).rejects.toThrow();
+  // The relay answers only the chat this pane shows: the answer is not sent from here, and the
+  // row stays (a rejection) while the ask's own tab comes up for the person to answer there.
+  await expect(actions!.answer(other, other.answers[0]!)).rejects.toThrow();
+  expect(calls).toEqual(["chat.asks.open:other"]);
+  calls.length = 0;
+  actions!.goTo(other);
+  await Promise.resolve();
+  expect(calls).toEqual(["chat.asks.open:other"]);
   // Ask about this starts a side session (`_acpmux/btw`), which the relay also scopes to a chat the
-  // pane shows: another chat's ask opens that chat first; this chat's goes out at once.
+  // pane shows: this chat's goes out at once; another chat's opens that chat's tab instead.
   calls.length = 0;
   await actions!.ask(here, "Why?");
   expect(calls).toEqual(["btw:here:Why?"]);
   calls.length = 0;
-  await actions!.ask(other, "Why?");
-  expect(calls).toEqual(["chat.select:other", "btw:other:Why?"]);
+  await expect(actions!.ask(other, "Why?")).rejects.toThrow();
+  expect(calls).toEqual(["chat.asks.open:other"]);
+  // A host that opens no tab (another machine's chat) leaves the chat on screen as it is.
+  const refusing = (async (method: string, params?: Record<string, unknown>) => {
+    calls.push(`${method}:${String(params?.sessionId ?? "")}`);
+    throw new Error("unsupported");
+  }) as <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
+  let refused: NeedsYouActions | undefined;
+  function Refused() {
+    refused = useNeedsYou({
+      snapshot: { sessionId: "here", rows: [], sessions: [session("here"), session("other")], asks: [] },
+      callNative: refusing,
+      sideSession: async () => undefined,
+    }).actions;
+    return null;
+  }
+  await act(async () => root!.render(<Refused />));
+  calls.length = 0;
+  refused!.goTo(other);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(calls).toEqual(["chat.asks.open:other"]);
+  expect(calls.some((call) => call.startsWith("chat.select"))).toBe(false);
 });
