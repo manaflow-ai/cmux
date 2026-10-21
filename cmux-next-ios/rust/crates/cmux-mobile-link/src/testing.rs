@@ -88,6 +88,19 @@ impl FakeSignaling {
         self.state.lock().unwrap_or_else(PoisonError::into_inner).refused_binary_frames
     }
 
+    /// Test support: hold the server's bookkeeping for `duration`, as a
+    /// loaded machine stalls it; returns once it is held.
+    pub fn stall_for(&self, duration: std::time::Duration) {
+        let state = Arc::clone(&self.state);
+        let (held_tx, held_rx) = std::sync::mpsc::sync_channel(0);
+        std::thread::spawn(move || {
+            let _held = state.lock().unwrap_or_else(PoisonError::into_inner);
+            let _ = held_tx.send(());
+            std::thread::sleep(duration);
+        });
+        let _ = held_rx.recv();
+    }
+
     /// Drop every socket of `device` (simulates a signaling outage). A
     /// socket whose handshake just finished may not be registered yet: wait
     /// up to a second for it.
