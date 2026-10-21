@@ -3658,6 +3658,29 @@ export class AcpmuxDirectClient {
     } finally {
       this.foldingBelow = undefined;
     }
+    // A compaction the page leaves running, or noted as failed while it may go on (a forced
+    // Stop), went on past its last record (an account switch's runs between turns): the held
+    // events' first compaction row is it if that started on time; else one still running never
+    // said how it ended and is noted as failed, as the next turn's start would.
+    const heldCompaction = [...held.values()]
+      .filter((row) => row.kind === "compaction")
+      .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))[0];
+    for (const row of this.rows.values())
+      if (
+        row.kind === "compaction" &&
+        !held.has(row.id) &&
+        (row.compaction?.state === "running" ||
+          (row.compaction?.inferred === true && this.compactionHeardAt.has(row.id)))
+      ) {
+        const heard = this.compactionHeardAt.get(row.id) ?? -Infinity;
+        if (heldCompaction && heldCompaction.at - heard <= COMPACTION_REPEAT_WINDOW) this.rows.delete(row.id);
+        else if (row.compaction?.state === "running")
+          this.rows.set(row.id, {
+            ...row,
+            version: row.version + 1,
+            compaction: { ...row.compaction, state: "failed", inferred: true },
+          });
+      }
     // A fork older than every held event is only in this page.
     const forkedAtSeq = live.forkedAtSeq ?? this.forkedAtSeq;
     Object.assign(this, live, { forkedAtSeq });
