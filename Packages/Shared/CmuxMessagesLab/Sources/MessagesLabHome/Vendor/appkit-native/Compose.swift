@@ -61,6 +61,7 @@ final class FieldTextView: NSTextView {
     override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); applyScale() }
 
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        pickerAnchor = nil  // cmux: an input method's window goes at the caret
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         onMarkedTextChange()
     }
@@ -463,9 +464,14 @@ final class FieldTextView: NSTextView {
     /// (ChatController+Emoji.swift) just before it asks for the picker. The picker places itself at
     /// the first responder's `firstRect(forCharacterRange:)`; this field draws its own caret, and
     /// AppKit's rect for it was zero or off screen, so the picker opened at the screen's corner.
-    /// One open only: the next selection change (the chosen emoji), key, click or loss of the
-    /// keyboard clears it, and the field reports AppKit's rect again.
+    /// One open only: the next selection change (the chosen emoji), key, modifier (Fn Fn
+    /// dictation), marked text, click or loss of the keyboard clears it, and the field reports
+    /// AppKit's rect again.
     var pickerAnchor: NSRect?
+    override func flagsChanged(with event: NSEvent) {
+        pickerAnchor = nil  // cmux
+        super.flagsChanged(with: event)
+    }
     override func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
         if let pickerAnchor { actualRange?.pointee = range; return pickerAnchor }  // cmux
         return super.firstRect(forCharacterRange: range, actualRange: actualRange)

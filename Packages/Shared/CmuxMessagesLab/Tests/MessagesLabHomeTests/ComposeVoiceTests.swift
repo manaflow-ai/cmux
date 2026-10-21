@@ -177,5 +177,45 @@ import Testing
         #expect(spaced.piece("there") == "there")
         let start = ComposeVoiceSplice(text: "" as NSString, caret: 0)
         #expect(start.piece("") == "")
+        let before = ComposeVoiceSplice(text: "Chief" as NSString, caret: 0)
+        #expect(before.piece("Ask the") == "Ask the ")
+    }
+
+    /// The committed words are their own undo step: one Undo takes them out and keeps the typing.
+    @Test func theCommitIsOneUndoStep() throws {
+        let p = pane()
+        let undo = try #require(p.field.undoManager)
+        undo.groupsByEvent = false
+        undo.beginUndoGrouping(); p.type("Ask the Chief"); undo.endUndoGrouping()
+
+        p.voice(.starting)
+        p.voice(.listening, "kindly")
+        undo.beginUndoGrouping(); p.voice(.idle, "kindly"); undo.endUndoGrouping()
+        #expect(p.field.string == "Ask the Chief kindly")
+
+        undo.undo()
+        #expect(p.field.string == "Ask the Chief")
+        undo.undo()
+        #expect(p.field.string.isEmpty)
+    }
+
+    /// Edit > Undo while words show takes them out first and stops the session, so the undo acts
+    /// on the draft it was recorded against.
+    @Test func undoWhileListeningUndoesTheDraft() throws {
+        let p = pane()
+        let undo = try #require(p.field.undoManager)
+        undo.groupsByEvent = false
+        undo.beginUndoGrouping(); p.type("Draft"); undo.endUndoGrouping()
+
+        p.voice(.starting)
+        p.voice(.listening, "spoken words")
+        #expect(p.field.string == "Draft spoken words")
+
+        undo.undo()
+        #expect(p.engine.cancels == 1)
+        #expect(p.field.string.isEmpty)
+        p.voice(.idle, "spoken words", cancelled: true)
+        #expect(p.field.string.isEmpty)
+        #expect(!p.controller.voice.isActive)
     }
 }

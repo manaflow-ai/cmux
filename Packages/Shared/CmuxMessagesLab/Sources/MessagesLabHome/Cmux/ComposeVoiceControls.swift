@@ -67,8 +67,14 @@ final class ComposeVoiceControls: NSView {
         needsLayout = true
     }
 
-    /// The theme's inks: the glyphs' resting colour and the accent.
+    private var applied: (ink: NSColor, accent: NSColor, appearance: NSAppearance.Name)?
+
+    /// The theme's inks: the glyphs' resting colour and the accent. Unchanged inks in the same
+    /// appearance touch nothing (this runs with every draft change).
     func applyColors(ink: NSColor, accent: NSColor) {
+        let appearance = effectiveAppearance.name
+        if let applied, applied.ink == ink, applied.accent == accent, applied.appearance == appearance { return }
+        applied = (ink, accent, appearance)
         mic.applyColors(ink: ink, accent: accent)
         finish.applyColors(ink: ink, accent: ink)
         wave.ink = ink
@@ -94,6 +100,8 @@ final class ComposeVoiceButton: NSView {
     private var ink: NSColor = .secondaryLabelColor
     private var accent: NSColor = .controlAccentColor
     private var pressing = false
+    /// The symbol the glyph shows now (its image is made only when this changes).
+    private var shownSymbol: String?
     var isActive = false { didSet { if isActive != oldValue { applyLook() } } }
 
     init(symbol: String, activeSymbol: String) {
@@ -131,7 +139,10 @@ final class ComposeVoiceButton: NSView {
 
     private func applyLook() {
         let name = isActive ? activeSymbol : symbol
-        glyph.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(FieldChrome.glyphConfig)
+        if name != shownSymbol {
+            shownSymbol = name
+            glyph.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(FieldChrome.glyphConfig)
+        }
         glyph.contentTintColor = isActive ? accent : ink
         CATransaction.begin(); CATransaction.setDisableActions(true)
         backing.backgroundColor = accent.withAlphaComponent(0.22).cgColor
@@ -164,6 +175,7 @@ final class ComposeVoiceWave: NSView {
     static let height: CGFloat = 20
     /// Whether the bars move with the level (the host's motion gate; MessagesLabHomeView.voiceMotionGate).
     var moves: () -> Bool = { MessagesLabHomeView.voiceMotionGate() }
+    // Set only when an ink or the appearance changed (`ComposeVoiceControls.applyColors`).
     var ink: NSColor = .secondaryLabelColor { didSet { recolor() } }
     var accent: NSColor = .controlAccentColor { didSet { recolor() } }
     private var layers: [CALayer] = []

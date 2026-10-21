@@ -73,7 +73,7 @@ extension HomeNativeTranscriptView {
             await previous?.value
             // task-owner: awaited here; the stats end with it
             let problems = await Task.detached(priority: .userInitiated) { inputs.map(HomeComposerCheck.problem(for:)) }.value
-            guard let accepted = self?.admit(inputs, problems), !Task.isCancelled else { return }
+            guard !Task.isCancelled, let accepted = self?.admit(inputs, problems) else { return }
             for input in accepted {
                 let prepared: LocalAttachment
                 do {
@@ -107,7 +107,8 @@ extension HomeNativeTranscriptView {
                 room -= 1
             }
         }
-        showNotice(refusals.first)
+        // A clean batch clears an earlier refusal, not a notice with an action (the mic's).
+        if let first = refusals.first { showNotice(first) } else if noticeAction == nil { showNotice(nil) }
         return accepted
     }
 

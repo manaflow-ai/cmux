@@ -29,7 +29,14 @@
          onPress(event)
          super.mouseDown(with: event)
          if let up = NSApp.currentEvent, up.type == .leftMouseUp { onRelease(up) }
-@@ -54,6 +67,7 @@
+@@ -48,12 +61,14 @@
+     override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); applyScale() }
+ 
+     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
++        pickerAnchor = nil  // cmux: an input method's window goes at the caret
+         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+         onMarkedTextChange()
+     }
  
      override func keyDown(with event: NSEvent) {
          if Self.caretLog { Self.log("key down \(event.keyCode)"); Self.logRunLoop() }
@@ -37,7 +44,7 @@
          defer { if Self.caretLog { Self.log("key done") } }
          // Marked text (IME composition) owns Return and Esc.
          if hasMarkedText() { super.keyDown(with: event); return }
-@@ -101,6 +115,12 @@
+@@ -101,6 +116,12 @@
      }
      var caretSuspended = false { didSet { updateCaret(reset: false) } }
  
@@ -50,7 +57,7 @@
      func installCaret() {
          guard Self.ownCaret else { return }
          insertionPointColor = .clear
-@@ -141,7 +161,8 @@
+@@ -141,7 +162,8 @@
              if let r = caretRect(at: sel.location, upstream: textLayoutManager?.textSelections.first?.affinity == .upstream) {
                  local = CGRect(x: r.minX + Self.caretDX, y: r.minY, width: Self.caretWidth, height: 17)
              } else {
@@ -60,7 +67,7 @@
                  let r = convert(window.convertFromScreen(screen), from: nil)
                  local = CGRect(x: r.minX + Self.caretDX, y: r.midY + Self.caretDY, width: Self.caretWidth, height: 17)
              }
-@@ -183,11 +204,13 @@
+@@ -183,11 +205,13 @@
      /// not depend on the blink's phase at the grab (Messages' still references show it solid).
      static let solidCaret = ProcessInfo.processInfo.arguments.contains("--still-grab")
  
@@ -76,7 +83,7 @@
          let a = CAKeyframeAnimation(keyPath: "opacity")
          a.calculationMode = .discrete
          // One period from the first fade-out: out 1 -> 0 in four steps, off, in 0 -> 1.
-@@ -208,6 +231,7 @@
+@@ -208,6 +232,7 @@
          return ok
      }
      override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
@@ -84,7 +91,7 @@
          caretByEdit = editing
          super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
          // A caret move (an arrow key) shows the caret by this rule whatever AppKit scrolls; an
-@@ -231,6 +255,9 @@
+@@ -231,6 +256,9 @@
          if DeferredSpellChecker.useAppKit { super.toggleContinuousSpellChecking(sender) } else { spell.enabled.toggle() }
      }
      override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
@@ -94,7 +101,7 @@
          if !DeferredSpellChecker.useAppKit, item.action == #selector(toggleContinuousSpellChecking(_:)) {
              (item as? NSMenuItem)?.state = spell.enabled ? .on : .off
              return true
-@@ -243,6 +270,7 @@
+@@ -243,6 +271,7 @@
          return ok
      }
      override func resignFirstResponder() -> Bool {
@@ -102,7 +109,7 @@
          let ok = super.resignFirstResponder()
          DispatchQueue.main.async { [weak self] in self?.updateCaret(reset: false) }
          return ok
-@@ -288,6 +316,18 @@
+@@ -288,6 +317,18 @@
      private var storageEdits = 0
      private var storageObserver: NSObjectProtocol?
      private var observedStorage: ObjectIdentifier?
@@ -121,26 +128,29 @@
      override func viewDidMoveToWindow() {
          super.viewDidMoveToWindow()
          applyScale()
-@@ -417,6 +457,18 @@
-     override func scrollToVisible(_ rect: NSRect) -> Bool {
-         if scrollCaretIntoField() { return true }
+@@ -419,13 +460,87 @@
          return super.scrollToVisible(rect)
-+    }
-+
+     }
+ 
 +    /// cmux: where the system emoji picker opens (screen coordinates), set by the emoji button
 +    /// (ChatController+Emoji.swift) just before it asks for the picker. The picker places itself at
 +    /// the first responder's `firstRect(forCharacterRange:)`; this field draws its own caret, and
 +    /// AppKit's rect for it was zero or off screen, so the picker opened at the screen's corner.
-+    /// One open only: the next selection change (the chosen emoji), key, click or loss of the
-+    /// keyboard clears it, and the field reports AppKit's rect again.
++    /// One open only: the next selection change (the chosen emoji), key, modifier (Fn Fn
++    /// dictation), marked text, click or loss of the keyboard clears it, and the field reports
++    /// AppKit's rect again.
 +    var pickerAnchor: NSRect?
++    override func flagsChanged(with event: NSEvent) {
++        pickerAnchor = nil  // cmux
++        super.flagsChanged(with: event)
++    }
 +    override func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
 +        if let pickerAnchor { actualRange?.pointee = range; return pickerAnchor }  // cmux
 +        return super.firstRect(forCharacterRange: range, actualRange: actualRange)
-     }
- 
++    }
++
      /// The pasteboard Paste reads (a check injects its own).
-@@ -424,8 +476,65 @@
+     var pasteboard: NSPasteboard = .general
  
      override func paste(_ sender: Any?) {
          let pb = pasteboard
@@ -207,7 +217,7 @@
      }
  }
  
-@@ -632,10 +741,40 @@
+@@ -632,10 +747,40 @@
      var onAttachmentsChanged: (() -> Void)?
      /// The send's field opacity pulse (begin), for the live glass view.
      var onSendPulse: ((CFTimeInterval) -> Void)?
@@ -249,7 +259,7 @@
      static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
      static let font = Fixture.bodyFont
      /// `writingTools`' raw value for reports: -1 on macOS 14 (no Writing Tools).
-@@ -658,7 +797,7 @@
+@@ -658,7 +803,7 @@
      /// its text scrolls past it).
      func lines(_ text: String, windowWidth: CGFloat) -> Int {
          // One-entry memo: every compose update asks again for the same draft (a send asks for "").
@@ -258,7 +268,7 @@
          // The empty field (every send and every commit after it) has its own entry: the one-entry
          // memo held the last typed draft, so each send typeset " " again.
          // Its one line (a space) does not depend on the width: a live resize's every width
-@@ -678,6 +817,11 @@
+@@ -678,6 +823,11 @@
      /// The field's height for the draft in a window WIDTH pt wide (the attachment row on top).
      private func height(for text: String, width: CGFloat) -> CGFloat {
          if emptyAfterSend && text.isEmpty && chips.isEmpty { return ComposeMetrics.emptyAfterSend }
@@ -270,7 +280,7 @@
          return min(ComposeView.height(lines: lines(text, windowWidth: width), chips: false), ComposeView.maxHeight) + strip.height
      }
      private var linesMemo: (String, CGFloat, Int)?
-@@ -767,7 +911,7 @@
+@@ -767,7 +917,7 @@
          // tracking (which lagged through a live resize).
          tv.textContainer?.widthTracksTextView = false
          tv.textContainer?.heightTracksTextView = false
@@ -279,7 +289,7 @@
          tv.layerContentsPlacement = .topLeft
          tv.layer?.masksToBounds = true
          tv.layer?.contentsGravity = .topLeft
-@@ -790,6 +934,7 @@
+@@ -790,6 +940,7 @@
          tv.isAutomaticDashSubstitutionEnabled = NSSpellChecker.isAutomaticDashSubstitutionEnabled
          if #available(macOS 15, *) { tv.writingToolsBehavior = ComposeView.writingTools }
          tv.setAccessibilityLabel(Strings.placeholder)
@@ -287,7 +297,7 @@
  
          caret.backgroundColor = Fixture.caret.cgColor
          caret.isHidden = true
-@@ -835,6 +980,8 @@
+@@ -835,6 +986,8 @@
          if !nativeChrome { renderGlass(); buttons.setNeedsDisplay() }
          renderPlaceholder()
          renderChips()
@@ -296,7 +306,7 @@
      }
  
      /// The "+" button (opens the file picker).
-@@ -849,7 +996,8 @@
+@@ -849,7 +1002,8 @@
      private func textFrame(height h: CGFloat) -> CGRect {
          let f = rect(height: h)
          let chipH: CGFloat = strip.height
@@ -306,7 +316,7 @@
      }
  
      /// What the last `place` laid out (field height, empty text, chip row height, size): a commit
-@@ -867,10 +1015,11 @@
+@@ -867,10 +1021,11 @@
          placeholderLayer.frame = CGRect(x: f.minX, y: f.minY + chipH, width: 300, height: 30)
          waveLayer.frame = CGRect(x: f.maxX - 30, y: ComposeView.waveY(f), width: 24, height: 30)
          chipsLayer.frame = CGRect(x: f.minX, y: f.minY, width: f.width, height: max(1, strip.height))
@@ -319,7 +329,7 @@
      }
  
      /// The audio glyph's layer top for the field F: centred in the field, as Messages' (its glyph
-@@ -940,11 +1089,11 @@
+@@ -940,11 +1095,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -333,14 +343,14 @@
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
-@@ -958,9 +1107,54 @@
+@@ -958,9 +1113,54 @@
      }
  
      private func renderChips() {
 -        strip.update(chips, width: ComposeView.fieldWidth(bounds.width), scale: renderScale)
 +        strip.update(stripChips, width: ComposeView.fieldWidth(bounds.width), scale: renderScale)
-     }
- 
++    }
++
 +    // cmux: attachments sit in the field's text at the caret (Draft+InlineMarks.swift), not in a
 +    // strip above it; the strip stays empty.
 +    private var stripChips: [Attachment] { [] }
@@ -359,8 +369,8 @@
 +        guard let range, tv.shouldChangeText(in: range, replacementString: "") else { return }
 +        storage.replaceCharacters(in: range, with: "")
 +        tv.didChangeText()
-+    }
-+
+     }
+ 
 +    /// Just after the mark of the newest attachment that is in the draft D and not in BEFORE
 +    /// (an attachment came in: the caret follows it, as after typing a character); nil when none came in.
 +    static func addedMark(_ d: Draft, before: [Attachment]) -> Int? {
@@ -389,7 +399,7 @@
      /// The attachment whose remove control is at p (window coordinates).
      func chip(at p: CGPoint) -> ID? {
          let f = fieldRect
-@@ -984,12 +1178,18 @@
+@@ -984,12 +1184,18 @@
          let d = state.ui.draft
          let hadDraft = !text.isEmpty || !chips.isEmpty
          let tv = textView.view
@@ -411,7 +421,7 @@
                  if !DeferredSpellChecker.useAppKit { tv.spell.textDidChange() }
              }
          }
-@@ -1007,8 +1207,7 @@
+@@ -1007,8 +1213,7 @@
          CATransaction.begin(); CATransaction.setDisableActions(true)
          // With an attachment Messages shows neither the placeholder nor the audio glyph
          // (compose-attach-image stills).
@@ -421,7 +431,7 @@
          CATransaction.commit()
          let h = height(for: d.text, width: bounds.width)
          let old = fieldHeight
-@@ -1044,6 +1243,7 @@
+@@ -1044,6 +1249,7 @@
              Animate.sampledUntilMinimum(veil, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
              onSendPulse?(begin)
          }

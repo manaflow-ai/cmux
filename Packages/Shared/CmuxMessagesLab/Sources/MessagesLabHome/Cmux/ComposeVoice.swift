@@ -2,15 +2,19 @@
 import AppKit
 
 /// Where a voice session's words sit in the field: at the caret the session began at, after a
-/// space when the text before it ends in a word. Each update replaces the words shown so far
+/// space when the text before it ends in a word and before one when a word follows. Each update replaces the words shown so far
 /// (a live guess can change), so the text around them (and any attachment in it) is untouched.
 struct ComposeVoiceSplice: Equatable {
     /// The UTF-16 offset the words start at.
     let location: Int
     /// A space goes before the words (the caret was right after a word).
     let leadingSpace: Bool
-    /// The UTF-16 length of what the field shows for the session now (the space and the words).
-    private(set) var length = 0
+    /// A space goes after the words (a word starts right at the caret).
+    let trailingSpace: Bool
+    /// What the field shows for the session now (the spaces and the words).
+    private(set) var shown = ""
+    /// The UTF-16 length of ``shown``.
+    var length: Int { (shown as NSString).length }
 
     init(text: NSString, caret: Int) {
         let at = min(max(0, caret), text.length)
@@ -20,11 +24,16 @@ struct ComposeVoiceSplice: Equatable {
         } else {
             leadingSpace = false
         }
+        if at < text.length, let scalar = Unicode.Scalar(text.character(at: at)) {
+            trailingSpace = CharacterSet.alphanumerics.contains(scalar)
+        } else {
+            trailingSpace = false
+        }
     }
 
-    /// What the field shows for `words`: nothing for no words, else the words after the space.
+    /// What the field shows for `words`: nothing for no words, else the words between the spaces.
     func piece(_ words: String) -> String {
-        words.isEmpty ? "" : (leadingSpace ? " " : "") + words
+        words.isEmpty ? "" : (leadingSpace ? " " : "") + words + (trailingSpace ? " " : "")
     }
 
     /// The field's range the session's piece takes now.
@@ -34,7 +43,7 @@ struct ComposeVoiceSplice: Equatable {
     mutating func replace(with words: String) -> (range: NSRange, text: String) {
         let old = range
         let text = piece(words)
-        length = (text as NSString).length
+        shown = text
         return (old, text)
     }
 }
@@ -58,11 +67,17 @@ final class ComposeVoice {
     private(set) var applying = false
     /// The person typed: this session's later words are dropped.
     private var detached = false
+    /// Watches the field's undo stack while words show (Edit > Undo comes from the menu, not a key).
+    private var undoWatch: NSObjectProtocol?
 
     /// A session runs (starting, listening or finalizing).
     var isActive: Bool { phase != .idle }
 
     init(controller: ChatController) { self.controller = controller }
+
+    deinit {
+        if let undoWatch { NotificationCenter.default.removeObserver(undoWatch) }
+    }
 
     /// The mic button.
     func toggle() {
@@ -113,23 +128,58 @@ final class ComposeVoice {
         guard let field = controller?.demo?.compose.textView.view else { splice = nil; return }
         let sel = field.selectedRange()
         splice = ComposeVoiceSplice(text: field.string as NSString, caret: sel.location + sel.length)
+        // The shown words register no undo, so the stack's ranges are the draft's without them: an
+        // undo first takes the words out (the draft as it was) and stops the session.
+        if let undo = field.undoManager {
+            undoWatch = NotificationCenter.default.addObserver(
+                forName: .NSUndoManagerWillUndoChange, object: undo, queue: nil
+            ) { [weak self] _ in self?.undoDuringSession() }
+        }
+    }
+
+    private func undoDuringSession() {
+        guard isActive, !detached, var splice, let field = controller?.demo?.compose.textView.view else { return }
+        if isShowing(splice, in: field) {
+            let out = splice.replace(with: "")
+            edit(field, out.range, out.text, caret: splice.location)
+        }
+        detached = true
+        self.splice = nil
+        input?.cancelVoice()
     }
 
     private func end(_ update: HomeVoiceUpdate) {
-        defer { splice = nil; detached = false }
+        defer {
+            splice = nil
+            detached = false
+            if let undoWatch { NotificationCenter.default.removeObserver(undoWatch) }
+            undoWatch = nil
+        }
         guard !detached, var splice, let field = controller?.demo?.compose.textView.view else { return }
+        // Something else rebuilt the field (an attachment landed): the words stay where they are.
+        guard isShowing(splice, in: field) else { return }
         // The shown piece leaves without an undo step; a commit puts the final words back as one.
         let out = splice.replace(with: "")
         edit(field, out.range, out.text, caret: splice.location)
         guard !update.cancelled else { return }
         let words = splice.piece(update.text)
         guard !words.isEmpty else { return }
+        field.breakUndoCoalescing()
         field.insertText(words, replacementRange: NSRange(location: splice.location, length: 0))
+        field.breakUndoCoalescing()
     }
 
     private func show(_ words: String) {
         guard var splice, let field = controller?.demo?.compose.textView.view else { return }
-        guard splice.piece(words) != (field.string as NSString).substring(with: clamped(splice.range, in: field)) else { return }
+        // The field changed under the words without a keystroke (an attachment rebuilt it): the
+        // range is stale, so the session lets go and the words stay as they are.
+        guard isShowing(splice, in: field) else {
+            detached = true
+            self.splice = nil
+            input?.finishVoice()
+            return
+        }
+        guard splice.piece(words) != splice.shown else { return }
         let change = splice.replace(with: words)
         self.splice = splice
         edit(field, change.range, change.text, caret: splice.location + splice.length)
@@ -144,6 +194,13 @@ final class ComposeVoice {
         storage.replaceCharacters(in: r, with: NSAttributedString(string: text, attributes: field.typingAttributes))
         field.setSelectedRange(NSRange(location: min(caret, storage.length), length: 0))
         field.didChangeText()
+    }
+
+    /// The field still shows the session's piece where the splice says.
+    private func isShowing(_ splice: ComposeVoiceSplice, in field: FieldTextView) -> Bool {
+        let text = field.string as NSString
+        guard NSMaxRange(splice.range) <= text.length else { return false }
+        return text.substring(with: splice.range) == splice.shown
     }
 
     private func clamped(_ range: NSRange, in field: FieldTextView) -> NSRange {

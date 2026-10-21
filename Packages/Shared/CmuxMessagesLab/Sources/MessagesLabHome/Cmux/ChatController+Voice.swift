@@ -19,8 +19,14 @@ extension ChatController {
         let compose = demo.compose
         let controls = host.voiceControls
         let active = voice.isActive
-        let empty = compose.text.isEmpty && compose.attachmentCount == 0
-        controls.isHidden = voice.input == nil || !(active || empty)
+        // On every keystroke: only what changed is touched, and hidden controls are left alone.
+        let empty = compose.attachmentCount == 0 && compose.text.isEmpty
+        let hidden = voice.input == nil || !(active || empty)
+        if controls.isHidden != hidden { controls.isHidden = hidden }
+        let line = active && empty
+        compose.hidesPlaceholder = line
+        if host.listeningLine.isHidden == line { host.listeningLine.isHidden = !line }
+        guard !hidden else { return }
         if controls.isListening != active { controls.setListening(active) }
         let frame = ComposeVoiceControls.frame(field: compose.fieldRect, listening: active)
         if controls.frame != frame {
@@ -29,9 +35,6 @@ extension ChatController {
         }
         controls.applyColors(ink: Fixture.waveform, accent: Fixture.caret)
         if active { controls.wave.show(level: voice.level) }
-        let line = active && empty
-        compose.hidesPlaceholder = line
-        host.listeningLine.isHidden = !line
         if line { host.listeningLine.place(field: compose.fieldRect, color: Fixture.placeholder) }
     }
 
