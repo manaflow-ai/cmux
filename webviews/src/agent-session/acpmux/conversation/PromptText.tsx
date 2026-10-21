@@ -68,8 +68,10 @@ export function PromptText({
     if (!hit || !collapsed) return;
     setOpen(true);
     reveal?.repaint();
+    // A prompt found long only once laid out (a paste, a narrow wrap) opens then; Show less after
+    // that stays shut.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
-  }, [hit, reveal]);
+  }, [hit, reveal, long]);
   return (
     <>
       <div ref={body} id={id} className={`cv-user__text${collapsed ? " is-clamped is-faded" : ""}`}>
@@ -140,6 +142,9 @@ function PasteChip({
       <button
         type="button"
         className="acpmux-attachment acpmux-attachment-file acpmux-attachment-link cv-user__paste"
+        // Its name and count are labels, not the prompt's text: Find counts matches in `text`
+        // (chatFind.ts findMatches), so it paints none here.
+        data-find-skip=""
         aria-expanded={open}
         aria-controls={id}
         onClick={() => {

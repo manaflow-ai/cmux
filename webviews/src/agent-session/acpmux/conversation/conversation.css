@@ -279,7 +279,7 @@
 
 /* A long prompt (PromptText.tsx, promptCollapse.ts): its first ten lines, the last two fading out
    under a mask (the bubble's glass shows through, never a cover), with Show more under them: a plain
-   text button whose hover is a pill. model.ts estimates the same heights: change them together. */
+   text button whose hover brightens its text. model.ts estimates the same heights: change them together. */
 .cv-user__text.is-clamped {
   max-height: calc(var(--cv-line-height) * 10);
   overflow: hidden;
@@ -291,10 +291,10 @@
 .cv-user__more {
   display: block;
   height: 20px;
-  margin: 4px 0 0 -6px;
-  padding: 0 6px;
+  margin: 4px 0 0;
+  padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   background: none;
   font-family: var(--cv-font);
   font-size: var(--text-detail);
@@ -305,7 +305,6 @@
   cursor: default;
 }
 .cv-user__more:hover {
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
   color: var(--cv-text);
 }
 .cv-user__more:focus-visible {
