@@ -47,8 +47,8 @@ pub(in crate::hub) fn take_notice(session_id: &str) -> Option<String> {
 enum Revived {
     /// It is there (another start brought it back).
     There,
-    /// Its worktree was added back: from where, and the commit it is on.
-    Made(&'static str, String),
+    /// Its worktree was added back: its record, from where, and the commit it is on.
+    Made(WorktreeOrigin, &'static str, String),
     /// The session moves to this folder above it, for this reason.
     Moved(PathBuf, String),
 }
@@ -92,8 +92,7 @@ impl Hub {
         let shown = cwd.display();
         let notice = match revived {
             Revived::There => return,
-            Revived::Made(from, at) => {
-                let w = origin.as_ref().expect("made from its record");
+            Revived::Made(w, from, at) => {
                 let b = &w.branch;
                 let msg = json!({"branch": b, "cwd": cwd, "root": w.root, "from": from, "at": at});
                 self.append(session, "mux", "worktree_recreated", msg);
@@ -136,11 +135,13 @@ fn revive(origin: Option<&WorktreeOrigin>, cwd: &Path) -> Revived {
     if cwd.exists() {
         return Revived::There;
     }
-    let why = match origin.map(recreate) {
-        Some(Ok((from, at))) if cwd.exists() => return Revived::Made(from, at),
-        Some(Ok((_, at))) => format!("its worktree came back at {at} without this folder"),
-        Some(Err(why)) => format!("its worktree could not be added back ({why})"),
-        None => "it was not a git worktree acpmux knew".to_owned(),
+    let Some(w) = origin else {
+        return fallback(cwd, "it was not a git worktree acpmux knew".to_owned());
+    };
+    let why = match recreate(w) {
+        Ok((from, at)) if cwd.exists() => return Revived::Made(w.clone(), from, at),
+        Ok((_, at)) => format!("its worktree came back at {at} without this folder"),
+        Err(why) => format!("its worktree could not be added back ({why})"),
     };
     fallback(cwd, why)
 }
