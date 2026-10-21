@@ -146,7 +146,8 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             // Copy Last Code Block (Opt-Cmd-;) and Archive Chat (Ctrl-Cmd-A), as in the Codex app
             // (cx-ncc.72). Only while an agent chat has the keyboard. Archive runs the chat menu's
-            // Archive; scripts use `cmux acp` and the chat's own transcript instead.
+            // Archive, or on a Priority row (an `agent-chat:` target) archives that row's chat;
+            // scripts use `cmux acp` and the chat's own transcript instead.
             ActionDescriptor(
                 id: "agentPane.copyLastCodeBlock",
                 title: String(localized: "action.agentPane.copyLastCodeBlock", defaultValue: "Copy Last Code Block", bundle: .module),
@@ -161,11 +162,12 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.agentPane.archiveChat", defaultValue: "Archive Chat", bundle: .module),
                 keywords: ["agent", "chat", "archive", "hide", "close", "done"],
                 defaultShortcut: Shortcut("a", modifiers: [.command, .control]),
-                category: .agents, symbol: "archivebox", surfaces: [.palette, .keyboard],
+                category: .agents, symbol: "archivebox", surfaces: [.palette, .keyboard, .contextMenu],
                 // A script names the chat's pane (`--target pane:…`); the target brings its own
-                // agentPaneFocused fact (`ActionRegistry.targetContext`).
-                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent archive-chat",
-                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+                // agentPaneFocused fact (`ActionRegistry.targetContext`), as a Priority row's
+                // `agent-chat:` target does (`ActionContext.implied(byTargetKind:)`).
+                requires: [.agentPaneFocused], targets: [.pane, .agentChat], cliName: "agent archive-chat",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ContextMenuPlacement(.priorityRow, .close, 0)])
             ),
             ActionDescriptor(
                 id: "agentPane.git.commit",
