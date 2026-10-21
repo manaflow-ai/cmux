@@ -409,6 +409,10 @@ impl RemoteSession {
                     source: Arc::from(agent.source.as_str()),
                     session: agent.session.as_deref().map(Arc::from),
                     agent: agent.agent.as_deref().map(Arc::from),
+                    agent_session_id: value
+                        .get("agent_session_id")
+                        .and_then(Value::as_str)
+                        .map(Arc::from),
                     updated_at_ms,
                     // An older daemon sends no state start: count from the last report.
                     since_ms: value

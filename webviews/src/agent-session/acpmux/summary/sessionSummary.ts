@@ -8,7 +8,15 @@ import { isSubagentGroup } from "../subagents/subagentRows";
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 export type PullRequestState = "open" | "merged" | "closed";
-export type SummaryPullRequest = { url: string; repo: string; number: number; title?: string; state: PullRequestState };
+export type SummaryPullRequest = {
+  url: string;
+  repo: string;
+  number: number;
+  title?: string;
+  state: PullRequestState;
+  /// When the chat closed it (epoch ms), if the call says.
+  closedAt?: number;
+};
 export type SummarySubagent = { id: string; title: string; state: "running" | "done" | "failed" };
 export type SummaryWakeup = { id: string; text: string; cron?: string };
 export type SummarySource = { url?: string; label: string };
@@ -66,7 +74,11 @@ function pullRequests(all: readonly Tool[]): SummaryPullRequest[] {
     const repo = match[1] ?? match[3];
     const number = Number(match[2] ?? match[4]);
     for (const pr of found.values())
-      if (pr.number === number && (!repo || repo === pr.repo)) pr.state = merged ? "merged" : "closed";
+      if (pr.number === number && (!repo || repo === pr.repo)) {
+        pr.state = merged ? "merged" : "closed";
+        const at = tool.endedAt ?? tool.startedAt;
+        if (!merged && at !== undefined) pr.closedAt = at;
+      }
   }
   return [...found.values()];
 }

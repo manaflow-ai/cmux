@@ -17,7 +17,8 @@ import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
 import { ChevronDown, ChevronRight, Copy, Retry, TurnFork } from "./icons";
-import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
+import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../../ui/Menu";
+import { retryModelSections, type RetryModel } from "./retryModelSections";
 import type { TurnActions } from "./turnActions";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
@@ -170,7 +171,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               type="button"
               className="cv-iconbtn cv-iconbtn--compact"
               aria-label={copied ? t("turn.copied") : t("turn.copy")}
-              title={copied ? t("turn.copied") : t("turn.copy")}
               onClick={() =>
                 void copyText(text).then(
                   () => setCopied(true),
@@ -220,7 +220,10 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   );
 }
 
-/// Retry with another model (cx-ncc.62): the chat harness's models, the current one checked.
+/// Retry with another model (cx-ncc.62): the chat harness's models, the current one checked, drawn
+/// as the pane's other menus (the Reasoning menu's look, composerControls.css: its rows and trailing check column): releases under
+/// Models, the harness's aliases and modes under their own title, each model once
+/// (retryModelSections.ts). One section draws without a title.
 function RetryModelMenu({
   retryWith,
   onPick,
@@ -229,6 +232,19 @@ function RetryModelMenu({
   onPick(model: string): void;
 }) {
   const t = useT();
+  const { models, aliases } = retryModelSections(retryWith.models, retryWith.current);
+  const rows = (list: readonly RetryModel[]) => (
+    <MenuRadioGroup value={retryWith.current ?? ""} onValueChange={onPick}>
+      {list.map((model) => (
+        <MenuRadioItem key={model.id} value={model.id} className="acpmux-retry-item" closeOnClick>
+          <span className="acpmux-retry-text">
+            <span className="acpmux-menu-label">{model.name}</span>
+          </span>
+        </MenuRadioItem>
+      ))}
+    </MenuRadioGroup>
+  );
+  const titled = models.length > 0 && aliases.length > 0;
   return (
     <Menu>
       <MenuButton
@@ -238,14 +254,16 @@ function RetryModelMenu({
       >
         <ChevronDown size={12} />
       </MenuButton>
-      <MenuPopup label={t("turn.retryWith")} align="start">
-        <MenuRadioGroup value={retryWith.current ?? ""} onValueChange={onPick}>
-          {retryWith.models.map((model) => (
-            <MenuRadioItem key={model.id} value={model.id} closeOnClick>
-              {model.name}
-            </MenuRadioItem>
-          ))}
-        </MenuRadioGroup>
+      <MenuPopup label={t("turn.retryWith")} align="start" className="acpmux-retry-menu">
+        {titled ? (
+          <>
+            <MenuGroup label={t("turn.retryWith.models")}>{rows(models)}</MenuGroup>
+            <MenuSeparator />
+            <MenuGroup label={t("turn.retryWith.aliases")}>{rows(aliases)}</MenuGroup>
+          </>
+        ) : (
+          rows([...models, ...aliases])
+        )}
       </MenuPopup>
     </Menu>
   );
