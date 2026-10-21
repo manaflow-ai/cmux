@@ -11,6 +11,8 @@
 // `send_family_prompt`: a parent's message to its child, the child's first prompt from
 // `start_session`, and a child's report to its parent) names its sender as the receiver's chat
 // knows it, its short name, and who it is to this chat.
+// Any other session's prompt to this one (kind `session_message`, prompt_provenance.rs: `acpmux
+// send` run inside that session) names that session the same way, without a relation.
 
 /// Who a family message's sender is to this chat (acpmux `fromRole`, subsession_send.rs
 /// `family_role`): the chat that started it, one it started, one further up, or another below or
@@ -45,7 +47,8 @@ export function incomingPrompt(
   msg: { _meta?: { provenance?: unknown }; client?: unknown } | undefined,
 ): IncomingPrompt | undefined {
   const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
-  if (provenance?.kind === "subsession_message" && typeof provenance.from === "string" && provenance.from) {
+  const fromSession = provenance?.kind === "subsession_message" || provenance?.kind === "session_message";
+  if (fromSession && typeof provenance.from === "string" && provenance.from) {
     // `from` is the sender's raw session id, always a chat here; its short name, when it is a
     // sub-session itself, reads better than its full name (`claude-sr2/coordinator`).
     const sessionId = provenance.from.replace(/^acp:/, "") || undefined;
