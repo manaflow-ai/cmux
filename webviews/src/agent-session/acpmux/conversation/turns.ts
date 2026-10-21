@@ -886,11 +886,13 @@ export function mergeShortNotes(rows: readonly AcpmuxRow[]): AcpmuxRow[] {
 const mixVersion = (a: number, b: number) => (a * 1_009 + b * 7 + 1) % 2_147_483_647;
 
 /// The "Worked for" fold that holds `rows[index]`: the one of the part of its turn it ran in, the
-/// nearest prompt's or drawn steer's before it (shapeTurn `turnParts`). Find and a shell's row
-/// open it to reveal a row the fold hides.
+/// nearest prompt's or drawn steer's before it (shapeTurn `turnParts`), past a prompt not yet sent
+/// or refused, which draws among the turn's rows and opens nothing. Find and a shell's row open it
+/// to reveal a row the fold hides.
 export function turnFoldFor(rows: readonly AcpmuxRow[], index: number): string | undefined {
   for (let at = Math.min(index, rows.length - 1); at >= 0; at -= 1) {
     const row = rows[at]!;
+    if (isUnsent(row)) continue;
     if (opensTurn(row) || (continuesTurn(row) && row.incoming?.kind !== "hidden")) return `${WORKED}-${row.id}`;
   }
   return undefined;

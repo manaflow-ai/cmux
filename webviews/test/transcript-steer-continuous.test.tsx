@@ -680,3 +680,25 @@ test("a Claude turn steered twice keeps every call, each folded below the steer 
     `${WORKED}-s2`,
   ]);
 });
+
+test("Find walks past a prompt that failed to send mid-turn to the fold the turn draws", () => {
+  let at = START;
+  const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+    id,
+    kind,
+    version: 1,
+    at: (at += 10_000),
+    ...extra,
+  });
+  const rows = [
+    row("u", "user", { text: "Look at the fleet" }),
+    row("x", "user", { text: "and the runners", failed: true }),
+    row("a-b1", "activity", {
+      items: [{ kind: "tool", text: "", tool: { id: "b1", title: "Run b1", kind: "execute", status: "completed" } }],
+    }),
+    row("r", "assistant", { text: "All healthy." }),
+    row("sum", "turnSummary", { status: "completed" }),
+  ];
+  expect(turnFoldFor(rows, 2)).toBe(`${WORKED}-u`);
+  expect(turnView(rows, new Set(), { now: START + 100_000 }).some((each) => each.id === `${WORKED}-u`)).toBe(true);
+});
