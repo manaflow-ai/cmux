@@ -1021,6 +1021,19 @@ fn private_folder(dir: &Path, home: &Path) -> Option<&'static str> {
 }
 
 impl Orchestrator for Spawner {
+    fn turn_gate(&self, tool: &str, input: &Value) -> Result<(), String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::TurnGate {
+            tool: tool.to_owned(),
+            input: input.clone(),
+            reply,
+        })?;
+        // No answer fails closed, like the spawn floor.
+        answer
+            .recv_timeout(Duration::from_secs(30))
+            .unwrap_or_else(|_| Err("the Chief host did not answer the turn's tool check".into()))
+    }
+
     fn spawn(&self, tasks: Vec<String>, cwd: Option<String>) -> Result<String, String> {
         self.spawn_with_effort(tasks, cwd, None)
     }
