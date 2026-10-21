@@ -97,6 +97,10 @@ final class BrowserDownloadsPopup {
             self?.close()
             NSWorkspace.shared.openInBackground(file)
         }
+        model.onReveal = { [weak self] file in
+            self?.close()
+            NSWorkspace.shared.revealInBackground([file])
+        }
         let content = content ?? makeContent()
         popup.panel.adoptThemeScope(of: anchor)
         // A press on the Downloads button toggles the popup: the button closes it, not the click monitor.
@@ -171,6 +175,7 @@ final class BrowserDownloadsPopupModel {
     @ObservationIgnored var onEnter: () -> Void = {}
     @ObservationIgnored var onOpen: (URL) -> Void = { _ in }
     @ObservationIgnored var onShowFolder: () -> Void = {}
+    @ObservationIgnored var onReveal: (URL) -> Void = { _ in }
 
     var rows: [BrowserDownload] { Array((list?.items ?? []).suffix(BrowserDownloadsPopup.shown).reversed()) }
 
@@ -237,19 +242,17 @@ struct BrowserDownloadsPopupView: View {
                 .frame(height: CGFloat(min(rows.count, Self.visibleRows)) * Self.rowHeight + 8)
             }
             Rectangle().fill(model.colors.separator).frame(height: 1)
-            HStack(spacing: 8) {
-                Button(BrowserHitStrings.downloadsShowFolder) { model.onShowFolder() }
-                    .buttonStyle(.borderless)
-                Spacer(minLength: 0)
+            // One full-width row per command, as Chrome's bubble footer:
+            // the long titles never wrap side by side.
+            VStack(spacing: 0) {
+                BrowserDownloadsFooterRow(symbol: "folder", title: BrowserHitStrings.downloadsShowFolder,
+                                          colors: model.colors) { model.onShowFolder() }
                 if model.canClear {
-                    Button(BrowserHitStrings.downloadsClear) { model.clear() }
-                        .buttonStyle(.borderless)
+                    BrowserDownloadsFooterRow(symbol: "xmark.circle", title: BrowserHitStrings.downloadsClear,
+                                              colors: model.colors) { model.clear() }
                 }
             }
-            .font(Font(Typography.body))
-            .foregroundStyle(model.colors.primary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 4)
         }
         .frame(width: 340)
         .onHover { inside in if inside { model.pointerEntered() } }
@@ -263,7 +266,11 @@ struct BrowserDownloadsPopupView: View {
 private struct BrowserDownloadPopupRow: View {
     let download: BrowserDownload
     let model: BrowserDownloadsPopupModel
-    @State private var hovered = false
+    /// The pointer is over the row's text (the AppKit overlay) or anywhere on the row.
+    @State private var overContent = false
+    @State private var overRow = false
+
+    private var hovered: Bool { overContent || overRow }
 
     private var failed: Bool {
         if case .failed = download.status { return true }
@@ -271,38 +278,92 @@ private struct BrowserDownloadPopupRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(nsImage: BrowserDownloadsMenu.icon(for: download, size: 24))
-                .frame(width: 24, height: 24)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(download.filename)
-                    .font(Font(Typography.body))
-                    .foregroundStyle(model.colors.primary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(BrowserDownloadsMenu.status(download))
-                    .font(Font(Typography.caption))
-                    .foregroundStyle(failed ? model.colors.danger : model.colors.secondary)
-                    .lineLimit(1)
+        HStack(spacing: 6) {
+            HStack(spacing: 10) {
+                Image(nsImage: BrowserDownloadsMenu.icon(for: download, size: 24))
+                    .frame(width: 24, height: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(download.filename)
+                        .font(Font(Typography.body))
+                        .foregroundStyle(model.colors.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(BrowserDownloadsMenu.status(download))
+                        .font(Font(Typography.caption))
+                        .foregroundStyle(failed ? model.colors.danger : model.colors.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .overlay(BrowserDownloadRowEvents(
+                file: { BrowserDownloadsMenu.draggableFile(download) },
+                menu: { model.menu(for: download) },
+                open: { file in model.onOpen(file) },
+                hover: { inside in
+                    overContent = inside
+                    if inside { model.pointerEntered() }
+                }
+            ))
+            // Show in Finder on the hovered row (Chrome's folder button).
+            if hovered, download.status == .finished, let file = download.destination {
+                Button { model.onReveal(file) } label: {
+                    Image(systemName: "folder")
+                        .font(Font(Typography.body))
+                        .foregroundStyle(model.colors.secondary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(BrowserHitStrings.downloadShowInFinder)
+                .accessibilityLabel(BrowserHitStrings.downloadShowInFinder)
+            }
         }
         .padding(.horizontal, 8)
         .frame(maxHeight: .infinity)
         .background(RoundedRectangle(cornerRadius: 6).fill(hovered ? model.colors.hover : Color.clear))
         .padding(.horizontal, 4)
-        .overlay(BrowserDownloadRowEvents(
-            file: { BrowserDownloadsMenu.draggableFile(download) },
-            menu: { model.menu(for: download) },
-            open: { file in model.onOpen(file) },
-            hover: { inside in
-                hovered = inside
-                if inside { model.pointerEntered() }
-            }
-        ))
+        .onHover { inside in
+            overRow = inside
+            if inside { model.pointerEntered() }
+        }
         .help(download.filename)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("browser.downloads.row")
+    }
+}
+
+/// A footer command: an icon and a one-line title across the popup, with
+/// the hover fill of the rows above.
+private struct BrowserDownloadsFooterRow: View {
+    let symbol: String
+    let title: String
+    let colors: BrowserDownloadsPopupColors
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .font(Font(Typography.body))
+                    .foregroundStyle(colors.secondary)
+                    .frame(width: 24)
+                Text(title)
+                    .font(Font(Typography.body))
+                    .foregroundStyle(colors.primary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 28)
+            .contentShape(Rectangle())
+            .background(RoundedRectangle(cornerRadius: 6).fill(hovered ? colors.hover : Color.clear))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 4)
+        .onHover { hovered = $0 }
     }
 }
 
