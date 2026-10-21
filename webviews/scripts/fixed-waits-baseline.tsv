@@ -29,7 +29,7 @@ test/agent-pane-soft-edges.test.ts	7
 test/agent-pane-start-mode-chip.test.ts	9
 test/agent-pane-steer.test.ts	21
 test/agent-pane-step-rows.test.ts	7
-test/agent-pane-stream-jitter.test.ts	22
+test/agent-pane-stream-jitter.test.ts	9
 test/agent-pane-subagent-groups-open.test.ts	12
 test/agent-pane-suggested-tasks.test.ts	13
 test/agent-pane-tab-row.test.ts	1

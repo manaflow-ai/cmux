@@ -179,6 +179,7 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       const words = WORDS.slice(index % 7, (index % 7) + 3).join(" ");
       emit("in", "agent_message_chunk", chunk(`${words}${index % 25 === 24 ? ".\n\n" : " "}`));
       at(index);
+      // fixed-wait: paces the chunks as a model streams them; the cadence is what the view follows.
       await Bun.sleep(16 + (index % 3) * 10);
     }
   }
@@ -257,9 +258,24 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
     await page.getByText("Opening paragraph 19.").waitFor();
-    await page.waitForTimeout(500);
+    await rest(page);
     return page;
   }
+
+  /// Resolves once the view is at rest: the transcript's offset has held, with no glide on the
+  /// thread, for 6 painted frames.
+  const rest = (page: Page) =>
+    page.evaluate(async () => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const thread = document.querySelector<HTMLElement>(".acpmux-thread");
+      let last = NaN;
+      for (let held = 0, frames = 0; held < 6 && frames < 600; frames += 1) {
+        await window.cmuxPaintFrame();
+        const still = scroller.scrollTop === last && !thread?.getAnimations().length;
+        held = still ? held + 1 : 0;
+        last = scroller.scrollTop;
+      }
+    });
 
   /// One frame: where the row holding `marker` is drawn (transforms included).
   type Frame = { t: number; marker?: number };
@@ -394,14 +410,15 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     const turn = events.length;
     const marker = `End marker ${turn}`;
     await stream(`p-${turn}`, `End turn ${turn}`, marker, 20);
-    await page.waitForTimeout(600);
+    await rest(page);
     await sample(page, marker);
-    await page.waitForTimeout(200);
+    await rest(page);
     // The footer takes the running line's place at its height, and the reply over them keeps its
     // gap: the turn's end moves nothing (it slid the reply 4px down, the gap a reply leaves over
     // a footer being the meta gap and over the running line the message gap).
     endTurn();
-    await page.waitForTimeout(800);
+    await page.locator(".acpmux-row--last-footer").waitFor();
+    await rest(page);
     const frames = (await stop(page)).flatMap((frame) => (frame.marker === undefined ? [] : [frame.marker]));
     expect(frames.length).toBeGreaterThanOrEqual(5);
     expect(Math.max(...frames) - Math.min(...frames)).toBeLessThanOrEqual(0.5);
