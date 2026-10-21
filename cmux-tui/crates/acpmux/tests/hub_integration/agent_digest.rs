@@ -4,6 +4,7 @@
 //! (2026-10-20).
 
 use super::*;
+use acpmux::server::{Origin, serve_connection_with};
 
 /// A prompt `fromAgent` names as `agent`'s message (`acpmux send --from`).
 fn from_agent(id: &str, prompt_id: &str, agent: &str, text: &str) -> Value {
@@ -274,4 +275,79 @@ async fn a_failed_turn_of_agent_messages_puts_the_joined_ones_back() {
     assert_eq!(answered[&d]["_meta"]["acpmux"]["promptId"], "p-c", "{answered:?}");
     assert_eq!(answered[&d]["_meta"]["acpmux"]["joinedPromptId"], "p-b", "{answered:?}");
     assert!(queue_order(&mut c, &id).await.is_empty());
+}
+
+/// Another agent's message after a failed turn of agent messages put some back waits behind
+/// them and goes in with them, in the order sent: it never overtakes them.
+#[tokio::test]
+async fn a_new_agent_message_goes_in_behind_the_ones_a_failed_turn_put_back() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let mut agents = connect(&hub).await;
+    let id = busy(&mut c).await;
+    let a = queue(&mut agents, from_agent(&id, "p-a", "lane-a", "from a")).await;
+    queue(&mut agents, from_agent(&id, "p-b", "lane-b", "[fail-digest-once] from b")).await;
+    queue(&mut agents, from_agent(&id, "p-c", "lane-c", "from c")).await;
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    assert!(agents.response(a).await.0.is_err());
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let attached =
+            c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+        if attached["session"]["turn"].is_null() && queue_order(&mut c, &id).await.len() == 2 {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "not put back: {attached}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    // From the sender of one put back, too: it still goes last.
+    queue(&mut agents, from_agent(&id, "p-d", "lane-b", "from d")).await;
+    let echoes = echoes_until(&mut c, "from d").await;
+    assert_eq!(echoes.len(), 1, "{echoes:?}");
+    let text = &echoes[0];
+    let at = |s: &str| text.find(s).unwrap_or_else(|| panic!("{s:?} missing from {text}"));
+    assert!(at("[agent message 1 of 3] from lane-b") < at("from b"));
+    assert!(at("from b") < at("[agent message 2 of 3] from lane-c"));
+    assert!(at("[agent message 2 of 3] from lane-c") < at("from c"));
+    assert!(at("from c") < at("[agent message 3 of 3] from lane-b"));
+    assert!(at("[agent message 3 of 3] from lane-b") < at("from d"));
+}
+
+/// The app pane's reply in place (IncomingMessageCard.tsx) answers a message that went in with
+/// other agents' messages, as it answers one that went in alone.
+#[tokio::test]
+async fn a_message_that_went_in_with_others_takes_a_reply_in_place() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let sender = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await;
+    let sender = sender.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let id = busy(&mut c).await;
+    // `cmux agent message` from `sender`'s chat, twice.
+    let message = |prompt_id: &str, msg_id: &str, text: &str| {
+        let provenance = json!({"kind": "agent_message", "from": format!("acp:{sender}"), "fromName": "builder",
+                                "to": format!("acp:{id}"), "msgId": msg_id, "threadId": "thread-1"});
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": text}],
+               "_meta": {"acpmux": {"promptId": prompt_id, "provenance": provenance}}})
+    };
+    queue(&mut c, message("p-0", "msg-0", "first")).await;
+    queue(&mut c, message("p-1", "msg-1", "second")).await;
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    let echoes = echoes_until(&mut c, "second").await;
+    assert!(echoes.last().unwrap().contains("[agent message 2 of 2] from builder"), "{echoes:?}");
+
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::LocalApp));
+    let mut app = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    let init = json!({"protocolVersion": 1, "clientInfo": {"name": "test"}});
+    app.request(method::INITIALIZE, init).await.unwrap();
+    app.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+    let hidden = json!({"sessionId": sender, "limit": 0, "visible": false});
+    app.request(method::MUX_ATTACH, hidden).await.unwrap();
+    // A reply to the second, which joined the first's turn.
+    let reply = json!({"kind": "agent_message", "from": format!("acp:{id}"), "to": format!("acp:{sender}"),
+                       "msgId": "m-reply", "threadId": "thread-1", "replyTo": "msg-1"});
+    let params = json!({"sessionId": sender, "prompt": [{"type": "text", "text": "Got it."}],
+                        "_meta": {"acpmux": {"promptId": "p-reply", "provenance": reply}}});
+    let answered = app.request(method::SESSION_PROMPT, params).await;
+    assert!(answered.is_ok(), "{answered:?}");
 }

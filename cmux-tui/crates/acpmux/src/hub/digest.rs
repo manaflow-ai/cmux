@@ -16,12 +16,14 @@
 //!   leaves the queue with a `dequeued` record naming the turn (`joinedTurnId`), and its
 //!   `session/prompt` answers with that turn's answer (`joined_reply`). When that turn fails,
 //!   the joined messages go back to the head of the queue, held, once (`requeue_joined`):
-//!   none is lost to a turn the agent may never have read.
+//!   none is lost to a turn the agent may never have read. A reply in place to any of them
+//!   finds it in that turn's provenance (`withdraw.rs` `app_reply_fits`).
 //!
 //! A failed turn holds the prompts behind it (`queue.rs` `pause_queue`): the person's wait for
 //! the person to resume them, since they were written for a turn that went well. Agent messages
 //! do not depend on that turn and nobody watches them: the chat's next completed turn releases
-//! them (`release_held_agent_messages`). coord-deputy held 121 after one "agent process closed"
+//! them (`release_held_agent_messages`), and so does another agent's next message, which waits
+//! behind them to go in with them rather than overtake them. coord-deputy held 121 after one "agent process closed"
 //! (2026-10-21), behind every newer message, until someone pressed resume.
 //!
 //! Delivery inside a turn stays the steer's (`steer_end.rs`): an agent that steers reads a
@@ -192,6 +194,9 @@ impl Hub {
         let mut bytes = blocks_bytes(&head.blocks);
         let taken: Vec<QueuedPrompt> = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            // A restored prompt whose task has not claimed it yet (`queue_slot`) would hear
+            // nothing of the turn it joined, and none would wait for it if that turn put it back.
+            let unclaimed = session.restored.lock().unwrap_or_else(|e| e.into_inner()).clone();
             let mut taken = Vec::new();
             let mut i = 0;
             while i < queue.len() {
@@ -201,6 +206,7 @@ impl Hub {
                     continue;
                 }
                 let joins = q.run.agent.is_some()
+                    && !unclaimed.iter().any(|(id, _)| *id == q.prompt_id)
                     && !q.steer
                     && !q.sent_now
                     && q.run.control == head.control

@@ -105,25 +105,32 @@ impl Hub {
         p: Slot<'_>,
         accept: &mut impl FnMut(Value),
     ) -> Result<(String, bool, tokio::sync::MutexGuard<'a, ()>, Arc<PromptRun>), Answer> {
+        // Claimed under the queue lock, as `restore_queue` takes them: a turn of agent messages
+        // joins only a restored prompt its task claimed (`digest.rs` `take_joined`).
         let restored = {
+            let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let mut ids =
                 session.restored.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let i = ids.iter().position(|(id, _)| id == p.prompt_id);
-            i.map(|i| ids.remove(i).1)
+            i.map(|i| {
+                let turn_id = ids.remove(i).1;
+                let q = queue.iter().find(|q| q.turn_id == turn_id);
+                (turn_id, q.map(|q| (q.withdraw.clone(), q.joined.clone())))
+            })
         };
         let (turn_id, withdraw) = match restored {
             // Queued already, unless `remove_queued` withdrew it meanwhile: then it never runs.
-            Some(turn_id) => {
-                let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                match queue.iter().find(|q| q.turn_id == turn_id) {
-                    Some(q) => (turn_id, Some((q.withdraw.clone(), q.joined.clone()))),
-                    None => return Err(Ok(withdrawn_reply(p.prompt_id, &turn_id))),
-                }
-            }
+            Some((turn_id, Some(waits))) => (turn_id, Some(waits)),
+            Some((turn_id, None)) => return Err(Ok(withdrawn_reply(p.prompt_id, &turn_id))),
             // A chat being moved takes no prompt: its new daemon does (`transfer_out.rs`).
             None if session.moving().is_some() => return Err(Err(moving_error())),
             None => {
                 let turn_id = uuid::Uuid::now_v7().to_string();
+                // Another agent's message never overtakes the ones a failed turn held: they run
+                // again and it waits behind them, to go in with them (`digest.rs`).
+                if p.agent.is_some() {
+                    self.release_held_agent_messages(session);
+                }
                 // Prompts a failed turn holds (`pause_queue`) do not hold up a new one.
                 let held = session.queue().iter().filter(|q| q.held).count() as u64;
                 let waiting = session.turn().is_some() || session.queued() > held;

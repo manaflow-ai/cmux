@@ -198,15 +198,29 @@ impl Hub {
             return None;
         }
         let mut answered = false;
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            let p =
-                |k: &str| e.msg.pointer(&format!("/_meta/provenance/{k}")).and_then(Value::as_str);
-            answered = e.kind == "user_message"
-                && p("kind") == Some("agent_message")
+        let fits = |m: &Value| {
+            let p = |k: &str| m.get(k).and_then(Value::as_str);
+            p("kind") == Some("agent_message")
                 && p("msgId") == Some(reply_to)
                 && p("threadId").or(p("msgId")) == Some(thread)
                 // `cmux agent message` names a chat `acp:<id>` (PaletteNavigationEntry.swift).
-                && p("from").is_some_and(|f| f.strip_prefix("acp:").unwrap_or(f) == to);
+                && p("from").is_some_and(|f| f.strip_prefix("acp:").unwrap_or(f) == to)
+        };
+        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+            let Some(p) = e.msg.pointer("/_meta/provenance").filter(|_| e.kind == "user_message")
+            else {
+                return true;
+            };
+            answered = match p.get("messages").and_then(Value::as_array) {
+                // It went in with other agents' messages (`digest.rs`): each keeps its provenance.
+                Some(joined)
+                    if p.get("kind").and_then(Value::as_str)
+                        == Some(super::digest::DIGEST_KIND) =>
+                {
+                    joined.iter().filter_map(|m| m.get("provenance")).any(fits)
+                }
+                _ => fits(p),
+            };
             !answered
         });
         if !answered {
