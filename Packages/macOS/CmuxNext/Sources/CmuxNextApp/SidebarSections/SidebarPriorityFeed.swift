@@ -29,7 +29,15 @@ extension SidebarPriorityFeed {
             try AppearanceHandlers.requireUnmanaged(SidebarPriorityViewSetting.shownPath, context)
             context.writeSetting("toggle priority view", SidebarPriorityViewSetting.shownPath, .bool(!preferences().priorityViewShown))
         }
-        SidebarPriorityRowActions(chats: .app, unavailable: { preferences().priorityViewEnabled ? nil : SidebarPriorityPanel.unavailableReason })
-            .bind(into: registry)
+        SidebarPriorityRowActions(chats: .app, unavailable: rowActionsUnavailable(context)).bind(into: registry)
+    }
+
+    /// Why a Priority row's actions cannot run now (the view is off); nil while they can. Archive
+    /// Chat on a row's chat (`AgentChatKeyHandlers`) reads it too.
+    static func rowActionsUnavailable(_ context: AppActionContext) -> @MainActor () -> String? {
+        {
+            let preferences = context.services.settings?.snapshot.sidebarSections ?? .defaults
+            return preferences.priorityViewEnabled ? nil : SidebarPriorityPanel.unavailableReason
+        }
     }
 }
