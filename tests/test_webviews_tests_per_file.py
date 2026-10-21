@@ -107,7 +107,10 @@ class PerFileRunner(unittest.TestCase):
         env = {**base_env, "PATH": f"{bin_dir}:{system_path}", "BUN_CALLS": str(calls),
                "BUN_OVERLAPS": str(self.overlaps), "SHARED_VITE_CACHE": str(web / "node_modules" / ".vite"),
                "BUN_DEV": str(self.dev), "BUN_PEAK": str(self.peak), "DEV_RUNNING": str(running),
-               "CMUX_WEB_TEST_FILE_TIMEOUT": "2", "CMUX_WEB_TEST_JOBS": "8"}
+               "CMUX_WEB_TEST_FILE_TIMEOUT": "2", "CMUX_WEB_TEST_JOBS": "8",
+               # These tests read each file's first run; scripts/ci/tests/run-webviews-tests-retry.test.sh
+               # covers the rerun of a failed file.
+               "CMUX_WEB_TEST_RETRIES": "0"}
         if shard is not None:
             env["CMUX_WEB_TEST_SHARD"] = str(shard)
             env["CMUX_WEB_TEST_SHARD_COUNT"] = str(shard_count)
