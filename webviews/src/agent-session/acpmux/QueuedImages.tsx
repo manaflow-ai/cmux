@@ -32,15 +32,18 @@ export function QueuedImages({
     <span
       className="acpmux-queued-images"
       onBlur={(event) => {
+        // Staying in the row is the field or another image control; the row itself is leaving.
         const to = event.relatedTarget;
-        if (!editing || (to instanceof Node && event.currentTarget.parentElement?.contains(to))) return;
+        const row = event.currentTarget.parentElement;
+        if (!editing || (to instanceof Node && to !== row && row?.contains(to))) return;
         if (document.hasFocus()) onLeave?.();
       }}
     >
       {images.map((image, index) => (
         <QueuedImage
-          // The same picture attached twice has one id.
-          key={`${image.id}-${index}`}
+          // The same picture attached twice has one id: its copies count up, so removing one does
+          // not remount the images after it.
+          key={`${image.id}-${images.slice(0, index).filter((other) => other.id === image.id).length}`}
           image={image}
           t={t}
           read={read}
