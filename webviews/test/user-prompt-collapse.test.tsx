@@ -31,6 +31,7 @@ const replacements: Record<string, unknown> = {
   Node: dom.window.Node,
   customElements: dom.window.customElements,
   MutationObserver: dom.window.MutationObserver,
+  NodeFilter: dom.window.NodeFilter,
   ResizeObserver: class {
     observe() {}
     unobserve() {}
