@@ -46,7 +46,7 @@ nonisolated public struct PulledBuild: Equatable, Sendable, Decodable {
 /// The pulled-build banner (nightly train, section 2): when the running build is on the feed's
 /// pulled list, the update notice card says so and offers two choices: "Wait for the Fix"
 /// (the default: the fix-forward build installs through the normal background update) and
-/// "Roll Back" to the build this Mac kept (``UpdaterService/dropBack(to:checkOnly:stateDirectories:)``),
+/// "Roll Back" to the build this Mac kept (``UpdateDropBack/failure(to:stateDirectories:)``),
 /// shown only when that rollback would run. The list is read at launch and after every Sparkle
 /// update cycle (scheduled, launch, wake, or asked for); nothing polls.
 @MainActor

@@ -15,7 +15,7 @@ the whole procedure.
   pulled [--existing FILE] --pulled "BUILD ..." --serve BUILD --reason TEXT --at ISO8601 --out FILE
 
 pulled writes pulled.json, the list the app reads next to the appcast with each
-update check (UpdaterService+Pulled.swift): [{"build", "reason", "pulledAt",
+update check (PulledBuildWatch.swift): [{"build", "reason", "pulledAt",
 "serve"}], newest build first. It merges into the existing list (a missing
 or unreadable FILE counts as empty), replaces an entry for a build pulled
 again, drops the build now served (a --to that serves a pulled build again
