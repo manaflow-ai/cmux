@@ -19,7 +19,7 @@ export type Load<T> =
   | { status: "loading"; reply?: T }
   | { status: "ready"; reply: T }
   /** `configured` false: the person has not named a dashboard yet (Fleet only). */
-  | { status: "unavailable"; configured?: boolean; message?: string }
+  | { status: "unavailable"; configured?: boolean; message?: string; reply?: T }
   | { status: "failed"; reply?: T };
 
 /** The data a view reads; the store loads only what a shown view names. */
@@ -180,6 +180,7 @@ export class ChiefViewsStore {
             status: "unavailable",
             configured: configured !== false,
             message: error.message,
+            reply,
           },
         });
       } else this.set({ [kind]: { status: "failed", reply } });

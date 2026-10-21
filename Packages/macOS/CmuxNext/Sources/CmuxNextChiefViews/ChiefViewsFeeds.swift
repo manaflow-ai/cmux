@@ -25,9 +25,11 @@ struct ChiefViewsFeeds {
     /// A dashboard address the person may set: http or https with a host, nothing else.
     static func validFleetURL(_ text: String) -> URL? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
-              let host = url.host, !host.isEmpty, url.user == nil, url.password == nil else { return nil }
-        return url
+        guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(),
+              let host = url.host?.lowercased(), !host.isEmpty, url.user == nil, url.password == nil else { return nil }
+        // Plain http only where the network already encrypts or never leaves the machine.
+        let privateHost = host == "localhost" || host == "127.0.0.1" || host == "::1" || host.hasSuffix(".ts.net")
+        return scheme == "https" || (scheme == "http" && privateHost) ? url : nil
     }
 
     /// The Fleet view's reply from the dashboard's `data.json`: each mini's load, cores, CPU and
@@ -141,8 +143,8 @@ struct ChiefViewsFeeds {
 
     /// A pull request link the page may open: an https github.com page of the repository.
     static func validPullRequestURL(_ text: String) -> URL? {
-        guard let url = URL(string: text), url.scheme == "https", url.host == "github.com",
-              url.path.hasPrefix("/\(repo)/") else { return nil }
+        guard let url = URL(string: text), url.scheme == "https", url.host == "github.com", url.user == nil,
+              !url.pathComponents.contains(".."), url.standardized.path.hasPrefix("/\(repo)/") else { return nil }
         return url
     }
 }

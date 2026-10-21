@@ -41,7 +41,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let step: String?
     /// The folder it runs in (the summary's `cwd`), when the summary carries one.
     public let cwd: String?
-    /// When the session last changed (its last output), when the summary carries it.
+    /// When the session last changed (its last output), when the summary carries it. Not part of
+    /// `==` or the hash: it moves on every output, and a lane change re-ranks and animates its row.
     public let updatedAt: Date?
     /// When the session started, when the summary carries it.
     public let createdAt: Date?
@@ -63,6 +64,20 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         self.cwd = cwd
         self.updatedAt = updatedAt
         self.createdAt = createdAt
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id && lhs.name == rhs.name && lhs.title == rhs.title && lhs.peer == rhs.peer
+            && lhs.workspaceID == rhs.workspaceID && lhs.parent == rhs.parent && lhs.state == rhs.state
+            && lhs.since == rhs.since && lhs.error == rhs.error && lhs.harness == rhs.harness && lhs.step == rhs.step
+            && lhs.cwd == rhs.cwd && lhs.createdAt == rhs.createdAt
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(state)
+        hasher.combine(since)
+        hasher.combine(step)
     }
 
     /// A person should look: it waits on them, failed or was lost.

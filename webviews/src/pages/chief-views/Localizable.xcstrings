@@ -3931,6 +3931,137 @@
         }
       }
     },
+    "chiefViews.fleet.url.invalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That address did not work. Use https, or http for localhost or a tailnet name."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يعمل هذا العنوان. استخدم https، أو http لـ localhost أو لاسم في شبكة tailnet."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta adresa nije radila. Koristite https ili http za localhost ili ime u tailnetu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den adresse virkede ikke. Brug https, eller http til localhost eller et tailnet-navn."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Adresse hat nicht funktioniert. Verwende https oder http für localhost oder einen Tailnet-Namen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa dirección no funcionó. Usa https, o http para localhost o un nombre de tailnet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette adresse n’a pas fonctionné. Utilisez https, ou http pour localhost ou un nom de tailnet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quell’indirizzo non ha funzionato. Usa https, oppure http per localhost o un nome della tailnet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのアドレスは使えませんでした。https を使うか、localhost または tailnet の名前なら http を使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អាសយដ្ឋាននោះមិនដំណើរការទេ។ ប្រើ https ឬ http សម្រាប់ localhost ឬឈ្មោះ tailnet។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 주소는 작동하지 않았습니다. https를 사용하거나 localhost 또는 tailnet 이름에는 http를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den adressen virket ikke. Bruk https, eller http for localhost eller et tailnet-navn."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten adres nie zadziałał. Użyj https albo http dla localhost lub nazwy w tailnecie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esse endereço não funcionou. Use https, ou http para localhost ou um nome da tailnet."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот адрес не подошёл. Используйте https или http для localhost либо имени в tailnet."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ที่อยู่นั้นใช้ไม่ได้ ใช้ https หรือ http สำหรับ localhost หรือชื่อใน tailnet"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu adres çalışmadı. https kullanın ya da localhost veya bir tailnet adı için http kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця адреса не спрацювала. Використовуйте https або http для localhost чи імені в tailnet."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Địa chỉ đó không dùng được. Hãy dùng https, hoặc http cho localhost hay tên trong tailnet."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该地址无法使用。请使用 https，localhost 或 tailnet 名称可用 http。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該位址無法使用。請使用 https，localhost 或 tailnet 名稱可用 http。"
+          }
+        }
+      }
+    },
     "chiefViews.gallery.button": {
       "extractionState": "manual",
       "localizations": {

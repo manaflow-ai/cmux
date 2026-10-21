@@ -44,7 +44,7 @@ export type ChiefAgent = {
   /** Its working folder, when the record has one. */
   folder?: string | null;
   state: AgentState;
-  /** What it is doing now: acpmux's masked step, or a terminal agent's last prompt. */
+  /** What it is doing now: acpmux's masked step. Terminal agents have none (their prompts are never sent). */
   task?: string | null;
   /** The last turn's error (failed). */
   error?: string | null;

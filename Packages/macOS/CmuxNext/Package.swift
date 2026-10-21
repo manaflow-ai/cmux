@@ -272,6 +272,7 @@ let package = Package(
                 "CmuxNextAgentActivity",
                 "CmuxNextScreenshots",
                 "CmuxNextAgentLanes",
+                "CmuxNextChiefViews",
                 "CmuxNextAgentCursor",
                 .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor"),
                 "CmuxNextAgentCursorVisibility",
@@ -807,6 +808,33 @@ let package = Package(
         .testTarget(
             name: "CmuxNextChiefMemoryTests",
             dependencies: ["CmuxNextChiefMemory"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The Chief view gallery (webviews/src/pages/chief-views): the page's provider over the
+        // agent lanes, terminal hook agents, the CI fleet dashboard and GitHub search, its Debug
+        // Settings toggle and strings. The App passes its machines and navigation (ChiefViewsHost).
+        .target(
+            name: "CmuxNextChiefViews",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
+                "CmuxNextAgentActivity",
+                "CmuxNextBridge",
+                "CmuxNextCompat",
+                "CmuxNextDaemon",
+                "CmuxNextDaemonService",
+                "CmuxNextDesign",
+                "CmuxNextHome",
+                "CmuxNextPages",
+                "CmuxNextSettings",
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextChiefViewsTests",
+            dependencies: ["CmuxNextAgentActivity", "CmuxNextChiefViews", "CmuxNextPages", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         // The acpmux watch feed (turn states and lanes) and the sidebar's Lanes item (cx-v9k2f).

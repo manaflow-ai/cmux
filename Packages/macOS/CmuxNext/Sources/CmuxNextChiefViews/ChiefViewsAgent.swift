@@ -1,6 +1,7 @@
 import CmuxNextAgentActivity
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 
 /// One row of the Chief view gallery (webviews/src/pages/chief-views/types.ts `ChiefAgent`): an
@@ -15,7 +16,7 @@ struct ChiefViewsAgent: Hashable, Sendable {
     var kind: Kind
     var name: String
     var title: String
-    /// `local` for this Mac, else the acpmux peer or the machine id.
+    /// `local` for this Mac, else the acpmux peer, or a remote terminal's machine name (its id when unnamed).
     var machine: String
     var machineName: String?
     var folder: String?
@@ -86,19 +87,22 @@ struct ChiefViewsAgent: Hashable, Sendable {
 
 extension ChiefViewsAgent {
     /// Every agent the app mirrors: the lanes (this Mac's acpmux and its peers'), then the
-    /// terminals with a live hook agent on every machine. A chat tab is an acpmux session, so it
-    /// is already a lane. Reading this inside an `ObservationStream` tracks every value it reads.
-    @MainActor
-    static func current(lanes: AgentLaneStore, services: AppServices) -> [ChiefViewsAgent] {
+    /// terminals with a live hook agent on every machine of `workspaces` (the app's
+    /// `MachineRegistry.allWorkspaces`). A chat tab is an acpmux session, so it is already a lane.
+    /// Reading this inside an `ObservationStream` tracks every value it reads.
+    static func current(lanes: AgentLaneStore, workspaces: [(WorkspaceModel, DaemonService)],
+                        machineName: (DaemonService) -> String?) -> [ChiefViewsAgent] {
         var agents = lanes.lanes.values.sorted { $0.id < $1.id }.map(ChiefViewsAgent.init(lane:))
-        for (workspace, daemon) in services.machines.allWorkspaces {
-            let machine = daemon.isLocal ? localMachine : daemon.machineID
-            let machineName = daemon.isLocal ? nil : ControlSessions.machineName(daemon, machines: services.machines)
+        for (workspace, daemon) in workspaces {
+            // Keyed by the machine's name when it has one, the word acpmux names the same machine's
+            // peer by, so its chats and terminals group together; else by its id.
+            let name = daemon.isLocal ? nil : machineName(daemon)
+            let machine = daemon.isLocal ? localMachine : name ?? daemon.machineID
             for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) {
                 guard tab.agentSession == nil, !tab.dead, let status = tab.agent else { continue }
-                let title = TabItemMapping.shared.item(tab, fallbackTitle: Strings.untitledTerminal).title
+                let title = TabItemMapping.shared.item(tab, fallbackTitle: ChiefViewsStrings.untitledTerminal).title
                 agents.append(ChiefViewsAgent(terminal: tab.id, title: title, status: status, machine: machine,
-                                              machineName: machineName, folder: tab.cwd, branch: tab.gitBranch))
+                                              machineName: name, folder: tab.cwd, branch: tab.gitBranch))
             }
         }
         return agents

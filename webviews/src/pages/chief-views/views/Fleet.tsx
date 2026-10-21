@@ -167,11 +167,12 @@ function FleetSetup({
 }) {
   const [url, setURL] = useState("");
   const [busy, setBusy] = useState(false);
+  const [refused, setRefused] = useState(false);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!url.trim() || busy) return;
     setBusy(true);
-    await onSave(url);
+    setRefused(!(await onSave(url)));
     setBusy(false);
   };
   return (
@@ -188,12 +189,21 @@ function FleetSetup({
           value={url}
           placeholder="https://"
           aria-label={strings.t("chiefViews.fleet.url.label")}
-          onChange={(event) => setURL(event.currentTarget.value)}
+          aria-invalid={refused || undefined}
+          onChange={(event) => {
+            setURL(event.currentTarget.value);
+            setRefused(false);
+          }}
         />
         <button type="submit" className="cv-button" disabled={!url.trim() || busy}>
           {strings.t("chiefViews.fleet.url.save")}
         </button>
       </div>
+      {refused && (
+        <p className="cv-note cv-host-error" role="alert">
+          {strings.t("chiefViews.fleet.url.invalid")}
+        </p>
+      )}
     </form>
   );
 }

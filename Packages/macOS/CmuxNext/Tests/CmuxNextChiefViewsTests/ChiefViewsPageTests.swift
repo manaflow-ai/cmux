@@ -3,7 +3,7 @@ import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Testing
-@testable import CmuxNextApp
+@testable import CmuxNextChiefViews
 
 /// The Chief view gallery's app side (webviews/src/pages/chief-views): lanes become rows in the
 /// page's four states, the CI dashboard's data.json is trimmed to the Fleet reply, GitHub's search
@@ -35,6 +35,10 @@ struct ChiefViewsPageTests {
             AgentActivityLane.of(summary: ["sessionId": "x", "lane": ["state": state]]).map { ChiefViewsAgent(lane: $0).state }
         }
         #expect(states == [.working, .waiting, .idle, .failed])
+        // Output alone (a later updatedAt) is not a lane change: the lanes view would re-rank on it.
+        var later = summary
+        later["updatedMs"] = NSNumber(value: 1_792_536_000_000)
+        #expect(try #require(AgentActivityLane.of(summary: later)) == lane)
         // A summary without the new fields still reads, as before.
         let bare = try #require(AgentActivityLane.of(summary: ["sessionId": "y", "lane": ["state": "idle"]]))
         #expect(bare.cwd == nil && bare.updatedAt == nil && bare.createdAt == nil)
@@ -80,8 +84,11 @@ struct ChiefViewsPageTests {
         #expect(ChiefViewsFeeds.fleetReply(Data("{\"other\":1}".utf8)) == nil)
     }
 
-    @Test func dashboardAddressesAreHTTPOnly() {
+    @Test func dashboardAddressesAreHTTPSOrPrivateHTTP() {
         #expect(ChiefViewsFeeds.validFleetURL(" https://ci.example.test:8444/ ")?.host == "ci.example.test")
+        #expect(ChiefViewsFeeds.validFleetURL("http://ci.example.test/") == nil)
+        #expect(ChiefViewsFeeds.validFleetURL("http://localhost:8444/") != nil)
+        #expect(ChiefViewsFeeds.validFleetURL("http://mini.tail0.ts.net:8444/") != nil)
         #expect(ChiefViewsFeeds.validFleetURL("file:///etc/passwd") == nil)
         #expect(ChiefViewsFeeds.validFleetURL("https://user:pw@ci.example.test/") == nil)
         #expect(ChiefViewsFeeds.validFleetURL("not a url") == nil)
@@ -112,18 +119,18 @@ struct ChiefViewsPageTests {
         #expect(ChiefViewsFeeds.validPullRequestURL("https://github.com/manaflow-ai/cmux/pull/1") != nil)
         #expect(ChiefViewsFeeds.validPullRequestURL("https://github.com/other/repo/pull/1") == nil)
         #expect(ChiefViewsFeeds.validPullRequestURL("http://github.com/manaflow-ai/cmux/pull/1") == nil)
+        #expect(ChiefViewsFeeds.validPullRequestURL("https://github.com/manaflow-ai/cmux/../../other/repo") == nil)
     }
 
     @Test func actingOpsNeedAClickAndFleetSaysWhenUnset() async throws {
         let defaults = try #require(UserDefaults(suiteName: "ChiefViewsPageTests.\(UUID().uuidString)"))
-        var opened: [String] = []
-        var links: [URL] = []
+        let seen = Recorder()
         let provider = ChiefViewsPageProvider(host: .init(
             agents: { [] },
             fetch: { _ in Data(#"{"minis":[]}"#.utf8) },
             defaults: defaults, environment: [:], now: { Date() },
-            openAgent: { kind, id in opened.append("\(kind.rawValue):\(id)") },
-            openURL: { links.append($0) }))
+            openAgent: { kind, id in seen.opened.append("\(kind.rawValue):\(id)") },
+            openURL: { seen.links.append($0) }))
 
         do {
             _ = try await provider.call(ChiefViewsPageProvider.fleetOp, params: [:], context: Self.page)
@@ -139,7 +146,7 @@ struct ChiefViewsPageTests {
             }
         }
         #expect(defaults.string(forKey: ChiefViewsPageProvider.fleetURLKey) == nil)
-        #expect(opened.isEmpty && links.isEmpty)
+        #expect(seen.opened.isEmpty && seen.links.isEmpty)
 
         await #expect(throws: PageError.self) {
             _ = try await provider.call(ChiefViewsPageProvider.setFleetURLOp, params: ["url": "file:///etc"], context: Self.click)
@@ -151,27 +158,34 @@ struct ChiefViewsPageTests {
         _ = try await provider.call(ChiefViewsPageProvider.openOp, params: ["kind": "terminal", "id": "tab_1"], context: Self.click)
         _ = try await provider.call(ChiefViewsPageProvider.openURLOp,
                                     params: ["url": "https://github.com/manaflow-ai/cmux/pull/7"], context: Self.click)
-        #expect(opened == ["terminal:tab_1"])
-        #expect(links.map(\.absoluteString) == ["https://github.com/manaflow-ai/cmux/pull/7"])
+        #expect(seen.opened == ["terminal:tab_1"])
+        #expect(seen.links.map(\.absoluteString) == ["https://github.com/manaflow-ai/cmux/pull/7"])
     }
 
     @Test func landingAnswersFromItsReadForNinetySeconds() async throws {
         let defaults = try #require(UserDefaults(suiteName: "ChiefViewsPageTests.\(UUID().uuidString)"))
         let counter = Counter()
-        var now = Date(timeIntervalSince1970: 1_792_535_000)
+        let clock = Recorder()
         let provider = ChiefViewsPageProvider(host: .init(
             agents: { [] },
             fetch: { _ in await counter.bump(); return Data(#"{"items":[]}"#.utf8) },
-            defaults: defaults, environment: [:], now: { now },
+            defaults: defaults, environment: [:], now: { clock.now },
             openAgent: { _, _ in }, openURL: { _ in }))
         _ = try await provider.call(ChiefViewsPageProvider.landingOp, params: [:], context: Self.page)
         _ = try await provider.call(ChiefViewsPageProvider.landingOp, params: [:], context: Self.page)
         #expect(await counter.value == 2) // one open search and one merged search
-        now = now.addingTimeInterval(ChiefViewsPageProvider.landingLifetime + 1)
+        clock.now = clock.now.addingTimeInterval(ChiefViewsPageProvider.landingLifetime + 1)
         let reply = try await provider.call(ChiefViewsPageProvider.landingOp, params: [:], context: Self.page)
         #expect(await counter.value == 4)
         #expect(reply["repo"] == "manaflow-ai/cmux")
         #expect(reply["base"] == "feat-cmux-next")
+    }
+
+    /// What the provider's host was asked to do, read back on the main actor.
+    @MainActor private final class Recorder {
+        var opened: [String] = []
+        var links: [URL] = []
+        var now = Date(timeIntervalSince1970: 1_792_535_000)
     }
 
     private actor Counter {
