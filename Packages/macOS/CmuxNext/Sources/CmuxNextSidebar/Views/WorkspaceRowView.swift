@@ -54,6 +54,10 @@ final class WorkspaceRowView: SidebarRowView {
     /// `sidebar.workspaceRow.pullRequest`: the PR / CI badge a hook reported.
     let prBadge = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     var badgeText: String?
+    /// The session tree (`sidebar.sessionTree`, WorkspaceRowView+SessionTree): a started workspace's
+    /// guide line, the pull request badge and the keycap.
+    let treeLine = NSView(), pullRequests = SidebarPullRequestBadgeView(), keycap = SidebarKeycapView()
+    var treeDepth = 0
     internal(set) var disclosure: SidebarTabDisclosure?
     internal(set) var count: Int?
 
@@ -118,8 +122,10 @@ final class WorkspaceRowView: SidebarRowView {
         agentMark.isHidden = true
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
-        [icon, title, subtitle, timeLabel, metaLabel, elapsedLabel, activity, agentMark, mutedMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock]
-            .forEach(addSubview)
+        mutedMark.setAccessibilityElement(false)
+        [icon, title, subtitle, timeLabel, metaLabel, elapsedLabel, activity, agentMark, mutedMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
+         treeLine, pullRequests, keycap].forEach(addSubview)
+        setUpSessionTree()
         disclosureButton.isHidden = true
         tabCount.isHidden = true
         prBadge.isHidden = true
@@ -282,6 +288,7 @@ final class WorkspaceRowView: SidebarRowView {
         tabCount.setString(row.tabCount.map(String.init) ?? "")
         badgeText = shown.badge
         prBadge.setString(shown.badge ?? "")
+        configureSessionTree(shown)
         progress = shown.progress
         statusBlock.isHidden = shown.status == nil || isShowingPlaceholder
         statusBlock.configure(shown.status ?? SidebarWorkspaceStatus(), reservesBar: shown.progress != nil)

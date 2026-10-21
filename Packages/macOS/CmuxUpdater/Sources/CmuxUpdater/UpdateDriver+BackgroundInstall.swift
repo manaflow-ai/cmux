@@ -64,9 +64,11 @@ extension UpdateDriver {
 
     /// Replies Skip to the held ready prompt once: Sparkle cancels the installer that would run
     /// when the app quits. Unlike Skip on the update-found prompt, this records no skipped
-    /// version, so the next check offers the update again.
-    func cancelStaged() {
-        guard let cancel = stagedCancel else { return }
+    /// version, so the next check offers the update again. False when this driver holds no
+    /// staged installer.
+    @discardableResult
+    func cancelStaged() -> Bool {
+        guard let cancel = stagedCancel else { return false }
         log.append("background install: cancelling the staged update's installer")
         stagedInstall = nil
         stagedCancel = nil
@@ -74,5 +76,6 @@ extension UpdateDriver {
         backgroundItem = nil
         setState(.idle)
         cancel()
+        return true
     }
 }

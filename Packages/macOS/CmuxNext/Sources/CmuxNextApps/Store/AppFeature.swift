@@ -14,6 +14,10 @@ public nonisolated struct AppFeature: Sendable, Hashable, Identifiable {
         case toggle
         /// A choice key: on is this choice. Remove clears the key, so its default applies.
         case choice(String)
+        /// A sidebar item (the `SidebarBuiltIn` name; its `setting` is `sidebar.layout`, where the
+        /// item lives): on while the sidebar shows it. Get adds it, Remove takes every copy out,
+        /// both as the person's edit (Undo takes it back).
+        case sidebarItem(String)
     }
 
     public enum Category: String, Sendable, Hashable, CaseIterable {
@@ -55,6 +59,12 @@ public nonisolated struct AppFeature: Sendable, Hashable, Identifiable {
         self.name = name
         self.summary = summary
         self.keywords = keywords
+    }
+
+    /// The sidebar item a `.sidebarItem` feature shows; nil for a settings key.
+    public var sidebarItem: String? {
+        if case .sidebarItem(let name) = on { return name }
+        return nil
     }
 
     /// The key as a path (`["home", "chiefPetEnabled"]`).

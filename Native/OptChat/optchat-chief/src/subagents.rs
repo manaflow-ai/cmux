@@ -854,9 +854,14 @@ impl Spawner {
             // before launches were).
             None => match self.rebuild_waiting(queued) {
                 Ok(w) => {
-                    (self.log)(&format!(
-                        "subagent {id}: the host restarted while it waited; starting it from its saved task"
-                    ));
+                    match queued.launch.as_ref().and_then(|l| l.harness.as_deref()) {
+                        Some(harness) => (self.log)(&format!(
+                            "subagent {id}: continuing it in a new session on {harness}"
+                        )),
+                        None => (self.log)(&format!(
+                            "subagent {id}: the host restarted while it waited; starting it from its saved task"
+                        )),
+                    }
                     w
                 }
                 Err(e) => return fail(&e),
@@ -1179,6 +1184,7 @@ impl Orchestrator for Spawner {
                         cwd: Some(dir.display().to_string()),
                         effort: launch.effort.clone(),
                         floor: floor.clone(),
+                        harness: None,
                     },
                 });
                 self.waiting
@@ -1464,6 +1470,7 @@ pub fn recover_launch(
                         .and_then(Value::as_str)
                         .map(str::to_owned),
                     floor: None,
+                    harness: None,
                 });
             }
             _ => {}
