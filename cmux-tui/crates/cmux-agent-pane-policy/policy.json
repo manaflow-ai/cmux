@@ -13,7 +13,7 @@
     "acp.session.fork", "acp.trust.get", "acp.trust.set", "_acpmux/harness_enable",
     "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread",
     "_acpmux/harness/health", "_acpmux/side", "_acpmux/offer_respond", "_acpmux/start_mode",
-    "_acpmux/subagent_stop", "_acpmux/agent_pair_resume"
+    "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/forum/rules"
   ],
   "notifications": ["session/cancel"],
   "maximum_frame_bytes": 33554432,
@@ -85,6 +85,7 @@
     "_acpmux/archive": {"params": ["sessionId", "archived"], "acpmux": []},
     "_acpmux/markUnread": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/harness/health": {"params": ["refresh", "rescan"], "acpmux": []},
+    "_acpmux/forum/rules": {"params": [], "acpmux": []},
     "_acpmux/side": {"params": ["sessionId", "chat"], "acpmux": []},
     "_acpmux/offer_respond": {"params": ["sessionId", "offerId", "outcome", "childSessionId"], "acpmux": []},
     "_acpmux/subagent_stop": {"params": ["sessionId", "subagentSessionId"], "acpmux": []},
