@@ -105,9 +105,8 @@ extension UpdaterService {
             notify: UpdateNotifyMode(rawValue: updates.notify.rawValue) ?? .badge,
             keepPreviousVersions: updates.keepPreviousVersions)
         if self.preferences != preferences { self.preferences = preferences }
-        follow(ring: updates.channel.rawValue)
         configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,
                   downloadAutomatically: updates.downloadAutomatically,
-                  metered: UpdateMeteredMode(rawValue: updates.meteredNetwork.rawValue) ?? .deferLowData)
+                  metered: UpdateMeteredMode(rawValue: updates.meteredNetwork.rawValue) ?? .deferLowData, ring: updates.channel.rawValue)
     }
 }
