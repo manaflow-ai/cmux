@@ -14,7 +14,7 @@ struct FileOpenLineArgument {
         case .bool, .target: nil
         }
         guard let text, let location = FileLineLocation(text) else {
-            throw ActionFailure(message: String(localized: "file.open.invalidLine", defaultValue: "Line must be 1–10,000,000, optionally followed by :column or -endLine.", table: "FileOpenLine", bundle: .module))
+            throw ActionFailure(message: String(localized: "file.open.invalidLine", defaultValue: "Line must be a number from 1 to 10,000,000, optionally followed by :column or -endLine.", table: "FileOpenLine", bundle: .module))
         }
         self.location = location
     }
