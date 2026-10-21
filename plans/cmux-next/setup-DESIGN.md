@@ -292,8 +292,8 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    list-machines` lands (owner personal|team), setup reads it instead of
    `cloud.machines`.
 7. `notifications`: lets cmux show macOS notifications. The state is the
-   app's `notifications.status` (`{authorization, alert, sound, badge,
-   bundle_id}`, `UNUserNotificationCenter.notificationSettings`, read
+   app's `notifications.status` (`{authorization, alert, alert_style, sound,
+   badge, bundle_id}`, `UNUserNotificationCenter.notificationSettings`, read
    without prompting; Release-safe, unlike `debug.notifications`).
    `not_determined`: setup sends `notifications.request`, macOS shows its
    prompt and setup waits for the person's click; allowed is `changed`,
@@ -304,9 +304,12 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    'x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=BUNDLE_ID'`).
    macOS has no command that takes the permission back, so `undo` is that
    pane command and `undo_note` says so. `authorized` and `provisional`
-   are `ok`, except `authorized` with the alert style None (`alert`
-   false): no banner shows, so it is `kind` `grant` with the same pane. An app without the methods (`method_not_found`) is `kind`
-   `app` with the Notifications pane command. A launch that never uses the
-   system center (an automation launch or GUI job) answers `unavailable`.
+   are `ok`, except `authorized` with banners off (`alert_style` `none`, or
+   `alert` false; `alert` is `alertSetting`, which can stay true with the
+   style None, and is all an older app sends): no banner shows, so it is
+   `kind` `grant` with the same pane. An app without the methods
+   (`method_not_found`) is `kind` `app` with the Notifications pane command. A launch that never uses the
+   system center (an automation launch, a GUI job, or a host that is not the
+   cmux app bundle) answers `unavailable`.
    Which notifications show stays `notifications.*` settings. `cmux setup
    status` adds a `notifications` check.

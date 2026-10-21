@@ -4,8 +4,10 @@ import Foundation
 import UserNotifications
 
 /// `notifications.status`: whether macOS lets cmux show notifications, read without prompting
-/// (`UNUserNotificationCenter.notificationSettings`): `{authorization, alert, sound, badge,
-/// bundle_id}`, `authorization` one of not_determined, denied, authorized, provisional.
+/// (`UNUserNotificationCenter.notificationSettings`): `{authorization, alert, alert_style, sound,
+/// badge, bundle_id}`, `authorization` one of not_determined, denied, authorized, provisional,
+/// unknown; `alert_style` one of none, banner, alert, unknown (`alert` can stay true with the
+/// style None: only `alert_style` says whether a banner shows).
 ///
 /// `notifications.request`: asks for it (`requestAuthorization`, the macOS prompt, shown only
 /// while it is not_determined: the person's one click) and answers the status after.
@@ -21,6 +23,8 @@ enum NotificationsControl {
     }
 
     /// The methods over `center`, made on the main actor for each call (nil: the app is closing).
+    /// On the main actor because `DesktopNotifier` is main-actor-only; the settings read itself runs
+    /// off the main actor in the follow-up.
     static func methods(center make: @escaping @MainActor @Sendable () throws -> (any NotificationPermissionCenter)?) -> [ControlMethod] {
         [
             .mainActor("notifications.status") { _ in
@@ -46,13 +50,15 @@ nonisolated protocol NotificationPermissionCenter: Sendable {
 nonisolated struct NotificationPermission: Equatable, Sendable {
     var authorization: String
     var alert: Bool
+    /// The banner style macOS shows: none, banner, alert (or unknown).
+    var alertStyle: String
     var sound: Bool
     var badge: Bool
     var bundleID: String?
 
     var json: JSONValue {
-        ["authorization": .string(authorization), "alert": .bool(alert), "sound": .bool(sound), "badge": .bool(badge),
-         "bundle_id": bundleID.map(JSONValue.string) ?? .null]
+        ["authorization": .string(authorization), "alert": .bool(alert), "alert_style": .string(alertStyle),
+         "sound": .bool(sound), "badge": .bool(badge), "bundle_id": bundleID.map(JSONValue.string) ?? .null]
     }
 }
 
@@ -71,9 +77,15 @@ nonisolated struct SystemNotificationPermission: NotificationPermissionCenter {
         case .provisional: "provisional"
         @unknown default: "unknown"
         }
+        let alertStyle = switch settings.alertStyle {
+        case .none: "none"
+        case .banner: "banner"
+        case .alert: "alert"
+        @unknown default: "unknown"
+        }
         return NotificationPermission(authorization: authorization, alert: settings.alertSetting == .enabled,
-                                      sound: settings.soundSetting == .enabled, badge: settings.badgeSetting == .enabled,
-                                      bundleID: bundleID)
+                                      alertStyle: alertStyle, sound: settings.soundSetting == .enabled,
+                                      badge: settings.badgeSetting == .enabled, bundleID: bundleID)
     }
 
     func request() async throws -> NotificationPermission {
@@ -86,7 +98,7 @@ nonisolated struct SystemNotificationPermission: NotificationPermissionCenter {
 enum NotificationPermissionStrings {
     static var unavailable: String {
         String(localized: "notifications.permission.unavailable",
-               defaultValue: "This cmux launch does not use macOS notifications (an automation launch or a GUI test job)",
+               defaultValue: "This cmux process does not use macOS notifications (an automation or test host, or not the cmux app bundle)",
                bundle: .module)
     }
 }

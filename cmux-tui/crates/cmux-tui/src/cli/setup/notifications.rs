@@ -3,11 +3,11 @@
 //! hands the person only their one click.
 //!
 //! The state is the app's `notifications.status` (`{authorization, alert,
-//! sound, badge, bundle_id}`, read without prompting). Not determined yet,
-//! setup sends `notifications.request`: macOS asks the person on its own
-//! prompt and setup waits for that click. Denied, only the person can turn it
-//! on, in System Settings > Notifications: the `user_action` command opens
-//! that pane. macOS has no command that takes the permission back, so the
+//! alert_style, sound, badge, bundle_id}`, read without prompting). Not
+//! determined yet, setup sends `notifications.request`: macOS asks the person
+//! on its own prompt and setup waits for that click. Denied, only the person
+//! can turn it on, in System Settings > Notifications: the `user_action`
+//! command opens that pane. macOS has no command that takes the permission back, so the
 //! undo of a change opens the same pane, where the person turns it off.
 //! Which notifications show (sounds, quiet hours, muted workspaces) are
 //! `notifications.*` settings, not this task.
@@ -192,12 +192,26 @@ fn read(global: &GlobalArgs) -> Result<Value, Value> {
     .map_err(|error| app_problem(&error))
 }
 
+/// cmux's page in System Settings > Notifications (the pane itself when the
+/// app named no bundle id).
+fn pane_url(status: &Value) -> String {
+    match status["bundle_id"].as_str().filter(|id| !id.is_empty()) {
+        Some(id) => format!("{PANE}?id={id}"),
+        None => PANE.to_owned(),
+    }
+}
+
 /// The command that opens cmux's page in System Settings > Notifications.
 fn pane_command(status: &Value) -> String {
-    match status["bundle_id"].as_str().filter(|id| !id.is_empty()) {
-        Some(id) => format!("open '{PANE}?id={id}'"),
-        None => format!("open '{PANE}'"),
-    }
+    format!("open '{}'", pane_url(status))
+}
+
+/// Whether macOS shows no banner for cmux: the alert style None, or alerts
+/// off. `alert` (`alertSetting`) can stay true with the style None, so only
+/// `alert_style` catches that; an app from before `alert_style` sends `alert`
+/// alone.
+fn banners_off(status: &Value) -> bool {
+    status["alert_style"] == "none" || status["alert"] == false
 }
 
 /// The undo of allowing them: the pane where the person turns them off
@@ -240,19 +254,15 @@ fn app_problem(error: &Value) -> Value {
 fn next_step(status: &Value) -> Option<Value> {
     match status["authorization"].as_str().unwrap_or_default() {
         // Allowed with the alert style None: macOS shows no banner.
-        "authorized" if status["alert"] == false => {
-            let command = pane_command(status);
-            let url = command.trim_start_matches("open '").trim_end_matches('\'').to_owned();
-            Some(json!({
-                "kind": "grant",
-                "text": "Notifications for cmux are allowed but banners are turned off (alert \
-                         style None in System Settings > Notifications; the command opens \
-                         cmux's page there): the person picks Banners or Alerts, then run `cmux \
-                         setup notifications` again",
-                "command": command,
-                "url": url,
-            }))
-        }
+        "authorized" if banners_off(status) => Some(json!({
+            "kind": "grant",
+            "text": "Notifications for cmux are allowed but banners are turned off (alert \
+                     style None in System Settings > Notifications; the command opens \
+                     cmux's page there): the person picks Banners or Alerts, then run `cmux \
+                     setup notifications` again",
+            "command": pane_command(status),
+            "url": pane_url(status),
+        })),
         "authorized" | "provisional" => None,
         "not_determined" => Some(json!({
             "kind": "approval",
@@ -261,18 +271,14 @@ fn next_step(status: &Value) -> Option<Value> {
             "command": "cmux setup notifications",
             "url": Value::Null,
         })),
-        "denied" => {
-            let command = pane_command(status);
-            let url = command.trim_start_matches("open '").trim_end_matches('\'').to_owned();
-            Some(json!({
-                "kind": "grant",
-                "text": "Notifications for cmux are off in System Settings > Notifications \
-                         (the command opens cmux's page there): the person turns on Allow \
-                         Notifications, then run `cmux setup notifications` again",
-                "command": command,
-                "url": url,
-            }))
-        }
+        "denied" => Some(json!({
+            "kind": "grant",
+            "text": "Notifications for cmux are off in System Settings > Notifications \
+                     (the command opens cmux's page there): the person turns on Allow \
+                     Notifications, then run `cmux setup notifications` again",
+            "command": pane_command(status),
+            "url": pane_url(status),
+        })),
         other => Some(json!({
             "kind": "app",
             "text": format!(
@@ -281,7 +287,7 @@ fn next_step(status: &Value) -> Option<Value> {
                 if other.is_empty() { "nothing" } else { other }
             ),
             "command": pane_command(status),
-            "url": Value::Null,
+            "url": pane_url(status),
         })),
     }
 }

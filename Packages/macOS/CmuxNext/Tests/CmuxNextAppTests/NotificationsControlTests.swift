@@ -13,7 +13,7 @@ import Testing
 @MainActor @Suite(.serialized) struct NotificationsControlTests {
     /// A permission the person answers with `answer` on the first request.
     actor FakeCenter: NotificationPermissionCenter {
-        var current = NotificationPermission(authorization: "not_determined", alert: false, sound: false, badge: false,
+        var current = NotificationPermission(authorization: "not_determined", alert: false, alertStyle: "none", sound: false, badge: false,
                                              bundleID: "com.cmuxterm.app")
         let answer: Bool
         private(set) var requests = 0
@@ -27,6 +27,7 @@ import Testing
             if current.authorization == "not_determined" {
                 current.authorization = answer ? "authorized" : "denied"
                 (current.alert, current.sound, current.badge) = (answer, answer, answer)
+                current.alertStyle = answer ? "banner" : "none"
             }
             return current
         }
@@ -48,11 +49,13 @@ import Testing
         let before = try await router.handle(ControlRequest(id: "1", method: "notifications.status", params: [:])).get()
         #expect(before.objectValue?["authorization"] == .string("not_determined"), "\(before)")
         #expect(before.objectValue?["bundle_id"] == .string("com.cmuxterm.app"), "\(before)")
+        #expect(before.objectValue?["alert_style"] == .string("none"), "\(before)")
         #expect(await center.requests == 0)
 
         let after = try await router.handle(ControlRequest(id: "2", method: "notifications.request", params: [:])).get()
         #expect(after.objectValue?["authorization"] == .string("authorized"), "\(after)")
         #expect(after.objectValue?["alert"] == .bool(true), "\(after)")
+        #expect(after.objectValue?["alert_style"] == .string("banner"), "\(after)")
         #expect(await center.requests == 1)
     }
 

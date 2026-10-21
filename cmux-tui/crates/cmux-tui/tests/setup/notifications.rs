@@ -34,7 +34,8 @@ impl NotificationsApp {
         world.app = Some(socket);
         let app = Self {
             permission: Arc::new(Mutex::new(json!({"authorization": "not_determined",
-                "alert": false, "sound": false, "badge": false, "bundle_id": "com.cmuxterm.app"}))),
+                "alert": false, "alert_style": "none", "sound": false, "badge": false,
+                "bundle_id": "com.cmuxterm.app"}))),
             allow: Arc::new(AtomicBool::new(true)),
             refusal: Arc::new(Mutex::new(None)),
             requests: Arc::new(Mutex::new(Vec::new())),
@@ -56,6 +57,7 @@ impl NotificationsApp {
                         for key in ["alert", "sound", "badge"] {
                             current[key] = json!(allowed);
                         }
+                        current["alert_style"] = json!(if allowed { "banner" } else { "none" });
                     }
                     Ok(current.clone())
                 }
@@ -148,7 +150,8 @@ fn cmux_setup_notifications_names_an_older_app() {
 
 /// The prompt left unanswered past the app's deadline is a decline (ask the
 /// person first); macOS failing the request is a failure; allowed with the
-/// alert style None, banners are off and the person gets the pane.
+/// alert style None (`alert` still true: macOS keeps `alertSetting` enabled),
+/// banners are off and the person gets the pane.
 #[test]
 fn cmux_setup_notifications_reports_an_unanswered_prompt_a_failure_and_banners_off() {
     let mut world = World::new("ntto");
@@ -169,12 +172,13 @@ fn cmux_setup_notifications_reports_an_unanswered_prompt_a_failure_and_banners_o
     assert_eq!(failed["state"], "failed", "{failed}");
     assert_eq!(failed["error"]["code"], "internal_error", "{failed}");
 
-    *app.permission.lock().unwrap() = json!({"authorization": "authorized", "alert": false,
-        "sound": true, "badge": true, "bundle_id": "com.cmuxterm.app"});
+    *app.permission.lock().unwrap() = json!({"authorization": "authorized", "alert": true,
+        "alert_style": "none", "sound": true, "badge": true, "bundle_id": "com.cmuxterm.app"});
     let banners_off = world.json(&["setup", "notifications"]);
     assert_eq!(banners_off["state"], "needs_user", "{banners_off}");
     assert_eq!(banners_off["user_action"]["kind"], "grant", "{banners_off}");
     assert_eq!(banners_off["user_action"]["command"], format!("open '{PANE}'"));
+    assert_eq!(banners_off["user_action"]["url"], PANE, "{banners_off}");
     let text = banners_off["user_action"]["text"].as_str().unwrap();
     assert!(text.contains("banners are turned off"), "{text}");
     assert_eq!(world.json(&["setup", "status"])["checks"][6]["state"], "needs_user");
