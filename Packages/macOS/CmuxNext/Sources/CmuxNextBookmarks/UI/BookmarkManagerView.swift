@@ -36,16 +36,24 @@ struct BookmarkManagerView: View {
             ThemedField(text: $model.query, placeholder: BookmarkStrings.searchPlaceholder, focusOnAppear: true,
                         identifier: "cmux.bookmarks.manager.search")
                 .frame(maxWidth: Metrics.paletteWidth / 2)
-            // The app's one more button (⋮, OverflowButton): its glyph, size and hover.
-            OverflowMenuButton(label: BookmarkStrings.more, identifier: "cmux.bookmarks.manager.menu", items: [
-                .action(BookmarkStrings.addBookmark) { model.startAddBookmark() },
-                .action(BookmarkStrings.addFolder) { model.startAddFolder() },
-                .separator,
-                .action(BookmarkStrings.importFromBrowser) { model.source?.importFromBrowser() },
-                .action(BookmarkStrings.importHTML) { model.source?.importHTML() },
-                .action(BookmarkStrings.exportHTML) { model.source?.exportHTML() },
-            ])
+            Menu {
+                Button(BookmarkStrings.addBookmark) { model.startAddBookmark() }
+                Button(BookmarkStrings.addFolder) { model.startAddFolder() }
+                Divider()
+                Button(BookmarkStrings.importFromBrowser) { model.source?.importFromBrowser() }
+                Button(BookmarkStrings.importHTML) { model.source?.importHTML() }
+                Button(BookmarkStrings.exportHTML) { model.source?.exportHTML() }
+            } label: {
+                // The app's one more glyph (⋮, OverflowButton), at its size and hit target.
+                Icon(OverflowButton.glyph, size: OverflowButton.glyphSize)
+                    .frame(width: Metrics.iconSize + Metrics.space2, height: Metrics.iconSize + Metrics.space2)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .fixedSize()
+            .accessibilityIdentifier("cmux.bookmarks.manager.menu")
+            .accessibilityLabel(BookmarkStrings.more)
         }
         .padding(.horizontal, Metrics.space6)
         .padding(.vertical, Metrics.space4)
