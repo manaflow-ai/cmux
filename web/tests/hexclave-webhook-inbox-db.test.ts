@@ -8,7 +8,8 @@ import { inboxHarness, postBurst, userId } from "./helpers/hexclave-inbox-harnes
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
-const sql = runDbTests ? postgres((process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL)!, { max: 1 }) : null;
+const databaseUrl = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL;
+const sql = runDbTests ? postgres(databaseUrl!, { max: 1 }) : null;
 
 beforeEach(async () => {
   if (sql) await sql`truncate hexclave_webhook_inbox, hexclave_webhook_inbox_drain_slots, hexclave_webhook_inbox_state, hexclave_webhook_events`;
@@ -103,6 +104,7 @@ describe("Hexclave webhook inbox store", () => {
 
   dbTest("claim renewal waits for the entity-establishment lock, then rechecks its token", async () => {
     const store = createDrizzleHexclaveInboxStore();
+    const observer = postgres(databaseUrl!, { max: 1 });
     await store.enqueue({ svixId: "m-renew-locked", eventType: "user.updated", target: user("u-renew-locked") });
     const now = new Date();
     await sql!`update hexclave_webhook_inbox set next_attempt_at = ${new Date(now.getTime() - 1_000)} where svix_id = 'm-renew-locked'`;
@@ -120,13 +122,31 @@ describe("Hexclave webhook inbox store", () => {
     });
     await ready;
     const renewedUntil = new Date(claimedUntil.getTime() + 60_000);
-    const renewal = store.renewClaims(["m-renew-locked"], claimedUntil, renewedUntil);
+    let settled = false;
+    const renewal = store.renewClaims(["m-renew-locked"], claimedUntil, renewedUntil).then((renewed) => {
+      settled = true;
+      return renewed;
+    });
     try {
+      const deadline = Date.now() + 5_000;
+      let waiting = 0;
+      while (!settled && waiting === 0 && Date.now() < deadline) {
+        const [row] = await observer<{ waiting: number }[]>`
+          select count(*)::int as waiting
+          from pg_locks
+          where locktype = 'advisory' and not granted
+        `;
+        waiting = row?.waiting ?? 0;
+        if (waiting === 0) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(settled).toBe(false);
+      expect(waiting).toBe(1);
       unlock();
       await holder;
     } finally {
       unlock();
       await holder.catch(() => {});
+      await observer.end({ timeout: 5 });
     }
     expect(await renewal).toBe(true);
   });
