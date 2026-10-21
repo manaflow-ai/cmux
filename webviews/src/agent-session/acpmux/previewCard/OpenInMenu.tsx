@@ -1,7 +1,9 @@
 // The preview card's "Open in ▾" menu (decision D6): cmux's own browser pane first, then the
 // installed browsers the host lists (`browser.list`: opaque ids, names and icons; never a path),
 // then Copy link. A pick sends only `{url, browserId}` (`browser.openIn`); the host checks the id
-// against its own list, the URL (http or https, no user info), and a user gesture.
+// against its own list, the URL (http or https, no user info), and a user gesture. It wears the
+// composer menus' look (modelPicker.css .acpmux-quick-menu): the pane does not load ui.css, so a
+// menu without the pane's classes draws bare.
 import { useState } from "react";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator } from "../../../ui/Menu";
 import { useT } from "../i18n";
@@ -39,14 +41,15 @@ export function OpenInMenu({
         {t("preview.openIn")}
         <ChevronDown size={12} />
       </MenuButton>
-      <MenuPopup align="end">
-        <MenuItem onSelect={() => onOpenInPane(url)}>
+      <MenuPopup align="end" className="acpmux-quick-menu">
+        <MenuItem className="acpmux-quick-item" onSelect={() => onOpenInPane(url)}>
           <Globe size={16} className="acpmux-open-in__icon" />
           {t("preview.cmuxBrowser")}
         </MenuItem>
         {browsers?.map((browser) => (
           <MenuItem
             key={browser.id}
+            className="acpmux-quick-item"
             onSelect={() => void callChipHost("browser.openIn", { url, browserId: browser.id })}
           >
             {browser.icon?.startsWith("data:image/") ? (
@@ -58,7 +61,7 @@ export function OpenInMenu({
           </MenuItem>
         ))}
         <MenuSeparator />
-        <MenuItem onSelect={() => void copyText(url)}>
+        <MenuItem className="acpmux-quick-item" onSelect={() => void copyText(url)}>
           <Copy size={16} className="acpmux-open-in__icon" />
           {t("preview.copyLink")}
         </MenuItem>
