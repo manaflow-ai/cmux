@@ -126,6 +126,7 @@ enum SessionSnapshotImportTrust {
     ) -> AppSessionSnapshot {
         var bounded = snapshot
         var remainingPanelBudget = SessionPersistencePolicy.maxPanelsPerSnapshot
+        var remainingLayoutNodes = SessionPersistencePolicy.maxLayoutNodes
         let keptWindowCount = min(bounded.windows.count, SessionPersistencePolicy.maxWindowsPerSnapshot)
         report.droppedWindowCount += bounded.windows.count - keptWindowCount
         bounded.windows = Array(bounded.windows.prefix(keptWindowCount))
@@ -145,7 +146,8 @@ enum SessionSnapshotImportTrust {
                 )
                 workspace.layout = boundedLayout(
                     workspace.layout,
-                    panelIDs: workspace.panels.map(\.id)
+                    panelIDs: workspace.panels.map(\.id),
+                    remainingNodes: &remainingLayoutNodes
                 )
                 if var dock = workspace.dock {
                     dock.panels = boundedPanels(
@@ -155,7 +157,8 @@ enum SessionSnapshotImportTrust {
                     )
                     dock.layout = boundedLayout(
                         dock.layout,
-                        panelIDs: dock.panels.map(\.id)
+                        panelIDs: dock.panels.map(\.id),
+                        remainingNodes: &remainingLayoutNodes
                     )
                     workspace.dock = dock
                 }
@@ -169,7 +172,8 @@ enum SessionSnapshotImportTrust {
                 )
                 dock.layout = boundedLayout(
                     dock.layout,
-                    panelIDs: dock.panels.map(\.id)
+                    panelIDs: dock.panels.map(\.id),
+                    remainingNodes: &remainingLayoutNodes
                 )
                 window.dock = dock
             }
@@ -195,16 +199,18 @@ enum SessionSnapshotImportTrust {
 
     private static func boundedLayout(
         _ layout: SessionWorkspaceLayoutSnapshot,
-        panelIDs: [UUID]
+        panelIDs: [UUID],
+        remainingNodes: inout Int
     ) -> SessionWorkspaceLayoutSnapshot {
-        var remainingNodes = SessionPersistencePolicy.maxLayoutNodes
         let allowed = Set(panelIDs)
+        var usedPanelIDs = Set<UUID>()
         return boundedLayout(
             layout,
             allowedPanelIDs: allowed,
             fallbackPanelIDs: panelIDs,
             depth: 0,
-            remainingNodes: &remainingNodes
+            remainingNodes: &remainingNodes,
+            usedPanelIDs: &usedPanelIDs
         )
     }
 
@@ -213,21 +219,28 @@ enum SessionSnapshotImportTrust {
         allowedPanelIDs: Set<UUID>,
         fallbackPanelIDs: [UUID],
         depth: Int,
-        remainingNodes: inout Int
+        remainingNodes: inout Int,
+        usedPanelIDs: inout Set<UUID>
     ) -> SessionWorkspaceLayoutSnapshot {
         guard remainingNodes > 0,
               depth < SessionPersistencePolicy.maxLayoutDepth else {
+            let fallback = fallbackPanelIDs.filter {
+                allowedPanelIDs.contains($0) && !usedPanelIDs.contains($0)
+            }
+            usedPanelIDs.formUnion(fallback)
             return .pane(SessionPaneLayoutSnapshot(
-                panelIds: fallbackPanelIDs,
-                selectedPanelId: fallbackPanelIDs.first
+                panelIds: fallback,
+                selectedPanelId: fallback.first
             ))
         }
         remainingNodes -= 1
         switch layout {
         case .pane(let pane):
-            let panelIDs = pane.panelIds.filter { allowedPanelIDs.contains($0) }
+            let panelIDs = pane.panelIds.filter {
+                allowedPanelIDs.contains($0) && usedPanelIDs.insert($0).inserted
+            }
             let selected = pane.selectedPanelId.flatMap {
-                allowedPanelIDs.contains($0) ? $0 : nil
+                panelIDs.contains($0) ? $0 : nil
             } ?? panelIDs.first
             return .pane(SessionPaneLayoutSnapshot(
                 panelIds: panelIDs,
@@ -240,22 +253,28 @@ enum SessionSnapshotImportTrust {
                 allowedPanelIDs: allowedPanelIDs,
                 fallbackPanelIDs: fallbackPanelIDs,
                 depth: depth + 1,
-                remainingNodes: &remainingNodes
+                remainingNodes: &remainingNodes,
+                usedPanelIDs: &usedPanelIDs
             )
             let second = boundedLayout(
                 split.second,
                 allowedPanelIDs: allowedPanelIDs,
                 fallbackPanelIDs: fallbackPanelIDs,
                 depth: depth + 1,
-                remainingNodes: &remainingNodes
+                remainingNodes: &remainingNodes,
+                usedPanelIDs: &usedPanelIDs
             )
             let firstEmpty = first.isEmptyLayout
             let secondEmpty = second.isEmptyLayout
             switch (firstEmpty, secondEmpty) {
             case (true, true):
+                let fallback = fallbackPanelIDs.filter {
+                    allowedPanelIDs.contains($0) && !usedPanelIDs.contains($0)
+                }
+                usedPanelIDs.formUnion(fallback)
                 return .pane(SessionPaneLayoutSnapshot(
-                    panelIds: fallbackPanelIDs,
-                    selectedPanelId: fallbackPanelIDs.first
+                    panelIds: fallback,
+                    selectedPanelId: fallback.first
                 ))
             case (true, false): return second
             case (false, true): return first

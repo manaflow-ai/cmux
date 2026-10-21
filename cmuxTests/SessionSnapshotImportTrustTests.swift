@@ -828,6 +828,67 @@ struct SessionSnapshotImportTrustTests {
         #expect(report.droppedRemoteWorkspaceCount == 1)
     }
 
+    @Test("trusted restore applies the global panel budget without stripping commands")
+    func trustedRestoreBoundsTopology() throws {
+        let panel = Self.panel(terminal: Self.untrustedTerminal())
+        var workspace = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "Trusted",
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp/project",
+            focusedPanelId: panel.id,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panel.id], selectedPanelId: panel.id)),
+            panels: Array(repeating: panel, count: SessionPersistencePolicy.maxPanelsPerSnapshot + 1),
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        var original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+        original.windows[0].tabManager.workspaces = Array(repeating: workspace, count: 9)
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+
+        let restoredWorkspaces = try #require(restored.windows.first?.tabManager.workspaces)
+        #expect(restoredWorkspaces.reduce(0) { $0 + $1.panels.count } ==
+            SessionPersistencePolicy.maxPanelsPerSnapshot)
+        #expect(report.droppedPanelCount == SessionPersistencePolicy.maxPanelsPerWorkspace)
+        #expect(restoredWorkspaces.first?.panels.first?.terminal?.resumeBinding?.command ==
+            workspace.panels.first?.terminal?.resumeBinding?.command)
+    }
+
+    @Test("trusted restore deduplicates repeated panel IDs in a wide split layout")
+    func trustedRestoreDeduplicatesWideLayout() throws {
+        let panel = Self.panel(terminal: SessionTerminalPanelSnapshot())
+        var workspace = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "Deep",
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp/project",
+            focusedPanelId: panel.id,
+            layout: Self.repeatedLayout(5_000, panelID: panel.id),
+            panels: [panel],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        let original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+
+        let (restored, _) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+        let layout = try #require(restored.windows.first?.tabManager.workspaces.first?.layout)
+        #expect(Self.layoutNodeCount(layout) <= SessionPersistencePolicy.maxLayoutNodes)
+        #expect(Self.layoutPanelIDs(layout) == [panel.id])
+    }
+
     // MARK: - Fixtures
 
     private static func makeTempDirectory() throws -> URL {
@@ -835,6 +896,33 @@ struct SessionSnapshotImportTrustTests {
             .appendingPathComponent("cmux-import-trust-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private static func repeatedLayout(_ leaves: Int, panelID: UUID) -> SessionWorkspaceLayoutSnapshot {
+        guard leaves > 1 else {
+            return .pane(SessionPaneLayoutSnapshot(panelIds: [panelID], selectedPanelId: panelID))
+        }
+        let firstCount = leaves / 2
+        return .split(SessionSplitLayoutSnapshot(
+            orientation: .horizontal,
+            dividerPosition: 0.5,
+            first: repeatedLayout(firstCount, panelID: panelID),
+            second: repeatedLayout(leaves - firstCount, panelID: panelID)
+        ))
+    }
+
+    private static func layoutNodeCount(_ layout: SessionWorkspaceLayoutSnapshot) -> Int {
+        switch layout {
+        case .pane: return 1
+        case .split(let split): return 1 + layoutNodeCount(split.first) + layoutNodeCount(split.second)
+        }
+    }
+
+    private static func layoutPanelIDs(_ layout: SessionWorkspaceLayoutSnapshot) -> [UUID] {
+        switch layout {
+        case .pane(let pane): return pane.panelIds
+        case .split(let split): return layoutPanelIDs(split.first) + layoutPanelIDs(split.second)
+        }
     }
 
 

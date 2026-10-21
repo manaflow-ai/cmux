@@ -145,8 +145,18 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         guard (status.st_mode & S_IFMT) == S_IFREG, Int64(status.st_size) <= maximumBytes else {
             return .notRegularOrTooLarge
         }
-        guard let data = try? handle.readToEnd() else { return .unreadable }
-        return .data(data)
+        do {
+            // The file can grow after fstat (autosave/import races). Never
+            // call readToEnd on an untrusted path: one bounded read keeps the
+            // post-check allocation capped as well.
+            guard let data = try handle.read(upToCount: Int(maximumBytes) + 1) else {
+                return .unreadable
+            }
+            guard Int64(data.count) <= maximumBytes else { return .notRegularOrTooLarge }
+            return .data(data)
+        } catch {
+            return .unreadable
+        }
     }
 
     /// Upper bound on a snapshot file accepted for import. Real snapshots
@@ -163,10 +173,12 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     // truth without allocating per repository instance.
     private static var maximumJSONNesting: Int { 512 }
     private static var maximumJSONStringBytes: Int { 2 * 1024 * 1024 }
+    private static var maximumJSONStructuralTokens: Int { 1_000_000 }
 
     private static func jsonIsWithinDecodeLimits(_ data: Data) -> Bool {
         var nesting = 0
         var stringBytes = 0
+        var structuralTokens = 0
         var inString = false
         var escaped = false
         for byte in data {
@@ -189,14 +201,19 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
                 inString = true
                 stringBytes = 0
             case 91, 123: // [ or {
+                structuralTokens += 1
                 nesting += 1
                 if nesting > maximumJSONNesting { return false }
             case 93, 125: // ] or }
+                structuralTokens += 1
                 nesting -= 1
                 if nesting < 0 { return false }
+            case 58, 44: // : or ,
+                structuralTokens += 1
             default:
                 break
             }
+            if structuralTokens > maximumJSONStructuralTokens { return false }
         }
         return !inString && nesting == 0
     }
@@ -205,6 +222,12 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         data: Data,
         fileURL: URL
     ) -> Result<SessionSnapshotImport<SnapshotValue>, SessionSnapshotImportError> {
+        // Schema probing is itself a Foundation decode. Apply the lexical
+        // guard before probing so hostile payloads cannot bypass the predecode
+        // limits through the version-check path.
+        guard Self.jsonIsWithinDecodeLimits(data) else {
+            return .failure(.notASessionSnapshot(fileURL))
+        }
         guard let version = probedSchemaVersion(of: data) else {
             return .failure(.notASessionSnapshot(fileURL))
         }
