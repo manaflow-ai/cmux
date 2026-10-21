@@ -33,6 +33,14 @@ import Testing
         #expect(way == .goBack(Self.kept("120")))
     }
 
+    @Test func aPulledBuildIsNeverTheWayBackEvenWithItsCanaryPass() {
+        let way = RingReturn.decide(installedBuild: "500", offered: Self.nightlyOffered, promoted: ["320", "300"],
+                                    pulled: ["320"], kept: [Self.kept("320"), Self.kept("300")])
+        #expect(way == .goBack(Self.kept("300")))
+        #expect(RingReturn.decide(installedBuild: "500", offered: [Self.item("200", "cmux-next")], promoted: ["320"],
+                                  pulled: ["320"], kept: [Self.kept("320")]) == .waits)
+    }
+
     @Test func nothingKeptOnTheRingWaitsForItToPassTheRunningBuild() {
         #expect(RingReturn.decide(installedBuild: "500", offered: Self.nightlyOffered, promoted: [],
                                   kept: [Self.kept("450")]) == .waits)
@@ -84,8 +92,10 @@ import Testing
                                      defaults: defaults, enableSparkle: false, recordsUpdates: false)
         updater.announcementsFetch = false
         updater.follow(ring: "nightly")
-        #expect(updater.lastProbe == nil)
+        #expect(!updater.isProbing)
         updater.follow(ring: "dev")
+        // The pick started the check itself; this only waits for it.
+        #expect(updater.isProbing)
         _ = await updater.probe().value
         guard case .updateAvailable(let item) = updater.lastProbe?.outcome else {
             Issue.record("\(String(describing: updater.lastProbe))")

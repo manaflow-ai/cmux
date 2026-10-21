@@ -155,7 +155,10 @@ export function ChannelsCard() {
     <section className="group" data-card="channels">
       <h3 className="group-title">{state.title}</h3>
       <div className="row-help">{state.installed}</div>
-      {state.switch && <SwitchRow key={`${state.switch.ring}:${state.switch.build}`} way={state.switch} />}
+      {/* Only the picked channel's way back: a read for an earlier pick never offers its button. */}
+      {state.switch && (shown === undefined || state.switch.ring === shown) && (
+        <SwitchRow key={`${state.switch.ring}:${state.switch.build}`} way={state.switch} />
+      )}
       {state.tracks.map((track) => (
         <Track
           key={track.ring}

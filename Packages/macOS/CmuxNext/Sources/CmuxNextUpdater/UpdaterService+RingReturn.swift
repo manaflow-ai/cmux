@@ -14,23 +14,26 @@ extension UpdaterService {
         if let testFeedURL { feedIdentity.infoFeedURL = testFeedURL }
         guard let offered = try? await prober.offered(feedIdentity, allowedChannels: allowed) else { return .none }
         let kept = await Task.detached { [keptVersions] in keptVersions.list() }.value
+        let folder = changelogNotes.map { Self.channelFolder(notesBase: $0.notesBase) }
         var promoted: Set<String> = []
         if ring == .nightly {
-            let folder = changelogNotes.map { Self.channelFolder(notesBase: $0.notesBase) }
             let verdicts = await Self.verdicts(for: kept.map(\.build) + [identity.build], in: folder)
             promoted = Set(verdicts.filter { $0.value == "pass" }.keys)
         }
-        let decision = RingReturn.decide(installedBuild: identity.build, offered: offered, promoted: promoted, kept: kept)
+        // A pulled build keeps its canary pass: the pulled list rules it out as a way back.
+        let pulled = Set(await Self.pulled(in: folder).map(\.build))
+        let decision = RingReturn.decide(installedBuild: identity.build, offered: offered, promoted: promoted,
+                                         pulled: pulled, kept: kept)
         guard case .goBack(let target) = decision else { return decision }
         let runs = (try? await UpdateDropBack(self).run(to: target.build, checkOnly: true,
                                                         stateDirectories: pulledWatch.stateDirectories())) != nil
         return runs ? decision : .waits
     }
 
-    /// The card's Go Back: restarts into `build` when ``ringReturn(to:)`` still offers it. Nil
-    /// when it runs, else what the person reads.
+    /// The card's Go Back: restarts into `build` when `ring` is the followed ring and
+    /// ``ringReturn(to:)`` still offers it. Nil when it runs, else what the person reads.
     public func returnToRing(_ ring: UpdateRing, build: String) async -> String? {
-        guard case .goBack(let target) = await ringReturn(to: ring), target.build == build else {
+        guard ring == self.ring, case .goBack(let target) = await ringReturn(to: ring), target.build == build else {
             return UpdaterStrings.channelsGoBackGone
         }
         log.append("ring \(ring.rawValue): going back to kept build \(build)")

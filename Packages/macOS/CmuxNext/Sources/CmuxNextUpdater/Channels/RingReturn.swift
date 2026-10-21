@@ -18,10 +18,11 @@ nonisolated public enum RingReturn: Equatable, Sendable {
     ///   - offered: the feed's items the ring sees.
     ///   - promoted: builds the canary passed; on the Nightly ring these count as its own even
     ///     after they leave the feed.
+    ///   - pulled: builds on the feed's pulled list: never a way back, whatever their verdict.
     ///   - kept: kept versions, newest first.
     public static func decide(installedBuild: String, offered: [AppcastItem], promoted: Set<String>,
-                              kept: [KeptVersion]) -> RingReturn {
-        let onRing = Set(offered.map(\.version)).union(promoted)
+                              pulled: Set<String> = [], kept: [KeptVersion]) -> RingReturn {
+        let onRing = Set(offered.map(\.version)).union(promoted).subtracting(pulled)
         if onRing.contains(installedBuild) { return .none }
         if offered.contains(where: { AppcastSelector.isOlder(installedBuild, than: $0.version) }) { return .none }
         guard let target = kept.first(where: { onRing.contains($0.build) && AppcastSelector.isOlder($0.build, than: installedBuild) })

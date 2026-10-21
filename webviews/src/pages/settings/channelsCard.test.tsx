@@ -88,6 +88,10 @@ test("picking Nightly on a Dev build Nightly has not reached offers Go Back into
   await run(() => button.click());
   await settle();
   expect(page.provider.wentBack).toBe("3418");
+  // A reply that carries another channel's way back (a read for an earlier pick) offers no button.
+  await run(() => page.store.set("updates.channel", "dev"));
+  await settle();
+  expect(card(page.container)!.querySelector("[data-channel-go-back]")).toBeNull();
   page.unmount();
 });
 
