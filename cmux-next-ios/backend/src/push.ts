@@ -66,6 +66,36 @@ const TITLES: Record<PushKind, (agent: string) => string> = {
   chief: () => "Chief replied"
 }
 
+/** Kinds that end a turn: a session's newer one replaces its older one on the phone. */
+const TURN_KINDS: ReadonlySet<PushKind> = new Set<PushKind>(["completed", "failed", "chief"])
+
+/** 64-bit FNV-1a of a string, 16 hex digits: a short stable stand-in for a long id. */
+const fnv = (text: string): string => {
+  let h = 0xcbf29ce484222325n
+  for (const byte of new TextEncoder().encode(text)) h = ((h ^ BigInt(byte)) * 0x100000001b3n) & 0xffffffffffffffffn
+  return h.toString(16).padStart(16, "0")
+}
+
+/**
+ * The APNs collapse id (at most 64 bytes): one per session for a finished turn, an error or a Chief reply,
+ * so a newer one replaces the older on the lock screen; each ask keeps its own (every one needs an answer).
+ */
+export const collapseId = (e: Pick<NotifyEvent, "eventId" | "kind" | "sessionId">): string => {
+  if (!e.sessionId || !TURN_KINDS.has(e.kind)) return e.eventId.slice(0, 64)
+  const id = `turn-${e.sessionId}`
+  return id.length <= 64 ? id : `turn-${fnv(e.sessionId)}`
+}
+
+/**
+ * Whether a turn-ending event is coalesced away: at most one per Mac and session in the binding's window
+ * (TURN_NOTIFY_LIMIT, one per 10 s). Asks, events without a session and a missing binding always pass.
+ */
+export const turnCoalesced = async (binding: RateLimit | undefined, macId: string, e: Pick<NotifyEvent, "kind" | "sessionId">): Promise<boolean> => {
+  if (!binding || !e.sessionId || !TURN_KINDS.has(e.kind)) return false
+  const { success } = await binding.limit({ key: `${macId}:${e.sessionId}` })
+  return !success
+}
+
 /** The APNs JSON body: fixed text per kind, the place as the body, ids for the tap. Never agent output. */
 export const apnsPayload = (e: NotifyEvent) => {
   const agent = e.agent || "Your agent"
@@ -101,7 +131,7 @@ export const apnsRequest = (target: PushRegistration, e: NotifyEvent, token: str
       "apns-priority": "10",
       // An ask matters for a day; a finished turn for an hour.
       "apns-expiration": String(Math.floor((now + (ask ? 24 * 3600_000 : 3600_000)) / 1000)),
-      "apns-collapse-id": e.eventId.slice(0, 64),
+      "apns-collapse-id": collapseId(e),
       "content-type": "application/json"
     },
     body: JSON.stringify(apnsPayload(e))

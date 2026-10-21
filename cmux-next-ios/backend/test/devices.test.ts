@@ -1,6 +1,6 @@
 import { exportPKCS8, generateKeyPair, decodeProtectedHeader } from "jose"
 import { describe, expect, it } from "vitest"
-import { apnsPayload, clean, sendApns } from "../src/push.ts"
+import { apnsPayload, apnsRequest, clean, collapseId, sendApns, turnCoalesced } from "../src/push.ts"
 import type { PushRegistration } from "../src/store.ts"
 import { call, connect, PROD_PROJECT, register, token } from "./helpers.ts"
 
@@ -113,6 +113,41 @@ describe("APNs payload and sender", () => {
     expect(apnsPayload({ ...event, kind: "completed", agent: "" }).aps.alert.title).toBe("Your agent finished")
     expect(clean("a\u0000b‮\nc", 40)).toBe("a b c")
     expect(clean("x".repeat(100), 40)).toHaveLength(40)
+  })
+
+  it("collapses a session's finished turns into one notification and keeps each ask", () => {
+    const target: PushRegistration = { deviceId: "d", ownerUserId: "o", token: "aa", environment: "production", topic: "dev.cmux.mobile", kinds: ["completed"], updatedAt: "" }
+    const done = { ...event, kind: "completed" as const, eventId: "t-s1-t9" }
+    // A newer finished turn (or error, or Chief reply) of the same session replaces the older one.
+    expect(collapseId(done)).toBe("turn-s1")
+    expect(collapseId({ ...done, eventId: "t-s1-t10", kind: "failed" })).toBe("turn-s1")
+    expect(collapseId({ ...done, kind: "chief" })).toBe("turn-s1")
+    expect(apnsRequest(target, done, "tok", Date.now()).headers.get("apns-collapse-id")).toBe("turn-s1")
+    // Each ask stays its own notification.
+    expect(collapseId(event)).toBe("e1")
+    // No session: the event's own id.
+    const { sessionId: _, ...bare } = done
+    expect(collapseId(bare)).toBe("t-s1-t9")
+    // A long session id still fits APNs' 64 bytes, stably.
+    const long = collapseId({ ...done, sessionId: "x".repeat(128) })
+    expect(long.length).toBeLessThanOrEqual(64)
+    expect(long).toBe(collapseId({ ...done, sessionId: "x".repeat(128) }))
+    expect(long).not.toBe(collapseId({ ...done, sessionId: "x".repeat(127) + "y" }))
+    // Grouped per session.
+    expect(apnsPayload(done).aps["thread-id"]).toBe("s1")
+  })
+
+  it("lets one finished turn per session through a short window; asks always pass", async () => {
+    const keys: Array<string> = []
+    const binding = { limit: async ({ key }: { key: string }) => ({ success: !keys.includes(key) && keys.push(key) > 0 }) } as unknown as RateLimit
+    const done = { ...event, kind: "completed" as const }
+    expect(await turnCoalesced(binding, "mac1", done)).toBe(false)
+    expect(await turnCoalesced(binding, "mac1", { ...done, kind: "failed" })).toBe(true)
+    expect(await turnCoalesced(binding, "mac1", { ...done, sessionId: "s2" })).toBe(false)
+    expect(await turnCoalesced(binding, "mac2", done)).toBe(false)
+    expect(await turnCoalesced(binding, "mac1", event)).toBe(false)
+    expect(await turnCoalesced(binding, "mac1", event)).toBe(false)
+    expect(await turnCoalesced(undefined, "mac1", done)).toBe(false)
   })
 
   it("signs a provider token, routes by environment and classifies answers", async () => {

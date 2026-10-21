@@ -2,7 +2,7 @@ import { authenticate, bearerOf, primaryProject, stackProjects, type Caller } fr
 import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
 import { createTeam, sendTeamInvite, userTeams } from "./stack.ts"
-import { apnsConfig, apnsTopics, clean, sendApns } from "./push.ts"
+import { apnsConfig, apnsTopics, clean, sendApns, turnCoalesced } from "./push.ts"
 import { openStore, PUSH_KINDS, type Device, type PushKind, type Store } from "./store.ts"
 import { userHubName, type Attachment } from "./team-hub.ts"
 import { Timing, timingFor } from "./timing.ts"
@@ -393,6 +393,10 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       await limit(env.NOTIFY_LIMIT, deviceId, "notifications")
       const config = apnsConfig(env)
       const kind = b.kind as PushKind
+      const sessionId = typeof b.sessionId === "string" ? b.sessionId : undefined
+      // A burst of finished turns from one session is one notification (an older Mac sends every one).
+      if (await turnCoalesced(env.TURN_NOTIFY_LIMIT, deviceId, { kind, ...(sessionId ? { sessionId } : {}) }))
+        return json({ configured: !!config, sent: 0, failed: 0, dropped: 0, coalesced: true })
       const targets = config ? (await withStore(env, ctx, (s) => s.listOwnerPush(me))).filter((t) => t.kinds.includes(kind)).slice(0, 20) : []
       if (!config || targets.length === 0) return json({ configured: !!config, sent: 0, failed: 0, dropped: 0 })
       const results = await sendApns(config, targets, {
