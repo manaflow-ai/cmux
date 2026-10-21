@@ -108,5 +108,7 @@ struct ChiefAppAcpmuxTests {
         #expect(ChiefAppAcpmuxMove.idle(AcpmuxSessionCensus(live: 3)))
         #expect(!ChiefAppAcpmuxMove.idle(AcpmuxSessionCensus(live: 3, inTurn: 1, inTurnNames: ["lane"])))
         #expect(!ChiefAppAcpmuxMove.idle(AcpmuxSessionCensus(live: 1, chiefInTurn: true)))
+        // A daemon that did not answer the census in time may be busy: it is not ended.
+        #expect(!ChiefAppAcpmuxMove.idle(nil))
     }
 }

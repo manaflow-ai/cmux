@@ -16,7 +16,7 @@ import os
 /// Chief of the home (`c/<id>`, cmux-tui chief_brains.rs) still runs on it or one of its sessions
 /// is in a turn (a subagent the Chief started still working): then a later start ends it. Never
 /// the app's daemon.
-struct ChiefAppAcpmuxMove: Sendable {
+nonisolated struct ChiefAppAcpmuxMove: Sendable {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
     let home: ChiefHome
@@ -33,7 +33,7 @@ struct ChiefAppAcpmuxMove: Sendable {
     }
 
     /// What a start does before it reuses or launches a host.
-    struct Plan: Equatable {
+    nonisolated struct Plan: Equatable {
         /// Restart the running host: it is not one this app launched on the app's acpmux.
         var restartHost = false
         /// End the Chief home's own daemon (it is the Chief's alone).
@@ -85,8 +85,8 @@ struct ChiefAppAcpmuxMove: Sendable {
             }
         }
         if plan.endOwnDaemon, let own, own.home.standardizedFileURL != app.home.standardizedFileURL {
-            if let census = await AcpmuxQuit.census(own), !Self.idle(census) {
-                Self.logger.info("Chief's own acpmux at \(own.home.path, privacy: .public) has a session in a turn; it ends at a later start")
+            guard Self.idle(await AcpmuxQuit.census(own)) else {
+                Self.logger.info("Chief's own acpmux at \(own.home.path, privacy: .public) may have a session in a turn; it ends at a later start")
                 return true
             }
             let result = await AcpmuxQuit.endAgents(own, keep: .nothing)
@@ -96,9 +96,11 @@ struct ChiefAppAcpmuxMove: Sendable {
     }
 
     /// Whether no session of a daemon is in a turn, the Chief's own included: ending it then
-    /// stops no work. A daemon that does not answer (nil census) has no turn to lose.
-    static func idle(_ census: AcpmuxSessionCensus) -> Bool {
-        census.inTurn == 0 && !census.chiefInTurn
+    /// stops no work. An unknown census (nil: the daemon did not answer in time, perhaps busy)
+    /// is not idle: a later start ends it.
+    static func idle(_ census: AcpmuxSessionCensus?) -> Bool {
+        guard let census else { return false }
+        return census.inTurn == 0 && !census.chiefInTurn
     }
 
     /// Whether process `pid` runs an executable whose file is gone (an update replaced the bundle).
