@@ -12,8 +12,8 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 type Box = { left: number; top: number; right: number; bottom: number };
 type Measured = {
@@ -54,8 +54,8 @@ await requireBrowserLane("session-hover-card-surface.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "agent-pane.session-hover", { browser });
   });
   afterAll(async () => {
     await browser?.close();
@@ -68,7 +68,7 @@ await requireBrowserLane("session-hover-card-surface.test.ts", async () => {
     for (;;) {
       try {
         await page.goto(
-          `http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.session-hover&variant=reply&frame=component&width=560&colorScheme=${colorScheme}`,
+          `http://127.0.0.1:${port}${galleryFrame("agent-pane.session-hover", { variant: "reply", frame: "component", width: 560, colorScheme })}`,
         );
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
           timeout: 60_000,

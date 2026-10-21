@@ -16,8 +16,8 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { PNG } from "pngjs";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("markdown-table-obsidian.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -50,8 +50,11 @@ await requireBrowserLane("markdown-table-obsidian.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     for (const [name, type] of engines) browsers.set(name, await type.launch({ headless: true }));
+    await warmGalleryFrame(vite, "pages.markdown", {
+      browser: browsers.get("chromium") ?? browsers.get("webkit"),
+      params: { variant: "table-editing" },
+    });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
@@ -60,7 +63,7 @@ await requireBrowserLane("markdown-table-obsidian.test.ts", async () => {
 
   const url = () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
-    return `http://127.0.0.1:${port}/gallery/frame.html?entry=pages.markdown&variant=table-editing`;
+    return `http://127.0.0.1:${port}${galleryFrame("pages.markdown", { variant: "table-editing" })}`;
   };
 
   const load = async (page: Page) => {

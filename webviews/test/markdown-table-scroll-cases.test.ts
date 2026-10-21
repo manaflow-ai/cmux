@@ -17,8 +17,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("markdown-table-scroll-cases.test.ts", async () => {
   setDefaultTimeout(60_000);
@@ -54,14 +54,13 @@ await requireBrowserLane("markdown-table-scroll-cases.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
+    for (const [, type] of engines) browsers.push(await type.launch({ headless: true }));
+    await warmGalleryFrame(vite, "pages.markdown", { browser: browsers[0], params: { variant: "table-scroll" } });
     const port = (vite.httpServer!.address() as { port: number }).port;
-    for (const [name, type] of engines) {
-      const browser = await type.launch({ headless: true });
-      browsers.push(browser);
-      const page = await browser.newPage({ viewport: { width: 640, height: 520 } });
+    for (const [index, [name]] of engines.entries()) {
+      const page = await browsers[index]!.newPage({ viewport: { width: 640, height: 520 } });
       for (let attempt = 1; ; attempt++) {
-        await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=pages.markdown&variant=table-scroll`);
+        await page.goto(`http://127.0.0.1:${port}${galleryFrame("pages.markdown", { variant: "table-scroll" })}`);
         try {
           // A cold Vite optimizer takes up to a minute on a busy box; a warm cache, a second or two.
           await page.waitForFunction(() => document.querySelectorAll(".md-prose .tableWrapper").length === 5, null, {
