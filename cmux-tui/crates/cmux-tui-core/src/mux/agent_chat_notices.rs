@@ -157,6 +157,12 @@ impl Mux {
 /// when the watch cannot be armed does it fall back to spaced retries.
 fn watch(mux: &Weak<Mux>, socket: &Path) {
     let mut chats = HashMap::new();
+    // A relative path has no directory to watch: the watch would arm and
+    // never hint again.
+    if !socket.is_absolute() {
+        watch_by_retrying(mux, socket, &mut chats);
+        return;
+    }
     let (hint, hints) = mpsc::channel::<()>();
     let watcher = cmux_config::watch::Watcher::start(vec![socket.to_path_buf()], move || {
         let _ = hint.send(());
@@ -171,19 +177,22 @@ fn watch(mux: &Weak<Mux>, socket: &Path) {
             return;
         }
     };
-    // The first hint comes when the watch is armed.
+    // The first hint comes when the watch is armed. A hint can also be an
+    // unrelated change in the nearest existing ancestor of a missing socket
+    // directory (macOS watches that ancestor's entries): with no socket there
+    // is nothing to connect to, and its creation hints again.
     while hints.recv().is_ok() {
         // Hints that queued meanwhile are one change.
         while hints.try_recv().is_ok() {}
-        if !follow_while_listening(mux, socket, &mut chats) {
+        if socket.symlink_metadata().is_ok() && !follow_while_listening(mux, socket, &mut chats) {
             return;
         }
     }
 }
 
 /// Follows acpmux for as long as it listens. Returns once
-/// [`CONNECTS_PER_HINT`] connects in a row failed; false when the daemon is
-/// gone.
+/// [`CONNECTS_PER_HINT`] connects in a row failed or the socket is gone
+/// (acpmux removes it when it stops); false when the daemon is gone.
 fn follow_while_listening(
     mux: &Weak<Mux>,
     socket: &Path,
@@ -194,6 +203,9 @@ fn follow_while_listening(
     loop {
         if !daemon_runs(mux) {
             return false;
+        }
+        if socket.symlink_metadata().is_err() {
+            return true;
         }
         if connect_and_follow(mux, socket, chats) {
             failures = 0;

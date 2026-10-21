@@ -443,15 +443,18 @@ fn cmux_next_idle_verdict_ignores_a_one_off_burst_but_not_a_periodic_wake() {
 #[test]
 fn cmux_next_daemon_idle_has_no_periodic_wakeups() {
     let daemon = Daemon::start("daemon");
+    // acpmux's folder is there from an earlier run; only its socket is not.
+    fs::create_dir_all(daemon.acpmux.parent().unwrap()).unwrap();
     assert_idle(&daemon, || {});
     // The daemon waited for acpmux without retrying on a timer; it still
     // reaches acpmux as soon as acpmux binds its socket.
     assert_follows_acpmux_when_it_appears(&daemon);
 }
 
-/// Binds the daemon's acpmux socket the way acpmux does and expects the
-/// daemon's agent chat watch to connect and start its watch at once, not
-/// at a later retry (those were up to 10 s apart).
+/// Binds the daemon's acpmux socket the way acpmux does (creating its folder
+/// first when it is missing) and expects the daemon's agent chat watch to
+/// connect and start its watch at once, not at a later retry (those were up
+/// to 10 s apart).
 fn assert_follows_acpmux_when_it_appears(daemon: &Daemon) {
     let directory = daemon.acpmux.parent().unwrap();
     fs::create_dir_all(directory).unwrap();
@@ -515,6 +518,9 @@ fn cmux_next_daemon_idle_ignores_writes_below_a_missing_settings_folder() {
         }
     });
     assert!(!daemon.dir.join("config").exists(), "the daemon created the settings folder");
+    // acpmux has never run here: its folder appears with its socket.
+    assert!(!daemon.acpmux.parent().unwrap().exists());
+    assert_follows_acpmux_when_it_appears(&daemon);
 }
 
 /// Starts a terminal, keeps the app's streams open, settles, then runs
