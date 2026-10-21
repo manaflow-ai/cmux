@@ -49,7 +49,7 @@ enum NotificationHandlers {
             guard !tabs.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.noUnread) }
             try acknowledge(tabs.map(\.tab.surface), context)
         })
-        // Toggle Tab Unread: reads an unread tab, else marks it unread (any tab, no notification needed).
+        // Mark Tab Read/Unread: reads an unread tab, else marks it unread (any tab, no notification needed).
         registry.bind("toggleUnread", run: { invocation in
             guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id) else {
                 throw ActionFailure(message: MiscHandlerStrings.noPane)

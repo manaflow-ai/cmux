@@ -158,7 +158,8 @@ jobs:
   # `--all-targets` lint of cmux-tui, and the fast tier's cargo entries only run tests.
   # So #23163 and #23372 landed clippy reds in cmux-tui/crates/cmux-tui/tests/ and broke
   # base clippy for everyone. This lints, with -D warnings and --all-targets, each
-  # cmux-tui workspace package the change touches (the whole workspace when the
+  # cmux-tui workspace package the change touches and each member depending on one
+  # (the whole workspace when the
   # workspace manifest, lockfile, clippy config or toolchain pin changes). Blocking:
   # clippy is not a style guard (cmux-tui.yml's note). A dispatch with `commit` replays
   # a past head with this run's script, to prove the check catches what it missed.
