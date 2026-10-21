@@ -94,9 +94,9 @@
 }
 /* A number hangs left of its item, and WebKit puts about 1.2em between it and the text. The
    editor scrolls and clips at its own edge, so this padding is all the room a number has: 22px
-   cut the left of "1." (Austin 2026-10-20). 2.75em holds "10.". */
+   cut the left of "1." (Austin 2026-10-20). 3em holds "10." in any font. */
 .acpmux-md ol {
-  padding-left: 2.75em;
+  padding-left: 3em;
 }
 .acpmux-md li > p {
   margin: 0;
@@ -202,7 +202,7 @@
 }
 /* A selected numbered item: around its number, inside the editor's edge. */
 .acpmux-md ol > li.ProseMirror-selectednode::after {
-  left: calc(2px - 2.75em);
+  left: calc(2px - 3em);
 }
 .acpmux-md img.ProseMirror-separator {
   display: inline !important;
