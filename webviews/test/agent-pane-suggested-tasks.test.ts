@@ -376,8 +376,6 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
         };
       });
       expect(fits).toEqual({ overflow: 0, chevronInside: true, inPane: true, height: 28 });
-      // The title may be cut; the row's tooltip carries it whole.
-      expect(await row.locator(".acpmux-task-row").getAttribute("title")).toBe(accepted.title);
 
       // The chat's turn ends: its attach ends, and the row says it is done.
       socket!.send(

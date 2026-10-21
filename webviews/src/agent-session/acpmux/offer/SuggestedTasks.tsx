@@ -247,7 +247,6 @@ function StartedTask({
         <button
           type="button"
           className="acpmux-task-row"
-          title={offer.title}
           aria-label={t("subagents.open", { name: offer.title })}
           onClick={() => onOpen(child)}
         >
