@@ -180,24 +180,6 @@
             }
           },
           {
-            "key" : "settings.group.updates",
-            "rows" : [
-              "updates.channel",
-              "updates.checkAutomatically",
-              "updates.checkIntervalSeconds",
-              "updates.downloadAutomatically",
-              "updates.meteredNetwork",
-              "updates.installOnQuit",
-              "updates.notify",
-              "updates.keepPreviousVersions",
-              "updates.showWhatsNew"
-            ],
-            "title" : {
-              "key" : "settings.group.updates",
-              "text" : "Updates"
-            }
-          },
-          {
             "key" : "settings.group.announcements",
             "rows" : [
               "announcements.enabled"
@@ -231,6 +213,46 @@
         },
         "trail" : [
           "spaces"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.updates",
+            "rows" : [
+              "updates.channel",
+              "updates.checkAutomatically",
+              "updates.checkIntervalSeconds",
+              "updates.downloadAutomatically",
+              "updates.meteredNetwork",
+              "updates.installOnQuit",
+              "updates.notify",
+              "updates.keepPreviousVersions",
+              "updates.showWhatsNew"
+            ],
+            "title" : {
+              "key" : "settings.group.updates",
+              "text" : "Updates"
+            }
+          }
+        ],
+        "id" : "updates",
+        "lead" : [
+
+        ],
+        "symbol" : "icloud.and.arrow.down",
+        "title" : {
+          "key" : "settings.category.updates",
+          "text" : "Updates"
+        },
+        "trail" : [
+
         ]
       },
       {
