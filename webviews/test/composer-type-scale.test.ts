@@ -164,7 +164,9 @@ await requireBrowserLane("composer-type-scale.test.ts", async () => {
   // runner's 120 s file limit. So a few pages read variants at once, each variant still in its own
   // page, and each test awaits its own result.
   const PAGES = 4;
-  const states = Object.entries(ENTRIES).flatMap(([entry, variants]) => variants.map((variant) => ({ entry, variant })));
+  const states = Object.entries(ENTRIES).flatMap(([entry, variants]) =>
+    variants.map((variant) => ({ entry, variant })),
+  );
   const results = new Map<string, Promise<string[]>>();
   beforeAll(() => {
     let free = PAGES;
