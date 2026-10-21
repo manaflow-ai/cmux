@@ -59,8 +59,8 @@ final class SidebarPriorityRowView: NSView {
         chip.stringValue = Self.chipText(entry.state, now: Date())
         indicator.configure(Self.indicatorState(entry.state))
         pin.label = entry.pinned ? Strings.priorityUnpin : Strings.priorityPin
-        // A question is answered, not read: only a result or a failure can be marked read.
-        markRead.isEnabled = entry.needsAttention && entry.state != .needsYou
+        // A question is answered and red checks pass, not read: only a result or a failure can be marked read.
+        markRead.isEnabled = entry.needsAttention && entry.state != .needsYou && entry.state != .ciFailing
         setAccessibilityLabel([entry.title, chip.stringValue, entry.preview].compactMap(\.self).joined(separator: ", "))
         needsLayout = true
         needsDisplay = true
