@@ -246,6 +246,42 @@
 .cv-user__cancel:hover {
   color: var(--cv-text);
 }
+/* A sent prompt's way to the agent (PromptDelivery.tsx): a quiet clock or checks under its bubble,
+   and a failed prompt's actions and Details. */
+/* Beside the bubble's lower left, out of the layout: a mark appearing or changing never moves a row. */
+.cv-user__bubble {
+  position: relative;
+}
+.cv-user__delivery {
+  position: absolute;
+  right: calc(100% + 6px);
+  bottom: 2px;
+  margin: 0;
+  padding: 0;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  user-select: none;
+}
+.cv-user__status--failed {
+  flex-direction: column;
+  align-items: flex-end;
+}
+.cv-user__failure {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 8px;
+}
+.cv-user__delivery-details {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
 /* Cancel on the start status line, which then reads "Thinking" in the same place (cx-ncc.58). */
 .cv-thinking__cancel {
   margin-left: 6px;
@@ -885,6 +921,14 @@ pre.cv-math-source {
   top: 0;
   right: 0;
   opacity: 0;
+}
+/* A prompt's bubble sits at the right, at most 70% wide: its floating Copy (a selected range's,
+   or keyboard focus's) goes in the empty left corner, never over the bubble's text (layout pass,
+   2026-10-20). Only a row drawn as the bubble: another agent's message or a task's result is a
+   line from the left edge, whose Copy stays at the right. */
+.acpmux-row.acpmux-user:has(> .cv-user) .acpmux-row__copy {
+  right: auto;
+  left: 0;
 }
 /* Not on hover: a prompt has Copy under its bubble and an answer in its turn's footer, so a hover
    showed two or three Copy buttons per turn. Keyboard focus and a selected range still show it. */
@@ -1558,11 +1602,14 @@ pre.cv-math-source {
   min-width: 0;
   margin: 2px 0;
 }
+/* Clear of the row's Copy button (28 px at its top right, which takes the pointer even while
+   hidden), so a long sender name ends in an ellipsis before › instead of under it. */
 .cv-received__line {
   display: flex;
   align-items: center;
   min-width: 0;
   height: 26px;
+  padding-right: 28px;
   color: var(--cv-text-dim);
   font-size: var(--text-control);
   white-space: pre;
@@ -2564,6 +2611,10 @@ button.cv-received__name:focus-visible {
 .acpmux-scroll[data-fade-bottom] {
   --acpmux-fade-bottom: 18px;
 }
+/* Jump to latest (12px up, 32px tall) stands in the bottom band: the fade runs a gap past its top. */
+.acpmux-scroll[data-fade-bottom][data-jump-shown] {
+  --acpmux-fade-bottom: 56px;
+}
 /* Find in Chat's bar sits in the top band: it keeps full ink, and rows pass under it. */
 .acpmux-scroll[data-fade-top]:has(> .acpmux-find) {
   --acpmux-fade-top: 0px;
@@ -2940,6 +2991,40 @@ button.cv-received__name:focus-visible {
 }
 .cv-user__steer[data-steer="waiting"] .cv-user__steer-label {
   color: var(--agent-accent);
+}
+/* A steer the agent has not read yet (PendingSteer.tsx): a faint clock, then Send now. */
+.cv-user__pending {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+  padding-right: 4px;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--cv-text-muted);
+}
+.cv-user__pending-clock {
+  display: inline-flex;
+  color: var(--agent-accent);
+  opacity: 0.6;
+}
+.cv-user__send-now {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: default;
+}
+.cv-user__send-now:hover:not(:disabled) {
+  color: var(--cv-text);
+}
+.cv-user__send-now:disabled {
+  opacity: 0.5;
 }
 /* A steer's read state under another agent's message, in line with its text (App.tsx). */
 .cv-incoming > .cv-user__steer {
