@@ -41,7 +41,7 @@ enum TabLifecycle {
             ctx.registry.track(Task { @MainActor in
                 // Resolved after `open` began the terminal's own hold, so the keys wait for it.
                 defer { coordinator.resolve(keys, landed: false, in: window) }
-                let folder = await agent.workingContext()?.cwd.flatMap { WorkingURL.isDirectory($0) ? $0 : nil }
+                let folder = await agent.terminalFolder()
                 // The pane closed meanwhile: nothing to open beside.
                 guard ctx.services.paneController(for: focused) != nil else { return nil }
                 var invocation = invocation
