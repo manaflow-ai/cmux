@@ -514,27 +514,58 @@ export async function mintCmuxTuiInvitation(
   try { parsed = new URL(uri); } catch {
     throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned an invalid uri`);
   }
-  const invitationId = parsed.protocol === "cmux:" && parsed.hostname === "enroll"
-    ? parsed.pathname.slice(1)
-    : parsed.searchParams.get("id");
-  if (!invitationId) {
-    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned no id`);
+  if (parsed.protocol !== "cmux:" || parsed.hostname !== "enroll") {
+    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} has the wrong scheme`);
   }
-  return { uri, invitationId, expiresAtUnix: Math.floor(Date.now() / 1000) + 300 };
+  let invitation: Record<string, unknown>;
+  try {
+    invitation = parseJsonObject(Buffer.from(parsed.pathname.slice(1), "base64url").toString("utf8"));
+  } catch {
+    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} has an invalid payload`);
+  }
+  const invitationId = invitation.id;
+  const expiresAtUnix = invitation.expires_at_unix;
+  if (typeof invitationId !== "string" || !/^[A-Za-z0-9._:=+/-]{1,128}$/.test(invitationId)) {
+    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned no valid id`);
+  }
+  if (typeof expiresAtUnix !== "number" || !Number.isSafeInteger(expiresAtUnix) || expiresAtUnix <= 0) {
+    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned no expiration`);
+  }
+  return { uri, invitationId, expiresAtUnix };
 }
 
-/** Compatibility approval bridge for pre trusted-carrier clients. */
+/** One guest command that waits for the exact invitation claim before approval. */
+export function cmuxTuiApprovalCommand(invitationId: string, binary?: string): string {
+  if (!/^[A-Za-z0-9._:=+/-]{1,128}$/.test(invitationId)) {
+    throw new ProviderError("freestyle", "invitation id has an unexpected shape");
+  }
+  const bin = binary ? shellQuote(binary) : '"$CMUX_TUI_BIN"';
+  const run = (args: string) => cmuxTuiAsDaemonUser(`${bin} ${args}`);
+  const pending = run(`remote enroll pending --session ${CMUX_TUI_SESSION} --json`);
+  const approve = run(
+    `remote enroll approve ${shellQuote(invitationId)} --session ${CMUX_TUI_SESSION} --json`,
+  );
+  const exactPending =
+    `python3 -c 'import json,sys; wanted=sys.argv[1]; rows=json.load(sys.stdin); ` +
+    `sys.exit(0 if any(isinstance(r,dict) and r.get("invitation_id")==wanted for r in rows) else 1)' ${shellQuote(invitationId)}`;
+  return (
+    `${cmuxTuiLayoutSelector()} && ` +
+    `for cmux_approval_attempt in $(seq 1 120); do ` +
+    `if { ${pending}; } | ${exactPending}; then ${approve}; exit $?; fi; ` +
+    `sleep 0.25; done; ` +
+    `echo 'enrollment claim did not become pending' >&2; exit 75`
+  );
+}
+
+/** Approval bridge for a client claiming a short-lived Cloud invitation. */
 export async function approveCmuxTuiEnrollment(
   invoke: CmuxTuiInvoke,
   provider: ProviderId,
   vmId: string,
   invitationId: string,
 ): Promise<{ approved: boolean; state: "approved" | "pending"; deviceFingerprint?: string }> {
-  if (!/^[A-Za-z0-9._:=+/-]+$/.test(invitationId)) {
-    throw new ProviderError(provider, "invitation id has an unexpected shape");
-  }
   const result = await invoke(
-    `remote enroll approve ${shellQuote(invitationId)} --session ${CMUX_TUI_SESSION} --json`,
+    cmuxTuiApprovalCommand(invitationId),
     40_000,
   );
   if (result.exitCode !== 0) {

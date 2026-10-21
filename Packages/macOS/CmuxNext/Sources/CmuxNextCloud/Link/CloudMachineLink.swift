@@ -68,6 +68,8 @@ public actor CloudMachineLink {
         child?.terminate()
         child = nil
         socket = nil
+        try paths.prepare()
+        let deviceFingerprint = paths.loadLinkDeviceFingerprint(machineID: machineID)
         clearRedial()
     }
 
@@ -101,11 +103,10 @@ public actor CloudMachineLink {
         socket = nil
         // Lifecycle transitions can run during every await. A stale start
         // must never publish a socket or replace a newer link.
-        let endpoint = try await api.attachEndpoint(machineID)
+        let endpoint = try await api.attachEndpoint(machineID, deviceFingerprint: deviceFingerprint)
         try checkGeneration(generation)
         let hubSocket = try await hub.socketPath()
         try checkGeneration(generation)
-        try paths.prepare()
         unlink(paths.linkSocket(machineID: machineID))
         let inviteFile = endpoint.invitation.map { _ in
             paths.linkState.appendingPathComponent("invite-\(UUID().uuidString.lowercased())")
@@ -150,6 +151,9 @@ public actor CloudMachineLink {
                     socketTask.cancel()
                     throw CloudAPIError.decoding("/api/vm/\(machineID)/cmux-remote/approve")
                 }
+                if let fingerprint = approval.deviceFingerprint, !fingerprint.isEmpty {
+                    try paths.writeSecret(fingerprint + "\n", to: paths.linkDeviceFingerprint(machineID: machineID))
+                }
             }
             let path = try await socketTask.value
             try checkGeneration(generation)
@@ -160,6 +164,11 @@ public actor CloudMachineLink {
             logger.info("link up for \(self.machineID, privacy: .public) pid \(child.pid ?? 0)")
             return path
         } catch {
+            if endpoint.invitation == nil, !endpoint.trustedCarrier, deviceFingerprint != nil {
+                // The local hint may name an enrollment revoked or absent on
+                // this machine. The next retry mints a fresh invitation.
+                paths.clearLinkDeviceFingerprint(machineID: machineID)
+            }
             child.terminate()
             if self.child === child { self.child = nil }
             logger.error("link for \(self.machineID, privacy: .public) failed: \(String(describing: error), privacy: .public)")

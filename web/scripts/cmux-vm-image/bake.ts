@@ -465,6 +465,7 @@ async function installHostConfig(ctx: Ctx): Promise<void> {
   await L.step(vm, "host-dirs", "install -d -m 0700 /var/lib/cmux && install -d -m 0755 /etc/cmux");
   const hostConfigBody = hostConfig();
   const hostCarrier = (JSON.parse(hostConfigBody) as { remoteWs: { carrier: string } }).remoteWs.carrier;
+  ctx.result.cmuxRemoteAuth = hostCarrier === "freestyle-edge-grant" ? "client-grant" : "trusted-carrier";
   await writeGuestFile(vm, HOST_CONFIG_PATH, hostConfigBody, 0o644);
   ctx.result.hostConfig = (await L.step(vm, "host-config", [
     `chown root:root ${HOST_CONFIG_PATH}`,
