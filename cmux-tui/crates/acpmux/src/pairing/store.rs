@@ -160,7 +160,7 @@ fn hash(secret: &str) -> String {
 /// peer list find a machine, so they stay unique.
 fn name_taken(name: &str) -> RpcError {
     RpcError::invalid_params(format!(
-        "a machine named {name:?} is already paired here; pass another --name, or revoke it first"
+        "a machine named {name:?} is already paired here; choose another name, or revoke it first (`cmux host ticket revoke {name}`)"
     ))
     .with_data(json!({"reason": "name_taken"}))
 }

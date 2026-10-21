@@ -237,7 +237,10 @@ pub(crate) async fn join(client: Arc<Client>, args: JoinArgs, json_out: bool) ->
         failed => {
             let e = match failed {
                 Ok(Err(e)) => e,
-                _ => anyhow!("the other machine did not answer within 30 s ({})", ticket.url),
+                _ => anyhow!(
+                    "the other machine did not answer within 30 s ({}). If it paired anyway, run `cmux host ticket revoke {name}` there before joining again",
+                    ticket.url
+                ),
             };
             if let Some(id) = issued_here {
                 let _ = client.request(method::MUX_PAIR_REVOKE, json!({"id": id})).await;
