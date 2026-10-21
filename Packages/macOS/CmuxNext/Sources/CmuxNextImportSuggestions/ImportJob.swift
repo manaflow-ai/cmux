@@ -59,6 +59,8 @@ public nonisolated struct ImportJob: Codable, Sendable, Equatable, Identifiable 
     /// The current step's progress, 0...1.
     public var stepFraction: Double = 0
     public var counts = ImportCounts()
+    /// The workspaces a cmux Classic import opened (nil for other sources, and until it is done).
+    public var opened: Int?
     public var startedAt: Date
     public var updatedAt: Date
 
@@ -108,6 +110,12 @@ public nonisolated struct ImportJob: Codable, Sendable, Equatable, Identifiable 
         stepFraction = 0
         updatedAt = now
         if nextStep == nil { phase = .done; pause = nil }
+    }
+
+    /// A cmux Classic import ended, having opened `workspaces` (0 when everything was here already).
+    public mutating func importedClassic(_ workspaces: Int, now: Date) {
+        opened = workspaces
+        finishedStep(0, counts: ImportCounts(), now: now)
     }
 
     public mutating func paused(_ reason: Pause, now: Date) {

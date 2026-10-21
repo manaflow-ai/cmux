@@ -62,15 +62,9 @@ enum OnboardingHandlers {
             let window = NSApp.keyWindow ?? NSApp.mainWindow
             registry.track(Task { @MainActor in
                 do {
-                    let importer = AppOnboardingServices(owner: services.onboarding)
-                    guard let summary = try await importer.importClassicSessions() else { return nil }
-                    let notice = ClassicImportStrings.notice(summary)
-                    services.onboarding.classicImportNotice = notice
-                    ClassicImportStrings.toast(notice, in: window)
+                    _ = try await importClassic(services, in: window)
                     return nil
                 } catch {
-                    services.onboarding.classicImportNotice = ClassicImportStrings.failed
-                    ClassicImportStrings.toast(ClassicImportStrings.failed, in: window)
                     return ActionWorkFailure("import-classic: \(error)")
                 }
             })
@@ -107,7 +101,27 @@ enum OnboardingHandlers {
             runImport: { plan, keys, progress in try await AppOnboardingServices(owner: services.onboarding).runImport(plan, keys: keys, progress: progress) },
             importedProfiles: { Set(await services.onboarding.importStore.sources().map(\.sourceKey)) },
             openSettings: { route in try? services.settingsWindow.show(section: nil, route: route) },
-            importClassic: { _ in nil })
+            importClassic: { progress in try await importClassic(services, in: nil, progress: progress)?.opened })
+    }
+
+    /// Import Workspaces from Classic cmux as every entrypoint runs it (the action, the cmux
+    /// Classic card): the import with its preview, then its toast in `window` (the key window
+    /// when nil). Returns what it did, nil when the person declined the preview.
+    static func importClassic(_ services: AppServices, in window: NSWindow?,
+                              progress: (@MainActor (Double) -> Void)? = nil) async throws -> ClassicImportSummary? {
+        do {
+            guard let summary = try await AppOnboardingServices(owner: services.onboarding).importClassicSessions(progress: progress) else {
+                return nil
+            }
+            let notice = ClassicImportStrings.notice(summary)
+            services.onboarding.classicImportNotice = notice
+            ClassicImportStrings.toast(notice, in: window)
+            return summary
+        } catch {
+            services.onboarding.classicImportNotice = ClassicImportStrings.failed
+            ClassicImportStrings.toast(ClassicImportStrings.failed, in: window)
+            throw error
+        }
     }
 }
 

@@ -70,13 +70,15 @@ extension AppOnboardingServices {
         }
     }
 
-    /// One migration run. Runs never overlap: a second one waits for the first.
+    /// One migration run. Runs never overlap: a second one waits for the first. `progress`
+    /// hears the share of the plan's classic workspaces handled (opened or left), 0...1.
     func migrateClassic(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String? = nil,
-                        confirmation: @escaping @MainActor (ClassicImportPlan) async -> Bool) async throws -> ClassicMigrationOutcome {
+                        confirmation: @escaping @MainActor (ClassicImportPlan) async -> Bool,
+                        progress: (@MainActor (Double) -> Void)? = nil) async throws -> ClassicMigrationOutcome {
         let previous = owner.classicMigrationRun
         let run = Task { @MainActor in
             _ = await previous?.result
-            return try await runClassicMigration(mode, firstWorkspace: firstWorkspace, confirmation: confirmation)
+            return try await runClassicMigration(mode, firstWorkspace: firstWorkspace, confirmation: confirmation, progress: progress)
         }
         owner.classicMigrationRun = run
         return try await run.value
@@ -89,7 +91,8 @@ extension AppOnboardingServices {
     }
 
     private func runClassicMigration(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String?,
-                                     confirmation: @escaping @MainActor (ClassicImportPlan) async -> Bool) async throws -> ClassicMigrationOutcome {
+                                     confirmation: @escaping @MainActor (ClassicImportPlan) async -> Bool,
+                                     progress: (@MainActor (Double) -> Void)?) async throws -> ClassicMigrationOutcome {
         let repository = ClassicMigrationRepository(directory: classicMigrationDirectory)
         let load = await repository.load()
         let planner = ClassicMigrationPlanner()
@@ -187,7 +190,7 @@ extension AppOnboardingServices {
         }
         let hosts = connecting
         let run = ClassicMigrationRunState(
-            ledger: ledger, outcome: outcome, mode: mode, plan: plan, groups: groups, hosts: hosts, repository: repository,
+            ledger: ledger, outcome: outcome, mode: mode, plan: plan, groups: groups, hosts: hosts, repository: repository, progress: progress,
             targets: plan.windows.indices.map { $0 == 0 ? windows.targetWindow(preferring: firstWindow) : UUID().uuidString.lowercased() })
 
         // One window after another: creating windows side by side was five
@@ -248,6 +251,7 @@ extension AppOnboardingServices {
 
     /// Makes one classic workspace, recording it in the ledger before, while and after.
     fileprivate func makeClassicWorkspace(_ saved: ClassicSessionWorkspace, window index: Int, run: ClassicMigrationRunState) async throws {
+        defer { run.handled() }
         let window = run.plan.windows[index]
         let frame = index == 0 ? nil : window.frame.flatMap(Self.onScreen)
         let repository = run.repository
@@ -461,52 +465,6 @@ extension AppOnboardingServices {
         formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
         return formatter.string(from: Date()) + "-" + UUID().uuidString.prefix(4).lowercased()
     }
-}
-
-/// A classic workspace and the index of the classic window it belongs to.
-fileprivate struct ClassicWorkspaceTurn: Sendable {
-    var index: Int
-    var saved: ClassicSessionWorkspace
-}
-
-/// One run's state, which each workspace it makes writes.
-@MainActor
-fileprivate final class ClassicMigrationRunState {
-    var ledger: ClassicMigrationLedger
-    var outcome: ClassicMigrationOutcome
-    /// Who started the run (only the launch's run parks background workspaces).
-    let mode: ClassicMigrationPlanner.Mode
-    let plan: ClassicMigrationPlan
-    /// cmux-next group ids by classic group id.
-    let groups: [String: WorkspaceGroupID]
-    /// The daemon of each SSH destination, connecting since the run's start.
-    let hosts: [String: DaemonService]
-    let repository: ClassicMigrationRepository
-    /// The window each classic window's workspaces go to, by index.
-    let targets: [String]
-    var unreachable = Set<String>()
-    var lastError: (any Error)?
-    var reveal: String?
-    var openedInFirstWindow = false
-
-    init(ledger: ClassicMigrationLedger, outcome: ClassicMigrationOutcome, mode: ClassicMigrationPlanner.Mode, plan: ClassicMigrationPlan,
-         groups: [String: WorkspaceGroupID], hosts: [String: DaemonService], repository: ClassicMigrationRepository, targets: [String]) {
-        self.ledger = ledger
-        self.outcome = outcome
-        self.mode = mode
-        self.plan = plan
-        self.groups = groups
-        self.hosts = hosts
-        self.repository = repository
-        self.targets = targets
-    }
-}
-
-/// Classic's session as read, the save it came from, and the files to back up.
-private struct ClassicSnapshotRead {
-    var snapshot: ClassicSessionSnapshot
-    var source: ClassicMigrationSource
-    var backups: [URL]
 }
 
 private enum ClassicMigrationFailure: Error {
