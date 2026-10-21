@@ -212,8 +212,8 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
   /// The chat's oldest record is in this page, so the page it is served to holds history back to
   /// the first turn. Only the history reads count: the pane's by-kind probes can carry the oldest
   /// record too (`fetchTurnOpener` asks for `user_message`) without the transcript holding it.
-  const serve = <T extends { events: Rec[] }>(page: T, history: boolean): T => {
-    if (history && page.events.some((event) => event.seq === 1)) servedOldest = true;
+  const serve = <T extends { events: Rec[] }>(page: T, isHistory: boolean): T => {
+    if (isHistory && page.events.some((event) => event.seq === 1)) servedOldest = true;
     return page;
   };
   const answer = (method: string, params: Record<string, any>): unknown => {
@@ -236,13 +236,13 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
         // Only the history reads: the pane's own probes before its page (the chat's slash commands,
         // `fetchCommands`; the open turn's opener, `fetchTurnOpener`, which asks by kind) carry a
         // `beforeSeq` too and are not the transcript's history.
-        const history = kinds?.includes("transcript") === true;
-        if (params.beforeSeq !== undefined && history) olderReads += 1;
+        const isHistory = kinds?.includes("transcript") === true;
+        if (params.beforeSeq !== undefined && isHistory) olderReads += 1;
         // `transcript` is every record of these chats: each `mux` kind here is in acpmux's
         // TRANSCRIPT_MUX_KINDS, and each `in` record carries a `session/update` method, which is
         // what `is_transcript` asks of one (paging.rs). So the filter has nothing to drop.
-        const wanted = history ? all : all.filter((record) => (kinds ? kinds.includes(record.kind) : true));
-        const page = serve(newestPage(wanted, before, Number(params.limit ?? 400), bytes(params)), history);
+        const wanted = isHistory ? all : all.filter((record) => (kinds ? kinds.includes(record.kind) : true));
+        const page = serve(newestPage(wanted, before, Number(params.limit ?? 400), bytes(params)), isHistory);
         return { events: page.events, hasMore: page.hasMore, lastSeq: all.length };
       }
       default:
@@ -320,21 +320,27 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
     void daemon?.stop(true);
   });
 
-  /// How far the open has got: the rows the transcript holds and how much it can scroll.
+  /// How far the open has got: the rows the transcript holds, how much it can scroll, and the
+  /// height the loader's own threshold is measured in.
   const progress = () => {
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
-    if (!scroller) return { rows: 0, scrollable: 0 };
+    if (!scroller) return { rows: 0, scrollable: 0, view: 0 };
     return {
       rows: scroller.querySelectorAll(".acpmux-row").length,
       scrollable: scroller.scrollHeight - scroller.clientHeight,
+      view: scroller.clientHeight,
     };
   };
 
   /// Waits until nothing the open is still doing can change what is measured below, by what has
-  /// happened and not by how long ago: the chat has drawn a row, and either acpmux has served its
-  /// oldest record (nothing older is left to read) or the transcript already overflows its
-  /// viewport, which is where the older-history loader stops asking. Records that land above the
-  /// first row after that cannot move the last one off the composer.
+  /// happened and not by how long ago. Either of two things is enough:
+  ///
+  /// - acpmux has served the chat's oldest record, so nothing older is left to read; or
+  /// - the transcript holds two viewports of history, which is where the older-history loader
+  ///   stops asking (`node.scrollTop >= node.clientHeight * 2`, App.tsx). A view with that much
+  ///   below it has been placed at its latest row and is pinned there as each page lands
+  ///   (`didOpenAtLatest`, `settleFollowBottom`), so records arriving above the first row move the
+  ///   rows above the reader and not the last one off the composer.
   ///
   /// This is the gate the time-based one has to replace. The dock and the scroller mount on the
   /// App's first render, long before the attach reply, and the gap between a reply and the read it
@@ -342,12 +348,15 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
   /// so a chat held still for a few frames, or quiet for a moment, is just as likely to be a chat
   /// caught mid-load, whose numbers are the bug's own (no rows, a band, nothing to scroll).
   ///
-  /// False here means the open never read through. The test measures anyway, so the failure is the
-  /// band itself with Leo's numbers rather than a timeout.
+  /// False means the open never read through, which the test asserts and reports — but it measures
+  /// first, so the failure names the band with Leo's numbers and not just the wait. The bounds are
+  /// a deadline as well as a pass count, because one `evaluate` costs seconds on a throttled
+  /// renderer and 600 of those would outlive the file's own timeout.
   const readThrough = async (page: Page) => {
-    for (let pass = 0; pass < 600; pass += 1) {
+    const until = Date.now() + 25_000 + 20 * LATENCY_MS;
+    for (let pass = 0; pass < 600 && Date.now() < until; pass += 1) {
       const now = (await page.evaluate(`(${progress.toString()})()`)) as ReturnType<typeof progress>;
-      if (now.rows > 0 && (servedOldest || now.scrollable > 0)) return true;
+      if (now.rows > 0 && (servedOldest || now.scrollable > 2 * now.view)) return true;
       await Bun.sleep(25);
     }
     return false;
@@ -472,10 +481,13 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
       // here as well, so this bounds the overscroll; the band and the scroll below are what say
       // the history is there.
       expect(state.atBottom).toBeLessThan(2);
-      // Leo: "no older history, and he could not scroll up" — the chat scrolls, and scrolling up
-      // reaches its first turn.
+      // Leo: "no older history, and he could not scroll up". The chat scrolls at all — which the
+      // gate above already needs for the chats it lets through on their extent, so the turn
+      // reached below is the half that answers him.
       expect(state.scrollable).toBeGreaterThan(0);
       expect(reached.reachedFirstTurn).toBe(true);
+      // Named last so a chat that never read through fails on the band first, and on this after.
+      expect(through).toBe(true);
     });
   }
 });
