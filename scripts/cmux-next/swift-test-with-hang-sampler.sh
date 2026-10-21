@@ -27,7 +27,11 @@ set -uo pipefail
 limit="${CMUX_NEXT_TEST_HANG_SECONDS:-1200}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 started_at=$(date +%s)
-log="$(mktemp "${TMPDIR:-/tmp}/swift-test-log.XXXXXX")"
+# The job's own temp dir, not /tmp: a /tmp log vanished
+# mid-run on #21185's CI, and the report then named no unfinished tests.
+# No log, no run: an empty $log would turn the trap below into rm -f "" .*.
+log="$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/swift-test-log.XXXXXX")" \
+  || { echo "::error title=cmux-next swift test::cannot create the test log" >&2; exit 1; }
 trap 'rm -f "$log" "$log".*' EXIT
 exec 3> >(tee "$log")
 tee_pid=$!
