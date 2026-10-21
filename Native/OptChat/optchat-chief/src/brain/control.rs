@@ -493,7 +493,18 @@ impl Brain {
         }
         // A deny answers with the prompt's reject option (a cancel when it
         // has none).
-        let reject = crate::approval::option_for(&p.request, crate::approval::Answer::Deny);
+        // Never `reject_always`: a lasting rule would refuse a later allow
+        // of the person's.
+        let reject = p
+            .request
+            .get("options")
+            .and_then(Value::as_array)
+            .and_then(|o| {
+                o.iter()
+                    .find(|o| o.get("kind").and_then(Value::as_str) == Some("reject_once"))
+            })
+            .and_then(|o| o.get("optionId").and_then(Value::as_str))
+            .map(str::to_owned);
         let answer = if deny {
             reject.as_deref()
         } else {
@@ -513,6 +524,10 @@ impl Brain {
             Err(e) if deny => outcome(
                 "refused",
                 format!("{id}'s prompt was not denied ({e}); it may be answered already"),
+            ),
+            Err(e) if !e.contains("approve this on the Mac app") => outcome(
+                "refused",
+                format!("{id}'s prompt was not answered ({e}); it may be answered already"),
             ),
             Err(e) => {
                 // acpmux takes an allow only from the person's app (the
@@ -558,15 +573,17 @@ impl Brain {
                             request: p.request.clone(),
                             child: Some(id.to_owned()),
                         },
-                        "its deny was not delivered",
+                        super::approvals::NOT_DELIVERED,
                     );
                 }
-                self.tell_person_once(
-                    &p.id,
-                    &format!(
-                        "{id} asked to {what}; I denied it, because only the cmux app can approve and it has no Allow button for {id}."
-                    ),
-                );
+                if denied.is_ok() {
+                    self.tell_person_once(
+                        &p.id,
+                        &format!(
+                            "{id} asked to {what}; I denied it, because only the cmux app can approve and it has no Allow button for {id}."
+                        ),
+                    );
+                }
                 outcome(
                     "refused",
                     format!(
@@ -587,12 +604,12 @@ impl Brain {
     /// desk's voice, once per `permission` (a model that relays the same
     /// "allow" again posts nothing more).
     fn tell_person_once(&mut self, permission: &str, text: &str) {
-        if !self.approval_told.insert(permission.to_owned()) {
-            return;
-        }
         let Some(conversation) = self.state.conversation.clone() else {
             return;
         };
+        if !self.approval_told.insert(permission.to_owned()) {
+            return;
+        }
         let key = crate::voice::key(crate::voice::DESK, &format!("approval:{permission}"));
         self.state
             .outbox

@@ -715,6 +715,25 @@ fn a_prompt_the_app_shows_waits_for_the_person() {
 }
 
 #[test]
+fn a_prompt_whose_workspace_opens_after_it_asked_waits_for_the_person() {
+    // The tab opens after the subagent's first prompt was sent, so its
+    // first request can come before its workspace.
+    let mut h = harness(None, false, default_script());
+    const T0: u64 = 1_800_000_000_000;
+    h.brain.set_clock(Arc::new(|| T0));
+    subagent_asking(&mut h, false);
+    h.brain.step(Input::SubagentWorkspace {
+        id: "a1".into(),
+        key: "workspace:7".into(),
+        name: "deploy the docs".into(),
+    });
+    assert!(h.brain.unanswered_permissions().is_empty());
+    h.brain.deny_overdue_permissions_at(T0 + 3_600_000);
+    assert_eq!(answered(&h, "p1"), None);
+    assert!(pending_prompt(&h));
+}
+
+#[test]
 fn the_owners_turn_session_is_refused_at_once_what_nobody_can_answer() {
     // The app shows no button for a turn session (it lives on the Chief's
     // own acpmux daemon): a request the host left "to its harness" held the
@@ -781,7 +800,7 @@ fn a_chief_tool_denied_after_a_refused_allow_again_and_again_stops_the_turn() {
     let ops = format!("{:?}", h.owner.lock().unwrap().ops);
     assert!(
         ops.contains(
-            "I stopped: I kept trying to use send (optchat), and that needs an approval only the cmux app can give."
+            "I stopped: I kept trying to use send (optchat), and nobody can approve that here."
         ),
         "{ops}"
     );

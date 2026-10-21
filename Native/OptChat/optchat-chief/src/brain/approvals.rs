@@ -34,6 +34,9 @@ const REPEATS_BEFORE_STOP: u32 = 3;
 /// The trace's approver of a refusal.
 const REFUSED_BY: &str = "another person's turn";
 
+/// Why the host watches a request whose deny acpmux did not take.
+pub(super) const NOT_DELIVERED: &str = "its deny was not delivered";
+
 /// The trace's approver of a request nobody could answer.
 const NO_ANSWER: &str = "no approver";
 
@@ -52,7 +55,7 @@ impl DenyWhy {
     pub(super) fn reason(self) -> &'static str {
         match self {
             DenyWhy::OtherPerson => "a turn another person started may not do that",
-            DenyWhy::NoApprover => "that needs an approval only the cmux app can give",
+            DenyWhy::NoApprover => "nobody can approve that here",
         }
     }
 }
@@ -336,7 +339,7 @@ impl Brain {
             }
         ));
         if result.is_err() {
-            self.watch_unanswered(pending.clone(), "its deny was not delivered");
+            self.watch_unanswered(pending.clone(), NOT_DELIVERED);
         } else {
             self.forget_unanswered(&pending.session_id, &pending.permission_id);
         }
@@ -422,6 +425,17 @@ impl Brain {
         self.unanswered = keep;
         for u in due {
             let p = &u.pending;
+            // A subagent whose workspace opened after it asked: the person
+            // sees the prompt with a working Allow button now.
+            if u.why != NOT_DELIVERED
+                && let Some(id) = self.state.sub_by_session(&p.session_id)
+                && self
+                    .state
+                    .sub(&id)
+                    .is_some_and(|(_, s)| Self::approval_shown(s))
+            {
+                continue;
+            }
             let option = option_for(&p.request, Answer::Deny);
             let result =
                 self.agents
@@ -470,7 +484,8 @@ impl Brain {
                 sub.permission = None;
                 self.save();
             }
-            if p.child.is_none() && self.is_turn_session(&p.session_id) {
+            // A deny that was not delivered was counted when it was made.
+            if p.child.is_none() && u.why != NOT_DELIVERED && self.is_turn_session(&p.session_id) {
                 self.count_denial(
                     &p.tool,
                     p.request.pointer("/toolCall/rawInput"),

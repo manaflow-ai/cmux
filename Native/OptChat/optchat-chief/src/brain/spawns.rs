@@ -317,14 +317,21 @@ impl Brain {
     }
 
     pub(super) fn sub_workspace(&mut self, id: &str, key: String, name: String) {
+        let mut shown_session = None;
         let done = if let Some(sub) = self.state.sub_mut(id) {
             sub.workspace = Some(key);
             sub.title = name;
+            shown_session = sub.session_id.clone().filter(|_| sub.peer.is_none());
             matches!(sub.status, SubStatus::Done | SubStatus::Reported)
         } else {
             false
         };
         self.save();
+        // Its prompt shows in its tab now, with a working Allow button: it
+        // waits for the person, not for the watchdog.
+        if let Some(session) = shown_session {
+            self.forget_unanswered_of(&session);
+        }
         // It finished before its workspace was made.
         if done {
             self.mark_workspace(id, true);
