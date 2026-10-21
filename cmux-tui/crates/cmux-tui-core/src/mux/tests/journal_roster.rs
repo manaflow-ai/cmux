@@ -44,8 +44,9 @@ fn agent_roster_rederives_from_the_journal_head_without_its_snapshot() {
     };
 
     // Wipe the persisted reducer state so the reopen cannot lean on the
-    // snapshot: an identical roster proves it derives from the journal.
+    // snapshot: the roster it rebuilds proves it derives from the journal.
     let registry = WorkspaceRegistry::open(&root, session).unwrap();
+    let head = registry.session_journal_head().unwrap();
     registry
         .put_journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID, 0, 0, "")
         .unwrap();
@@ -58,7 +59,10 @@ fn agent_roster_rederives_from_the_journal_head_without_its_snapshot() {
     )
     .unwrap();
     let rederived = reopened.agent_roster.lock().unwrap().roster.entries.clone();
-    assert_eq!(rederived, live_entries);
+    // The journal replays the agent working; its terminal did not survive the restart, so the
+    // reopen ends that session (#22995) and the entry leaves the roster.
+    assert!(terminal_exit_end_journaled(&reopened, head, terminal_id.as_str()), "{live_entries:?}");
+    assert!(rederived.get(terminal_id.as_str()).is_none(), "{rederived:?}");
 
     // Folding the tail after an ended session removes the entry, and
     // that removal survives the next reopen through the snapshot.
@@ -449,6 +453,7 @@ fn invalid_agent_roster_snapshot_replays_from_the_journal_head() {
     };
 
     let registry = WorkspaceRegistry::open(&root, session).unwrap();
+    let head = registry.session_journal_head().unwrap();
     registry
         .put_journal_reducer_state(
             crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
@@ -468,17 +473,13 @@ fn invalid_agent_roster_snapshot_replays_from_the_journal_head() {
         true,
     )
     .unwrap();
-    let entry = reopened
-        .agent_roster
-        .lock()
-        .unwrap()
-        .roster
-        .entries
-        .get(terminal_id.as_str())
-        .cloned()
-        .expect("invalid snapshots must replay the retained journal");
-    assert_eq!(entry.state, "working");
-    assert_eq!(entry.source, "hook");
+    // Invalid snapshots replay the retained journal: the agent comes back working, and as its
+    // terminal did not survive the restart, the reopen ends that session (#22995).
+    assert!(
+        terminal_exit_end_journaled(&reopened, head, terminal_id.as_str()),
+        "invalid snapshots must replay the retained journal"
+    );
+    assert!(reopened.agent_roster.lock().unwrap().roster.entries.get(terminal_id.as_str()).is_none());
     reopened.shutdown();
     drop(reopened);
     std::fs::remove_dir_all(root).unwrap();
@@ -587,17 +588,13 @@ fn agent_roster_replays_when_persisted_cursor_is_ahead_of_journal() {
         true,
     )
     .unwrap();
-    let entry = reopened
-        .agent_roster
-        .lock()
-        .unwrap()
-        .roster
-        .entries
-        .get(terminal_id.as_str())
-        .cloned()
-        .expect("an ahead cursor must replay the retained journal");
-    assert_eq!(entry.state, "working");
-    assert_eq!(entry.source, "hook");
+    // An ahead cursor replays the retained journal: the agent comes back working, and as its
+    // terminal did not survive the restart, the reopen ends that session (#22995).
+    assert!(
+        terminal_exit_end_journaled(&reopened, journal_head, terminal_id.as_str()),
+        "an ahead cursor must replay the retained journal"
+    );
+    assert!(reopened.agent_roster.lock().unwrap().roster.entries.get(terminal_id.as_str()).is_none());
     let (live_head, cursor, snapshot) = {
         let registry = reopened.workspace_registry.lock().unwrap();
         let (_, cursor, snapshot) = registry
