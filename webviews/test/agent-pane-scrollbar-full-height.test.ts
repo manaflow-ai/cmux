@@ -533,15 +533,19 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     expect(Math.abs(heights.at(-1)! - before.cardHeight)).toBeLessThanOrEqual(1);
     // No painted frame moved the offset or changed the content's height or the scroller's, which
     // show, move and resize the scrollbar's thumb.
+    // The first frame and the card before typing are in the report, to read a failure by.
     const first = frames[0]!;
     const moved = (a: number, b: number) => Math.abs(a - b) > 0.5;
-    expect(
-      frames
+    const shape = ({ top, height, view, cardHeight }: Frame) => ({ top, height, view, cardHeight });
+    expect({
+      before: before.cardHeight,
+      first: shape(first),
+      moved: frames
         .filter(
           (frame) => moved(frame.top, first.top) || moved(frame.height, first.height) || moved(frame.view, first.view),
         )
-        .map(({ top, height, view, cardHeight }) => ({ top, height, view, cardHeight })),
-    ).toEqual([]);
+        .map(shape),
+    }).toEqual({ before: before.cardHeight, first: shape(first), moved: [] });
     // The last row never went under the card, the view stayed at its end, and the row held the spot
     // above the card it rested at before the first line.
     expect(frames.filter((frame) => frame.rowAboveCard < -1 || frame.fromEnd > 1)).toEqual([]);
