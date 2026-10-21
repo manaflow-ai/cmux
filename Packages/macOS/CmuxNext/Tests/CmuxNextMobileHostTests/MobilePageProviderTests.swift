@@ -100,7 +100,7 @@ import Testing
     /// Settings > Mobile is the one phone list: each row names its app, and Remove on a cmux next
     /// row forgets it in the shared store, which closes its Iroh sessions (PhoneAdmissionTests).
     @Test func eachPhoneRowNamesItsAppAndRemoveForgetsAnIrohPhone() async throws {
-        final class Removed: @unchecked Sendable { var ids: [String] = [] }
+        nonisolated final class Removed: @unchecked Sendable { var ids: [String] = [] }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let host = IPhoneHostService()
