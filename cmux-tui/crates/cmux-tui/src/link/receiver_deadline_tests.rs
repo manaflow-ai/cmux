@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 #[tokio::test]
 async fn receiver_elapsed_deadline_wakes_without_an_active_clock_timer() {
     let budget = Elapsed::system().unwrap().deadline_at(Duration::from_millis(500)).unwrap();
+    #[cfg(target_os = "linux")]
     assert!(budget.boottime().is_some());
     let retained = budget.clone();
     let (started, observed) = tokio::sync::oneshot::channel();

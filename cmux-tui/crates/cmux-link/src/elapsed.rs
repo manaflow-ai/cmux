@@ -5,6 +5,14 @@ use std::time::Duration;
 
 type Source = dyn Fn() -> Option<Duration> + Send + Sync;
 
+/// The kernel clock captured by `Elapsed::system`. Injected observations never
+/// acquire a kernel identity, even if their numbers resemble a system clock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KernelClock {
+    Boottime,
+    MachContinuous,
+}
+
 struct State {
     last: Duration,
     valid: bool,
@@ -17,7 +25,7 @@ pub struct Elapsed {
     source: Arc<Source>,
     started: Duration,
     state: Arc<Mutex<State>>,
-    system_boottime: bool,
+    kernel_clock: Option<KernelClock>,
 }
 
 /// An expiry on a captured elapsed clock. Renewals replace the expiry while
@@ -38,6 +46,10 @@ impl PartialEq for Deadline {
 impl Eq for Deadline {}
 
 impl Deadline {
+    pub fn kernel_clock(&self) -> Option<KernelClock> {
+        self.source.kernel_clock
+    }
+
     pub fn remaining(&self) -> Option<Duration> {
         self.at.checked_sub(self.source.elapsed()?).filter(|left| !left.is_zero())
     }
@@ -45,7 +57,7 @@ impl Deadline {
     /// Only a Linux system-clock observation can arm a BOOTTIME descriptor.
     /// An injected clock or another platform never supplies an OS clock value.
     pub fn boottime(&self) -> Option<Duration> {
-        if !self.source.system_boottime {
+        if self.kernel_clock() != Some(KernelClock::Boottime) {
             return None;
         }
         self.remaining()?;
@@ -79,7 +91,13 @@ impl Deadline {
 impl Elapsed {
     pub fn system() -> Option<Self> {
         let mut source = Self::capture(system_time)?;
-        source.system_boottime = cfg!(target_os = "linux");
+        source.kernel_clock = if cfg!(target_os = "linux") {
+            Some(KernelClock::Boottime)
+        } else if cfg!(target_vendor = "apple") {
+            Some(KernelClock::MachContinuous)
+        } else {
+            None
+        };
         Some(source)
     }
 
@@ -91,7 +109,7 @@ impl Elapsed {
             source: Arc::new(source),
             started,
             state: Arc::new(Mutex::new(State { last: started, valid: true })),
-            system_boottime: false,
+            kernel_clock: None,
         })
     }
 
@@ -105,7 +123,7 @@ impl Elapsed {
             source: self.source.clone(),
             started: self.sample()?,
             state: self.state.clone(),
-            system_boottime: self.system_boottime,
+            kernel_clock: self.kernel_clock,
         })
     }
 
@@ -116,7 +134,7 @@ impl Elapsed {
             source: self.source.clone(),
             started: self.started.checked_sub(debit)?,
             state: self.state.clone(),
-            system_boottime: self.system_boottime,
+            kernel_clock: self.kernel_clock,
         })
     }
 

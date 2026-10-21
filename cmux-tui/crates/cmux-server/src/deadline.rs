@@ -27,8 +27,13 @@ pub async fn expired(active: Instant, elapsed: Option<Deadline>) {
         kernel_expired(budget, at).await;
         return;
     }
+    #[cfg(target_vendor = "apple")]
+    if budget.kernel_clock() == Some(cmux_link::elapsed::KernelClock::MachContinuous) {
+        darwin::expired(budget).await;
+        return;
+    }
     // Injected clocks have no kernel clock id. Their model still rechecks the
-    // same budget on each poll. Native Linux system observations use timerfd.
+    // same budget on each poll. System observations use their kernel timer.
     let timer = tokio::time::sleep_until(tokio::time::Instant::from_std(active));
     tokio::pin!(timer);
     poll_fn(|cx| {
@@ -55,6 +60,15 @@ async fn kernel_expired(budget: Deadline, at: std::time::Duration) {
         Ok(descriptor) => descriptor,
         Err(_) => return,
     };
+    descriptor_expired(budget, descriptor, |timer| timer.read_expirations().map(drop)).await;
+}
+
+#[cfg(any(target_os = "linux", target_vendor = "apple"))]
+async fn descriptor_expired<T: std::os::fd::AsRawFd>(
+    budget: Deadline,
+    descriptor: tokio::io::unix::AsyncFd<T>,
+    consume: impl Fn(&T) -> std::io::Result<()>,
+) {
     poll_fn(|cx| {
         loop {
             if budget.remaining().is_none() {
@@ -63,12 +77,10 @@ async fn kernel_expired(budget: Deadline, at: std::time::Duration) {
             match descriptor.poll_read_ready(cx) {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Err(_)) => return Poll::Ready(()),
-                Poll::Ready(Ok(mut ready)) => {
-                    match ready.try_io(|fd| fd.get_ref().read_expirations()) {
-                        Ok(_) => return Poll::Ready(()),
-                        Err(_) => continue,
-                    }
-                }
+                Poll::Ready(Ok(mut ready)) => match ready.try_io(|fd| consume(fd.get_ref())) {
+                    Ok(_) => return Poll::Ready(()),
+                    Err(_) => continue,
+                },
             }
         }
     })
@@ -87,3 +99,6 @@ pub enum ArmError {
 
 #[cfg(target_os = "linux")]
 pub mod fd;
+
+#[cfg(target_vendor = "apple")]
+mod darwin;
