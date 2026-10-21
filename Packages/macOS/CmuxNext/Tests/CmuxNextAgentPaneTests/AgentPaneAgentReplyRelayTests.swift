@@ -72,6 +72,23 @@ struct AgentPaneAgentReplyRelayTests {
                                                      text: "Merged; thanks.", idempotencyKey: "acpmux-reply-k1")])
     }
 
+    /// The host takes the text and name acpmux and the daemon take: their rule bars only Unicode
+    /// control characters (category Cc) but newlines and tabs, so an emoji with a zero-width
+    /// joiner or a soft hyphen (format characters, Cf) goes out, and a carriage return does not.
+    @Test func aReplyTakesWhatAcpmuxAndTheDaemonTake() {
+        let sessions = AcpmuxPaneSessions()
+        sessions.add("s")
+        func signed(text: String, name: String = "Grid fix") -> AgentPaneAgentReply? {
+            AgentPaneAgentReply.signed(["reply": ["from": "acp:s", "fromName": name, "to": "acp:child-3", "replyTo": "msg_1",
+                                                  "threadId": "msg_1", "text": text, "idempotencyKey": "acpmux-reply-k1"]],
+                                       subject: "s", sessions: sessions)
+        }
+        #expect(signed(text: "Ship it \u{1F9D1}\u{200D}\u{1F4BB}")?.text == "Ship it \u{1F9D1}\u{200D}\u{1F4BB}")
+        #expect(signed(text: "Merged.\n\tThanks.", name: "Grid\u{00AD}fix")?.senderName == "Grid\u{00AD}fix")
+        #expect(signed(text: "Rebased.\r\nShip it.") == nil)
+        #expect(signed(text: "Ship it.", name: "Grid\u{0007}fix") == nil)
+    }
+
     /// A pane cannot mint a credential for a chat it does not show: acpmux's answer must name the
     /// very chat the frame did, still in the pane's scope.
     @Test func aSignedReplyForAnotherChatSendsNothing() async throws {
