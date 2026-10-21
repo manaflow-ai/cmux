@@ -89,6 +89,24 @@ describe("agent deeplink page", () => {
     expect(rendered.join("\n")).not.toContain("/home/leo");
   });
 
+  test("a session named twice is called a repeat, not a bad value", async () => {
+    const rendered = await render({ harness: "claude", session: ["s1", "s2"] });
+
+    expect(rendered).not.toContain("Open in cmux");
+    expect(rendered).toContain("This link repeats parameters cmux will reject: session");
+    expect(rendered.join("\n")).not.toContain("invalid parameter values");
+    expect(rendered.join("\n")).not.toContain("missing required parameters: ");
+  });
+
+  test("a machine the app reads rides along in the native URL", async () => {
+    const machine = "machine_0123456789abcdef0123456789abcdef";
+    const rendered = await render({ harness: "claude", session: "s1", machine });
+
+    expect(rendered).toContain("Open in cmux");
+    expect(rendered).toContain(`cmux://agent/claude/s1?machine=${machine}`);
+    expect(rendered.join("\n")).not.toContain("does not use");
+  });
+
   test("a link with no session says so and offers no Open", async () => {
     const rendered = await render({ harness: "claude" });
 

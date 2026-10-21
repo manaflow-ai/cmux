@@ -250,6 +250,20 @@ describe("agent deeplink fallback", () => {
     },
   );
 
+  test("an unknown name that prints as a used parameter is not named", () => {
+    const result = agentLink({
+      harness: "claude",
+      session: "s1",
+      host: "big-red",
+      "[host]": "x",
+      "{name}": "y",
+    });
+    // `host` is in the link, so saying it was ignored would contradict the link itself; `name` is
+    // not, so the sanitised name still earns its warning.
+    expect(result.ignored).toEqual(["name"]);
+    expect(result.model?.href).toBe("cmux://agent/claude/s1?host=big-red");
+  });
+
   test("an unknown name is printed inside the charset a name can have", () => {
     const result = agentLink({
       "<img src=x>": "LEAK",

@@ -139,7 +139,12 @@ export function agentLink(params: SearchParams): AgentLinkResult {
     else if (read.issue !== undefined) named[read.issue].push(name);
   }
   for (const name of Object.keys(params)) {
-    if (!allowed.has(name)) ignored.push(displayParamName(name));
+    if (allowed.has(name)) continue;
+    const shown = displayParamName(name);
+    // A name that prints as a parameter the link did use (`?[host]=x` beside `?host=big-red`)
+    // would read as if cmux had ignored that one, right above a link that carries it.
+    if (allowed.has(shown) && values[shown as AgentParam] !== undefined) continue;
+    ignored.push(shown);
   }
 
   const shown = Array.from(new Set(ignored)).slice(0, IGNORED_NAMES_SHOWN);
