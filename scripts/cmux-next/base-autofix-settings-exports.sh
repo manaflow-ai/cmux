@@ -63,7 +63,7 @@ main() {
       echo "::error::regenerating the settings exports on ${at:0:12} failed" >&2
       return 1
     }
-    git fetch --quiet --no-tags "${depth[@]}" "$remote" "refs/heads/$branch" || {
+    git fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} "$remote" "refs/heads/$branch" || {
       echo "::error::cannot read $branch, so the settings exports made at ${at:0:12} are not known to be current" >&2
       return 1
     }
