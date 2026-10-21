@@ -9,13 +9,15 @@ import os
 struct BrowserDownloadNotice: Equatable {
     var text: String
     var siteSettingsOrigin: String?
+    /// The download finished: the Downloads popup shows it instead when it can.
+    var finished = false
 }
 
 /// The App's one list of downloads, for both engines: every `.download`
 /// intent (WebKit's `WKDownload`, Chromium's shim downloads) lands here. It
 /// logs each start and end and shows a notice over the tab when a download
-/// finishes or fails. The toolbar's Downloads menu lists `items`
-/// (`BrowserDownloadsMenu`). Ended downloads are kept across a relaunch
+/// finishes or fails. The toolbar's Downloads popup lists `items`
+/// (`BrowserDownloadsPopup`). Ended downloads are kept across a relaunch
 /// (`history`), except an incognito tab's.
 @Observable
 final class BrowserDownloadList {
@@ -124,7 +126,7 @@ final class BrowserDownloadList {
     /// The notice for an ended download; nil when none shows (cancelled).
     static func notice(for item: BrowserDownload) -> BrowserDownloadNotice? {
         switch item.status {
-        case .finished: BrowserDownloadNotice(text: BrowserHitStrings.downloadFinished(item.filename))
+        case .finished: BrowserDownloadNotice(text: BrowserHitStrings.downloadFinished(item.filename), finished: true)
         case .failed: BrowserDownloadNotice(text: BrowserHitStrings.downloadFailed(item.filename))
         case .blocked: BrowserDownloadNotice(text: BrowserHitStrings.downloadBlocked(item.filename), siteSettingsOrigin: item.blockedSite)
         case .cancelled, .inProgress: nil

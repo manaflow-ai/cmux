@@ -147,6 +147,13 @@ public final class BrowserToolbarButtonsView: NSStackView {
         CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 
+    /// The view a popup of `button` opens under: the button, More when it is
+    /// collapsed, the toolbar's view when the toolbar is hidden.
+    public func popupAnchor(for button: BrowserToolbarButton) -> NSView? { anchor(for: button) }
+
+    /// Draws `anchor` (a toolbar button) pressed while its popup is open, as its menu does (Chrome).
+    public func setPopupOpen(_ open: Bool, anchor: NSView) { (anchor as? ChromeIconButton)?.isMenuOpen = open }
+
     func anchor(for button: BrowserToolbarButton) -> NSView? {
         let shown = [button, .overflow].compactMap { buttons[$0] }.first { !$0.isHiddenOrHasHiddenAncestor && $0.window != nil }
         return shown ?? superview
