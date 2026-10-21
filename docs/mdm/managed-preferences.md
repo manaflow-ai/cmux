@@ -26,10 +26,12 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `app.startAgentGlobalHotKey` | boolean | `false` |  | Start Agent from Any App. Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts. |
 | `app.hideDockIconWithoutWindows` | boolean | `true` |  | Hide Dock Icon When No Windows Are Open. cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens. |
 | `tabs.newTabTemplate` | string | `"cards"` | `cards`, `default`, `composer`, `threads`, `console`, `classic`, `terminal` | New Tab Template. The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it. |
+| `tabs.terminalFirst` | boolean | `false` |  | New Tabs and Splits Open a Terminal. When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page. |
 | `tabs.newTabPosition` | string | `"afterCurrent"` | `afterCurrent`, `end`, `start` | New Tab Position. Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab. |
 | `tabs.plusButton` | string | `"hover"` | `hover`, `always` | New Tab Button. On Hover shows each tab bar's + only while the pointer is over that tab bar. |
 | `tabs.barPosition` | string | `"top"` | `top`, `bottom` | Tab Bar Position. Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane. |
-| `tabs.barOrder` | string | `"aboveToolbar"` | `aboveToolbar`, `belowToolbar` | Tab Bar and Browser Toolbar. In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it. |
+| `browser.toolbarPosition` | string | `"top"` | `top`, `bottom` | Browser Toolbar Position. Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward. |
+| `tabs.barOrder` | string | `"aboveToolbar"` | `aboveToolbar`, `belowToolbar` | Tab Bar and Browser Toolbar. In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it. |
 | `tabs.toolbarButtons` | array | `[]` | `splitRight`, `splitDown`, `openDiffViewer`, `file.open`, `agentPane.searchChats`, `toggleSplitZoom` | Tab Bar Buttons. Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back. |
 | `tabs.overflow` | string | `"shrink"` | `shrink`, `scroll` | Tab Overflow. Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner. |
 | `appearance.metrics.tabMaxWidth` | real |  | 120 to 320 | Maximum Tab Width. Widest a tab gets when the strip has room. |
@@ -64,6 +66,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sessions.keepAwake` | string | `"pluggedIn"` | `off`, `pluggedIn`, `always` | Keep Mac Awake While Agents Work. Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep. |
 | `sessions.resumeAgents` | boolean | `true` |  | Resume Agents After Restart. Terminal agents reopen their session after a crash or restart. |
 | `sessions.allowFullAccess` | boolean | `true` |  | Allow Full-Access Modes. Off, cmux won't switch an agent into a mode that skips approvals. |
+| `sessions.promptSuggestions` | boolean | `false` |  | Suggest Follow-Up Tasks. Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it. |
 | `phone.allowConnections` | boolean | `false` |  | Let Your Phone Use This Mac. So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active. |
 | `phone.startSessions` | boolean | `true` |  | Let Your Phone Start New Workspaces. Off, your phone can still follow, type into and answer what's already running. |
 | `phone.keepAwake` | string | `"pluggedIn"` | `off`, `pluggedIn`, `always` | Keep Mac Awake for Your Phone. A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep. |
@@ -88,7 +91,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `layout.newPanePlacement` | string | `"tab"` | `tab`, `split` | New Terminals and Browsers. Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout). |
 | `layout.tileBrowsers` | boolean | `false` |  | Split for Browsers Too. With Split Automatically, new browsers also get their own pane instead of a tab. |
 | `layout.linkPlacement` | string | `"split-right"` | `split-right`, `new-column`, `same-pane` | Open Links and Files. Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane. |
-| `workspaces.newPlacement` | string | `"top"` | `top`, `afterCurrent`, `bottom` | New Workspace Position. Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it. |
+| `workspaces.newPlacement` | string | `"afterCurrent"` | `top`, `afterCurrent`, `bottom` | New Workspace Position. Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it. |
 | `sidebar.groupByComputer` | boolean | `false` |  | Group Workspaces by Computer. Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer. |
 | `workspaces.autoName` | boolean | `true` |  | Name Workspaces from Tabs. A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins. |
 | `palette.scopes.tabs.prefix` | string | `"@"` | `@`, `#`, `>`, `,`, `?`, `!`, `/`, `;`, `:`, `%`, `&`, `+`, `=`, `~`, `$`, `^`, `*`, `.`, `none` | Tabs Prefix. Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope. |
@@ -117,7 +120,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.backgroundOpacity` | real |  | 0 to 1 | Opacity. How much of the theme color covers the material behind the window. |
 | `appearance.backgroundBlur` | string |  | `frosted`, `glass`, `glass-clear`, `none` | Material. Unset, the window follows Ghostty's background-opacity and background-blur. |
 | `appearance.inactiveWindowDim` | real | `0` | 0 to 1 | Dim Inactive Windows. How much more theme color covers a window while another one is in front. 0 keeps the same look. |
-| `appearance.wallpaperTint` | boolean | `true` |  | Tint with Desktop Wallpaper. The glass takes the colors of your desktop picture and follows it when the picture or Space changes. |
 | `appearance.glassTransparency` | real | `0` | 0 to 1 | Glass Transparency. How much of the desktop or wallpaper shows through the glass. |
 | `appearance.hue` | real | `0.5` | 0 to 1 | Hue. Shift the tint color around the hue wheel. |
 | `appearance.saturation` | real | `1` | 0 to 2 | Saturation. Increase or reduce the tint color intensity. |
@@ -132,7 +134,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.metrics.titlebarHeight` | real |  | 24 to 56 | Titlebar Height |
 | `appearance.borders` | string | `"default"` | `default`, `none` | Borders. None removes every border, hairline and separator in the app. |
 | `appearance.focusIndicator` | string | `"tabs"` | `border`, `tabs`, `both`, `none` | Focused Pane. How the focused pane stands out: its border, subtler tabs in the other panes, both or neither. |
-| `focus.inactiveTabStyle` | string | `"fade"` | `fade`, `tonal`, `quiet` | Unfocused Pane Tabs. How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill. |
+| `focus.inactiveTabStyle` | string | `"fade"` | `fade`, `tonal`, `quiet` | Unfocused Pane Tabs. How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill. |
 | `ui.animationSpeed` | string | `"fast"` | `fast`, `normal`, `off` | Animations |
 | `appearance.chromeStyle` | string | `"flat-sidebar-line"` | `default`, `card`, `card-outlined`, `flat`, `flat-sidebar-line`, `bare`, `panes`, `two-tone`, `floating` | Window Style. The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them. |
 | `ui.paneAnimations` | boolean | `true` |  | Animate Panes. Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once. |
@@ -228,6 +230,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.font.lineHeight` | real | `1.625` | 1.2 to 2.4 | Chat Line Height |
 | `agentPane.display.code.family` | string |  |  | Chat Code Font. The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font. |
 | `agentPane.display.code.scale` | real |  | 0.6 to 1.25 | Chat Code Size. Code as a share of the chat's text size. Empty uses the Markdown viewer's. |
+| `agentPane.display.inspector.placement` | string | `"overlay"` | `push`, `overlay` | Inspector. Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
 | `editor.fontFamily` | string |  |  | Font Family. Empty uses the terminal font. |
@@ -283,7 +286,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.bottomBandMaxShare` | real | `0.25` | 0.1 to 0.9 | Bottom Sections Height. The share of the sidebar the bottom sections fill before they scroll. |
 | `sidebar.pinnedBandsScroll` | boolean | `true` |  | Scroll Tall Sections. Off: the top and bottom sections never scroll and the workspace list gets smaller. |
 | `sidebar.showWorkspaceTabs` | boolean | `false` |  | Show Workspace Tabs. Lists tabs beneath each workspace in the sidebar. |
-| `sidebar.showChats` | boolean | `true` |  | Show All Chats. Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. |
+| `sidebar.showChats` | boolean | `true` |  | Show All Chats on New Tab. On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only. |
 | `sidebar.sessionTree` | boolean | `false` |  | Session Tree. Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys. |
 | `sidebar.showProjects` | boolean | `true` |  | Show Projects |
 | `sidebar.groupBy` | string | `"none"` | `none`, `folder` | Group Projects By |
@@ -453,12 +456,13 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.passwords.generate` | boolean | `true` |  | Suggest Strong Passwords. Offers a generated password when a site asks for a new one, and saves it. |
 | `browser.passwords.allowExport` | boolean | `false` |  | Allow Password Export. Lets the Passwords page write every saved password to a plain-text CSV file, after you confirm with Touch ID or your password. |
 | `browser.verificationAutofill.enabled` | boolean | `false` |  | Fill Codes from Verification Emails. When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored. |
+| `home.server` | string | `"hosted"` | `hosted` | Server. Direct messages and group chats use cmux Cloud by default. A self-hosted server is reached over Tailscale by its MagicDNS name, for example http://mini.tail1234.ts.net:7320. No password is sent: the server knows you by your Tailscale login. Also accepts a dictionary {"selfHosted": "http(s)://host[:port]"} in a raw profile. |
 | `home.chiefBubbleStyle` | string | `"imessage"` | `imessage`, `theme` | Bubble Style. iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors. |
 | `home.attachments.keepLocation` | boolean | `false` |  | Keep Location in Photos and Videos. When off, location data is removed from photos and videos before they are attached. |
 | `home.channelsEnabled` | boolean | `false` |  | Channels. Show Channels below Home in the sidebar. You can also turn it on or off from the command palette. |
 | `home.chiefPetEnabled` | boolean | `false` |  | Show Chief Pet. A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app. |
 | `home.chiefPetMascot` | string | `"orb"` | `orb`, `orb-spark`, `orb-hood`, `machine`, `machine-cyan`, `machine-blue`, `moon`, `moon-blue`, `fox` | Character |
-| `notifications.dismissal` | string | `"focus"` | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Clear Notification When |
+| `notifications.dismissal` | string | `"click"` | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Clear Notification When |
 | `notifications.timeoutSeconds` | real | `30` | 1 to 86400 | Timeout. Used when a source clears after a timeout. |
 | `notifications.sources.agent.dismissal` | string |  | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Agents |
 | `notifications.sources.terminal.dismissal` | string |  | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Terminal Programs |
@@ -471,15 +475,18 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `status.runNotifyWhenVisible` | boolean | `false` |  | Notify Even When the Terminal Is Visible |
 | `notifications.dockBadge` | boolean | `true` |  | Unread Count on Dock Icon |
 | `notifications.dockBounce` | string | `"once"` | `off`, `once`, `untilActive` | Bounce Dock Icon. When a notification alerts while cmux isn't the active app. |
+| `notifications.showPreviews` | string | `"whenUnlocked"` | `always`, `whenUnlocked`, `never` | Show Message in Banners. Whether a banner shows what the agent said, or only where and what state. |
 | `feed.mirrorNotifications.agents` | boolean | `true` |  | Copy Agent Notifications to the Feed. Notifications from agents and cmux notify go to your cmux account's feed and can reach your iPhone. |
 | `feed.mirrorNotifications.terminal` | string | `"off"` | `off`, `title`, `full` | Copy Terminal Notifications to the Feed. Notifications that programs send through the terminal can contain secrets. Off sends nothing to your cmux account. |
 | `feed.agentPermissionPrompts` | boolean | `false` |  | Send Agent Permission Requests to the Feed. Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it. |
-| `notifications.attention.style` | string | `"blink"` | `blink`, `pulse`, `steady`, `none` | Style |
+| `notifications.attention.style` | string | `"steady"` | `blink`, `pulse`, `steady`, `none` | Style |
 | `notifications.attention.color` | string |  |  | Color |
 | `notifications.attention.width` | real | `2` | 0.5 to 8 | Width |
 | `notifications.attention.blinkCount` | real | `2` | 1 to 10 | Blinks |
 | `notifications.attention.duration` | real | `3` | 0.3 to 30 | Pulse Duration |
 | `notifications.attention.persist` | boolean | `true` |  | Keep Ring Until Read |
+| `notifications.attention.flash` | boolean | `true` |  | Flash the Pane When Read. Clicking an unread pane, typing in it or jumping to it flashes its ring as it goes. |
+| `notifications.attention.flashOnTyping` | boolean | `true` |  | Flash When Typing Reads It |
 | `notifications.attention.showOnTab` | boolean | `true` |  | Mark the Tab |
 | `notifications.attention.showOnSidebar` | boolean | `true` |  | Mark the Sidebar Row |
 | `notifications.attention.moveToTop` | boolean | `false` |  | Move the Workspace to the Top. A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane. |
