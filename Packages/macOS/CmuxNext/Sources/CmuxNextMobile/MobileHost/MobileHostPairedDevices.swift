@@ -15,13 +15,17 @@ public struct MobileHostPairRequest: Sendable, Equatable, Hashable {
     /// When the backend registered the phone's device (hostd's `registered_at_ms`), shown in
     /// the prompt so a device made minutes ago stands out; nil from an older hostd.
     public var registeredAt: Date?
+    /// Which link asks: hostd (the cmux iOS app) or Iroh (cmux next).
+    public var transport: MobileHostPairedDevice.Transport
 
-    public init(phoneDeviceID: String, name: String, identityKey: String, approvalKey: String, registeredAt: Date? = nil) {
+    public init(phoneDeviceID: String, name: String, identityKey: String, approvalKey: String, registeredAt: Date? = nil,
+                transport: MobileHostPairedDevice.Transport = .hostd) {
         self.phoneDeviceID = phoneDeviceID
         self.name = name
         self.identityKey = identityKey
         self.approvalKey = approvalKey
         self.registeredAt = registeredAt
+        self.transport = transport
     }
 
     /// The same device asking with the same keys (a retry, whatever its registration date).
@@ -32,18 +36,42 @@ public struct MobileHostPairRequest: Sendable, Equatable, Hashable {
 
 /// One phone the user allowed on this Mac.
 public struct MobileHostPairedDevice: Sendable, Equatable, Codable, Identifiable {
+    /// The link a phone was allowed on. The two apps register with different services, so one
+    /// phone using both is two entries; only a hostd entry carries Face ID approval rights.
+    public enum Transport: String, Sendable, Codable {
+        /// The cmux iOS app through hostd: the mobile service's device id and P-256 keys.
+        case hostd
+        /// cmux next over Iroh: id and identity key are the TLS-proved endpoint key, no approval key.
+        case iroh
+    }
+
     public var id: String
     public var name: String
     public var identityKey: String
     public var approvalKey: String
     public var pairedAt: Date
+    public var transport: Transport
 
-    public init(id: String, name: String, identityKey: String, approvalKey: String, pairedAt: Date) {
+    public init(id: String, name: String, identityKey: String, approvalKey: String, pairedAt: Date, transport: Transport = .hostd) {
         self.id = id
         self.name = name
         self.identityKey = identityKey
         self.approvalKey = approvalKey
         self.pairedAt = pairedAt
+        self.transport = transport
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, name, identityKey, approvalKey, pairedAt, transport }
+
+    /// A file written before Iroh shared this list has no `transport`: every entry was hostd's.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        identityKey = try container.decode(String.self, forKey: .identityKey)
+        approvalKey = try container.decode(String.self, forKey: .approvalKey)
+        pairedAt = try container.decode(Date.self, forKey: .pairedAt)
+        transport = try container.decodeIfPresent(Transport.self, forKey: .transport) ?? .hostd
     }
 
     /// The first 8 bytes of the approval key's SHA-256 as hex, as acpmux lists it.
@@ -81,7 +109,8 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
 
     public func decision(for request: MobileHostPairRequest) -> Decision {
         if devices.contains(where: {
-            $0.id == request.phoneDeviceID && $0.identityKey == request.identityKey && $0.approvalKey == request.approvalKey
+            $0.transport == request.transport && $0.id == request.phoneDeviceID && $0.identityKey == request.identityKey
+                && $0.approvalKey == request.approvalKey
         }) { return .trusted }
         if denied.contains(where: { $0.id == request.phoneDeviceID && $0.identityKey == request.identityKey }) { return .denied }
         return .ask
@@ -89,10 +118,10 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
 
     /// The user allowed the request: its keys replace any older keys of that device.
     public mutating func approve(_ request: MobileHostPairRequest, at date: Date) {
-        devices.removeAll { $0.id == request.phoneDeviceID }
+        devices.removeAll { $0.id == request.phoneDeviceID && $0.transport == request.transport }
         denied.removeAll { $0.id == request.phoneDeviceID }
         devices.append(MobileHostPairedDevice(id: request.phoneDeviceID, name: request.name, identityKey: request.identityKey,
-                                       approvalKey: request.approvalKey, pairedAt: date))
+                                              approvalKey: request.approvalKey, pairedAt: date, transport: request.transport))
     }
 
     /// The user refused the request.
@@ -108,10 +137,14 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
         devices.removeAll { $0.id == id }
     }
 
-    /// The approvers acpmux gets (`_acpmux/approvers_set`).
+    /// The phones hostd serves; an Iroh entry is never handed to hostd.
+    public var hostdDevices: [MobileHostPairedDevice] { devices.filter { $0.transport == .hostd } }
+
+    /// The approvers acpmux gets (`_acpmux/approvers_set`): hostd phones with a Face ID key, so an
+    /// Iroh entry never carries approval rights.
     public func approversParams(macDevice: String) -> [String: Any] {
         ["macDevice": macDevice,
-         "approvers": devices.map { ["id": $0.id, "publicKey": $0.approvalKey, "name": $0.name] }]
+         "approvers": hostdDevices.filter { !$0.approvalKey.isEmpty }.map { ["id": $0.id, "publicKey": $0.approvalKey, "name": $0.name] }]
     }
 
     /// Lowercase or uppercase hex; nil for anything else.
