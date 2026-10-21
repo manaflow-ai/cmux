@@ -23207,13 +23207,13 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "每个工作区行显示其上次更改的时间,例如 10:42 或 3d。"
+            "value" : "每个工作区行显示其上次更改的时间，例如 10:42 或 3d。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "每個工作區列顯示其上次變更的時間,例如 10:42 或 3d。"
+            "value" : "每個工作區列顯示其上次變更的時間，例如 10:42 或 3d。"
           }
         }
       }
@@ -23731,13 +23731,13 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "地址栏始终显示完整地址,包括 https:// 和 www.。"
+            "value" : "地址栏始终显示完整地址，包括 https:// 和 www.。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "網址列一律顯示完整網址,包括 https:// 和 www.。"
+            "value" : "網址列一律顯示完整網址，包括 https:// 和 www.。"
           }
         }
       }
@@ -23993,13 +23993,13 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "网站通过邮件发来验证码或链接时,其标签页会提供一键填入。"
+            "value" : "网站通过邮件发来验证码或链接时，其标签页会提供一键填入。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "網站透過郵件寄來驗證碼或連結時,其分頁會提供一鍵填入。"
+            "value" : "網站透過郵件寄來驗證碼或連結時，其分頁會提供一鍵填入。"
           }
         }
       }
