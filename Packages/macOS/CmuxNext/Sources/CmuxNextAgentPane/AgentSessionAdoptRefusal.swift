@@ -17,7 +17,7 @@ public nonisolated struct AgentSessionAdoptRefusal {
         switch code {
         case "agent_session.unknown_session":
             String(format: String(localized: "agentPane.adopt.unknownSession",
-                                  defaultValue: "%@ runs no such agent chat of its own. Check the session name with acpmux ls on that machine.",
+                                  defaultValue: "%@ runs no such agent chat of its own. Check the session id with acpmux ls on that machine.",
                                   bundle: .module), machine)
         case "agent_session.bound":
             String(localized: "agentPane.adopt.bound", defaultValue: "That agent tab already shows a chat. Open the session again in a new workspace.",

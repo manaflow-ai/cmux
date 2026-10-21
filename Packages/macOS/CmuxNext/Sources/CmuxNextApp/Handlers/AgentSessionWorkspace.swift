@@ -53,6 +53,7 @@ enum AgentSessionWorkspace {
     /// the workspace. Nothing takes focus.
     private static func adopt(session: String, name: String?, key: WorkspaceKey, cwd: String?, group: String?, on daemon: DaemonService,
                               services: AppServices) throws -> ActionWork {
+        try requireChatPage(services)
         guard let connection = daemon.connection, let endpoint = daemon.remoteEndpoint, let host = AgentTabStore.registryHost(of: daemon) else {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
         }
@@ -85,6 +86,12 @@ enum AgentSessionWorkspace {
         }
     }
 
+    /// Refuses before anything is made when this build has no agent page to show the chat in (a local
+    /// open and another machine's adopt alike).
+    private static func requireChatPage(_ services: AppServices) throws {
+        guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
+    }
+
     /// Moves workspace `id` into its machine's group named `name`, or a new group of that name.
     private static func joinGroup(_ id: String, named name: String, sidebar: SidebarBridge) {
         let ids = [SidebarWorkspaceID(id)]
@@ -102,7 +109,7 @@ enum AgentSessionWorkspace {
     @discardableResult
     static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
                      group: String? = nil, services: AppServices) throws -> ActionWork {
-        guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
+        try requireChatPage(services)
         let daemon = services.daemon
         guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
