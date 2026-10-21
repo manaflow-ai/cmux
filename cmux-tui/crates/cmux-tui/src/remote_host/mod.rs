@@ -147,7 +147,7 @@ fn pairing(verb: &str, args: &[String]) -> i32 {
         match enabled {
             Ok(status) if status.success() => {}
             Ok(_) => {
-                eprintln!("cmux host join: remote hosting is not on (see above); joining anyway")
+                eprintln!("cmux host join: remote hosting is not on (see above); joining anyway");
             }
             Err(e) => eprintln!("cmux host join: remote hosting is not on ({e:#}); joining anyway"),
         }
