@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 public import Foundation
 import Observation
 
@@ -61,14 +62,14 @@ public final class WebUpdater {
     let base: URL
     let fetch: Fetch
     let download: Download
-    let clock: any Clock<Duration>
     /// Between scheduled checks; the pointer is a small cached file, the archive is fetched only
     /// for a new update.
     let interval: Duration
-    @ObservationIgnored private var schedule: Task<Void, Never>?
+    /// The next scheduled check.
+    @ObservationIgnored private let nextCheck: DemandTimer
     @ObservationIgnored private var etag: String?
 
-    public static let defaultBase = URL(string: "https://files.cmux.com/cmux-next-web/")!
+    public static let defaultBase = URL(string: "https://files.cmux.com/cmux-next-web/") ?? URL(fileURLWithPath: "/dev/null") // a test parses it
 
     public init(store: WebUpdateStore, app: App, keys: WebUpdateKeys = .bundled, base: URL = WebUpdater.defaultBase,
                 interval: Duration = .seconds(600), clock: any Clock<Duration> = ContinuousClock(),
@@ -79,9 +80,9 @@ public final class WebUpdater {
         self.keys = keys
         self.base = base
         self.interval = interval
-        self.clock = clock
         self.fetch = fetch
         self.download = download
+        nextCheck = DemandTimer(owner: "web-updates.check", clock: clock)
     }
 
     /// The launch check of the kept update, for ``WebBundleOverlay/load(_:)``: its folder when it
@@ -112,21 +113,13 @@ public final class WebUpdater {
         guard channel != self.channel else { return }
         self.channel = channel
         etag = nil
-        schedule?.cancel()
-        schedule = nil
+        nextCheck.cancel()
         guard channel != .off else {
             // task-owner: one state write; it ends by itself
             if state.active != nil { Task { try? await serve(nil, refusingActive: false) } }
             return
         }
-        // task-owner: the periodic check loop; cancelled when the channel changes
-        schedule = Task { [weak self] in
-            while !Task.isCancelled {
-                await self?.check()
-                guard let self else { return }
-                try? await self.clock.sleep(for: self.interval)
-            }
-        }
+        nextCheck.schedule(after: .zero) { @MainActor [weak self] in await self?.check() }
     }
 
     /// The app came to the front: checks again when the last check is older than `stale`.
@@ -142,6 +135,10 @@ public final class WebUpdater {
         guard channel != .off, phase != .checking, phase != .downloading else { return }
         phase = .checking
         lastCheck = Date()
+        // Each check books the next one, so a check started by hand pushes the schedule back.
+        defer {
+            if channel != .off { nextCheck.schedule(after: interval) { @MainActor [weak self] in await self?.check() } }
+        }
         do {
             guard let pointer = try await newPointer() else {
                 phase = .idle

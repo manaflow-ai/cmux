@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextUpdater
+import CmuxNextWakeups
 import Foundation
 
 /// Web updates in the app (plans/cmux-next/web-ota.md). On a NIGHTLY bundle it names where each
@@ -18,13 +19,13 @@ final class WebUpdates {
     private(set) var updater: WebUpdater?
     /// The folder to serve from the next safe point (`.some(nil)`: the bundled web).
     private(set) var pending: URL??
-    private var safePoint: Task<Void, Never>?
-    private var observers: [any NSObjectProtocol] = []
+    /// The wait in the background before an update swaps in.
+    private let safePoint = DemandTimer(owner: "web-updates.safe-point")
+    private var observers: [Task<Void, Never>] = []
     /// The last `updates.*` read, applied when the updater starts after it.
     private var settings: UpdatesSettings?
     /// How long cmux stays in the background before an update swaps in.
     let grace: Duration = .seconds(3)
-    let clock = ContinuousClock()
 
     /// NIGHTLY bundles only (`com.cmuxterm.app.nightly[.<tag>]`): Debug builds keep a developer's
     /// own web, and Release and RC builds the web they were built with.
@@ -60,19 +61,19 @@ final class WebUpdates {
                 if tree != nil { self?.ready(tree) }
             }
         }
-        let center = NotificationCenter.default
-        observers = [
-            center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.scheduleSafePoint() }
-            },
-            center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.safePoint?.cancel()
-                    self?.safePoint = nil
-                    self?.updater?.noteActivation()
-                }
-            },
-        ]
+        // task-owner: the app's activation events, for the life of the app
+        observers.append(Task { [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: NSApplication.didResignActiveNotification) {
+                self?.scheduleSafePoint()
+            }
+        })
+        // task-owner: the app's activation events, for the life of the app
+        observers.append(Task { [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
+                self?.safePoint.cancel()
+                self?.updater?.noteActivation()
+            }
+        })
     }
 
     /// The running app's bundled web: the abi and build time of its `pages/web-abi.json`.
@@ -108,17 +109,11 @@ final class WebUpdates {
         return WebBundleServedViews.shared.reloadServed()
     }
 
+    /// Swaps the pending update in after ``grace`` (at once while no page shows); cmux coming
+    /// back to the front cancels the wait.
     private func scheduleSafePoint() {
-        guard pending != nil, safePoint == nil else { return }
+        guard pending != nil else { return }
         let wait = WebBundleServedViews.shared.isEmpty ? Duration.zero : grace
-        // task-owner: one wait for the safe point; cancelled when cmux comes back to the front
-        safePoint = Task { [weak self] in
-            guard let self else { return }
-            try? await self.clock.sleep(for: wait)
-            // A cancelled wait leaves `safePoint` to the one that replaced it.
-            guard !Task.isCancelled else { return }
-            self.safePoint = nil
-            self.applyPending()
-        }
+        safePoint.scheduleIfIdle(after: wait) { @MainActor [weak self] in self?.applyPending() }
     }
 }
