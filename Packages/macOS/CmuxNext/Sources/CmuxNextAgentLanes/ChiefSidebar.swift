@@ -17,9 +17,6 @@ import Observation
 @Observable @MainActor
 public final class ChiefSidebar {
     public static let shared = ChiefSidebar()
-    /// The Chief home's lanes (its turns and subagents): the Chief home's acpmux watch writes them
-    /// (`ChatsFeed.startChiefTurnStates`).
-    public static let lanes = AgentLaneStore()
     public static let openAction: ActionID = "home.openChief"
     /// Show Idle Chief Subagents: checked while the list is unfolded; only the Chief item's menu shows it.
     public static let toggleIdleAction: ActionID = "sidebar.chief.toggleIdleSubagents"
@@ -71,7 +68,9 @@ public final class ChiefSidebar {
     /// The subagent sessions a click is opening a workspace for: a second click waits for that one.
     @ObservationIgnored private var opening: Set<String> = []
 
-    public init(lanes: AgentLaneStore = ChiefSidebar.lanes) {
+    /// `lanes`: the Chief home's lanes (its turns and subagents), which its acpmux watch writes
+    /// (`ChatsFeed.startChiefTurnStates`).
+    public init(lanes: AgentLaneStore = .chief) {
         self.lanes = lanes
     }
 
