@@ -370,8 +370,11 @@ The bake also fully allocates a 1 GiB ext4 image at
 SQLite registry and journal a reserved filesystem even when general-purpose
 files fill the root filesystem. When the state filesystem falls below its
 headroom threshold, the helper doubles the image online up to 8 GiB, provided
-the root filesystem keeps its safety reserve; a failed or unsafe growth leaves
-the daemon deferred rather than starting against a full database filesystem.
+the root filesystem keeps its safety reserve. A failed or unsafe growth is
+logged and the daemon keeps starting on the room the state filesystem still
+has; only a state filesystem below 16 MiB free defers startup, because a
+deferred daemon leaves the machine unreachable ("connection refused"). The
+Cloud sidebar warns on a machine whose root disk is nearly full.
 The image consumes space from the existing root disk; it does not change the
 Freestyle VM size or the image ladder. The bake writes a reservation marker
 only after the image is fully created and seeded. The boot supervisor reads

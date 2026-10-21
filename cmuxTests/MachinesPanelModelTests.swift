@@ -1187,6 +1187,28 @@ struct CloudTreeMachineInlineFactTests {
     func missingStatsShowsNothing() {
         #expect(CloudTreeMachineRowContent(machine: snapshot(stats: nil), style: .compact).inlineFact?.contains("Token usage unavailable") == true)
     }
+
+    @Test("A nearly full disk warns on the row before the machine stops answering")
+    func nearlyFullDiskWarnsOnTheRow() {
+        let sampledAt = Date(timeIntervalSince1970: 1_000)
+        func row(diskUsedMb: Int) -> CloudTreeMachineRowContent {
+            var machine = snapshot(stats: VMStats(
+                state: .awake, sampledAt: sampledAt, resourceSampledAt: sampledAt,
+                diskTotalMb: 16_384, diskUsedMb: diskUsedMb
+            ))
+            machine.capabilities = .all
+            return CloudTreeMachineRowContent(machine: machine, now: sampledAt)
+        }
+
+        let full = row(diskUsedMb: 15_872)
+        #expect(full.statusSymbol == CloudTreeMachineRowContent.lowDiskSymbol)
+        #expect(full.toolTip.contains("cmux vm clean troll"))
+        #expect(full.accessibilityLabel.contains("cmux vm clean troll"))
+
+        let roomy = row(diskUsedMb: 8_192)
+        #expect(roomy.statusSymbol == nil)
+        #expect(!roomy.toolTip.contains("cmux vm clean"))
+    }
 }
 
 /// Pins the mapping from Cloud VM list failures to the machines pane's empty
