@@ -17,7 +17,6 @@ import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind } from "./environme
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
-import { isAgentMotionOff } from "../shared/motion";
 import { entranceAllowed } from "../shared/pageReveal";
 import {
   layoutConversation,
@@ -401,7 +400,6 @@ import {
 } from "./started/startedSessions";
 import { experimentArm } from "../../experiments/experiment";
 import { setSessionStatus, useSessionStatus } from "./sessionStatus";
-import { MOTION_MS } from "../../motion/scale.generated";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -1203,36 +1201,6 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
   rowKind(row) !== "editedFiles" &&
   hasTranscriptCopyText(row);
 
-/// Slides the thread from `step` px below (above, when negative) to its place over GLIDE_MS, so
-/// content that grew at the latest row glides in. Glides stack (`composite: "add"`): two started
-/// before one paint move the text by their sum. None under Reduce Motion (undefined).
-function glide(node: HTMLElement | null, step: number): Animation | undefined {
-  // Content that grew while the chat was hidden, or as it shows again, is drawn in place.
-  if (isAgentMotionOff() || !entranceAllowed() || !node || typeof node.animate !== "function") return undefined;
-  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return undefined;
-  return node.animate([{ transform: `translateY(${step}px)` }, { transform: "translateY(0px)" }], {
-    duration: GLIDE_MS,
-    easing: "cubic-bezier(0.2, 0, 0, 1)",
-    composite: "add",
-  });
-}
-const GLIDE_MS = MOTION_MS.standard;
-/// How many rows from the end a glide looks for the row it holds.
-const FOLLOWED_ROW_SEARCH = 64;
-
-/// Where `id` sits in `layout`'s content (its top), looked for among the last rows; undefined when gone.
-function trailingRowTop(layout: ConversationLayout, rows: readonly { id: string }[], id: string): number | undefined {
-  for (let at = rows.length - 1; at >= Math.max(0, rows.length - FOLLOWED_ROW_SEARCH); at -= 1)
-    if (rows[at]!.id === id) return layout.tops[at];
-  return undefined;
-}
-
-/// What a followed view's glides hold still: the latest row as the reader last saw it (`id`, drawn
-/// `top` px down the view, its glides aside), and the glides started since then (`added` px in all).
-/// A frame can lay the rows out several times before it paints (each streamed snapshot, then its
-/// drawn heights): each glide is measured from what was painted, not from a layout nobody saw.
-type GlideHold = { id: string; top: number; added: number; glides: Animation[] };
-
 /// Whether `entry` is the height already kept for its row. Heights compare exactly: a fold's last
 /// frame draws its row a fraction of a pixel short of the height it settles at (145.72px, then
 /// 146px), and with any slack the row kept the frame's height, so every row below it sat that
@@ -1700,6 +1668,7 @@ export function VirtualTranscript({
   onAnchor,
   anchorNow,
   onLoadOlder,
+  sends = 0,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
@@ -1734,6 +1703,8 @@ export function VirtualTranscript({
   historyFrom?: number;
   /// Pages older history in (canLoadOlder): asked once per loaded page while the view is near the top.
   onLoadOlder?: () => Promise<void>;
+  /// How many prompts this pane has sent: each new one puts the view at the latest message.
+  sends?: number;
   githubRepository?: string;
   /// The repository a bare `#N` means when `githubRepository` is unknown and the transcript names
   /// none before it (the header pull request's).
@@ -2105,25 +2076,7 @@ export function VirtualTranscript({
     heldRoom.current = dockSpaceRef.current;
     flushSync(roomTaken);
   }, []);
-  /// The pane's width changed and no new content has come since: rows settling to their drawn
-  /// heights at the new width are that resize, not growth, and never glide.
-  const reflowing = useRef(false);
   const thread = useRef<HTMLDivElement>(null);
-  /// What the glides hold since the last paint (GlideHold); cleared once a frame paints.
-  const glideHold = useRef<GlideHold | undefined>(undefined);
-  // The reader scrolls: a glide in flight ends at once, so the view goes where they scroll.
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    const endGlide = () => {
-      for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
-    };
-    const events = ["wheel", "touchstart", "keydown"] as const;
-    for (const name of events) node.addEventListener(name, endGlide, { passive: true });
-    return () => {
-      for (const name of events) node.removeEventListener(name, endGlide);
-    };
-  }, []);
   /// The footer of the turn the pointer is over (a turnSummary row's id).
   const pointedTurn = useRef<string | undefined>(undefined);
   /// Pointerover bubbles from every markdown descendant: moving between spans inside the same row
@@ -2516,14 +2469,6 @@ export function VirtualTranscript({
       const moved = node.scrollTop;
       setScroll((current) => ({ top: moved, delta: moved - current.top }));
     }
-    const rewrapped = width !== previousViewport.current.width;
-    // The bottom stack's room changing (a composer line, a queue) is the view's foot moving, as a
-    // resize is: a followed view moves its offset at once and nothing glides.
-    const resized =
-      rewrapped || height !== previousViewport.current.height || dockSpace !== previousViewport.current.dockSpace;
-    if (rewrapped) reflowing.current = true;
-    else if (rows.length !== oldRows.length || rows.some((row, index) => row !== oldRows[index]))
-      reflowing.current = false;
     // A disclosure the reader clicked stays where they clicked it while what it opens lays out: this
     // pass neither follows the latest row nor keeps the top row, it puts the clicked line back.
     const folding = Boolean(old && node && foldAnchor.current && keepFold(foldAnchor.current, node));
@@ -2532,7 +2477,6 @@ export function VirtualTranscript({
       // What opened pushed the latest row out of view: the view is the reader's now, not following.
       if (followingRef.current && node.scrollTop < layout.totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX)
         follow(false);
-      glideHold.current = undefined;
     } else if (old && node) {
       // Content that shrank under the viewport has already clamped the live offset to
       // the new end; the offset recorded before this commit is where the reader was.
@@ -2568,10 +2512,12 @@ export function VirtualTranscript({
       // heights and settle back to fit, and its reply must still be followed once it overflows
       // (cx-ubd1y). Away from it, at the first row nothing above can move it.
       if (didOpenAtLatest.current && atLatest) {
-        // At the latest row: stay there as rows settle to their drawn heights.
+        // At the latest row: stay there as rows settle to their drawn heights and as content grows,
+        // in this pass, before the frame paints. Nothing glides: a glide held the new text below the
+        // view's foot for its 180 ms at every streamed chunk, and on open it slid from a layout that
+        // never painted (estimated heights) to the drawn one (Leo 2026-10-21: "IMMEDIATELY ... at the
+        // bottom every single time").
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-        // A clamp moved the offset already (content that shrank under the view): from where it was.
-        const before = top;
         // Jump to latest's glide in flight heads for the new end instead of snapping there.
         const jumping = jumpTarget.current !== undefined;
         if (jumping && Math.abs(latest - jumpTarget.current!) > 0.5) {
@@ -2579,50 +2525,7 @@ export function VirtualTranscript({
           node.scrollTo({ top: latest, behavior: "smooth" });
         }
         const settled = jumping ? clamped : settleFollowBottom(node, latest) || clamped;
-        // The glide holds the latest row the reader saw where it was painted, then slides it to its
-        // place. Gliding by the offset's step alone also moved it by what grew above it (a working
-        // line opening over a turn's first tool call), and by layouts of the same frame that never
-        // painted (a new turn's rows by estimate, then by drawn height): the text dropped that far,
-        // then slid up past where it was. The offset is read back, as WebKit keeps it to whole pixels.
-        // The row the reader reads, not the running turn's line under it (`below`): that line
-        // leaves when the turn ends, and its footer takes its place at the same height.
-        let lastSeen = oldRows.at(-1);
-        if (lastSeen?.below && oldRows.length > 1) lastSeen = oldRows.at(-2);
-        if (!glideHold.current && lastSeen) {
-          const was = trailingRowTop(old, oldRows, lastSeen.id);
-          if (was !== undefined) {
-            glideHold.current = { id: lastSeen.id, top: was - before, added: 0, glides: [] };
-            // After this frame paints (a task queued from its animation frame runs after it).
-            requestAnimationFrame(() => setTimeout(() => (glideHold.current = undefined), 0));
-          }
-        }
-        const hold = glideHold.current;
-        const heldTop = hold && trailingRowTop(layout, rows, hold.id);
-        const step = hold && heldTop !== undefined ? hold.top - (heldTop - node.scrollTop) - hold.added : 0;
         if (settled) followTrace.set(latest);
-        // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll"); a
-        // resized viewport only moves the offset. A row that grew is placed by its estimate, then
-        // again by its drawn height, both before the frame paints: each step glides, and the
-        // glides add up, so the text moves by what it grew. Gliding only the first step drew the
-        // text an estimate's error too low, then slid it past its place, at every token.
-        // A resize (a window edge dragged, cx-sqj3h) reflows the rows in the same way, estimate
-        // then drawn height, at every frame of the drag: none of that glides, and a glide in
-        // flight ends, so the text sits at the end of the view on every frame.
-        if (rewrapped) for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
-        const glided =
-          settled && Math.abs(step) >= 0.5 && Math.abs(step) < node.clientHeight && !resized && !reflowing.current
-            ? glide(thread.current, step)
-            : undefined;
-        if (glided) {
-          hold!.added += step;
-          hold!.glides.push(glided);
-        } else if (settled || resized) {
-          // The view moved without a glide: what it holds is placed again from here. A resize also
-          // takes back this frame's glides: they slid toward a layout the resize has replaced (a
-          // queued prompt's card leaving clamps the offset, which the room it leaves then restores).
-          if (resized) for (const each of hold?.glides ?? []) each.cancel();
-          glideHold.current = undefined;
-        }
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
@@ -2923,6 +2826,38 @@ export function VirtualTranscript({
       anchorNow.current = undefined;
     };
   }, [anchorNow]);
+  // The reader sent a prompt: the view goes to the latest message before the frame paints, even
+  // scrolled up, and follows the prompt's row and its reply in (Leo 2026-10-21). Only a scroll up
+  // by the reader lets go of it again.
+  const seenSends = useRef(sends);
+  useLayoutEffect(() => {
+    if (sends === seenSends.current) return;
+    seenSends.current = sends;
+    const node = ref.current;
+    if (!node || !didOpenAtLatest.current) return;
+    revealing.current = undefined;
+    revealWindow.current = 0;
+    foldAnchor.current = undefined;
+    jumpTarget.current = undefined;
+    clearTimeout(settle.current);
+    settle.current = undefined;
+    // The room the stack grew while scrolled up is room under the last row again (`room`).
+    heldRoom.current = dockSpaceRef.current;
+    node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
+    const top = node.scrollTop;
+    scrolledTo.current = { top, atLatest: true };
+    seenAnchor.current = null;
+    followTrace.set(top);
+    setScroll((current) => ({ top, delta: top - current.top }));
+    // The commit this asks for places the rows with the stack's room and settles at that end.
+    follow(true);
+    // The kept place is the latest message again: a relaunch opens there.
+    if (onAnchor) {
+      clearTimeout(anchorTimer.current);
+      anchorTimer.current = setTimeout(reportAnchor, SCROLL_ANCHOR_SETTLE_MS);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new send moves the view
+  }, [sends]);
   /// The older-history check (below), which every scroll event runs too.
   const checkOlderNow = useRef<() => void>(() => {});
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
@@ -3051,11 +2986,10 @@ export function VirtualTranscript({
     const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
     for (const name of inputs) node?.addEventListener(name, reader, { passive: true });
     // A click on a disclosure line holds it where it is (foldAnchor.ts), before the row's own handler
-    // opens it. A glide in flight lands first, so the line is held where it rests.
+    // opens it.
     const holdClicked = (event: MouseEvent) => {
       const toggle = node ? foldToggleAt(event.target, node) : undefined;
       if (!toggle) return;
-      for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
       foldAnchor.current = holdFold(toggle);
     };
     // The reader scrolling lets go of it.
@@ -5028,6 +4962,8 @@ function AcpmuxPane() {
   const pendingWake = useRef<ComposerWake | undefined>(undefined);
   /// Where the shown transcript rests now (VirtualTranscript `anchorNow`).
   const transcriptAnchor = useRef<(() => ScrollAnchor | null | undefined) | undefined>(undefined);
+  /// Prompts sent from this pane (every `chat.send`): each puts the transcript at its latest message.
+  const [sends, setSends] = useState(0);
   const composerRef = useCallback((handle: ComposerHandle | null) => {
     composerHandle.current = handle;
     // A composer that goes takes its shell mode with it.
@@ -5681,6 +5617,8 @@ function AcpmuxPane() {
           steer = false,
           promptId?: string,
         ) => {
+          // The reader sent it: the transcript goes to its latest message now, even scrolled up.
+          setSends((count) => count + 1);
           // acpmux holds the prompt while the folder's trust question is open (on session/new
           // or session/prompt): the question shows for the folder acpmux named, and Trust sends
           // the prompt the composer kept. `inComposer`: the composer still holds the prompt (or got it back); else it goes back.
@@ -6824,6 +6762,7 @@ function AcpmuxPane() {
                                                     : undefined
                                                 }
                                                 anchorNow={quick || childRows ? undefined : transcriptAnchor}
+                                                sends={sends}
                                                 onAnchor={
                                                   quick || childRows || !shownSessionId
                                                     ? undefined

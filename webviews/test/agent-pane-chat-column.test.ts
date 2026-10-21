@@ -314,14 +314,6 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       return frames as never;
     });
   };
-  /// The frames whose row moved by more than the glides started with it: a step drawn at once.
-  /// A step under half a pixel does not glide, and a frame can take two (estimate, drawn height).
-  const snapped = (frames: Frame[]) =>
-    frames.flatMap((frame, index) => {
-      const before = frames[index - 1];
-      if (!before || before.placed === null || frame.placed === null) return [];
-      return Math.abs(before.placed - frame.placed - frame.glided) > 1 ? [[before, frame]] : [];
-    });
   /// The frames whose text moved down on screen from the frame before: a jump back.
   const movedDown = (frames: Frame[]) =>
     frames.flatMap((frame, index) =>
@@ -498,11 +490,10 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     }
     await page.getByText("Paragraph 27.", { exact: false }).waitFor();
     const frames = await stop(page);
-    // Each new line glides the text up (acp-streaming.md "Scroll"): never down and back, never
-    // drawn at once, at any frame rate, and the newest line comes to rest where the last one did.
+    // Each new line moves the text up in the frame that draws it (Leo 2026-10-21: at the bottom
+    // "IMMEDIATELY"): never down and back, and the newest line comes to rest where the last one did.
     expect(movedDown(frames)).toEqual([]);
     expect(backwards(frames)).toEqual([]);
-    expect(snapped(frames)).toEqual([]);
     // The view comes to rest where it started; the last frames read show where it was going.
     const rest = await restingLastLine(page);
     expect({
