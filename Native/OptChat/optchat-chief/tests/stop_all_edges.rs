@@ -13,6 +13,7 @@ use common::*;
 use optchat_chief::brain::Input;
 use optchat_chief::state::{SubRecord, SubStatus};
 use optchat_chief::subagents::{Spawner, SubagentSettings};
+use optchat_chief::tools::{ControlCall, Orchestrator};
 use serde_json::{Value, json};
 
 fn spawner(h: &Harness) -> Arc<Spawner> {
@@ -97,6 +98,20 @@ fn a1_starting(h: &mut Harness) -> std::thread::JoinHandle<Result<String, String
     let a1 = sub(h, "a1");
     assert_eq!(a1.status, SubStatus::Starting);
     assert!(a1.session_id.is_none(), "no session yet");
+    worker
+}
+
+/// a1's spawn has its session (the brain saw it) and its task is not sent
+/// yet: the brain has not seen its first prompt go out.
+fn a1_before_its_task(h: &mut Harness) -> std::thread::JoinHandle<Result<String, String>> {
+    let worker = a1_starting(h);
+    while sub(h, "a1").session_id.is_none() {
+        let input =
+            h.rx.recv_timeout(Duration::from_secs(5))
+                .expect("a1's session starts");
+        h.brain.step(input);
+    }
+    assert!(sub(h, "a1").awaiting_task, "its task is not sent yet");
     worker
 }
 
@@ -215,4 +230,67 @@ fn restart_of_a_subagent_stopped_while_starting_lets_it_start() {
         .filter(|s| s.tags.contains_key("optchat.subagent"))
         .count();
     assert_eq!(sessions, 1, "a1 started once");
+}
+
+/// What a1 was told stays with it when acpmux refuses its cancel: here the
+/// message an earlier interrupt left for after its turn (`after_stop`).
+#[test]
+fn a_refused_cancel_on_stop_all_keeps_what_the_subagent_was_told() {
+    let mut h = Harness::new(default_script());
+    a1_at_work(&mut h);
+    // The interrupt's cancel reaches nothing: a1's turn goes on, its
+    // message waits for that turn's end.
+    h.agents.inner.lock().unwrap().ignore_cancels = 1;
+    let a = spawner(&h);
+    let interrupted = pump(
+        &mut h,
+        std::thread::spawn(move || {
+            a.control(ControlCall {
+                action: "interrupt".into(),
+                id: Some("a1".into()),
+                message: Some("use the staging branch".into()),
+                ..ControlCall::default()
+            })
+        }),
+    )
+    .unwrap();
+    assert!(interrupted.starts_with("outcome: done."), "{interrupted}");
+    let told = sub(&h, "a1").after_stop.expect("a1's message waits");
+    h.agents
+        .inner
+        .lock()
+        .unwrap()
+        .cancel_errors_once
+        .push_back("acpmux: the turn is busy".into());
+
+    let answer = stop_all(&mut h);
+    assert_eq!(answer["subagents"], json!([]), "{answer}");
+    assert_eq!(sub(&h, "a1").after_stop, Some(told), "a1 keeps its message");
+}
+
+/// Restart after a1 was stopped between its session and its task: it just
+/// goes on as its task is sent. No second cancel cuts its task turn, and
+/// no "continue" waits for that turn's end.
+#[test]
+fn restart_of_a_subagent_stopped_before_its_task_sends_no_cancel() {
+    let mut h = Harness::new(default_script());
+    let worker = a1_before_its_task(&mut h);
+    // No turn yet: the stop's cancel reaches nothing.
+    h.agents.inner.lock().unwrap().ignore_cancels = 1;
+    let stopped = stop_all(&mut h);
+    assert_eq!(stopped["subagents"], json!(["a1"]), "{stopped}");
+    let cancels = h.agents.inner.lock().unwrap().cancels.len();
+
+    let answer = restart(&mut h, &["a1"]);
+    assert_eq!(answer["restarted"], json!(["a1"]), "{answer}");
+    assert!(pump(&mut h, worker).unwrap().contains("Started a1"));
+    let a1 = sub(&h, "a1");
+    assert!(!a1.cancelled);
+    assert!(a1.after_stop.is_none(), "nothing waits to cut its task");
+    assert_eq!(a1.status, SubStatus::Running);
+    assert_eq!(
+        h.agents.inner.lock().unwrap().cancels.len(),
+        cancels,
+        "no cancel after the stop's own"
+    );
 }

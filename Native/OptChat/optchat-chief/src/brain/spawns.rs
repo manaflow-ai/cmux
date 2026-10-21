@@ -1611,6 +1611,7 @@ impl Brain {
             .collect();
         for id in held {
             self.sub_prompted(&id);
+            self.stop_if_cancelled(&id);
         }
         let open: Vec<(String, Option<String>)> = self
             .state
@@ -1782,10 +1783,8 @@ impl Brain {
         (self.log)(&format!("the owner stopped subagent {name}"));
         self.save();
         self.start_queued();
-        let note = match starting_note(&starting) {
-            Some(note) => note,
-            None => format!("Stopped by the user: {}.", stopped.join(", ")),
-        };
+        let note = starting_note(&starting)
+            .unwrap_or_else(|| format!("Stopped by the user: {}.", stopped.join(", ")));
         json!({"stopped": true, "subagents": stopped, "note": note})
     }
 
@@ -1832,10 +1831,13 @@ impl Brain {
                 errors.push(format!("{name} is not stopped"));
                 continue;
             }
+            let still_starting = (sub.status == SubStatus::Starting && sub.session_id.is_none())
+                || (sub.session_id.is_some() && sub.awaiting_task);
             let result = match (sub.status, sub.session_id.is_some()) {
-                // Stopped while it was starting (no session yet): it just
-                // goes on as it starts; queued again it would start twice.
-                (SubStatus::Starting, false) => {
+                // Stopped while it was starting (no session, or its task not
+                // sent yet): it just goes on as it starts. Queued again it
+                // would start twice; a cancel now would cut its task turn.
+                _ if still_starting => {
                     if let Some(s) = self.state.sub_mut(name) {
                         s.cancelled = false;
                         s.paused = false;
@@ -1964,6 +1966,11 @@ impl Brain {
                     );
                 }
                 (_, Some(session)) => {
+                    // Its task is not sent yet: the cancel may land before
+                    // its turn does, so it is stopped again as it starts.
+                    if self.state.sub(&id).is_some_and(|(_, s)| s.awaiting_task) {
+                        starting.push(id.clone());
+                    }
                     if let Err(e) = self.agents.cancel(&session) {
                         (self.log)(&format!("subagent {id}: stopping it: {e}"));
                         // Not stopped: it stays as it was.
@@ -1973,6 +1980,7 @@ impl Brain {
                             s.after_stop = after_stop;
                             s.inbox = inbox;
                         }
+                        starting.retain(|s| s != &id);
                         errors.push(format!("{id}: its turn did not stop: {e}"));
                         continue;
                     }
@@ -2004,7 +2012,9 @@ impl Brain {
     }
 
     /// A subagent cancelled while it was starting has its first prompt
-    /// sent now: its turn is cancelled at once, never left to run its task.
+    /// sent now: its turn is cancelled at once. (acpmux may take the
+    /// prompt after this cancel; then the turn runs, held as cancelled,
+    /// as before this stop existed.)
     pub(super) fn stop_if_cancelled(&mut self, id: &str) {
         let Some(session) = self
             .state
