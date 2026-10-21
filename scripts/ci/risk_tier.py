@@ -92,6 +92,19 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "services/iroh-relay-minter/*", "web/services/relay/*", "daemon/remote/cmd/cmuxd-remote/*peer*",
         r"re:(?i)relay[-_]?(command[-_]?)?polic", r"re:(?i)(socket|control)[-_]?(access|auth)",
     )),
+    # What an agent pane's web page may make the host do or read: the page ops (AgentPageOps), the
+    # _acpmux methods and params it may relay, the frame check, the folder policy, the Rust mirror,
+    # acpmux's guard on non-local connections, and host ops that open their own daemon connection
+    # for a page. #22646's chat.asks.pending graded normal here and reached a peer daemon until
+    # review caught it. A new op edits AgentPageProvider.swift's list. Pane UI stays normal.
+    ("high", "agent pane host op or allowlist", (
+        NEXT + "CmuxNextAgentPane/AgentPageProvider.swift", NEXT + "CmuxNextAgentPane/AcpmuxPaneMethods*.swift",
+        NEXT + "CmuxNextAgentPane/AgentPaneEnvironmentRequest.swift",
+        NEXT + "CmuxNextAgentPane/AgentPaneReplyRequest.swift",
+        NEXT + "CmuxNextAgentPane/AgentPaneTransport+Check.swift", NEXT + "CmuxNextAgentPane/AcpmuxPathPolicy.swift",
+        NEXT + "CmuxNextAgentPane/AgentPanePendingAsks.swift",
+        "cmux-tui/crates/cmux-agent-pane-policy/*", "cmux-tui/crates/acpmux/src/server/remote_guard*",
+    )),
     # Stored data other builds read back: a bad migration loses user data on every machine that
     # runs it, and a revert doesn't bring the data back.
     ("high", "stored-data migration", (
