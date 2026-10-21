@@ -11,7 +11,7 @@ public nonisolated struct MainPaneLayout {
     /// Debug Settings' override of `layout.mainPane`.
     public static let debugOverride = Tunable<MainPaneOverride>.choice(
         "panes.mainPane", .panes, "Main pane layout",
-        help: "An agent chat is its screen's main pane: what it opens (links, files, subagents, side chats) is a tab in the column on its right. "Follow the setting" uses layout.mainPane in cmux.json; On and Off override it.",
+        help: "An agent chat is its screen's main pane: what it opens (links, files, subagents, side chats) is a tab in the column on its right. \"Follow the setting\" uses layout.mainPane in cmux.json; On and Off override it.",
         default: .setting, code: "MainPaneLayout.debugOverride")
 
     /// Whether main pane layout is on: the Debug override, else the setting (`agentChats`).
