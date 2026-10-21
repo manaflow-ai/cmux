@@ -54,7 +54,7 @@ extension SidebarBridge {
             model.apply(intent)
             services.windows.show(workspaceID: id.rawValue, in: state)
         case let .selectTab(_, tab):
-            _ = services.revealTab(tab.rawValue)
+            _ = SidebarSubsessionRowID(tab).map { AgentSessionTabOpener.openSubsession($0, services: services) } ?? services.revealTab(tab.rawValue)
         case .moveTab:
             // Tab drags are committed by TabDragSession. Keep this intent
             // conservative until a sidebar-only tab move has a daemon

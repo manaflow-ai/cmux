@@ -21,6 +21,10 @@ final class SidebarListView: NSView {
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var tabs: [TabID: SidebarTab] = [:]
+    /// The rows nested under agent chat tabs (their sub-sessions), by row id; and the window's
+    /// choice of which tabs show them (``SidebarSubsessionRow``): client view state.
+    var subsessionRows: [TabID: SidebarSubsessionRow] = [:]
+    var subsessionExpansion: [TabID: Bool] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
     var sections: [SectionID: SidebarSection] = [:]
     /// The sections the list draws in their own arrangement (tiles, a grid, a line, item rows) on the sidebar document.

@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextDaemon
 
 /// The chat header and right-click menu (``AgentChatTabActions``), its toggling quick actions
@@ -46,7 +47,7 @@ extension AgentTabStore {
             else { toggles.open(id, cwd: nil, url: url, chat: chat, store: store, actions: actions) }
         }, saveQuickActions: { [weak self] list in
             await self?.customization.saveQuickActions(list) ?? false
-        }, moveToFloatingChat: { [weak self] session in actions.moveToFloatingChat(session, via: self?.moveToFloatingChat) }, refreshPullRequest: pullRequest.askAgain)
+        }, moveToFloatingChat: { [weak self] session in actions.moveToFloatingChat(session, via: self?.moveToFloatingChat) }, refreshPullRequest: pullRequest.askAgain, openSession: { [weak self] _, session in guard let self else { return false }; return AgentSessionTabOpener(tabs: self).open(session, beside: provisional, focus: true) }, isFamily: { AgentTurnStateStore.shared.isFamily($1, of: $0) })
         model.chatMenuItems = actions.menuItems
         model.onSearchWeb = actions.searchWeb
     }

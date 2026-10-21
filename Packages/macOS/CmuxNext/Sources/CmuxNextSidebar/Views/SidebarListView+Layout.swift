@@ -16,6 +16,7 @@ extension SidebarListViewComponents {
         if !holdsRowPatches { rowHold = SidebarRowHold() }
         workspaces = [:]
         tabs = [:]
+        subsessionRows = [:]
         groups = [:]
         sections = [:]
         listItems = [:]
@@ -32,7 +33,10 @@ extension SidebarListViewComponents {
                 }
             }
         }
-        for workspace in workspaces.values { for tab in workspace.tabs { tabs[tab.id] = tab } }
+        for workspace in workspaces.values {
+            for tab in workspace.tabs { tabs[tab.id] = tab }
+            subsessionRows.merge(SidebarSubsessionRow.contents(workspace, overrides: subsessionExpansion)) { $1 }
+        }
         if let drag, !drag.isValid(in: model) { cancelDrag() }
         // The rows changed under a held drag (a batch, an adopt, a close): its hit geometry is rebuilt at the next move.
         if let drag, drag.geometryRevision != model.sectionsRevision { drag.docGeometry = nil }
@@ -56,6 +60,7 @@ extension SidebarListViewComponents {
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = model.listOptions()
         o.showsSoleMachineHeader = true
+        o.subsessionExpansion = subsessionExpansion
         o.excludedWorkspaces.formUnion(leaving)
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
@@ -239,6 +244,7 @@ extension SidebarListViewComponents {
             view.region.activeItem = activeTopItem
             if springsRows, animated { view.springShow(content, width: bounds.width) } else { view.show(content, width: bounds.width, animated: animated) }
         case let (.tab(_, tabID), view as SidebarTabRowView):
+            if let nested = subsessionRows[tabID] { return view.configure(nested, row: row) }
             guard let tab = tabs[tabID] else { return }
             view.configure(tab, row: row)
         case let (.group(id), view as GroupHeaderRowView):

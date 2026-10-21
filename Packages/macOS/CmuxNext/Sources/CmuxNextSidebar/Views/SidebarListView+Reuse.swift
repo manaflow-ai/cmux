@@ -39,7 +39,7 @@ extension SidebarListViewComponents {
             }
         case let (.tab(workspaceID, tabID), view as SidebarTabRowView):
             view.onSelect = { [weak self] in
-                self?.model.send(.selectTab(workspace: workspaceID, tab: tabID))
+                self?.activateTabRow(workspaceID, tabID)
             }
         case let (.group(id), view as GroupHeaderRowView):
             view.onMore = { [weak self] in self?.groupEditing.showMenu(id) } // VoiceOver's full menu; the chip and more button edit

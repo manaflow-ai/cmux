@@ -285,6 +285,17 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 continue
             }
 
+            // A workspace's tab rows (`showWorkspaceTabs`) and its chats' nested sub-sessions (SidebarSubsessionRow).
+            func emitTabs(_ ws: SidebarWorkspace, group: GroupID?, siblingIndex: Int, parentIndex: Int?, groupColor: GroupColor?) {
+                let hidden = o.showWorkspaceTabs && !listsTabs(ws)
+                for entry in SidebarSubsessionRow.entries(ws, listsTabs: listsTabs(ws), nests: !hidden && !o.minimal, overrides: o.subsessionExpansion) {
+                    rows.append(SidebarRow(key: .tab(ws.id, entry.id), y: y, height: m.tabRowHeight, section: section.id, group: group, workspace: ws.id,
+                                           siblingIndex: siblingIndex, parentIndex: parentIndex, isLastInGroup: false, isCollapsed: false,
+                                           childCount: 0, groupColor: groupColor, tabKind: entry.kind))
+                    y += m.tabRowHeight + m.rowSpacing
+                }
+            }
+
             // One node at its model index (drops resolve by it, whatever the drawn order).
             func emit(_ index: Int, _ entry: (node: SidebarNode, children: [SidebarWorkspace])) {
                 openGapIfNeeded(section: section.id, group: nil, index: index)
@@ -299,17 +310,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         tabDisclosure: disclosure(ws), content: content
                     ))
                     y += h + m.rowSpacing
-                    if listsTabs(ws) {
-                        for tab in ws.tabs {
-                            rows.append(SidebarRow(
-                                key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section.id,
-                                group: nil, workspace: ws.id, siblingIndex: 0, parentIndex: nil,
-                                isLastInGroup: false, isCollapsed: false, childCount: 0,
-                                groupColor: nil, tabKind: tab.kind
-                            ))
-                            y += m.tabRowHeight + m.rowSpacing
-                        }
-                    }
+                    emitTabs(ws, group: nil, siblingIndex: 0, parentIndex: nil, groupColor: nil)
                 case let .item(item):
                     let content = WorkspaceRowContent() // one line, as a compact workspace row
                     let h = m.height(for: content)
@@ -385,17 +386,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             tabDisclosure: disclosure(ws), content: content
                         ))
                         y += h + m.rowSpacing
-                        if listsTabs(ws) {
-                            for tab in ws.tabs {
-                                rows.append(SidebarRow(
-                                    key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section.id,
-                                    group: group.id, workspace: ws.id, siblingIndex: childIndex, parentIndex: index,
-                                    isLastInGroup: false, isCollapsed: false, childCount: 0,
-                                    groupColor: group.color, tabKind: tab.kind
-                                ))
-                                y += m.tabRowHeight + m.rowSpacing
-                            }
-                        }
+                        emitTabs(ws, group: group.id, siblingIndex: childIndex, parentIndex: index, groupColor: group.color)
                     }
                     openGapIfNeeded(section: section.id, group: group.id, index: members.count)
                     y += m.groupBottomPadding

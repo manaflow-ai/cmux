@@ -230,6 +230,8 @@ public final class AgentTurnStateStore {
         var generatedTitle: String?
         /// The model and running turn (`AgentChatDetail`), for the hover card.
         var detail: AgentChatDetail?
+        /// What acpmux says of it as a sub-session (its parent, short name, queue); nil for a root.
+        var subsession: AgentSubsessionFacts?
         /// The chat's recent prompts, waits and finished turns (u3320), read when a hover card
         /// opens; not observed (a new moment redraws nothing).
         @ObservationIgnored var timeline = AgentTimeline()
@@ -243,6 +245,11 @@ public final class AgentTurnStateStore {
 
     /// The records by session id; not observed itself (a reader observes the record it reads).
     @ObservationIgnored var sessions: [String: Session] = [:]
+    /// Parent session id -> its sub-sessions' ids (``AgentSubsessionFacts/startedBy``), kept with
+    /// each record's `subsession`; a reader observes ``familyRevision``.
+    @ObservationIgnored var children: [String: Set<String>] = [:]
+    /// Bumped when a sub-session appears, goes, or moves to another parent.
+    public internal(set) var familyRevision: UInt64 = 0
     /// Bumped by every turn state change of any session: for a reader that
     /// follows all of them (one read, no walk).
     public private(set) var stateRevision: UInt64 = 0

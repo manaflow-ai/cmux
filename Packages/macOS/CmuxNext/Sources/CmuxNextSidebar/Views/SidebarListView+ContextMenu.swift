@@ -21,6 +21,9 @@ extension SidebarListViewComponents {
             target = .group(id)
         case let .section(id)?, let .emptySection(id)?, let .folder(id, _)?:
             target = .section(id)
+        case let .tab(_, tab)? where SidebarSubsessionRowID(tab) != nil:
+            // A nested sub-session row is no tab: no tab menu acts on it.
+            target = .background
         case let .tab(workspace, tab)?:
             target = .tab(workspace, tab)
         case let .item(item)?:

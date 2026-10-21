@@ -288,8 +288,8 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette], cliName: "agent grant-screen-recording-access"
             ),
             // The Home Chief's subagents (optchat-chief spawn) and scripts
-            // (`cmux agent open SESSION`): a workspace whose tab is an existing
-            // acpmux session's chat.
+            // (`cmux agent open SESSION`): the tab that shows an existing acpmux
+            // session's chat, else a new workspace whose only tab is it.
             ActionDescriptor(
                 id: "agent.openSessionWorkspace",
                 title: String(localized: "action.agent.openSessionWorkspace", defaultValue: "Open Agent Session in New Workspace", bundle: .module),
@@ -308,7 +308,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                                    kind: .string, isRequired: false),
                 ],
                 cliName: "agent open",
-                // It starts the workspace's terminal: action.run waits the
+                // It makes a workspace and its chat tab: action.run waits the
                 // terminal start deadline, not 2 s, so the caller's run ends
                 // once the workspace exists (it renames it later by key).
                 startsTerminal: true,

@@ -16,6 +16,7 @@ extension ChatsFeed {
         AgentTurnStateFeed.drained = { DebugTimings.turnStatesApplied(lines: $0, $1) }
         turns.start(localHost: (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:)))
         startChiefTurnStates(tag: services.environment.tag)
+        AgentSubsessionAutoOpen.start(tabs: services.agentTabs)
         return ChatsFeed(socketPath: environment.socketPath)
     }
 

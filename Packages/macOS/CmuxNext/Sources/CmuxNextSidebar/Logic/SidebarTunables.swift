@@ -98,6 +98,13 @@ public nonisolated enum SidebarTunables {
         help: "Prototype for a late workspace or agent-chat title: instant, crossfade, or a short upward lift in the existing title slot.",
         default: .instant, code: "SidebarTunables.workspaceTitleMotion")
 
+    /// A chat's sub-sessions (sessions its agent started) listed nested under its tab, or its
+    /// workspace's row when tabs are not listed (SidebarSubsessionRow). On by default; off lists none.
+    public static let subsessionNesting = Tunable<Bool>.toggle(
+        "sidebar.subsessionNesting", .sidebar, "Nest sub-sessions",
+        help: "Lists each agent chat's sub-sessions under its tab with their state, unread and queued prompts; a header opens and closes the list.",
+        default: true, code: "SidebarTunables.subsessionNesting")
+
     /// Every sidebar tunable, one per line in alphabetical order, so two pull requests that each add
     /// one insert different lines and merge cleanly (#21946). Debug Settings lists them in this order.
     public static var all: [TunableDescriptor] {
@@ -114,6 +121,7 @@ public nonisolated enum SidebarTunables {
             SidebarChatsDesign.tunable.descriptor,
             SidebarRowBadgeStackCap.tunable.descriptor,
             SidebarRowBadgeStyle.tunable.descriptor,
+            subsessionNesting.descriptor,
             updateCardButton.descriptor,
             workspaceOntoEnd.descriptor,
             workspaceOntoStart.descriptor,

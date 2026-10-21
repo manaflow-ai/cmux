@@ -120,6 +120,11 @@ extension SidebarListView {
                 tabs[tab.id] = tab
                 changedTabs.append(tab.id)
             }
+            // A sub-session's state, title or queue nested under a chat tab (SidebarSubsessionRow).
+            for (id, nested) in SidebarSubsessionRow.contents(ws, overrides: subsessionExpansion) where subsessionRows[id] != nested {
+                subsessionRows[id] = nested
+                changedTabs.append(id)
+            }
             for path in model.rowIndex?.paths(of: ws.id) ?? [] {
                 let section = model.sections[path.section]
                 sections[section.id] = section

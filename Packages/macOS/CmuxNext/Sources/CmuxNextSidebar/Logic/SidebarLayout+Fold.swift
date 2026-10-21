@@ -7,7 +7,7 @@ nonisolated extension SidebarLayout {
     /// A fold is view state the sidebar owns (plans/cmux-next/state-ownership-DESIGN.md), so it never
     /// waits for the daemon and never lays the whole list out: its cost is the group's rows, not the
     /// list's. Nil when the fold cannot be spliced and the list must be laid out again: a filter, a
-    /// drag gap or excluded item, Group by Folder, inline tabs, or a group this layout does not draw.
+    /// drag gap or excluded item, Group by Folder, inline tabs or sub-sessions, or a group this layout does not draw.
     ///
     /// - Parameters:
     ///   - group: The group as the model holds it (its members; `isCollapsed` is ignored).
@@ -26,7 +26,7 @@ nonisolated extension SidebarLayout {
     mutating func fold(_ group: SidebarGroup, collapsed: Bool, in section: SidebarSection, metrics base: SidebarLayoutMetrics,
                        options o: SidebarLayoutOptions) -> Bool {
         guard o.filterMatches == nil, o.gap == nil, gapY == nil, o.excludedGroup == nil, o.excludedItem == nil,
-              !o.showWorkspaceTabs, !o.groupsByFolder, !o.hidesWorkspaces,
+              !o.showWorkspaceTabs, !o.groupsByFolder, !o.hidesWorkspaces, !group.workspaces.contains(where: SidebarSubsessionRow.nests),
               let headerIndex = position(of: .group(group.id)) else { return false }
         // A nested group or a group holding subgroups (remote-groups-DESIGN.md slice 2): its block holds other groups'
         // rows, so the full layout places them.

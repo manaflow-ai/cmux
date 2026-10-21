@@ -38,6 +38,12 @@ public struct AgentPaneHeaderHooks {
     /// Asks for the chat folder's pull request again (`pane.tabState {refresh: true}` at a turn's
     /// end, cx-ncc.77.1); the answer is pushed with the header state.
     public var refreshPullRequest: (@MainActor () -> Void)?
+    /// Opens acpmux session `session` of chat `chat`'s family as a tab beside the chat, reusing a
+    /// tab that shows it already, focused (the app's shared session-tab opener); false when none.
+    public var openSession: @MainActor (_ chat: String, _ session: String) -> Bool
+    /// Whether `session` is of chat `chat`'s family: a sub-session it started at any depth, or the
+    /// session that started it (the app's acpmux sub-session tree).
+    public var isFamily: @MainActor (_ chat: String, _ session: String) -> Bool
 
     public init(run: @escaping @MainActor (String, String?) -> Void,
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
@@ -51,7 +57,9 @@ public struct AgentPaneHeaderHooks {
                 preview: @escaping @MainActor (String?, Bool) -> Void = { _, _ in },
                 saveQuickActions: (@MainActor ([AgentPaneQuickAction]) async -> Bool)? = nil,
                 moveToFloatingChat: (@MainActor (String) -> Bool)? = nil,
-                refreshPullRequest: (@MainActor () -> Void)? = nil) {
+                refreshPullRequest: (@MainActor () -> Void)? = nil,
+                openSession: @escaping @MainActor (String, String) -> Bool = { _, _ in false },
+                isFamily: @escaping @MainActor (String, String) -> Bool = { _, _ in false }) {
         self.run = run
         self.toggle = toggle ?? run
         self.tabState = tabState
@@ -65,6 +73,8 @@ public struct AgentPaneHeaderHooks {
         self.saveQuickActions = saveQuickActions ?? { _ in false }
         self.moveToFloatingChat = moveToFloatingChat
         self.refreshPullRequest = refreshPullRequest
+        self.openSession = openSession
+        self.isFamily = isFamily
     }
 
     /// The header's state (`pane.tabState`); `refresh` first asks for the pull request again.
@@ -154,11 +164,12 @@ extension AgentPaneModel {
             // Only a chat this pane made (its fork's or handoff start's reply put it in the pane's
             // scope), never the chat itself, and not from a New Tab page. A refusal (another
             // machine's pane, no daemon) answers so: the page then opens the chat in this tab.
-            guard let sessionId, newTab == nil, chat != sessionId, transport.sessions.contains(chat), let header,
-                  header.openTab(chat) else {
+            guard let sessionId, newTab == nil, chat != sessionId, let header, transport.sessions.contains(chat) ? header.openTab(chat)
+                    : header.isFamily(sessionId, chat) && header.openSession(sessionId, chat) else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.openTab")
             }
             return AgentPaneReply.success()
+        case .offerOpen(let session): return AgentPaneOfferOpen.respond(session, in: self)
         case .newChatHere(let cwd):
             guard sessionId != nil, newTab == nil, let header, header.newChat(cwd) else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.newHere")

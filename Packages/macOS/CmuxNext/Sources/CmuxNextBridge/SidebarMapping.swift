@@ -160,9 +160,9 @@ public struct SidebarMapping {
             tabs: tabs.map { tab in
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
                 let title = tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle)
-                return SidebarTab(id: TabID(tab.id), title: title,
-                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
-                                  brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon)
+                return withSubsessions(of: tab, SidebarTab(id: TabID(tab.id), title: title,
+                                        kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
+                                        brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon))
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`).

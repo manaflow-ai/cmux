@@ -417,7 +417,7 @@ public final class SidebarModel {
     /// A content change that changes which rows the list draws.
     private static func movesRows(from old: SidebarWorkspace, to new: SidebarWorkspace, groupsByFolder: Bool, listsTabs: Bool) -> Bool {
         if groupsByFolder && old.folder != new.folder { return true }
-        return listsTabs && !old.tabs.elementsEqual(new.tabs) { $0.id == $1.id && $0.kind == $1.kind }
+        return (listsTabs && !old.tabs.elementsEqual(new.tabs) { $0.id == $1.id && $0.kind == $1.kind }) || SidebarSubsessionRow.shape(old) != SidebarSubsessionRow.shape(new)
     }
 
     /// Whether these sections list workspace `id`: O(1) through `rowIndex`

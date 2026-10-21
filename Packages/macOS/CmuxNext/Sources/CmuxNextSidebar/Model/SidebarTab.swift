@@ -37,6 +37,9 @@ public nonisolated struct SidebarTab: Identifiable, Hashable, Sendable {
     public var brand: String?
     /// A browser tab's page favicon, drawn as is in the kind icon's place (cx-d0d.8).
     public var favicon: SidebarFavicon?
+    /// An agent chat tab's sub-sessions (sessions its agent started, at any depth), nested under
+    /// it in the sidebar (``SidebarSubsessionRow``); empty for any other tab.
+    public var subsessions: [SidebarSubsession] = []
 
     public init(id: TabID, title: String, kind: SidebarTabKind = .terminal, isUnread: Bool = false, brand: String? = nil,
                 favicon: SidebarFavicon? = nil) {

@@ -87,6 +87,12 @@ enum Strings {
     static var unpinWorkspace: String { String(localized: "sidebar.a11y.unpinWorkspace", defaultValue: "Unpin workspace", bundle: .module) }
     /// The workspace row's more button (cx-a9h6): its menu.
     static var workspaceMenu: String { String(localized: "sidebar.a11y.workspaceMenu", defaultValue: "Workspace options", bundle: .module) }
+    /// The header over an agent chat tab's nested sub-sessions (SidebarSubsessionRow).
+    static var subsessions: String { String(localized: "sidebar.subsessions.header", defaultValue: "Sub-sessions", bundle: .module) }
+    /// A nested sub-session's prompts waiting behind its running turn.
+    static func subsessionQueued(_ value: Int) -> String {
+        String(localized: "sidebar.subsessions.queued", defaultValue: "\(value) queued", bundle: .module)
+    }
     static func groupCount(_ value: Int) -> String { String(localized: "sidebar.a11y.groupCount", defaultValue: "\(value) workspaces", bundle: .module) }
     static var sidebarLabel: String { String(localized: "sidebar.a11y.sidebar", defaultValue: "Workspaces", bundle: .module) }
     static var newProfileName: String { String(localized: "sidebar.room.newName", defaultValue: "New Space", bundle: .module) }

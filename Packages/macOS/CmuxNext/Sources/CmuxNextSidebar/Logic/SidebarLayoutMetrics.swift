@@ -107,6 +107,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var showWorkspaceTabs = false
     /// With `showWorkspaceTabs`, the workspaces whose disclosure hid their tabs.
     public var collapsedWorkspaces: Set<WorkspaceID> = []
+    /// The window's choice of which agent chat tabs show their nested sub-sessions, by tab
+    /// (``SidebarSubsessionRow``); a tab not listed opens while one of them works or waits.
+    public var subsessionExpansion: [TabID: Bool] = [:]
     /// Keep the active workspace visible beneath a collapsed group so the
     /// current destination remains anchored while the other members fold away.
     public var activeWorkspaceID: WorkspaceID?

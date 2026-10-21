@@ -119,4 +119,12 @@ mod session_arg {
             "{params}"
         );
     }
+
+    #[test]
+    fn agent_open_tab_opens_a_session_beside_its_parent_chat() {
+        let params = action_run_params(&["agent", "open-tab", "sub-1", "--beside", "parent-1"]);
+        assert_eq!(params["action"], "agent open-tab", "{params}");
+        assert_eq!(params["cli"], true, "{params}");
+        assert_eq!(params["args"], json!({"session": "sub-1", "beside": "parent-1"}), "{params}");
+    }
 }

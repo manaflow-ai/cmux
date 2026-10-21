@@ -3,19 +3,24 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
-/// `agent.openSessionWorkspace`: a new workspace whose selected tab is the
-/// agent chat of an EXISTING acpmux session. The Home Chief runs each
-/// subagent it spawns this way (optchat-chief `spawn`), so the user sees
-/// every subagent in the sidebar, watches its chat and tool calls, and can
-/// write to it. The workspace gets a terminal in `cwd` first (a daemon
-/// workspace needs a daemon tab), then the agent tab on `session`, which is
-/// selected in every window. Nothing takes focus or switches workspaces.
-/// Closing the tab or the workspace only detaches from the session; the
-/// session ends only when someone ends it.
+/// `agent.openSessionWorkspace`: shows the agent chat of an EXISTING acpmux
+/// session. The Home Chief runs each subagent it spawns this way
+/// (optchat-chief `spawn`), so the user sees every subagent in the sidebar,
+/// watches its chat and tool calls, and can write to it.
+///
+/// A tab that shows the session already is reused (``AgentSessionWorkspacePlan``):
+/// it is selected in its pane, and shown and focused only when the run may
+/// change the view (a person's run, or `focus`). Else a new workspace opens
+/// whose only tab is the session's chat, with no terminal: the workspace and
+/// its chat tab are one creation, and a failed tab closes the half-made
+/// workspace (`WorkspaceCreation.createWithFirstTab`). Nothing else takes
+/// focus or switches workspaces. Closing the tab or the workspace only
+/// detaches from the session; the session ends only when someone ends it.
 ///
 /// Arguments: `session` (required, the acpmux session id), `name` (the
 /// workspace name), `key` (a caller-chosen workspace key, a lowercase UUID,
-/// so the caller can rename the workspace later), `cwd` (the terminal's), `host`
+/// so the caller can rename the workspace later), `cwd` (kept for older
+/// callers; the chat runs in its session's own directory), `host`
 /// (`chief:<home id>`: the session runs in this app's Chief home's acpmux).
 enum AgentSessionWorkspace {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
@@ -33,22 +38,31 @@ enum AgentSessionWorkspace {
         let cwd = invocation["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
         let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, services: context.services)
+        let task = try open(session: session, name: name, key: key, cwd: cwd, host: host,
+                            focus: invocation.allowsViewChange, services: context.services)
         context.services.registry.track(task)
     }
 
-    /// Starts the new workspace for `session` (see the type) and returns its
-    /// work. Start Agent's Return (cx-hkat) puts its started chat in the
-    /// sidebar this way too. Throws when this build has no agent page or the
-    /// daemon is offline.
+    /// Shows `session` (see the type) and returns the work. Start Agent's
+    /// Return (cx-hkat) puts its started chat in the sidebar this way too.
+    /// Throws when this build has no agent page, the daemon is offline, or
+    /// `host` names no host of this app.
     @discardableResult
     static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
-                     services: AppServices) throws -> ActionWork {
-        guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
+                     focus: Bool = false, services: AppServices) throws -> ActionWork {
+        let tabs = services.agentTabs
+        guard tabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
+        if case .reveal(let tab) = AgentSessionWorkspacePlan.choose(existing: tabs.tab(showing: session, host: host)) {
+            reveal(tab, focus: focus, services: services)
+            return Task { nil }
+        }
         let daemon = services.daemon
-        guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
+        guard let connection = daemon.connection, let localHost = tabs.localHost, case let repair = services.emptyWorkspaces else {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
         }
+        // A Chief subagent's tab names this app's Chief home (`chief:<home id>`); no other host.
+        if let host, host != tabs.chiefHost { throw ActionFailure(message: RefusalStrings.agentTabCreateFailed) }
+        _ = cwd
         let logger = daemon.logger
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
         // workspace the window shows, when it is in one (cx-caoh). A caller's
@@ -57,26 +71,18 @@ enum AgentSessionWorkspace {
         if services.machines.workspace(id: key.rawValue) == nil {
             NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)
         }
+        let record = AgentSessionRef(host: host ?? localHost, hostName: tabs.localHostName, session: session)
         return Task { @MainActor in
             do {
-                _ = try await WorkspaceCreation.create(key, name: name, on: connection, repair: repair) { workspace in
-                    try await connection.createTerminal(in: workspace, cwd: cwd)
+                // The workspace's one tab: a workspace store tab bound to the session
+                // (agent-session-tabs-v1), saved and restored with the workspace like any tab.
+                _ = try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair) { created in
+                    try await connection.request(NewConversationTabRequest(agentSession: record, workspace: created.workspace,
+                                                                           origin: AgentTabStore.createOrigin,
+                                                                           mutationID: UUID().uuidString))
                 }
-                // The workspace's first pane once the store mirrors it, found
-                // by the key chosen here (as CloudHandlers finds its anchor).
-                guard let pane = await mirroredPane(of: key, in: daemon.store) else {
-                    logger.error("agent.openSessionWorkspace: the pane of workspace \(key.rawValue, privacy: .public) did not appear")
-                    return ActionWorkFailure("agent.openSessionWorkspace: the new workspace's pane did not appear")
-                }
-                // A workspace store tab bound to the session (agent-session-tabs-v1),
-                // so it is saved and restored with the workspace like any tab.
-                let pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: host)
-                let created = try await pending.value()
-                // Selected wherever the workspace is shown later, never shown now.
-                for window in services.windows.controllers {
-                    window.state.selection.select(created.key, in: pane.id)
-                }
-                logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(created.key, privacy: .public)")
+                logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in new workspace \(key.rawValue, privacy: .public)")
+                if focus, let tab = await mirroredPane(of: key, in: daemon.store)?.tabs.first { reveal(tab.id, focus: true, services: services) }
                 return nil
             } catch let refusal as AgentTabRefusal {
                 return ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)")
@@ -84,6 +90,19 @@ enum AgentSessionWorkspace {
                 logger.error("agent.openSessionWorkspace failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
             }
+        }
+    }
+
+    /// Tab `tab`: shown and focused with `focus` (`tab.focus`), else only selected in its pane in
+    /// every window, so nothing takes focus or switches workspaces.
+    private static func reveal(_ tab: String, focus: Bool, services: AppServices) {
+        if focus {
+            _ = services.registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .user))
+            return
+        }
+        guard let (model, pane) = services.locateTab(tab) else { return }
+        for window in services.windows.controllers {
+            window.state.selection.select(model.id, in: pane.id)
         }
     }
 

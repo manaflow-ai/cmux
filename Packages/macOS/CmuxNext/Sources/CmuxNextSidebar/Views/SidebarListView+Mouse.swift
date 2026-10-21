@@ -55,8 +55,9 @@ extension SidebarListViewComponents {
             SidebarGroupKeys(list: self).setFocus(group, ring: false)
             // Every click toggles, also fast ones (cx-q5jw): the bar collapses or expands.
         case let .tab(workspace, tab):
-            // Selected at once; the press stays so a drag can take the tab.
-            model.send(.selectTab(workspace: workspace, tab: tab))
+            // Selected at once; the press stays so a drag can take the tab. A nested sub-session
+            // header opens or closes its list instead (`activateTabRow`).
+            activateTabRow(workspace, tab)
         case let .item(item):
             SidebarGroupKeys(list: self).setFocus(nil)
             // An item opens at once, as a workspace row does (`LayoutItemRef.activatesOnPress`); the press can
@@ -74,6 +75,8 @@ extension SidebarListViewComponents {
     override func mouseDragged(with event: NSEvent) {
         guard let press, !press.cancelled else { return }
         if case let .tab(workspace, tab) = press.key {
+            // A nested sub-session row is no tab: nothing to drag.
+            guard SidebarSubsessionRowID(tab) == nil else { return }
             return tabRowDrag.dragged(workspace, tab, press: press, event: event, in: self)
         }
         if drag == nil {
