@@ -135,6 +135,15 @@ nonisolated enum AppearanceSettingsSchema {
                 keywords: ["blur", "vibrancy", "liquid glass", "background-blur", "transparency"]
             ),
             SettingDescriptor(
+                WindowBackgroundSetting.inactiveDimPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.inactiveWindowDim", "Dim Inactive Windows"),
+                help: SettingsText.keyed("settings.appearance.inactiveWindowDim.help",
+                                        "How much more theme color covers a window while another one is in front. 0 keeps the same look."),
+                kind: .number(SettingNumber(WindowBackgroundSetting.inactiveDimRange, step: 0.05, unit: .fraction, placeholder: 0)),
+                default: .number(0),
+                keywords: ["inactive", "unfocused", "focus", "dim", "opacity", "transparency", "background"]
+            ),
+            SettingDescriptor(
                 AppearanceTuningSetting.glassTransparencyPath, section: .appearance, group: tuning,
                 title: SettingsText.keyed("settings.appearance.glassTransparency", "Glass Transparency"),
                 help: SettingsText.keyed("settings.appearance.glassTransparency.help",
