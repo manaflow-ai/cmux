@@ -14,6 +14,7 @@ import Testing
     private nonisolated final class FakeClient: AgentSessionRemoteClient, @unchecked Sendable {
         let parent: String
         let listed: [[String: Any]]
+        let isReadOnly = false
         init(parent: String, children: [[String: Any]]) {
             self.parent = parent
             listed = children

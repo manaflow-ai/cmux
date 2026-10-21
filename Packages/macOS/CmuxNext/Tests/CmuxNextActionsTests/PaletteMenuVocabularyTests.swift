@@ -60,6 +60,27 @@ struct PaletteMenuVocabularyTests {
         }
     }
 
+    /// The same rule outside the Phone family, for the rows the palette audit found wrong. Each of
+    /// the first list has a required argument the palette collects before it runs (a time range and
+    /// profile, a history entry, an app, a team, a host address). Cloud Diagnostics shows its result
+    /// in a toast and Edit Group Config opens cmux-next.json, as Open cmux-next.json does: neither
+    /// asks, so neither ends in "…".
+    @Test func auditedTitlesEndInAnEllipsisExactlyWhenTheyAsk() throws {
+        let byID = Dictionary(ActionCatalog.all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let asking: [ActionID] = ["palette.browserClearHistory", "history.open", "app.hide", "app.unhide",
+                                  "openTeamPicker", "remote.openBrowserTab"]
+        for id in asking {
+            let descriptor = try #require(byID[id], "\(id)")
+            #expect(descriptor.arguments.contains(where: \.isRequired), "\(id) no longer asks for input")
+            #expect(descriptor.title.hasSuffix("…"), "\(id) \(descriptor.title): asks for input, so it ends in …")
+        }
+        for id: ActionID in ["cloudDiagnostics", "workspaceGroup.editConfig"] {
+            let descriptor = try #require(byID[id], "\(id)")
+            #expect(!descriptor.arguments.contains(where: \.isRequired), "\(id) now asks for input")
+            #expect(!descriptor.title.hasSuffix("…"), "\(id) \(descriptor.title): acts at once, so no …")
+        }
+    }
+
     /// A renamed row still answers the word it used to start with.
     @Test func renamedRowsKeepTheirOldWord() throws {
         let byID = Dictionary(ActionCatalog.all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
