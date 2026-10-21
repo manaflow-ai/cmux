@@ -235,11 +235,15 @@ import Testing
         case .page(let view): page = try #require((view.content as? HomeDockView)?.messages ?? view.content as? TopHomePageView)
         default: Issue.record("not a page"); return
         }
+        // The first view of the list that keeps the keyboard it is given. A view that accepts it
+        // can pass it on: on macOS 26 the list's NSScrollView accepts and AppKit gives the keyboard
+        // to its document view.
         var stack: [NSView] = [page.list]
         var list: NSView?
         while let next = stack.popLast(), list == nil {
             stack.append(contentsOf: next.subviews)
-            if next.acceptsFirstResponder, !(next is NSText || next is NSTextField), !next.isHiddenOrHasHiddenAncestor { list = next }
+            if next.acceptsFirstResponder, !(next is NSText || next is NSTextField), !next.isHiddenOrHasHiddenAncestor,
+               h.window.makeFirstResponder(next), h.window.firstResponder === next { list = next }
         }
         let holder = try #require(list, "the conversation list takes no keyboard")
         try #require(h.window.makeFirstResponder(holder))
