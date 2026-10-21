@@ -28,7 +28,12 @@ extension CEFTab {
             } else if !loading, state.isLoading, let navigation {
                 machine.apply(.finished(navigation))
             }
-            if !loading { clearTitleBeforeCommit() }
+            if !loading {
+                clearTitleBeforeCommit()
+                // A load that ends without OnLoadEnd (stopped, aborted) also
+                // leaves the page area to its document.
+                documentDidSettle()
+            }
         case .loadStart(_, let url, let fromPost):
             if navigation == nil || !state.isLoading {
                 let id = makeNavigationID()
@@ -46,6 +51,7 @@ extension CEFTab {
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
+            documentDidSettle()
             samplePageBackdrop()
             restored.documentLoaded()
             // Mixed content shows up while the page loads subresources.
@@ -68,7 +74,11 @@ extension CEFTab {
                 committedURL = failing
                 // Chromium's interstitial commits with no OnLoadStart: it ends
                 // the New Tab page's hole, as a committed page does (cx-2nfi).
-                if error.engineShowsPage { reachedFirstRealPage() }
+                if error.engineShowsPage {
+                    reachedFirstRealPage()
+                    // Chromium's error page is the document now: it paints the page area.
+                    documentDidSettle()
+                }
             }
         case .address(_, let url):
             machine.apply(.urlChanged(URL(string: url)))

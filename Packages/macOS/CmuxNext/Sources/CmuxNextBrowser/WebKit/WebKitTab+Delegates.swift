@@ -96,6 +96,7 @@ extension WebKitTab: WKNavigationDelegate {
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
         restored.navigationCommitted(url: webView.url)
         formResubmissionCommitted()
+        pageDidCommit()
         guard let id = navigationID(for: navigation, creating: false) else { return }
         apply(.committed(id, url: webView.url))
         pageInfoActivity.documentCommitted(origin: webView.url.flatMap(PageInfoSite.origin(of:)))
@@ -117,6 +118,9 @@ extension WebKitTab: WKNavigationDelegate {
     }
 
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
+        // The committed document stopped loading: it keeps the page area, so
+        // WebKit draws its background again (`pageDidCommit`).
+        pageDidFinish()
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
         apply(.failed(id, BrowserLoadError(error)))

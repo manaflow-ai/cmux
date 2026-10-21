@@ -54,6 +54,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The page's Developer Tools modes (cache off, throttling, overlays,
     /// emulated media) that cmux's DevTools session set (`WebDevToolsToggles`).
     @ObservationIgnored public var devToolsModes = WebDevToolsToggles()
+    /// The color scheme the tab was asked for (`BrowserPageModes.colorScheme`).
+    /// `.system` resolves to the view's appearance on every send, so a theme
+    /// change reaches the page (`CEFTab+ColorScheme`).
+    @ObservationIgnored var colorScheme: BrowserColorScheme = .system
 
     var machine = BrowserTabStateMachine()
     /// Title changes reach `machine` at most 4 a second (`TitleCoalescer`, idle power).
@@ -83,6 +87,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var pageBackdropARGB: UInt32?
     /// Bumped on each committed document, so a read of the previous one is dropped.
     @ObservationIgnored var pageBackdropDocument = 0
+    /// The committed document's load settled, so the page area is its own.
+    /// Until then the page base is the theme color, not the engine's white
+    /// (`CEFTab+LoadingBackground`).
+    @ObservationIgnored var documentSettled = false
     /// The theme surface whose color a cmux page keeps behind its transparent document (a
     /// `cmux-page://` page in Chromium, `CmuxNextApp` `ChromiumPageHost`); nil for a web page, which
     /// turns white at its first real page like Chrome.
@@ -182,6 +190,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             runtime.shim?.loadURL(browser, url.absoluteString)
         }
         applyPageBackground()
+        // A page following the app needs the theme's appearance before it
+        // paints: Chromium's own window never inherits the view's.
+        reapplyColorScheme()
         applyPasswordFill()
         leaveAutomaticDownloadsToCmux(browser)
         applyDeviceEmulation()
@@ -221,18 +232,21 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
 
     /// The tab's view moved or its theme scope changed: a page still on
-    /// the theme color takes the new scope's color.
+    /// the theme color takes the new scope's color, and a page that follows
+    /// the app hears the new appearance.
     func pageThemeDidChange() {
-        guard !pastFirstRealPage || pageThemeSurface != nil else { return }
+        if colorScheme == .system { reapplyColorScheme() }
+        guard !pastFirstRealPage || pageThemeSurface != nil || !documentSettled else { return }
         applyPageBackground()
     }
 
     /// Every attached tab owns its background (theme color of its own
     /// scope until the first real page, then white), so a theme change of
     /// another room or workspace never repaints it.
-    /// After the first real page, the document's own background once read
-    /// (`CEFTab+ResizeBackdrop`): it shows only where the page draws nothing,
-    /// as in the gap of a resize.
+    /// After the first real page, the theme color again while the committed
+    /// document loads (`CEFTab+LoadingBackground`), then the document's own
+    /// background once read (`CEFTab+ResizeBackdrop`): it shows only where the
+    /// page draws nothing, as in the gap of a resize.
     func applyPageBackground() {
         applyHostBackdrop()
         guard let browser = browserID, let shim = runtime.shim else { return }
@@ -240,9 +254,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             _ = shim.browserSetBackgroundColor(browser, PageBackground.themeARGB(in: container, surface: pageThemeSurface))
             return
         }
-        let argb = pastFirstRealPage ? ((BrowserResizeTunables.pageBackdrop.value ? pageBackdropARGB : nil) ?? PageBackground.engineDefaultARGB)
-            : PageBackground.themeARGB(in: container, surface: .newTabPage)
-        _ = shim.browserSetBackgroundColor(browser, argb)
+        _ = shim.browserSetBackgroundColor(browser, pageBaseARGB)
     }
 
     /// The shared host view under the page window takes this tab's page

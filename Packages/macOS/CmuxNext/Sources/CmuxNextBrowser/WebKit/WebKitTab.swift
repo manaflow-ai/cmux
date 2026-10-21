@@ -116,8 +116,17 @@ public final class WebKitTab: NSObject, BrowserTab {
         webView.setValue(draws, forKey: "drawsBackground")
     }
 
-    /// The first real page finished: from now on WebKit draws its default
-    /// behind pages again (white for pages without a background).
+    /// A new document committed: WebKit draws no background behind it until it
+    /// finishes, so the pane's theme shows instead of white while the page
+    /// loads, as a Chromium page's base does
+    /// (`CEFTab+LoadingBackground`, `BrowserPageTunables.loadingBackground`).
+    func pageDidCommit() {
+        guard BrowserPageTunables.loadingBackground.value else { return }
+        setDrawsPageBackground(false)
+    }
+
+    /// The page finished or stopped: from now on WebKit draws its default
+    /// behind it again (white for pages without a background).
     func pageDidFinish() {
         guard !PageBackground.isBlank(webView.url) else { return }
         setDrawsPageBackground(true)

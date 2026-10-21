@@ -16,6 +16,11 @@ import UniformTypeIdentifiers
 /// itself. For before/after motion proof of the Home tab against
 /// MessagesLab's own recordings (its `--live-send`); no Screen Recording
 /// permission is needed for an app's own window.
+///
+/// `frames.json` also carries, per frame, how bright it was: `luminance`, its
+/// mean Rec. 709 luminance (0...1), and `peak`, the brightest of its 64 cells.
+/// A flash test asserts that neither rises over the window at rest
+/// (scripts/ci/frame-pacing/dark_load_flash.py).
 @MainActor
 enum DebugWindowRecord {
     private static var running: Recorder?
@@ -45,6 +50,8 @@ enum DebugWindowRecord {
         private var client: FrameClient?
         private var start0: CFTimeInterval?
         private var times: [Double] = []
+        private var luminances: [Double] = []
+        private var peaks: [Double] = []
         private let encoder = DispatchQueue(label: "debug.window_record", qos: .userInitiated)
 
         init(window: NSWindow, dir: URL, seconds: Double, done: @escaping () -> Void) {
@@ -71,6 +78,13 @@ enum DebugWindowRecord {
             guard let image = window.compositedSnapshot(adding: overlayPanels()) else { return true }
             let index = times.count
             times.append(now - t0)
+            // Measured here, beside the snapshot, so `frames.json` needs no
+            // image decoder on the other side. It costs an 8x8 resample a
+            // frame, small next to `compositedSnapshot`, and a recording is
+            // for color and before/after proof, never for frame pacing.
+            let brightness = Self.brightness(of: image)
+            luminances.append(brightness.mean)
+            peaks.append(brightness.peak)
             let url = dir.appendingPathComponent(String(format: "frame-%05d.jpg", index))
             encoder.async {
                 guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return }
@@ -93,11 +107,39 @@ enum DebugWindowRecord {
         /// The client goes idle when `tick` returns false.
         private func finish() {
             let index = dir.appendingPathComponent("frames.json")
-            let times = self.times
+            let frames: [String: Any] = ["times": times, "luminance": luminances, "peak": peaks]
             encoder.async {
-                if let data = try? JSONSerialization.data(withJSONObject: ["times": times]) { try? data.write(to: index) }
+                if let data = try? JSONSerialization.data(withJSONObject: frames) { try? data.write(to: index) }
             }
             done()
+        }
+
+        /// How bright `image` is: `mean`, its mean Rec. 709 luminance, and
+        /// `peak`, the brightest of its 64 cells, so a white flash over part
+        /// of the window shows even when the mean stays low. Core Graphics
+        /// resamples the frame down to 8x8, which averages every pixel into a
+        /// cell. Both are 0...1, and 0 when the draw fails.
+        static func brightness(of image: CGImage) -> (mean: Double, peak: Double) {
+            let side = 8
+            var pixels = [UInt8](repeating: 0, count: side * side * 4)
+            guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return (0, 0) }
+            let drawn = pixels.withUnsafeMutableBytes { bytes -> Bool in
+                guard let context = CGContext(data: bytes.baseAddress, width: side, height: side, bitsPerComponent: 8,
+                                              bytesPerRow: side * 4, space: space,
+                                              bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return false }
+                context.interpolationQuality = .high
+                context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+                return true
+            }
+            guard drawn else { return (0, 0) }
+            var total = 0.0, peak = 0.0
+            for cell in 0..<(side * side) {
+                func channel(_ offset: Int) -> Double { Double(pixels[cell * 4 + offset]) / 255 }
+                let luminance = 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2)
+                total += luminance
+                peak = max(peak, luminance)
+            }
+            return (total / Double(side * side), peak)
         }
     }
 }

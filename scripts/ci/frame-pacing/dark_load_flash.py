@@ -1,0 +1,159 @@
+"""A Chromium page never flashes white before it paints, in a dark theme.
+
+Used by golden.py (`dark_load_flash`). Leo, 2026-10-20: opening a tab and navigating in a
+dark theme flashed white. Chromium repaints the page area with the browser's background
+color as soon as a document commits, long before its first contentful paint, and that color
+was Chromium's white from a tab's first real page on (`CEFTab+LoadingBackground`).
+
+The scenario puts the app in a dark theme (`settings.set appearance.theme`), opens a
+Chromium tab on a dark page, records the window at rest for its brightness baseline
+(`debug.window_record` writes per-frame `luminance` and `peak` into `frames.json`), then
+records while the tab navigates to a dark page whose head holds the parser busy for over a
+second: the whole commit-to-paint gap is on camera. No frame may be brighter than the
+window at rest by more than `TOLERANCE`, and the theme has to be dark for the check to
+mean anything.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from pathlib import Path
+
+# Rec. 709 luminance (0...1) a frame may gain over the window at rest. A white page area
+# fills over half the window, which raises the mean by about 0.45 and the peak to 1.
+TOLERANCE = {"luminance": 0.06, "peak": 0.15}
+# The check only means something below this: a light theme loads pages on a light color.
+# Nord's window background sits near 0.20, well under a white page's 1.
+DARK_THEME_LUMINANCE = 0.35
+# A dark Ghostty theme every build ships.
+THEME = "Nord"
+
+PAGE = """<!doctype html><meta charset="utf-8"><title>%s</title>
+<style>html,body{margin:0;height:100%%;background:#0d0d12;color:#8a8a99;font:600 16px -apple-system,sans-serif}
+main{padding:24px}</style>
+%s
+<main>%s</main>
+"""
+# A parser-blocking script in the head: the document commits, then nothing paints until it
+# returns, so the page area shows whatever cmux put under it for well over a second.
+STALL = """<script>
+const end = Date.now() + 1400;
+while (Date.now() < end) { /* hold the parser */ }
+</script>"""
+
+
+def luminance(hex_color: str) -> float:
+    """Rec. 709 luminance (0...1) of `#rrggbb`; 1 for anything else (fails the dark check)."""
+    text = hex_color.strip().lstrip("#")
+    if len(text) != 6:
+        return 1.0
+    try:
+        red, green, blue = (int(text[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    except ValueError:
+        return 1.0
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
+def _frames(folder: Path) -> dict:
+    """`frames.json` of a recording, or an error."""
+    try:
+        data = json.loads((folder / "frames.json").read_text())
+    except (OSError, ValueError) as error:
+        return {"error": f"no frames.json in {folder.name}: {error}"}
+    return data if isinstance(data, dict) else {"error": f"{folder.name}/frames.json is not an object"}
+
+
+def _record(driver, folder: Path, seconds: float, act=None) -> dict:
+    """Records the window for `seconds`, running `act()` a moment in; returns its frames."""
+    folder.mkdir(parents=True, exist_ok=True)
+    started = driver.call("debug.window_record", {"dir": str(folder), "seconds": seconds})
+    if "error" in started:
+        return {"error": f"window_record: {started['error']}"}
+    time.sleep(0.2)
+    acted = act() if act else None
+    time.sleep(seconds + 0.5)
+    frames = _frames(folder)
+    if acted is not None:
+        frames["acted"] = acted
+    return frames
+
+
+def drive(driver, out: Path) -> None:
+    """Dark theme, a Chromium tab on a dark page, then a navigation that stalls before paint."""
+    pages = out / "dark-load-flash"
+    pages.mkdir(parents=True, exist_ok=True)
+    first = pages / "first.html"
+    first.write_text(PAGE % ("First page", "", "First page"))
+    slow = pages / "slow.html"
+    slow.write_text(PAGE % ("Slow page", STALL, "Slow page"))
+
+    theme = driver.call("settings.set", {"path": "appearance.theme", "value": THEME})
+    time.sleep(1.0)
+    themes = driver.call("debug.themes", {})
+    window = (themes.get("windows") or [{}])[0]
+    content = str(window.get("window_background") or "")
+    theme_luminance = luminance(content)
+
+    opened = driver.call("action.run", {"action": "openBrowser.chromium", "args": {"url": first.as_uri()}, "focus": True},
+                         timeout=90)
+
+    def evaluate(script: str):
+        result = driver.call("browser.page.eval", {"script": script}, timeout=20)
+        return result.get("value") if "error" not in result else None
+
+    deadline = time.monotonic() + 60
+    ready = False
+    while time.monotonic() < deadline:
+        if evaluate("document.readyState === 'complete' && document.title === 'First page'") is True:
+            ready = True
+            break
+        time.sleep(0.5)
+    if not ready:
+        state = driver.call("browser.page.state", {}, timeout=20)
+        driver.save("dark_load_flash", {"error": "the first page never loaded in a Chromium tab",
+                                        "opened": opened, "state": state, "theme": theme})
+        return
+    time.sleep(1.0)
+
+    rest = _record(driver, pages / "rest", 0.6)
+    navigate = _record(driver, pages / "navigate", 2.6,
+                       lambda: evaluate(f"location.href = {json.dumps(slow.as_uri())}, true"))
+    driver.save("dark_load_flash", {
+        "theme": theme, "theme_background": content, "theme_luminance": round(theme_luminance, 4),
+        "theme_is_dark": window.get("is_dark"), "opened": opened, "rest": rest, "navigate": navigate,
+    })
+
+
+def judge(data: dict, refresh: float) -> dict:
+    """Fails when a frame of the navigation was brighter than the window at rest."""
+    del refresh  # brightness, not pacing
+    problems: list[str] = []
+    if "error" in data:
+        return {"ok": False, "problems": [f"not measured: {data['error']}"]}
+    theme_luminance = float(data.get("theme_luminance") or 1)
+    if theme_luminance > DARK_THEME_LUMINANCE or data.get("theme_is_dark") is not True:
+        problems.append(f"not measured: the theme is not dark (background {data.get('theme_background')}, "
+                        f"luminance {theme_luminance:.3f}, is_dark {data.get('theme_is_dark')})")
+    verdict: dict = {"theme_luminance": round(theme_luminance, 4)}
+    rest, navigate = data.get("rest") or {}, data.get("navigate") or {}
+    for name, frames in (("rest", rest), ("navigate", navigate)):
+        if "error" in frames:
+            problems.append(f"not measured: {name}: {frames['error']}")
+    if not problems:
+        for key, tolerance in TOLERANCE.items():
+            at_rest = [float(value) for value in rest.get(key) or []]
+            during = [float(value) for value in navigate.get(key) or []]
+            if len(at_rest) < 10 or len(during) < 60:
+                problems.append(f"not measured: {len(at_rest)} frames at rest, {len(during)} during the navigation")
+                break
+            base, worst = max(at_rest), max(during)
+            verdict[key] = {"rest": round(base, 4), "worst": round(worst, 4),
+                            "gain": round(worst - base, 4), "tolerance": tolerance}
+            if worst - base > tolerance:
+                problems.append(f"the page flashed: {key} rose from {base:.3f} at rest to {worst:.3f} "
+                                f"(over {tolerance:.2f}) while the page loaded")
+    verdict["frames"] = {"rest": len(rest.get("peak") or []), "navigate": len(navigate.get("peak") or [])}
+    verdict["problems"] = problems
+    verdict["ok"] = not problems
+    return verdict
