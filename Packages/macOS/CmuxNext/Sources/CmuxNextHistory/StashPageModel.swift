@@ -33,6 +33,8 @@ public final class StashPageModel {
     /// The last op's failure or the import's outcome, shown inline under the header.
     public private(set) var notice: String?
     @ObservationIgnored private var noticeIsError = false
+    /// Whether `notice` is a failed list read's, which the next good read clears.
+    @ObservationIgnored private var noticeIsReadFailure = false
 
     @ObservationIgnored public weak var source: (any StashPageSource)?
     @ObservationIgnored private var generation = 0
@@ -73,7 +75,7 @@ public final class StashPageModel {
 
     /// Reads the groups again; a slower older read never replaces a newer one, and returns once
     /// the newest read has landed (a stash change event may start one while this one runs). A
-    /// good read clears a failure notice.
+    /// good read clears a failed read's notice, never an action's (a failed restore stays said).
     public func reload() async {
         generation += 1
         let current = generation
@@ -93,10 +95,11 @@ public final class StashPageModel {
             let read = try await source?.stashes() ?? []
             guard current == generation else { return }
             loaded = read
-            if noticeIsError { show(nil) }
+            if noticeIsReadFailure { show(nil) }
         } catch {
             guard current == generation else { return }
             show(String(describing: error), error: true)
+            noticeIsReadFailure = true
         }
     }
 
@@ -158,6 +161,7 @@ public final class StashPageModel {
     private func show(_ text: String?, error: Bool = false) {
         notice = text
         noticeIsError = error && text != nil
+        noticeIsReadFailure = false
     }
 
     /// Runs `op` after every op before it, then reloads the groups.
