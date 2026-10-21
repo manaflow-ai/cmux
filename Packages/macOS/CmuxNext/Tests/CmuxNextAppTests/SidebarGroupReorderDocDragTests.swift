@@ -7,7 +7,8 @@ import Testing
 /// the app uses: the sidebar document's drag (`SidebarModel.docDrag`). A real
 /// list, a group header pressed and dragged with `updateDrag`, then the drop's
 /// one document move. The list: loose `top`, tall group `g1` (4 members),
-/// short group `g2` (1 member), short group `g3` (1 member).
+/// short group `g2` (1 member), short group `g3` (1 member); with `pinned`, a
+/// document Pinned section above it holds group `gp` (1 member).
 @MainActor @Suite(.serialized) struct SidebarGroupReorderDocDragTests {
     static let section = "sec"
 
@@ -15,11 +16,16 @@ import Testing
         var targets: [SidebarDocTarget] = []
     }
 
-    static func list(_ drops: Drops) -> (SidebarListView, NSWindow) {
+    static let pinnedSection = "sec_pinned"
+
+    static func list(_ drops: Drops, pinned: Bool = false) -> (SidebarListView, NSWindow) {
         _ = NSApplication.shared
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let ws = { (id: String) in SidebarWorkspace(id: WorkspaceID(id), title: id) }
-        let model = SidebarModel(sections: [
+        let pinnedBand = SidebarSection(kind: .custom(SidebarCustomSection(id: pinnedSection)), nodes: [
+            .group(SidebarGroup(id: GroupID("gp"), name: "Pinned", color: .blue, workspaces: [ws("p")])),
+        ])
+        let model = SidebarModel(sections: (pinned ? [pinnedBand] : []) + [
             SidebarSection(kind: .machine(machine), nodes: [
                 .workspace(ws("top")),
                 .group(SidebarGroup(id: GroupID("g1"), name: "Tall", color: .purple, workspaces: ["a", "b", "c", "d"].map(ws))),
@@ -27,18 +33,19 @@ import Testing
                 .group(SidebarGroup(id: GroupID("g3"), name: "Last", color: .red, workspaces: [ws("f")])),
             ]),
         ], activeWorkspaceID: WorkspaceID("top"))
-        let members: Set<String> = ["a", "b", "c", "d", "e", "f"]
+        let members: Set<String> = ["a", "b", "c", "d", "e", "f", "p"]
         model.docDrag = SidebarDocDrag(item: { key in
             switch key {
             case let .workspace(id): "w_\(id.rawValue)"
             case let .group(group): "g_\(group.rawValue)"
             default: nil
             }
-        }, section: { _ in section }, begin: { _ in
+        }, section: { id in id == .custom(pinnedSection) ? pinnedSection : section }, begin: { _ in
             // What `drag_begin` gives for a dragged group: groups do not nest.
             var table: [String: SidebarDocAcceptance] = [section: SidebarDocAcceptance(before: false, into: true, after: false)]
+            table[pinnedSection] = SidebarDocAcceptance(before: false, into: true, after: false)
             table["w_top"] = SidebarDocAcceptance(before: true, into: false, after: true)
-            for group in ["g1", "g2", "g3"] { table["g_\(group)"] = SidebarDocAcceptance(before: true, into: false, after: true, refusal: nil) }
+            for group in ["g1", "g2", "g3", "gp"] { table["g_\(group)"] = SidebarDocAcceptance(before: true, into: false, after: true, refusal: nil) }
             for member in members { table["w_\(member)"] = SidebarDocAcceptance(before: false, into: false, after: false, refusal: "nesting") }
             return table
         }, drop: { [drops] _, target in drops.targets.append(target) })
@@ -122,5 +129,22 @@ import Testing
         try Self.drag(list, "g3") { card in mid - 1 - card.minY }
         Self.drop(list)
         #expect(drops.targets == [SidebarDocTarget(section: Self.section, after: "w_top")], "drops: \(drops.targets)")
+    }
+
+    /// Lawrence 2026-10-20: "I can't drag groups to become ordered first." With a section drawn above the machine
+    /// rows (Pinned, the top band), the gap above the first machine row probed the end of that section, so the drop
+    /// went into Pinned or was refused. It is a drop before the first row, in the machine section.
+    @Test func aGroupDragsToTheFirstSlotUnderPinned() throws {
+        let drops = Drops()
+        let (list, window) = Self.list(drops, pinned: true)
+        defer { window.close() }
+        let top = try #require(list.displayed.row(for: .workspace(WorkspaceID("top"))))
+        let pinned = try Self.block(list, "gp")
+        #expect(pinned.upperBound <= top.y, "Pinned is not drawn above the machine rows")
+        // g2's top just past the first row's middle (minus the margin), still below Pinned's middle.
+        let mid = top.y + top.height / 2 - SidebarGroupReorder.hysteresis(for: top.height)
+        try Self.drag(list, "g2") { card in mid - 1 - card.minY }
+        Self.drop(list)
+        #expect(drops.targets == [SidebarDocTarget(section: Self.section, before: "w_top")], "drops: \(drops.targets)")
     }
 }
