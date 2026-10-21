@@ -16,15 +16,29 @@ extension AppActions {
         registry.bind("renameWorkspace", invoke: { invocation in
             guard let workspace = scope(services, invocation).workspace, let key = workspace.key else { return }
             if let name = invocation["name"]?.stringValue, !name.isEmpty {
-                services.activeDaemon.send("rename-workspace") { _ = try await $0.renameWorkspace(key, to: name) }
-            } else {
-                services.windows.active?.sidebar.container.beginRename(workspace: SidebarWorkspaceID(workspace.id))
+                // The daemon that owns the workspace (a remote host's row too), not the active window's.
+                let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon
+                daemon.send("rename-workspace") { _ = try await $0.renameWorkspace(key, to: name) }
+                return
             }
+            guard let window = renameRowWindow(workspace, services) else {
+                return services.registry.refuse(renameRowReason(workspace, services) ?? RefusalStrings.workspaceNotInSidebar)
+            }
+            // The name field opens on the row in the window that lists it, which comes forward.
+            if window !== services.windows.active { services.windows.bringToFront(window) }
+            window.sidebar.container.beginRename(workspace: SidebarWorkspaceID(workspace.id))
         })
+        AppActionContext(services: services).setTargetReason("renameWorkspace") { [weak services] invocation in
+            guard let services, invocation["name"]?.stringValue?.isEmpty ?? true, let workspace = scope(services, invocation).workspace else { return nil }
+            return renameRowReason(workspace, services)
+        }
         // Next / previous sidebar item and Cmd-1…9: one walk over every
         // visible item in shown order (SIDEBAR-NUMBERING-AND-STEPPING).
-        registry.bind("nextSidebarTab") { SidebarNavigation.step(by: 1, services) }
-        registry.bind("prevSidebarTab") { SidebarNavigation.step(by: -1, services) }
+        // Workspaces as tabs' Cmd-Shift-] / [ pass `scope` (workspaces only, wrapping); the table holds them
+        // only while its Debug tunable is on.
+        registry.bind("nextSidebarTab", invoke: { SidebarNavigation.step(by: 1, scope: $0["scope"]?.stringValue, services) })
+        registry.bind("prevSidebarTab", invoke: { SidebarNavigation.step(by: -1, scope: $0["scope"]?.stringValue, services) })
+        registry.includesWorkspaceTabKeys = { SidebarTunables.workspacesAsTabs.value }
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
             guard let number = invocation["index"]?.intValue else { return }
             SidebarNavigation.select(number: number, services)
@@ -33,7 +47,7 @@ extension AppActions {
         // fixture: registered at launch so a restored tab finds its provider (not blank).
         services.pages.register(HomePageTab(services: services))
         registry.bind("home.tab", invoke: { _ = HomePageTab.open(services, focus: $0.allowsViewChange) })
-        services.pages.register(HomeChannelsPageTab(services: services))
+        services.pages.register(HomeChannelsPageTab.make(services))
         // The docked Home's tab (HomeDockTab): the Messages or Channels view (the sidebar's Home or Channels entry).
         services.pages.register(HomeDockTab(services: services))
         #if DEBUG
@@ -77,6 +91,21 @@ extension AppActions {
         }
                 registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
+    }
+
+    /// Why Rename Workspace with no name cannot open a name field for `workspace`, or nil: a
+    /// workspace no window's sidebar lists has no row to edit (Home, while the sidebar shows it as
+    /// its Home item, keeps its name).
+    static func renameRowReason(_ workspace: WorkspaceModel, _ services: AppServices) -> String? {
+        guard renameRowWindow(workspace, services) == nil else { return nil }
+        return HomeRules.isHome(workspace) ? RefusalStrings.homeKeepsItsName : RefusalStrings.workspaceNotInSidebar
+    }
+
+    /// The window whose sidebar lists `workspace`'s row: the window that owns it, else the active one.
+    static func renameRowWindow(_ workspace: WorkspaceModel, _ services: AppServices) -> WindowController? {
+        let windows = services.windows
+        let owner = windows.registry.value.owner(of: workspace.id).flatMap(windows.controller(for:))
+        return [owner, windows.active].compactMap { $0 }.first { $0.sidebar.model.workspace(SidebarWorkspaceID(workspace.id)) != nil }
     }
 
     /// New workspace (`WorkspaceSpawn` arguments: the New Tab page for a

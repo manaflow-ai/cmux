@@ -2660,6 +2660,12 @@ class CloudRequestsListRequest:
 
 
 @dataclass(frozen=True)
+class CloudSelfhostInfoRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-selfhost-info/request'
+    pass
+
+
+@dataclass(frozen=True)
 class CloudSessionClearRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-session-clear/request'
     pass
@@ -2668,10 +2674,11 @@ class CloudSessionClearRequest:
 @dataclass(frozen=True)
 class CloudSessionSetRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-session-set/request'
-    access_token: str
     api_base_url: str
-    expires_at: int
+    access_token: Union[str, MissingType] = field(default=MISSING)
+    auth: Union[str, None, MissingType] = field(default=MISSING)
     client_version: Union[str, None, MissingType] = field(default=MISSING)
+    expires_at: Union[int, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -6142,6 +6149,7 @@ __all__ = [
     'CloudMuxUnsubscribeRequest',
     'CloudParticipantAvatarGetRequest',
     'CloudRequestsListRequest',
+    'CloudSelfhostInfoRequest',
     'CloudSessionClearRequest',
     'CloudSessionSetRequest',
     'CloudSessionStatusRequest',

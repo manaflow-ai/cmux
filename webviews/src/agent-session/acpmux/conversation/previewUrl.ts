@@ -30,16 +30,37 @@ export const PREVIEW_HEAD_HEIGHT = 58;
 const LOCAL_URL =
   /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?![\w-]|\.[\w-])(?::\d{1,5}(?!\d)|(?!:))(?:[/?#][^\s"'`<>()[\]{}]*)?/gi;
 
+// An address given as a setting's value is a service the agent talks to, not a page to look at:
+// `ANTHROPIC_BASE_URL=http://127.0.0.1:31415` (a model gateway, Leo 2026-10-19), `"baseUrl":
+// "http://localhost:8080"`, `--api-url http://...`, `proxy: http://...`.
+const SETTING_BEFORE = [
+  // An environment variable: `ANTHROPIC_BASE_URL=`, `PORT_URL="` (upper case only).
+  /\b[A-Z][A-Z0-9_]*=["']?$/,
+  // A quoted key: `"baseUrl": "`, `'api_endpoint': `.
+  /["'][\w-]*(?:url|uri|endpoint|proxy|base)["']\s*[:=]\s*["']?$/i,
+  // An identifier ending in one: `baseUrl = `, `api_url: `, `upstreamProxy=`.
+  /\b[a-z][\w]*?(?:Url|URL|Uri|URI|Endpoint|Proxy|_url|_uri|_endpoint|_proxy)\s*[:=]\s*["']?$/,
+  // A YAML or INI key on its own line: `proxy: `, `url = `.
+  /(?:^|\n)\s*(?:url|uri|base|endpoint|proxy)\s*[:=]\s*["']?$/,
+  // A command-line flag: `--api-url `, `--proxy=`, `--endpoint "`.
+  /(?:^|\s)--(?:[\w-]*-)?(?:url|uri|endpoint|proxy|api|base)(?:-[\w-]+)?[=\s]["']?$/,
+];
+// An API route answers a program, not a reader: `/v1/messages`, `/api/...`, `/graphql`, `/rpc`.
+const API_PATH = /^\/(?:v\d+(?:\/|$)|api(?:\/|$)|graphql(?:\/|$)|rpc(?:\/|$)|healthz?(?:\/|$))/i;
+
 /// The latest loopback page in `texts`, normalized (trailing punctuation dropped, 0.0.0.0 as
-/// localhost), or nil.
+/// localhost), or nil. Settings' values and API routes are not pages (SETTING_BEFORE, API_PATH).
 export function latestLocalUrl(texts: readonly (string | undefined)[]): string | undefined {
   let found: string | undefined;
   for (const text of texts) {
     if (!text) continue;
     // Dev servers colour the address itself (`localhost:\x1b[1m5173`).
-    for (const match of stripAnsi(text).matchAll(LOCAL_URL)) {
+    const plain = stripAnsi(text);
+    for (const match of plain.matchAll(LOCAL_URL)) {
+      const before = plain.slice(Math.max(0, match.index - 64), match.index);
+      if (SETTING_BEFORE.some((setting) => setting.test(before))) continue;
       const url = parse(match[0].replace(/[.,;:!?*_]+$/, ""));
-      if (url) found = url;
+      if (url && !API_PATH.test(new URL(url).pathname)) found = url;
     }
   }
   return found;

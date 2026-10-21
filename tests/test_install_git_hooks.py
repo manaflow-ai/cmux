@@ -223,13 +223,13 @@ class InstallGitHooksTests(unittest.TestCase):
     # Formatters at the commit boundary: the hook formats staged Rust in every
     # Cargo package (not only cmux-tui), and a missing formatter stops an agent's
     # commit instead of skipping silently.
-    AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID", "CODEX_SANDBOX")
+    AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID", "CODEX_SANDBOX", "CMUX_SKIP_FORMAT_HOOKS")
 
     def formatter_env(self, with_rustfmt, **extra):
         """Only the tools the hook needs on PATH, plus a recording rustfmt."""
         bin_dir = self.root / ("bin-rustfmt" if with_rustfmt else "bin-plain")
         bin_dir.mkdir(exist_ok=True)
-        for tool in ("git", "bash", "sh", "sed", "awk", "grep", "cut", "sort", "head", "cat", "env", "dirname", "basename", "mktemp", "rm"):
+        for tool in ("git", "bash", "sh", "sed", "awk", "grep", "cut", "sort", "head", "cat", "env", "dirname", "basename", "mktemp", "rm", "mv", "mkdir", "rmdir", "find"):
             found = shutil.which(tool)
             if found and not (bin_dir / tool).exists():
                 (bin_dir / tool).symlink_to(found)
@@ -348,6 +348,125 @@ class InstallGitHooksTests(unittest.TestCase):
         person = self.run_pre_commit(self.formatter_env(with_rustfmt=False))
         self.assertEqual(person.returncode, 0, person.stderr)
         self.assertIn("rustfmt is unavailable", person.stderr)
+
+    # A recording vp: logs "cwd<TAB>args" and replaces each file argument's text.
+    FAKE_VP = """#!/bin/sh
+printf '%s\\t%s\\n' "$(pwd)" "$*" >> "$FAKE_VP_LOG"
+for arg in "$@"; do
+    case "$arg" in fmt|-*) ;; *) printf 'formatted\\n' > "$arg" ;; esac
+done
+"""
+
+    def stage_web_file(self, package, relative="src/app.ts", text="const   x=1\n"):
+        directory = self.repo / package
+        vp = directory / "node_modules/.bin/vp"
+        vp.parent.mkdir(parents=True, exist_ok=True)
+        vp.write_text(self.FAKE_VP)
+        vp.chmod(0o755)
+        path = directory / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        self.git("add", f"{package}/{relative}")
+        return path
+
+    def test_pre_commit_formats_staged_files_of_each_vite_plus_package_with_its_vp(self):
+        self.assertEqual(self.install().returncode, 0)
+        vp_log = self.root / "vp.log"
+        for package in ("webviews", "cmux-tui/frontends/web"):
+            with self.subTest(package=package):
+                vp_log.unlink(missing_ok=True)
+                self.git("rm", "-r", "-q", "--cached", "--ignore-unmatch", "webviews", "cmux-tui")
+                self.stage_web_file(package)
+                result = self.run_pre_commit(self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log)))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                runs = vp_log.read_text().splitlines() if vp_log.exists() else []
+                self.assertEqual(len(runs), 1, result.stderr)
+                cwd, args = runs[0].split("\t")
+                self.assertEqual(Path(cwd).resolve(), (self.repo / package).resolve())
+                self.assertEqual(args.split()[-1], "src/app.ts")
+                staged = self.git("show", f":{package}/src/app.ts").stdout
+                self.assertEqual(staged, "formatted\n", "the formatted file is restaged")
+
+    def test_pre_commit_takes_over_an_install_lock_whose_holder_died(self):
+        # A hook killed mid-install leaves its lock; this worktree has no vp yet.
+        self.assertEqual(self.install().returncode, 0)
+        vp_log = self.root / "vp.log"
+        web = self.repo / "webviews"
+        self.stage_web_file("webviews")
+        (web / "node_modules/.bin/vp").unlink()
+        (web / "bun.lock").write_text("{}\n")
+        env = self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log))
+        bun = Path(env["PATH"]) / "bun"
+        bun.write_text(f"""#!/bin/sh
+cat > node_modules/.bin/vp <<'VP'
+{self.FAKE_VP}VP
+{shutil.which("chmod")} +x node_modules/.bin/vp
+""")
+        bun.chmod(0o755)
+        dead = subprocess.Popen(["true"])
+        dead.wait()
+        lock = Path(self.git("rev-parse", "--absolute-git-dir").stdout.strip()) / "cmux-format-install-webviews.lock"
+        lock.mkdir()
+        (lock / "pid").write_text(f"{dead.pid}\n")
+        try:
+            result = self.run_pre_commit(env)
+        finally:
+            bun.unlink()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("another agent is installing", result.stderr)
+        self.assertEqual(self.git("show", ":webviews/src/app.ts").stdout, "formatted\n", result.stderr)
+        self.assertFalse(lock.exists(), "the hook releases the lock it took over")
+
+    def test_skip_variable_commits_without_formatting(self):
+        self.assertEqual(self.install().returncode, 0)
+        vp_log = self.root / "vp.log"
+        web = self.stage_web_file("webviews")
+        self.stage_rust_package("Native/OptChat/probe", "2021")
+        # A partly staged file (git add -p) commits under the switch too.
+        web.write_text(web.read_text() + "const   y=2\n")
+        result = self.run_pre_commit(self.formatter_env(
+            with_rustfmt=True, FAKE_VP_LOG=str(vp_log), CMUX_AGENT="1", CMUX_SKIP_FORMAT_HOOKS="1"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("CMUX_SKIP_FORMAT_HOOKS", result.stderr)
+        self.assertFalse(vp_log.exists())
+        self.assertFalse(self.rustfmt_log.exists())
+
+    def fake_rustup(self, bin_dir, installed, pinned):
+        rustup = bin_dir / "rustup"
+        rustup.write_text(
+            "#!/bin/sh\n"
+            f'if [ "$1 $2 $3 $4" = "which --toolchain {installed} rustfmt" ]; then echo {shlex.quote(str(pinned))}; exit 0; fi\n'
+            "exit 1\n")
+        rustup.chmod(0o755)
+
+    def test_pre_commit_uses_the_rustfmt_of_the_pinned_toolchain(self):
+        self.assertEqual(self.install().returncode, 0)
+        source = self.stage_rust_package("cmux-tui", "2021")
+        (self.repo / "cmux-tui/rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.95.0"\n')
+        env = self.formatter_env(with_rustfmt=True)
+        pinned = self.root / "pinned-rustfmt"
+        pinned.write_text(f'#!/bin/sh\nprintf "pinned %s\\n" "$*" >> {shlex.quote(str(self.rustfmt_log))}\n')
+        pinned.chmod(0o755)
+        self.fake_rustup(self.root / "bin-rustfmt", "1.95.0", pinned)
+        result = self.run_pre_commit(env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.rustfmt_log.read_text().splitlines()
+        self.assertEqual(len(calls), 1, calls)
+        self.assertTrue(calls[0].startswith("pinned --edition 2021 "), calls)
+        self.assertTrue(calls[0].endswith(str(source.resolve())), calls)
+
+    def test_a_missing_pinned_toolchain_falls_back_to_path_rustfmt_with_a_warning(self):
+        # rustfmt keeps a stable style across versions, so formatting with the
+        # PATH rustfmt beats committing unformatted code.
+        self.assertEqual(self.install().returncode, 0)
+        self.stage_rust_package("cmux-tui", "2021")
+        (self.repo / "cmux-tui/rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.95.0"\n')
+        env = self.formatter_env(with_rustfmt=True, CMUX_AGENT="1")
+        self.fake_rustup(self.root / "bin-rustfmt", "1.99.0", "/nonexistent")
+        result = self.run_pre_commit(env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("rustup toolchain install 1.95.0", result.stderr)
+        self.assertEqual(len(self.rustfmt_log.read_text().splitlines()), 1)
 
     def test_merge_driver_does_not_follow_checked_out_script_changes(self):
         result = self.install()
@@ -582,6 +701,14 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertFalse(marker.exists())
 
     def test_trusted_main_post_merge_migrates_legacy_driver_commands(self):
+        self.assert_trusted_post_merge_reinstalls("main")
+
+    def test_trusted_feat_cmux_next_post_merge_reinstalls_its_hooks(self):
+        # Direct pushes land on feat-cmux-next, whose pre-commit formats more
+        # than main's; pulling it must install that copy, not keep an old one.
+        self.assert_trusted_post_merge_reinstalls("feat-cmux-next")
+
+    def assert_trusted_post_merge_reinstalls(self, branch):
         hook = self.repo / "scripts/git-hooks/post-merge"
         hook.unlink()
         self.git("add", ".")
@@ -600,13 +727,13 @@ class InstallGitHooksTests(unittest.TestCase):
             "commit", "-qm", "add trusted migration hook",
         )
         trusted_main = self.git("rev-parse", "HEAD").stdout.strip()
-        self.git("update-ref", "refs/remotes/upstream/main", trusted_main)
+        self.git("update-ref", f"refs/remotes/upstream/{branch}", trusted_main)
         self.git("switch", "-q", "main")
         self.git("config", "core.hooksPath", "scripts/git-hooks")
         self.git("config", "merge.xcstrings.driver", "python3 scripts/merge-xcstrings.py %O %A %B %P")
         self.git("config", "merge.pbxproj.driver", "python3 scripts/merge-pbxproj.py %O %A %B %P")
 
-        result = self.git("merge", "--ff-only", "upstream/main", check=False)
+        result = self.git("merge", "--ff-only", f"upstream/{branch}", check=False)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.git("rev-parse", "HEAD").stdout.strip(), trusted_main)
@@ -679,6 +806,10 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
+            "scripts/git-hooks/pre-push",
+            "scripts/web_lint_prepush.py",
+            "scripts/lint_swift_namespaces.py",
+            "scripts/swift_source_mask.py",
         ):
             path = self.repo / relative
             reviewed = path.read_bytes()

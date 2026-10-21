@@ -7,14 +7,16 @@ USAGE
   cmux workspace create [--name <value>] [--empty] [--ephemeral] [--focus] [--correlation-key <value>]
     [--expected-revision <revision>] [--cwd <path>] [--shell <script> | -- <argv...>]
   cmux workspace <selector> show|focus|close
+  cmux workspace <selector> close [--report-closed-ids]
   cmux workspace <selector> close --others|--to-right|--to-left|--all [--end-terminals]
   cmux workspace <selector> rename <name>|--name <name>
   cmux workspace <selector> rename --release-to-auto
   cmux workspace <selector> move --index <n>
   cmux workspace <selector> update [--title <value>|--clear-title] [--color <value>|--clear-color]
-    [--icon <value>|--clear-icon]
-  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
-  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] shell <script>
+    [--icon <value>|--clear-icon] [--description <text>|--clear-description]
+    [--task-status todo|working|needs-attention|review|done|--clear-task-status]
+  cmux workspace <selector> run [--on-exit <close|keep|shell>] [--correlation-key <value>] -- <argv...>
+  cmux workspace <selector> run [--on-exit <close|keep|shell>] [--correlation-key <value>] shell <script>
   cmux workspace <selector> layout apply [OPTIONS]
   cmux workspace [<selector>] open-url --url <http(s) URL>
   cmux workspace <selector> screen ...
@@ -77,7 +79,8 @@ SELECTORS
 pub(super) const PANE_HELP: &str = "\
 USAGE
   cmux pane list [--workspace <selector>] [--screen <selector>]
-  cmux pane create [--correlation-key <value>]
+  cmux pane create [--cwd <path>] [--correlation-key <value>]
+    [--shell <script> | -- <argv...>]
   cmux pane <selector> show|focus|close
   cmux pane <selector> close --others|--all
   cmux pane <selector> rename <name>|--name <name>
@@ -91,11 +94,12 @@ USAGE
   cmux pane <selector> zoom [--enabled <bool>]
   cmux pane <selector> split ratio set --split <id> --ratio <value>
   cmux pane <selector> viewport width set --columns <value>
-  cmux pane <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
+  cmux pane <selector> run [--on-exit <close|keep|shell>] [--correlation-key <value>] -- <argv...>
   cmux pane <selector> tab ...
 
 split keeps the focus where it is unless --focus is given. With --shell or
--- argv the new pane runs that command instead of a shell. To add a terminal
+-- argv the new pane (of split or create) runs that command instead of a
+shell. To add a terminal
 to a pane that already exists, use `cmux tab create terminal --pane <selector>`
 instead of splitting again.
 
@@ -116,10 +120,10 @@ USAGE
   cmux tab <tab_…> restart
   cmux tab <selector> zoom <0.25..5>|reset|in|out
   cmux tab <selector> update --zoom <0.25..5>|--clear-zoom
-  cmux tab <selector> update --icon <value>|--clear-icon
+  cmux tab <selector> update [--icon <value>|--clear-icon] [--marked-unread <bool>]
   cmux tab create terminal [--cwd <path>] [--name <value>] [--cols <n> --rows <n>]
     [--workspace <selector>] [--screen <selector>] [--pane <selector>]
-    [--correlation-key <value>]
+    [--correlation-key <value>] [--shell <script> | -- <argv...>]
   cmux tab create browser --url <value> [--name <value>] [--width-px <n> --height-px <n>]
     [--workspace <selector>] [--screen <selector>] [--pane <selector>]
     [--correlation-key <value>]
