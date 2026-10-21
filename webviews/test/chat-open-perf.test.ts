@@ -269,6 +269,11 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     await daemon?.stop(true);
   });
 
+  /// What one measured open ran under: the changes the lanes pushed while it was being timed, and
+  /// the attaches it cost. A cached open attaches too (the tail draws, then the attach lays what
+  /// acpmux holds now over it), so this says what an open cost, not which kind it was.
+  type Measured = { pushes: number; attaches: number };
+
   type Opened = {
     /// Milliseconds from the select to the first frame that draws this chat; null when it never did.
     drawn: number | null;
@@ -407,7 +412,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   /// `phase` says which budget the run is held to, named rather than read out of `name`: the names
   /// carry the load the run was under ("loaded cached"), and a notice that guessed the budget from
   /// the name printed the cold one for every cached phase the moment a name changed.
-  const report = (name: string, phase: "cold" | "cached", opened: Opened[]) => {
+  const report = (name: string, phase: "cold" | "cached", opened: Opened[], during: Measured[] = []) => {
     const drawn = opened.map((entry) => entry.drawn ?? Number.POSITIVE_INFINITY);
     const worst = Math.max(...drawn);
     console.log(
@@ -438,7 +443,13 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
         (phase === "cached" ? ` of ${CACHED_DRAW_FRAMES} allowed` : "") +
         `, shifted frames ${opened.reduce((all, entry) => all + entry.shifted, 0)}, ` +
         `blank frames ${opened.reduce((all, entry) => all + entry.blank, 0)}, ` +
-        `${CHAT_COUNT} chats, ${CALL_MS} ms a call and ${ATTACH_MS} ms an attach`,
+        `${CHAT_COUNT} chats, ${CALL_MS} ms a call and ${ATTACH_MS} ms an attach` +
+        // In the notice, not only the log: the load each window ran under is the one number that
+        // says whether a loaded phase measured anything, and a passing run keeps nothing else.
+        (during.some((window) => window.pushes > 0)
+          ? `, changes pushed while measured ${during.map((window) => window.pushes).join("/")}`
+          : "") +
+        (during.length > 0 ? `, attaches ${during.map((window) => window.attaches).join("/")}` : ""),
     );
     return worst;
   };
@@ -457,7 +468,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     /// the moment the socket opens, which is during the page load above, so a run's total is over
     /// its budget before the first chat is opened and a test on the total would pass with the load
     /// finished before anything was timed.
-    const during: { pushes: number; attaches: number }[] = [];
+    const during: Measured[] = [];
     const open = async (entry: (typeof chats)[number]) => {
       const pushesBefore = pushed;
       const attachesBefore = attaches;
@@ -483,15 +494,9 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
       await page.close();
     }
 
-    const worstCold = report(`${name} cold`, "cold", cold);
-    const worstCached = report(`${name} cached`, "cached", cached);
     const loadDuring = { cold: during.slice(0, picked.length), cached: during.slice(picked.length) };
-    for (const [phase, windows] of Object.entries(loadDuring))
-      console.log(
-        `chat-open-perf ${name} ${phase}: changes pushed while measured ` +
-          `${windows.map((window) => window.pushes).join("/")}, ` +
-          `attaches ${windows.map((window) => window.attaches).join("/")}`,
-      );
+    const worstCold = report(`${name} cold`, "cold", cold, loadDuring.cold);
+    const worstCached = report(`${name} cached`, "cached", cached, loadDuring.cached);
     return { cold, cached, worstCold, worstCached, loadDuring };
   };
 
