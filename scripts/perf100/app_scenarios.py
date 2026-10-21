@@ -65,8 +65,7 @@ def _key_latency(app: appdriver.App, run: runlib.Run, samples: int, rng: random.
     values = []
     for _ in range(samples):
         marker = "".join(rng.choice("qwzx") for _ in range(4))
-        app.focus_terminal()
-    ms = app.key_echo_ms(marker, timeout=10)
+        ms = app.key_echo_ms(marker, timeout=10)
         if ms is not None:
             values.append(ms)
     run.latency(name, values)
