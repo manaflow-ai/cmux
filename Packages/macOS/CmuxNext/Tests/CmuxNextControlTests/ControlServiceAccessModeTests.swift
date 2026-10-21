@@ -15,4 +15,10 @@ import Testing
             configured: "password"
         ) == .off)
     }
+
+    @Test func legacyCrossUserModesNarrowToSameUserAutomation() {
+        for mode in ["allowAll", "openAccess", "fullOpenAccess", "full"] {
+            #expect(ControlService.parseAccessMode(mode) == .automation)
+        }
+    }
 }

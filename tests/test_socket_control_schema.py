@@ -22,6 +22,11 @@ class SocketControlSchemaTests(unittest.TestCase):
         self.assertNotIn("password", settings["socketControlMode"]["enum"])
         self.assertNotIn("socketPassword", settings)
 
+    def test_cross_user_modes_are_not_published(self):
+        modes = self.socket_settings()["socketControlMode"]["enum"]
+        for legacy in ("allowAll", "openAccess", "fullOpenAccess", "full"):
+            self.assertNotIn(legacy, modes)
+
 
 if __name__ == "__main__":
     unittest.main()
