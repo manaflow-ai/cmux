@@ -92,14 +92,19 @@ public final class ChiefPaneTools: NSView {
         sender.presentMenu(menu, sender)
     }
 
-    /// Every subagent, with its status; a row opens it like its sidebar row.
+    /// Every subagent, with its status; a row runs Open Chief Subagent on its sidebar row's item,
+    /// as a click on that row does.
     func subagentsMenu() -> NSMenu {
         let menu = NSMenu()
+        guard let registry else { return menu }
         for row in chief.allSubagents() {
-            let item = NSMenuItem(title: row.info.title, action: #selector(openSubagent(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = row.item.id.rawValue
-            item.toolTip = row.info.activity.shortLabel
+            let target = ActionTargetRef(kind: .sidebarItem, id: row.item.id.rawValue)
+            let built = registry.makeContextMenu(for: .sidebarItem, target: target, entries: [.action(ChiefSidebar.openSubagentAction)])
+            guard let item = built.items.first else { continue }
+            built.removeItem(item)
+            // The subagent's own row: its title and status, no action icon or key.
+            (item.title, item.toolTip, item.image) = (row.info.title, row.info.activity.shortLabel, nil)
+            (item.keyEquivalent, item.keyEquivalentModifierMask) = ("", [])
             menu.addItem(item)
         }
         return menu
@@ -111,11 +116,6 @@ public final class ChiefPaneTools: NSView {
         let menu = NSMenu()
         for id in Self.actions { if let item = registry.makeMenuItem(for: id) { menu.addItem(item) } }
         return menu
-    }
-
-    @objc private func openSubagent(_ item: NSMenuItem) {
-        guard let registry, let id = item.representedObject as? String else { return }
-        _ = chief.activate(LayoutItemID(id), registry: registry)
     }
 }
 
