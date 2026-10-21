@@ -25,7 +25,7 @@ struct MachineSectionListView: View {
                         Image(systemName: "plus")
                     }
                     .buttonStyle(.borderless)
-                    .help(RightSidebarStrings.newWorkspace)
+                    .accessibilityLabel(RightSidebarStrings.newWorkspace)
                     .disabled(!row.isConnected)
                 }
                 .padding(.vertical, 3).padding(.horizontal, Metrics.panelInset)

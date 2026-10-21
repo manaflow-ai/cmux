@@ -1997,6 +1997,31 @@
       ],
       "type": "object"
     },
+    "QueuedImage": {
+      "description": "An image a queued prompt sends.",
+      "properties": {
+        "id": {
+          "description": "The SHA-256 of its bytes (64 lowercase hex digits): `_acpmux/attachment {sessionId, id}`\nreads it, and `_acpmux/queue_edit` `update` `images` keeps it.",
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "name": {
+          "description": "Its file name, when the client gave one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "mimeType",
+        "name"
+      ],
+      "type": "object"
+    },
     "QueuedPromptSummary": {
       "description": "A prompt waiting for the running turn to end.",
       "properties": {
@@ -2006,6 +2031,14 @@
         "held": {
           "description": "Waits behind a failed turn until the queue is resumed.",
           "type": "boolean"
+        },
+        "images": {
+          "default": [],
+          "description": "The images it sends, in its order; `_acpmux/attachment` reads each by its id.",
+          "items": {
+            "$ref": "#/types/QueuedImage"
+          },
+          "type": "array"
         },
         "prompt": {
           "type": "string"
@@ -2025,6 +2058,7 @@
       "required": [
         "client",
         "held",
+        "images",
         "prompt",
         "promptId",
         "queuedAt",
@@ -2287,6 +2321,14 @@
             "string",
             "null"
           ]
+        },
+        "pullRequests": {
+          "default": [],
+          "description": "The pull request URLs its `gh pr create` calls printed, oldest first;\nabsent from a peer on an older acpmux.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "queue": {
           "items": {

@@ -36,6 +36,11 @@ pub struct SessionSummary {
     /// The session whose agent started this one (its `spawnedBy` tag), kept
     /// only while that parent is listed; one level.
     pub spawned_by: Option<String>,
+    /// The pull request URLs its `gh pr create` calls printed, oldest first;
+    /// absent from a peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub pull_requests: Vec<String>,
     /// The session whose agent started this one with its `start_session`
     /// tool (`hub/subsessions.rs`); null for a session a person or client
     /// started. Kept when the parent is closed or gone, so a client draws
@@ -262,6 +267,22 @@ pub struct QueuedPromptSummary {
     pub queued_at: u64,
     /// Waits behind a failed turn until the queue is resumed.
     pub held: bool,
+    /// The images it sends, in its order; `_acpmux/attachment` reads each by its id.
+    #[serde(default)]
+    pub images: Vec<QueuedImage>,
+}
+
+/// An image a queued prompt sends.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct QueuedImage {
+    /// The SHA-256 of its bytes (64 lowercase hex digits): `_acpmux/attachment {sessionId, id}`
+    /// reads it, and `_acpmux/queue_edit` `update` `images` keeps it.
+    pub id: String,
+    pub mime_type: String,
+    /// Its file name, when the client gave one.
+    pub name: Option<String>,
 }
 
 /// What limits the session's agent as far as acpmux can tell.

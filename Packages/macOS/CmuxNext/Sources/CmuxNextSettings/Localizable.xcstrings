@@ -919,6 +919,268 @@
         }
       }
     },
+    "settings.appearance.inactiveWindowDim": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dim Inactive Windows"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعتيم النوافذ غير النشطة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatamni neaktivne prozore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dæmp inaktive vinduer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktive Fenster abdunkeln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atenuar ventanas inactivas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atténuer les fenêtres inactives"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attenua finestre inattive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非アクティブなウインドウを暗くする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធ្វើឲ្យបង្អួចអសកម្មស្រអាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비활성 윈도우 흐리게"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demp inaktive vinduer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przyciemniaj nieaktywne okna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escurecer janelas inativas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Затемнять неактивные окна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หรี่หน้าต่างที่ไม่ได้ใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etkin olmayan pencereleri karart"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Затемнювати неактивні вікна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Làm mờ cửa sổ không hoạt động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "调暗非活跃窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "調暗非作用中視窗"
+          }
+        }
+      }
+    },
+    "settings.appearance.inactiveWindowDim.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How much more theme color covers a window while another one is in front. 0 keeps the same look."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مقدار لون السمة الإضافي الذي يغطي النافذة بينما تكون نافذة أخرى في المقدمة. 0 يبقي المظهر نفسه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koliko više boje teme prekriva prozor dok je drugi prozor ispred. 0 zadržava isti izgled."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor meget mere temafarve dækker et vindue, mens et andet er forrest. 0 bevarer samme udseende."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie viel mehr Themenfarbe ein Fenster bedeckt, während ein anderes im Vordergrund ist. 0 behält das gleiche Aussehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuánto color del tema adicional cubre una ventana mientras otra está delante. 0 mantiene el mismo aspecto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quantité supplémentaire de couleur du thème couvrant une fenêtre lorsqu’une autre est au premier plan. 0 conserve le même aspect."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanto colore del tema in più copre una finestra mentre un’altra è in primo piano. 0 mantiene lo stesso aspetto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のウインドウが前面にあるとき、テーマカラーをどれだけ多く重ねるか。0 では見た目が変わりません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំនួនពណ៌រចនាប័ទ្មបន្ថែមដែលគ្របលើបង្អួច ពេលបង្អួចផ្សេងនៅខាងមុខ។ 0 រក្សារូបរាងដដែល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 윈도우가 앞에 있을 때 테마 색상을 얼마나 더 덮을지 정합니다. 0이면 모습이 그대로입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor mye mer temafarge som dekker et vindu mens et annet er foran. 0 beholder samme utseende."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ile więcej koloru motywu pokrywa okno, gdy inne jest na wierzchu. 0 zachowuje ten sam wygląd."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanto mais cor do tema cobre uma janela enquanto outra está à frente. 0 mantém a mesma aparência."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Насколько сильнее цвет темы покрывает окно, когда впереди другое окно. 0 сохраняет прежний вид."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปริมาณสีธีมที่เพิ่มขึ้นซึ่งคลุมหน้าต่างขณะที่หน้าต่างอื่นอยู่ด้านหน้า 0 คงรูปลักษณ์เดิม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başka bir pencere öndeyken bir pencereyi ne kadar fazla tema rengi kaplar. 0 aynı görünümü korur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наскільки більше кольору теми вкриває вікно, коли попереду інше вікно. 0 зберігає той самий вигляд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lượng màu chủ đề phủ thêm lên một cửa sổ khi cửa sổ khác ở phía trước. 0 giữ nguyên giao diện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当另一个窗口在前面时，窗口上额外覆盖多少主题颜色。0 保持外观不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當另一個視窗在前面時，視窗上額外覆蓋多少主題顏色。0 保持外觀不變。"
+          }
+        }
+      }
+    },
     "settings.group.chiefChat": {
       "comment": "Settings group in Agents: how the Chief chat looks.",
       "extractionState": "manual",
@@ -20576,6 +20838,268 @@
         }
       }
     },
+    "settings.sidebar.sessionTree": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Tree"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شجرة الجلسات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stablo sesija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessionstræ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungsbaum"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Árbol de sesiones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arborescence des sessions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Albero delle sessioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションツリー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មែកធាងវគ្គ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 트리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Øktetre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drzewo sesji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Árvore de sessões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дерево сеансов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แผนผังเซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum ağacı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дерево сеансів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cây phiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话树"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段樹"
+          }
+        }
+      }
+    },
+    "settings.sidebar.sessionTree.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض مساحة العمل التي بدأها وكيل مساحة عمل أخرى تحتها، ويعرض طلبات الدمج لكل صف ومفاتيح Command مع الرقم للصفوف الأولى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikazuje radni prostor koji je pokrenuo agent drugog radnog prostora ispod njega, te zahtjeve za spajanje svakog reda i tipke Command-broj prvih redova."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser et arbejdsområde, som et andet arbejdsområdes agent har startet, under det, og viser hver rækkes pull requests og de første rækkers Command-tal-taster."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt einen Arbeitsbereich, den der Agent eines anderen Arbeitsbereichs gestartet hat, unter diesem an, dazu die Pull Requests jeder Zeile und die Befehl-Ziffer-Tasten der ersten Zeilen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra un espacio de trabajo iniciado por el agente de otro debajo de este, junto con las solicitudes de incorporación de cada fila y las teclas Comando-número de las primeras filas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche sous un espace de travail ceux que son agent a lancés, avec les pull requests de chaque ligne et les touches Commande-chiffre des premières lignes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra uno spazio di lavoro avviato dall'agente di un altro spazio sotto quest'ultimo, con le pull request di ogni riga e i tasti Comando-numero delle prime righe."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のワークスペースのエージェントが開始したワークスペースをその下に表示し、各行のプルリクエストと先頭の行の Command-数字キーを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញកន្លែងធ្វើការដែលភ្នាក់ងាររបស់កន្លែងធ្វើការមួយទៀតបានចាប់ផ្តើមនៅក្រោមវា ហើយបង្ហាញសំណើទាញរបស់ជួរនីមួយៗ និងគ្រាប់ចុច Command-លេខ នៃជួរដំបូងៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 작업 공간의 에이전트가 시작한 작업 공간을 그 아래에 표시하고, 각 행의 풀 리퀘스트와 처음 행들의 Command-숫자 키를 보여 줍니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser et arbeidsområde som et annet arbeidsområdes agent startet, under det, og viser hver rads pull requests og de første radenes Command-tall-taster."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuje obszar roboczy uruchomiony przez agenta innego obszaru pod nim oraz pull requesty każdego wiersza i klawisze Command-cyfra pierwszych wierszy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra um espaço de trabalho iniciado pelo agente de outro espaço abaixo dele, com os pull requests de cada linha e as teclas Command-número das primeiras linhas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает рабочее пространство, запущенное агентом другого пространства, под ним, а также пул-реквесты каждой строки и клавиши Command-цифра первых строк."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงพื้นที่ทำงานที่เอเจนต์ของพื้นที่ทำงานอื่นเริ่มไว้ใต้พื้นที่ทำงานนั้น พร้อมคำขอรวมโค้ดของแต่ละแถวและปุ่ม Command-ตัวเลขของแถวแรกๆ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başka bir çalışma alanının ajanının başlattığı çalışma alanını onun altında listeler; her satırın çekme isteklerini ve ilk satırların Command-rakam tuşlarını gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує робочий простір, запущений агентом іншого простору, під ним, а також пул-реквести кожного рядка й клавіші Command-цифра перших рядків."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị không gian làm việc do tác tử của không gian khác khởi chạy bên dưới nó, cùng các yêu cầu hợp nhất của từng hàng và phím Command-số của các hàng đầu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将由另一个工作区的代理启动的工作区列在其下方，并显示每一行的拉取请求以及前几行的 Command-数字键。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將由另一個工作區的代理啟動的工作區列在其下方，並顯示每一列的拉取請求以及前幾列的 Command-數字鍵。"
+          }
+        }
+      }
+    },
     "settings.ui.animationSpeed": {
       "extractionState": "manual",
       "localizations": {
@@ -34730,127 +35254,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "كيف تظهر علامات تبويب الأجزاء الأخرى أخفت عندما يميّز «الجزء النشط» علامات التبويب: «تلاشٍ» يخفتها، و«نغمي» يخفض درجة نصها، و«هادئ» يزيل خلفية العلامة المحددة."
+            "value": "كيف تظهر علامات تبويب الأجزاء الأخرى أخفت عندما يميّز «الجزء النشط» علامات التبويب: «تلاشٍ» يخفتها، و«نغمي» يخفض درجة نصها، و«هادئ» يُبقي خلفية خافتة للعلامة المحددة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kako kartice ostalih okna izgledaju blaže kada Fokusirano okno označava kartice: Izblijedi ih prigušuje, Tonski snižava ton teksta, Tiho uklanja pozadinu odabrane kartice."
+            "value": "Kako kartice ostalih okna izgledaju blaže kada Fokusirano okno označava kartice: Izblijedi ih prigušuje, Tonski snižava ton teksta, Tiho ostavlja samo blagu pozadinu odabrane kartice."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvordan de andre ruders faner tegnes mere afdæmpet, når Fokuseret rude markerer faner: Ton ud dæmper dem, Tonal sænker tekstens niveau, Stille fjerner den valgte fanes baggrund."
+            "value": "Hvordan de andre ruders faner tegnes mere afdæmpet, når Fokuseret rude markerer faner: Ton ud dæmper dem, Tonal sænker tekstens niveau, Stille beholder kun en svag baggrund på den valgte fane."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wie die Tabs der anderen Bereiche dezenter erscheinen, wenn „Fokussierter Bereich“ Tabs markiert: Verblassen dimmt sie, Tonal stuft den Text ab, Ruhig entfernt den Hintergrund des ausgewählten Tabs."
+            "value": "Wie die Tabs der anderen Bereiche dezenter erscheinen, wenn „Fokussierter Bereich“ Tabs markiert: Verblassen dimmt sie, Tonal stuft den Text ab, Ruhig lässt dem ausgewählten Tab nur einen schwachen Hintergrund."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill."
+            "value": "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cómo se atenúan las pestañas de los demás paneles cuando Panel con foco marca pestañas: Desvanecer las atenúa, Tonal baja el tono del texto, Discreto quita el fondo de la pestaña seleccionada."
+            "value": "Cómo se atenúan las pestañas de los demás paneles cuando Panel con foco marca pestañas: Desvanecer las atenúa, Tonal baja el tono del texto, Discreto deja solo un fondo tenue en la pestaña seleccionada."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Comment les onglets des autres volets s’atténuent quand Volet actif marque les onglets : Estomper les assombrit, Tonal abaisse le ton du texte, Discret retire le fond de l’onglet sélectionné."
+            "value": "Comment les onglets des autres volets s’atténuent quand Volet actif marque les onglets : Estomper les assombrit, Tonal abaisse le ton du texte, Discret ne garde qu’un fond léger sur l’onglet sélectionné."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Come le schede degli altri riquadri appaiono più tenui quando Riquadro attivo segna le schede: Dissolvi le attenua, Tonale abbassa il tono del testo, Discreto toglie lo sfondo della scheda selezionata."
+            "value": "Come le schede degli altri riquadri appaiono più tenui quando Riquadro attivo segna le schede: Dissolvi le attenua, Tonale abbassa il tono del testo, Discreto lascia solo uno sfondo tenue alla scheda selezionata."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "「フォーカス中のペイン」がタブで示すとき、他のペインのタブを控えめに表示する方法。フェードは淡くし、トーンは文字の階調を下げ、クワイエットは選択中タブの背景をなくします。"
+            "value": "「フォーカス中のペイン」がタブで示すとき、他のペインのタブを控えめに表示する方法。フェードは淡くし、トーンは文字の階調を下げ、クワイエットは選択中タブの背景をごく淡く残します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "របៀបដែលផ្ទាំងនៃផ្ទាំងរងផ្សេងទៀតបង្ហាញស្រាលជាង នៅពេល «ផ្ទាំងរងដែលផ្តោត» សម្គាល់ផ្ទាំង៖ ស្រអាប់ធ្វើឲ្យស្រាល ពណ៌ថ្នាក់បន្ថយកម្រិតអក្សរ ស្ងាត់ដកផ្ទៃខាងក្រោយនៃផ្ទាំងដែលបានជ្រើស។"
+            "value": "របៀបដែលផ្ទាំងនៃផ្ទាំងរងផ្សេងទៀតបង្ហាញស្រាលជាង នៅពេល «ផ្ទាំងរងដែលផ្តោត» សម្គាល់ផ្ទាំង៖ ស្រអាប់ធ្វើឲ្យស្រាល ពណ៌ថ្នាក់បន្ថយកម្រិតអក្សរ ស្ងាត់ទុកតែផ្ទៃខាងក្រោយស្រាលៗនៃផ្ទាំងដែលបានជ្រើស។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "포커스된 창 설정이 탭으로 표시할 때 다른 창의 탭을 더 흐리게 그리는 방식입니다. 페이드는 흐리게 하고, 톤은 글자 단계를 낮추며, 차분은 선택된 탭의 배경을 없앱니다."
+            "value": "포커스된 창 설정이 탭으로 표시할 때 다른 창의 탭을 더 흐리게 그리는 방식입니다. 페이드는 흐리게 하고, 톤은 글자 단계를 낮추며, 차분은 선택된 탭의 배경을 아주 옅게만 남깁니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvordan fanene i de andre rutene tegnes mer dempet når Fokusert rute markerer faner: Ton ut demper dem, Tonal senker tekstens nivå, Stille fjerner bakgrunnen til den valgte fanen."
+            "value": "Hvordan fanene i de andre rutene tegnes mer dempet når Fokusert rute markerer faner: Ton ut demper dem, Tonal senker tekstens nivå, Stille beholder bare en svak bakgrunn på den valgte fanen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Jak karty pozostałych paneli są przyciemnione, gdy Aktywny panel oznacza karty: Wygaszanie je przyciemnia, Tonalny obniża ton tekstu, Cichy usuwa tło zaznaczonej karty."
+            "value": "Jak karty pozostałych paneli są przyciemnione, gdy Aktywny panel oznacza karty: Wygaszanie je przyciemnia, Tonalny obniża ton tekstu, Cichy zostawia zaznaczonej karcie tylko słabe tło."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Como as abas dos outros painéis ficam mais discretas quando Painel em foco marca as abas: Esmaecer as atenua, Tonal reduz o tom do texto, Discreto remove o fundo da aba selecionada."
+            "value": "Como as abas dos outros painéis ficam mais discretas quando Painel em foco marca as abas: Esmaecer as atenua, Tonal reduz o tom do texto, Discreto deixa só um fundo suave na aba selecionada."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Как вкладки других панелей выглядят приглушённее, когда «Активная панель» отмечает вкладки: «Затухание» приглушает их, «Тональный» понижает тон текста, «Тихий» убирает фон выбранной вкладки."
+            "value": "Как вкладки других панелей выглядят приглушённее, когда «Активная панель» отмечает вкладки: «Затухание» приглушает их, «Тональный» понижает тон текста, «Тихий» оставляет выбранной вкладке лишь слабый фон."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "วิธีที่แท็บของบานอื่นแสดงจางลงเมื่อ บานที่โฟกัส ทำเครื่องหมายด้วยแท็บ: จางลง ทำให้หรี่ลง โทน ลดระดับสีตัวอักษร เงียบ เอาพื้นหลังของแท็บที่เลือกออก"
+            "value": "วิธีที่แท็บของบานอื่นแสดงจางลงเมื่อ บานที่โฟกัส ทำเครื่องหมายด้วยแท็บ: จางลง ทำให้หรี่ลง โทน ลดระดับสีตัวอักษร เงียบ เหลือพื้นหลังจางๆ ของแท็บที่เลือกไว้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odaklanan bölme sekmeleri işaretlediğinde diğer bölmelerin sekmelerinin nasıl daha sönük çizileceği: Soluk onları kısar, Tonal yazının tonunu düşürür, Sessiz seçili sekmenin arka planını kaldırır."
+            "value": "Odaklanan bölme sekmeleri işaretlediğinde diğer bölmelerin sekmelerinin nasıl daha sönük çizileceği: Soluk onları kısar, Tonal yazının tonunu düşürür, Sessiz seçili sekmede yalnızca soluk bir arka plan bırakır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Як вкладки інших панелей виглядають приглушеніше, коли «Активна панель» позначає вкладки: «Згасання» приглушує їх, «Тональний» знижує тон тексту, «Тихий» прибирає тло вибраної вкладки."
+            "value": "Як вкладки інших панелей виглядають приглушеніше, коли «Активна панель» позначає вкладки: «Згасання» приглушує їх, «Тональний» знижує тон тексту, «Тихий» залишає вибраній вкладці лише слабке тло."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cách các thẻ của những ngăn khác hiển thị nhạt hơn khi Ngăn đang chọn đánh dấu bằng thẻ: Mờ dần làm chúng nhạt đi, Sắc độ hạ tông chữ, Yên lặng bỏ nền của thẻ đang chọn."
+            "value": "Cách các thẻ của những ngăn khác hiển thị nhạt hơn khi Ngăn đang chọn đánh dấu bằng thẻ: Mờ dần làm chúng nhạt đi, Sắc độ hạ tông chữ, Yên lặng chỉ giữ nền mờ cho thẻ đang chọn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "当“聚焦窗格”用标签页标记时，其他窗格的标签页如何变淡：渐隐会调暗它们，色阶会降低文字层级，安静会去掉选中标签页的底色。"
+            "value": "当“聚焦窗格”用标签页标记时，其他窗格的标签页如何变淡：渐隐会调暗它们，色阶会降低文字层级，安静只为选中标签页保留很淡的底色。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "當「聚焦窗格」以分頁標示時，其他窗格的分頁如何變淡：淡化會調暗它們，色階會降低文字層級，安靜會移除所選分頁的底色。"
+            "value": "當「聚焦窗格」以分頁標示時，其他窗格的分頁如何變淡：淡化會調暗它們，色階會降低文字層級，安靜只為所選分頁保留很淡的底色。"
           }
         }
       }
@@ -112416,6 +112940,923 @@
         }
       }
     },
+    "settings.group.folderTrust": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder Trust"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الثقة بالمجلدات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povjerenje u foldere"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappetillid"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordnervertrauen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confianza en carpetas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confiance des dossiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fiducia nelle cartelle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダの信頼"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជឿទុកចិត្តថតឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더 신뢰"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappetillit"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaufanie do folderów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confiança em pastas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доверие к папкам"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความเชื่อถือโฟลเดอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasör güveni"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Довіра до папок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tin cậy thư mục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件夹信任"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資料夾信任"
+          }
+        }
+      }
+    },
+    "settings.agents.trust.autoTrust": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trust My Own Folders Without Asking"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوثوق بمجلداتي دون سؤال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vjeruj mojim folderima bez pitanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stol på mine egne mapper uden at spørge"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigenen Ordnern ohne Nachfrage vertrauen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confiar en mis propias carpetas sin preguntar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faire confiance à mes dossiers sans demander"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Considera attendibili le mie cartelle senza chiedere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分のフォルダを確認なしで信頼"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជឿទុកចិត្តថតឯកសាររបស់ខ្ញុំដោយមិនសួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 폴더는 묻지 않고 신뢰"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stol på mine egne mapper uten å spørre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ufaj moim folderom bez pytania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confiar nas minhas pastas sem perguntar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доверять моим папкам без запроса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อถือโฟลเดอร์ของฉันโดยไม่ต้องถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kendi klasörlerime sormadan güven"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Довіряти моїм папкам без запиту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tin cậy thư mục của tôi mà không hỏi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无需询问即信任我自己的文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不經詢問即信任我自己的資料夾"
+          }
+        }
+      }
+    },
+    "settings.agents.trust.autoTrust.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبدأ الوكلاء في المجلدات الموجودة ضمن جذور مشاريعك وفي المستودعات التي تملكها مؤسساتك دون سؤال. أما المجلدات الأخرى فتسأل أولاً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti se pokreću u folderima unutar vaših korijenskih foldera projekata i u repozitorijima u vlasništvu vaših organizacija bez pitanja. Za ostale foldere se prvo pita."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter starter i mapper under dine projektrødder og i repositories, der ejes af dine organisationer, uden at spørge. Andre mapper spørger først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten starten in Ordnern unter deinen Projektwurzeln und in Repositorys deiner Organisationen ohne Nachfrage. Bei anderen Ordnern wird zuerst gefragt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes se inician sin preguntar en las carpetas dentro de tus raíces de proyectos y en los repositorios de tus organizaciones. En las demás carpetas se pregunta primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents démarrent sans demander dans les dossiers situés sous vos racines de projets et dans les dépôts appartenant à vos organisations. Pour les autres dossiers, la question est posée d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli agenti si avviano senza chiedere nelle cartelle sotto le radici dei tuoi progetti e nei repository delle tue organizzazioni. Per le altre cartelle viene chiesto prima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントは、プロジェクトのルート配下のフォルダや、所属する組織が所有するリポジトリでは、確認なしで開始します。それ以外のフォルダでは先に確認します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារចាប់ផ្ដើមដោយមិនសួរនៅក្នុងថតឯកសារក្រោមឫសគម្រោងរបស់អ្នក និងនៅក្នុងឃ្លាំងដែលជាកម្មសិទ្ធិរបស់អង្គការរបស់អ្នក។ ថតឯកសារផ្សេងទៀតនឹងសួរជាមុន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트는 프로젝트 루트 아래의 폴더와 내 조직이 소유한 저장소에서는 묻지 않고 시작합니다. 그 밖의 폴더는 먼저 묻습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter starter uten å spørre i mapper under prosjektrøttene dine og i repositorier som eies av organisasjonene dine. Andre mapper spør først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenci uruchamiają się bez pytania w folderach w obrębie katalogów głównych projektów oraz w repozytoriach należących do Twoich organizacji. W przypadku innych folderów najpierw pytają."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os agentes iniciam sem perguntar em pastas dentro das raízes dos seus projetos e em repositórios das suas organizações. Nas demais pastas, a pergunta vem primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенты запускаются без запроса в папках внутри корней ваших проектов и в репозиториях ваших организаций. Для остальных папок сначала задаётся вопрос."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์จะเริ่มทำงานโดยไม่ถามในโฟลเดอร์ภายใต้รากโปรเจกต์ของคุณ และในรีโพซิทอรีที่เป็นขององค์กรของคุณ ส่วนโฟลเดอร์อื่นจะถามก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlar, proje köklerinizin altındaki klasörlerde ve kuruluşlarınıza ait depolarda sormadan başlar. Diğer klasörlerde önce sorulur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенти запускаються без запиту в папках усередині коренів ваших проєктів і в репозиторіях ваших організацій. Для решти папок спочатку ставиться запитання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác nhân khởi động mà không hỏi trong các thư mục nằm dưới thư mục gốc dự án của bạn và trong các kho do tổ chức của bạn sở hữu. Các thư mục khác sẽ hỏi trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理在你的项目根目录下的文件夹中，以及在你的组织所拥有的仓库中启动时，无需询问。其他文件夹会先询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理在你的專案根目錄下的資料夾中，以及在你的組織所擁有的儲存庫中啟動時，無需詢問。其他資料夾會先詢問。"
+          }
+        }
+      }
+    },
+    "settings.agents.trust.projectRoots": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trusted Project Roots"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جذور المشاريع الموثوقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pouzdani korijenski folderi projekata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Betroede projektrødder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertrauenswürdige Projektwurzeln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raíces de proyectos de confianza"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Racines de projets de confiance"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radici dei progetti attendibili"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼するプロジェクトのルート"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឫសគម្រោងដែលគួរជឿទុកចិត្ត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "신뢰하는 프로젝트 루트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klarerte prosjektrøtter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaufane katalogi główne projektów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raízes de projetos confiáveis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доверенные корни проектов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รากโปรเจกต์ที่เชื่อถือ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güvenilen proje kökleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Довірені корені проєктів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thư mục gốc dự án tin cậy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受信任的项目根目录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受信任的專案根目錄"
+          }
+        }
+      }
+    },
+    "settings.agents.trust.projectRoots.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything inside these folders is trusted. Use full paths or ~/ paths."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كل ما بداخل هذه المجلدات موثوق. استخدم مسارات كاملة أو مسارات تبدأ بـ ~/."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sve unutar ovih foldera smatra se pouzdanim. Koristite pune putanje ili putanje s ~/."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alt i disse mapper er betroet. Brug fulde stier eller stier med ~/."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alles in diesen Ordnern gilt als vertrauenswürdig. Verwende vollständige Pfade oder Pfade mit ~/."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todo lo que hay dentro de estas carpetas es de confianza. Usa rutas completas o rutas con ~/."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tout ce qui se trouve dans ces dossiers est approuvé. Utilisez des chemins complets ou des chemins avec ~/."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tutto ciò che si trova in queste cartelle è attendibile. Usa percorsi completi o percorsi con ~/."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらのフォルダ内のすべてを信頼します。フルパスまたは ~/ から始まるパスを使用してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្វីៗទាំងអស់នៅក្នុងថតឯកសារទាំងនេះត្រូវបានជឿទុកចិត្ត។ ប្រើផ្លូវពេញ ឬផ្លូវដែលចាប់ផ្ដើមដោយ ~/។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 폴더 안의 모든 항목을 신뢰합니다. 전체 경로 또는 ~/ 경로를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alt i disse mappene er klarert. Bruk fulle stier eller stier med ~/."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wszystko w tych folderach jest zaufane. Użyj pełnych ścieżek lub ścieżek z ~/."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tudo dentro dessas pastas é confiável. Use caminhos completos ou caminhos com ~/."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё внутри этих папок считается доверенным. Используйте полные пути или пути с ~/."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทุกอย่างภายในโฟลเดอร์เหล่านี้ได้รับความเชื่อถือ ใช้พาธแบบเต็มหรือพาธที่ขึ้นต้นด้วย ~/"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu klasörlerin içindeki her şeye güvenilir. Tam yolları veya ~/ ile başlayan yolları kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Усе всередині цих папок вважається довіреним. Використовуйте повні шляхи або шляхи з ~/."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mọi thứ trong các thư mục này đều được tin cậy. Dùng đường dẫn đầy đủ hoặc đường dẫn bắt đầu bằng ~/."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这些文件夹中的所有内容均受信任。请使用完整路径或以 ~/ 开头的路径。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這些資料夾中的所有內容皆受信任。請使用完整路徑或以 ~/ 開頭的路徑。"
+          }
+        }
+      }
+    },
+    "settings.agents.trust.ownOrgs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trusted GitHub Owners"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مالكو GitHub الموثوقون"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pouzdani vlasnici na GitHubu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Betroede GitHub-ejere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertrauenswürdige GitHub-Eigentümer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Propietarios de GitHub de confianza"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Propriétaires GitHub de confiance"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proprietari GitHub attendibili"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼する GitHub オーナー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម្ចាស់ GitHub ដែលគួរជឿទុកចិត្ត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "신뢰하는 GitHub 소유자"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klarerte GitHub-eiere"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaufani właściciele GitHub"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proprietários do GitHub confiáveis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доверенные владельцы GitHub"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เจ้าของ GitHub ที่เชื่อถือ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güvenilen GitHub sahipleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Довірені власники GitHub"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chủ sở hữu GitHub tin cậy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受信任的 GitHub 所有者"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受信任的 GitHub 擁有者"
+          }
+        }
+      }
+    },
+    "settings.agents.trust.ownOrgs.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A repository is trusted when all of its GitHub remotes belong to these users or organizations."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يكون المستودع موثوقاً عندما تعود جميع مستودعاته البعيدة على GitHub إلى هؤلاء المستخدمين أو المؤسسات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repozitorij je pouzdan kada svi njegovi GitHub udaljeni repozitoriji pripadaju ovim korisnicima ili organizacijama."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et repository er betroet, når alle dets GitHub-remotes tilhører disse brugere eller organisationer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Repository gilt als vertrauenswürdig, wenn alle seine GitHub-Remotes zu diesen Benutzern oder Organisationen gehören."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un repositorio es de confianza cuando todos sus remotos de GitHub pertenecen a estos usuarios u organizaciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un dépôt est approuvé lorsque tous ses dépôts distants GitHub appartiennent à ces utilisateurs ou organisations."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un repository è attendibile quando tutti i suoi remoti GitHub appartengono a questi utenti o organizzazioni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリのすべての GitHub リモートがこれらのユーザーまたは組織に属している場合、そのリポジトリを信頼します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឃ្លាំងមួយត្រូវបានជឿទុកចិត្តនៅពេលដែល remote GitHub ទាំងអស់របស់វាជាកម្មសិទ្ធិរបស់អ្នកប្រើប្រាស់ ឬអង្គការទាំងនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장소의 모든 GitHub 원격이 이 사용자 또는 조직에 속하면 해당 저장소를 신뢰합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et repositorium er klarert når alle GitHub-remotene tilhører disse brukerne eller organisasjonene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repozytorium jest zaufane, gdy wszystkie jego zdalne repozytoria GitHub należą do tych użytkowników lub organizacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um repositório é confiável quando todos os seus remotos do GitHub pertencem a esses usuários ou organizações."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Репозиторий считается доверенным, если все его удалённые репозитории GitHub принадлежат этим пользователям или организациям."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รีโพซิทอรีจะได้รับความเชื่อถือเมื่อรีโมต GitHub ทั้งหมดเป็นของผู้ใช้หรือองค์กรเหล่านี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir deponun tüm GitHub uzak depoları bu kullanıcılara veya kuruluşlara aitse depoya güvenilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Репозиторій вважається довіреним, якщо всі його віддалені репозиторії GitHub належать цим користувачам або організаціям."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một kho được tin cậy khi tất cả remote GitHub của nó thuộc về các người dùng hoặc tổ chức này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当仓库的所有 GitHub 远程仓库都属于这些用户或组织时，该仓库即受信任。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當儲存庫的所有 GitHub 遠端儲存庫都屬於這些使用者或組織時，該儲存庫即受信任。"
+          }
+        }
+      }
+    },
     "settings.sidebar.detailedStatusIcons": {
       "extractionState": "manual",
       "localizations": {
@@ -147376,19 +148817,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los chats de agentes que te necesitan, arriba en la barra lateral"
+            "value": "Chats de agentes que te esperan, arriba en la barra lateral"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les conversations d’agents qui vous attendent, en haut de la barre latérale"
+            "value": "Chats d’agents à traiter, en haut de la barre latérale"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le chat degli agenti che ti aspettano, in cima alla barra laterale"
+            "value": "Chat degli agenti in attesa, in cima alla barra laterale"
           }
         },
         "ja": {
@@ -147418,13 +148859,13 @@
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Czaty agentów, które na ciebie czekają, u góry paska bocznego"
+            "value": "Czaty agentów czekające na ciebie, u góry paska bocznego"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chats de agentes que precisam de você, no topo da barra lateral"
+            "value": "Chats de agentes à sua espera, no topo da barra lateral"
           }
         },
         "ru": {
