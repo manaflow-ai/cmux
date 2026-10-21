@@ -94,7 +94,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The `prefers-color-scheme` the attached browser was last told, so a
     /// tab switch (every one calls `pageThemeDidChange`) costs no DevTools
     /// round trip when nothing changed. Nil until the browser attaches, and
-    /// again when it goes away (`CEFTab+ColorScheme`).
+    /// again when it goes away or its renderer ends (`CEFTab+ColorScheme`).
     @ObservationIgnored var sentColorScheme: String?
     /// The theme surface whose color a cmux page keeps behind its transparent document (a
     /// `cmux-page://` page in Chromium, `CmuxNextApp` `ChromiumPageHost`); nil for a web page, which
@@ -318,6 +318,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func rendererTerminated(_ exit: BrowserProcessExit) {
         guard !isClosed else { return }
         machine.apply(.processExited(exit))
+        // A new renderer need not keep the old one's media emulation, so forget
+        // what we told it: the next ask (`pageThemeDidChange` on the reload's
+        // view move or theme change) sends the color scheme again instead of
+        // reading it back off a renderer that never heard it.
+        sentColorScheme = nil
         reloadWhenShown = host.visibleTab !== self
         findRequests.cancel()
         runtime.recordRendererExit(exit, tab: self)
