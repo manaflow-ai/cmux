@@ -1,0 +1,122 @@
+public import AppKit
+public import CmuxNextActions
+import CmuxNextCompat
+public import CmuxNextDesign
+import CmuxNextSidebar
+import Foundation
+import Observation
+
+/// The Chief's tools in the docked Home's tab row (Leo 2026-10-20: the Chief's pane gets a top-right
+/// area like a workspace's, with its status, its subagents and its actions;
+/// `HomeDockSwitchView.rowTools`): the Chief's status mark (``ChiefSidebar/status``, what its sidebar
+/// item shows), Subagents (each row opens like its sidebar row) and Chief Actions. Every slot keeps
+/// its width, so a status change or a first subagent never moves the tabs.
+public final class ChiefPaneTools: NSView {
+    public let indicator = StatusIndicatorView()
+    public let subagentsButton = TitlebarBandButton(symbol: "person.2")
+    public let actionsButton = TitlebarBandButton(symbol: "ellipsis")
+    /// What Chief Actions lists, in this order (each runs on the shown Chief, as from the palette).
+    public static let actions: [ActionID] = ["home.stopChief", "home.toggleChiefSettings", "chief.openMemoryInspector",
+                                             "chief.openUsage", "home.newChief"]
+    private let chief: ChiefSidebar
+    private weak var registry: ActionRegistry?
+    private var watch: Task<Void, Never>?
+
+    public init(chief: ChiefSidebar = .shared, registry: ActionRegistry) {
+        self.chief = chief
+        self.registry = registry
+        super.init(frame: .zero)
+        setAccessibilityIdentifier("cmux.chief.paneTools")
+        indicator.tracksWindowOcclusion = true
+        for (button, title, id) in [(subagentsButton, ChiefToolStrings.subagents, "subagents"), (actionsButton, ChiefToolStrings.actions, "actions")] {
+            button.target = self
+            button.action = #selector(openMenu(_:))
+            button.longPressOpensMenu = false
+            button.themedToolTip = title
+            button.setAccessibilityLabel(title)
+            button.setAccessibilityIdentifier("cmux.chief.paneTools.\(id)")
+            addSubview(button)
+        }
+        addSubview(indicator)
+        subagentsButton.pressMenu = { [weak self] in self?.subagentsMenu() }
+        actionsButton.pressMenu = { [weak self] in self?.actionsMenu() }
+        // task-owner: this view (cancelled in deinit); event-driven (Observation).
+        watch = Task { [weak self, chief] in
+            for await (status, subagents) in ObservationStream({ (chief.status, chief.allSubagents().count) }) {
+                self?.show(status, subagents: subagents)
+            }
+        }
+    }
+
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated { watch?.cancel() }
+    }
+
+    override public var isFlipped: Bool { true }
+    override public var mouseDownCanMoveWindow: Bool { false }
+
+    private static var slot: CGFloat { TitlebarBandButton.side }
+
+    override public var intrinsicContentSize: NSSize {
+        NSSize(width: Self.slot * 3 + Metrics.space1 * 2, height: Self.slot)
+    }
+
+    override public func layout() {
+        super.layout()
+        let side = Self.slot, y = max(0, (bounds.height - side) / 2)
+        for (index, view) in [indicator, subagentsButton, actionsButton].enumerated() {
+            let x = CGFloat(index) * (side + Metrics.space1)
+            let mark = view === indicator ? Metrics.smallIconSize : side
+            view.frame = NSRect(x: x + (side - mark) / 2, y: y + (side - mark) / 2, width: mark, height: mark)
+        }
+    }
+
+    /// The Chief's status on the mark (hidden while idle, its slot kept) and whether it has subagents.
+    func show(_ status: ChiefSidebar.Status, subagents: Int) {
+        if indicator.state != status.activity { indicator.configure(status.activity) }
+        subagentsButton.isEnabled = subagents > 0
+    }
+
+    /// A keyboard or VoiceOver press opens the button's menu (a click opens it on press).
+    @objc private func openMenu(_ sender: TitlebarBandButton) {
+        guard let menu = sender.pressMenu?(), !menu.items.isEmpty else { return }
+        sender.presentMenu(menu, sender)
+    }
+
+    /// Every subagent, with its status; a row opens it like its sidebar row.
+    func subagentsMenu() -> NSMenu {
+        let menu = NSMenu()
+        for row in chief.allSubagents() {
+            let item = NSMenuItem(title: row.info.title, action: #selector(openSubagent(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = row.item.id.rawValue
+            item.toolTip = row.info.activity.shortLabel
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    /// Chief Actions, as the catalog titles and keys them.
+    func actionsMenu() -> NSMenu? {
+        guard let registry else { return nil }
+        let menu = NSMenu()
+        for id in Self.actions { if let item = registry.makeMenuItem(for: id) { menu.addItem(item) } }
+        return menu
+    }
+
+    @objc private func openSubagent(_ item: NSMenuItem) {
+        guard let registry, let id = item.representedObject as? String else { return }
+        _ = chief.activate(LayoutItemID(id), registry: registry)
+    }
+}
+
+/// Strings of the Chief's pane tools (Resources/Localizable.xcstrings).
+enum ChiefToolStrings {
+    static var subagents: String { String(localized: "chief.tools.subagents", defaultValue: "Subagents", bundle: .module) }
+    static var actions: String { String(localized: "chief.tools.actions", defaultValue: "Chief Actions", bundle: .module) }
+}
