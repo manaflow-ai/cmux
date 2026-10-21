@@ -168,7 +168,15 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
       await page.close();
       // A narrow row makes room for Steer from its left cluster (labels give way by priority).
       const fixed = width >= 720 ? Object.keys(CONTROLS) : ["prompt", "footer", "mic", "send or stop"];
-      const pick = (all: typeof before) => Object.fromEntries(fixed.map((name) => [name, all[name]!]));
+      // ↵ takes its place beside the mic, so the prompt's column narrows by its width; the prompt
+      // keeps its place and height (its left, top and height), and every control its box.
+      const pick = (all: typeof before) =>
+        Object.fromEntries(
+          fixed.map((name) => {
+            const box = all[name]!;
+            return [name, name === "prompt" && box !== "missing" ? [box[0]!, box[1]!, box[3]!] : box];
+          }),
+        );
       expect(moved(pick(before), pick(after))).toEqual([]);
     });
   }

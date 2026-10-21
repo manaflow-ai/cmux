@@ -1474,9 +1474,7 @@ export function Composer({
             <SpeedToggleHost.Provider value={setSpeed}>
               <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
             </SpeedToggleHost.Provider>
-            {/* Claude's footer has no speed control: the bolt shows only while a faster tier runs,
-                as its state; the Effort menu's speed rows turn it on and off. */}
-            {speed && speed.current !== undefined && speed.current !== speed.off && <FastToggle speed={speed} />}
+            {speed && <FastToggle speed={speed} />}
             {/* Claude Code ends the row on the context ring. It keeps its place before the chat
                 reports usage (inert, ContextRing), so the first report moves nothing in the row
                 (hq#1957: the composer holds still while a turn runs); the context-usage setting

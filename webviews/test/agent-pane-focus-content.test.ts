@@ -142,13 +142,15 @@ await requireBrowserLane("agent-pane-focus-content.test.ts", async () => {
     await page.mouse.click(box.x + box.width / 2, Math.max(8, box.y - 120));
   };
 
-  for (const order of ["after", "before"] as const)
-    test(`a click outside the composer blurs it, with the click's focusContent arriving ${order} the press`, async () => {
+  // The two signals a click into the pane raises in WebKit, each reaching the page after the
+  // press: the host's focusContent (becomeFirstResponder) and the window's focus event.
+  for (const signal of ["focusContent", "window focus"] as const)
+    test(`a click outside the composer blurs it, with the click's ${signal} after the press`, async () => {
       const page = await chat();
       await focusPrompt(page);
-      if (order === "before") expect(await focusContent(page)).toBe(true);
       await pressBackground(page);
-      if (order === "after") expect(await focusContent(page)).toBe(true);
+      if (signal === "focusContent") expect(await focusContent(page)).toBe(true);
+      else await page.evaluate(() => window.dispatchEvent(new FocusEvent("focus")));
       await page.waitForTimeout(500);
       expect(await promptFocused(page)).toBe(false);
       // A printed key still goes into the composer: the pane keeps the keyboard.

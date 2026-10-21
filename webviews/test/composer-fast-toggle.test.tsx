@@ -5,10 +5,8 @@
 //   - the bolt sits in the trailing cluster, immediately left of the mic; with Claude Code's split
 //     (the plain footer, on by default; Leo 2026-10-19) it moves with the chips to the quiet row
 //     under the box, right after the model and effort, before the context ring;
-//   - the footer is Claude desktop's, "nothing else" (Leo 2026-10-20): the bolt shows only while a
-//     faster tier runs, as its state, and the Effort menu's speed rows turn one on; a click on the
-//     bolt steps to the next tier (or off) through the session's speed option, with the command
-//     the reasoning menu sends (chat.effort's configId=value);
+//   - a click cycles off -> each offered tier -> off, through the session's speed option, with the
+//     command the reasoning menu sends (chat.effort's configId=value);
 //   - a model with no speed tier shows no bolt;
 //   - the chips no longer say "Fast": the bolt carries the state.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
@@ -177,11 +175,9 @@ const twoState: Option[] = [
 ];
 const threeTier: Option[] = [{ value: "standard" }, { value: "fast" }, { value: "ultrafast" }];
 
-test("the bolt shows in the quiet row only while fast mode is on, and turns it off with the speed command", async () => {
+test("the bolt follows the chips into the quiet row, and toggles one offered tier with the speed command", async () => {
   sent.length = 0;
   await render(snapshot({ options: twoState, current: "off" }));
-  expect(bolt(), "no bolt while the standard speed runs").toBeNull();
-  await render(snapshot({ options: twoState, current: "on" }));
   const button = bolt();
   expect(button, "a speed toggle in the quiet row").not.toBeNull();
   // The split: the box keeps the mic and Send; the bolt is the quiet row's, after the chips and
@@ -195,29 +191,35 @@ test("the bolt shows in the quiet row only while fast mode is on, and turns it o
   expect(items.findIndex((item) => item.classList.contains("acpmux-chips"))).toBeLessThan(at);
   const ring = items.findIndex((item) => item.classList.contains("acpmux-context"));
   if (ring >= 0) expect(ring).toBeGreaterThan(at);
-  expect(button!.getAttribute("aria-pressed")).toBe("true");
+  expect(button!.getAttribute("aria-pressed")).toBe("false");
+  expect(button!.getAttribute("aria-label")).toBe("Speed: Standard");
+  expect(button!.title).toContain("Speed: Standard");
+  await act(async () => press(button!));
+  expect(sent).toEqual(["fast-mode=on"]);
+
+  await render(snapshot({ options: twoState, current: "on" }));
+  expect(bolt()!.getAttribute("aria-pressed")).toBe("true");
   expect(bolt()!.getAttribute("aria-label")).toBe("Speed: Fast");
   // The chips no longer say Fast: the bolt carries it.
   expect(host.querySelector(".acpmux-chips")!.textContent).not.toMatch(/fast/i);
   await act(async () => press(bolt()!));
-  expect(sent).toEqual(["fast-mode=off"]);
+  expect(sent).toEqual(["fast-mode=on", "fast-mode=off"]);
 });
 
-test("with two tiers a click steps Fast to Ultrafast and back to off", async () => {
+test("with two tiers a click cycles off, Fast, Ultrafast and back to off", async () => {
   sent.length = 0;
-  await render(snapshot({ options: threeTier, current: "standard" }));
-  expect(bolt()).toBeNull();
   for (const [current, label] of [
+    ["standard", "Speed: Standard"],
     ["fast", "Speed: Fast"],
     ["ultrafast", "Speed: Ultrafast"],
   ] as const) {
     await render(snapshot({ options: threeTier, current }));
     expect(bolt()!.getAttribute("aria-label")).toBe(label);
-    expect(bolt()!.getAttribute("aria-pressed")).toBe("true");
-    expect(bolt()!.dataset.tier).toBe(current);
+    expect(bolt()!.getAttribute("aria-pressed")).toBe(String(current !== "standard"));
+    expect(bolt()!.dataset.tier).toBe(current === "standard" ? "off" : current);
     await act(async () => press(bolt()!));
   }
-  expect(sent).toEqual(["fast-mode=ultrafast", "fast-mode=standard"]);
+  expect(sent).toEqual(["fast-mode=fast", "fast-mode=ultrafast", "fast-mode=standard"]);
   expect(host.querySelector(".acpmux-chips")!.textContent).not.toMatch(/fast/i);
 });
 

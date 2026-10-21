@@ -1097,6 +1097,10 @@
   align-items: end;
   --acpmux-composer-radius: 11px;
 }
+/* The strip and the queue over the box take its corners. */
+.acpmux-composer:has(.acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-inner) {
+  --acpmux-strip-radius: 11px;
+}
 .acpmux-composer-inner { display: contents; }
 .acpmux-composer-box > .acpmux-attachments { grid-column: 1 / -1; grid-row: 1; }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-composer-field-menu > * {
@@ -1106,7 +1110,7 @@
 .acpmux-composer-inner > :not(.acpmux-composer-actions) {
   grid-column: 1;
   grid-row: 2;
-  margin: 0 0 8px 7px;
+  margin: 0 0 8px 10px;
 }
 .acpmux-composer-inner > .acpmux-composer-actions {
   grid-column: 3;
@@ -1115,19 +1119,19 @@
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-field {
   padding: calc(11px * var(--cmux-interface-scale, 1)) calc(8px * var(--cmux-interface-scale, 1))
-    calc(11px * var(--cmux-interface-scale, 1)) calc(10px * var(--cmux-interface-scale, 1));
+    calc(11px * var(--cmux-interface-scale, 1)) calc(7px * var(--cmux-interface-scale, 1));
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-placeholder {
-  left: calc(10px * var(--cmux-interface-scale, 1));
+  left: calc(7px * var(--cmux-interface-scale, 1));
   top: calc(11px * var(--cmux-interface-scale, 1));
   right: calc(8px * var(--cmux-interface-scale, 1));
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-shell-field {
   min-height: 44px;
-  padding: 11px 8px 11px 26px;
+  padding: 11px 8px 11px 23px;
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-shell-glyph {
-  left: 10px;
+  left: 7px;
   top: 11px;
 }
 /* Under the attachments' band the prompt starts one gap down, as in the other look
