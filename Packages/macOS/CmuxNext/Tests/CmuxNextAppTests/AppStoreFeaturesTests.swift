@@ -341,6 +341,9 @@ import Testing
         model.featureCategory = .backgrounds
         #expect(model.discoverFeatureSections.map(\.category) == [.backgrounds])
         #expect(!model.discoverShowsListings, "a feature chip shows only its section")
+        model.open(appID: "anything")
+        #expect(model.featureCategory == nil && model.discoverShowsListings, "opening an app clears the feature chip")
+        model.selection = nil
 
         model.featureCategory = nil
         model.category = "tools"

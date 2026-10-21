@@ -115,7 +115,7 @@ public final class AppStoreModel {
     public var featureCategory: AppFeature.Category?
 
     /// One category of cmux's features on Discover: its header and its cards.
-    public struct FeatureSection: Identifiable, Equatable {
+    public nonisolated struct FeatureSection: Identifiable, Equatable, Sendable {
         public let category: AppFeature.Category
         public let features: [AppFeature]
         public var id: AppFeature.Category { category }
@@ -165,6 +165,8 @@ public final class AppStoreModel {
         guard tab != .discover || selection != appID else { return }
         record()
         tab = .discover
+        // A feature chip hides the apps; the app opened must show (split lists it, Back returns to it).
+        featureCategory = nil
         if !listings.contains(where: { $0.id == appID }) {
             query = ""
             category = nil
