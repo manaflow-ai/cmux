@@ -50,8 +50,8 @@ pub(super) struct Slot<'a> {
     pub(super) prompt_id: &'a str,
     pub(super) control: Control,
     pub(super) trust_gate: bool,
-    /// A steer the agent cannot take: it goes to the head of the queue and the running turn
-    /// stops (`queue_edit.rs` `send_queued_now`).
+    /// A steer the agent cannot take (`_meta.acpmux.interrupt`): it goes to the head of the
+    /// queue and the running turn stops.
     pub(super) interrupt: bool,
     pub(super) provenance: Option<&'a Value>,
 }

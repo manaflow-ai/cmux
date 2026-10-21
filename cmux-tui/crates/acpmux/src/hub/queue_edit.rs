@@ -7,6 +7,9 @@ use super::queue::PromptRun;
 use super::*;
 use std::sync::atomic::Ordering;
 
+/// How long Send now waits for the agent to stop its step for a steer.
+const STEP_NOW_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
 // `_acpmux/prompt_withdraw`, a queue change too (here: `hub/mod.rs` is at its size budget).
 #[path = "withdraw.rs"]
 mod withdraw;
@@ -64,7 +67,10 @@ impl Hub {
                 json!(self.move_queued(session, prompt_id, index as usize))
             }
             "send_now" => {
-                let sent = self.send_queued_now(session, prompt_id, control)?;
+                let sent = match self.send_queued_now(session, prompt_id, control)? {
+                    Some(sent) => Some(sent),
+                    None => self.step_now(session, prompt_id, control).await?,
+                };
                 reply["sent"] = json!(sent);
                 json!(sent.is_some())
             }
@@ -153,10 +159,11 @@ impl Hub {
     }
 
     /// Sends a waiting prompt now. Into a running turn of an agent that steers it is steered in
-    /// (`steer`) by the task that waits with it, so its `session/prompt` answers how it ran;
-    /// otherwise it goes next (`next`) and runs once the turn ends. It never stops the turn: that
-    /// is Stop & send (`interrupt`). `None` when it no longer waits. A failed turn no longer holds
-    /// it.
+    /// (`steer`) by the task that waits with it, so its `session/prompt` answers how it ran, and
+    /// the agent's current step stops so it reads it at once (Claude Code; another agent reads it
+    /// when its step ends); otherwise it goes next (`next`) and runs once the turn ends. It never
+    /// stops the turn: that is Stop & send (`interrupt`). `None` when it no longer waits. A failed
+    /// turn no longer holds it.
     fn send_queued_now(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -185,6 +192,10 @@ impl Hub {
                 };
                 (q.run, q.steer) = (Arc::new(run), true);
             }
+            let mut now =
+                session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            now.step.insert(prompt_id.to_owned());
+            drop(now);
             session.queue_moved.notify_waiters();
             return Ok(Some("steer"));
         }
@@ -208,5 +219,34 @@ impl Hub {
         };
         self.cancel_turn(session, &running).await;
         Some("interrupt")
+    }
+
+    /// Send now on a steer the agent has not read yet (`steer_end.rs`): the agent's current step
+    /// stops so it reads the steer at once, and the turn runs on (`now`). An agent that cannot
+    /// stop one step reads it when the step ends (`steer`). `None` when no steer of that id waits.
+    async fn step_now(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        prompt_id: &str,
+        control: Control,
+    ) -> Result<Option<&'static str>, RpcError> {
+        let waiting = session
+            .steer_now
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .waiting
+            .contains(prompt_id);
+        if !waiting {
+            return Ok(None);
+        }
+        self.check_steer(session, control)?;
+        let child = session.child.lock().await.clone();
+        let (Some(child), Some(sid)) = (child, session.meta().agent_session_id) else {
+            return Ok(Some("steer"));
+        };
+        let ask = child.request(method::MUX_STEP_NOW, json!({"sessionId": sid}));
+        let answer = tokio::time::timeout(STEP_NOW_WAIT, ask).await;
+        let stopped = matches!(&answer, Ok(Ok(v)) if v["interrupted"] == true);
+        Ok(Some(if stopped { "now" } else { "steer" }))
     }
 }
