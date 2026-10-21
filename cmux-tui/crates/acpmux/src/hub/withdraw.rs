@@ -99,7 +99,106 @@ enum Decision {
     Retract(Found),
 }
 
+/// The names a chat may sign a reply with (`fromName`): its title, its name and its id, each as
+/// the pane writes one (direct.ts `senderName`): on one line, without control, bidi or
+/// zero-width marks, at most `MAX_NAME_CHARS` characters.
+fn sender_names(session: &Session) -> Vec<String> {
+    let meta = session.meta();
+    [meta.title.unwrap_or_default(), meta.name, session.id.clone()]
+        .iter()
+        .map(|raw| {
+            let line = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+            let shown: String = line.chars().filter(|c| !unshown_mark(*c)).collect();
+            let name: String =
+                shown.trim().chars().take(crate::prompt_provenance::MAX_NAME_CHARS).collect();
+            name.trim().to_owned()
+        })
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+
+/// A character direct.ts `senderName` drops from a name.
+fn unshown_mark(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'
+        )
+}
+
 impl Hub {
+    /// The provenance of a `session/prompt` to chat `to` from a connection of `origin`
+    /// (`prompt_provenance::of`); the app pane's reply in place must answer a message a chat
+    /// this connection `shows` got from `to` (`app_reply_fits`).
+    pub(crate) fn prompt_provenance(
+        &self,
+        params: &Value,
+        origin: crate::server::Origin,
+        to: &str,
+        shows: &dyn Fn(&str) -> bool,
+    ) -> Result<Option<Value>, RpcError> {
+        use crate::prompt_provenance::Sender;
+        let sender = match origin {
+            crate::server::Origin::Local => Sender::Local,
+            crate::server::Origin::LocalApp => Sender::App,
+            _ => Sender::Other,
+        };
+        let provenance = crate::prompt_provenance::of(params, sender)?;
+        if sender == Sender::App
+            && provenance.as_ref().is_some_and(|p| !self.app_reply_fits(p, to, shows))
+        {
+            return Err(crate::prompt_provenance::origin_refused());
+        }
+        Ok(provenance)
+    }
+
+    /// Whether the app pane's reply in place (`prompt_provenance.rs`, `Sender::App`) answers a
+    /// real message, signed only as what the pane may speak for. Default deny; each must hold:
+    /// - `from` is a chat here other than `to` that this connection `shows` (attached and not
+    ///   held unseen): the chat the pane draws, not any chat that got the message;
+    /// - its log holds a `user_message` that `to` sent it as an agent message under the id the
+    ///   reply names (`replyTo`);
+    /// - `threadId` is that message's thread (its `threadId`, else its `msgId`);
+    /// - `fromName`, when given, is the chat's own title, name or id (`sender_names`), never a
+    ///   name the pane picks.
+    ///
+    /// The pane cannot then put words in a chat's mouth beyond answering, as that chat, what it
+    /// was sent.
+    pub(crate) fn app_reply_fits(
+        &self,
+        provenance: &Value,
+        to: &str,
+        shows: &dyn Fn(&str) -> bool,
+    ) -> bool {
+        let field = |k: &str| provenance.get(k).and_then(Value::as_str).unwrap_or_default();
+        let (from, reply_to, thread) = (field("from"), field("replyTo"), field("threadId"));
+        if field("to") != to || from == to || reply_to.is_empty() || thread.is_empty() {
+            return false;
+        }
+        let Ok(session) = self.resolve(from) else { return false };
+        if session.id != from || !shows(&session.id) {
+            return false;
+        }
+        if let Some(name) = provenance.get("fromName").and_then(Value::as_str)
+            && !sender_names(&session).iter().any(|n| n == name)
+        {
+            return false;
+        }
+        let mut answered = false;
+        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+            let p =
+                |k: &str| e.msg.pointer(&format!("/_meta/provenance/{k}")).and_then(Value::as_str);
+            answered = e.kind == "user_message"
+                && p("kind") == Some("agent_message")
+                && p("msgId") == Some(reply_to)
+                && p("threadId").or(p("msgId")) == Some(thread)
+                // `cmux agent message` names a chat `acp:<id>` (PaletteNavigationEntry.swift).
+                && p("from").is_some_and(|f| f.strip_prefix("acp:").unwrap_or(f) == to);
+            !answered
+        });
+        answered
+    }
+
     /// `_acpmux/prompt_withdraw`; see the module docs.
     pub async fn prompt_withdraw(
         self: &Arc<Self>,
