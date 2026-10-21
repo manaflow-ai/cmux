@@ -236,7 +236,7 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     await tray.waitFor({ timeout: 5_000 });
     const lines = await tray.locator(".acpmux-agent-line .acpmux-summary-agent__name").allInnerTexts();
     expect(lines).toEqual(["Reviewer", "Tester", "npm run dev"]);
-    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read src\/app\.ts [^·]+$/);
+    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Working for [^·]+$/);
     await page.close();
   });
 
