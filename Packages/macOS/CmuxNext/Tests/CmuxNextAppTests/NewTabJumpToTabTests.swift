@@ -28,6 +28,9 @@ struct NewTabJumpToTabTests {
             #expect(services.registry.perform("splitRight", invocation: Self.at(a)))
             try await PinnedPageTests.until({ Self.shown(controller, workspace: id).count == 2 }, report: { Self.describe(controller) })
             let b = try #require(Self.shown(controller, workspace: id).first { $0 !== a })
+            // The split shows its pane before the daemon has it (split-client-keys-v1): a tab made
+            // in it meanwhile names a handle the daemon does not know. The daemon's pane, first.
+            try await PinnedPageTests.until({ Self.isDaemonPane(b) }, report: { Self.describe(controller) })
             let before = Set(b.orderedIDs.map(\.rawValue))
             #expect(services.registry.perform("newSurface", invocation: Self.at(b)))
             // The daemon's tab, not the stand-in `newSurface` shows until the daemon's takes its place.
@@ -67,6 +70,12 @@ struct NewTabJumpToTabTests {
         let fresh = pane.orderedIDs.map(\.rawValue).filter { !known.contains($0) }
         guard fresh.count == 1, let tab = fresh.first, !ProvisionalTab.isProvisional(tab) else { return nil }
         return tab
+    }
+
+    /// `pane` is the daemon's, not a split's provisional one (``ProvisionalPane``: its handle and
+    /// its tab's surface live at 1 << 62 and above until the daemon's pane takes its place).
+    private static func isDaemonPane(_ pane: PaneController) -> Bool {
+        pane.pane.handle.rawValue < 1 << 62 && !pane.pane.tabs.contains { ProvisionalTab.isProvisional(surface: $0.surface) }
     }
 
     private static func at(_ pane: PaneController) -> ActionInvocation {
