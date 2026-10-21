@@ -1916,12 +1916,19 @@ impl WorkspaceRegistry {
         migrate_journal_auto_vacuum(&self.connection.get())
     }
 
-    pub(crate) fn incremental_journal_vacuum(&self) -> anyhow::Result<()> {
+    /// Returns up to 256 free pages; true while an incremental-vacuum
+    /// registry still has free pages for a later call.
+    pub(crate) fn incremental_journal_vacuum(&self) -> anyhow::Result<bool> {
         // Fresh registries opt into SQLite's incremental auto-vacuum. This is
         // intentionally a small step: journal sealing must release the
         // registry writer quickly even when a busy VM has many free pages.
-        self.connection.get().execute_batch("PRAGMA incremental_vacuum(256);")?;
-        Ok(())
+        let db = self.connection.get();
+        db.execute_batch("PRAGMA incremental_vacuum(256);")?;
+        // A legacy registry (auto_vacuum 0) keeps its free pages until it is
+        // converted, so they are no work for a later call.
+        let mode: i64 = db.query_row("PRAGMA auto_vacuum", [], |row| row.get(0))?;
+        let free: i64 = db.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+        Ok(mode == 2 && free > 0)
     }
 
     pub(crate) fn journal_segments(&self) -> anyhow::Result<Vec<JournalSegment>> {
