@@ -1,19 +1,20 @@
 #![cfg(unix)]
 //! The agent pane's Reply in place (IncomingMessageCard.tsx, #22310) is a cmux agent message
-//! like any other: the pane's reply goes through acpmux (`Hub::app_reply_fits`: from the chat
-//! the pane shows, to the chat that sent the message it answers, in that message's thread) to
-//! the session daemon's `agent.message.send`, as that chat. The store gives it an id, the pump
-//! delivers it with the `Reply with` line, `--reply-to` answers it, its sender or the person
-//! unsends it and it is in the inbox history. acpmux never prompts the other chat with it
-//! directly, and no other origin may send one. Its own binary: the test sets acpmux's process
-//! environment (`CMUX_TUI_SOCKET`).
+//! like any other. acpmux checks it (`_acpmux/app_reply`, `Hub::app_reply_fits`: from the chat
+//! the pane shows, to the chat that sent the message it answers, in that message's thread) and
+//! answers it signed; it never prompts the other chat itself. The app, the one connection that
+//! may mint a launch credential, mints one for the replying chat and sends `agent.message.send`
+//! as that chat (CmuxNextDaemon `AgentReplyClient.swift`). The store checks the reply again (its
+//! parent, its thread, the sender's part in it), gives it an id, the pump delivers it with the
+//! `Reply with` line, `--reply-to` answers it, its sender unsends it and it is in the inbox
+//! history.
 
 #[path = "agent_message_policy/harness.rs"]
 mod harness;
 
 /// One module, so `cargo test agent_message_reply_in_place` selects it.
 mod agent_message_reply_in_place {
-    use super::harness::{Daemon, delivery};
+    use super::harness::{Daemon, delivery, refusal};
     use acpmux::config::{Config, StoreMode};
     use acpmux::hub::Hub;
     use acpmux::rpc::Message;
@@ -35,24 +36,30 @@ mod agent_message_reply_in_place {
                "_meta": {"acpmux": {"promptId": prompt_id, "provenance": provenance}}})
     }
 
-    /// What the pane sends for chat `from` answering `parent` from chat `to` (direct.ts `reply`).
-    fn app_reply(from: &str, to: &str, parent: &Value) -> Value {
-        json!({"kind": "agent_message", "from": from, "to": to, "msgId": "m-reply-1",
-               "threadId": parent["thread_id"], "replyTo": parent["id"]})
-    }
-
     fn state(message: &Value, recipient: &str) -> String {
         delivery(message, recipient)["state"].as_str().unwrap_or_default().to_owned()
+    }
+
+    /// What the app does with acpmux's signed `reply` (AgentReplyClient.swift): mints a launch
+    /// credential for the replying chat on its own proven connection, then sends the reply as
+    /// that chat under acpmux's key. No recipient: the store sends a reply to its parent's
+    /// sender. `thread` stands in for the thread the app sends (acpmux's, unless a test changes
+    /// it).
+    fn send_as_app(daemon: &Daemon, reply: &Value, thread: &str, in_reply_to: &str) -> Value {
+        let session = reply["from"].as_str().unwrap().strip_prefix("acp:").unwrap().to_owned();
+        let mut app = daemon.app();
+        let minted = app.call("credential.mint", json!({"acp_session": session}));
+        assert_eq!(minted["ok"], true, "{minted}");
+        let credential = minted["result"]["credential"].as_str().unwrap().to_owned();
+        let fields = json!({"in_reply_to": in_reply_to, "thread_id": thread,
+                            "body": reply["text"], "sender_name": reply["fromName"]});
+        let key = reply["idempotencyKey"].as_str().unwrap();
+        app.mutate_as("agent.message.send", fields, &credential, key)
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_reply_in_place_is_a_stored_agent_message_and_goes_nowhere_else() {
         let daemon = Arc::new(blocking(|| Daemon::start_owner_with_acpmux("reply-in-place")).await);
-        // SAFETY: the only test in this binary sets them before any agent starts.
-        unsafe {
-            std::env::remove_var("CMUX_LAUNCH_CREDENTIAL");
-            std::env::set_var("CMUX_TUI_SOCKET", &daemon.socket);
-        }
         let mut cfg: Config = serde_json::from_value(json!({
             "harnesses": {"fake": {"argv": ["python3", FAKE]}},
             "defaultHarness": "fake",
@@ -65,76 +72,76 @@ mod agent_message_reply_in_place {
         let mut local = Client::open_as(&hub, Origin::Local);
         let sender = local.new_session().await;
         let replier = local.new_session().await;
-        let unshown = local.new_session().await;
+        let outsider = local.new_session().await;
         let d = daemon.clone();
-        let (sender_cred, replier_cred) = {
-            let (sender, replier, unshown) = (sender.clone(), replier.clone(), unshown.clone());
+        let (sender_cred, replier_cred, outsider_cred) = {
+            let (sender, replier, outsider) = (sender.clone(), replier.clone(), outsider.clone());
             blocking(move || {
                 let (_, alpha) = d.workspace("alpha");
-                for chat in [&sender, &replier, &unshown] {
+                for chat in [&sender, &replier, &outsider] {
                     d.place_session(chat, &alpha);
                 }
-                (d.acp_credential(&sender), d.acp_credential(&replier))
+                (d.acp_credential(&sender), d.acp_credential(&replier), d.acp_credential(&outsider))
             })
             .await
         };
 
-        // `sender`'s agent messages `replier` (and `unshown`), and the pump hands it to each chat
-        // as a prompt with the store's provenance (agent_message_acpmux.rs).
+        // `sender`'s agent messages `replier`, and the pump hands it to the chat as a prompt
+        // with the store's provenance (agent_message_acpmux.rs).
         let d = daemon.clone();
-        let (to_replier, to_unshown) = (format!("acp:{replier}"), format!("acp:{unshown}"));
-        let recipients = json!([to_replier, to_unshown]);
+        let to_replier = format!("acp:{replier}");
         let parent = blocking(move || {
-            d.sent(Some(&sender_cred), json!({"recipients": recipients, "body": "Rebase on main."}))
+            d.sent(
+                Some(&sender_cred),
+                json!({"recipients": [to_replier], "body": "Rebase on main."}),
+            )
         })
         .await;
         let parent_id = parent["id"].as_str().unwrap().to_owned();
-        for chat in [&replier, &unshown] {
-            let address = format!("acp:{chat}");
-            let got = cmux_tui_core::agent_message_prompt::provenance(&parent, &address)
-                .unwrap_or_else(|| panic!("no provenance: {parent}"));
-            let text = cmux_tui_core::agent_message_prompt::render(std::slice::from_ref(&parent));
-            local.call("session/prompt", prompt(chat, &parent_id, &text, &got)).await;
-        }
+        let thread = parent["thread_id"].as_str().unwrap().to_owned();
+        let address = format!("acp:{replier}");
+        let got = cmux_tui_core::agent_message_prompt::provenance(&parent, &address)
+            .unwrap_or_else(|| panic!("no provenance: {parent}"));
+        let text = cmux_tui_core::agent_message_prompt::render(std::slice::from_ref(&parent));
+        local.call("session/prompt", prompt(&replier, &parent_id, &text, &got)).await;
 
-        // The pane shows `replier` and holds `sender` unseen to reply to it (offerChildren).
-        let mut app = Client::open_as(&hub, Origin::LocalApp);
-        app.call("_acpmux/attach", json!({"sessionId": replier, "limit": 0})).await;
-        app.call("_acpmux/attach", json!({"sessionId": sender, "limit": 0, "visible": false}))
+        // The pane shows `replier`; acpmux checks the reply and signs it with the chat's name.
+        let mut pane = Client::open_as(&hub, Origin::LocalApp);
+        pane.call("_acpmux/attach", json!({"sessionId": replier, "limit": 0})).await;
+        let checked = pane
+            .call(
+                "_acpmux/app_reply",
+                json!({"sessionId": replier, "to": sender, "replyTo": parent_id,
+                       "threadId": thread, "text": "Rebased; tests pass.", "replyId": "m-reply-1"}),
+            )
             .await;
-        let (from, to) = (format!("acp:{replier}"), format!("acp:{sender}"));
-        let reply = app_reply(&from, &to, &parent);
-        let answered = app
-            .call("session/prompt", prompt(&sender, "m-reply-1", "Rebased; tests pass.", &reply))
-            .await;
-        let id = answered
-            .pointer("/_meta/acpmux/agentMessage/id")
-            .and_then(Value::as_str)
-            .unwrap_or_else(|| panic!("the reply got no agent message id: {answered}"))
-            .to_owned();
-        assert!(id.starts_with("msg_"), "{answered}");
+        let reply = checked["reply"].clone();
+        assert_eq!(reply["from"], address.as_str(), "{checked}");
+        assert!(
+            local.records(&sender, "user_message").await.is_empty(),
+            "acpmux prompted the sender's chat itself"
+        );
 
-        // Stored as `replier`'s reply in the thread, signed with its own name, and delivered to
-        // `sender` by the pump as any agent message is: with the `Reply with` line.
-        let info = local.call("_acpmux/info", json!({"sessionId": replier})).await;
-        let names: Vec<String> = [&info["title"], &info["name"]]
-            .into_iter()
-            .filter_map(Value::as_str)
-            .map(|n| n.trim().to_owned())
-            .chain([replier.clone()])
-            .collect();
+        // The app sends it as `replier`: stored as its reply in the thread, signed with its
+        // own name, and delivered to `sender` by the pump with the `Reply with` line.
+        let d = daemon.clone();
+        let (r, t, p) = (reply.clone(), thread.clone(), parent_id.clone());
+        let sent = blocking(move || send_as_app(&d, &r, &t, &p)).await;
+        assert_eq!(sent["ok"], true, "{sent}");
+        let id = sent["result"]["value"]["id"].as_str().unwrap_or_default().to_owned();
+        assert!(id.starts_with("msg_"), "{sent}");
+        let to = format!("acp:{sender}");
         let d = daemon.clone();
         let (wait_id, wait_to) = (id.clone(), to.clone());
         let stored = blocking(move || {
             d.wait_for(&wait_id, "delivery", |m| state(m, &wait_to) == "delivered")
         })
         .await;
-        assert_eq!(stored["sender"], from.as_str(), "{stored}");
+        assert_eq!(stored["sender"], address.as_str(), "{stored}");
         assert_eq!(stored["in_reply_to"], parent_id.as_str(), "{stored}");
-        assert_eq!(stored["thread_id"], parent["thread_id"], "{stored}");
+        assert_eq!(stored["thread_id"], thread.as_str(), "{stored}");
         assert_eq!(stored["body"], "Rebased; tests pass.", "{stored}");
-        let signed = stored["sender_name"].as_str().unwrap_or_default().to_owned();
-        assert!(names.contains(&signed), "{signed:?} not in {names:?}: {stored}");
+        assert_eq!(stored["sender_name"], reply["fromName"], "{stored}");
         let prompts = daemon.prompts();
         let delivered = prompts
             .iter()
@@ -147,61 +154,64 @@ mod agent_message_reply_in_place {
             "{text}"
         );
         assert!(text.contains(&format!("In reply to: {parent_id}")), "{text}");
-        // acpmux did not prompt `sender` with it itself.
-        let direct = local.records(&sender, "user_message").await;
-        assert!(
-            direct.iter().all(|m| m["promptId"] != "m-reply-1"),
-            "prompted directly: {direct:?}"
-        );
 
         // The same reply again is the same message.
-        let again = app
-            .call("session/prompt", prompt(&sender, "m-reply-1", "Rebased; tests pass.", &reply))
-            .await;
-        assert_eq!(again.pointer("/_meta/acpmux/agentMessage/id"), Some(&json!(id)), "{again}");
+        let d = daemon.clone();
+        let (r, t, p) = (reply.clone(), thread.clone(), parent_id.clone());
+        let again = blocking(move || send_as_app(&d, &r, &t, &p)).await;
+        assert_eq!(again["result"]["value"]["id"], id.as_str(), "{again}");
 
-        // Default deny, as #22310: a chat the pane does not show, a bare id for either chat, or
-        // any origin but the app pane. Nothing more is stored.
-        let refused = [
-            (Origin::LocalApp, app_reply(&format!("acp:{unshown}"), &to, &parent)),
-            (Origin::LocalApp, app_reply(&replier, &to, &parent)),
-            (Origin::LocalApp, app_reply(&from, &sender, &parent)),
-            (Origin::LocalApp, app_reply(&from, &format!("acp:{unshown}"), &parent)),
-            (Origin::Web, reply.clone()),
-            (Origin::Peer, reply.clone()),
-        ];
-        for (origin, bad) in refused {
-            let mut other = Client::open_as(&hub, origin);
-            if origin == Origin::LocalApp {
-                other.call("_acpmux/attach", json!({"sessionId": replier, "limit": 0})).await;
-            }
-            let value =
-                other.reply("session/prompt", prompt(&sender, "m-reply-bad", "hi", &bad)).await;
-            assert_eq!(
-                value.pointer("/error/data/reason"),
-                Some(&json!("provenance.origin_refused")),
-                "{origin:?} {bad}: {value}"
+        // The store checks the reply again: a thread that is not its parent's, a parent it
+        // does not hold, and a chat that takes no part in the parent's thread are refused, and
+        // none of them is stored.
+        let d = daemon.clone();
+        let (r, p) = (reply.clone(), parent_id.clone());
+        let (wrong_thread, no_parent, not_joined) = blocking(move || {
+            let mut other = r.clone();
+            other["idempotencyKey"] = json!("acpmux-reply-other-thread");
+            let wrong_thread = send_as_app(&d, &other, "msg_0000000000000000000000000a", &p);
+            other["idempotencyKey"] = json!("acpmux-reply-no-parent");
+            let no_parent = send_as_app(
+                &d,
+                &other,
+                "msg_0000000000000000000000000b",
+                "msg_0000000000000000000000000b",
             );
-        }
+            let outsider_reply = d.mutate(
+                "agent.message.send",
+                json!({"in_reply_to": p, "body": "Me too."}),
+                Some(&outsider_cred),
+            );
+            (wrong_thread, no_parent, outsider_reply)
+        })
+        .await;
+        let (code, reason) = refusal(&wrong_thread);
+        assert_eq!(code, "validation.invalid", "{wrong_thread}");
+        assert!(reason.contains(&format!("belongs to thread {thread}")), "{wrong_thread}");
+        assert_eq!(refusal(&no_parent).0, "resource.not_found", "{no_parent}");
+        assert_eq!(refusal(&not_joined).1, "thread_not_joined", "{not_joined}");
 
         // `sender` answers it with `--reply-to`; inbox history holds it; its sender unsends it.
         let d = daemon.clone();
-        let (reply_id, replier_address) = (id.clone(), from.clone());
-        let (answer, history, mine) = blocking(move || {
+        let (reply_id, replier_address, outsider_address) =
+            (id.clone(), address.clone(), format!("acp:{outsider}"));
+        let (answer, history, mine, theirs) = blocking(move || {
             let credential = d.acp_credential(&sender);
             let answer =
                 d.sent(Some(&credential), json!({"in_reply_to": reply_id, "body": "Thanks."}));
             let history = d.list(json!({"recipient": format!("acp:{sender}"), "limit": 100}));
             let mine = d.list(json!({"sender": replier_address, "limit": 100}));
+            let theirs = d.list(json!({"sender": outsider_address, "limit": 100}));
             d.withdraw_answers(&sender, "retracted");
-            (answer, history, mine)
+            (answer, history, mine, theirs)
         })
         .await;
         assert_eq!(answer["in_reply_to"], id.as_str(), "{answer}");
-        let answered_to = state(&answer, &from);
+        let answered_to = state(&answer, &address);
         assert!(["queued", "delivered"].contains(&answered_to.as_str()), "{answer}");
         assert!(history.iter().any(|m| m["id"] == id.as_str()), "{history:?}");
         assert_eq!(mine.len(), 1, "a refused reply was stored: {mine:?}");
+        assert!(theirs.is_empty(), "a refused reply was stored: {theirs:?}");
         let d = daemon.clone();
         let unsend_id = id.clone();
         let unsent = blocking(move || {
