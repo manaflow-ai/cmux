@@ -24,7 +24,9 @@
 # nothing in SETTINGS_MADE_AT..tip moved their inputs, and then whole, as made
 # there (every file of the list below whose made copy differs from the tip's).
 # An export made from inputs that changed later never lands as it is. A
-# SETTINGS_MADE_AT that is not between BASE_SHA and the tip holds them. When
+# SETTINGS_MADE_AT that is not between BASE_SHA and the tip holds them. A move
+# of the settings area that leaves their stamp what the tip's sources give (and
+# the regeneration as it was) does not hold them: their inputs did not change. When
 # they would wait but the tip's own stamp is already current
 # (defaults_guard.py check-stamp), someone else regenerated them: they are
 # dropped from the repair, and nothing waits for them.
@@ -37,6 +39,7 @@
 # Usage: scripts/cmux-next/base-autofix-push.sh REMOTE BRANCH BASE_SHA [SETTINGS_MADE_AT]
 # Credentials come from the caller's environment (GIT_CONFIG_* extraheader).
 # CMUX_BASE_AUTOFIX_AREAS names the area script (default: autofix-areas.sh beside this one).
+# CMUX_BASE_AUTOFIX_HELD names a file for the list of held files.
 set -euo pipefail
 remote="${1:?usage: $0 REMOTE BRANCH BASE_SHA}"
 branch="${2:?usage: $0 REMOTE BRANCH BASE_SHA}"
@@ -137,8 +140,26 @@ newer_writes() { # <from> <tip>
   done <<<"$log"
 }
 is_settings_export() { [[ "$(export_of "$1")" == settings ]]; }
+# The settings exports' inputs are what their stamp hashes (CmuxNextSettings and the two export
+# tests; defaults_guard.py source-stamp gives it for a commit). Exports whose stamp the tip's
+# sources give, made by the same regeneration, are exactly what the tip would make, however
+# else the settings area moved (a note beside the sources, the guard, the bot's own scripts).
+# Fails closed: any read that fails counts as moved.
+settings_inputs_same() { # <made-at> <tip>
+  local made stamp
+  made="$(git show "$repair:schemas/settings-export/settings-schema.sources.sha256" 2>/dev/null)" || return 1
+  stamp="$(python3 scripts/ci/defaults_guard.py source-stamp --ref "$2" 2>/dev/null)" || return 1
+  [[ -n "$made" && "$made" == "$stamp" ]] || return 1
+  git diff --quiet "$1" "$2" -- scripts/cmux-next/regenerate-settings-exports.sh 2>/dev/null
+}
 
 held=""
+# CMUX_BASE_AUTOFIX_HELD names a file that gets the held files, one per line,
+# when the run ends on a hold (base-autofix-land.sh makes the ones it can again on the tip).
+# Only a hold writes it (held_exit): a run that pushed nothing for another reason (the branch kept
+# moving, a rejection, an unreadable tip) leaves it empty, so no stale list reads as a hold.
+held_exit=0
+trap 'if [[ -n "${CMUX_BASE_AUTOFIX_HELD:-}" ]]; then if ((held_exit)); then printf "%s" "$held"; fi > "$CMUX_BASE_AUTOFIX_HELD"; fi' EXIT
 # The tip the last rejected push went onto; a rejection that did not move the branch is no race.
 rejected_on=""
 for ((attempt = 1; attempt <= attempts; attempt++)); do
@@ -203,6 +224,12 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
       todo="$( { printf '%s\n' "$repaired"; git diff --name-only --no-renames "$settings_from" "$repair" -- "${settings_exports[@]}"; } | grep . | sort -u)"
     fi
     [[ -z "$settings_unproven" ]] || moved_areas="$(printf '%s\nsettings\n' "$moved_areas" | grep . | sort -u)"
+    if [[ -z "$settings_unproven" ]] && grep -qx settings <<<"$moved_areas" \
+      && grep -q . <(while IFS= read -r path; do is_settings_export "$path" && echo "$path"; done <<<"$todo") \
+      && settings_inputs_same "$settings_from" "$tip"; then
+      echo "The settings exports' inputs are unchanged on ${tip:0:12} (their stamp is what its sources give); they are not held for the settings area's move."
+      moved_areas="$(grep -vx settings <<<"$moved_areas" || true)"
+    fi
     # Exports this repair holds that would wait, while the tip's own stamp is current: someone
     # else regenerated them, so they are dropped and nothing waits for them. Not after a bad
     # SETTINGS_MADE_AT: that is a workflow defect, so they wait and the run fails with an error.
@@ -274,6 +301,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
       exit 0
     fi
     if ((${#kept[@]} == 0)); then
+      held_exit=1
       echo "::error::$branch moved to ${tip:0:12} after ${base:0:12} and changed the inputs or the files of everything this repair writes; the newer run repairs them:" >&2
       printf '%s' "$held" | sed 's/^/  /' >&2
       exit 1
@@ -301,6 +329,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
     fi
     if git diff --cached --quiet; then
       if [[ -n "$held" ]]; then
+        held_exit=1
         echo "::error::$branch ${tip:0:12} already holds the repairs that could land; left to the next run:" >&2
         printf '%s' "$held" | sed 's/^/  /' >&2
         exit 1
@@ -317,6 +346,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
   if git push --quiet "$remote" "HEAD:refs/heads/$branch"; then
     echo "Pushed $(git rev-parse --short HEAD) to $branch."
     if [[ -n "$held" ]]; then
+      held_exit=1
       echo "::error::pushed part of the repair; newer commits changed these or their inputs, so the next run repairs them:" >&2
       printf '%s' "$held" | sed 's/^/  /' >&2
       exit 1

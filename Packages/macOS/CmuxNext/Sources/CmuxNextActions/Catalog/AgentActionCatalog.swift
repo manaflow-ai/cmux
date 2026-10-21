@@ -100,7 +100,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.continueIn",
-                title: String(localized: "action.agentPane.continueIn", defaultValue: "Continue in…", bundle: .module),
+                title: String(localized: "action.agentPane.continueIn", defaultValue: "Continue In…", bundle: .module),
                 keywords: ["agent", "chat", "continue", "handoff", "claude", "codex", "acpmux"],
                 category: .agents, symbol: "arrow.turn.up.right", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane],
@@ -352,7 +352,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // `cmux action run chief.moveTo --arg target=…` reaches it by id.
             ActionDescriptor(
                 id: "chief.moveTo",
-                title: String(localized: "action.chief.moveTo", defaultValue: "Move Chief to…", bundle: .module),
+                title: String(localized: "action.chief.moveTo", defaultValue: "Move Chief To…", bundle: .module),
                 keywords: ["chief", "move", "migrate", "host", "remote", "mac mini", "linux", "vm", "cloud"],
                 category: .agents, symbol: "arrow.right.circle", surfaces: [.palette],
                 arguments: [ActionArgument(name: "target", title: String(localized: "argument.chiefMoveTarget", defaultValue: "Target", table: "RemoteActions", bundle: .module),

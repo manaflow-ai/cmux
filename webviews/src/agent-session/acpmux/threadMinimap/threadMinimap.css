@@ -37,10 +37,6 @@
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: none;
-}
-.acpmux-minimap__list::-webkit-scrollbar {
-  display: none;
 }
 /* A rail longer than its room fades 2.5rem at an edge with more rows past it. */
 .acpmux-minimap__list[data-fade-top] {
