@@ -119,6 +119,8 @@ impl Hub {
                     keep_harness_mode: true,
                     route: None,
                     subsession: None,
+                    // A side chat of a restricted chat runs restricted too.
+                    restricted: meta.restricted,
                 };
                 let side = match self.new_session(req.clone()).await {
                     // A default model the harness refuses: its own default instead.

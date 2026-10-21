@@ -390,6 +390,9 @@ export type AcpmuxSnapshot = {
     steering?: boolean;
     /// A turn failed: the queued prompts wait until the user resumes the queue (acpmux `queuePaused`).
     queuePaused?: boolean;
+    /// acpmux runs the chat restricted (`hub/restricted.rs`): no project settings, hooks or MCP
+    /// servers, and every tool asks.
+    restricted?: boolean;
     /// The MCP servers the harness says it loaded (acpmux `mcpServers`, from Claude Code's
     /// system/init); unset when it reports none (every ACP harness).
     mcpServers?: { name: string; status: "connected" | "failed" | "pending" }[];

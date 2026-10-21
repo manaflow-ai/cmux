@@ -638,6 +638,7 @@ impl Hub {
         let meta = session.meta();
         if meta.preset.is_some()
             || meta.remote_origin
+            || meta.restricted
             || mode.is_empty()
             || mode.len() > MAX_MODE
             || TOGGLE_MODES.contains(&mode)

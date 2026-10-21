@@ -509,8 +509,9 @@ impl Hub {
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
     ) -> Option<String> {
-        // REMOTE-FLOOR v3: a remote-origin chain is never served.
-        if meta.remote_origin || !self.pool_enabled().await {
+        // REMOTE-FLOOR v3: a remote-origin chain is never served, nor a restricted chat: a
+        // pooled agent started without its restrictions (`hub/restricted.rs`).
+        if meta.remote_origin || meta.restricted || !self.pool_enabled().await {
             return None;
         }
         // A preset with a start mode or an approval starts cold: the approval
@@ -593,6 +594,11 @@ impl Hub {
         session: &Arc<Session>,
         mut p: Pooled,
     ) -> anyhow::Result<Arc<ChildAgent>> {
+        // A pooled agent runs without a restricted chat's restrictions (`hub/restricted.rs`).
+        if session.meta().restricted {
+            tokio::spawn(end_pooled(p));
+            anyhow::bail!("a restricted chat never takes a pooled agent");
+        }
         if let Err(e) = agent_host::promote(&pool_dir(), &agent_host::hosts_dir(), &p.record) {
             tokio::spawn(end_pooled(p));
             return Err(e);
@@ -668,7 +674,7 @@ impl Hub {
     /// takes the last-used role (the common back-and-forth is a hit).
     pub(super) fn pool_note_used(self: &Arc<Self>, session: &Session) {
         let m = session.meta();
-        if m.remote_origin {
+        if m.remote_origin || m.restricted {
             return;
         }
         let spec: Spec = (m.harness.clone(), m.preset.clone());
