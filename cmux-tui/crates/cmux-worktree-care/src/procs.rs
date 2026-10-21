@@ -39,18 +39,29 @@ pub fn claude_sessions(config_dirs: &[PathBuf]) -> Result<Vec<Process>, String> 
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => return Err(format!("{}: {error}", sessions.display())),
         };
+        let (mut records, mut read) = (0, 0);
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) != Some("json") {
                 continue;
             }
+            records += 1;
             // A record being written reads as not JSON yet; its session
             // registers again on its next update.
             let Ok(bytes) = std::fs::read(&path) else { continue };
             let Ok(session) = serde_json::from_slice::<ClaudeSession>(&bytes) else { continue };
+            read += 1;
             if runs(session.pid) {
                 found.push(Process { pid: session.pid, cwd: session.cwd });
             }
+        }
+        // None of several records reads: the format changed, and every
+        // session would look gone.
+        if records >= 2 && read == 0 {
+            return Err(format!(
+                "{}: no session record reads ({records} files)",
+                sessions.display()
+            ));
         }
     }
     Ok(found)
@@ -118,6 +129,11 @@ mod care_tests {
         std::fs::write(sessions.join("3.json"), "{not json").unwrap();
         let found = claude_sessions(&[dir.clone(), dir.join("absent")]).unwrap();
         assert_eq!(found, vec![Process { pid: me, cwd: PathBuf::from("/w/a") }]);
+        // A format change: no record reads, so the pass must not act.
+        for name in ["1.json", "2.json"] {
+            std::fs::write(sessions.join(name), r#"{"processId":1,"folder":"/w/a"}"#).unwrap();
+        }
+        assert!(claude_sessions(std::slice::from_ref(&dir)).is_err());
         let _ = std::fs::remove_dir_all(dir);
     }
 }
