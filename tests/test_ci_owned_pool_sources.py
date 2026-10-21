@@ -29,8 +29,11 @@ so no file tells them apart.)
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -113,6 +116,7 @@ class OwnedPoolSources(unittest.TestCase):
         rescue_tree = cls.other if on_feat() else here
         source = rescue_tree.read(sources.RESCUE_SCRIPT) if rescue_tree is not None else None
         cls.watched = sources.watched_paths(source) if source is not None else None
+        cls.unrescued = sources.unrescued_paths(source) if source is not None else frozenset()
         cls.owned = {str(tree): sources.owned_workflows(tree) for tree in cls.trees}
 
     def test_the_other_branch_is_read(self) -> None:
@@ -127,20 +131,23 @@ class OwnedPoolSources(unittest.TestCase):
             self.skipTest(f"main's {sources.RESCUE_SCRIPT} is not readable here ({self.ref} missing)")
         for tree, owned in self.owned.items():
             with self.subTest(tree=tree):
-                missing = {path: why for path, why in owned.items() if path not in self.watched}
+                missing = {path: why for path, why in owned.items()
+                           if path not in self.watched and path not in self.unrescued}
                 self.assertFalse(missing, "\n".join(
                     [f"{tree}: these workflows can take an owned pool but main's {sources.RESCUE_SCRIPT} does not "
                      "watch them, so a refused or stuck job of theirs is never moved; add each to "
-                     "SIDE_WORKFLOW_PATHS on main (a feat-cmux-next-only one too):"]
+                     "SIDE_WORKFLOW_PATHS on main (a feat-cmux-next-only one too), or to UNRESCUED_WORKFLOW_PATHS "
+                     "with why a person re-runs it:"]
                     + [f"  {path}: {why}" for path, why in sorted(missing.items())]))
 
     def test_every_watched_workflow_is_owned_on_some_branch(self) -> None:
         if self.watched is None or self.other is None:
             self.skipTest("both branches are needed to call an entry stale")
         found = set().union(*(set(owned) for owned in self.owned.values()))
-        stale = sorted(self.watched - found)
-        self.assertFalse(stale, f"{sources.RESCUE_SCRIPT} watches workflows that take no owned pool on main or "
+        stale = sorted((self.watched | self.unrescued) - found)
+        self.assertFalse(stale, f"{sources.RESCUE_SCRIPT} lists workflows that take no owned pool on main or "
                                 f"feat-cmux-next any more; remove them: {stale}")
+        self.assertFalse(self.watched & self.unrescued, "a workflow is both watched and left to a person")
 
     def test_the_markers_come_from_the_pool_code(self) -> None:
         markers = sources.Markers(sources.Tree(ROOT))
@@ -163,6 +170,109 @@ class OwnedPoolSources(unittest.TestCase):
         for runs_on in ("blacksmith-4vcpu-ubuntu-2404", "${{ vars.LINUX_RUNNER || 'ubuntu-24.04' }}",
                         "${{ vars.MACOS_RUNNER_26 || 'macos-26' }}", "${{ needs.plan.outputs.runner }}"):
             self.assertFalse(markers.owned_runs_on(runs_on, {"runner"}), runs_on)
+
+    def scratch_tree(self, workflows: dict[str, str]) -> sources.Tree:
+        """A tree holding these workflows and this checkout's pool code (the markers' source)."""
+        root = Path(tempfile.mkdtemp(prefix="owned-pool-sources-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        for path in (sources.POOL_SCRIPT, sources.POLICY_SCRIPT):
+            (root / path).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(ROOT / path, root / path)
+        for name, text in workflows.items():
+            (root / sources.WORKFLOWS_DIR).mkdir(parents=True, exist_ok=True)
+            (root / sources.WORKFLOWS_DIR / name).write_text(textwrap.dedent(text), encoding="utf-8")
+        return sources.Tree(root)
+
+    def test_a_runs_on_is_followed_into_what_it_reads(self) -> None:
+        owned = sources.owned_workflows(self.scratch_tree({
+            # seed-derived-data.yml: the matrix comes from a job whose env reads the trusted pool variable.
+            "matrix.yml": """
+                on: push
+                jobs:
+                  decide:
+                    runs-on: ubuntu-24.04
+                    outputs:
+                      matrix: ${{ steps.pick.outputs.matrix }}
+                    steps:
+                      - id: pick
+                        env:
+                          POOL: ${{ vars.CI_SEED_TRUSTED_POOL }}
+                        run: echo "matrix=[\"$POOL\"]" >> "$GITHUB_OUTPUT"
+                  seed:
+                    needs: decide
+                    strategy:
+                      matrix: ${{ fromJSON(needs.decide.outputs.matrix) }}
+                    runs-on: ${{ matrix.pool }}
+                    steps:
+                      - run: true
+            """,
+            # main-compile-probe.yml: a dispatch input whose default is an owned label.
+            "input.yml": """
+                on:
+                  workflow_dispatch:
+                    inputs:
+                      runner:
+                        default: glaeda-root-std-xcode-26.6
+                jobs:
+                  compile:
+                    runs-on: ${{ inputs.runner }}
+                    steps:
+                      - run: true
+            """,
+            # A reusable workflow whose runs-on is an input with no owned default, and its two callers.
+            "reusable.yml": """
+                on:
+                  workflow_call:
+                    inputs:
+                      runner:
+                        type: string
+                        default: ubuntu-24.04
+                jobs:
+                  build:
+                    runs-on: ${{ inputs.runner }}
+                    steps:
+                      - run: true
+            """,
+            "caller.yml": """
+                on: push
+                jobs:
+                  build:
+                    uses: ./.github/workflows/reusable.yml
+                    with:
+                      runner: glaeda-side-light-xcode-26.6
+            """,
+            "plain-caller.yml": """
+                on: push
+                jobs:
+                  build:
+                    uses: ./.github/workflows/reusable.yml
+                    with:
+                      runner: blacksmith-6vcpu-macos-26
+            """,
+            "plain.yml": """
+                on: push
+                jobs:
+                  decide:
+                    runs-on: ubuntu-24.04
+                    outputs:
+                      runner: ${{ steps.pick.outputs.runner }}
+                    steps:
+                      - id: pick
+                        env:
+                          RUNNER: ${{ vars.MACOS_RUNNER_26 }}
+                        run: echo "runner=$RUNNER" >> "$GITHUB_OUTPUT"
+                  build:
+                    needs: decide
+                    runs-on: ${{ needs.decide.outputs.runner }}
+                    steps:
+                      - run: true
+            """,
+        }))
+        paths = {path.rsplit("/", 1)[-1]: why for path, why in owned.items()}
+        self.assertEqual(sorted(paths), ["caller.yml", "input.yml", "matrix.yml"], owned)
+        self.assertIn("vars.CI_SEED_TRUSTED_POOL", paths["matrix.yml"])
+        self.assertIn("input runner", paths["input.yml"])
+        self.assertIn("reusable.yml", paths["caller.yml"])
 
     def test_run_39638669325s_workflow_is_watched(self) -> None:
         # The base autofix's Mac exports take glaeda-session-std-xcode-26.6 on feat-cmux-next.

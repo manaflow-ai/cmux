@@ -22,6 +22,11 @@ names:
   pr_runner_pool.py or imports it (ios_runner_pool.py, e2e_runner_pool.py,
   side_lane_placement.py, ...).
 
+A runs-on that reads `matrix.*`, `needs.<job>.outputs.*` or `inputs.*` is
+followed into the job's strategy.matrix, that job's steps, env and outputs, and
+the input's workflow_dispatch/workflow_call default; a caller that passes such
+an input a marked value through `with:` is owned too (Workflow.why()).
+
 The markers are read from the scanned tree's own pr_runner_pool.py and
 runner_label_policy.py, so a branch that adds a pool variable is judged by its
 own policy. A tree is the working tree or a git ref (`git show REF:PATH`), which
@@ -102,6 +107,8 @@ def _constants(source: str) -> dict[str, object]:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in (
                 "frozenset", "set", "tuple") and len(node.args) == 1 and not node.keywords:
             return value(node.args[0])
+        if isinstance(node, ast.Dict):
+            return tuple(key.value for key in node.keys if isinstance(key, ast.Constant) and isinstance(key.value, str))
         if isinstance(node, ast.Starred):
             return value(node.value)
         if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
@@ -125,6 +132,7 @@ def _constants(source: str) -> dict[str, object]:
 
 RESCUE_SCRIPT = "scripts/ci/owned_pool_rescue.py"
 WATCHED_NAME = "WATCHED_WORKFLOW_PATHS"
+UNRESCUED_NAME = "UNRESCUED_WORKFLOW_PATHS"
 
 
 def watched_paths(source: str) -> frozenset[str]:
@@ -133,6 +141,14 @@ def watched_paths(source: str) -> frozenset[str]:
     if not isinstance(watched, tuple) or not watched:
         raise ValueError(f"{RESCUE_SCRIPT} defines no {WATCHED_NAME}")
     return frozenset(watched)
+
+
+def unrescued_paths(source: str) -> frozenset[str]:
+    """owned_pool_rescue.UNRESCUED_WORKFLOW_PATHS' keys: owned workflows the rescue leaves to a person."""
+    unrescued = _constants(source).get(UNRESCUED_NAME)
+    if not isinstance(unrescued, tuple):
+        raise ValueError(f"{RESCUE_SCRIPT} defines no {UNRESCUED_NAME}")
+    return frozenset(unrescued)
 
 
 def policy_variables(source: str) -> frozenset[str]:
@@ -233,42 +249,107 @@ def _triggers(document: dict) -> set[str]:
     return {str(key) for key in on} if isinstance(on, dict) else set()
 
 
-def owned_workflows(tree: Tree) -> dict[str, str]:
-    """{workflow path: why} for each workflow with its own runs (not only workflow_call) that can take an owned pool."""
-    markers = Markers(tree)
-    documents = {path: _load(tree.read(path) or "") for path in tree.workflows()}
-    direct: dict[str, str] = {}
-    calls: dict[str, set[str]] = {}
-    for path, document in documents.items():
-        jobs = {key: job for key, job in (document.get("jobs") or {}).items() if isinstance(job, dict)}
-        pickers = set()
-        for key, job in jobs.items():
+NEEDS_OUTPUT = re.compile(r"\bneeds\.([A-Za-z0-9_-]+)\.outputs\.")
+INPUT_REF = re.compile(r"\binputs\.([A-Za-z0-9_-]+)")
+
+
+class Workflow:
+    """One workflow file: why a runs-on of it can take an owned pool, following what the runs-on reads."""
+
+    def __init__(self, markers: Markers, tree: Tree, path: str, document: dict):
+        self.markers, self.path, self.document = markers, path, document
+        self.jobs = {key: job for key, job in (document.get("jobs") or {}).items() if isinstance(job, dict)}
+        self.pickers = set()
+        for key, job in self.jobs.items():
             text = "\n".join(str(step.get("run") or "") for step in job.get("steps") or [] if isinstance(step, dict))
             uses = LOCAL_USES.match(str(job.get("uses") or ""))
             if markers.runs_picker(text) or uses and markers.runs_picker(tree.read(uses.group(1)) or ""):
-                pickers.add(key)
-        calls[path] = set()
-        for key, job in jobs.items():
+                self.pickers.add(key)
+        on = document.get("on", document.get(True))
+        self.inputs: dict[str, object] = {}
+        for trigger in ("workflow_dispatch", "workflow_call"):
+            declared = ((on or {}).get(trigger) or {}).get("inputs") if isinstance(on, dict) else None
+            for name, spec in (declared or {}).items():
+                if isinstance(spec, dict) and spec.get("default") not in (None, ""):
+                    self.inputs.setdefault(str(name), spec["default"])
+        # Inputs a runs-on reads, directly or through a matrix or another job's outputs: a caller's
+        # `with:` value for one of them is where that runs-on's label comes from.
+        self.runner_inputs: set[str] = set()
+
+    def why(self, text: str, job: str | None, seen: set[tuple[str, str]]) -> str:
+        """Why `text` (a runs-on, or what it reads) can name an owned pool, or ""."""
+        direct = self.markers.owned_runs_on(text, self.pickers)
+        if direct:
+            return direct
+        if job is not None and "matrix." in text and ("matrix", job) not in seen:
+            seen.add(("matrix", job))
+            matrix = (self.jobs.get(job, {}).get("strategy") or {}).get("matrix")
+            found = self.why(str(matrix), job, seen) if matrix is not None else ""
+            if found:
+                return f"takes matrix values that {found}"
+        for producer in NEEDS_OUTPUT.findall(text):
+            if producer not in self.jobs or ("needs", producer) in seen:
+                continue
+            seen.add(("needs", producer))
+            body = {key: value for key, value in self.jobs[producer].items() if key not in ("runs-on", "name")}
+            found = self.why(str(body), producer, seen)
+            if found:
+                return f"takes job {producer}'s output, which {found}"
+        for name in INPUT_REF.findall(text):
+            self.runner_inputs.add(name)
+            if name in self.inputs and ("input", name) not in seen:
+                seen.add(("input", name))
+                found = self.why(str(self.inputs[name]), job, seen)
+                if found:
+                    return f"reads input {name}, whose default {found}"
+        return ""
+
+    def owned_jobs(self) -> dict[str, str]:
+        found = {}
+        for key, job in self.jobs.items():
+            why = self.why(str(job.get("runs-on") or ""), key, set())
+            if why:
+                found[key] = why
+        return found
+
+
+def owned_workflows(tree: Tree) -> dict[str, str]:
+    """{workflow path: why} for each workflow with its own runs (not only workflow_call) that can take an owned pool."""
+    markers = Markers(tree)
+    workflows = {path: Workflow(markers, tree, path, _load(tree.read(path) or "")) for path in tree.workflows()}
+    owned: dict[str, str] = {}
+    for path, workflow in workflows.items():
+        jobs = workflow.owned_jobs()
+        if jobs:
+            key = sorted(jobs)[0]
+            owned[path] = f"job {key} {jobs[key]}"
+    calls: dict[str, set[str]] = {path: set() for path in workflows}
+    for path, workflow in workflows.items():
+        for key, job in workflow.jobs.items():
             uses = LOCAL_USES.match(str(job.get("uses") or ""))
-            if uses:
-                calls[path].add(uses.group(1))
-            why = markers.owned_runs_on(str(job.get("runs-on") or ""), pickers)
-            if why and path not in direct:
-                direct[path] = f"job {key} {why}"
-    owned = dict(direct)
+            if not uses or (path, uses.group(1)) in OFF_POOL_CALLS:
+                continue
+            callee = uses.group(1)
+            calls[path].add(callee)
+            given = job.get("with") if isinstance(job.get("with"), dict) else {}
+            for name in sorted(workflows[callee].runner_inputs if callee in workflows else ()):
+                if name in given and path not in owned:
+                    why = workflow.why(str(given[name]), key, set())
+                    if why:
+                        owned[path] = (f"job {key} passes {callee.rsplit('/', 1)[-1]} a runs-on input {name} "
+                                       f"that {why}")
     changed = True
     while changed:
         changed = False
         for path, called in calls.items():
             if path in owned:
                 continue
-            hit = next((callee for callee in sorted(called)
-                        if callee in owned and (path, callee) not in OFF_POOL_CALLS), None)
+            hit = next((callee for callee in sorted(called) if callee in owned), None)
             if hit:
                 owned[path] = f"calls {hit.rsplit('/', 1)[-1]}, whose {owned[hit]}"
                 changed = True
     return {path: why for path, why in sorted(owned.items())
-            if _triggers(documents[path]) - {"workflow_call"}}
+            if _triggers(workflows[path].document) - {"workflow_call"}}
 
 
 def main(argv: list[str] | None = None) -> int:
