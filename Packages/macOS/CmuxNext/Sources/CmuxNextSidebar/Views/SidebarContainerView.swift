@@ -3,7 +3,6 @@ public import CmuxNextDesign
 import CmuxNextCompat
 import CmuxNextWakeups
 import Observation
-import QuartzCore
 
 /// The sidebar: clear over the window's one backdrop (the solid surface
 /// token, or the root material and its tint), with no fill, panel, border
@@ -59,15 +58,12 @@ public final class SidebarContainerView: NSView {
     /// Called when the width starts and stops animating. The window tells its
     /// content when the motion lands (`NSView.notifyPaneMotionSettled`).
     public var onWidthMotionChange: ((Bool) -> Void)?
-    /// The last frame of the width animation that refreshed hover, as
-    /// `CACurrentMediaTime`. Hover follows views sliding under a still pointer
-    /// (cx-3wu5), which needs no 120 Hz: a refresh is O(the window's hover
-    /// targets), so the animation refreshes at `hoverRefreshInterval` and once
-    /// more at its last frame.
-    private var lastHoverRefresh: CFTimeInterval = 0
+    /// Paces hover refreshes while the width animates. Hover follows views
+    /// sliding under a still pointer (cx-3wu5), which needs no 120 Hz: a
+    /// refresh walks every hover target of the window, so one deadline is
+    /// pending at a time and the landing runs the last refresh.
     private let hoverRefresh = DemandTimer(owner: "sidebar.hover-refresh")
-    /// At most 30 refreshes a second while the width animates.
-    private static let hoverRefreshInterval: CFTimeInterval = 1.0 / 30
+    private static let hoverRefreshDelay: Duration = .milliseconds(33)
 
     /// The window edge this sidebar sits on (`sidebar.side`, R109): the
     /// resize handle and the slide-out follow it.
@@ -280,25 +276,19 @@ public final class SidebarContainerView: NSView {
     /// The width animation lays the sidebar out each frame and a hide ends
     /// it: views slide or hide under a still pointer, and hover follows
     /// (cx-3wu5). A refresh walks every hover target of the window, so while
-    /// the width animates it runs at `hoverRefreshInterval`, with a trailing
-    /// one so the settled geometry always decides.
+    /// the width animates one runs every `hoverRefreshDelay` instead of every
+    /// frame, and the landing runs the last one, so the settled geometry
+    /// always decides which view is hovered.
     override public func layout() {
         super.layout()
         guard isWidthAnimating else {
-            hoverRefresh.cancel()
             refreshHover()
             return
         }
-        let now = CACurrentMediaTime()
-        if now - lastHoverRefresh >= Self.hoverRefreshInterval {
-            refreshHover()
-        } else {
-            hoverRefresh.schedule(after: .milliseconds(40)) { @MainActor [weak self] in self?.refreshHover() }
-        }
+        hoverRefresh.scheduleIfIdle(after: Self.hoverRefreshDelay) { @MainActor [weak self] in self?.refreshHover() }
     }
 
     private func refreshHover() {
-        lastHoverRefresh = CACurrentMediaTime()
         hoverRefresh.cancel()
         PointerHover.refresh(in: window)
     }

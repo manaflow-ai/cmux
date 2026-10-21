@@ -165,10 +165,12 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         placementObservation = observePlacement()
         contentHost.onFrameChange = { [weak self] in self?.updateMainPaneShade() }
         // The sidebar landed: content that held a costly resize while the
-        // content edge moved does it once, now (`RestingPlacement`).
+        // content edge moved does it once, now (`RestingPlacement`). The whole
+        // window, not only the content host: `isContentAreaInMotion` is read
+        // through the window, so every view in it held.
         sidebar.onWidthMotionChange = { [weak self] animating in
-            guard !animating, let self else { return }
-            contentHost.notifyPaneMotionSettled()
+            guard !animating else { return }
+            self?.notifyPaneMotionSettled()
         }
         applyMainPane()
         mainPaneObservation = observeMainPane()
