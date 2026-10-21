@@ -90,6 +90,7 @@ extension SettingsSchema {
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
         "appearance.background",
+        "appearance.backgroundRotation",
         "appearance.paneBackgrounds",
         "appearance.experimentalControls",
         "app.uiScale",

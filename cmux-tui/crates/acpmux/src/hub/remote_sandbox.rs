@@ -53,7 +53,7 @@ pub(super) const PROFILE: &str = include_str!("../../sandbox/remote-chain.sb");
 /// The identity of what a remote chain runs under: the profile and the env
 /// policy (bump `ENV_POLICY` when the child env rules change).
 pub(super) fn profile_id() -> String {
-    const ENV_POLICY: &str = "env-v2: credential by env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1, endpoint pinned by --settings env, user settings skipped for a profile's own endpoint";
+    const ENV_POLICY: &str = "env-v5: explicit cleared host projection, fixed remote allowlist, nested-parent credential and endpoint excluded, credential by explicit profile/login env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1, endpoint pinned by --settings env, user settings skipped for a profile's own endpoint";
     crate::sha256::sha256_hex(format!("{PROFILE}\n{ENV_POLICY}").as_bytes())
 }
 
@@ -192,11 +192,13 @@ fn keychain_login_allowed() -> bool {
 async fn claude_credential(
     profile: &HarnessProfile,
 ) -> Result<Option<(&'static str, String)>, String> {
-    if CREDENTIAL_ENV
-        .iter()
-        .any(|k| profile.env.contains_key(*k) || crate::chats::login_var(k).is_some())
-    {
+    if CREDENTIAL_ENV.iter().any(|k| profile.env.contains_key(*k)) {
         return Ok(None);
+    }
+    for &key in CREDENTIAL_ENV {
+        if let Some(value) = remote_login_value(key) {
+            return Ok(Some((key, value)));
+        }
     }
     if !cfg!(target_os = "macos") || !keychain_login_allowed() {
         return Ok(None);
@@ -221,6 +223,26 @@ async fn claude_credential(
         return Err("Claude's login on this Mac expires within 10 minutes (or has expired), and a remote chain cannot refresh it; open Claude Code on the Mac to refresh it, or put a long-lived token (`claude setup-token`) in the harness profile env".into());
     }
     Ok((!token.is_empty()).then(|| ("CLAUDE_CODE_OAUTH_TOKEN", token.to_owned())))
+}
+
+/// A daemon started inside Claude/Chief carries that parent turn's token in
+/// its process environment. A remote child may use the person's imported
+/// login credential, never the parent agent's turn-scoped credential.
+fn remote_login_value(key: &str) -> Option<String> {
+    select_remote_login_credential(
+        std::env::var_os("CLAUDECODE").is_some(),
+        std::env::var(key).ok(),
+        crate::login_env::var(key),
+    )
+}
+
+fn select_remote_login_credential(
+    nested: bool,
+    process: Option<String>,
+    login: Option<String>,
+) -> Option<String> {
+    let nonempty = |value: Option<String>| value.filter(|value| !value.is_empty());
+    if nested { nonempty(login) } else { nonempty(process).or_else(|| nonempty(login)) }
 }
 
 /// Claude Code flags a profile's own argv may not carry for a remote chain:
@@ -666,6 +688,17 @@ impl Hub {
         {
             plan.args[i + 1] = "default".into();
         }
+        let credential = claude_credential(&profile).await.map_err(|why| {
+            RpcError::new(-32000, format!("remote chain refused: {why}"))
+                .with_data(json!({"reason": "remote.credential_expiring"}))
+        })?;
+        if let Some((key, value)) = credential {
+            profile.env.insert(key.into(), value);
+        }
+        // Whatever supplied the plan (including `sr claude proxy`), the
+        // inner program is frozen before either a VM or Seatbelt runs it.
+        plan.program = super::resolve::remote_executable(&plan.program)?;
+        super::resolve::refuse_remote_cwd_executable(&plan.program, &session.meta().cwd)?;
         // A dedicated agent VM (`vmHost`, off macOS): the VM is the sandbox.
         // Bypass mode stays off (above); the session's permission policy
         // answers Claude's prompts.
@@ -677,13 +710,6 @@ impl Hub {
         let (program, args) =
             self.sandboxed_claude_plan(session, &profile, plan.program, plan.args).await?;
         profile.env.insert("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB".into(), "1".into());
-        let credential = claude_credential(&profile).await.map_err(|why| {
-            RpcError::new(-32000, format!("remote chain refused: {why}"))
-                .with_data(json!({"reason": "remote.credential_expiring"}))
-        })?;
-        if let Some((key, value)) = credential {
-            profile.env.insert(key.into(), value);
-        }
         Ok((crate::claude_stdio::SpawnPlan { program, args }, std::borrow::Cow::Owned(profile)))
     }
 
@@ -702,7 +728,7 @@ impl Hub {
         let endpoint = endpoint(
             profile.env.get("ANTHROPIC_BASE_URL").map(String::as_str),
             user_settings.as_deref(),
-            crate::chats::login_var("ANTHROPIC_BASE_URL").as_deref(),
+            remote_login_value("ANTHROPIC_BASE_URL").as_deref(),
         );
         let result = async {
             let bound = Bound::for_session(&session.meta().cwd, &session.id, endpoint)?;
@@ -752,6 +778,34 @@ pub fn vm_host_peer_approves(vm_host: bool, macos: bool, from_peer: bool) -> boo
 #[cfg(test)]
 mod vm_host_tests {
     use super::{vm_host_peer_approves, vm_host_unsandboxed};
+
+    #[test]
+    fn a_nested_agent_parent_credential_never_becomes_remote_login() {
+        assert_eq!(
+            super::select_remote_login_credential(
+                true,
+                Some("synthetic-parent-token".into()),
+                Some("synthetic-login-token".into()),
+            ),
+            Some("synthetic-login-token".into())
+        );
+        assert_eq!(
+            super::select_remote_login_credential(
+                true,
+                Some("synthetic-parent-token".into()),
+                None,
+            ),
+            None
+        );
+        assert_eq!(
+            super::select_remote_login_credential(
+                true,
+                Some("http://synthetic-parent.invalid".into()),
+                Some("http://synthetic-login.invalid".into()),
+            ),
+            Some("http://synthetic-login.invalid".into())
+        );
+    }
 
     #[test]
     fn only_the_owner_peer_on_a_vm_host_gets_approve_all() {

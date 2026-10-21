@@ -358,6 +358,9 @@ while True:
         if said.startswith("env:"):
             name = said[4:].strip()
             text = f"{name}={os.environ.get(name, '')}"
+        if said.startswith("envs:"):
+            names = [name.strip() for name in said[5:].split(",") if name.strip()]
+            text = json.dumps({name: os.environ.get(name, "") for name in names}, sort_keys=True)
         if said.endswith("settings-probe"):
             text = json.dumps({"said": said, "settings": FLAG_SETTINGS, "argv": sys.argv[1:]})
         if said.strip() == "history-probe" and STORE and LAYOUT:
@@ -381,14 +384,18 @@ while True:
             }, sort_keys=True)
         # "sandbox-probe OUTSIDE PORT": what this process may do, as JSON:
         # write a file at OUTSIDE, connect to 127.0.0.1:PORT, write in its cwd.
-        # "keychain-probe": whether this process may query the keychain
-        # (`security dump-keychain` lists item metadata when it may). The
-        # System keychain, by path: the user's keychain search list depends
-        # on HOME, and a test's HOME is a scratch folder.
+        # "keychain-probe": whether this process can retrieve a synthetic
+        # generic-password item from the test's temporary keychain.
         if said.strip() == "keychain-probe":
             import subprocess
             rc = subprocess.run(
-                ["/usr/bin/security", "dump-keychain", "/Library/Keychains/System.keychain"],
+                [
+                    "/usr/bin/security",
+                    "find-generic-password",
+                    "-a", "synthetic-account",
+                    "-s", "synthetic-service",
+                    "-w", os.environ["FAKE_KEYCHAIN_PATH"],
+                ],
                 capture_output=True,
             ).returncode
             text = json.dumps({"keychain": "allowed" if rc == 0 else "denied"})
