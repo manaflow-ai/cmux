@@ -33,8 +33,12 @@ export class FreestyleResourceStatsReader {
   }
 
   /** Reuses both successful samples and failures for the minimum reporting interval. */
-  read(vmId: string): Promise<VMResourceStatsResult | null> {
-    return Effect.runPromise(this.cache.get(vmId).pipe(Effect.withClock(this.clock)));
+  async read(vmId: string): Promise<VMResourceStatsResult | null> {
+    // Reject with the not-found error itself, not Effect's wrapper: its status
+    // and code are what retire the machine's row.
+    const result = await Effect.runPromise(Effect.either(this.cache.get(vmId).pipe(Effect.withClock(this.clock))));
+    if (result._tag === "Left") throw result.left;
+    return result.right;
   }
 
   private sample(vmId: string): Effect.Effect<VMResourceStatsResult | null, FreestyleResourceStatsNotFoundError> {

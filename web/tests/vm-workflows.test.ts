@@ -6694,8 +6694,8 @@ describe("VM Effect workflows", () => {
       ...unusedProviderGateway(),
       getStatus: (_provider, vmId) =>
         Effect.suspend(() => {
-          const gone = new Error(`sandbox ${vmId} -> 404 not found`);
-          (gone as Error & { status?: number }).status = 404;
+          // Freestyle's explicit answer; a bare 404 is an outage, not a missing machine.
+          const gone = Object.assign(new Error(`sandbox ${vmId} -> 404 not found`), { status: 404, code: "NOT_FOUND" });
           return Effect.fail(new VmProviderOperationError({
             provider: "freestyle",
             operation: "getStatus",
