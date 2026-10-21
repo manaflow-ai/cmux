@@ -236,12 +236,12 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
   return [text, ...files].filter(Boolean).join("\n\n");
 }
 
-/// ACP prompt blocks: the text (with text files) first, then each image, PDF, recording and file or folder link.
 /// How a prompt block names an attachment acpmux keeps (`_acpmux/attachment_put`); acpmux puts its
 /// bytes back before the prompt runs (cmux-tui acpmux `hub/prompt_images.rs`).
 export const ATTACHMENT_URI = "acpmux-attachment:";
 
-/// The prompt's blocks. An attachment in `kept` (by its id: acpmux's id for it) is named, not
+/// ACP prompt blocks: the text (with text files) first, then each image, PDF, recording and file or folder link.
+/// An attachment in `kept` (by its id: acpmux's id for it) is named, not
 /// carried, so the frame stays small however many screenshots it has.
 export function promptBlocks(
   text: string,

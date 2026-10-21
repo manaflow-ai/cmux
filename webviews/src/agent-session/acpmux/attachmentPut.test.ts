@@ -46,7 +46,8 @@ type Hooks = { answer: (method: string, params: any) => Promise<unknown> };
 type Sent = { method: string; params: any };
 
 /// A client on the mock acpmux that records each request; `withPut` false is an older acpmux.
-async function connect(withPut: boolean) {
+/// `putsWait` holds every put's answer until it settles.
+async function connect(withPut: boolean, putsWait?: Promise<void>) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const sent: Sent[] = [];
@@ -57,6 +58,7 @@ async function connect(withPut: boolean) {
       const answer = hooks.answer.bind(this);
       hooks.answer = async (method, params) => {
         sent.push({ method, params: structuredClone(params) });
+        if (method === "_acpmux/attachment_put" && putsWait) await putsWait;
         const reply = (await answer(method, params)) as any;
         if (method === "initialize" && !withPut) reply._meta.acpmux.extensions = [];
         return reply;
@@ -99,6 +101,26 @@ test("an acpmux without attachment_put gets the images inline", async () => {
     expect(sent.some((frame) => frame.method === "_acpmux/attachment_put")).toBe(false);
     const prompt = sent.find((frame) => frame.method === "session/prompt")!;
     expect(prompt.params.prompt[1]).toEqual({ type: "image", mimeType: "image/png", data: PNG, name: "a.png" });
+  } finally {
+    client.close();
+  }
+});
+
+test("a prompt still putting its images goes before a prompt sent after it", async () => {
+  let open!: () => void;
+  const { client, sent } = await connect(true, new Promise<void>((resolve) => (open = resolve)));
+  try {
+    const first = client.send("look at this", [shot("a")], "p-first");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const second = client.send("and fix it", [], "p-second");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    // The second waits for the first, whose put has no answer yet.
+    expect(sent.filter((frame) => frame.method === "session/prompt")).toEqual([]);
+    open();
+    await Promise.all([first, second]);
+    expect(
+      sent.filter((frame) => frame.method === "session/prompt").map((frame) => frame.params._meta.acpmux.promptId),
+    ).toEqual(["p-first", "p-second"]);
   } finally {
     client.close();
   }
