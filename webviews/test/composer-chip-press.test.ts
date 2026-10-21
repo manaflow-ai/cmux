@@ -1,7 +1,8 @@
 // cmux-web-test-timeout: 300
 // How a press on the composer's chips feels (cg-composer item 2, click polish; Codex desktop is the
-// reference): the + menu, model, reasoning and permission chips in the bar, and the folder chip on
-// the location strip, in a chat's composer, a new chat's and the New Tab page's.
+// reference): the + menu, the model button (which names the model and its effort, Leo 2026-10-20:
+// no effort chip of its own) and the permission chip in the bar, and the folder chip on the location
+// strip, in a chat's composer, a new chat's and the New Tab page's.
 //
 // - The arrow cursor over every chip, as the rest of the pane's controls (macOS), never the hand.
 // - A press shows its tone the moment the button goes down: the hover's ease does not delay it,
@@ -82,19 +83,19 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
   /** Each stage and the chips it shows, by accessible name. */
   const STAGES: Stage[] = [
     { entry: "agent-pane.composer", variant: "picker-toggle", field: ".acpmux-md", chips: ["Add", "Model", "Mode"] },
-    { entry: "agent-pane.composer", variant: "new-chat-reasoning", field: ".acpmux-md", chips: ["Folder", "Effort"] },
+    { entry: "agent-pane.composer", variant: "new-chat-reasoning", field: ".acpmux-md", chips: ["Folder", "Model"] },
     {
       entry: "agent-pane.new-tab",
       variant: "reasoning-chip",
       field: ".nt-field",
-      chips: ["Folder", "Model", "Effort"],
+      chips: ["Folder", "Model"],
     },
   ];
   const PILL_STAGE: Stage = {
     entry: "agent-pane.composer-pickers",
     variant: "pill-rail",
     field: ".acpmux-composer-gallery-shell",
-    chips: ["Model", "Effort", "Mode"],
+    chips: ["Model", "Mode"],
   };
   const chip = (name: string) => `button[aria-haspopup][aria-label="${name}"]`;
 
@@ -324,11 +325,11 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
       const hover = await state("Model");
       expect(hover.background, "hover draws the pill").not.toBe(idle[0]!.background);
 
-      await page.locator(chip("Effort")).first().click();
-      await page.locator('[role="menuitemradio"][aria-checked="true"]:visible').first().waitFor();
-      const openEffort = await state("Effort");
-      expect(openEffort.background, "open keeps the pill's hover step").not.toBe(idle[1]!.background);
-      expect(openEffort.boxShadow, "open draws no edge ring (Leo 2026-10-18)").toBe("none");
+      await model.click();
+      await page.locator(".acpmux-quick-menu").first().waitFor();
+      const openModel = await state("Model");
+      expect(openModel.background, "open keeps the pill's hover step").not.toBe(idle[0]!.background);
+      expect(openModel.boxShadow, "open draws no edge ring (Leo 2026-10-18)").toBe("none");
       await page.close();
     });
 });
