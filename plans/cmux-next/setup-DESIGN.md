@@ -20,7 +20,7 @@ for what a person must do: an OAuth sign-in, a secret, a macOS switch.
 | Computer Use | GUI (Computer Use Setup) | `cmux setup computer-use`; the person allows it on the app's sheet, and grants are switches in System Settings | yes | yes |
 | Browser import | GUI (Import from Browser...) | `cmux bookmark import-from-browser`, `cmux browser import-cookies` (consent panel); history and passwords person-only | partly | bookmarks/history merge |
 | Keyboard shortcuts | GUI (Keyboard Shortcuts) | `cmux keybinding list/resolve --json`; edits only over the raw socket or keybindings.json | reads yes | yes |
-| Notifications | GUI (Settings) | `cmux settings get/set notifications.*`; macOS permission asked on first use | yes | set yes; toggle-workspace-mute no |
+| Notifications | GUI (Settings); macOS asks on the first banner | `cmux setup notifications` (the macOS permission); `cmux settings get/set notifications.*` | yes | yes; toggle-workspace-mute no |
 | Team invites | web dashboard | `POST /api/teams/<id>/invitations`; `cmux home invite --email` for Home conversations | API yes | no |
 
 There is no onboarding sequence in cmux NEXT (Lawrence, 2026-10-09): the
@@ -291,3 +291,22 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    would send a create, also one sent again with its key). When cloud-team-ready's `cloud
    list-machines` lands (owner personal|team), setup reads it instead of
    `cloud.machines`.
+7. `notifications`: lets cmux show macOS notifications. The state is the
+   app's `notifications.status` (`{authorization, alert, sound, badge,
+   bundle_id}`, `UNUserNotificationCenter.notificationSettings`, read
+   without prompting; Release-safe, unlike `debug.notifications`).
+   `not_determined`: setup sends `notifications.request`, macOS shows its
+   prompt and setup waits for the person's click; allowed is `changed`,
+   not allowed, or the prompt left unanswered past the app's 600 s, is
+   `needs_user` (`kind` `declined`), and the agent asks before trying
+   again; macOS failing the request (`internal_error`) is `failed`. `denied` is `needs_user` (`kind` `grant`) whose
+   `command` opens cmux's page in System Settings > Notifications (`open
+   'x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=BUNDLE_ID'`).
+   macOS has no command that takes the permission back, so `undo` is that
+   pane command and `undo_note` says so. `authorized` and `provisional`
+   are `ok`, except `authorized` with the alert style None (`alert`
+   false): no banner shows, so it is `kind` `grant` with the same pane. An app without the methods (`method_not_found`) is `kind`
+   `app` with the Notifications pane command. A launch that never uses the
+   system center (an automation launch or GUI job) answers `unavailable`.
+   Which notifications show stays `notifications.*` settings. `cmux setup
+   status` adds a `notifications` check.

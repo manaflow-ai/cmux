@@ -112,6 +112,7 @@ pub(super) const GUIDES: &[Guide] = &[
             "computer",
             "grant",
             "cloud",
+            "notifications",
         ],
         text: "`cmux setup list` names every setup task (folder trust, harness install and sign-in, \
         ssh machines, peer updates, accounts, Cloud machines, Tailscale, MCP wiring, Computer \
@@ -140,8 +141,11 @@ pub(super) const GUIDES: &[Guide] = &[
         kind many_machines means setup claims none, inferred: true means check the machine \
         with the person before the undo, and its undo is `cmux cloud kill-machine --target \
         machine:ID --confirm && cmux setup cloud-machine --forget` (--forget drops setup's \
-        record so it may ask again). `cmux setup status` lists every peer with connected and \
-        outdated, every harness, the MCP wiring, Computer Use and the Cloud machine. Every \
+        record so it may ask again). `cmux setup notifications` lets cmux show macOS \
+        notifications: it shows the macOS prompt once, and once denied names the command that \
+        opens cmux's page in System Settings > Notifications. `cmux setup status` lists every \
+        peer with connected and outdated, every harness, the MCP wiring, Computer Use, the \
+        Cloud machine and notifications. Every \
         `cmux setup` command prints one JSON object: state is ok, changed, planned, needs_user \
         or failed.",
     },
