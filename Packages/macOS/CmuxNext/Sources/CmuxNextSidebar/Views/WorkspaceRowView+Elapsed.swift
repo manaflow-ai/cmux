@@ -31,9 +31,10 @@ extension WorkspaceRowView {
         return trailing - w - Metrics.space1
     }
 
-    /// A row leaving the list stops its tick.
+    /// A row taken from the pool stops its tick and lays out again, which re-arms it. A row that
+    /// returns to its own workspace keeps its content (`keepsContentOnReturn`), so the start stays.
     func stopElapsed() {
         elapsedTicker.cancel()
-        workingSince = nil
+        needsLayout = true
     }
 }

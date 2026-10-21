@@ -59,6 +59,21 @@ struct WorkspaceRowElapsedTests {
         window.close()
     }
 
+    /// A row parked in the pool and taken back for its own workspace keeps its content, and its time.
+    @Test func aRowBackFromThePoolKeepsItsTime() {
+        let ws = working("Fix the build", since: Date().addingTimeInterval(-4 * 60 - 30))
+        let (view, window) = row(ws, width: 320)
+        view.prepareForReuse(key: .workspace(ws.id))
+        let content = WorkspaceRowContent(ws, preferences: .defaults)
+        view.configure(ws, row: SidebarRow(key: .workspace(ws.id), y: 0, height: 28, section: .pinned, group: nil, siblingIndex: 0,
+                                           parentIndex: nil, isLastInGroup: false, isCollapsed: false, childCount: 0,
+                                           groupColor: nil, content: content), badgeStyle: .corner)
+        view.layoutSubtreeIfNeeded()
+        #expect(!view.elapsedLabel.isHidden)
+        #expect(view.elapsedLabel.stringValue == "4m")
+        window.close()
+    }
+
     @Test func aNarrowRowKeepsItsName() {
         let (view, window) = row(working("Redesign the source control pane's commit flow", since: Date().addingTimeInterval(-600)),
                                  width: 200)
