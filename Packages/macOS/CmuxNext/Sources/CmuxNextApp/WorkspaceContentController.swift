@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextPages
 import CmuxNextWorkspaceRepair
 import Observation
 
@@ -33,19 +34,17 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private var connectionObservation: Task<Void, Never>?
     private var attentionObservation: Task<Void, Never>?
     private var settlingObservation: Task<Void, Never>?
+    /// Republishes `canvasLayout` when this workspace's active screen goes into or out of a canvas.
+    private var canvasObservation: Task<Void, Never>?
     /// True while `apply` mounts panes: it sends the topology once at its end,
     /// so a mount inside it does not rebuild the O(N) topology per pane (O(N^2)).
     private(set) var isApplying = false
     private var appliedTree = LayoutAppliedTree()
-    /// Daemon `transaction` for each layout gesture (undo coalescing).
-    var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
     /// The window's focus state machine (`WindowState.focus`,
     /// plans/cmux-next/focus.md). Every focus change in this content goes
     /// through it.
     let focus: FocusCoordinator
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
-    /// A divider or column drag's daemon commands, one in flight per gesture (only the newest value waits).
-    lazy var gestureCommands = GestureCommandCoalescer { [daemon] label, body in await daemon.run(label, body) }
     /// Kept mounted off screen by its window (a workspace it showed): its panes report hidden, so
     /// their surfaces pause and only the warm set's LRU may destroy one; it sends no focus events,
     /// because the window's focus follows the shown workspace.
@@ -82,6 +81,16 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         _ = layoutView  // built here, then the bar and the content view, as before
+        // A pane close's neighbours resize their PTYs once, at rest (close-animation DESIGN.md).
+        layoutView.onTerminalGridHold = { [weak layoutView] held in
+            if let layoutView { ResizeCoordinator.shared.setHeld(held, by: layoutView) }
+        }
+        // A link dragged in from another app or a page: the drop zones a dragged tab has (LinkDropPlan).
+        layoutView.linkDropHandler = { [weak self] url, target, perform in
+            guard let self, let item = LinkDragItem(url, browserEnabled: LinkRouter.shared.routing().browserEnabled),
+                  let plan = LinkDropPlan(target, takesTabs: { self.panes[$0]?.stripModel.showsNewTabButton == true }) else { return false }
+            return !perform || self.services.linkOpener.drop(item, plan: plan, in: self)
+        }
         _ = screenBar
         _ = contentView
         let fallbackCreate = emptyWorkspaceRepair.create
@@ -107,10 +116,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     func teardown() {
+        ResizeCoordinator.shared.setHeld(false, by: layoutView)
         observation?.cancel()
         connectionObservation?.cancel()
         attentionObservation?.cancel()
         settlingObservation?.cancel()
+        canvasObservation?.cancel()
         screenBar.teardown()
         for controller in panes.values { controller.teardown() }
         panes.removeAll()
@@ -145,6 +156,10 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             }
         }
         observeAttention()
+        let layoutModel = layoutModel
+        canvasObservation = Task { [weak self] in
+            for await _ in ObservationStream({ layoutModel.isCanvasActive }) { self?.services.canvasContextDidChange() }
+        }
     }
 
     /// Panes with an unread notification draw the attention ring.
@@ -292,6 +307,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         controller.view.toolbar = PaneToolbar(pane: controller) // the tab bar's hover "…" and pinned buttons
         controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
+        services.themes.applyPaneBackground(controller) // its own background and tint, before the first frame
         services.paneMounts.changed()
         sendTopology()
         // Settings… asked before any window had a pane waits for the first one (R82). It opens

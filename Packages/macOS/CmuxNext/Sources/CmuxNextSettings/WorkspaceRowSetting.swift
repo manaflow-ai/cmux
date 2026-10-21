@@ -24,12 +24,6 @@ public nonisolated struct WorkspaceRowSetting: Sendable {
         return legacyPaths[element]
     }
 
-    /// The S1 value that applies at `path` while the new key is absent: what
-    /// Settings shows for the new toggle until the launch migration moves it.
-    static func legacyValue(for path: [String], in root: JSONValue) -> JSONValue? {
-        legacyPath(for: path).flatMap { root.value(at: $0) }
-    }
-
     public init() {}
 
     public static func path(_ element: WorkspaceRowElement, kind: WorkspaceRowKind? = nil) -> [String] {

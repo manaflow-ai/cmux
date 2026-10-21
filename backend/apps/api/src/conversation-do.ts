@@ -19,7 +19,8 @@ type Head = conversation.ConversationState
 type ConvAttachment = Attachment & { typing?: boolean }
 const MAX_HISTORY_PAGE = 200
 /** Ops the Worker completes (home-routes.ts); refused on the conversation socket. */
-const WORKER_DERIVED_OPS = new Set(["conversation.create", "dm.open", "invite.create", "invite.accept", "invite.accept_verified", "conversation.import", "conversation.import.commit", "participants.add"])
+const MEMBERSHIP_ENDING_OPS = new Set(["participants.remove", "invite.accept", "invite.accept_verified", "invite.revoke", "conversation.sweep", "conversation.import.commit"])
+const WORKER_DERIVED_OPS = new Set(["grant.create", "conversation.create", "dm.open", "invite.create", "invite.accept", "invite.accept_verified", "conversation.import", "conversation.import.commit", "participants.add"])
 
 /**
  * Reach policy with owner records: an agent participant is allowed when it is one of the
@@ -99,7 +100,19 @@ export class ConversationDO extends OwnerDO<Head> {
 
   private member(state: Head, principal: Principal) {
     const actor = conversation.actorOf(principal)
-    return state && actor ? state.participants.find((p) => p.id === actor && p.left_at === undefined) : undefined
+    return state && actor ? this.memberById(state, actor) : undefined
+  }
+
+  /** A current participant by id, from the head or (a large group) its member rows (home-core large.ts). */
+  private memberById(state: NonNullable<Head>, id: string) {
+    const engine = this.boundEngine
+    return engine ? conversation.memberOf(state, engine.rows, id) : state.participants.find((p) => p.id === id && p.left_at === undefined)
+  }
+
+  /** A participant record (also a departed one) by id, from the head or the member rows. */
+  private recordById(state: NonNullable<Head>, id: string) {
+    const engine = this.boundEngine
+    return engine ? conversation.recordOf(state, engine.rows, id) : state.participants.find((p) => p.id === id)
   }
 
   /** Current participants, and for installs only when the grant covers reads. */
@@ -121,7 +134,33 @@ export class ConversationDO extends OwnerDO<Head> {
     return true
   }
 
-  /** The lowest message seq a member may see (history_visible: since_join hides older ones). */
+  /** A large group's head as one member sees it: the roster plus its own record and read cursor. */
+  private personal(state: NonNullable<Head>, me: conversation.Participant): NonNullable<Head> {
+    const cursor = conversation.cursorOf(state, this.boundEngine!.rows, me.id)
+    const participants = state.participants.some((p) => p.id === me.id) ? state.participants : [...state.participants, me]
+    return { ...state, participants, read_cursors: cursor > 0 ? { [me.id]: cursor } : {} }
+  }
+
+  /**
+   * RPC for the UserDO's `inbox.list` (large groups bump only the people a commit names): `user`'s
+   * row computed here, or null when `user` is not a current participant. Never writes.
+   */
+  async inboxView(entity: string, user: string): Promise<conversation.InboxView | null> {
+    const state = this.existingState(entity)
+    return state && this.boundEngine ? conversation.inboxViewFor(state, this.boundEngine.rows, user) : null
+  }
+
+  /**
+   * Worker only (home-avatar-routes.ts): whether `principal` may read this conversation and
+   * `participant` is a current member of it, in either tier. Never writes.
+   */
+  async sharesWith(entity: string, principal: Principal, participant: string): Promise<boolean> {
+    const state = this.existingState(entity)
+    if (!state || !this.maySubscribe(state, principal)) return false
+    return this.memberById(state, participant) !== undefined
+  }
+
+    /** The lowest message seq a member may see (history_visible: since_join hides older ones). */
   private floor(state: Head, me: { joined_seq?: number }): number {
     return state?.settings?.history_visible === "since_join" ? (me.joined_seq ?? 0) : 0
   }
@@ -140,9 +179,11 @@ export class ConversationDO extends OwnerDO<Head> {
 
   /** Snapshot tail rows honor the member's floor too. */
   protected subscriberSnapshot(snap: ReturnType<OwnerEngine<Head>["snapshot"]>, principal: Principal): unknown {
-    const base = super.subscriberSnapshot(snap, principal) as typeof snap
+    const raw = super.subscriberSnapshot(snap, principal) as typeof snap
     const state = snap.state as Head
     const me = state ? this.member(state, principal) : undefined
+    // A large group's head has a roster and no cursors: the subscriber's own record and cursor go in.
+    const base = state && me && conversation.isLarge(state) ? { ...raw, state: this.personal(state, me) } : raw
     if (!base.rows || !me) return base
     const floor = this.floor(state, me)
     return floor === 0 ? base : { ...base, rows: { ...base.rows, rows: base.rows.rows.filter((r) => ((r.row as { seq?: number }).seq ?? 0) > floor) } }
@@ -151,7 +192,8 @@ export class ConversationDO extends OwnerDO<Head> {
   /** A participant who is removed or leaves loses its sockets at once (no later events). */
   protected afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>): void {
     const state = this.boundEngine?.currentState
-    if (state) this.closeSockets((p) => this.member(state, p) === undefined, "not a participant")
+    // Only a removal, a leave or an accept that swaps an address out ends a membership.
+    if (state && MEMBERSHIP_ENDING_OPS.has(op)) this.closeSockets((p) => this.member(state, p) === undefined, "not a participant")
     // A retract, an edit or a retention batch may release attachment references: older uploads may now be collectable.
     const result = frames.find((f) => f.t === "result")
     if (result?.t === "result" && (op === "message.retract" || op === "message.edit" || (op === conversation.SWEEP_OP && (result.value as { retention?: unknown }).retention !== undefined))) store.markDirty(this.sqlStore, Date.now())
@@ -228,7 +270,8 @@ export class ConversationDO extends OwnerDO<Head> {
     }
     if (typeof frame.on !== "boolean" || (frame.conversation !== undefined && frame.conversation !== state?.id)) return fail("validation.invalid", "typing needs a boolean `on` (and this conversation, when named)")
     const actor = a ? conversation.actorOf(a.principal) : null
-    if (!a || !state || !actor || conversation.checkTyping(state, actor)) return fail("auth.forbidden", "not a participant")
+    const typist = state && actor ? this.memberById(state, actor) : undefined
+    if (!a || !state || !actor || !typist || typist.kind === "address") return fail("auth.forbidden", "not a participant")
     this.sendTyping(state, actor, frame.on, ws)
     if ((a.typing ?? false) !== frame.on) ws.serializeAttachment({ ...a, typing: frame.on } satisfies ConvAttachment)
     return true
@@ -249,7 +292,7 @@ export class ConversationDO extends OwnerDO<Head> {
   /** A chief brain's ephemeral frames (chief-brain/brain-do.ts), never committed: typing (a socket's gate), a run change, or a live frame (conversation-live.ts). */
   async agentFrame(entity: string, agent: string, f: { typing: boolean } | { run: unknown; steps: ReadonlyArray<unknown> } | { live: unknown }): Promise<void> {
     const state = this.isBound(entity) ? this.bind(entity).currentState : null
-    if (!state?.participants.some((p) => p.id === agent && p.kind === "agent" && p.left_at === undefined)) return
+    if (!state || this.memberById(state, agent)?.kind !== "agent") return
     // A brain's `off` always passes (once per turn end or skipped wake): a client that shows "Thinking…" from
     // the send waits for it even when this brain never typed (a skipped turn, brain-turn.ts skip).
     if ("typing" in f) return void (conversation.checkTyping(state, agent) || this.sendTyping(state, agent, f.typing, null, !f.typing))
@@ -284,6 +327,14 @@ export class ConversationDO extends OwnerDO<Head> {
       const rows = snap.rows.rows.slice(Math.max(0, snap.rows.rows.length - tail))
       return { ok: true, value: { ...snap, rows: { ...snap.rows, rows }, threads: threadsOf(this.sqlStore, rows.map((r) => r.row)) }, revision: String(engine.currentSeq) }
     }
+    if (op === "conversation.members") {
+      const q = (params ?? {}) as { after?: unknown; limit?: unknown }
+      const page = conversation.membersPage(state, engine.rows, {
+        ...(typeof q.after === "number" && Number.isInteger(q.after) && q.after >= 0 ? { after: q.after } : {}),
+        ...(typeof q.limit === "number" && q.limit > 0 ? { limit: Math.floor(q.limit) } : {})
+      })
+      return { ok: true, value: page, revision: String(engine.currentSeq) }
+    }
     const floor = this.floor(state, me)
     if (op === "conversation.thread") return this.readThread(params, floor)
     if (op !== "conversation.history") return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
@@ -317,7 +368,7 @@ export class ConversationDO extends OwnerDO<Head> {
     const open = state?.invites?.find((i) => isOpen(i))
     if (!state || !open) return null
     if (state.kind === "dm" && !state.participants.some((p) => p.id === open.address && p.left_at === undefined)) return null
-    const inviter = state.participants.find((p) => p.id === open.invited_by)
+    const inviter = this.recordById(state, open.invited_by)
     const name = firstName(inviter?.display_name)
     return name ? { first_name: name, avatar_url: null } : null
   }
@@ -356,7 +407,7 @@ export class ConversationDO extends OwnerDO<Head> {
   async mayInvite(entity: string, principal: Principal): Promise<boolean> {
     const state = this.existingState(entity)
     const actor = conversation.actorOf(principal)
-    return !!state && actor !== undefined && state.participants.some((p) => p.id === actor && p.left_at === undefined)
+    return !!state && actor !== null && actor !== undefined && this.memberById(state, actor) !== undefined
   }
 
   /** Anonymous, by secret: who invited the holder. The secret is hashed twice, as the domain stores it. */
@@ -366,15 +417,25 @@ export class ConversationDO extends OwnerDO<Head> {
     const tokenHash = invites.hashInviteSecret(invites.hashInviteSecret(secret))
     const ref = this.boundEngine!.rows.get<{ invite_id: string }>(conversation.TABLE_INVHASH, tokenHash)?.row
     const invite = ref ? this.boundEngine!.rows.get<conversation.Invite>(conversation.TABLE_INV, ref.invite_id)?.row : undefined
-    if (!invite) return { state: "invalid" }
+    if (!invite) return this.grantPreview(state, tokenHash)
     if (!isOpen(invite) || Date.parse(invite.expires_at) <= Date.now()) return { state: "expired" }
-    const inviter = state.participants.find((p) => p.id === invite.invited_by)
+    const inviter = this.recordById(state, invite.invited_by)
     return {
       state: "ok",
       inviter: firstName(inviter?.display_name) ?? "Someone",
       kind: state.kind === "dm" ? "dm" : "group",
       ...(state.kind === "group" && state.title ? { title: state.title } : {})
     }
+  }
+
+  /** A link grant's preview (home-core grants.ts): who made it, while it is open and unexpired. */
+  private grantPreview(state: NonNullable<Head>, tokenHash: string): InvitePreviewResult {
+    const ref = this.boundEngine!.rows.get<{ grant_id: string }>(conversation.TABLE_GRANTHASH, tokenHash)?.row
+    if (!ref) return { state: "invalid" }
+    const grant = (state.grants ?? []).find((g) => g.id === ref.grant_id)
+    if (!grant || Date.parse(grant.expires_at) <= Date.now()) return { state: "expired" }
+    const maker = this.recordById(state, grant.issuer)
+    return { state: "ok", inviter: firstName(maker?.display_name) ?? "Someone", kind: "group", ...(state.title ? { title: state.title } : {}) }
   }
 
   /**
@@ -388,7 +449,7 @@ export class ConversationDO extends OwnerDO<Head> {
     const state = this.existingState(entity)
     const open = state?.invites?.find((i) => i.id === invite && i.status === "pending" && addresses.includes(i.address))
     if (!state || !open || Date.parse(open.expires_at) <= Date.now()) return null
-    const inviter = state.participants.find((p) => p.id === open.invited_by)
+    const inviter = this.recordById(state, open.invited_by)
     const newest = this.boundEngine!.rows.range<conversation.Message>(conversation.TABLE_MSG, { limit: 20, desc: true })
       .map((r) => r.row)
       .find((m) => m.author === open.invited_by && m.retracted_at === undefined)
@@ -432,7 +493,8 @@ export class ConversationDO extends OwnerDO<Head> {
   /** A current, acting participant (not an address) of an existing conversation, with the state. */
   private acting(entity: string, actor: string) {
     const state = this.existingState(entity)
-    const me = state?.participants.find((p) => p.id === actor && p.left_at === undefined && p.kind !== "address")
+    const found = state ? this.memberById(state, actor) : undefined
+    const me = found?.kind === "address" ? undefined : found
     return state && me ? { state, me, open: state.state !== "archived" && state.state !== "importing" } : undefined
   }
 

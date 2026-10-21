@@ -7,7 +7,7 @@ import { TextEditor } from "./TextEditor";
 import type { EditorProps } from "./types";
 
 /**
- * theme and font_family: a searchable list of the names the app published in ready().domains.
+ * font_family (and a theme row, before ThemeRowEditor): a searchable list of the names the app published in ready().domains.
  * Font names render in their own face as the sample. With no published names, a text field.
  * The list is a pop-up over the rows, so opening it pushes no row down (cx-jh7kq).
  */

@@ -43,7 +43,7 @@ jobs:
   web-lint:
     name: web lint (fast)
     # GitHub-hosted (free for this public repo), not Blacksmith: the job is small.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # github-hosted-required: small advisory lint on the free hosted runner
     timeout-minutes: 10
     steps:
       - name: Checkout

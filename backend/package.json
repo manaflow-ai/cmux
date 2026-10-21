@@ -6,7 +6,8 @@
     "packages/*",
     "apps/*",
     "db",
-    "../clients/ts/*"
+    "../clients/ts/*",
+    "../workers/cmux-vm/sdk"
   ],
   "scripts": {
     "typecheck": "bun run --filter '*' typecheck",

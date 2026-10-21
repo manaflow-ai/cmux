@@ -706,7 +706,7 @@ class BaseReds(unittest.TestCase):
         self.assertIn("cmux-next swift test: test beta()", stack - base)
         controller.gh.gh.return_value = failing("alpha()")
         self.assertEqual(set(controller.failed_jobs(3, detail=True)) - base, set())
-        # Job-level names stay for gh-merge-green's lanes.
+        # Job-level names stay for the base-red comparison's lanes.
         self.assertEqual(controller.failed_jobs(1), ["cmux-next swift test"])
 
     def test_a_job_with_nothing_to_compare_is_never_excused_by_its_steps(self):

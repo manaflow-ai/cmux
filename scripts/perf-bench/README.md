@@ -47,6 +47,47 @@ ms), with frames missed. BENCH.md gets a "Tab switch" section and the gate gets
 `tab-switch-<kind>-<count>-<input>` rows. `--arg=tabswitch=off` skips it;
 `--arg=tabswitch=chromium,markdown --arg=tabcounts=2,30` narrows it.
 
+## Palette open
+
+The same Debug app also runs a182's `scripts/cmux-next/palette-open-stages.py --no-gate`:
+Cmd-Shift-P and Cmd-P key-down to the palette's committed first frame from a terminal, Chromium page
+(and its page window), WebKit page, Markdown and Home. BENCH.md gets a "Palette open" section and the
+gate gets `palette-open-<surface>-<key>` rows (Debug only). `--arg=palette=off` skips it. a182's own
+entry `scripts/measure/palette-open.sh` is allowlisted too.
+
+## For the tab switch rewrite (a168) and other perf agents
+
+- Tab switch only, fastest loop: `cmux-ci run --class exclusive --measurement --label measure
+  --script scripts/measure/perf-bench.sh --ref SHA --target-worker <owned mini> --arg=browsers=cmux-terminal
+  --arg=rounds=1 --arg=launches=0 --arg=tabswitch=chromium,webkit,markdown,chat --arg=tabcounts=2,10,30
+  --artifact artifacts/perf-bench/tab-switch.json`. a118's direct entry
+  `scripts/measure/tab-switch.sh --arg=--matrix ...` is allowlisted too.
+- The matrix reads `debug.key`, `debug.mouse`, `debug.tab_switch` and `debug.window_snapshot`. A rewrite
+  that changes those hooks keeps their reply shape, or updates `tab-switch-matrix.py` in the same
+  commit, so before and after numbers compare.
+- Before/after: `xbench.py report --out RUN --tabswitch tab-switch.json`, then
+  `xbench.py gate --results new.json --baseline old.json`.
+
+## Hosts
+
+The step needs a logged-in console user: `open` fails on the AWS workers (aws-m4pro-*, no console
+login; xbench exits 3 with `PERF-BENCH-NO-GUI`). The bench host is **cmux20-bench** (cmux20, Apple M6,
+macOS 27.0, user `cmux` at the console): a controller worker that advertises only `bench`, so it takes
+no CI step and no build (hq `build-fleet/mini-ops/bench-worker/bench-worker.sh`). Submit with
+`--label bench --target-worker cmux20-bench`; the nightly job does. It has bun and node under
+`~cmux` for the Debug build. The owned M4 Pro minis (cmux7s-13s) can open apps too, but they are busy
+CI hosts; `baseline/apple-m4-pro-macos27.json` came from one (cmuxs-Mac-mini 6, load 3 to 8). The aws-m4pro
+minis start the app but its control socket never appears (a252), so they cannot run xbench.
+
+Baselines: `baseline/apple-m6-macos27.json` and `baseline/apple-m4-pro-macos27.json` (the gate's rows),
+`baseline/BENCH-apple-m6-macos27.md`, `baseline/BENCH-apple-m4-pro-macos27.md`,
+`baseline/tab-switch-apple-m6-macos27.json` (the matrix's full report).
+
+A fleet ref must have a published cmux-tui tree for the Debug build. feat-cmux-next moves faster than
+the publisher, so pin the ref first: `git push origin SHA:refs/heads/cmux-tui-pin-<sha12>` and wait
+until `files.cmux.com/cmux-tui/tree/<key>/cmux-tui-aarch64-apple-darwin.sha256` answers 200
+(`pin-cmux-tui.sh key --rev SHA`).
+
 ## Method
 
 Follows Ardia's `docs/perf/vs-browsers.md` so the numbers compare:

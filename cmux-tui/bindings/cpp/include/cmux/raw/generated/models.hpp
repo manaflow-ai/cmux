@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06";
+inline constexpr std::string_view kProtocolIrSha256 = "618580395ad650b750fb7be122cdc20524f93ba299cc62b7afebb68b22ff6b12";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -48,6 +48,7 @@ enum class ClientTransport;
 enum class CloseReason;
 struct CloseTerminalResult;
 struct ColorHex;
+enum class ColumnMoveDirection;
 struct ColumnPin;
 struct ConversationChange;
 struct ConversationImportMessage;
@@ -217,6 +218,7 @@ struct TerminalResourceHost;
 struct TerminalResourceProcess;
 struct TerminalResources;
 struct TerminalResourcesResult;
+struct TerminalResumeCommandResult;
 struct Tree;
 enum class ViewAttachmentOutcome;
 struct ViewportPaneWidthResult;
@@ -407,6 +409,7 @@ struct MintTerminalRendererRequest;
 struct MintTerminalRendererByTerminalRequest;
 struct MoveBookmarkRequest;
 struct MoveBrowserProfileRequest;
+struct MoveColumnRequest;
 struct MovePersonalGroupRequest;
 struct MoveProfileRequest;
 struct MoveScreenRequest;
@@ -440,6 +443,7 @@ struct NotifyRequest;
 struct PageCredentialRequest;
 struct PairingResponseRequest;
 struct PaneNeighborRequest;
+struct ParkTabsRequest;
 struct PasteImageRequest;
 struct PasteImageResult;
 struct PinWorkspaceRequest;
@@ -522,6 +526,7 @@ struct TerminalEventsRequest;
 struct TerminalHistoryRequest;
 struct TerminalReadRangeRequest;
 struct TerminalResourcesRequest;
+struct TerminalResumeCommandRequest;
 struct UndoLayoutRequest;
 struct UngroupScreenGroupRequest;
 struct UngroupTabGroupRequest;
@@ -1889,6 +1894,11 @@ struct ColorsChangedEvent {
     friend bool operator==(const ColorsChangedEvent&, const ColorsChangedEvent&) = default;
 };
 
+enum class ColumnMoveDirection {
+    left,
+    right,
+};
+
 struct ColumnPin {
     std::string edge{};
     std::string mode{};
@@ -3138,6 +3148,7 @@ struct IdMapping {
 
 struct IdentifyRequest {
     std::optional<bool> machine_metadata{};
+    std::optional<bool> revisions{};
     friend bool operator==(const IdentifyRequest&, const IdentifyRequest&) = default;
 };
 
@@ -3153,8 +3164,10 @@ struct IdentifyResult {
     Field<std::string> build_id{};
     std::optional<std::vector<std::string>> capabilities{};
     Field<std::string> cli_path{};
+    Field<std::string> crate_version{};
     std::string generation{};
     Field<std::string> ghostty_commit{};
+    Field<std::string> install{};
     Field<std::string> launch_snapshot_path{};
     std::optional<bool> lifecycle_ready{};
     std::optional<std::vector<std::string>> machine_capabilities{};
@@ -3168,6 +3181,7 @@ struct IdentifyResult {
     std::string session{};
     std::optional<std::string> session_id{};
     std::uint64_t terminal_revision{};
+    Field<std::string> update_command{};
     std::string version{};
     std::uint64_t workspace_revision{};
     friend bool operator==(const IdentifyResult&, const IdentifyResult&) = default;
@@ -3622,6 +3636,12 @@ struct MoveBrowserProfileRequest {
     std::string browser_profile{};
     std::uint64_t index{};
     friend bool operator==(const MoveBrowserProfileRequest&, const MoveBrowserProfileRequest&) = default;
+};
+
+struct MoveColumnRequest {
+    ColumnMoveDirection direction{};
+    Id pane{};
+    friend bool operator==(const MoveColumnRequest&, const MoveColumnRequest&) = default;
 };
 
 struct MovePersonalGroupRequest {
@@ -4103,6 +4123,11 @@ struct PaneSurfaceResult {
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
     friend bool operator==(const PaneSurfaceResult&, const PaneSurfaceResult&) = default;
+};
+
+struct ParkTabsRequest {
+    std::vector<TabRef> surfaces{};
+    friend bool operator==(const ParkTabsRequest&, const ParkTabsRequest&) = default;
 };
 
 struct ParticipantAvatarChangedEvent {
@@ -4853,9 +4878,11 @@ struct SetClientInfoRequest {
     Field<std::string> device_kind{};
     Field<std::string> device_name{};
     Field<std::string> display_name{};
+    Field<std::string> install{};
     Field<std::string> kind{};
     Field<std::string> name{};
     Field<std::string> user_id{};
+    Field<std::string> version{};
     friend bool operator==(const SetClientInfoRequest&, const SetClientInfoRequest&) = default;
 };
 
@@ -5509,6 +5536,19 @@ struct TerminalResourcesResult {
     friend bool operator==(const TerminalResourcesResult&, const TerminalResourcesResult&) = default;
 };
 
+struct TerminalResumeCommandRequest {
+    Field<std::string> command{};
+    Field<Id> surface{};
+    Field<std::string> terminal_id{};
+    friend bool operator==(const TerminalResumeCommandRequest&, const TerminalResumeCommandRequest&) = default;
+};
+
+struct TerminalResumeCommandResult {
+    std::optional<std::string> command{};
+    std::string terminal_id{};
+    friend bool operator==(const TerminalResumeCommandResult&, const TerminalResumeCommandResult&) = default;
+};
+
 struct TitleChangedEvent {
     Id surface{};
     std::optional<std::string> title{};
@@ -6041,6 +6081,12 @@ template <>
 struct Codec<ColorHex> {
     static Result<Json> encode(const ColorHex& value);
     static Result<ColorHex> decode(const Json& value);
+};
+
+template <>
+struct Codec<ColumnMoveDirection> {
+    static Result<Json> encode(const ColumnMoveDirection& value);
+    static Result<ColumnMoveDirection> decode(const Json& value);
 };
 
 template <>
@@ -7055,6 +7101,12 @@ template <>
 struct Codec<TerminalResourcesResult> {
     static Result<Json> encode(const TerminalResourcesResult& value);
     static Result<TerminalResourcesResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalResumeCommandResult> {
+    static Result<Json> encode(const TerminalResumeCommandResult& value);
+    static Result<TerminalResumeCommandResult> decode(const Json& value);
 };
 
 template <>
@@ -8198,6 +8250,12 @@ struct Codec<MoveBrowserProfileRequest> {
 };
 
 template <>
+struct Codec<MoveColumnRequest> {
+    static Result<Json> encode(const MoveColumnRequest& value);
+    static Result<MoveColumnRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<MovePersonalGroupRequest> {
     static Result<Json> encode(const MovePersonalGroupRequest& value);
     static Result<MovePersonalGroupRequest> decode(const Json& value);
@@ -8393,6 +8451,12 @@ template <>
 struct Codec<PaneNeighborRequest> {
     static Result<Json> encode(const PaneNeighborRequest& value);
     static Result<PaneNeighborRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ParkTabsRequest> {
+    static Result<Json> encode(const ParkTabsRequest& value);
+    static Result<ParkTabsRequest> decode(const Json& value);
 };
 
 template <>
@@ -8885,6 +8949,12 @@ template <>
 struct Codec<TerminalResourcesRequest> {
     static Result<Json> encode(const TerminalResourcesRequest& value);
     static Result<TerminalResourcesRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalResumeCommandRequest> {
+    static Result<Json> encode(const TerminalResumeCommandRequest& value);
+    static Result<TerminalResumeCommandRequest> decode(const Json& value);
 };
 
 template <>

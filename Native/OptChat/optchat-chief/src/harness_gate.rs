@@ -45,6 +45,18 @@ pub struct Admitted {
 }
 
 impl Admitted {
+    /// A harness on an acpmux peer (a cloud subagent): its own profile there,
+    /// not checked against this daemon's catalog.
+    pub fn peer(harness: &str) -> Admitted {
+        Admitted {
+            requested: harness.to_owned(),
+            profile: harness.to_owned(),
+            kind: "peer".to_owned(),
+            argv0: String::new(),
+            family: crate::acpmux::Family::from_name(harness.split('-').next().unwrap_or(harness)),
+        }
+    }
+
     /// `claude-sr -> claude-sr (claude-stdio, /Users/me/bin/sr)`.
     pub fn describe(&self) -> String {
         let name = if self.requested == self.profile {

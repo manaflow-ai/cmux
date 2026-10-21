@@ -42,6 +42,9 @@ enum SidebarDensityTokens {
     static var headerHeight: CGFloat { Metrics.sidebarHeaderHeight + extra }
     /// Rows inset from the sidebar edge, and their content from the row edge.
     static var horizontalInset: CGFloat { isComfortable ? Metrics.space4 : Metrics.space3 }
+    /// The corner radius of every row fill: pinned rows, group headers and workspace rows share it,
+    /// so their fills line up at each density.
+    static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }
     static var sectionSpacing: CGFloat { isComfortable ? Metrics.space5 : Metrics.space4 }
     static var topPadding: CGFloat { isComfortable ? Metrics.space3 : Metrics.space2 }
     static var groupBottomPadding: CGFloat { isComfortable ? Metrics.space4 : Metrics.space3 }

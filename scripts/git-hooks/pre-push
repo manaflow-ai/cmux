@@ -4,7 +4,11 @@
 # 1. Web lint (always): runs the web checks CI runs on what the push changes and
 #    refuses the push when they fail. Skip once with
 #    CMUX_WEB_LINT_SKIP_REASON="<the failing check and the base SHA where it also fails>".
-# 2. Namespace autofix (opt-in): only when installed with --namespace-fix.
+# 2. cmux-next checks (always): scripts/cmux-next/prepush-gate.py runs the static
+#    checks of the "cmux-next checks" CI job, ast-grep, SwiftFormat and SwiftLint
+#    on what the push changes and refuses a push that adds a violation. Skip once with
+#    CMUX_NEXT_CHECKS_SKIP_REASON="<check> fails in files this push does not touch".
+# 3. Namespace autofix (opt-in): only when installed with --namespace-fix.
 set -euo pipefail
 
 HOOK_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)"
@@ -18,11 +22,23 @@ fi
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
+# Both checks read git's pushed-refs lines; read them once.
+PUSHED_REFS="$(cat)"
+
 WEB_LINT="$HOOK_DIR/web_lint_prepush.py"
 if [[ -f "$WEB_LINT" ]]; then
-    "$PYTHON3_BIN" -I "$WEB_LINT" --pre-push --repo "$REPO_ROOT"
+    printf '%s\n' "$PUSHED_REFS" | "$PYTHON3_BIN" -I "$WEB_LINT" --pre-push --repo "$REPO_ROOT"
 else
     echo "pre-push: web lint helper is missing; rerun scripts/install-git-hooks.sh." >&2
+    exit 1
+fi
+
+GATE="$HOOK_DIR/cmux_next_prepush_gate.py"
+if [[ -f "$GATE" ]]; then
+    printf '%s\n' "$PUSHED_REFS" | "$PYTHON3_BIN" -I "$GATE" --pre-push --repo "$REPO_ROOT" \
+        --trusted-scripts-dir "$HOOK_DIR/cmux-next-checks"
+else
+    echo "pre-push: cmux-next checks gate is missing; rerun scripts/install-git-hooks.sh." >&2
     exit 1
 fi
 

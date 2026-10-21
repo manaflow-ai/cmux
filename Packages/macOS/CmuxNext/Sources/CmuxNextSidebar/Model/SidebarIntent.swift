@@ -52,6 +52,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case setColor([WorkspaceID], GroupColor?)
     case setIcon([WorkspaceID], WorkspaceIcon)
     case setPinned([WorkspaceID], Bool)
+    /// The row's speaker was clicked: mute the workspace's tabs that play
+    /// sound, or unmute its muted tabs (`SidebarWorkspaceAudio`). No local change.
+    case toggleWorkspaceAudio(WorkspaceID)
     /// New workspace on a machine (nil = the machine of the active workspace,
     /// else local), optionally inside a group.
     case newWorkspace(machine: MachineID?, group: GroupID?)
@@ -85,6 +88,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case dismissUpdated
     /// A Now Playing card control (cx-ouoxo), for the App's Now Playing source.
     case nowPlaying(SidebarNowPlayingCommand)
+    /// The Now Playing card's x (u2437): the App runs `nowPlaying.hideCard`, which hides the card
+    /// until other media starts.
+    case hideNowPlayingCard
     /// Change the section layout; the App sends it to the workspace store.
     case layout(SidebarLayoutOp)
     /// Workspace rows dropped on a top section (the pinned tiles or the top

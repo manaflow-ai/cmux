@@ -84,8 +84,11 @@ impl Hub {
         steer: bool,
         mut opts: PromptOptions,
     ) -> Result<Value, RpcError> {
+        // A deferred start reads the queues after its ready line: a new prompt waits, so it
+        // never runs ahead of a prompt queued under the previous daemon.
+        self.wait_logs().await;
         let Some(prompt_id) = opts.prompt_id.clone() else {
-            return self.run_prompt(session, blocks, client, steer, opts).await;
+            return self.prompt_unless_held(session, blocks, client, steer, opts).await;
         };
         let duplicate = |v: Value| json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true, "queued": false, "turnId": v.pointer("/_meta/acpmux/turnId")});
         let seen = {
@@ -142,7 +145,7 @@ impl Hub {
             let accepted = accepted.clone();
             opts.on_accepted = Some(Box::new(move |_| accepted.store(true, Ordering::SeqCst)));
         }
-        let result = self.run_prompt(session, blocks, client, steer, opts).await;
+        let result = self.prompt_unless_held(session, blocks, client, steer, opts).await;
         if !accepted.load(Ordering::SeqCst) {
             session.prompts.lock().unwrap().retain(|(id, _)| *id != prompt_id);
         }
@@ -555,6 +558,7 @@ impl Hub {
         // preview) are applied before the turn settles, so every record below
         // and the chat activity it sends see them.
         Self::drain_inbound(session).await;
+        let git = super::turn_git::turn_git(session).await;
         match &result {
             Ok(v) => {
                 self.note_reply_refusal(session);
@@ -576,8 +580,7 @@ impl Hub {
                     }
                     o.extend(super::turn_usage::turn_usage(session, v));
                 }
-                self.record_last_turn(session, &msg);
-                self.append(session, "mux", "turn_result", msg);
+                self.write_turn_result(session, msg, git);
             }
             Err(e) => {
                 self.append(
@@ -599,8 +602,7 @@ impl Hub {
                         o.extend(info.clone());
                     }
                 }
-                self.record_last_turn(session, &msg);
-                self.append(session, "mux", "turn_result", msg);
+                self.write_turn_result(session, msg, git);
             }
         }
         self.reset_stream(session);
@@ -929,6 +931,8 @@ impl Hub {
         }
         let old = {
             let mut m = session.meta.lock().unwrap();
+            // A chat renamed before it was titled asks no model for a title (`titles.rs`).
+            super::titles::title_renamed(&mut m);
             std::mem::replace(&mut m.name, name.clone())
         };
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));

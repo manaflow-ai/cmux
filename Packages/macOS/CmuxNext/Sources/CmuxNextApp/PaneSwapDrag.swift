@@ -6,7 +6,7 @@ import CmuxNextTabs
 /// Drag a pane by its tab bar onto another pane to swap them (cx-8bv1j, iTerm's pane drag). The
 /// press starts on empty strip space; tabs, chips and + keep their own presses. In the window's top
 /// row, where a plain press moves the window, Option-drag drags the pane. The pane under the pointer
-/// is outlined, the drop swaps, and Escape cancels.
+/// previews with the join fill a tab drop shows (drop-zones DESIGN.md), the drop swaps, and Escape cancels.
 @MainActor
 final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     private weak var strip: TabStripView?
@@ -25,6 +25,10 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
         self.swap = swap
         super.init()
         let recognizer = NSPanGestureRecognizer(target: self, action: #selector(pan(_:)))
+        // A press on a tab goes to the strip at once, which selects on mouse-down (u2814): while a
+        // recognizer that delays the primary button is possible, AppKit holds the mouse-down from the
+        // view until the recognizer fails at the release, so every pane tab switched on mouse-up.
+        recognizer.delaysPrimaryMouseButtonEvents = false
         recognizer.delegate = self
         strip.addGestureRecognizer(recognizer)
     }
@@ -58,8 +62,11 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     }
 
     func gestureRecognizer(_ recognizer: NSGestureRecognizer, shouldAttemptToRecognizeWith event: NSEvent) -> Bool {
-        if event.type == .leftMouseDown { armed = strip.map { Self.starts(event, on: $0) } ?? false }
-        return true
+        // Only a press that drags the pane (empty strip space) is tried; a press on a tab, chip or +
+        // is the strip's alone.
+        guard event.type == .leftMouseDown else { return true }
+        armed = strip.map { Self.starts(event, on: $0) } ?? false
+        return armed
     }
 
     func gestureRecognizerShouldBegin(_ recognizer: NSGestureRecognizer) -> Bool { armed }
@@ -71,8 +78,8 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
         case .began, .changed:
             guard armed else { return }
             if recognizer.state == .began { watchEscape(recognizer) }
-            if let target, let window = layout.window {
-                layout.showTabDragOutline(screenRect: window.convertToScreen(layout.convert(target.frame, to: nil)))
+            if let target {
+                layout.showPaneDragTarget(target.pane, locationInWindow: layout.convert(recognizer.location(in: layout), to: nil))
             } else {
                 layout.hideTabDragHighlight()
             }

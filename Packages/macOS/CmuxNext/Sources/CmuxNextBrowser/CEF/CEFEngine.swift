@@ -17,9 +17,15 @@ public final class CEFEngine: BrowserEngine {
         .devTools, .downloads, .snapshots, .findMatchCount,
     ]
 
-    let layout: CEFRuntimeLayout?
+    /// Where the runtime comes from: the app bundle, or a downloaded pack
+    /// (``CEFRuntimeSource``). Read on every use, so a pack installed while
+    /// the app runs serves the next tab.
+    public let runtimeSource: CEFRuntimeSource
     let lifecycleTrace: BrowserLifecycleTrace
     let contextMenus: BrowserContextMenuBuilder
+
+    /// The runtime to start, nil while none is available.
+    var layout: CEFRuntimeLayout? { runtimeSource.layout }
 
     /// Creates an engine with its lifecycle reporting and menu presenter.
     ///
@@ -27,10 +33,22 @@ public final class CEFEngine: BrowserEngine {
     ///   - layout: The embedded runtime, or the directory named by `CMUX_NEXT_CEF_RUNTIME`.
     ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
-    public init(layout: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
+    public convenience init(layout: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
+                            lifecycleTrace: BrowserLifecycleTrace = .shared,
+                            contextMenus: BrowserContextMenuBuilder = .shared) {
+        self.init(source: CEFRuntimeSource(layout: layout), lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
+    }
+
+    /// Creates an engine whose runtime may arrive later (Chromium on demand).
+    ///
+    /// - Parameters:
+    ///   - source: The runtime source the App updates as the pack downloads.
+    ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
+    ///   - contextMenus: Presents menus when no tab delegate handles the request.
+    public init(source: CEFRuntimeSource,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
                 contextMenus: BrowserContextMenuBuilder = .shared) {
-        self.layout = layout
+        runtimeSource = source
         self.lifecycleTrace = lifecycleTrace
         self.contextMenus = contextMenus
     }
@@ -44,7 +62,7 @@ public final class CEFEngine: BrowserEngine {
     /// Why Chromium cannot open a tab now, nil when it can (or may still
     /// start: idle or loading).
     public var unavailableReason: CEFUnavailableReason? {
-        guard layout != nil else { return .notBundled }
+        if let pending = runtimeSource.unavailableReason { return pending }
         switch CEFRuntime.shared.state {
         case .failed(let message): return .startFailed(message)
         case .shutDown: return .shutDown
@@ -223,6 +241,13 @@ public final class CEFEngine: BrowserEngine {
     public var builtInAdBlocker: @MainActor () -> Bool {
         get { CEFRuntime.shared.builtInAdBlockerSetting }
         set { CEFRuntime.shared.builtInAdBlockerSetting = newValue }
+    }
+
+    /// The managed preference domain Chromium reads Chrome enterprise policies
+    /// from (`com.google.Chrome`), asked once when Chromium starts; nil reads none.
+    public var chromePolicyID: @MainActor () -> String? {
+        get { CEFRuntime.shared.chromePolicyIDSetting }
+        set { CEFRuntime.shared.chromePolicyIDSetting = newValue }
     }
 
     /// What modified link clicks do (cmux.json `browser.links.*`;
