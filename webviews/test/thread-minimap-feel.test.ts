@@ -62,7 +62,8 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       ];
     }).flat();
   const COUNT = 60;
-  /// How far the minimap's SHIFT_MS glide over `distance` px moves in its fastest 60 Hz frame.
+  /// How far the minimap's SHIFT_MS glide over `distance` px moves in a 60 Hz frame at its fastest
+  /// speed: no 60 Hz frame of the glide moves more, nor does a path read off frames between.
   const glideStep = (distance: number) => {
     const [x1, y1, x2, y2] = STEP_CURVE;
     const along = (t: number, a: number, b: number) => 3 * a * t * (1 - t) ** 2 + 3 * b * t * t * (1 - t) + t ** 3;
@@ -74,9 +75,9 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       return along((lo + hi) / 2, y1, y2);
     };
     let fastest = 0;
-    for (let at = 0; at <= SHIFT_MS; at += 1)
-      fastest = Math.max(fastest, eased(Math.min(1, (at + 1000 / 60) / SHIFT_MS)) - eased(at / SHIFT_MS));
-    return fastest * distance;
+    for (let at = 0; at < SHIFT_MS; at += 0.25)
+      fastest = Math.max(fastest, (eased((at + 0.25) / SHIFT_MS) - eased(at / SHIFT_MS)) / 0.25);
+    return (fastest * distance * 1000) / 60;
   };
 
   async function open(rows: unknown[], top: number, count = COUNT): Promise<Page> {
@@ -131,6 +132,8 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
             // A turn ends at the next drawn prompt (the turns between lie between); a row drawn far
             // above the view, its next prompt not drawn, ends there too.
             const next = indices[at + 1];
+            // A prompt above the view whose next prompt is not drawn, while a later one is, ends above it.
+            if (y < 0 && next !== undefined && next !== index + 1) return;
             const ends = index === count - 1 || next === undefined ? Infinity : prompts.get(next)!;
             if (y < view.height && ends > 51) shown.push(index);
           });
@@ -244,16 +247,21 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       expect(opens).toBeDefined();
       // Times are the commits', and painting is counted in frames: a runner that paints every 100 ms
       // would otherwise fail a rail with no dwell.
-      // No dwell before the fisheye (CSS :hover is no faster): the rail takes the hover at once, and
-      // the tick grows within 4 painted frames (70 ms at 60 Hz; its composited transition is made on
-      // the first and starts on the second).
-      expect(hovering - over).toBeLessThan(70);
-      expect(frames.filter((frame) => frame.t >= hovering).indexOf(grows!)).toBeLessThan(4);
+      // No dwell before the fisheye (CSS :hover is no faster): the rail takes the hover before the
+      // second painted frame after the pointer arrives (React commits it in a task of its own, so at
+      // 60 Hz a dwell over ~30 ms fails), and the tick grows within 4 painted frames of that (70 ms at
+      // 60 Hz; its composited transition is made on the first and starts on the second).
+      expect(frames.filter((frame) => frame.t >= over && frame.t < hovering).length).toBeLessThanOrEqual(1);
+      const growsAt = frames.filter((frame) => frame.t >= hovering).indexOf(grows!);
+      expect(growsAt).toBeGreaterThanOrEqual(0);
+      expect(growsAt).toBeLessThan(4);
       // The card: Codex's 250 ms (its frames show 267-283 ms with the render), not the app's 450,
       // painted by the second frame after.
       expect(carded - over).toBeGreaterThan(230);
       expect(carded - over).toBeLessThan(400);
-      expect(frames.filter((frame) => frame.t >= carded).indexOf(opens!)).toBeLessThan(2);
+      const opensAt = frames.filter((frame) => frame.t >= carded).indexOf(opens!);
+      expect(opensAt).toBeGreaterThanOrEqual(0);
+      expect(opensAt).toBeLessThan(2);
       await page.close();
     });
 
@@ -344,8 +352,8 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
         // Every frame found the band's row (NaN: a frame drew no row for it).
         expect(frames.findIndex((frame) => Number.isNaN(frame.y))).toBe(-1);
         // The first frame with the new rows draws the same turns lit, where they were; then the band
-        // moves in any 60 Hz frame of the timeline's time at most 15% more than SHIFT_MS's glide does
-        // at its fastest (a glide, not a jump: 42 px of 137 at 200 ms, where a jump is 137), read off
+        // moves in any 60 Hz frame of the timeline's time no more than SHIFT_MS's glide does at its
+        // fastest speed (a glide, not a jump: 46 px of 137 at 200 ms, where a jump is 137), read off
         // the painted frames' path.
         expect(frames[0]!.lit).toBe(shifted);
         expect(Math.abs(frames[0]!.y - before.y)).toBeLessThanOrEqual(1);
@@ -356,7 +364,7 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
           return a.y + ((b.y - a.y) * (t - a.t)) / (b.t - a.t);
         };
         const steps = frames.map((frame) => Math.abs(yAt(frame.t + 1000 / 60) - frame.y));
-        expect(Math.max(...steps)).toBeLessThanOrEqual(glideStep(Math.abs(frames.at(-1)!.y - frames[0]!.y)) * 1.15 + 1);
+        expect(Math.max(...steps)).toBeLessThanOrEqual(glideStep(Math.abs(frames.at(-1)!.y - frames[0]!.y)) + 1);
         // A rail that already scrolled holds the band still.
         if (loaded * 10 > 574) expect(Math.abs(frames.at(-1)!.y - before.y)).toBeLessThanOrEqual(1);
         await page.close();
