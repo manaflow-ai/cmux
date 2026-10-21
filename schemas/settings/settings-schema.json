@@ -69,7 +69,8 @@
               "layout.minimumPaneHeight",
               "layout.newPanePlacement",
               "layout.tileBrowsers",
-              "layout.linkPlacement"
+              "layout.linkPlacement",
+              "layout.mainPane"
             ],
             "title" : {
               "key" : "settings.group.columns",
@@ -6079,6 +6080,75 @@
     },
     {
       "accepts" : [
+        "agent-chats",
+        "off"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.mainPaneAgentChats",
+            "text" : "Agent Chats"
+          },
+          "value" : "agent-chats"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.mainPaneOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "agent-chats",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.mainPane.help",
+        "text" : "Agent Chats keeps an agent chat as the main pane: links, files, subagents and side chats it opens appear as tabs in a column on its right, and closing that column gives the chat its full width back."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.mainPane",
+      "keywords" : [
+        "main",
+        "pane",
+        "chat",
+        "agent",
+        "right",
+        "column",
+        "side",
+        "link",
+        "subagent",
+        "tab"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "mainPane"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.layout.mainPane",
+        "text" : "Main Pane"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "top",
         "afterCurrent",
         "bottom"
@@ -6111,7 +6181,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "afterCurrent",
+      "default" : "top",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
