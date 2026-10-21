@@ -299,7 +299,7 @@ impl Hub {
 
     /// `_acpmux/set_policy`: a chat being moved keeps the rules it moves with.
     pub async fn set_policy_unless_moving(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         policy: crate::config::PermissionPolicy,
     ) -> Result<(), RpcError> {
