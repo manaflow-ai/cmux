@@ -102,16 +102,18 @@ impl Daemon {
     /// A daemon `server ensure` starts with an install key, so [`Self::app`]
     /// can prove a connection as the cmux app. No acpmux listens.
     pub fn start_owner(name: &str) -> Self {
-        Self::owner(name, false)
+        Self::start_owner_with(name, &[], false)
     }
 
     /// [`Self::start_owner`] with a fake acpmux.
     pub fn start_owner_with_acpmux(name: &str) -> Self {
-        Self::owner(name, true)
+        Self::start_owner_with(name, &[], true)
     }
 
-    fn owner(name: &str, acpmux: bool) -> Self {
-        let mut daemon = Self::prepare(name, &[], acpmux);
+    /// [`Self::start_owner`] with `env` and, when `acpmux`, a fake acpmux:
+    /// a daemon on which [`Self::acp_credential`] can mint.
+    pub fn start_owner_with(name: &str, env: &[(&str, &str)], acpmux: bool) -> Self {
+        let mut daemon = Self::prepare(name, env, acpmux);
         daemon.owner = Some(unique("amp-owner"));
         daemon.spawn();
         daemon
@@ -412,9 +414,11 @@ impl Daemon {
         reply["result"].as_array().unwrap().clone()
     }
 
-    /// A launch credential for the ACP session `session` (owner only).
+    /// A launch credential for the ACP session `session`, minted on a
+    /// connection proven as the cmux app: only the verified frontend mints
+    /// (an owner daemon only, [`Self::start_owner_with`]).
     pub fn acp_credential(&self, session: &str) -> String {
-        let minted = self.v2("credential.mint", json!({"acp_session": session}), json!({}));
+        let minted = self.app().call("credential.mint", json!({"acp_session": session}));
         assert_eq!(minted["ok"], true, "{minted}");
         minted["result"]["credential"].as_str().unwrap().to_owned()
     }
@@ -745,6 +749,18 @@ impl App {
                 return value;
             }
         }
+    }
+
+    /// A `cmux.protocol/2` request that is not a mutation (no idempotency key).
+    pub fn call(&mut self, operation: &str, mut params: Value) -> Value {
+        params["machine"] = json!("current");
+        params["session"] = json!("current");
+        self.request(json!({
+            "protocol": "cmux.protocol/2",
+            "type": "request",
+            "operation": operation,
+            "params": params,
+        }))
     }
 
     /// A `cmux.protocol/2` mutation with a fresh idempotency key.
