@@ -78,6 +78,8 @@ pub struct Report {
     pub reclaimable: u64,
     /// Repositories that could not be read, with why.
     pub errors: Vec<String>,
+    /// Archives dropped for their age.
+    pub expired: Vec<String>,
 }
 
 impl Report {
@@ -104,6 +106,7 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
         freed: 0,
         reclaimable: 0,
         errors: Vec::new(),
+        expired: Vec::new(),
     };
     let now = now_ms();
     for common in repositories {
@@ -132,6 +135,7 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
             }
             let verdict = policy::decide(
                 worktree,
+                repo.main_root.as_deref(),
                 &options.sessions,
                 &processes,
                 pressure,
@@ -142,23 +146,8 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
             let bytes = (options.measure && verdict.action != Action::Keep)
                 .then(|| measure(worktree, verdict.action, facts));
             report.reclaimable += bytes.unwrap_or(0);
-            let outcome = match (options.apply, verdict.action, facts) {
-                (true, Action::Trim, Some(facts)) => {
-                    Some(outcome(archive::trim(worktree, facts).map(|f| (f, None))))
-                }
-                (true, Action::Reclaim | Action::Archive, Some(facts)) => Some(outcome(
-                    archive::reclaim(
-                        &repo,
-                        worktree,
-                        facts,
-                        verdict.action,
-                        &verdict.reason,
-                        store,
-                    )
-                    .map(|m| (m.freed, Some(m.id))),
-                )),
-                _ => None,
-            };
+            let outcome = (options.apply && verdict.action != Action::Keep)
+                .then(|| outcome(act(&repo, &worktree.path, &verdict, options, pressure, store)));
             if let Some(outcome) = &outcome {
                 report.freed += outcome.freed;
             }
@@ -173,7 +162,50 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
             });
         }
     }
+    if options.apply && options.only.is_empty() {
+        let keep = options.settings.keep_archive_days * 24 * 60 * 60 * 1000;
+        match archive::expire(store, now, keep) {
+            Ok(ids) => report.expired = ids,
+            Err(error) => report.errors.push(format!("archive expiry: {error}")),
+        }
+    }
     Ok(report)
+}
+
+/// Acts on a verdict with the worktree's facts and the processes read
+/// again now, and the verdict decided again from them: the scan may be
+/// minutes old, and a worktree whose verdict changed meanwhile stays.
+fn act(
+    repo: &inventory::Repo,
+    path: &std::path::Path,
+    planned: &Verdict,
+    options: &Options,
+    pressure: Pressure,
+    store: &Store,
+) -> Result<(u64, Option<String>), String> {
+    let processes = procs::working_folders()?;
+    let fresh = inventory::rescan(repo, path)?;
+    let verdict = policy::decide(
+        &fresh,
+        repo.main_root.as_deref(),
+        &options.sessions,
+        &processes,
+        pressure,
+        &options.settings,
+        now_ms(),
+    );
+    if verdict.action != planned.action {
+        return Err(format!("it changed since the scan ({}); it stays", verdict.reason));
+    }
+    let facts = fresh.facts.as_ref().map_err(Clone::clone)?;
+    match verdict.action {
+        Action::Keep => Ok((0, None)),
+        Action::Trim => archive::trim(&fresh, facts).map(|freed| (freed, None)),
+        Action::Reclaim | Action::Archive => {
+            archive::reclaim(repo, &fresh, facts, verdict.action, &verdict.reason, store)
+                .map(|manifest| (manifest.freed, Some(manifest.id)))
+        }
+    }
 }
 
 /// What acting on a worktree frees: its whole folder, or its build output

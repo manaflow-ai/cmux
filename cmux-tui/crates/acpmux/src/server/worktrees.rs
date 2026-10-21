@@ -58,22 +58,7 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
             let key = str_param(params, "key")
                 .ok_or_else(|| RpcError::invalid_params("key is required"))?;
             let path = str_param(params, "path").map(PathBuf::from);
-            let key = key.to_string();
-            tokio::task::spawn_blocking(move || restore(&key, path))
-                .await
-                .map_err(|e| RpcError::internal(format!("the restore stopped: {e}")))?
+            hub.care_restore(key.to_string(), path).await
         }
     }
-}
-
-fn restore(key: &str, path: Option<PathBuf>) -> Result<Value, RpcError> {
-    let dir = cmux_worktree_care::Store::default_dir()
-        .ok_or_else(|| RpcError::internal("no home folder for the worktree archive"))?;
-    let store = cmux_worktree_care::Store::open(dir).map_err(RpcError::internal)?;
-    let manifest = store
-        .find(key)
-        .ok_or_else(|| RpcError::not_found(format!("no reclaimed worktree matches {key}")))?;
-    let restored = cmux_worktree_care::restore::restore(&store, &manifest, path.as_deref())
-        .map_err(RpcError::internal)?;
-    Ok(json!(restored))
 }

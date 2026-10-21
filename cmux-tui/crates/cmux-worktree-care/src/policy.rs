@@ -24,6 +24,7 @@ use crate::inventory::Worktree;
 use crate::procs::{self, Process};
 
 const HOUR_MS: u64 = 60 * 60 * 1000;
+const DAY_MS: u64 = 24 * HOUR_MS;
 
 /// How full the disk is, from its used share.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -53,6 +54,8 @@ pub struct Settings {
     pub idle_unpushed_hours: [u64; 3],
     /// Hours before a kept worktree's build output goes.
     pub trim_hours: [u64; 3],
+    /// Days an archive (its ref, bundle and manifest) is kept.
+    pub keep_archive_days: u64,
 }
 
 impl Default for Settings {
@@ -64,6 +67,7 @@ impl Default for Settings {
             idle_pushed_hours: [72, 24, 6],
             idle_unpushed_hours: [7 * 24, 72, 24],
             trim_hours: [72, 12, 3],
+            keep_archive_days: 14,
         }
     }
 }
@@ -125,6 +129,7 @@ fn verdict(action: Action, reason: impl Into<String>) -> Verdict {
 /// The verdict for `worktree` at `now_ms`.
 pub fn decide(
     worktree: &Worktree,
+    main_root: Option<&Path>,
     sessions: &[Session],
     processes: &[Process],
     pressure: Pressure,
@@ -153,6 +158,20 @@ pub fn decide(
     if let Some(process) = procs::inside(processes, &worktree.path) {
         return verdict(Keep, format!("process {} works in it", process.pid));
     }
+    // A session working in the main checkout may also work in worktrees it
+    // made (Claude Code's own, a subagent's) between its tool calls: while
+    // one was active in the last day, the repository's worktrees get the
+    // longest waits.
+    let pressure = match main_root {
+        Some(main)
+            if sessions.iter().any(|s| {
+                s.open && inside(&s.cwd, main) && now_ms.saturating_sub(s.updated_ms) < DAY_MS
+            }) =>
+        {
+            Pressure::Normal
+        }
+        _ => pressure,
+    };
     let idle = now_ms.saturating_sub(last_use);
     let idle_hours = idle / HOUR_MS;
     let trim = |reason: String| {
@@ -241,7 +260,7 @@ mod care_tests {
     }
 
     fn decide_at(worktree: &Worktree, sessions: &[Session], pressure: Pressure) -> Verdict {
-        decide(worktree, sessions, &[], pressure, &Settings::default(), NOW)
+        decide(worktree, Some(Path::new("/r")), sessions, &[], pressure, &Settings::default(), NOW)
     }
 
     #[test]
@@ -268,6 +287,7 @@ mod care_tests {
         let processes = [Process { pid: 7, cwd: "/w/a/web".into() }];
         let v = decide(
             &worktree(pushed(1000)),
+            None,
             &[],
             &processes,
             Pressure::Critical,
@@ -275,6 +295,20 @@ mod care_tests {
             NOW,
         );
         assert_eq!(v.action, Action::Keep);
+    }
+
+    #[test]
+    fn a_session_active_in_the_main_checkout_gets_its_worktrees_the_longest_waits() {
+        let main =
+            Session { name: "chief".into(), cwd: "/r/src".into(), open: true, updated_ms: NOW };
+        let w = worktree(pushed(30));
+        assert_eq!(decide_at(&w, &[], Pressure::Critical).action, Action::Reclaim);
+        assert_eq!(
+            decide_at(&w, std::slice::from_ref(&main), Pressure::Critical).action,
+            Action::Keep
+        );
+        let stale = Session { updated_ms: NOW - 2 * DAY_MS, ..main };
+        assert_eq!(decide_at(&w, &[stale], Pressure::Critical).action, Action::Reclaim);
     }
 
     #[test]

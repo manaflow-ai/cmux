@@ -47,8 +47,13 @@ pub fn trim(worktree: &Worktree, facts: &Facts) -> Result<u64, String> {
     Ok(available(&worktree.path).saturating_sub(before))
 }
 
-/// Archives (for [`Action::Archive`]) and removes a worktree, writing its
-/// manifest first. Returns the manifest, with the bytes freed.
+/// Archives (for [`Action::Archive`], or whenever it holds work no remote
+/// has) and removes a worktree, writing its manifest first. `facts` must be
+/// fresh (`inventory::rescan`). Right before the folder goes, the worktree
+/// is read once more: its status, its ignored entries and the tree of its
+/// files must be what was archived, and no process may work in it; else it
+/// stays and the archive is dropped. Returns the manifest, with the bytes
+/// freed.
 pub fn reclaim(
     repo: &Repo,
     worktree: &Worktree,
@@ -57,8 +62,15 @@ pub fn reclaim(
     reason: &str,
     store: &Store,
 ) -> Result<Manifest, String> {
+    if let Some(why) = &facts.unarchivable {
+        return Err(format!("cannot archive: {why}"));
+    }
+    if worktree.locked || facts.operation.is_some() {
+        return Err("it is locked or a git operation is under way".to_string());
+    }
     let anchor = repo.main_root.clone().unwrap_or_else(|| repo.common_dir.clone());
     let hooks = empty_hooks(store)?;
+    let wt = WriteGit { root: &worktree.path, overrides: &repo.overrides, hooks: &hooks };
     let id = new_id(now_ms(), &worktree.path);
     let fingerprint = fingerprint(repo, worktree)?;
     let mut manifest = Manifest {
@@ -79,12 +91,14 @@ pub fn reclaim(
         freed: 0,
         restored_ms: None,
     };
+    let mut files = None;
     if action == Action::Archive || !facts.is_clean_and_pushed() {
-        let wt = WriteGit { root: &worktree.path, overrides: &repo.overrides, hooks: &hooks };
-        let commit = capture(&wt, worktree, facts, store, &id)?;
+        let (commit, tree) = capture(&wt, worktree, facts, store, &id)?;
         let reference = format!("refs/cmux/archive/{id}");
         // The empty old value: the ref must not exist yet.
         git::write_str(&wt, None, &["update-ref", &reference, &commit, ""], Bound::Unbounded)?;
+        manifest.archive_ref = Some(reference.clone());
+        manifest.archive_commit = Some(commit);
         if facts.has_remotes {
             let bundle = store.bundle_path(&id);
             let path = bundle.as_os_str();
@@ -96,19 +110,21 @@ pub fn reclaim(
                 "--not".as_ref(),
                 "--remotes".as_ref(),
             ];
-            git::write(&wt, None, &args, Bound::Deadline(BUNDLE))?;
+            if let Err(error) = git::write(&wt, None, &args, Bound::Deadline(BUNDLE)) {
+                discard(&wt, store, &manifest);
+                return Err(error);
+            }
             manifest.bundle = Some(bundle);
         }
-        manifest.archive_ref = Some(reference);
-        manifest.archive_commit = Some(commit);
+        files = Some(tree);
     }
     // The manifest is on disk before the folder goes.
     store.save(&manifest)?;
-    if fingerprint != self::fingerprint(repo, worktree)? {
-        return Err("the worktree changed while it was archived; it stays".to_string());
-    }
-    if let Some(process) = procs::inside(&procs::working_folders()?, &worktree.path) {
-        return Err(format!("process {} started working in it; it stays", process.pid));
+    if let Err(why) =
+        unchanged(repo, worktree, facts, &fingerprint, files.as_deref(), &wt, store, &id)
+    {
+        discard(&wt, store, &manifest);
+        return Err(format!("{why}; it stays"));
     }
     let before = available(&anchor);
     let main = WriteGit { root: &anchor, overrides: &repo.overrides, hooks: &hooks };
@@ -118,6 +134,56 @@ pub fn reclaim(
     manifest.freed = available(&anchor).saturating_sub(before);
     store.save(&manifest)?;
     Ok(manifest)
+}
+
+/// Whether the worktree is still what was archived: the same status and
+/// HEAD, the same untracked files and ignored entries, the same tree of
+/// files (a content change of an already changed or untracked file shows
+/// only there), and no process inside.
+#[allow(clippy::too_many_arguments)]
+fn unchanged(
+    repo: &Repo,
+    worktree: &Worktree,
+    facts: &Facts,
+    fingerprint: &[u8],
+    files: Option<&str>,
+    wt: &WriteGit<'_>,
+    store: &Store,
+    id: &str,
+) -> Result<(), String> {
+    if fingerprint != self::fingerprint(repo, worktree)?.as_slice() {
+        return Err("its status changed while it was archived".to_string());
+    }
+    let now = crate::inventory::rescan(repo, &worktree.path)?;
+    let now = now.facts.as_ref().map_err(Clone::clone)?;
+    if now.untracked != facts.untracked
+        || now.ignored_data != facts.ignored_data
+        || now.build_output != facts.build_output
+        || now.changed != facts.changed
+        || now.unarchivable.is_some()
+    {
+        return Err("its files changed while it was archived".to_string());
+    }
+    if let Some(files) = files {
+        let (_, again) = trees(wt, facts, store, &format!("{id}.check"))?;
+        if again != files {
+            return Err("its files changed while it was archived".to_string());
+        }
+    }
+    if let Some(process) = procs::inside(&procs::working_folders()?, &worktree.path) {
+        return Err(format!("process {} started working in it", process.pid));
+    }
+    Ok(())
+}
+
+/// Drops an archive whose worktree stays: its ref, bundle and manifest.
+fn discard(wt: &WriteGit<'_>, store: &Store, manifest: &Manifest) {
+    if let (Some(reference), Some(commit)) = (&manifest.archive_ref, &manifest.archive_commit) {
+        let _ =
+            git::write_str(wt, None, &["update-ref", "-d", reference, commit], Bound::Unbounded);
+    }
+    let _ = std::fs::remove_file(store.bundle_path(&manifest.id));
+    let _ = std::fs::remove_file(store.manifest_path(&manifest.id));
 }
 
 /// The worktree's HEAD and full status: equal before and after, nothing
@@ -141,24 +207,40 @@ fn fingerprint(repo: &Repo, worktree: &Worktree) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-/// The archive commit of a worktree's index and files.
+/// The archive commit of a worktree's index and files, and its files tree.
 fn capture(
     wt: &WriteGit<'_>,
     worktree: &Worktree,
     facts: &Facts,
     store: &Store,
     id: &str,
-) -> Result<String, String> {
-    let index = store.dir.join(format!(".{id}.index"));
+) -> Result<(String, String), String> {
+    let (index_tree, files_tree) = trees(wt, facts, store, id)?;
+    let head = worktree.head.as_deref();
+    let message = format!("cmux worktree archive {id}\n\npath: {}\n", worktree.path.display());
+    let index_commit = commit(wt, &index_tree, head.into_iter().collect(), "index")?;
+    let mut parents: Vec<&str> = head.into_iter().collect();
+    parents.push(&index_commit);
+    let commit = commit(wt, &files_tree, parents, &message)?;
+    Ok((commit, files_tree))
+}
+
+/// The tree of the worktree's index, and of its files: a copy of its index
+/// with every change, untracked file and ignored data added (an
+/// assume-unchanged or skip-worktree entry made unarchivable before this).
+fn trees(
+    wt: &WriteGit<'_>,
+    facts: &Facts,
+    store: &Store,
+    name: &str,
+) -> Result<(String, String), String> {
+    let index = store.dir.join(format!(".{name}.index"));
     let _cleanup = Remove(index.clone());
     let source = facts.git_dir.join("index");
     if source.exists() {
         std::fs::copy(&source, &index).map_err(|e| format!("{}: {e}", source.display()))?;
     }
-    let head = worktree.head.as_deref();
-    let message = format!("cmux worktree archive {id}\n\npath: {}\n", worktree.path.display());
     let index_tree = git::write_str(wt, Some(&index), &["write-tree"], Bound::Unbounded)?;
-    let index_commit = commit(wt, &index_tree, head.into_iter().collect(), "index")?;
     git::write_str(wt, Some(&index), &["add", "-A", "--sparse"], Bound::Deadline(HASH))?;
     for chunk in chunks(&facts.ignored_data) {
         let mut args: Vec<&OsStr> =
@@ -167,9 +249,7 @@ fn capture(
         git::write(wt, Some(&index), &args, Bound::Deadline(HASH))?;
     }
     let files_tree = git::write_str(wt, Some(&index), &["write-tree"], Bound::Unbounded)?;
-    let mut parents: Vec<&str> = head.into_iter().collect();
-    parents.push(&index_commit);
-    commit(wt, &files_tree, parents, &message)
+    Ok((index_tree, files_tree))
 }
 
 fn commit(
@@ -207,6 +287,28 @@ fn chunks(paths: &[String]) -> Vec<&[String]> {
 }
 
 /// An empty hooks folder the store owns: git runs no hook from it.
+/// Drops the archives older than `keep_ms`: their refs, bundles and
+/// manifests. Returns the ids dropped.
+pub fn expire(store: &Store, now: u64, keep_ms: u64) -> Result<Vec<String>, String> {
+    let hooks = empty_hooks(store)?;
+    let mut dropped = Vec::new();
+    for manifest in store.list() {
+        if now.saturating_sub(manifest.created_ms) < keep_ms {
+            continue;
+        }
+        let anchor = manifest.main_root.clone().unwrap_or_else(|| manifest.common_dir.clone());
+        if anchor.exists() {
+            let wt = WriteGit { root: &anchor, overrides: &[], hooks: &hooks };
+            discard(&wt, store, &manifest);
+        } else {
+            let _ = std::fs::remove_file(store.bundle_path(&manifest.id));
+            let _ = std::fs::remove_file(store.manifest_path(&manifest.id));
+        }
+        dropped.push(manifest.id);
+    }
+    Ok(dropped)
+}
+
 pub(crate) fn empty_hooks(store: &Store) -> Result<PathBuf, String> {
     let hooks = store.dir.join(".empty-hooks");
     std::fs::create_dir_all(&hooks).map_err(|e| format!("{}: {e}", hooks.display()))?;

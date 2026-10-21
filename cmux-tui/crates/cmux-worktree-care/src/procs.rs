@@ -69,9 +69,16 @@ fn parse_lsof(bytes: &[u8]) -> Vec<Process> {
 }
 
 /// The first process working in `folder` or below it, other than this one.
+/// The kernel reports real paths, so `folder` is compared as given and as
+/// its real path (`/tmp` is `/private/tmp` on macOS).
 pub fn inside<'a>(processes: &'a [Process], folder: &Path) -> Option<&'a Process> {
     let own = std::process::id();
-    processes.iter().find(|process| process.pid != own && process.cwd.starts_with(folder))
+    let real = std::fs::canonicalize(folder).ok();
+    processes.iter().find(|process| {
+        process.pid != own
+            && (process.cwd.starts_with(folder)
+                || real.as_deref().is_some_and(|real| process.cwd.starts_with(real)))
+    })
 }
 
 #[cfg(test)]

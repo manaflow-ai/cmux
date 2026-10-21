@@ -14,31 +14,30 @@ use serde::Serialize;
 use crate::git::{self, is_object_id, records};
 
 /// Ignored folders that only hold what a build or an install made, by name
-/// at any depth: removed without being archived. A name not here (a `.env`,
-/// a notes folder, generated sources) is ignored data and is archived.
-pub const BUILD_OUTPUT: &[&str] = &[
-    "node_modules",
-    "target",
-    ".build",
-    "DerivedData",
-    ".next",
-    ".turbo",
-    ".nuxt",
-    ".svelte-kit",
-    ".parcel-cache",
-    ".vite",
-    ".zig-cache",
-    "zig-cache",
-    "zig-out",
-    "__pycache__",
-    ".pytest_cache",
-    ".mypy_cache",
-    ".ruff_cache",
-    ".gradle",
-    "Pods",
-    ".swiftpm",
-    "coverage",
-    ".cache",
+/// at any depth, with the files one of which must sit beside it (none: the
+/// name alone says it): removed without being archived. Anything else
+/// ignored (a `.env`, a notes folder, a `target/` with no `Cargo.toml`
+/// beside it, generated sources) is ignored data and is archived.
+pub const BUILD_OUTPUT: &[(&str, &[&str])] = &[
+    ("node_modules", &["package.json"]),
+    ("target", &["Cargo.toml"]),
+    (".build", &["Package.swift"]),
+    ("DerivedData", &[]),
+    (".next", &["package.json"]),
+    (".turbo", &["package.json", "turbo.json"]),
+    (".nuxt", &["package.json"]),
+    (".svelte-kit", &["package.json"]),
+    (".parcel-cache", &["package.json"]),
+    (".vite", &["package.json"]),
+    (".zig-cache", &["build.zig"]),
+    ("zig-cache", &["build.zig"]),
+    ("zig-out", &["build.zig"]),
+    ("__pycache__", &[]),
+    (".pytest_cache", &[]),
+    (".mypy_cache", &[]),
+    (".ruff_cache", &[]),
+    (".gradle", &["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]),
+    ("Pods", &["Podfile"]),
 ];
 
 /// The most bytes of untracked and ignored data an archive takes into git;
@@ -60,6 +59,9 @@ pub struct Repo {
     pub worktrees: Vec<Worktree>,
     #[serde(skip)]
     pub(crate) overrides: Vec<Override>,
+    /// The bases `finished` compares with.
+    #[serde(skip)]
+    pub(crate) bases: Vec<String>,
 }
 
 /// One linked worktree.
@@ -182,29 +184,47 @@ pub fn scan(common_dir: &Path, bases: &[String]) -> Result<Repo, String> {
         bases.extend(String::from_utf8_lossy(&out).lines().map(str::to_string));
     }
     let mut worktrees = Vec::new();
-    for entry in parse_worktree_list(&listing) {
-        // The first entry is the main worktree (or the bare repository).
-        if main_root.as_deref().is_some_and(|main| same_path(main, &entry.path))
+    for (index, entry) in parse_worktree_list(&listing).into_iter().enumerate() {
+        // The first entry is the main worktree (or the bare repository),
+        // whatever its git folder is named.
+        if index == 0
+            || main_root.as_deref().is_some_and(|main| same_path(main, &entry.path))
             || entry.bare
             || same_path(common_dir, &entry.path)
         {
             continue;
         }
-        let facts = if entry.prunable || !entry.path.is_dir() {
-            Err("its folder is gone".to_string())
-        } else {
-            facts(&entry, &overrides, &bases)
-        };
-        worktrees.push(Worktree {
-            path: entry.path,
-            branch: entry.branch,
-            head: entry.head,
-            locked: entry.locked,
-            prunable: entry.prunable,
-            facts,
-        });
+        worktrees.push(worktree(entry, &overrides, &bases));
     }
-    Ok(Repo { common_dir: common_dir.to_path_buf(), main_root, worktrees, overrides })
+    Ok(Repo { common_dir: common_dir.to_path_buf(), main_root, worktrees, overrides, bases })
+}
+
+/// One worktree of `repo` read again now, for a decision about to act.
+pub fn rescan(repo: &Repo, path: &Path) -> Result<Worktree, String> {
+    let anchor = repo.main_root.clone().unwrap_or_else(|| repo.common_dir.clone());
+    let listing = git::read(&anchor, &repo.overrides, &["worktree", "list", "--porcelain", "-z"])?;
+    let entry = parse_worktree_list(&listing)
+        .into_iter()
+        .skip(1)
+        .find(|entry| same_path(&entry.path, path))
+        .ok_or_else(|| format!("{} is no longer a worktree", path.display()))?;
+    Ok(worktree(entry, &repo.overrides, &repo.bases))
+}
+
+fn worktree(entry: ListEntry, overrides: &[Override], bases: &[String]) -> Worktree {
+    let facts = if entry.prunable || !entry.path.is_dir() {
+        Err("its folder is gone".to_string())
+    } else {
+        facts(&entry, overrides, bases)
+    };
+    Worktree {
+        path: entry.path,
+        branch: entry.branch,
+        head: entry.head,
+        locked: entry.locked,
+        prunable: entry.prunable,
+        facts,
+    }
 }
 
 fn same_path(a: &Path, b: &Path) -> bool {
@@ -297,6 +317,7 @@ fn facts(entry: &ListEntry, overrides: &[Override], bases: &[String]) -> Result<
         }
     }
     facts.changed = u32::try_from(changed_paths.len()).unwrap_or(u32::MAX);
+    hidden_changes(root, overrides, &mut facts)?;
 
     // Ignored entries, a fully ignored folder as one entry.
     let ignored = git::read(
@@ -306,7 +327,7 @@ fn facts(entry: &ListEntry, overrides: &[Override], bases: &[String]) -> Result<
     )?;
     for record in records(&ignored) {
         let path = String::from_utf8_lossy(record).into_owned();
-        if is_build_output(&path) {
+        if is_build_output_at(root, &path) {
             facts.build_output.push(path);
         } else {
             facts.ignored_data.push(path);
@@ -325,6 +346,11 @@ fn facts(entry: &ListEntry, overrides: &[Override], bases: &[String]) -> Result<
 
     facts.sparse = sparse(root, overrides, &git_dir);
     facts.submodules = populated_submodules(root, overrides);
+    for submodule in &facts.submodules {
+        if let Some(why) = submodule_only_here(&root.join(submodule)) {
+            facts.unarchivable.get_or_insert(format!("submodule {submodule} {why}"));
+        }
+    }
 
     // What an archive would take into git.
     let deadline = Instant::now() + DATA_WALK;
@@ -347,9 +373,61 @@ fn facts(entry: &ListEntry, overrides: &[Override], bases: &[String]) -> Result<
     Ok(facts)
 }
 
-/// Whether an ignored path is build output: a component names one.
-pub fn is_build_output(path: &str) -> bool {
-    path.trim_end_matches('/').split('/').any(|part| BUILD_OUTPUT.contains(&part))
+/// Whether an ignored path (relative to `root`) is build output: it, or a
+/// folder it is in, has a build output name and one of its marker files
+/// beside it.
+pub fn is_build_output_at(root: &Path, path: &str) -> bool {
+    let parts: Vec<&str> = path.trim_end_matches('/').split('/').collect();
+    (0..parts.len()).any(|index| {
+        let Some((_, markers)) = BUILD_OUTPUT.iter().find(|(name, _)| *name == parts[index]) else {
+            return false;
+        };
+        let parent = parts[..index].iter().fold(root.to_path_buf(), |dir, part| dir.join(part));
+        markers.is_empty() || markers.iter().any(|marker| parent.join(marker).exists())
+    })
+}
+
+/// Tracked files `git status` does not show: an `assume-unchanged` entry,
+/// or a `skip-worktree` one whose file is on disk (outside a sparse
+/// checkout's patterns, it is not). Their edits would go unarchived, so
+/// such a worktree is kept.
+fn hidden_changes(root: &Path, overrides: &[Override], facts: &mut Facts) -> Result<(), String> {
+    let listing = git::read(root, overrides, &["ls-files", "-v", "-z"])?;
+    for record in records(&listing) {
+        let text = String::from_utf8_lossy(record);
+        let Some((tag, path)) = text.split_once(' ') else { continue };
+        let assumed = tag.chars().next().is_some_and(|c| c.is_ascii_lowercase());
+        let skipped = tag == "S" && std::fs::symlink_metadata(root.join(path)).is_ok();
+        if assumed || skipped {
+            let flag = if assumed { "assume-unchanged" } else { "skip-worktree" };
+            facts.unarchivable.get_or_insert(format!("{path} is marked {flag}"));
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
+/// What lives only in a populated submodule's own repository, which goes
+/// with the worktree's git folder: commits no remote has, stashes, ignored
+/// data. `None` when it holds nothing of its own.
+fn submodule_only_here(dir: &Path) -> Option<String> {
+    let unpushed = git::try_line(dir, &[], &["rev-list", "--count", "--all", "--not", "--remotes"]);
+    if unpushed.as_deref().is_some_and(|count| count != "0") {
+        return Some("has commits no remote has".to_string());
+    }
+    if git::try_line(dir, &[], &["stash", "list"]).is_some() {
+        return Some("has stashes".to_string());
+    }
+    let ignored = git::read(
+        dir,
+        &[],
+        &["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"],
+    )
+    .ok()?;
+    records(&ignored)
+        .map(|r| String::from_utf8_lossy(r).into_owned())
+        .find(|path| !is_build_output_at(dir, path))
+        .map(|path| format!("has ignored data {path}"))
 }
 
 /// The path of a `--porcelain=v2` record whose path is field `index`
@@ -550,13 +628,21 @@ mod care_tests {
     }
 
     #[test]
-    fn build_output_is_named_at_any_depth_and_data_is_not() {
-        assert!(is_build_output("webviews/node_modules/"));
-        assert!(is_build_output("cmux-tui/target/"));
-        assert!(is_build_output("a/b/__pycache__/"));
-        assert!(!is_build_output(".env"));
-        assert!(!is_build_output("webviews/src/generated/"));
-        assert!(!is_build_output("targets.txt"));
+    fn build_output_needs_its_name_and_its_marker() {
+        let root = crate::store::care_tests::scratch("markers");
+        std::fs::create_dir_all(root.join("webviews")).unwrap();
+        std::fs::write(root.join("webviews/package.json"), "{}").unwrap();
+        std::fs::create_dir_all(root.join("cmux-tui")).unwrap();
+        std::fs::write(root.join("cmux-tui/Cargo.toml"), "").unwrap();
+        assert!(is_build_output_at(&root, "webviews/node_modules/"));
+        assert!(is_build_output_at(&root, "cmux-tui/target/"));
+        assert!(is_build_output_at(&root, "cmux-tui/target/debug/x"));
+        assert!(is_build_output_at(&root, "a/b/__pycache__/"));
+        assert!(!is_build_output_at(&root, "node_modules/"), "no package.json beside it");
+        assert!(!is_build_output_at(&root, "docs/target/"), "a target/ that is not cargo's");
+        assert!(!is_build_output_at(&root, ".env"));
+        assert!(!is_build_output_at(&root, "webviews/src/generated/"));
+        assert!(!is_build_output_at(&root, "targets.txt"));
     }
 
     #[test]

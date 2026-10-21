@@ -50,6 +50,7 @@ fn repository(name: &str) -> (PathBuf, PathBuf) {
     write(&main.join(".gitignore"), "node_modules/\n.env\n");
     write(&main.join("src/lib.txt"), "one\n");
     write(&main.join("README"), "readme\n");
+    write(&main.join("package.json"), "{}\n");
     git(&main, &["add", "."]);
     git(&main, &["commit", "-qm", "first"]);
     git(&main, &["push", "-q", "origin", "HEAD:main"]);
@@ -253,4 +254,87 @@ fn care_a_pass_reclaims_idle_work_and_keeps_an_open_session_s() {
     assert!(!idle.exists() && open.exists());
     assert!(store.find("feat/idle").is_some());
     assert!(report.reclaimable > 0, "the idle worktree was measured before it went");
+}
+
+#[test]
+fn care_a_restore_over_a_branch_that_moved_on_detaches_at_the_archive() {
+    let (base, main) = repository("moved");
+    let wt = base.join("wt-g");
+    git(&main, &["worktree", "add", "-q", "-b", "feat/g", wt.to_str().unwrap()]);
+    write(&wt.join("wip.txt"), "wip\n");
+    let head = git(&wt, &["rev-parse", "HEAD"]);
+    let repo = scan(&main);
+    let (worktree, facts) = facts_of(&repo, &wt);
+    let store = Store::open(base.join("store")).unwrap();
+    let manifest =
+        archive::reclaim(&repo, worktree, facts, Action::Archive, "test", &store).unwrap();
+    // Someone commits on the branch while the worktree is archived.
+    git(&main, &["branch", "-f", "feat/g", "main"]);
+    git(&main, &["switch", "-q", "feat/g"]);
+    write(&main.join("later.txt"), "later\n");
+    git(&main, &["add", "later.txt"]);
+    git(&main, &["commit", "-qm", "later"]);
+    git(&main, &["switch", "-q", "main"]);
+    let tip = git(&main, &["rev-parse", "feat/g"]);
+
+    let restored = restore(&store, &manifest, None).unwrap();
+    assert_eq!(restored.branch, None, "{:?}", restored.notes);
+    assert!(restored.notes.iter().any(|n| n.contains("moved")), "{:?}", restored.notes);
+    assert_eq!(git(&wt, &["rev-parse", "HEAD"]), head);
+    assert_eq!(git(&wt, &["status", "--porcelain"]), "?? wip.txt");
+    assert_eq!(git(&main, &["rev-parse", "feat/g"]), tip, "the branch is untouched");
+}
+
+#[test]
+fn care_a_restore_that_cannot_find_its_archive_adds_nothing() {
+    let (base, main) = repository("lost");
+    let wt = base.join("wt-h");
+    git(&main, &["worktree", "add", "-q", "-b", "feat/h", wt.to_str().unwrap()]);
+    write(&wt.join("wip.txt"), "wip\n");
+    let repo = scan(&main);
+    let (worktree, facts) = facts_of(&repo, &wt);
+    let store = Store::open(base.join("store")).unwrap();
+    let manifest =
+        archive::reclaim(&repo, worktree, facts, Action::Archive, "test", &store).unwrap();
+    git(&main, &["update-ref", "-d", manifest.archive_ref.as_deref().unwrap()]);
+    git(&main, &["reflog", "expire", "--expire=now", "--all"]);
+    git(&main, &["gc", "-q", "--prune=now"]);
+    std::fs::remove_file(manifest.bundle.as_ref().unwrap()).unwrap();
+
+    assert!(restore(&store, &manifest, None).is_err());
+    assert!(!wt.exists(), "no half-restored folder");
+    assert!(!git(&main, &["worktree", "list"]).contains("wt-h"));
+    assert!(store.find("feat/h").is_some(), "still there to try again");
+}
+
+#[test]
+fn care_a_file_marked_assume_unchanged_keeps_its_worktree() {
+    let (base, main) = repository("assume");
+    let wt = base.join("wt-i");
+    git(&main, &["worktree", "add", "-q", "-b", "feat/i", wt.to_str().unwrap()]);
+    git(&wt, &["update-index", "--assume-unchanged", "README"]);
+    write(&wt.join("README"), "hidden edit\n");
+    let repo = scan(&main);
+    let (_, facts) = facts_of(&repo, &wt);
+    assert!(facts.unarchivable.is_some(), "{facts:?}");
+}
+
+#[test]
+fn care_an_archive_goes_after_its_keep_time() {
+    let (base, main) = repository("expire");
+    let wt = base.join("wt-j");
+    git(&main, &["worktree", "add", "-q", "-b", "feat/j", wt.to_str().unwrap()]);
+    write(&wt.join("wip.txt"), "wip\n");
+    let repo = scan(&main);
+    let (worktree, facts) = facts_of(&repo, &wt);
+    let store = Store::open(base.join("store")).unwrap();
+    let manifest =
+        archive::reclaim(&repo, worktree, facts, Action::Archive, "test", &store).unwrap();
+    let day = 24 * 60 * 60 * 1000;
+    assert!(archive::expire(&store, manifest.created_ms + day, 14 * day).unwrap().is_empty());
+    let dropped = archive::expire(&store, manifest.created_ms + 15 * day, 14 * day).unwrap();
+    assert_eq!(dropped, vec![manifest.id.clone()]);
+    assert!(store.list().is_empty());
+    assert!(!manifest.bundle.as_ref().unwrap().exists());
+    assert!(git(&main, &["for-each-ref", "refs/cmux/archive"]).is_empty());
 }
