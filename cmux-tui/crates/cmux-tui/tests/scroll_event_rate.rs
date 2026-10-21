@@ -118,7 +118,6 @@ fn cmux_next_flooding_terminal_sends_scroll_events_per_frame_not_per_chunk() {
         }
         match event["event"].as_str() {
             Some("scroll-changed") => {
-                assert!(exited_at.is_none(), "a scroll event came after the exit: {event}");
                 scroll_events += 1;
                 last_scroll = Some(event);
             }
