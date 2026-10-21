@@ -274,6 +274,25 @@ extension PageWebViewChromiumTests {
     }
 }
 
+extension PageWebViewChromiumTests {
+    /// A page function runs in the Chromium page as it runs in WebKit: an async function of the
+    /// named arguments, its promise awaited and its value returned by value.
+    @Test func aPageFunctionRunsInTheChromiumPage() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        _ = await view.callPageFunction("return text + selector;", arguments: ["text": "a\"b", "selector": NSNull()])
+        let call = try #require(page.calls.last { $0.method == "Runtime.evaluate" })
+        #expect(call.params["expression"] as? String == "(async function(selector, text) {\nreturn text + selector;\n}).apply(null, [null,\"a\\\"b\"])")
+        #expect(call.params["awaitPromise"] as? Bool == true)
+        #expect(call.params["returnByValue"] as? Bool == true)
+        view.close()
+    }
+}
+
 /// A dynamic source with two resources: `a.png` (typed) and `b.json` (typed by its name).
 @MainActor
 private final class OneResource: PageDynamicResourceSource {
