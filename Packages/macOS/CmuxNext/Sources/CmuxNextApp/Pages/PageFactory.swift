@@ -100,8 +100,9 @@ struct PageFactory {
         return page
     }
 
-    /// The Settings page's engine options.
-    static let settingsEngineOptions = PageEngineOptions.standard
+    /// The Settings page's engine options: an image dropped on it becomes the background
+    /// (`fileDrop`), a WebKit-only hook so far.
+    static let settingsEngineOptions = PageEngineOptions(requiresWebKit: .nativeHooks)
 
     /// The React Settings page (R82) on `route` (`#/settings/<section>?focus=<key>`). Its namespace
     /// goes to `SettingsPageProvider` (interim owner; the daemon relay once the config actor
@@ -203,7 +204,8 @@ struct PageFactory {
                                                           iconPNG: { [weak services] icon in
                                                               await SettingsIconAssets.png(icon, owner: services?.machines.local)
                                                           })
-        let page = services.pageHostPool.claim(.settings, routes: routes, route: route, surface: .settings,
+        let page = services.pageHostPool.claim(.settings, routes: routes, route: route, options: Self.settingsEngineOptions,
+                                               surface: .settings,
                                                dynamicResources: dynamicResources,
                                                window: services.windows.active?.window, focus: false)
             ?? PageWebView(descriptor: .settings, routes: routes, route: route, options: Self.settingsEngineOptions,

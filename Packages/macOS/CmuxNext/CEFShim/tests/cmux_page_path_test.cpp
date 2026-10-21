@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <vector>
 
 #include "../src/cmux_page_path.h"
 
@@ -211,6 +212,20 @@ int main() {
   Reserved("com.example.app", false);
   Reserved("mycmux.agent", false);
   Reserved("cmux-agent", false);
+
+  // Dynamic prefixes (PageDescriptor.dynamicPrefixes): the first non-empty
+  // component, percent-decoded, names one; the folder never serves it.
+  const std::vector<std::string> prefixes = {"__patch", "asset"};
+  Expect(cmux_shim::IsDynamicPagePath("/__patch/t/a.patch", prefixes), "dynamic /__patch/t/a.patch");
+  Expect(cmux_shim::IsDynamicPagePath("/asset", prefixes), "dynamic /asset");
+  Expect(cmux_shim::IsDynamicPagePath("//asset/x.png", prefixes), "dynamic //asset/x.png");
+  Expect(cmux_shim::IsDynamicPagePath("/%61sset/x.png", prefixes), "dynamic /%61sset/x.png");
+  Expect(!cmux_shim::IsDynamicPagePath("/", prefixes), "not dynamic /");
+  Expect(!cmux_shim::IsDynamicPagePath("/index.html", prefixes), "not dynamic /index.html");
+  Expect(!cmux_shim::IsDynamicPagePath("/assets/x.png", prefixes), "not dynamic /assets/x.png");
+  Expect(!cmux_shim::IsDynamicPagePath("/x/asset/y", prefixes), "not dynamic /x/asset/y");
+  Expect(!cmux_shim::IsDynamicPagePath("/asset%zz/x", prefixes), "not dynamic bad escape");
+  Expect(!cmux_shim::IsDynamicPagePath("/asset/x", {}), "not dynamic without prefixes");
 
   std::string cleanup = "rm -rf '" + base + "'";
   if (system(cleanup.c_str()) != 0) std::cerr << "warning: could not remove " << base << "\n";

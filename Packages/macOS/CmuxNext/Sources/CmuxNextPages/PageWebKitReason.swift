@@ -7,15 +7,12 @@ public import Foundation
 public nonisolated enum PageWebKitReason: String, Sendable, Hashable, CaseIterable {
     /// The person chose WebKit (`browser.defaultEngine` is `webkit`).
     case personChoseWebKit = "setting"
-    /// The page serves files it makes at run time (``PageDescriptor/dynamicPrefixes``: wallpaper
-    /// thumbnails, diff patches, Markdown images and libraries). The Chromium page scheme serves only
-    /// the bundled folder (`cmux_shim_page_scheme_add`), so these pages need a shim change first.
-    case runtimeResources = "runtime-resources"
     /// The agent chat and New Tab page keep their warmed WebKit host until their own Chromium port:
     /// typing latency there is measured against WebKit and a spare view is kept ready.
     case agentChat = "agent-chat"
-    /// The page floats over the window as a transparent panel (the update island). A Chromium page
-    /// is a child window with an opaque background, which cannot float over the window's backdrop.
+    /// The page floats over the window as a transparent panel (the update island, the icon
+    /// picker's glass panel). A Chromium page is an opaque child window that takes the keys, which
+    /// cannot float over the window's backdrop or keep a panel that closes when it loses them.
     case transparentOverlay = "transparent-overlay"
     /// The host adds native behavior only a WebKit page has: its own context menu items (Home's
     /// Quote in Reply and Search the Web) or file drops it opens itself (the editor). A Chromium
