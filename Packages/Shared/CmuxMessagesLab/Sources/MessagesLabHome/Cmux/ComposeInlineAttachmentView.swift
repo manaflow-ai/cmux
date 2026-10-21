@@ -13,7 +13,7 @@ final class ComposeInlineAttachmentView: NSView {
 
     init(_ attachment: ComposeInlineAttachment) {
         self.attachment = attachment
-        super.init(frame: CGRect(origin: .zero, size: attachment.bounds.size))
+        super.init(frame: CGRect(origin: .zero, size: attachment.pictureSize))
         wantsLayer = true
         layer?.cornerRadius = ComposeAttachmentStrip.corner
         layer?.cornerCurve = .continuous

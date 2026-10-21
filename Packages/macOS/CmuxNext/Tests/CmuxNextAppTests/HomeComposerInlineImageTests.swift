@@ -120,12 +120,12 @@ import UniformTypeIdentifiers
         #expect(inline.count == 1, "the field's text holds the picture")
         let a = try #require(inline.first).attachment
         #expect(a.isImage, "an image thumbnail, not a file pill")
-        #expect(a.bounds.height <= ComposeAttachmentStrip.imageMaxHeight + 0.5)
-        #expect(abs(a.bounds.width / a.bounds.height - 1.5) < 0.05, "the thumbnail keeps the picture's aspect")
+        #expect(a.pictureSize.height <= ComposeInlineAttachment.pictureMaxHeight + 0.5)
+        #expect(abs(a.pictureSize.width / a.pictureSize.height - 1.5) < 0.05, "the thumbnail keeps the picture's aspect")
         a.loadThumbnailNow(scale: 2)
         #expect(a.thumbnail != nil, "the thumbnail decodes")
         #expect(h.compose.strip.tiles.isEmpty, "no thumbnail row above the text")
-        #expect(h.compose.fieldRect.height >= a.bounds.height, "the field is as tall as the thumbnail's line")
+        #expect(h.compose.fieldRect.height >= a.pictureSize.height + Fixture.lineHeight, "the field holds the picture and a text line under it")
     }
 
     /// A paste in the middle of the text goes in at the caret; the text around it stays, and the caret follows it.
@@ -258,6 +258,40 @@ import UniformTypeIdentifiers
         #expect(!hover.button.isHidden)
         type("a", caret: 0, in: h)
         #expect(hover.button.isHidden, "an edit hides the button")
+    }
+
+    /// As in Messages, a picture is a block: the caret right after a paste, and the text typed
+    /// then, start the line under the picture at its left (Austin 2026-10-20, with Messages'
+    /// capture: the text sat beside the picture).
+    @Test func textAfterAPictureStartsTheLineUnderIt() async throws {
+        let h = try await home()
+        defer { h.close() }
+        try await attach(.pastePicture, to: h.view)
+        h.field.layoutSubtreeIfNeeded()
+        let picture = try #require(h.compose.inlineHover.attachmentRects().first).rect
+        #expect(picture.width < 245 && picture.height <= ComposeInlineAttachment.pictureMaxHeight + 0.5, "the picture's own size (\(picture))")
+        let afterPaste = try #require(h.field.caretRects(at: [1]).fresh.first ?? nil)
+        #expect(afterPaste.minX < 4, "the caret is at the left (\(afterPaste))")
+        #expect(afterPaste.minY >= picture.maxY - 1, "under the picture (\(afterPaste), picture \(picture))")
+        h.field.insertText("hi", replacementRange: h.field.selectedRange())
+        h.view.layoutSubtreeIfNeeded()
+        let firstLetter = try #require(h.field.caretRects(at: [1]).fresh.first ?? nil)
+        #expect(firstLetter.minX < 4 && firstLetter.minY >= picture.maxY - 1, "the text starts under the picture (\(firstLetter))")
+        #expect(h.view.transcript.draftText == "\u{FFFC}hi", "the draft holds no extra line break")
+    }
+
+    /// Text before a picture stays on its line above the picture.
+    @Test func textBeforeAPictureStaysAboveIt() async throws {
+        let h = try await home()
+        defer { h.close() }
+        type("hello", caret: 5, in: h)
+        try await attach(.pastePicture, to: h.view)
+        h.field.layoutSubtreeIfNeeded()
+        let picture = try #require(h.compose.inlineHover.attachmentRects().first).rect
+        let text = try #require(h.field.caretRects(at: [0]).fresh.first ?? nil)
+        #expect(picture.minX < 4, "the picture starts its own line (\(picture))")
+        #expect(picture.minY >= text.maxY - 4, "under the text line (\(picture), text \(text))")
+        #expect(h.compose.fieldRect.height >= picture.height + 2 * Fixture.lineHeight, "the field holds the text, the picture and the caret's line")
     }
 
     /// Hovering a picture in the field shows a remove button at its top right; the button takes
