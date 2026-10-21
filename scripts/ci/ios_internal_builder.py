@@ -30,12 +30,13 @@ BUILD_JOB = "archive"
 BUILDER_REF = "refs/heads/rc/cnx-ios-builder"
 MIN_FREE_BYTES = 40 * 1024 ** 3
 FALLBACK_AFTER = dt.timedelta(hours=12)
-PACKAGE_SWIFT = "cnx-ios/CnxKit/Package.swift"
-PROJECT_YML = "cnx-ios/project.yml"
+PACKAGE_SWIFT = "cmux-next-ios/CmuxMobileKit/Package.swift"
+PROJECT_YML = "cmux-next-ios/project.yml"
+BUILDER_SCRIPT = "cmux-next-ios/scripts/testflight-build.sh"
 
-# Paths that change the iPhone app besides the local packages CnxKit names.
+# Paths that change the iPhone app besides the local packages CmuxMobileKit names.
 STATIC_PREFIXES = (
-    "cnx-ios/",
+    "cmux-next-ios/",
     "AppIcon.icon/",
     "cmux-tui/crates/cmux-wg/",
     "cmux-tui/crates/cmux-transport/",
@@ -59,16 +60,16 @@ def next_build_number(now: dt.datetime, last: str | None) -> str:
 
 
 def marketing_version(project_yml: str) -> str:
-    """MARKETING_VERSION from cnx-ios/project.yml; X.Y or X.Y.Z."""
+    """MARKETING_VERSION from cmux-next-ios/project.yml; X.Y or X.Y.Z."""
     match = re.search(r"^\s*MARKETING_VERSION:\s*(\S+)\s*$", project_yml, re.M)
     if not match or not re.fullmatch(r"\d+\.\d+(\.\d+)?", match.group(1)):
-        raise ValueError("cnx-ios/project.yml has no X.Y.Z MARKETING_VERSION")
+        raise ValueError("cmux-next-ios/project.yml has no X.Y.Z MARKETING_VERSION")
     return match.group(1)
 
 
 def package_paths(package_swift: str) -> list[str]:
-    """Repo-relative directories of the local packages cnx-ios/CnxKit/Package.swift depends on."""
-    base = Path("cnx-ios/CnxKit")
+    """Repo-relative directories of the local packages cmux-next-ios/CmuxMobileKit/Package.swift depends on."""
+    base = Path("cmux-next-ios/CmuxMobileKit")
     out = []
     for rel in re.findall(r'\.package\(\s*path:\s*"([^"]+)"', package_swift):
         parts: list[str] = list(base.parts)
@@ -101,8 +102,8 @@ class Decision:
     base: str | None  # last uploaded SHA: the "What to Test" range starts here
 
 
-def plan(head: str, runs: list[dict], changed: list[str] | None, has_cnx_ios: bool,
-         now: dt.datetime, prefixes: tuple[str, ...]) -> Decision:
+def plan(head: str, runs: list[dict], changed: list[str] | None, has_cmux_next_ios: bool,
+         now: dt.datetime, prefixes: tuple[str, ...], builder_ready: bool = True) -> Decision:
     """Whether to dispatch a build of `head`.
 
     runs: this builder's runs, newest first: {id, sha, status, conclusion, created_at}.
@@ -112,8 +113,12 @@ def plan(head: str, runs: list[dict], changed: list[str] | None, has_cnx_ios: bo
                   key=lambda r: (_parse(r["created_at"]), r.get("id", 0)), reverse=True)
     last_ok = next((r for r in runs if r.get("conclusion") == "success"), None)
     base = last_ok["sha"] if last_ok else None
-    if not has_cnx_ios:
-        return Decision(False, "cnx-ios/ is not on feat-cmux-next yet (a191's merge)", base)
+    if not has_cmux_next_ios:
+        return Decision(False, "cmux-next-ios/ is not on feat-cmux-next yet (a191's merge)", base)
+    if not builder_ready:
+        return Decision(False, f"{BUILDER_REF} has no {BUILDER_SCRIPT} (it predates the cnx-ios -> cmux-next-ios "
+                               "rename): an admin fast-forwards it to feat-cmux-next "
+                               "(plans/cmux-next/ios-testflight-builder-DESIGN.md, Operations)", base)
     if base == head:
         return Decision(False, f"{head[:12]} is already in cmux INTERNAL", base)
     if any(r["sha"] == head and r.get("status") != "completed" for r in runs):
@@ -159,7 +164,7 @@ def _gh_json(args: list[str]):
 
 
 def builder_runs() -> list[dict]:
-    """Recent builds; each run's title is "cnx-ios INTERNAL <sha> ..." (the workflow's run-name)."""
+    """Recent builds; each run's title is "cmux-next-ios INTERNAL <sha> ..." (the workflow's run-name)."""
     try:
         data = _gh_json([f"repos/{REPO}/actions/workflows/ios-internal-nightly.yml/runs?per_page=50"])
     except subprocess.CalledProcessError as error:
@@ -197,13 +202,25 @@ def changed_files(repo: str, base: str | None, head: str) -> list[str] | None:
         return None
 
 
+def builder_has_script() -> bool:
+    """Whether the signing branch carries this layout's testflight-build.sh (fails open on API errors)."""
+    branch = BUILDER_REF.removeprefix("refs/heads/")
+    repo = os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux")
+    r = subprocess.run(["gh", "api", "-X", "GET", f"repos/{repo}/contents/{BUILDER_SCRIPT}", "-f", f"ref={branch}",
+                        "--jq", ".path"], capture_output=True, text=True)
+    if r.returncode == 0:
+        return True
+    return "Not Found" not in (r.stderr + r.stdout)
+
+
 def cmd_plan(head: str, repo: str) -> int:
-    has_cnx_ios = _show(repo, head, PROJECT_YML) is not None
+    has_cmux_next_ios = _show(repo, head, PROJECT_YML) is not None
     runs = builder_runs()
-    first = plan(head, runs, [], has_cnx_ios, dt.datetime.now(dt.timezone.utc), STATIC_PREFIXES)
+    ready = builder_has_script()
+    first = plan(head, runs, [], has_cmux_next_ios, dt.datetime.now(dt.timezone.utc), STATIC_PREFIXES, ready)
     changed = changed_files(repo, first.base, head) if first.base else None
-    decision = plan(head, runs, changed, has_cnx_ios, dt.datetime.now(dt.timezone.utc),
-                    relevant_prefixes(_show(repo, head, PACKAGE_SWIFT)))
+    decision = plan(head, runs, changed, has_cmux_next_ios, dt.datetime.now(dt.timezone.utc),
+                    relevant_prefixes(_show(repo, head, PACKAGE_SWIFT)), ready)
     print(f"{'BUILD' if decision.build else 'skip'}: {decision.reason}")
     out = os.environ.get("GITHUB_OUTPUT")
     if out:
@@ -232,7 +249,7 @@ HOME = Path.home()
 RUNNER_DIR = Path(os.environ.get("IOS_BUILDER_RUNNER_DIR", HOME / "actions-runner-ios-internal"))
 STATE_DIR = Path(os.environ.get("IOS_BUILDER_STATE_DIR", HOME / "Library/Application Support/ios-internal-builder"))
 LOG_PATH = Path(os.environ.get("IOS_BUILDER_LOG", HOME / "Library/Logs/ios-internal-builder.log"))
-BUILDS_ROOT = Path(os.environ.get("CNX_BUILDS_ROOT", HOME / "cnx-ios-builds"))
+BUILDS_ROOT = Path(os.environ.get("CMUX_MOBILE_BUILDS_ROOT", HOME / "cmux-mobile-builds"))
 RUNS_EVERY_S = 300
 KEEP = {"_diag": 7 * 86400, "_work/_temp": 86400}
 OUTPUT_KEEP_S = 3 * 86400

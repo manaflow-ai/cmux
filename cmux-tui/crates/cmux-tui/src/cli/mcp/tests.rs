@@ -1494,3 +1494,6 @@ fn the_subsession_servers_instructions_name_real_cmux_tools() {
         assert!(rules.contains(&format!("cmux.{name}(")), "the instructions no longer call {name}");
     }
 }
+
+#[path = "upstream_tests.rs"]
+mod upstream_tests;

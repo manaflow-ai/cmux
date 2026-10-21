@@ -77,6 +77,8 @@ pub(crate) fn harness_command(
     env.remove(crate::routes::PROFILE_ROUTE_KEY);
     // The session's workspace is for its computer use server only (agent_displays.rs).
     env.remove(crate::agent_displays::WORKSPACE_KEY);
+    // The chat's turned-off servers are for the fold only (agent_tools.rs).
+    env.remove(crate::agent_tools::OFF_ENV);
     // The caller token and its socket are acpmux's own (`hub/person.rs` (a)):
     // this env is layered after `caller_env`, so a profile, preset or
     // request value would replace them.
@@ -133,6 +135,7 @@ pub(crate) fn harness_command(
     // Chief turn's shell) is not the agent's: a harness passes its env to
     // its MCP servers. A turn's preset puts its own value back (`envs`).
     cmd.env_remove(crate::agent_tools::MCP_TOOLS_ENV);
+    cmd.env_remove(crate::agent_tools::UPSTREAMS_ENV);
     for k in route_unset.iter().flat_map(|list| list.split(',')) {
         cmd.env_remove(k);
     }
