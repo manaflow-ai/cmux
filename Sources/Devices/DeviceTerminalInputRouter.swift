@@ -49,7 +49,7 @@ final class DeviceTerminalInputRouter: @unchecked Sendable {
     /// the host terminal already answered those queries and owns focus.
     func enqueue(_ input: TerminalManualInput) {
         guard case .bytes(let written) = input else { return }
-        let data = TerminalMirrorReplyFilter.userInput(written)
+        let data = written.removingTerminalMirrorReplies
         guard !data.isEmpty else { return }
         queue.async { [self] in
             guard !invalidated, enabled else { return }

@@ -16,34 +16,34 @@ public import Foundation
 /// Keys, pastes and mouse reports pass through. A legacy Shift+F3
 /// (`CSI 1 ; 2 R`) is indistinguishable from a cursor report and is dropped
 /// with them; unterminated strings (Alt+] typed alone) pass through.
-public enum TerminalMirrorReplyFilter {
+extension Data {
     private static let escape: UInt8 = 0x1B
 
     /// These emulator-written bytes without the mirror's own replies.
-    public static func userInput(_ data: Data) -> Data {
-        let bytes = [UInt8](data)
+    public var removingTerminalMirrorReplies: Data {
+        let bytes = [UInt8](self)
         var output = Data()
         output.reserveCapacity(bytes.count)
         var index = 0
         while index < bytes.count {
-            guard bytes[index] == escape, index + 1 < bytes.count else {
+            guard bytes[index] == Self.escape, index + 1 < bytes.count else {
                 output.append(bytes[index])
                 index += 1
                 continue
             }
             switch bytes[index + 1] {
             case UInt8(ascii: "["):
-                guard let final = csiFinalIndex(bytes, from: index + 2) else {
+                guard let final = Self.csiFinalIndex(bytes, from: index + 2) else {
                     output.append(bytes[index])
                     index += 1
                     continue
                 }
-                if !isReplyCSI(final: bytes[final], body: bytes[(index + 2)..<final]) {
+                if !Self.isReplyCSI(final: bytes[final], body: bytes[(index + 2)..<final]) {
                     output.append(contentsOf: bytes[index...final])
                 }
                 index = final + 1
             case UInt8(ascii: "]"), UInt8(ascii: "P"), UInt8(ascii: "_"):
-                guard let end = stringEnd(bytes, from: index + 2) else {
+                guard let end = Self.stringEnd(bytes, from: index + 2) else {
                     output.append(bytes[index])
                     index += 1
                     continue
@@ -95,7 +95,7 @@ public enum TerminalMirrorReplyFilter {
         var cursor = start
         while cursor < bytes.count {
             if bytes[cursor] == 0x07 { return cursor + 1 }
-            if bytes[cursor] == escape, cursor + 1 < bytes.count, bytes[cursor + 1] == UInt8(ascii: "\\") {
+            if bytes[cursor] == Self.escape, cursor + 1 < bytes.count, bytes[cursor + 1] == UInt8(ascii: "\\") {
                 return cursor + 2
             }
             cursor += 1

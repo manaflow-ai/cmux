@@ -2,9 +2,9 @@ import Foundation
 import Testing
 import CmuxTerminal
 
-@Suite struct TerminalMirrorReplyFilterTests {
+@Suite struct TerminalMirrorRepliesTests {
     private func filtered(_ text: String) -> String {
-        String(decoding: TerminalMirrorReplyFilter.userInput(Data(text.utf8)), as: UTF8.self)
+        String(decoding: Data(text.utf8).removingTerminalMirrorReplies, as: UTF8.self)
     }
 
     @Test(arguments: [
