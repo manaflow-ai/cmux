@@ -276,6 +276,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SHUTDOWN, Request),
         untyped("_acpmux/peers", Request),
         untyped("_acpmux/peer_add", Request),
+        untyped("_acpmux/peer_lease", Request),
         untyped("_acpmux/peer_reconnect", Request),
         untyped("_acpmux/peer_remove", Request),
         // Notifications.

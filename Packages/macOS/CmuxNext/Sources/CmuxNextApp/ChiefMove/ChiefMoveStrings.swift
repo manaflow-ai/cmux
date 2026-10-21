@@ -9,7 +9,7 @@ nonisolated enum ChiefMoveStrings {
     static var targetRequired: String { text("chiefMove.targetRequired", "a target naming This Mac, a remote group or cloud is required") }
     static func unknownTarget(_ name: String) -> String { String(format: text("chiefMove.unknownTarget", "no move target named %@"), name) }
     static func offline(_ name: String) -> String { String(format: text("chiefMove.offline", "%@ (offline)"), name) }
-    static func notSupported(_ name: String) -> String { String(format: text("chiefMove.notSupported", "%@ (not supported yet)"), name) }
+    static func noSSHRoute(_ name: String) -> String { String(format: text("chiefMove.noSSHRoute", "%@ (no SSH route)"), name) }
     static func signIn(_ name: String) -> String { String(format: text("chiefMove.signIn", "%@ (sign in first)"), name) }
     static func confirmTitle(_ name: String) -> String { String(format: text("chiefMove.confirmTitle", "Move Chief to %@?"), name) }
     static func doneTitle(_ name: String) -> String { String(format: text("chiefMove.doneTitle", "Chief moved to %@"), name) }

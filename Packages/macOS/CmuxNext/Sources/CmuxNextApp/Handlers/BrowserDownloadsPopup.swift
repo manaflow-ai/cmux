@@ -444,8 +444,11 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
         onOpen(file)
     }
 
+    /// The row's right-click menu in the cmux NEXT menu look, in this row's theme.
+    func themedMenu() -> NSMenu? { menuProvider()?.themeRows(in: themeScope.fullStrength) }
+
     override func rightMouseDown(with event: NSEvent) {
-        guard let menu = menuProvider() else { return super.rightMouseDown(with: event) }
+        guard let menu = themedMenu() else { return super.rightMouseDown(with: event) }
         NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
@@ -457,5 +460,8 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
 /// The popup's content: a click on a control (a footer button) acts on the
 /// first click, also while the popup opened without the keys.
 final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    // A main-actor generic class's isolated deinit crashes the Release compile (swift-frontend 6.3, macOS 14 target).
+    nonisolated deinit {}
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

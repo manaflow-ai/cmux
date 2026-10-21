@@ -4,6 +4,7 @@ import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHomeEngine
+import CmuxNextRemote
 import CmuxNextSidebar
 import Foundation
 
@@ -51,9 +52,18 @@ enum ChiefMoveHandlers {
             .init(machineID: session.machineID, name: session.host.label, kind: .ssh(destination: session.host.destination.sshArgument),
                   isOnline: session.linkStatus == .connected, isRemoteGroup: isRemoteGroup(session.daemon))
         }
-        hosts += machines.servers.map { server in
-            .init(machineID: server.machineID, name: server.name, kind: .server, isOnline: server.daemon.connection != nil,
-                  isRemoteGroup: isRemoteGroup(server.daemon))
+        // A server on this Mac (route `unix`) is This Mac, already the first entry.
+        hosts += machines.servers.compactMap { server in
+            let destination: String?
+            switch server.reach.route {
+            case .ssh(let host): destination = host.destination.sshArgument
+            case .overlay:
+                if case .ssh(let host)? = ServerReach.brainRoute(serverName: server.name) { destination = host.destination.sshArgument }
+                else { destination = nil }
+            case .unix: return nil
+            }
+            return .init(machineID: server.machineID, name: server.name, kind: .server(destination: destination),
+                         isOnline: server.daemon.connection != nil, isRemoteGroup: isRemoteGroup(server.daemon))
         }
         let cloud = context.services.cloud
         let home = ChiefHome.resolve(tag: context.services.environment.tag).root.path
@@ -73,7 +83,7 @@ enum ChiefMoveHandlers {
         switch target.disabledReason {
         case nil: name(target)
         case .offline: ChiefMoveStrings.offline(name(target))
-        case .notSupportedYet: ChiefMoveStrings.notSupported(name(target))
+        case .noSSHRoute: ChiefMoveStrings.noSSHRoute(name(target))
         case .signInNeeded: ChiefMoveStrings.signIn(name(target))
         }
     }
