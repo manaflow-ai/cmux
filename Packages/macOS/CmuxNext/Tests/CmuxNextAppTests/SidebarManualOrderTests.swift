@@ -55,7 +55,7 @@ struct SidebarManualOrderTests {
         let dragged = ["w5", "w1", "w2", "w3", "w4"]
         #expect(Self.order(model) == dragged)
 
-        // Every other row turns unread, waiting, failed or working, in place and through a rebuild.
+        // Every other row turns unread, waiting, failed or working, written in place.
         rows.patch(Self.flagged(start))
         #expect(Self.order(model) == dragged, "a row state moved a row during the drag")
 
