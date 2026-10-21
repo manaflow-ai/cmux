@@ -7,8 +7,14 @@ import Testing
 @MainActor
 private final class BlockerHost: UpdateActionDelegate {
     var blockers = UpdateRelaunchBlockers.empty
+    var allowsAutomaticInstall = true
+    var automaticInstallsPrepared = 0
 
     func updaterRequestsRetryCheckForUpdates() {}
+    func updaterPrepareAutomaticInstall() -> Bool {
+        automaticInstallsPrepared += 1
+        return allowsAutomaticInstall
+    }
     func updaterWillRelaunchApplication() {}
     func updaterRelaunchBlockers() -> UpdateRelaunchBlockers { blockers }
 }
@@ -177,6 +183,36 @@ private final class CallCounter: @unchecked Sendable {
 
     /// The idle policy never waits past its cap: busy agents, a running command and recent
     /// input all give way, and the relaunch keeps every session (Leo: updates just install).
+    /// The host runs a click's checks (preflight, What's New record, rollback copy) before an
+    /// automatic install; a failed preflight keeps the update staged and opens nothing.
+    @Test func anAutomaticInstallAsksTheHostFirstAndStaysStagedWhenItDeclines() {
+        let driver = makeDriver()
+        let replies = CallCounter()
+        driver.installsInBackground = true
+        driver.installsWhenIdle = true
+        host.allowsAutomaticInstall = false
+
+        driver.showReady(toInstallAndRelaunch: { _ in replies.count += 1 })
+
+        #expect(host.automaticInstallsPrepared == 1)
+        #expect(replies.count == 0)
+        #expect(model.text == "Restart to Complete Update")
+        #expect(driver.stagedInstall != nil)
+    }
+
+    @Test func anAutomaticInstallTheHostPreparedIsHandedToSparkle() {
+        let driver = makeDriver()
+        let replies = CallCounter()
+        driver.installsInBackground = true
+        driver.installsWhenIdle = true
+
+        driver.showReady(toInstallAndRelaunch: { _ in replies.count += 1 })
+
+        #expect(host.automaticInstallsPrepared == 1)
+        #expect(replies.count == 1)
+        #expect(driver.relaunchIsAutomatic)
+    }
+
     @Test func anAutomaticInstallRelaunchesAtTheWaitCapWhateverIsRunning() async {
         let driver = makeDriver()
         driver.relaunchGate.automaticWaitCap = .seconds(4)
