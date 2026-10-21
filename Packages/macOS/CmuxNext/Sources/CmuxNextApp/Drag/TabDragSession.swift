@@ -71,8 +71,7 @@ final class TabDragSession: NSObject {
         let content = pane?.view.bounds ?? window?.content?.layoutView.bounds ?? .zero
         let aspect = content.width > 0 ? (content.height - Metrics.tabStripHeight) / content.width : nil
         let scale = window?.window?.backingScaleFactor ?? 2
-        let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, grabOffset: grabOffset, aspect: aspect, scale: scale,
-                                      onGlass: onGlass)
+        let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, grabOffset: grabOffset, aspect: aspect, scale: scale, onGlass: onGlass)
         var motion = TabDragGhostMotion(rect: frame, cardness: 0, reduceMotion: !Motion.tabs.animatesMovement,
                                         rectSpring: Motion.tabs.spring(.track), morphSpring: Motion.tabs.spring(.appear))
         // The card unfolds once its content preview arrives (`loadThumbnail`).
