@@ -2495,6 +2495,12 @@
         "zh-Hant": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "工具呼叫 %lld 次"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "translated",
@@ -2507,6 +2513,12 @@
         "zh-Hans": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "工具调用 %lld 次"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "translated",
@@ -2519,6 +2531,12 @@
         "ko": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "도구 호출 %lld회"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "translated",
@@ -2531,6 +2549,12 @@
         "ja": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "ツール呼び出し %lld 回"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "translated",
@@ -2609,6 +2633,12 @@
         "km": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "ការហៅឧបករណ៍ %lld"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "translated",
@@ -2723,6 +2753,12 @@
         "th": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "เรียกเครื่องมือ %lld ครั้ง"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "translated",
@@ -2783,6 +2819,12 @@
         "vi": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld lệnh gọi công cụ"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "translated",
@@ -2926,6 +2968,12 @@
         "zh-Hant": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "失敗 %lld"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "translated",
@@ -2938,6 +2986,12 @@
         "zh-Hans": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "失败 %lld"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "translated",
@@ -2950,6 +3004,12 @@
         "ko": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "실패 %lld"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "translated",
@@ -2962,6 +3022,12 @@
         "ja": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "失敗 %lld"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "translated",
@@ -3040,6 +3106,12 @@
         "km": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "បរាជ័យ %lld"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "translated",
@@ -3154,6 +3226,12 @@
         "th": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "ล้มเหลว %lld"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "translated",
@@ -3214,6 +3292,12 @@
         "vi": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld lỗi"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "translated",

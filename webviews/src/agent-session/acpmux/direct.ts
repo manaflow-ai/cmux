@@ -39,6 +39,8 @@ import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
+import { incomingPrompt } from "./conversation/incomingMessage";
+import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
 import { SessionPager, type SessionPage } from "./sessionPages";
@@ -48,6 +50,7 @@ import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, startModeChanged } from "./startMode";
 import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
+import { reduceAgentPair } from "./conversation/agentPairs";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -1182,6 +1185,11 @@ export class AcpmuxDirectClient {
     } else if (isNotification(notification, "_acpmux/session_changed")) this.sessionChanged(notification.params);
     else if (isNotification(notification, "_acpmux/permission_pending")) this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
+    // acpmux took a prompt this connection sent; it comes even when the event stream lags.
+    else if (notification.method === "_acpmux/prompt_accepted") {
+      const promptId = notification.params?.promptId;
+      if (typeof promptId === "string") this.promptAccepts.get(promptId)?.();
+    }
     // A profile change may pin or free a harness's mode, which changes a new chat's start mode too.
     else if (notification.method === "_acpmux/harnesses_changed") {
       this.onHarnessesChanged?.();
@@ -1677,7 +1685,8 @@ export class AcpmuxDirectClient {
       // A change that doesn't carry the queue keeps the one already mapped.
       if (session.queue) this.queue = mergeQueue(this.queue, session.queue);
     }
-    if (this.offerChildIds().includes(session.sessionId)) this.childChanged(session.sessionId);
+    if (this.offerChildIds().includes(session.sessionId) || this.isStartedChild(session))
+      this.childChanged(session.sessionId);
     // The picker lists every session, so a change elsewhere still needs a snapshot.
     this.emit("session changed");
   }
@@ -2056,7 +2065,25 @@ export class AcpmuxDirectClient {
           this.planCalls.clear();
         }
         this.streamingActivity = undefined;
-        const received = offersShown() ? offerResult(msg) : undefined;
+        // A task's result is not the person's prompt, shown or not: it never enters prompt recall.
+        const taskResult = offerResult(msg);
+        const received = offersShown() ? taskResult : undefined;
+        // Another agent's message or harness bookkeeping (conversation/incomingMessage.ts): the row
+        // keeps the sender's words, or the typed prompt without the bookkeeping. Bookkeeping alone
+        // keeps an empty row that draws nothing, so the answer it brought stays its own turn
+        // (turns.ts). Retry resends a message as the agent got it (`resend`); a notice, like
+        // bookkeeping, is the harness's, not a prompt to send again, so it offers no Retry.
+        const incoming = received ? undefined : incomingPrompt(String(msg.text ?? ""), msg);
+        const raw = String(msg.text ?? "");
+        const shown =
+          incoming?.kind === "message"
+            ? { text: incoming.message.text, incoming, resend: raw }
+            : incoming?.kind === "notice"
+              ? { text: incoming.text, incoming }
+              : incoming?.kind === "hidden"
+                ? { text: "", incoming }
+                : { text: incoming?.kind === "prompt" ? incoming.text : raw };
+        const untyped = taskResult !== undefined || (incoming !== undefined && incoming.kind !== "prompt");
         // Its queued line, if the result waited, gives way to this prompt's.
         if (received) this.rows.delete(`received-${received.offerId}`);
         if (received) this.receivedOffers.add(received.offerId);
@@ -2069,7 +2096,8 @@ export class AcpmuxDirectClient {
           version: 1,
           at: event.at,
           kind: "user",
-          text: String(msg.text ?? ""),
+          ...shown,
+          ...(untyped ? { untyped } : {}),
           ...(sentByChief(msg) ? { from: "chief" as const } : {}),
           ...(received ? { received } : {}),
           ...(steer ? { steer } : {}),
@@ -2140,7 +2168,7 @@ export class AcpmuxDirectClient {
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;
         this.streamingActivity = undefined;
-      } else this.reduceLiveState(event);
+      } else if (!reduceAgentPair(this.rows, event)) this.reduceLiveState(event);
       return;
     }
     if (!update) return;
@@ -2216,7 +2244,7 @@ export class AcpmuxDirectClient {
       const itemIndex = items.findIndex((item) => item.tool?.id === callId);
       const item = this.holdEdit(
         mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text, event.at),
-        event.kind === "tool_call",
+        itemIndex < 0 || items[itemIndex].tool?.status === "pending",
       );
       if (itemIndex >= 0) items[itemIndex] = item;
       else items.push(item);
@@ -2316,7 +2344,9 @@ export class AcpmuxDirectClient {
 
   /// `item` as the transcript shows it: an edit that waits on a permission question stays
   /// "pending". Claude asks one question at a time, so an edit that arrives while another's
-  /// question is open sends its diff before its own question, and waits too.
+  /// question is open sends its diff before its own question, and waits too. `isNew` is whether
+  /// the call had not run yet: acpmux names a call as its block starts, pending, and its input
+  /// (diff included) comes in its update.
   private holdEdit(item: AcpmuxActivity, isNew: boolean): AcpmuxActivity {
     const tool = item.tool;
     if (!tool) return item;
@@ -2523,8 +2553,9 @@ export class AcpmuxDirectClient {
   /// it), so the prompt leaves no bubble and the refusal names its reason in the transcript.
   /// `ticket`: the gesture a send kept for this prompt while acpmux held it for the folder trust
   /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it.
-  /// `steer`: into the running turn now, and an agent that cannot steer stops the turn and
-  /// takes it next (`_meta.acpmux.interrupt`); otherwise it waits behind the turn.
+  /// `steer`: into the running turn, read when the agent's current step ends; an agent that
+  /// cannot steer queues it behind the turn. Nothing sent stops the turn: only Stop does (Leo
+  /// 2026-10-20), so no send carries `_meta.acpmux.interrupt`.
   async send(
     input: string,
     attachments: ComposerAttachment[] = [],
@@ -2584,6 +2615,11 @@ export class AcpmuxDirectClient {
       accepted?.();
     };
     this.promptAccepts.set(promptId, accept);
+    // A prompt behind the turn is drawn in the queue now: that row is the send's confirmation, so
+    // the composer is free for the next prompt without waiting for acpmux's `queued` record (a
+    // lagged event stream can lose it, and the composer held the prompt with Return and Send dead
+    // until the turn ended). A refusal still comes back as its bubble with Retry.
+    if (waits) accept();
     this.emit();
     try {
       await this.request("session/prompt", {
@@ -2599,7 +2635,7 @@ export class AcpmuxDirectClient {
         _meta: {
           acpmux: {
             promptId,
-            ...(steer ? { steer: true, interrupt: true } : {}),
+            ...(steer ? { steer: true } : {}),
             ...(context ? { context } : {}),
           },
           ...(ticket ? { cmuxGesture: ticket } : {}),
@@ -2641,7 +2677,7 @@ export class AcpmuxDirectClient {
       const held = !taken && accepted !== undefined;
       // The folder's trust question (the one route); the pane's sender adds the re-send.
       this.routeTrustRefusal(error);
-      if ((isTrustRefusal(error) && !queued) || held) {
+      if ((isTrustRefusal(error) && !queued && !taken) || held) {
         this.rows.delete(rowId);
         this.optimisticPromptRows.delete(promptId);
         this.optimisticPromptTexts.delete(promptId);
@@ -2790,6 +2826,13 @@ export class AcpmuxDirectClient {
     const sessionId = this.actingSessionId;
     if (!sessionId) return { removed: false };
     return this.request("_acpmux/queue_remove", { sessionId, promptId });
+  }
+  /// Resumes the shown chat's paused messages with `peer` (acpmux `hub/agent_pairs.rs`): acpmux
+  /// delivers what the pair held, and its `agent_pair_resumed` record ends the pause.
+  resumeAgentPair(peer: string): Promise<{ resumed?: number; delivered?: number }> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
+    return this.request("_acpmux/agent_pair_resume", { sessionId, peerSessionId: peer });
   }
   /// Archive has acpmux tag the selected chat `archived` (the lists hide it; acpmux values it with
   /// when); Unarchive removes the tag. The page sends it on its own connection (cx-jlzsf).
@@ -2944,6 +2987,10 @@ export class AcpmuxDirectClient {
     return [...new Set(this.offerRows.values())].flatMap(
       (id) => this.rows.get(id)?.offers?.flatMap((offer) => (offer.childSessionId ? [offer.childSessionId] : [])) ?? [],
     );
+  }
+  /// A chat the shown chat's agent started, while started session cards draw (started/startedSessions.ts).
+  private isStartedChild(session: Session): boolean {
+    return !!this.selectedSessionId && session.spawnedBy === this.selectedSessionId && startedCardsShown();
   }
   /// Attaches to the started chats that run, for their rows' subtitles (offer/offerChildren.ts).
   private watchOfferChildren(): void {

@@ -148,7 +148,7 @@ fn add(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>) {
 /// `{"type":"assistant",...}` text and `tool_use` blocks.
 fn claude_steps(record: &Value, at: Option<u64>) -> Vec<Step> {
     let flag = |key: &str| record.get(key).and_then(Value::as_bool) == Some(true);
-    if flag("isSidechain") || flag("isMeta") || flag("isCompactSummary") {
+    if flag("isSidechain") || flag("isMeta") || flag("isCompactSummary") || !from_person(record) {
         return Vec::new();
     }
     let Some(content) = record.pointer("/message/content") else { return Vec::new() };
@@ -186,6 +186,16 @@ fn claude_prompt(content: &Value) -> Option<Step> {
         .iter()
         .any(|prefix| start.starts_with(prefix));
     (!echo).then_some(Step::Prompt(text))
+}
+
+/// Whether a Claude Code line came from the person: it has no `origin`, or its `origin.kind` is
+/// `human`. Claude Code also writes user lines itself (`task-notification` when a background task
+/// or subagent finishes, `peer` for another session's `<cross-session-message>`).
+pub(crate) fn from_person(record: &Value) -> bool {
+    match record.pointer("/origin/kind") {
+        None | Some(Value::Null) => true,
+        Some(kind) => kind.as_str() == Some("human"),
+    }
 }
 
 /// Codex rollouts: `{"type":"event_msg","payload":{"type":"user_message"|"agent_message","message":...}}`.

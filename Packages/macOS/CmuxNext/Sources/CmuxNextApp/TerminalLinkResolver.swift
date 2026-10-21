@@ -36,13 +36,13 @@ nonisolated enum TerminalLinkResolver {
             return .url(url)
         }
         guard allowsLocalFiles else {
-            return webURL(trimmed, isTopLevelDomain: isTopLevelDomain).map(TerminalLinkTarget.url)
+            return safeWebURL(trimmed, isTopLevelDomain: isTopLevelDomain).map(TerminalLinkTarget.url)
         }
         let path = withoutLocation(trimmed)
         for candidate in candidates(path, cwd: cwd, hostNames: localHostNames, fileManager: fileManager) {
             if let target = existing(candidate, fileManager: fileManager) { return target }
         }
-        return webURL(trimmed, isTopLevelDomain: isTopLevelDomain).map(TerminalLinkTarget.url)
+        return safeWebURL(trimmed, isTopLevelDomain: isTopLevelDomain).map(TerminalLinkTarget.url)
     }
 
     private static let openers: Set<Character> = ["\"", "'", "`", "“", "‘", "<", "[", "{", "("]
@@ -188,5 +188,10 @@ nonisolated enum TerminalLinkResolver {
               labels.allSatisfy({ !$0.isEmpty && $0.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") } }),
               isTopLevelDomain(String(last)) else { return nil }
         return URL(string: "https://" + text)
+    }
+
+    private static func safeWebURL(_ text: String, isTopLevelDomain: (String) -> Bool) -> URL? {
+        guard let url = webURL(text, isTopLevelDomain: isTopLevelDomain), safeTerminalURL(url) else { return nil }
+        return url
     }
 }

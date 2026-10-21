@@ -368,6 +368,14 @@ export const Envelope = (p: CvIconProps) => (
   </Svg>
 );
 
+/** A paused agent pair's note (AgentPairNote.tsx). */
+export const PauseCircle = (p: CvIconProps) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="5.75" />
+    <path d="M6.5 6v4M9.5 6v4" />
+  </Svg>
+);
+
 /** Arrow between a message's sender and recipient. */
 export const ArrowRight = (p: CvIconProps) => (
   <Svg {...p}>

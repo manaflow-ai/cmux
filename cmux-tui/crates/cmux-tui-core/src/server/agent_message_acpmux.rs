@@ -32,7 +32,8 @@ enum Heard {
 
 impl crate::mux::Mux {
     /// Hands `message` to the acpmux session `recipient` (`acp:<id>`) as a
-    /// prompt whose id is the message id, with its provenance; delivered once
+    /// prompt whose id is the message id, with its provenance, steered into a
+    /// running turn when its agent steers; delivered once
     /// acpmux accepts it (`_acpmux/prompt_accepted`) or answers its turn.
     pub(crate) fn acp_prompt_message(&self, message: &Value, recipient: &str) -> Handover {
         let (Some(session), Some(id)) = (recipient.strip_prefix("acp:"), message["id"].as_str())
@@ -61,7 +62,9 @@ impl crate::mux::Mux {
             link.close();
             return Handover::Unreachable;
         }
-        let mut meta = json!({"steer": false, "promptId": id, "resend": true});
+        // Steered into a running turn when the agent steers, so a busy recipient reads it now
+        // instead of after its turn; acpmux queues it for an agent that does not.
+        let mut meta = json!({"steer": true, "promptId": id, "resend": true});
         if let Some(provenance) = provenance(message, recipient) {
             meta["provenance"] = provenance;
         }

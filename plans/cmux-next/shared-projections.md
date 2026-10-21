@@ -95,18 +95,26 @@ the fetches and entrances (Web Animations and elements that gained `.cv-enter`,
 
 ## 5. Guard
 
-`scripts/cmux-next/check-switch-fetches.py` (in `bun run check`) reads the views listed in it (New
-Tab, composer, agent pane, transcript) and fails on:
+`scripts/cmux-next/check-switch-fetches.py` reads every agent-page source under
+`webviews/src/agent-session/acpmux` (galleries and tests excluded), with comments and strings
+masked, and fails on:
 
-- a `visibilitychange` or `focus` listener in a file that is not on its allowlist;
-- a `useEffect` with no dependencies or only stable ones whose body reads data (`callNative(`,
-  `.request(`, `fetch(`, `load(`), unless the line before it carries
-  `// mount-read: <reason>`.
+- a `visibilitychange` or `pageshow` listener, or a `focus` listener on the window or document,
+  whose file and event `ALLOWED_LISTENERS` does not list (an element's own `focus` is not a switch);
+- a `useEffect` or `useLayoutEffect` with no dependencies, or only stable read functions
+  (`callNative`, `fetchPage`, `load...`, `reload`, `refresh...`), that reads data or is itself a named
+  read, unless the line above it carries `// mount-read: <reason>` or `ALLOWED_MOUNT_READS` lists the
+  file. An effect that subscribes and reads on each push is the pattern and passes.
 
-Each allowlist entry names its reason. Adding one is a review question.
+Each allowlist entry names its reason or the change that removes it; adding one is a review
+question. It runs from `bun run check:switch-fetches` (in `bun run check`), and
+`scripts/cmux-next/tests/check-switch-fetches.test.sh` (fixtures, self-test, the tree) runs in the
+cmux-next workflow's script tests.
 
 ## 6. Exceptions and follow-ups
 
+- **Harness health on every focus** (`harnesses/HarnessesScreen.tsx`): re-reads to catch a Sign In
+  run in a terminal; it should re-read only once one ran, as `App.tsx` `healthStale` does.
 - **Start mode on return** (`startMode.ts`): fixed. acpmux watches the settings file
   (`hub/settings_watch.rs`) and sends `_acpmux/start_mode_changed` when
   `agents.defaultPermissionMode` changes, so `watchPage` is gone.
