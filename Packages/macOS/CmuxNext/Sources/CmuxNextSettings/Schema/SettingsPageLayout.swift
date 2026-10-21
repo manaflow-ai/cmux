@@ -15,8 +15,6 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case machines, accounts, agentHarnesses, chiefs, advancedInfo, advancedActions, backdrops, mobile, chiefPet
         /// The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md).
         case density
-        /// Every release channel's recent builds, with the one this Mac runs (Settings > Updates).
-        case channels
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -103,10 +101,10 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.announcements"), group("settings.group.chats"),
             ],
             trail: [.spaces], actions: [.general, .rooms], aliases: [.general, .rooms]),
-        // How this Mac updates, then every channel's recent builds (docs/release-rings.md in hq).
+        // How this Mac updates (docs/release-rings.md in hq).
         CategorySpec(
             id: "updates", title: SettingsText.keyed("settings.category.updates", "Updates"), symbol: "icloud.and.arrow.down",
-            groups: [group("settings.group.updates")], trail: [.channels]),
+            groups: [group("settings.group.updates")]),
         CategorySpec(
             id: "theme", title: SettingsText.keyed("settings.category.theme", "Theme"), symbol: "paintpalette",
             // appearance.theme and appearance.appTheme are drawn by the theme
