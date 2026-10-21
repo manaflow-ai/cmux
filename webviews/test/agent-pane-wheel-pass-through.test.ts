@@ -1,8 +1,7 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
-// The wheel over what floats on or under the transcript scrolls the transcript (Leo 2026-10-19:
-// "can't scroll when cursor on the jump to bottom", "can't scroll from bottom composer area"), as in
-// the Claude and Codex apps: over the Jump to latest button and over the composer's card. The
-// button still jumps when clicked. (wheelPassThrough.ts)
+// The wheel over Jump to latest scrolls the transcript (Leo 2026-10-19: "can't scroll when cursor on
+// the jump to bottom"), as in the Claude and Codex apps, and the button still jumps when clicked.
+// The bottom stack is a no-scroll zone (Leo 2026-10-20). (wheelPassThrough.ts)
 //
 // The pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
 // (support/papercutChat.ts). Real Chromium and WebKit (the app's engine) with real wheel events;
@@ -52,7 +51,12 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
   /// Wheels `deltaY` with the pointer at the middle of `selector`'s box, and the scroll it made.
   async function wheelOver(page: Page, selector: string, deltaY: number): Promise<number> {
     const box = (await page.locator(selector).first().boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    return wheelAt(page, box.x + box.width / 2, box.y + box.height / 2, deltaY);
+  }
+
+  /// Wheels `deltaY` with the pointer at (`x`, `y`), and the scroll it made.
+  async function wheelAt(page: Page, x: number, y: number, deltaY: number): Promise<number> {
+    await page.mouse.move(x, y);
     const before = await scrollTop(page);
     await page.mouse.wheel(0, deltaY);
     await page.waitForTimeout(400);
@@ -85,11 +89,25 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
         await page.close();
       });
 
-      test("the wheel over the composer scrolls the transcript", async () => {
+      // Leo 2026-10-20: "all of these areas are essentially a no-scroll zone", but "if it's not in
+      // the composer it should just scroll". The wheel over the composer's card moves neither the
+      // transcript nor the stack; the wheel in the gutter beside the card scrolls the transcript.
+      test("the wheel over the composer's card scrolls nothing, and beside it scrolls the transcript", async () => {
         current = browsers.get(name);
         const page = await pane!.open();
-        expect(await wheelOver(page, ".acpmux-composer-box", -300)).toBeLessThan(-100);
-        expect(await wheelOver(page, ".acpmux-composer-box", 150)).toBeGreaterThan(50);
+        // Up from the latest message, so the transcript can scroll either way.
+        expect(await wheelOver(page, ".acpmux-scroll", -1200)).toBeLessThan(0);
+        const card = (await page.locator(".acpmux-composer-box").first().boundingBox())!;
+        const composer = (await page.locator(".acpmux-dock > .acpmux-composer").first().boundingBox())!;
+        expect(card.x).toBeGreaterThan(composer.x + 12);
+        const [x, y] = [card.x + card.width / 2, card.y + card.height / 2];
+        // A wheel that got through moves the transcript 300 px; under 2 px is rows settling mid-history.
+        for (const deltaY of [-300, 300]) {
+          const moved = await wheelAt(page, x, y, deltaY);
+          expect([deltaY, Math.abs(moved) < 2 ? 0 : moved]).toEqual([deltaY, 0]);
+        }
+        expect(await wheelAt(page, card.x - 8, y, -300)).toBeLessThan(-100);
+        expect(await wheelAt(page, card.x - 8, y, 300)).toBeGreaterThan(100);
         await page.close();
       });
 
@@ -149,7 +167,13 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
         for (let step = 0; step < 45; step++) await page.keyboard.press("ArrowDown");
         await page.waitForTimeout(200);
         after = await field();
-        expect(after.end - after.top).toBeLessThan(10);
+        const lastLine = await page.evaluate(() => {
+          const box = document.querySelector(".acpmux-md-field")!;
+          const text = document.createRange();
+          text.selectNodeContents([...box.querySelectorAll("p")].at(-1)!.firstChild!);
+          return box.getBoundingClientRect().bottom - [...text.getClientRects()].at(-1)!.bottom;
+        });
+        expect(lastLine).toBeGreaterThanOrEqual(0);
         expect(await scrollTop(page)).toBe(transcript);
         expect(after.y).toBe(typed.y);
         expect(after.height).toBe(typed.height);

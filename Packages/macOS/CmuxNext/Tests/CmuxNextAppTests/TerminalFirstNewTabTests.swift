@@ -46,7 +46,7 @@ struct TerminalFirstNewTabTests {
             try await PasswordManagerRouteTests.until({ pages().count == 1 }, report: describe)
             let page = try #require(pages().first?.id)
             try await PasswordManagerRouteTests.until({ pane.currentTabKey == page }, report: { "selected: \(pane.currentTabKey ?? "none")" })
-            #expect(terminals().count == terminalsBefore, describe())
+            #expect(terminals().count == terminalsBefore, "\(describe())")
 
             try await settings.set(.bool(true), at: TerminalFirstSetting.configPath)
             try await PasswordManagerRouteTests.until({ services.settings?.snapshot.terminalFirst == true })
@@ -56,12 +56,12 @@ struct TerminalFirstNewTabTests {
             #expect(services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)))
             try await PasswordManagerRouteTests.until({ paneCount() == panesBefore + 1 && terminals().count == terminalsBefore + 1 },
                                                       report: describe)
-            #expect(pages().count == 1, describe())
+            #expect(pages().count == 1, "\(describe())")
 
             // Cmd-T: a terminal tab, never the page.
             #expect(services.registry.perform("newTab.default", invocation: ActionInvocation(origin: .user)))
             try await PasswordManagerRouteTests.until({ terminals().count == terminalsBefore + 2 }, report: describe)
-            #expect(pages().count == 1, describe())
+            #expect(pages().count == 1, "\(describe())")
         }
     }
 }

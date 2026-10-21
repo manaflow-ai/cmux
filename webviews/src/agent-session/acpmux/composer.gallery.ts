@@ -561,6 +561,83 @@ export default agentPaneEntry({
         if (!ctx.document.querySelector(".ui-backdrop")) throw new Error("PDF preview is missing its backdrop");
       },
     },
+    "file-saved-as-path": {
+      note: "Pasted files no content block takes (a zip, a video) are saved by the chat's host; each chip names the file and says it goes as a file path. A text file beside them is a plain file chip, sent in the prompt's text.",
+      snapshot: chat(finished),
+      native: {
+        "chat.upload": {
+          uploads: [
+            {
+              name: "build-logs.zip",
+              path: "/Users/dev/Library/Application Support/cmux/Chat Uploads/1/0/build-logs.zip",
+            },
+            { name: "repro.mov", path: "/Users/dev/Library/Application Support/cmux/Chat Uploads/1/1/repro.mov" },
+          ],
+        },
+      },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const files = [
+          new view.File(["# Notes\nRetry after 5 failures.\n"], "notes.md", { type: "text/markdown" }),
+          new view.File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff])], "build-logs.zip", {
+            type: "application/zip",
+          }),
+          new view.File([new Uint8Array([0, 0, 0, 0x18, 0xff])], "repro.mov", { type: "video/quicktime" }),
+        ];
+        const field = ctx.find({ selector: ".acpmux-md" });
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
+        field.dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-link[data-saved]").length === 2);
+        if (ctx.find({ selector: ".acpmux-md" }).textContent?.includes("Chat Uploads"))
+          throw new Error("a saved file's path must go as its chip's link, not as prompt text");
+      },
+    },
+    "file-not-attached": {
+      note: "A pasted file no content block takes, in a chat whose host saves nothing: no chip, and the note says why.",
+      snapshot: chat(finished),
+      native: { "chat.upload": { nativeError: { code: "unsupported" } } },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const file = new view.File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff])], "build-logs.zip", {
+          type: "application/zip",
+        });
+        const field = ctx.find({ selector: ".acpmux-md" });
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
+        field.dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector("output.acpmux-attachment-note"));
+      },
+    },
+    "image-sent-as-path": {
+      note: "A pasted screenshot for an agent that takes no images (promptCapabilities.image false) is saved by the host and goes as its file path; its chip says so.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: false } } }))(
+        chat(finished),
+      ),
+      native: {
+        "chat.upload": {
+          uploads: [
+            {
+              name: "Screenshot.png",
+              path: "/Users/dev/Library/Application Support/cmux/Chat Uploads/2/0/Screenshot.png",
+            },
+          ],
+        },
+      },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const png = Uint8Array.from(
+          atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="),
+          (char) => char.charCodeAt(0),
+        );
+        const file = new view.File([png], "Screenshot.png", { type: "image/png" });
+        const field = ctx.find({ selector: ".acpmux-md" });
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
+        field.dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-link[data-saved]"));
+      },
+    },
     draft: {
       note: "A draft the tab inherited (markdown, two lines).",
       ready: { draft: "Also add a **circuit breaker** after `5` failures.\nKeep the POST rule as is." },
