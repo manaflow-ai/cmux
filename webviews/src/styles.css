@@ -313,13 +313,15 @@ body {
   align-items: center;
   /* Base is the primary action and the highest-priority picker: it is content
      sized (no flex-grow, so it does not stretch into a half-empty button) and
-     has the LOWEST shrink, so it is the last to give up width. Its min-width
-     floor keeps `<head> -> <base>` legible; the secondaries (reason,
-     ahead/behind) shed via .base-picker-meta + the toolbar-left container
-     queries before the ref itself ellipsizes. Free toolbar space is left empty
-     to the right rather than padding out this button. */
+     the secondaries (reason, ahead/behind, then the head side) shed via
+     .base-picker-meta + the toolbar-left container queries before the ref
+     itself ellipsizes. Free toolbar space is left empty to the right rather
+     than padding out this button. No floor of its own: the ref's 6ch floor
+     keeps it legible, and a fixed one (150px, wider than `HEAD -> main v`)
+     pushed the jump-to-file chevron under the toolbar pill beside the files
+     sidebar. */
   flex: 0 1 auto;
-  min-width: 150px;
+  min-width: 0;
 }
 .base-picker-button {
   display: inline-flex;
@@ -375,8 +377,8 @@ body {
   /* Read-only head side of the comparison (current branch / detached HEAD). It
      is the least important token, so it ellipsizes FIRST: a higher flex-shrink
      than the base ref and a smaller min-width floor (4ch) mean it gives up
-     characters before the base ref does, but it does not vanish entirely while
-     any space remains. */
+     characters before the base ref does, and it hides whole only in a narrow
+     toolbar-left (the container query below). */
   flex: 0 8 auto;
   min-width: 4ch;
   overflow: hidden;
@@ -430,9 +432,18 @@ body {
 /* Clean-hide the secondaries at narrow toolbar-left widths so they disappear
    whole rather than clipping mid-glyph. The .base-picker-meta flex shrink above
    is the hard guarantee that the ref always wins; these container queries only
-   make the transition tidy. Widest-first: ahead/behind, then reason. */
+   make the transition tidy. Widest-first: ahead/behind, then the head side, then
+   reason. */
 @container toolbar-left (max-width: 380px) {
   .base-picker-aheadbehind {
+    display: none;
+  }
+}
+@container toolbar-left (max-width: 330px) {
+  /* The head side and its arrow, beside the files sidebar (the cell is about 313px
+     at 560px) before "HEAD" would clip to "HE…": the base ref is what it picks. */
+  .base-picker-head,
+  .base-picker-head + svg {
     display: none;
   }
 }
