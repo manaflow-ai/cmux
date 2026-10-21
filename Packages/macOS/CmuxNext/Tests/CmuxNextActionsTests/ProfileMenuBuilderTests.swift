@@ -60,6 +60,6 @@ struct ProfileMenuBuilderTests {
         let updates = menu.items[settings + 1]
         #expect(updates.identifier?.rawValue == "cmux.action.palette.checkForUpdates")
         #expect(updates.title == "Check for Updates…")
-        #expect(ActionRegistry.menuRun(of: updates)?.id == "palette.checkForUpdates")
+        #expect(updates.representedObject as? String == "palette.checkForUpdates")
     }
 }
