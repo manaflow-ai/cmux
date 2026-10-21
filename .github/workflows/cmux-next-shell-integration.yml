@@ -1,0 +1,59 @@
+name: cmux-next shell integration
+
+# cmux NEXT bundles Resources/shell-integration (scripts/cmux-next/bundle-ghostty-resources.sh),
+# and feat-cmux-next pull requests edit it, but its tests ran only on the classic app's lanes for
+# pull requests into main, or nowhere: these two had no registry entry
+# (tests/test_pr_lane_coverage.py). This runs them on Linux with zsh, bash and fish for every
+# feat-cmux-next pull request and push that touches the integration scripts.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - "Resources/shell-integration/**"
+      - "tests/test_shell_claude_rereports_pwd.py"
+      - "tests/test_zsh_git_head_watch_no_fork.py"
+      - ".github/workflows/cmux-next-shell-integration.yml"
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "Resources/shell-integration/**"
+      - "tests/test_shell_claude_rereports_pwd.py"
+      - "tests/test_zsh_git_head_watch_no_fork.py"
+      - ".github/workflows/cmux-next-shell-integration.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: cmux-next-shell-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  shell-integration:
+    name: cmux-next shell integration
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # The tests fail on CI without zsh (and fish for the fish case) rather than skip.
+      - name: Install zsh and fish
+        run: |
+          set -euo pipefail
+          if ! command -v zsh >/dev/null 2>&1 || ! command -v fish >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y zsh fish
+          fi
+          zsh --version
+          fish --version
+
+      - name: The first prompt after claude re-reports the shell's directory (zsh, bash, fish)
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_shell_claude_rereports_pwd.py
+
+      - name: The zsh git HEAD watcher polls without forking
+        if: ${{ !cancelled() }}
+        run: python3 tests/test_zsh_git_head_watch_no_fork.py
