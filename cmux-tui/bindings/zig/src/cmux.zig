@@ -344,6 +344,7 @@ pub const TerminalDefaultsMutationResult =
 
 test {
     _ = @import("resource/machine_read_tests.zig");
+    _ = @import("resource/layout_rows_tests.zig");
     std.testing.refAllDecls(resource);
     std.testing.refAllDecls(raw);
 }
