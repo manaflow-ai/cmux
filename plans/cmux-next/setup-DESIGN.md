@@ -18,7 +18,7 @@ for what a person must do: an OAuth sign-in, a secret, a macOS switch.
 | Tailscale, mesh | CLI only | `cmux host enable/status --json`; needs Tailscale signed in | yes | yes |
 | MCP servers | docs only; chats cmux starts get them (acpmux `agent_tools`) | `cmux setup mcp [claude\|codex ...]`; `cmux agents doctor --json` checks cmux-cua | yes | yes |
 | Computer Use | GUI (Computer Use Setup) | `cmux setup computer-use`; the person allows it on the app's sheet, and grants are switches in System Settings | yes | yes |
-| Browser import | GUI (Import from Browser...) | `cmux bookmark import-from-browser`, `cmux browser import-cookies` (consent panel); history and passwords person-only | partly | bookmarks/history merge |
+| Browser import | GUI (Import from Browser...) | `cmux setup browser-import --browser B [--cookies]`: bookmarks, and cookies after the person's Allow on the consent panel; history and passwords person-only | yes | bookmarks yes; cookies ask again |
 | Keyboard shortcuts | GUI (Keyboard Shortcuts) | `cmux keybinding list/resolve --json`; edits only over the raw socket or keybindings.json | reads yes | yes |
 | Notifications | GUI (Settings) | `cmux settings get/set notifications.*`; macOS permission asked on first use | yes | set yes; toggle-workspace-mute no |
 | Team invites | web dashboard | `POST /api/teams/<id>/invitations`; `cmux home invite --email` for Home conversations | API yes | no |
@@ -291,3 +291,30 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    would send a create, also one sent again with its key). When cloud-team-ready's `cloud
    list-machines` lands (owner personal|team), setup reads it instead of
    `cloud.machines`.
+7. `browser-import --browser BROWSER [--cookies [--domain D] [--reason
+   TEXT]]`: brings another browser's bookmarks, or its sign-ins, into
+   cmux. Without `--browser` it is `needs_user` (`kind` `choose`): the
+   agent asks which browser, or runs `cmux action run
+   bookmark.importFromBrowser` to show the person the app's picker of the
+   browsers it found. Bookmarks are not secrets, so setup does them: the
+   state is `bookmark.list`, where each imported profile is one Bookmarks
+   Bar folder with `source_key` `<browser id>/<profile folder>` (the
+   browser named by its registry id or product name, any case; the
+   registry is the app's `browser-sources.json`, compiled in). A folder of
+   that browser is `ok` and nothing runs; otherwise setup runs
+   `bookmark.importFromBrowser {browser, profile}` and reads the list
+   again: `changed`, with `after.folders` and the `undo` `cmux bookmark
+   remove --target bookmark:<id>` per new folder. A browser the app does
+   not find, or with no readable profile, is `needs_user` (`kind`
+   `browser`); profiles that could not be read next to ones that came in
+   are named in `failed`. Cookies are the person's: `--cookies` runs
+   `browser.importCookies {from, domain?, reason}`, and the app asks the
+   person on its consent panel (then macOS asks for the browser's Keychain
+   key). Allowed is `changed`; denied, timed out or another request
+   waiting is `needs_user` (`kind` `declined`), and the agent asks before
+   trying again. The app reads no imported cookies back, so a cookie run is
+   never `ok` and running it again asks again; it has no `undo` (clearing
+   the profile's cookies clears every cookie), and `undo_note` says so.
+   History and passwords are person-only (Import from Browser... in cmux);
+   every result names that in `person`. `cmux setup status` adds a
+   `browser_import` check: the browsers whose bookmarks are in.

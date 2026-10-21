@@ -123,3 +123,15 @@ one.
   machine: tell the user what its text says. Run `cmux setup cloud-machine
   --forget` only after the machine was killed, or once the user says no
   machine is on its way (a `wait` on an empty list ends that way).
+- Browser import: `cmux setup browser-import --browser BROWSER` (a name
+  like Chrome or Arc) imports its bookmarks into cmux; `ok` means they are
+  already in, and `undo` removes the new folders. Without `--browser` the
+  result is kind `choose`: ask the user which browser, or run its
+  `command` to show them cmux's list. Cookies (their sign-ins) are theirs:
+  ask the user first, then run it with `--cookies` and a `--reason` they
+  will read (`--domain` keeps it to some sites); cmux shows them a panel
+  to allow it, then macOS asks for the browser's Keychain password. It has
+  no undo and running it again asks them again. Kind `declined` means it
+  was not allowed (they said no or did not answer in time): ask them before
+  running it again. History and passwords only the user imports, from
+  Import from Browser... in cmux.
