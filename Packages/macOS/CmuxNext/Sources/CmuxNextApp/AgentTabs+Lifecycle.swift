@@ -116,11 +116,13 @@ extension AgentTabStore {
         return pending
     }
 
-    /// Why a tab cannot open on the session host `host`, nil when it can. A Chief subagent's tab
-    /// names this app's Chief home (`chief:<home id>`); no other host.
+    /// Why a tab cannot open on the session host `host`, nil when it can: none, this Mac's own
+    /// host, or this app's Chief home (`chief:<home id>`, a Chief subagent's tab). Another
+    /// machine's session never opens in a tab of this Mac (cx-k21v), and the refusal says so
+    /// (`app_agent_open` with `host: "cmux16"` said only "see the app log", 2026-10-20).
     static func hostRefusal(_ host: String?, localHost: String?, chiefHost: String?) -> String? {
-        guard let host, host != chiefHost else { return nil }
-        return RefusalStrings.agentTabCreateFailed
+        guard let host, host != chiefHost, host != localHost else { return nil }
+        return RefusalStrings.agentTabMachineMismatch
     }
 
     /// ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` in `pane`: the tab
