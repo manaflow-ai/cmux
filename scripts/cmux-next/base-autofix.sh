@@ -31,7 +31,7 @@
 #     workflow's read-only webviews-fmt job (it installs webviews' packages,
 #     which never run next to the push token); a patch reaching outside
 #     webviews/, or into its package.json or lockfile, is not applied
-#     (with --webviews-fmt-patch PATCH). The same job rebuilds the Chief memory
+#     (with --webviews-fmt-patch PATCH). The base autofix's job also rebuilds the Chief memory
 #     inspector page (build-optchat-inspector-web.sh, which bundles webviews
 #     sources), so the patch may also carry
 #     Native/OptChat/optchat-chief/inspector/index.html (a stale page left after
