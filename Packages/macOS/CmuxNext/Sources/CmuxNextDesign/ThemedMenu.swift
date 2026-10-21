@@ -42,6 +42,30 @@ extension NSMenu {
     }
 }
 
+extension NSMenu {
+    /// Runs `body` once a row chosen in this themed menu has run. A themed row runs its item after
+    /// the menu's tracking loop ends (`ThemedMenuRowView.activate`), so code that follows `popUp`
+    /// and settles the menu's outcome (a page menu that ends a dismissed request) waits for it.
+    /// The menu stays alive until then.
+    public func afterThemedRowRuns(_ body: @escaping @MainActor () -> Void) {
+        let step = ThemedMenuAfterRun { [self] in
+            _ = self
+            body()
+        }
+        RunLoop.main.perform(#selector(ThemedMenuAfterRun.run), target: step, argument: nil,
+                             order: ThemedMenuRowView.pendingRunOrder + 1, modes: [.default])
+    }
+}
+
+/// `afterThemedRowRuns`'s step: the run loop keeps its target until it runs.
+final class ThemedMenuAfterRun: NSObject {
+    private let body: @MainActor () -> Void
+
+    init(_ body: @escaping @MainActor () -> Void) { self.body = body }
+
+    @objc func run() { body() }
+}
+
 /// One opening of a themed menu, shared by its submenus: its action runs at most once.
 final class ThemedMenuSession {
     private(set) var hasRun = false

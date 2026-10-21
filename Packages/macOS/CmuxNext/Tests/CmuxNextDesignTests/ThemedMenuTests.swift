@@ -79,6 +79,25 @@ import Testing
         #expect(counter.sender === menu.items[0])
     }
 
+    /// Code after `popUp` that settles the menu's outcome runs after the chosen row has run
+    /// (a page menu ends a dismissed request only then; ending it first dropped every engine row).
+    @Test func afterThemedRowRunsComesAfterTheChosenRow() throws {
+        let counter = Counter()
+        let menu = Self.menu(counter)
+        menu.themeRows(in: try Self.accentedScope())
+        let row = try #require(menu.items[0].view as? ThemedMenuRowView)
+        let point = NSPoint(x: 30, y: row.bounds.midY)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                                        context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            type == .leftMouseDown ? row.mouseDown(with: event) : row.mouseUp(with: event)
+        }
+        var seen: Int?
+        menu.afterThemedRowRuns { seen = counter.count }
+        Self.drainRunLoop { seen != nil }
+        #expect(seen == 1, "the outcome step saw \(String(describing: seen)) runs of the chosen row")
+    }
+
     /// Return on a highlighted submenu row is AppKit's (it opens the submenu): the row passes it on.
     @Test func returnOnASubmenuRowIsNotSwallowed() throws {
         let counter = Counter()

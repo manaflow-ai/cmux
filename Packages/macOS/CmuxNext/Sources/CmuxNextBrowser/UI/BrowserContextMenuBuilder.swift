@@ -61,9 +61,9 @@ public final class BrowserContextMenuBuilder {
         presentedMenu = menu
         menu.popUp(positioning: nil, at: point, in: view)
         presentedMenu = nil
-        // An engine item's action already completed the request; this ends
-        // a dismissed menu (or one where a host item ran).
-        request.complete(nil)
+        // A chosen engine row completes the request with its id once tracking has ended; this then
+        // ends a dismissed menu (or one where a host item ran).
+        menu.afterThemedRowRuns { request.complete(nil) }
     }
 
     private func item(for model: BrowserContextMenuItem, request: BrowserContextMenuRequest) -> NSMenuItem {

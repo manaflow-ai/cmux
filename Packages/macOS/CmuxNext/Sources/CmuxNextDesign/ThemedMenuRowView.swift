@@ -134,7 +134,7 @@ public final class ThemedMenuRowView: NSView {
         root.cancelTracking()
         if menu !== root { menu.cancelTracking() }
         pendingItem = item
-        RunLoop.main.perform(#selector(runPendingItem), target: self, argument: nil, order: 0, modes: [.default])
+        RunLoop.main.perform(#selector(runPendingItem), target: self, argument: nil, order: Self.pendingRunOrder, modes: [.default])
     }
 
     @objc private func runPendingItem() {
@@ -221,6 +221,8 @@ extension ThemedMenuRowView {
     static let inset: CGFloat = 5, radius: CGFloat = 4
     static let markX: CGFloat = 10, titleX: CGFloat = 22, imageSide: CGFloat = 16, gap: CGFloat = 6
     static let trailing: CGFloat = 12, shortcutGap: CGFloat = 28
+    /// The run-loop order of a chosen row's run; `NSMenu.afterThemedRowRuns` comes after it.
+    static let pendingRunOrder = 0
     /// How long a release with no press on the row is ignored after the menu opens.
     static let openingGrace: TimeInterval = 0.3
     static var subtitleFont: NSFont { .menuFont(ofSize: NSFont.smallSystemFontSize) }
