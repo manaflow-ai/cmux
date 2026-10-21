@@ -24,7 +24,8 @@ import Testing
 
     @Test func aGroupsChiefWearsItsChosenAvatarAndOthersTheirMonogram() {
         var core = ProjectionCore(me: G.me)
-        #expect(core.setAvatars([G.chief.rawValue: .image(Self.picture)]) == nil, "nothing is shown before the install")
+        let early = core.setAvatars([G.chief.rawValue: .image(Self.picture)])
+        #expect(early == nil, "nothing is shown before the install")
         let (conv, _) = core.install(G.id, items: G.items([G.chief, G.me, G.alice]), summary: G.summary([G.me, G.alice, G.chief]))
         #expect(Self.avatars(AppState(conversation: conv)) == ["m1": .image(Self.picture), "m3": .monogram("AS")])
     }
@@ -35,12 +36,15 @@ import Testing
         var state = AppState(conversation: conv)
         #expect(Self.avatars(state)["m1"] == .monogram("C"), "no chosen avatar: the Chief's monogram")
 
-        let swap = try #require(core.setAvatars([G.chief.rawValue: .image(Self.picture)]))
+        let picked = core.setAvatars([G.chief.rawValue: .image(Self.picture)])
+        let swap = try #require(picked)
         _ = Reducer.reduce(&state, swap, now: G.date(61), newID: { "new" })
         #expect(Self.avatars(state) == ["m1": .image(Self.picture), "m3": .monogram("AS")])
-        #expect(core.setAvatars([G.chief.rawValue: .image(Self.picture)]) == nil, "the same avatars change nothing")
+        let again = core.setAvatars([G.chief.rawValue: .image(Self.picture)])
+        #expect(again == nil, "the same avatars change nothing")
 
-        let text = try #require(core.setAvatars([G.chief.rawValue: .monogram("🫡")]))
+        let saluted = core.setAvatars([G.chief.rawValue: .monogram("🫡")])
+        let text = try #require(saluted)
         _ = Reducer.reduce(&state, text, now: G.date(62), newID: { "new" })
         #expect(Self.avatars(state)["m1"] == .monogram("🫡"))
         #expect(state.conversation.messages.map(\.id) == conv.messages.map(\.id), "the messages stay")
