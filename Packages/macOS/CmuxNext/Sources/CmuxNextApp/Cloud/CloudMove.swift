@@ -261,7 +261,7 @@ struct CloudMove {
         if let live = machines.cloud.first(where: { $0.daemon.connection != nil }) ?? machines.cloud.first {
             return try await connected(live, invocation)
         }
-        let created = try await services.cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user)
+        let created = try await services.cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession)
         return try await connected(created, invocation)
     }
 

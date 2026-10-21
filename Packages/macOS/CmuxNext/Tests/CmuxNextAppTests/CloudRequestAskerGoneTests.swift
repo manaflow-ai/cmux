@@ -13,7 +13,7 @@ import Testing
 @MainActor @Suite(.serialized) struct CloudRequestAskerGoneTests {
     /// The agent chats open on this Mac, observed like the window's tab tree.
     @MainActor @Observable final class Chats {
-        var open: Set<String> = ["chat-1"]
+        var open: Set<String> = ["chat-1", "chat-2"]
     }
 
     /// Counts the creates that went out.
@@ -71,15 +71,16 @@ import Testing
         #expect(sent.count == 0, "a request whose chat closed made a machine")
     }
 
-    @Test func anOpenChatOrAnAskerWithNoChatHereKeepsTheCard() async throws {
+    @Test(arguments: ["chat-1", "chat-on-another-mac"])
+    func anOpenChatOrAnAskerWithNoChatHereKeepsTheCard(asker: String) async throws {
         let (services, window) = make()
         defer { window.close() }
         let chats = Chats(), sent = Sent()
-        let (task, card) = try await create(services, in: window, chats: chats, asker: "chat-on-another-mac", sent: sent)
+        let (task, card) = try await create(services, in: window, chats: chats, asker: asker, sent: sent)
 
-        chats.open.remove("chat-1") // another chat closing is not this asker going away
+        chats.open.remove("chat-2") // another chat closing is not this asker going away
         try await Task.sleep(for: .milliseconds(50)) // test-only: lets a wrong expiry land
-        #expect(services.machineAsks.card == card, "an asker this Mac shows no chat for lost its card")
+        #expect(services.machineAsks.card == card, "the request of \(asker) lost its card when another chat closed")
 
         let create = try #require(card.actions.first { $0.prominent })
         SidebarCardFeed.handle(.noticeAction(card: card.id, action: create.id), services: services)
