@@ -3190,6 +3190,20 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "waitingOn": {
+          "description": "What it waits on the person for: `question` (an agent question) or `permission`; null while nothing is pending. Only the person answers.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "waitingPrompt": {
+          "description": "The first prompt of the question it waits on, cut to 120 characters.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -3212,6 +3226,8 @@
         "backgroundsWork",
         "queue",
         "pendingPermissions",
+        "waitingOn",
+        "waitingPrompt",
         "enforcement",
         "rules",
         "tags",
@@ -3308,8 +3324,22 @@
     "TurnSummary": {
       "description": "The running turn.",
       "properties": {
+        "activity": {
+          "description": "What the turn does right now: its latest tool call's title; null\nuntil it calls one (`hub/activity.rs`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "client": {
           "type": "string"
+        },
+        "planStep": {
+          "description": "Its plan's entry in progress; null without one.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "prompt": {
           "type": "string"
@@ -3332,7 +3362,9 @@
         }
       },
       "required": [
+        "activity",
         "client",
+        "planStep",
         "prompt",
         "promptId",
         "startedAt",
