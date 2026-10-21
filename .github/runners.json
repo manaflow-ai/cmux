@@ -250,10 +250,6 @@
     "resume-nightly-notarization.yml#verify-stapled": "apple-signing-release",
     "seed-derived-data.yml#seed": "apple-app-build",
     "seed-swiftpm-manifests.yml#seed": "apple-app-build",
-    "signing-keychain-macos.yml#bash32-syntax": {
-      "class": "shell-parse",
-      "linux_followup": "build bash 3.2.57 on Linux and set CMUX_PARSE_BASH, which check-bash32-parse.sh already reads"
-    },
     "signing-keychain-macos.yml#real-import": "macos-runtime-tests",
     "terminal-hang-diagnostics.yml#phase-attribution": {
       "class": "apple-swift-tests",
