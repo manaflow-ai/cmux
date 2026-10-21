@@ -687,6 +687,20 @@ async fn an_adopted_agent_keeps_its_caller_token_across_an_update_restart() {
     let other = new_session(&daemon).await;
     let borrowed = list_as(&daemon, &other, &token).await;
     assert!(borrowed.get("error").is_some(), "one session's token proved another: {borrowed}");
+    // A new agent process has this run's token; the earlier one stops counting.
+    let out = daemon_env::acpmux(&daemon.home)
+        .args(["session", "restart", &session])
+        .env("ACPMUX_HOME", &daemon.home)
+        .env("ACPMUX_SOCKET", &daemon.socket)
+        .output()
+        .expect("run acpmux session restart");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let fresh = agent_env(&daemon, &session, "ACPMUX_SESSION_TOKEN").await;
+    assert_ne!(fresh, token, "the restarted agent kept the earlier run's token");
+    let stale = list_as(&daemon, &session, &token).await;
+    assert!(stale.get("error").is_some(), "the replaced agent's token still proves it: {stale}");
+    let current = list_as(&daemon, &session, &fresh).await;
+    assert!(current.get("error").is_none(), "the restarted agent's token: {current}");
 }
 
 /// A caller token the daemon cannot prove (a host of an older build kept an
@@ -699,6 +713,9 @@ async fn an_unproven_caller_token_is_refused_with_how_to_get_a_new_one() {
     let refused = list_as(&daemon, &session, &"0".repeat(64)).await;
     let error = &refused["error"];
     assert_eq!(error["data"]["reason"], "subsessions.caller_not_proven", "{refused}");
+    // A session this daemon does not have gets no restart advice.
+    let unknown = list_as(&daemon, "no-such-session", &"0".repeat(64)).await;
+    assert_eq!(unknown["error"]["data"]["reason"], "subsessions.caller_required", "{unknown}");
     let message = error["message"].as_str().unwrap_or_default();
     assert!(
         message.contains(&format!("acpmux session restart {session}")),
