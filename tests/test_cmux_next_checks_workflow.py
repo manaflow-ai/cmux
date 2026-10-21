@@ -1317,6 +1317,33 @@ class FastTierReusesAPassOnTheSameInputs(unittest.TestCase):
                 self.assertEqual(save["with"], {"path": JOB_PASS_DIR, "key": "${{ steps.reuse-key.outputs.key }}"})
                 self.assertIs(save.get("continue-on-error"), True)
 
+    # The toolchain each job's key names, and the step that puts it on the runner first.
+    TOOLCHAIN = {
+        "fast-tier": {'"xcode=$(xcodebuild -version': "Select Xcode", '"macos=$(sw_vers -productVersion)"': None,
+                      '"macos_build=$(sw_vers -buildVersion)"': None, '"arch=$(uname -m)"': None,
+                      '"pool=': None, '"image=': None},
+        "fast-tier-cargo": {'"rustc=$(rustc -Vv': "Set up pinned cmux-tui Rust",
+                            '"cargo=$(cargo -V': "Set up pinned cmux-tui Rust",
+                            '"zig=$(': "Install zig", '"runner=': None,
+                            '"clang=$(clang --version': "Install Linux build dependencies", '"image=': None},
+    }
+
+    def test_the_key_names_the_toolchain_that_runs_the_job(self):
+        for job, values in self.TOOLCHAIN.items():
+            steps = self.steps(job)
+            at = index_of(steps, lambda s: s.get("id") == "reuse-key")
+            for value, setup in values.items():
+                with self.subTest(job=job, value=value):
+                    self.assertIn(f"--extra {value}", steps[at]["run"])
+                    if setup:
+                        self.assertLess(index_of(steps, lambda s: s.get("name") == setup), at,
+                                        f"{setup} runs before the key names its toolchain")
+        # The Mac pool: owned minis, Blacksmith and hosted Macs differ in Reduce Motion/Transparency.
+        pool = next(line for line in self.steps("fast-tier")[index_of(
+            self.steps("fast-tier"), lambda s: s.get("id") == "reuse-key")]["run"].splitlines() if '"pool=' in line)
+        for needle in ("'-glaeda'", "'blacksmith-'", "'github-hosted'"):
+            self.assertIn(needle, pool)
+
 
 class FastTierStartsWarm(unittest.TestCase):
     """The fast tier restores the build a feat-cmux-next push seeded into NEXT's own R2 bucket.
