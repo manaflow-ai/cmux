@@ -1276,6 +1276,8 @@ jobs:
             bash tests/test_strip_release_bundle.sh
             # The pre-push gate refuses a push that adds a violation and names the commit in CI.
             python3 tests/test_cmux_next_prepush_gate.py
+            # The perf gate skips its per-frame timings on a window that draws no frames (--frames auto).
+            python3 tests/test_cmux_next_perf_gate_unlit.py
             # A base merge pushed while the PR's CI runs gets a warning (scripts/ci/base_merge_warning.py).
             python3 tests/test_base_merge_warning.py
             # A changed tree, workflow file or toolchain never reuses a fast-tier pass (CI_NEXT_JOB_REUSE).
