@@ -31,6 +31,8 @@ enum MainMenu {
             item(Strings.menuCut, #selector(NSText.cut(_:)), "x", [.command]),
             item(Strings.menuCopy, #selector(NSText.copy(_:)), "c", [.command]),
             item(Strings.menuPaste, #selector(NSText.paste(_:)), "v", [.command]),
+            // Cmd+Shift+V, as in Chrome and Slack (Lawrence 2026-10-20): plain text only, in any text input.
+            item(Strings.menuPasteAndMatchStyle, #selector(NSTextView.pasteAsPlainText(_:)), "v", [.command, .shift]),
             item(Strings.menuSelectAll, #selector(NSText.selectAll(_:)), "a", [.command]),
         ]))
         mainMenu.addItem(submenu(Strings.menuView, items: registry.makeMainMenuItems(for: .view)))
@@ -49,10 +51,7 @@ enum MainMenu {
         NSApp.windowsMenu = windowMenu.submenu
         // Debug (DEV and NIGHTLY, `DevTools`): debug-only actions placed there.
         var debug = DevTools.isEnabled ? registry.makeMainMenuItems(for: .debug) : []
-        if DevTools.isEnabled {
-            debug += [.separator(), SidebarToggleIconMenu.shared.makeItem(), StatusIconSetMenu.shared.makeItem(),
-                      SidebarPriorityMenu.shared.makeItem(), MotionDebugMenu.shared.makeItem()]
-        }
+        if DevTools.isEnabled { debug += [.separator(), SidebarToggleIconMenu.shared.makeItem(), StatusIconSetMenu.shared.makeItem()] }
         if !debug.isEmpty { mainMenu.addItem(submenu(Strings.menuDebug, items: debug)) }
         // Help, last as on every Mac: macOS adds its search field to `NSApp.helpMenu`.
         let helpMenu = submenu(Strings.menuHelp, items: helpPlacements(registry))

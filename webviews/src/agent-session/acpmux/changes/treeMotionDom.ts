@@ -47,7 +47,7 @@ const reducedMotion = () => globalThis.matchMedia?.("(prefers-reduced-motion: re
  * Returns the cleanup. Arm a (today's instant layout) attaches nothing.
  */
 export function attachTreeMotion(container: HTMLElement, arm: TreeArm): () => void {
-  if (arm === "a") return () => {};
+  if (arm === "a" || isAgentMotionOff()) return () => {};
   let shadow: ShadowRoot | null = null;
   let observer: MutationObserver | null = null;
   let snapshot: Snapshot | null = null;
@@ -281,6 +281,10 @@ export function attachTreeMotion(container: HTMLElement, arm: TreeArm): () => vo
   };
 
   function onMutations(records: MutationRecord[]) {
+    if (isAgentMotionOff()) {
+      finish();
+      return;
+    }
     if (
       records.every(
         (record) =>

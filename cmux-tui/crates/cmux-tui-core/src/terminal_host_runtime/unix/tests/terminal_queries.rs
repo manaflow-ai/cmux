@@ -100,6 +100,7 @@ impl QueryHost {
             source_cursor: None,
             acknowledge_with_replay: false,
             targeted_ack: None,
+            pty_previous: None,
             response,
         };
         self.host.parser_commands.send(command).unwrap();

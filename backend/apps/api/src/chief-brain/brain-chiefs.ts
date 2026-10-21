@@ -4,6 +4,7 @@ import type { OwnerFrame } from "@cmux/ownership"
 import type { Env } from "../env.ts"
 import { signInRules } from "../policy-gate.ts"
 import { type BrainConfig, patchError } from "./brain-store.ts"
+import { effectRefusal } from "./effect-policy.ts"
 
 /**
  * The `chiefs` tool of a Cloud Chief (Lawrence 2026-10-14: Chiefs make and edit other Chiefs; the
@@ -131,13 +132,14 @@ export const manageChiefs = async (env: Env, agent: string, owner: string, args:
 }
 
 /** The tool, for a brain whose `who()` names its chief and owner (null: not bound yet). */
-export const chiefsTools = (env: Env, who: () => { agent: string | null; owner: string | null }): [ToolRegistration<typeof Args>] => [
+export const chiefsTools = (env: Env, who: () => { agent: string | null; owner: string | null }, effectsAuthorized: () => boolean = () => true): [ToolRegistration<typeof Args>] => [
   {
     name: "chiefs",
     description: CHIEFS_DESCRIPTION,
     parameters: Args,
     replay: "unsafe",
     execute: async (args, api) => {
+      if (!effectsAuthorized()) return effectRefusal()
       const { agent, owner } = who()
       // The call id keys the writes: a retried call commits once.
       const text = !agent || !owner

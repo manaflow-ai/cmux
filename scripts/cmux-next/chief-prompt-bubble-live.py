@@ -6,7 +6,7 @@ message that you sent." A Chief subagent's first prompt is the Chief's whole vie
 (100+ KB, optchat-chief `prompt::subagent_blocks`), so it is larger than the 128 KB page the pane
 opens a chat with, and the page started after it. This run proves the pane draws it anyway.
 
-No real agent and no credentials: the tagged app's own acpmux runs the test agent
+No real agent and no credentials: the tagged app's own acpmux (in a scratch ACPMUX_HOME) runs the test agent
 (cmux-tui/crates/acpmux/tests/fake_agent.py) as harness `fake`, with FAKE_TOOL_CALLS (a turn of
 shell calls, as a working agent's) and FAKE_SHORT_ECHO (a short reply). The prompts go to acpmux
 exactly as the Chief sends them: `session/prompt` with promptId `optchat-sub:<id>:<ms>` (the task)
@@ -42,7 +42,7 @@ open(os.path.join(SCRATCH, "ghostty"), "w").close()
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 open(CONFIG, "w").write("{}\n")
 os.makedirs(opts.out, exist_ok=True)
-ROWS, RESTORE = [], []
+ROWS = []
 app = None
 
 TASK_MARK = "probe-task-u4256"
@@ -135,40 +135,20 @@ def socket_of(home):
     return f"/tmp/acpmux-{os.getuid()}/{h:016x}.sock"
 
 
-def acpmux_home():
-    home = os.path.join(os.environ["HOME"], ".acpmux", "builds",
-                        "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", TAG.lower()).strip("."))
-    return home if os.path.exists(socket_of(home)) else None
+# The app's acpmux runs in a scratch home (an explicit ACPMUX_HOME, which the app honours), with harness
+# `fake` already in its config: no other build's daemon or config is touched, and nothing needs putting back.
+ACPMUX_HOME = tempfile.mkdtemp(prefix="cb-acpmux-", dir="/tmp")
+ACPMUX_SOCK = os.path.join(ACPMUX_HOME, "acpmux.sock")
+with open(os.path.join(ACPMUX_HOME, "config.json"), "w") as f:
+    json.dump({"harnesses": {"fake": {
+        "argv": ["/usr/bin/env", "FAKE_TOOL_CALLS=12", "FAKE_SHORT_ECHO=1", "python3", FAKE_AGENT]}}}, f, indent=2)
 
 
-def configure_fake(home):
-    """Harness `fake` in the tag's acpmux config, read again by the running daemon; put back on exit."""
-    path = os.path.join(home, "config.json")
+def acpmux_up():
     try:
-        original = open(path).read()
-    except FileNotFoundError:
-        original = None
-    config = json.loads(original) if original is not None else {}
-    config.setdefault("harnesses", {})["fake"] = {
-        "argv": ["/usr/bin/env", "FAKE_TOOL_CALLS=12", "FAKE_SHORT_ECHO=1", "python3", FAKE_AGENT]}
-    temp = path + ".probe"
-    open(temp, "w").write(json.dumps(config, indent=2))
-    os.replace(temp, path)
-    RESTORE.append((path, original))
-    client = Acpmux(socket_of(home))
-    print("reload", json.dumps(client.request("_acpmux/reload_config", {}))[:200], flush=True)
-    return client
-
-
-def restore():
-    for path, original in RESTORE:
-        try:
-            if original is None:
-                os.remove(path)
-            else:
-                open(path, "w").write(original)
-        except OSError as error:
-            print("could not restore", path, error, flush=True)
+        return Acpmux(ACPMUX_SOCK)
+    except OSError:
+        return None
 
 
 def chief_view(kb):
@@ -204,8 +184,11 @@ def check_first(label, extra=""):
     shown = wait(lambda: (lambda b: b if b and TASK_MARK in b[0].get("text", "") else None)(bubbles()), 30) or bubbles()
     first = shown[0] if shown else {}
     snap = snapshot(label)
-    row(f"{label}: first bubble is the Chief's task", f"text starts '{TASK_MARK}'", (first.get("text") or "")[:80],
-        (first.get("text") or "").startswith(TASK_MARK))
+    text = first.get("text") or ""
+    # The task as the Chief wrote it (its Title line first), without the view or the "Your task:" label.
+    row(f"{label}: first bubble is the Chief's task", f"the task with '{TASK_MARK}', no view or label", text[:120],
+        text.startswith("Title: Prompt bubble probe") and TASK_MARK in text and "<chat>" not in text
+        and "Your task:" not in text)
     row(f"{label}: marked as from the Chief", "From the Chief", str(first.get("from")), bool(first.get("from")))
     row(f"{label}: the Chief's view is one collapsed line", "a context summary", str(first.get("context")),
         bool(first.get("context")))
@@ -219,20 +202,29 @@ def main():
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_NO_ACTIVATE": "1",
            "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"),
-           "CMUX_NEXT_TEST_WINDOW_FRAME": "80,80,1400,900"}
+           "CMUX_NEXT_TEST_WINDOW_FRAME": "80,80,1400,900",
+           "ACPMUX_HOME": ACPMUX_HOME, "ACPMUX_SOCKET": ACPMUX_SOCK}
     log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     print(f"launched pid {app.pid}", flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
         sys.exit("the tagged app did not come up")
     time.sleep(3)  # test harness: launch work settles
-    print("open chat", json.dumps(rpc("action.run", {"action": "palette.newAgentChat", "focus": True}))[:300], flush=True)
-    home = wait(acpmux_home, 90, 0.5)
-    if not home:
-        row("the tag's acpmux runs", "an acpmux home for the tag", "none", False)
+    # An agent tab, as a person opens one (Cmd-Shift-I); its pane starts the app's acpmux.
+    rpc("debug.key", {"key": "i", "modifiers": ["cmd", "shift"]})
+    if not wait(lambda: "error" not in (pane("pid") or {"error": 1}), 60, 0.5):
+        print("open chat", json.dumps(rpc("action.run", {"action": "palette.newAgentChat", "focus": True}))[:300], flush=True)
+        wait(lambda: "error" not in (pane("pid") or {"error": 1}), 60, 0.5)
+    print("agent pane", json.dumps(pane("pid"))[:200], flush=True)
+    client = wait(acpmux_up, 90, 0.5)
+    if not client:
+        row("the app's acpmux runs", f"a daemon on {ACPMUX_SOCK}", f"none; home holds {sorted(os.listdir(ACPMUX_HOME))}", False)
+        for name in ("daemon.log",):
+            path = os.path.join(ACPMUX_HOME, name)
+            if os.path.exists(path):
+                print(open(path).read()[-3000:], flush=True)
         return
-    client = configure_fake(home)
-    wait(lambda: "error" not in pane("pid"), 60, 0.5)
+    print("harnesses", json.dumps(client.request("_acpmux/harnesses", {}))[:300], flush=True)
 
     def new_session():
         made = client.request("session/new", {"cwd": SCRATCH, "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}})
@@ -287,7 +279,6 @@ def main():
 
 
 def stop():
-    restore()
     rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
     if app:
         try:

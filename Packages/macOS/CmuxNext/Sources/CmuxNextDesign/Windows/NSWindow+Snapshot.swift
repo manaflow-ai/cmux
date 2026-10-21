@@ -154,40 +154,24 @@ extension NSWindow {
 
     /// Whether every pixel of `image` is transparent (sampled at 64 x 64).
     static func isBlank(_ image: CGImage) -> Bool {
-        let side = 64
-        var pixels = [UInt8](repeating: 0, count: side * side * 4)
-        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(data: buffer.baseAddress, width: side, height: side, bitsPerComponent: 8,
-                                          bytesPerRow: side * 4, space: CGColorSpaceCreateDeviceRGB(),
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
-            context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
-            return true
-        }
-        guard drawn else { return true }
-        return !stride(from: 3, to: pixels.count, by: 4).contains { pixels[$0] > 0 }
-    }
-
-    /// Captures the window image: composited when the window server gives one,
-    /// else AppKit drawing. The capture itself must stay on the main actor
-    /// because it reads AppKit state. Callers that already have an async
-    /// boundary should encode the returned image away from the main actor.
-    public func snapshotImage() throws -> (image: CGImage, method: WindowSnapshotMethod) {
-        if let image = compositedSnapshot() {
-            return (image, .composited)
-        }
-        if let image = renderSnapshot()?.cgImage {
-            return (image, .appkit)
-        }
-        throw CocoaError(.fileWriteUnknown)
+        image.isFullyTransparent
     }
 
     /// Writes the window as PNG to `url`: composited when the window server
     /// gives an image (``compositedSnapshot()``), else AppKit drawing
     /// (``renderSnapshot()``). Returns the pixel size and the method used.
     public func writeSnapshot(to url: URL) throws -> (size: CGSize, method: WindowSnapshotMethod) {
-        let snapshot = try snapshotImage()
-        let rep = NSBitmapImageRep(cgImage: snapshot.image)
-        let method = snapshot.method
+        let rep: NSBitmapImageRep
+        let method: WindowSnapshotMethod
+        if let image = compositedSnapshot() {
+            rep = NSBitmapImageRep(cgImage: image)
+            method = .composited
+        } else if let drawn = renderSnapshot() {
+            rep = drawn
+            method = .appkit
+        } else {
+            throw CocoaError(.fileWriteUnknown)
+        }
         guard let data = rep.representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
         try data.write(to: url, options: .atomic)
         return (CGSize(width: rep.pixelsWide, height: rep.pixelsHigh), method)

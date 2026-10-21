@@ -37,6 +37,15 @@ REVIEWED_FIELDS = {
                                            "603297ce84b828a2"),
     ("clear-history", "fallback_key"): ("TerminalKeyInput: a key to send when the surface cannot clear",
                                         "a5c09e7823e98e46"),
+    # This lane refuses new-conversation-tab outright (DaemonLanePolicy.evaluate); cmux-mobile-host is the
+    # lane that forwards it, with its own agent_session review (cmux-mobile-host/src/policy.rs).
+    ("new-conversation-tab", "agent_session"): ("AgentSessionSource: four strings naming the acpmux session a "
+                                                "tab shows (host, session, harness, host_name); the daemon "
+                                                "only records them and starts nothing",
+                                                "db5f27c4f0aa2ac2"),
+    ("new-conversation-tab", "split"): ("ConversationTabSplit: a side and caller-minted pane_/split_ ids "
+                                        "for placing the tab in a new pane",
+                                        "51c9b9b2ab895f7a"),
 }
 
 

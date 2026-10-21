@@ -138,6 +138,7 @@ export function ThinkingSteps({
       type="button"
       className="sa-toggle"
       aria-pressed={stepsOn}
+      // tooltip-allow: carries the ⌥⌘T shortcut.
       title="Show steps (⌥⌘T)"
       onClick={() => setStepsOn((value) => !value)}
     >

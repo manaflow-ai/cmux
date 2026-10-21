@@ -15,6 +15,7 @@
 //!   `completed`, `failed`, `cancelled` or `disconnected`. A running one's
 //!   progress adds `tokens`, `toolUses`, `elapsedMs`, `action` and, for a
 //!   Claude workflow (`kind: "workflow"`), `agents: {done, started}`.
+//!   `background: true` marks one that outlives its parent's stopped turn.
 
 use crate::hub::merge_mux_meta;
 use serde_json::{Map, Value, json};
@@ -79,6 +80,9 @@ impl SubagentTree {
                 {
                     event.insert("kind".into(), json!(kind));
                 }
+                if update.get("background") == Some(&Value::Bool(true)) {
+                    event.insert("background".into(), json!(true));
+                }
                 event.insert("state".into(), json!("running"));
                 vec![Value::Object(event)]
             }
@@ -94,7 +98,16 @@ impl SubagentTree {
                 let Some(id) = s(update, "subagentSessionId") else { return vec![] };
                 let mut event = self.spawn(&id, owner);
                 event.insert("state".into(), json!("running"));
-                for key in ["name", "task", "tokens", "toolUses", "elapsedMs", "action", "agents"] {
+                for key in [
+                    "name",
+                    "task",
+                    "tokens",
+                    "toolUses",
+                    "elapsedMs",
+                    "action",
+                    "agents",
+                    "background",
+                ] {
                     if let Some(v) = update.get(key).filter(|v| !v.is_null()) {
                         event.insert(key.into(), v.clone());
                     }

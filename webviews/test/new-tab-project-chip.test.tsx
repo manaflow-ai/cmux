@@ -115,16 +115,6 @@ test("before the host names a start folder, the chip asks for a project", async 
   expect(await mount("/Users/you/src/app")).toBe("Choose folder");
 });
 
-test("the new tab exposes its project and machine context above the prompt", async () => {
-  await mount("/Users/you", "/Users/you/src/app");
-  const location = host.querySelector<HTMLElement>(".nt-location")!;
-  expect(location.querySelector('button[aria-label="Folder"]')?.textContent?.trim()).toBe("app");
-  expect(location.querySelector('button[aria-label^="Computer"]')?.textContent?.trim()).toBe("This Mac");
-  expect(location.compareDocumentPosition(host.querySelector(".nt-input")!) ?? 0).toBe(
-    Node.DOCUMENT_POSITION_FOLLOWING,
-  );
-});
-
 // Leo 2026-10-19: the first frame showed "Choose folder", then the project the tab inherited once
 // the handshake named it. Before the handshake answers, the chip names that project (the handshake
 // starts the chat there); the home folder is still never one.

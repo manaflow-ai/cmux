@@ -11,7 +11,8 @@ enum AgentPanePageHost {
         let page = PageWebView(descriptor: .agent, root: root,
                                routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)],
                                documentAttributes: AgentPaneTunables.documentAttributes,
-                               options: PageEngineOptions(fullFrameRate: renderRate != .capped))
+                               options: PageEngineOptions(fullFrameRate: renderRate != .capped,
+                                                                  chromiumAgentChat: AgentPaneTunables.chromium.value))
         // The composer menu's edits run as the page view's own responder actions.
         provider.onEdit = { [weak page] command in
             if let view = page?.webKitView { NSApp.sendAction(command.selector, to: view, from: nil) }
@@ -30,12 +31,13 @@ enum AgentPanePageHost {
         events.append(.sessionStatus(view.sessionStatus))
         events.append(AgentPaneSuggestedTasks.shared.event(for: view))
         events.append(.deviceChats(AgentPaneDeviceChat.shown(view.deviceChats, in: view)))
-        events.append(.recentlyClosed(view.recentlyClosed))
+        events.append(view.recentlyClosed.event)
         events.append(AgentPaneNowPlaying.shared.event(for: view))
         events.append(.editedFiles(view.editedFiles))
         events.append(.composer(view.model.composer))
         events.append(.sidebarPreviewVariant(view.model.sidebarPreviewVariant))
         events.append(.diffColors(view.model.diffColors))
+        events.append(.display(view.model.display))
         events.append(.toolCards(view.model.toolCards))
         events.append(view.model.tabRow.event)
         if !view.customization.isEmpty { events += AgentPageEvent.customization(view.customization) }

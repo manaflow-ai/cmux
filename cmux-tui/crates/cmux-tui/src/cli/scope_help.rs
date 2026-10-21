@@ -19,6 +19,9 @@ USAGE
   cmux browser <selector> attach|close [OPTIONS]
   cmux browser page|<tab_…> <verb> [ARGS]   Drive a page the cmux app hosts
     (`cmux browser page --help`)
+  cmux browser right <verb> [ARGS] [--agent NAME]   The same verbs on the
+    browser right of the Home chat (an agent's own tab there, opened when
+    needed; `cmux browser right release` gives it back)
 
 browser open adds a browser tab, like
 `cmux tab create browser --url <url> [--workspace <selector>]`: in the named
@@ -64,7 +67,7 @@ USAGE
     [--state busy|waiting|success|error|info] [--progress 0.4|40%]
     [--style arc|native|dot|none] [--ttl 30s] [--pid <n>] [--keep | --owner none]
   cmux status clear [KEY] [--target <ws_…>|current] [--all]
-  cmux status list [--target <ws_…>|current]
+  cmux status list [--target <ws_…>|current | --all]
   cmux status run [--label <text>] [--target <ws_…>|current] [--badge-ttl 8s] -- CMD …
   cmux status wait KEY [--target <ws_…>|current] [--until settled|cleared|state=<s>]
     [--timeout <500ms|30s|5m>]
@@ -77,7 +80,8 @@ KEY defaults to cli:<terminal>, so repeated sets from one terminal replace each
 other. An entry set from a terminal belongs to that terminal and goes when it
 closes; --pid ties it to a process instead, --ttl ends it after that long, and
 --keep (or --owner none) keeps it until cleared. clear without KEY clears the
-default key; --all clears every entry of the workspace.
+default key; --all clears every entry of the workspace. list --all lists the
+entries of every workspace.
 
 run marks the entry busy and owned by this process (a killed CLI leaves no
 spinner), runs CMD with the terminal's input and output, then shows success or

@@ -15,6 +15,9 @@ enum Strings {
     static var menuCut: String { String(localized: "menu.edit.cut", defaultValue: "Cut", bundle: .module) }
     static var menuCopy: String { String(localized: "menu.edit.copy", defaultValue: "Copy", bundle: .module) }
     static var menuPaste: String { String(localized: "menu.edit.paste", defaultValue: "Paste", bundle: .module) }
+    static var menuPasteAndMatchStyle: String {
+        String(localized: "menu.edit.pasteAndMatchStyle", defaultValue: "Paste and Match Style", bundle: .module)
+    }
     static var menuSelectAll: String { String(localized: "menu.edit.selectAll", defaultValue: "Select All", bundle: .module) }
     static var menuView: String { String(localized: "menu.view", defaultValue: "View", bundle: .module) }
     static var menuWindow: String { String(localized: "menu.window", defaultValue: "Window", bundle: .module) }
@@ -25,45 +28,6 @@ enum Strings {
     }
     static var menuStatusIcons: String {
         String(localized: "menu.debug.statusIcons", defaultValue: "Status Icons", bundle: .module)
-    }
-    static var menuSidebarPriority: String {
-        String(localized: "menu.debug.sidebarPriority", defaultValue: "Sidebar Priority", bundle: .module)
-    }
-    static var menuSidebarPriorityFollowSetting: String {
-        String(localized: "menu.debug.sidebarPriority.followSetting", defaultValue: "Follow Setting", bundle: .module)
-    }
-    static var menuSidebarPriorityManual: String {
-        String(localized: "menu.debug.sidebarPriority.manual", defaultValue: "Manual Order", bundle: .module)
-    }
-    static var menuSidebarPriorityAttention: String {
-        String(localized: "menu.debug.sidebarPriority.attention", defaultValue: "Attention First", bundle: .module)
-    }
-    static var menuMotion: String {
-        String(localized: "menu.debug.motion", defaultValue: "Motion", bundle: .module)
-    }
-    static var menuMotionSpeed: String {
-        String(localized: "menu.debug.motion.speed", defaultValue: "Animation Speed", bundle: .module)
-    }
-    static var menuMotionFast: String {
-        String(localized: "menu.debug.motion.fast", defaultValue: "Fast", bundle: .module)
-    }
-    static var menuMotionNormal: String {
-        String(localized: "menu.debug.motion.normal", defaultValue: "Normal", bundle: .module)
-    }
-    static var menuMotionOff: String {
-        String(localized: "menu.debug.motion.off", defaultValue: "Off", bundle: .module)
-    }
-    static var menuMotionReduceMotion: String {
-        String(localized: "menu.debug.motion.reduceMotion", defaultValue: "Reduce Motion", bundle: .module)
-    }
-    static var menuMotionFollowSystem: String {
-        String(localized: "menu.debug.motion.followSystem", defaultValue: "Follow System", bundle: .module)
-    }
-    static var menuMotionEnabled: String {
-        String(localized: "menu.debug.motion.enabled", defaultValue: "Enabled", bundle: .module)
-    }
-    static var menuMotionDisabled: String {
-        String(localized: "menu.debug.motion.disabled", defaultValue: "Disabled", bundle: .module)
     }
     static var menuServer: String { String(localized: "menu.server", defaultValue: "Server", bundle: .module) }
     static var menuMinimize: String { String(localized: "menu.window.minimize", defaultValue: "Minimize", bundle: .module) }

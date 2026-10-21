@@ -49,6 +49,12 @@ struct NewTabSuccession {
         begin(page: nil, after: anchor, in: pane, services: services)
     }
 
+    /// Starts showing the pane's next new tab first, after its pinned tabs. Returns the open, for `made`.
+    @discardableResult
+    static func begin(atStartOf pane: PaneModel, services: AppServices) -> DemandTimer? {
+        begin(page: nil, after: nil, in: pane, services: services)
+    }
+
     private static func begin(page: StripTabID?, after anchor: String?, in pane: PaneModel, services: AppServices) -> DemandTimer? {
         active[ObjectIdentifier(pane)]?.expiry.cancel()
         // A CLI or script open selects nothing and shows nothing: its tab lands as reported.
@@ -98,6 +104,9 @@ struct NewTabSuccession {
         if left.count == 1, arrived.count == 1, let provisional = left.first {
             pane.stripModel.successors[arrived[0].id] = provisional
             handed = pane.pane.tabs.first { $0.id == arrived[0].id.rawValue }?.surface
+            // The selection goes with the cell, in the same apply: a selected stand-in never
+            // hands the pane to a neighbor for the frames until its creator hears the reply.
+            if pane.stripModel.selectedID == provisional, let handed { pane.pendingSelectSurface = handed }
         }
         guard var succession = active[ObjectIdentifier(pane.pane)] else { return snapshot }
         guard ContinuousClock.now < succession.deadline else {

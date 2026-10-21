@@ -15,7 +15,9 @@ enum BrowserHandlers {
         BrowserDeviceHandlers.bind(into: registry, context: context)
         bindSplits(into: registry, context: context)
         bindLinkHints(into: registry, context: context)
-        bindUnavailable(registry)
+        BrowserEnabledToggle.bind(into: registry, context: context)
+        BrowsingDataClear.bindClearHistory(registry, context: context)
+        registry.bind("palette.browserToggleOmnibar", run: { invocation in try context.page(invocation).chrome.toggleOmnibar() })
     }
 
     private static func bindPage(into registry: ActionRegistry, context: AppActionContext) {
@@ -33,24 +35,31 @@ enum BrowserHandlers {
                 throw ActionFailure(message: MiscHandlerStrings.noBrowser)
             }
             if window.focus.state.pane != pane.paneKey { window.focus.send(.focusPane(pane.paneKey, source: .intent)) }
-            window.focus.send(.toggleBrowserFocusMode(tab: entry.tab.id.rawValue))
+            let tab = entry.tab.id.rawValue
+            window.focus.send(.toggleBrowserFocusMode(tab: tab))
+            // Entering puts the keyboard in the page (classic cmux parity): from the
+            // address bar or find bar, focus mode would wait for a click otherwise.
+            if window.focus.state.browserFocusMode.contains(tab) { window.focus.send(.focusTarget(.content, source: .intent)) }
         })
-        registry.bind("toggleBrowserDeveloperTools", run: { invocation in
-            let entry = try context.page(invocation)
-            WebInspector.toggle(entry.tab)
+        // Any focused web view (WebInspectorTarget): disabled with the reason while none is.
+        registry.bind("toggleBrowserDeveloperTools", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: { invocation in
+            let target = try DevToolsHandlers.target(invocation, context)
+            WebInspector.toggle(target)
             // WebKit's inspector visibility is not observable; Chromium's is.
-            entry.chrome.toolbarButtons.refresh()
+            if case .browser = target { (try? context.page(invocation))?.chrome.toolbarButtons.refresh() }
         })
-        registry.bind("showBrowserJavaScriptConsole", run: { WebInspector.showConsole(try context.page($0).tab) })
-        registry.bind("inspectBrowserElement", run: { WebInspector.inspectElement(try context.page($0).tab) })
-        // The toolbar shows the mode (BrowserPageModes); a new document starts with it off.
+        registry.bind("showBrowserJavaScriptConsole", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: {
+            WebInspector.showConsole(try DevToolsHandlers.target($0, context))
+        })
+        registry.bind("inspectBrowserElement", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: {
+            WebInspector.inspectElement(try DevToolsHandlers.target($0, context))
+        })
+        // Classic's Design Mode (plans/cmux-next/design-mode-DESIGN.md): highlights become cards in
+        // an agent chat. The toolbar shows the mode (BrowserPageModes); a new document starts with it off.
         registry.bind("toggleBrowserDesignMode", run: { invocation in
             let entry = try context.page(invocation)
-            let modes = entry.chrome.toolbarButtons.modes
-            modes.designMode.toggle()
-            let script = "document.designMode = '\(modes.designMode ? "on" : "off")'"
-            let tab = entry.tab
-            Task { _ = try? await tab.evaluate(script) }
+            guard let key = context.services.cache.key(of: entry.tab) else { return }
+            context.services.designMode.toggle(entry, key: key)
         })
         // React Grab (classic parity): the first toggle on a document loads the pinned library into
         // the page world, later toggles flip it. A load failure says so on the page.
@@ -104,7 +113,7 @@ enum BrowserHandlers {
 
     /// Copies the image `capture` takes to the clipboard (Screenshot Page and
     /// Screenshot Section); a failed capture is logged.
-    private static func copyScreenshot(_ context: AppActionContext, _ capture: @escaping @MainActor () async throws -> CGImage) {
+    static func copyScreenshot(_ context: AppActionContext, _ capture: @escaping @MainActor () async throws -> CGImage) {
         let logger = context.daemon.logger
         Task {
             do {
@@ -138,6 +147,7 @@ enum BrowserHandlers {
                              byPerson: Bool, context: AppActionContext) throws {
         let handle = pane.pane.handle, model = pane.pane
         let browserTabs = context.services.cache.browserTabs
+        if let refusal = browserTabs.refusal(for: url) { throw ActionFailure(message: refusal) }
         switch context.services.toolSplit(from: model, edge: direction == .right ? .right : .bottom, byPerson: byPerson) {
         case .split:
             break
@@ -151,7 +161,7 @@ enum BrowserHandlers {
         let daemon = context.services.daemon(for: model)
         let connection = try daemon.isLocal ? context.requireConnection() : daemon.connection ?? context.requireConnection()
         // The default engine (never refused: no engine is requested).
-        guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
+        guard case .open(let choice) = browserTabs.resolve(requested: nil, url: url) else { return }
         let intent = pane.workspace?.beginFocusIntent()
         let address = url?.absoluteString ?? context.services.newTabAddress(for: choice)
         Task {
@@ -173,7 +183,7 @@ enum BrowserHandlers {
     private static func browserTab(in strip: PaneController, url: URL?, profile: String?, context: AppActionContext) throws {
         let browserTabs = context.services.cache.browserTabs
         if let refusal = browserTabs.refusal(in: strip.pane) { throw ActionFailure(message: refusal) }
-        guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
+        guard case .open(let choice) = browserTabs.resolve(requested: nil, url: url) else { return }
         let content = strip.workspace
         if let content { PaneHandlers.focus(strip.layoutPaneID, in: content) }
         let intent = content?.beginFocusIntent()
@@ -214,12 +224,5 @@ enum BrowserHandlers {
                 }, notice: { [weak chrome = entry.chrome] text in chrome?.showNotice(text) })
             })
         }
-    }
-
-    private static func bindUnavailable(_ registry: ActionRegistry) {
-        func unavailable(_ ids: [ActionID], _ reason: String) { registry.bindUnavailable(ids, ActionFailure(message: reason)) }
-        unavailable(["palette.browserToggleOmnibar"], MiscHandlerStrings.omnibarToggle)
-        unavailable(["palette.browserClearHistory"], MiscHandlerStrings.browserHistory)
-        unavailable(["palette.enableBrowser", "palette.disableBrowser"], MiscHandlerStrings.browserToggle)
     }
 }

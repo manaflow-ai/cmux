@@ -33,7 +33,8 @@ import Testing
 
     @Test func aSingleTitleAppliesAtOnce() {
         var coalescer = TitleCoalescer()
-        #expect(coalescer.offer("Inbox", now: 10) == .apply(TitleCoalescer.Update(title: "Inbox")))
+        let decision = coalescer.offer("Inbox", now: 10)
+        #expect(decision == .apply(TitleCoalescer.Update(title: "Inbox")))
     }
 
     @Test func aTitleEveryFrameAppliesAtMostFourTimesASecond() {
@@ -46,7 +47,8 @@ import Testing
     @Test func aTitleLongAfterTheLastAppliesAtOnce() {
         var coalescer = TitleCoalescer()
         _ = coalescer.offer("a", now: 0)
-        #expect(coalescer.offer("b", now: 5) == .apply(TitleCoalescer.Update(title: "b")))
+        let decision = coalescer.offer("b", now: 5)
+        #expect(decision == .apply(TitleCoalescer.Update(title: "b")))
     }
 
     /// Another page event (a load start, an address) first applies a waiting
@@ -55,8 +57,12 @@ import Testing
         var coalescer = TitleCoalescer()
         _ = coalescer.offer("a", now: 0)
         _ = coalescer.offer(nil, now: 0.01)
-        #expect(coalescer.flush(now: 0.02) == TitleCoalescer.Update(title: nil))
-        #expect(coalescer.flush(now: 0.03) == nil)
-        #expect(coalescer.fire(now: 0.25) == nil)
+        // #expect cannot call a mutating method (0274659e517): each result is taken first.
+        let first = coalescer.flush(now: 0.02)
+        let second = coalescer.flush(now: 0.03)
+        let fired = coalescer.fire(now: 0.25)
+        #expect(first == TitleCoalescer.Update(title: nil))
+        #expect(second == nil)
+        #expect(fired == nil)
     }
 }

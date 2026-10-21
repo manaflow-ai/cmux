@@ -1,5 +1,8 @@
 //! Process setup that only the terminal owner (the mux server) needs.
 
+mod background_checks;
+mod crash_forward;
+mod memory_guard;
 mod owner_panic;
 
 /// Validate the owner's storage flags and raise its open-file soft limit.
@@ -8,10 +11,23 @@ mod owner_panic;
 /// limit (256 on macOS) stopped it at about 60 terminals. Terminal hosts and
 /// the programs in terminals get the original limit back at spawn.
 ///
-/// The headless owner also records every panic (`owner_panic`, cx-urd.59).
+/// The headless owner also records every panic (`owner_panic`, cx-urd.59)
+/// and sends the ones not sent yet to Sentry (`crash_forward`), and watches
+/// its own memory (`memory_guard`), and fetches the signed invite-wave flags
+/// and the daily update answer (`background_checks`).
 pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
     if args.headless {
         owner_panic::install(&args.session);
+        // Earlier panics and memory alerts not sent yet (tester rollout #7),
+        // then the memory guard (#9), which sends its alerts as they happen.
+        let panic_log = owner_panic::log_path(&args.session);
+        let logs = panic_log
+            .iter()
+            .flat_map(|log| [log.clone(), memory_guard::memory_log_path(log)])
+            .collect();
+        let forwarder = crash_forward::start(logs);
+        memory_guard::spawn(panic_log, forwarder);
+        background_checks::spawn();
     }
     if args.ephemeral && args.state.is_some() {
         anyhow::bail!("--ephemeral and --state are mutually exclusive");

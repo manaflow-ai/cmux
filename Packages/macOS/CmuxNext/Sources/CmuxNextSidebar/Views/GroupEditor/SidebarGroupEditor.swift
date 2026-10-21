@@ -185,6 +185,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         nameField.delegate = self
         nameField.lineBreakMode = .byTruncatingTail
         nameField.setAccessibilityLabel(GroupEditorStrings.nameLabel)
+        nameField.setAccessibilityIdentifier("cmux.sidebar.groupEditor.name")
         field.wantsLayer = true
         field.layer?.cornerRadius = Metrics.itemCornerRadius
         field.layer?.cornerCurve = .continuous
@@ -199,6 +200,8 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         customSwatch.onPress = { [weak self] in self?.onCustomColor?() }
         // The workspace group's Set Icon action: the shared icon picker, emoji included.
         emojiButton.onPress = { [weak self] in self?.press("workspaceGroup.setIcon") }
+        emojiButton.setAccessibilityIdentifier("cmux.sidebar.groupEditor.icon")
+        customSwatch.setAccessibilityIdentifier("cmux.sidebar.groupEditor.customColor")
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = Metrics.space1

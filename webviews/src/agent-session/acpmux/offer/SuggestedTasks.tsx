@@ -111,7 +111,7 @@ function withKey<T>(record: Record<string, T>, key: string, value: T | undefined
   return next;
 }
 
-/// "3 suggested tasks", or a lone offer's "Suggested chat".
+/// "3 suggested tasks", or a lone offer's "Suggested".
 function heading(t: Translate, offers: AcpmuxSessionOffer[], single: boolean): string {
   return single ? t("offer.label") : t("offer.tasks.count", { n: offers.length });
 }
@@ -155,7 +155,6 @@ function OpenTask({
             className="acpmux-task-dismiss"
             aria-label={t("offer.dismiss")}
             aria-describedby={titleId}
-            title={t("offer.dismiss")}
             disabled={off}
             onClick={onDismiss}
           >
