@@ -39,7 +39,10 @@ when its author is listed in ``PR_MEDIA_AGENT_AUTHORS``; ``nightly-next/`` and
 ``fuzz/`` are bots' own output. With ``--apply`` the scan removes agent-owned
 hits in one ordinary commit on top of the tip (never a history rewrite). A
 teammate's file, any other folder, or an author that cannot be looked up is
-reported and kept (before the push, an unknown author refuses instead). The
+reported and kept (before the push, an unknown author refuses instead, and so
+does every PR folder's hit when no agent list is set). Private terms shorter
+than ``MIN_TERM_LENGTH`` are ignored: with digit look-alikes a two-letter term
+would match ordinary text such as ``10``. The
 scan fails whenever anything was found, so the hit stays visible on the run
 page even after its removal.
 
@@ -108,6 +111,8 @@ HQ_TERMS_FILE = "build-fleet/pr_capture/private-terms.json"
 AGENT_AUTHORS_FILE = "Projects/leo-workspace/machines/agent-authors.json"
 # Local account and host names too common to mean a machine (a capture mini's user is `cmux`).
 COMMON_NAMES = frozenset({"cmux", "root", "runner", "admin", "user", "shared", "localhost"})
+# Shorter terms match ordinary words and numbers once look-alikes are folded.
+MIN_TERM_LENGTH = 4
 OCR_CACHE = "Library/Caches/cmux-pr-media-privacy"
 
 # Generic shapes of the capture and fleet machines; none names one machine.
@@ -173,7 +178,8 @@ def term_pattern(term: str) -> re.Pattern[str]:
 
 
 def term_patterns(terms: Iterable[str]) -> list[tuple[str, re.Pattern[str]]]:
-    return [("private-term", term_pattern(term.strip())) for term in terms if normalize(term.strip())]
+    return [("private-term", term_pattern(term.strip())) for term in terms
+            if len(normalize(term.strip())) >= MIN_TERM_LENGTH]
 
 
 def private_patterns(raw: str | None) -> list[tuple[str, re.Pattern[str]]]:
@@ -420,7 +426,9 @@ def classify(paths: Iterable[str], agents: frozenset[str], lookup) -> dict[str, 
         elif kind == "other":
             decisions[path] = ("teammate", "not an agent folder")
         elif not agents:
-            decisions[path] = ("teammate", "PR_MEDIA_AGENT_AUTHORS is empty")
+            # Without the list no PR folder can be told to be a teammate's: the
+            # scan only reports it, and a writer refuses it (fails closed).
+            decisions[path] = ("unknown", "PR_MEDIA_AGENT_AUTHORS is empty")
         elif authors is None or number not in authors:
             decisions[path] = ("unknown", "PR author unknown")
         elif authors[number].casefold() in agents:
@@ -471,7 +479,7 @@ def check_files(items: Iterable[tuple[str, Path]], patterns: list[tuple[str, re.
         whose, why = decisions[remote]
         action = "report" if whose == "teammate" else "refuse"
         report["files"].append({"path": remote, "kinds": hits[remote], "action": action,
-                                "reason": why + ("; held until it can be looked up" if whose == "unknown" else "")})
+                                "reason": why + ("; held until it can be looked up" if why == "PR author unknown" else "")})
     report["refused"] = any(item["action"] == "refuse" for item in report["files"])
     return report
 
@@ -514,6 +522,8 @@ def check_upload(items: Iterable[tuple[str, Path | str]], repository: str = REPO
     lines = report_lines(report)
     if not terms:
         lines.append(f"generic patterns only: {source}")
+    if not agents and report["files"]:
+        lines.append("no PR_MEDIA_AGENT_AUTHORS list, so a hit in a PR folder refuses")
     for line in lines:
         print(f"pr-media privacy: {line}", file=out, flush=True)
     if report["refused"]:
