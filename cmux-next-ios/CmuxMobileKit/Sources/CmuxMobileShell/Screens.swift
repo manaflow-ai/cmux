@@ -70,9 +70,9 @@ struct WorkspacesScreen: View {
                 },
                 linking: shell.live.map { live in
                     MacLinking(link: { live.select(macID: $0) }, canLink: { live.canLink(macID: $0) },
-                               isLinkTarget: { live.link.target?.macID == $0 })
+                               isLinkTarget: { live.isLinked(macID: $0) })
                 },
-                refresh: shell.live.map { live in { await live.workspaces.refresh() } },
+                refresh: shell.live.map { live in { await live.refreshWorkspaces() } },
                 switchTeam: { shell.switchTeam(to: $0) },
                 openAccount: {
                     shell.tab = .settings
