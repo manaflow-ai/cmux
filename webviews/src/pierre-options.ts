@@ -39,12 +39,20 @@ export function codeViewOptions(options: DiffViewerOptions, appearance: DiffView
     lineHoverHighlight: "number",
     enableLineSelection: true,
     enableGutterUtility: true,
-    lineDiffType: options.wordDiffs ? "word" : "none",
+    lineDiffType: lineDiffType(options),
     stickyHeaders: true,
     unsafeCSS: codeViewUnsafeCSS(),
     theme: appearance.theme as any,
     themeType: "system",
   };
+}
+
+/**
+ * Word changes: `word-alt`, which joins changed words split only by a space into one mark, so a
+ * renamed call reads as one change rather than a row of fragments (GitHub's look); `none` when off.
+ */
+function lineDiffType(options: Pick<DiffViewerOptions, "wordDiffs">): "word-alt" | "none" {
+  return options.wordDiffs ? "word-alt" : "none";
 }
 
 export function workerHighlighterOptions(
@@ -56,7 +64,7 @@ export function workerHighlighterOptions(
     langs: langs as WorkerInitializationRenderOptions["langs"],
     theme: appearance.theme as any,
     preferredHighlighter: "shiki-wasm",
-    lineDiffType: options.wordDiffs ? "word" : "none",
+    lineDiffType: lineDiffType(options),
     maxLineDiffLength: 1000,
     tokenizeMaxLineLength: 1000,
     useTokenTransformer: false,
@@ -184,7 +192,7 @@ export function fileTreeUnsafeCSS(): string {
       display: block;
       height: 100%;
       min-height: 0;
-      background-color: var(--cmux-diff-solid-bg);
+      background-color: var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg));
       /* Icon hues from the terminal theme (styles.css \`--cmux-file-icon-*\`), as in file headers. */
       --trees-icon-gray: var(--cmux-file-icon-gray);
       --trees-icon-red: var(--cmux-file-icon-red);
@@ -204,7 +212,7 @@ export function fileTreeUnsafeCSS(): string {
       height: 100%;
       min-height: 0;
       overflow: auto;
-      background-color: var(--cmux-diff-solid-bg);
+      background-color: var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg));
       padding-inline-start: 0;
       padding-inline-end: 0;
       scrollbar-gutter: stable;
@@ -233,7 +241,7 @@ export function fileTreeUnsafeCSS(): string {
       display: block;
     }
     [data-file-tree-sticky-overlay-content] {
-      background-color: var(--cmux-diff-solid-bg) !important;
+      background-color: var(--cmux-diff-files-bg, var(--cmux-diff-solid-bg)) !important;
       box-shadow: 0 1px 0 var(--trees-border-color);
     }
     ${PIERRE_TREES_SCROLLER_CSS}
