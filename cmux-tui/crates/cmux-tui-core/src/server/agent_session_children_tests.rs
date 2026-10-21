@@ -68,7 +68,7 @@ fn refused_as_mismatch(result: anyhow::Result<Value>) {
 }
 
 #[test]
-fn children_lists_exactly_the_attached_sessions_descendants() {
+fn session_children_lists_exactly_the_attached_sessions_descendants() {
     let fake = FakeAcpmux::start("children");
     let mux = mux_with(&fake, "asa-children");
     let advertised = run(&mux, json!({"cmd":"identify"}))["capabilities"]
@@ -95,7 +95,7 @@ fn children_lists_exactly_the_attached_sessions_descendants() {
 }
 
 #[test]
-fn children_needs_an_attached_tab_of_a_trusted_connection_and_names_no_session() {
+fn session_children_needs_an_attached_tab_of_a_trusted_connection() {
     let fake = FakeAcpmux::start("children-scope");
     let mux = mux_with(&fake, "asa-children-scope");
     let surface = agent_tab(&mux, Some(SESSION));
@@ -127,7 +127,7 @@ fn children_needs_an_attached_tab_of_a_trusted_connection_and_names_no_session()
 }
 
 #[test]
-fn a_listed_child_opens_in_a_tab_of_this_store_and_no_other_session_does() {
+fn session_children_listed_open_in_a_tab_of_this_store_and_no_other_session() {
     let fake = FakeAcpmux::start("children-open");
     let mux = mux_with(&fake, "asa-children-open");
     let host = own_host(&mux);
@@ -164,7 +164,7 @@ fn a_listed_child_opens_in_a_tab_of_this_store_and_no_other_session_does() {
 }
 
 #[test]
-fn the_attachment_streams_its_descendants_changes_and_no_others() {
+fn session_children_changes_stream_on_the_attachment_and_no_others() {
     let mut fake = FakeAcpmux::start("children-stream");
     let mux = mux_with(&fake, "asa-children-stream");
     let surface = agent_tab(&mux, Some(SESSION));

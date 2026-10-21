@@ -110,7 +110,7 @@ fn ids(reply: &Value) -> Vec<String> {
 }
 
 #[test]
-fn vm_child_sessions_journey_lists_follows_and_opens_a_chats_child() {
+fn session_children_journey_lists_follows_and_opens_a_vm_chats_child() {
     // A socket path must stay under SUN_LEN: a short folder under /tmp.
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
     let root = PathBuf::from("/tmp").join(format!("vcs-{}-{stamp}", std::process::id()));
