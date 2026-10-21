@@ -4854,7 +4854,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Continue in…"
+            "value": "Continue In…"
           }
         },
         "ja": {
@@ -17734,7 +17734,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Palette de commandes..."
+            "value": "Palette de commandes…"
           }
         },
         "it": {
@@ -17776,13 +17776,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Палитра команд..."
+            "value": "Палитра команд…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แถบคำสั่ง..."
+            "value": "แถบคำสั่ง…"
           }
         },
         "tr": {
@@ -17806,13 +17806,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "命令面板..."
+            "value": "命令面板…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "指令面板..."
+            "value": "指令面板…"
           }
         }
       }
@@ -22712,7 +22712,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rechercher..."
+            "value": "Rechercher…"
           }
         },
         "it": {
@@ -22754,13 +22754,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Найти..."
+            "value": "Найти…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ค้นหา..."
+            "value": "ค้นหา…"
           }
         },
         "tr": {
@@ -22784,13 +22784,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "查找..."
+            "value": "查找…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "尋找..."
+            "value": "尋找…"
           }
         }
       }
@@ -25594,7 +25594,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aller à l'espace de travail..."
+            "value": "Aller à l'espace de travail…"
           }
         },
         "it": {
@@ -25636,13 +25636,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перейти к рабочему пространству..."
+            "value": "Перейти к рабочему пространству…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไปที่เวิร์กสเปซ..."
+            "value": "ไปที่เวิร์กสเปซ…"
           }
         },
         "tr": {
@@ -25666,13 +25666,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "前往工作区..."
+            "value": "前往工作区…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "前往工作區..."
+            "value": "前往工作區…"
           }
         }
       }
@@ -35026,7 +35026,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ouvrir un dossier..."
+            "value": "Ouvrir un dossier…"
           }
         },
         "it": {
@@ -35068,13 +35068,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Открыть папку..."
+            "value": "Открыть папку…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เปิดโฟลเดอร์..."
+            "value": "เปิดโฟลเดอร์…"
           }
         },
         "tr": {
@@ -35098,13 +35098,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "打开文件夹..."
+            "value": "打开文件夹…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開啟資料夾..."
+            "value": "開啟資料夾…"
           }
         }
       }
@@ -35288,7 +35288,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Réglages..."
+            "value": "Réglages…"
           }
         },
         "it": {
@@ -35330,13 +35330,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Настройки..."
+            "value": "Настройки…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การตั้งค่า..."
+            "value": "การตั้งค่า…"
           }
         },
         "tr": {
@@ -35360,13 +35360,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "设置..."
+            "value": "设置…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定..."
+            "value": "設定…"
           }
         }
       }
@@ -36598,7 +36598,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rechercher des mises à jour..."
+            "value": "Rechercher des mises à jour…"
           }
         },
         "it": {
@@ -36640,13 +36640,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Проверить обновления..."
+            "value": "Проверить обновления…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตรวจหาอัปเดต..."
+            "value": "ตรวจหาอัปเดต…"
           }
         },
         "tr": {
@@ -36670,13 +36670,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "检查更新..."
+            "value": "检查更新…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "檢查更新..."
+            "value": "檢查更新…"
           }
         }
       }
@@ -45726,7 +45726,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Swap With Session…"
+            "value": "Swap with Session…"
           }
         },
         "ja": {
@@ -45988,7 +45988,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Current Directory in…"
+            "value": "Open Current Directory In…"
           }
         },
         "ja": {
@@ -50222,7 +50222,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Renommer l'onglet..."
+            "value": "Renommer l'onglet…"
           }
         },
         "it": {
@@ -50264,13 +50264,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Переименовать вкладку..."
+            "value": "Переименовать вкладку…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เปลี่ยนชื่อแท็บ..."
+            "value": "เปลี่ยนชื่อแท็บ…"
           }
         },
         "tr": {
@@ -50294,13 +50294,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "重命名标签页..."
+            "value": "重命名标签页…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "重新命名標籤頁..."
+            "value": "重新命名標籤頁…"
           }
         }
       }
@@ -50353,7 +50353,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Renommer l'espace de travail..."
+            "value": "Renommer l'espace de travail…"
           }
         },
         "it": {
@@ -50395,13 +50395,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Переименовать рабочее пространство..."
+            "value": "Переименовать рабочее пространство…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เปลี่ยนชื่อเวิร์กสเปซ..."
+            "value": "เปลี่ยนชื่อเวิร์กสเปซ…"
           }
         },
         "tr": {
@@ -50425,13 +50425,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "重命名工作区..."
+            "value": "重命名工作区…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "重新命名工作區..."
+            "value": "重新命名工作區…"
           }
         }
       }
@@ -87011,7 +87011,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move Chief to…"
+            "value": "Move Chief To…"
           }
         },
         "ar": {
@@ -89371,6 +89371,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cuộc trò chuyện"
+          }
+        }
+      }
+    },
+    "action.home.stopAllAgents": {
+      "comment": "Stop all agents: the Chief's turn and every subagent. Menu item and palette.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف كل الوكلاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaustavi sve agente"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop alle agenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Agenten stoppen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop All Agents"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detener todos los agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêter tous les agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrompi tutti gli agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのエージェントを停止"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ឈប់ភ្នាក់ងារទាំងអស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 에이전트 중지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopp alle agenter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatrzymaj wszystkich agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parar todos os agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Остановить всех агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุดเอเจนต์ทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm ajanları durdur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зупинити всіх агентів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dừng tất cả agent"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止所有智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止所有代理"
           }
         }
       }
