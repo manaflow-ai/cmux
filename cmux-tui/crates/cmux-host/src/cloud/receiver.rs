@@ -63,6 +63,8 @@ impl ReceiverSnapshot {
         &self.keys
     }
 
+    /// Active-clock scheduling projection. Authority checks must use `time`;
+    /// this Instant alone cannot account for time spent suspended.
     pub fn expires(&self) -> Instant {
         self.started
             + Duration::from_millis((self.policy.expires_at - self.policy.checked_at) as u64)
@@ -81,12 +83,17 @@ impl ReceiverSnapshot {
     /// Conservative issuer time: debit the whole request, including auth and
     /// keyset I/O. The device's possibly skewed wall clock is not authority.
     pub fn time(&self, now: Instant) -> Option<ReceiverTime> {
-        if now < self.started || now >= self.expires() {
-            return None;
-        }
-        let elapsed = u64::try_from(now.duration_since(self.started).as_millis()).ok()?;
-        let unix_ms = (self.policy.checked_at as u64).checked_add(elapsed)?;
-        Some(ReceiverTime { unix_ms, monotonic: now })
+        Some(self.measured_time(now)?.0)
+    }
+
+    fn measured_time(&self, now: Instant) -> Option<(ReceiverTime, Duration)> {
+        let elapsed = self.elapsed(now)?;
+        let lifetime =
+            Duration::from_millis((self.policy.expires_at - self.policy.checked_at) as u64);
+        let remaining = lifetime.checked_sub(elapsed).filter(|left| !left.is_zero())?;
+        let unix_ms = (self.policy.checked_at as u64)
+            .checked_add(u64::try_from(elapsed.as_millis()).ok()?)?;
+        Some((ReceiverTime { unix_ms, monotonic: now }, remaining))
     }
 
     pub fn native_policy(&self) -> NativePolicy {
@@ -136,14 +143,14 @@ impl ReceiverSnapshot {
     /// lifetime minus that entire round trip; do not subtract root work twice.
     /// Response arrival must never extend the original request's deadline.
     pub fn public_reply(&self, now: Instant) -> Result<Value, String> {
-        let time = self.time(now).ok_or(UNAVAILABLE)?;
+        let (time, remaining) = self.measured_time(now).ok_or(UNAVAILABLE)?;
         let keys: serde_json::Map<String, Value> = self.keys.keys.iter().map(|(kid, key)|
             (kid.clone(), json!({ "kty": "OKP", "crv": "Ed25519", "alg": "EdDSA", "kid": kid, "x": URL_SAFE_NO_PAD.encode(key) }))
         ).collect();
         Ok(json!({ "ok": true, "value": { "policy": self.policy,
             "keyset": { "version": self.keys.version, "keys": keys },
             "issuer": self.issuer, "issuer_time_ms": time.unix_ms,
-            "remaining_ms": self.expires().duration_since(now).as_millis() as u64 } }))
+            "remaining_ms": remaining.as_millis() as u64 } }))
     }
 }
 
@@ -155,10 +162,12 @@ impl<H: Http> CloudClient<H> {
         wg_public: &str,
         now_wall_ms: u64,
     ) -> Result<ReceiverSnapshot, String> {
+        let elapsed = Elapsed::system().ok_or(UNAVAILABLE)?;
         let started = Instant::now();
-        self.receiving_policy_at(wg_public, now_wall_ms, started)
+        self.receiving_policy_with_elapsed(wg_public, now_wall_ms, started, elapsed)
     }
 
+    #[cfg(test)]
     pub(super) fn receiving_policy_at(
         &mut self,
         wg_public: &str,
@@ -177,13 +186,24 @@ impl<H: Http> CloudClient<H> {
         elapsed: Elapsed,
     ) -> Result<ReceiverSnapshot, String> {
         let deadline = started + REQUEST_BUDGET;
+        let check_budget = || -> Result<(), String> {
+            let active = Instant::now().checked_duration_since(started).ok_or(UNAVAILABLE)?;
+            let age = elapsed.elapsed().ok_or(UNAVAILABLE)?.max(active);
+            if age >= REQUEST_BUDGET {
+                return Err(UNAVAILABLE.into());
+            }
+            Ok(())
+        };
+        check_budget()?;
         let token = self.token_until(now_wall_ms, Some(deadline))?;
+        check_budget()?;
         let body = serde_json::to_value(OpRequest::new::<CloudVmNetworkPolicyOp>(
             CloudVmNetworkPolicyParams { machine: self.bound().machine.clone() },
         ))
         .map_err(|_| UNAVAILABLE)?;
         let (status, bytes) =
             self.request_until("/v1/read", Some(&body), Some(&token), deadline)?;
+        check_budget()?;
         if status != 200 {
             self.clear_token();
             return Err(UNAVAILABLE.into());
@@ -204,6 +224,7 @@ impl<H: Http> CloudClient<H> {
             ReceiverBinding::from_original(self.bound(), wg_public, &self.install_public_jwk())?;
         validate(&read.value.0, &binding)?;
         let (status, bytes) = self.request_until("/v1/cloud/keyset", None, None, deadline)?;
+        check_budget()?;
         // Reject duplicate JSON object keys, including duplicate key ids, before
         // the shared keyset parser can normalize them into a map.
         let _: UniqueJson = serde_json::from_slice(&bytes).map_err(|_| UNAVAILABLE)?;
