@@ -15,9 +15,9 @@ import { useMinuteClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
-import { copyText } from "./clipboard";
+import { CopyButton } from "./CopyButton";
 import { DeliveryMark } from "./PromptDelivery";
-import { Check, ChevronLeft, ChevronRight, Copy, ImageIcon, Pencil, TurnFork } from "./icons";
+import { Check, ChevronLeft, ChevronRight, ImageIcon, Pencil, TurnFork } from "./icons";
 import { relativeTime } from "./relativeTime";
 import { ImageViewerContext } from "./imageViewerContext";
 import { TurnActionsContext } from "./turnActions";
@@ -31,7 +31,6 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const language = usePaneLanguage();
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
-  const [copied, setCopied] = useState(false);
   const mark = usePromptRowMark(row);
   const through = edit?.seqs.get(row.id);
   // A prompt this pane sent is read once the agent started on it (its delivery), else as before; a
@@ -78,6 +77,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
                 type="button"
                 className="cv-iconbtn cv-iconbtn--compact"
                 aria-label={t("message.previousVersion")}
+                title={t("message.previousVersion")}
                 disabled={branch.index === 0}
                 onClick={() => branches.open(branch.sessions[branch.index - 1]!)}
               >
@@ -93,6 +93,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
                 type="button"
                 className="cv-iconbtn cv-iconbtn--compact"
                 aria-label={t("message.nextVersion")}
+                title={t("message.nextVersion")}
                 disabled={branch.index === branch.sessions.length - 1}
                 onClick={() => branches.open(branch.sessions[branch.index + 1]!)}
               >
@@ -114,24 +115,18 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
           >
             <Check size={14} />
           </span>
-          <button
-            type="button"
+          <CopyButton
+            text={row.text ?? text}
+            label={t("turn.copy")}
             className="cv-iconbtn cv-iconbtn--compact"
-            aria-label={copied ? t("turn.copied") : t("turn.copy")}
-            onClick={() =>
-              void copyText(row.text ?? text).then(
-                () => setCopied(true),
-                () => setCopied(false),
-              )
-            }
-          >
-            <Copy size={14} />
-          </button>
+            size={14}
+          />
           {through !== undefined && (
             <button
               type="button"
               className="cv-iconbtn cv-iconbtn--compact"
               aria-label={t("message.edit")}
+              title={t("message.edit")}
               onClick={() => setEditing(true)}
             >
               <Pencil size={14} />
