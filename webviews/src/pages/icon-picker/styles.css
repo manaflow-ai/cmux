@@ -5,3 +5,8 @@ body,
   height: 100%;
   overflow: hidden;
 }
+
+html,
+body {
+  background: transparent;
+}

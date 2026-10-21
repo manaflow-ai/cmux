@@ -62,8 +62,11 @@ public struct Glass {
     /// (``FloatingGlassStyle/menu``), like the native menu beside it; opaque under Reduce
     /// Transparency. A ``PopupHostView`` keeps its 12 pt corner.
     public static func makeMenuPanel(content: NSView? = nil, interactive: Bool = true) -> OverlaySurfaceView {
-        makeOverlayPanel(content: content, cornerRadius: FloatingGlassStyle.menu.cornerRadius,
-                         interactive: interactive, tone: .neutralGlass(.menu))
+        let panel = makeOverlayPanel(content: content, cornerRadius: FloatingGlassStyle.menu.cornerRadius,
+                                     interactive: interactive, tone: .neutralGlass(.menu))
+        // A menu sits in its own clear panel: before macOS 26 its blur samples the screen behind it.
+        panel.samplesBehindWindow = true
+        return panel
     }
 
     /// A raw glass panel that hosts `content` edge to edge (Liquid Glass,
