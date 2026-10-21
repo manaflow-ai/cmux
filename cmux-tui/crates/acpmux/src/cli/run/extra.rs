@@ -409,6 +409,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Update { name, all } => {
                     return crate::cli::hosts::update(client, name, all, json_out).await;
                 }
+                PeerCmd::Candidates { probe } => {
+                    return crate::cli::host_candidates::run(&client, probe, json_out).await;
+                }
             };
             if json_out {
                 print_json(&v);
