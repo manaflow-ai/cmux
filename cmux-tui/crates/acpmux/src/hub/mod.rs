@@ -95,7 +95,9 @@ mod peer_cache;
 mod peer_lease;
 pub use peer_lease::PeerLease;
 mod peers;
-pub(crate) use peers::{PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET, is_permission_ask};
+pub(crate) use peers::{
+    PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET, is_permission_ask,
+};
 mod permission_groups;
 mod permissions;
 pub mod person;
