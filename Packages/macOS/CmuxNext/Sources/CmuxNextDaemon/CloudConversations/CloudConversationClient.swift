@@ -130,6 +130,28 @@ public struct CloudConversationClient: CloudConversationCommands {
         _ = try await network(CloudInboxOpRequest(conversation: conversation, idempotencyKey: idempotencyKey, op: op))
     }
 
+    /// A Cloud upload's `commit` sends every byte to the Cloud owner before it answers.
+    static let attachmentCommitTimeout: Duration = .seconds(600)
+
+    /// The Cloud proxy's steps: `begin` and each read reach the Worker, `chunk` stays on the daemon.
+    private var attachments: AttachmentTransfer<CloudAttachmentUploadRequest, CloudAttachmentReadRequest> {
+        AttachmentTransfer(connection: connection, beginTimeout: Self.networkTimeout, chunkTimeout: ConversationClient.attachmentChunkTimeout,
+                           commitTimeout: Self.attachmentCommitTimeout, readTimeout: Self.networkTimeout)
+    }
+
+    public func uploadAttachment(conversation: String, attachment: ConversationAttachment, file: URL, posterFile: URL?,
+                                 previewFile: URL?, progress: @escaping @Sendable (Double) -> Void) async throws -> StoredConversationAttachment {
+        try await require()
+        return try await attachments.upload(conversation: conversation, attachment: attachment, file: file, posterFile: posterFile,
+                                            previewFile: previewFile, progress: progress)
+    }
+
+    public func downloadAttachment(conversation: String, hash: String, variant: ConversationAttachmentVariant,
+                                   to destination: URL) async throws -> String {
+        try await require()
+        return try await attachments.download(conversation: conversation, hash: hash, variant: variant, to: destination)
+    }
+
     public func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows? {
         guard await connection.identity?.supports(DaemonCapabilities.shared.cloudConversationRuns) == true else { return nil }
         var all = try await network(CloudConversationRunRequest(conversation: conversation, agent: agent, run: run))
