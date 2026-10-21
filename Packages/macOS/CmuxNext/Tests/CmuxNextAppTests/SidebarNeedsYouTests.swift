@@ -7,7 +7,7 @@ import Testing
 /// `sidebar.sessionTree` on, a fixed tray lists only what is blocked on you (a question or a
 /// permission, a failure) with the path to it, and counts finished sessions you have not read.
 /// Running, idle and merely unread sessions never enter it; a coordinator waiting on its own
-/// children is not waiting on you. It reads the same in both row orders.
+/// children is not waiting on you. It reads the same however the rows were dragged.
 @MainActor @Suite(.serialized) struct SidebarNeedsYouTests {
     private static func section(_ workspaces: [SidebarWorkspace]) -> [SidebarSection] {
         [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: workspaces.map(SidebarNode.workspace))]
@@ -74,14 +74,14 @@ import Testing
         #expect(SidebarNeedsYou.make(Self.section([waiting]), tree: nil) == SidebarNeedsYou())
     }
 
-    /// The tray reads the same whichever order the window chose: the order moves rows, never the tray.
-    @Test func theTrayIsTheSameInBothRowOrders() {
+    /// The tray reads the same however the rows were dragged: a drag moves rows, never the tray.
+    @Test func theTrayIsTheSameInAnyRowOrder() {
         let tree = SidebarDeepTreeTests.fiftySessionTree()
         let workspaces = tree.ids.map { SidebarWorkspace(id: $0, title: $0.rawValue) }
         let lanes = Dictionary(uniqueKeysWithValues: tree.ids.enumerated().map { ($0.element, $0.offset % 3 == 0 ? SidebarAgentState.blocked : .running) })
         let state = SidebarSessionTreeState(parents: tree.parents, states: lanes)
         let stable = SidebarNeedsYou.make(Self.section(workspaces), tree: state)
-        // The attention order lifts the blocked rows first in the list; the tray keeps the tree's order.
+        // Drag the blocked rows first in the list; the tray keeps the tree's order.
         let lifted = workspaces.sorted { (lanes[$0.id] == .blocked ? 0 : 1) < (lanes[$1.id] == .blocked ? 0 : 1) }
         #expect(SidebarNeedsYou.make(Self.section(lifted), tree: state).items.map(\.id).sorted { $0.rawValue < $1.rawValue }
             == stable.items.map(\.id).sorted { $0.rawValue < $1.rawValue })
