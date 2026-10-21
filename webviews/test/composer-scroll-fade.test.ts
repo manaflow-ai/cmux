@@ -74,7 +74,8 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
     }, FIELD);
 
   /// Pastes `lines` lines into the prompt, as the clipboard would. `markup` lines carry a tag-like
-  /// `<Retry>`, which the field inserts as plain text on its own paste path (looksLikeMarkupText).
+  /// `<Retry>`, which the field inserts as plain text on its own paste path (looksLikeMarkupText), and
+  /// end in a newline, as text copied from an editor does: the caret then sits on an empty last line.
   async function paste(page: Page, lines: number, markup = false) {
     await page.locator(EDITABLE).click();
     await page.evaluate(
@@ -87,7 +88,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
           (_, i) =>
             `draft line ${i + 1}: keep the ${markup ? "<Retry> " : ""}retry rules and the tests in sync with the docs.`,
         );
-        data.setData("text/plain", lines.join("\n"));
+        data.setData("text/plain", lines.join("\n") + (markup ? "\n" : ""));
         field.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
       },
       { selector: EDITABLE, count: lines, markup },
@@ -195,39 +196,47 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         await page.close();
       });
 
-      test("the caret's line, revealed at a faded edge, sits clear of the fade", async () => {
+      test("the caret's line, revealed at the faded top edge, sits clear of the fade", async () => {
         current = browsers.get(name);
         const page = await pane!.open();
         await paste(page, 40);
-        // Away from the caret at the draft's end, then type: the field reveals the caret at its
-        // bottom edge, which still has draft past it (the field's bottom inset) and so fades.
-        await scrollTo(page, "top");
+        // The caret on line 10, the field at the draft's end; typing there reveals the caret at the
+        // field's top edge, which has draft above it and so fades.
+        await page.evaluate((selector) => {
+          const editable = document.querySelector(selector)!;
+          const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const at = (node.textContent ?? "").indexOf("draft line 10:");
+            if (at >= 0) {
+              window.getSelection()!.collapse(node, at + "draft".length);
+              return;
+            }
+          }
+          throw new Error("no line 10");
+        }, EDITABLE);
+        await settle(page);
+        await scrollTo(page, "end");
         await page.keyboard.type("x");
         await settle(page);
         const gap = await page.evaluate((selector) => {
           const field = document.querySelector<HTMLElement>(selector)!;
-          const editable = field.querySelector("[contenteditable='true']")!;
-          const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
-          let last: Text | null = null;
-          for (let node = walker.nextNode(); node; node = walker.nextNode())
-            if ((node.textContent ?? "").length) last = node as Text;
+          const selection = window.getSelection()!;
           const range = document.createRange();
-          range.setStart(last!, last!.length - 1);
-          range.setEnd(last!, last!.length);
+          range.setStart(selection.focusNode!, selection.focusOffset - 1);
+          range.setEnd(selection.focusNode!, selection.focusOffset);
           const caret = range.getBoundingClientRect();
-          const box = field.getBoundingClientRect();
           return {
-            band: field.hasAttribute("data-fade-bottom")
-              ? parseFloat(getComputedStyle(field).getPropertyValue("--acpmux-md-fade-bottom"))
+            typed: range.toString(),
+            band: field.hasAttribute("data-fade-top")
+              ? parseFloat(getComputedStyle(field).getPropertyValue("--acpmux-md-fade-top"))
               : 0,
-            below: box.top + field.clientHeight - caret.bottom,
-            text: last!.textContent?.slice(-1),
+            above: caret.top - field.getBoundingClientRect().top,
           };
         }, FIELD);
-        expect(gap.text).toBe("x");
+        expect(gap.typed).toBe("x");
         expect(gap.band).toBeGreaterThan(0);
-        // The caret's glyph ends above the band (one pixel for subpixel layout and scroll rounding).
-        expect(gap.below).toBeGreaterThanOrEqual(gap.band - 1);
+        // The caret's glyph starts below the band (one pixel for subpixel layout and scroll rounding).
+        expect(gap.above).toBeGreaterThanOrEqual(gap.band - 1);
         await page.close();
       });
 
