@@ -1,6 +1,6 @@
 import Foundation
 
-extension ClassicSessionImporter {
+nonisolated extension ClassicSessionImporter {
     struct DecodeBudget {
         var panels = 0
         var layoutNodes = 0

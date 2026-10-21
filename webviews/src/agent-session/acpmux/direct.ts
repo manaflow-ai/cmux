@@ -39,6 +39,7 @@ import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
+import { incomingPrompt } from "./conversation/incomingMessage";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
@@ -2058,7 +2059,25 @@ export class AcpmuxDirectClient {
           this.planCalls.clear();
         }
         this.streamingActivity = undefined;
-        const received = offersShown() ? offerResult(msg) : undefined;
+        // A task's result is not the person's prompt, shown or not: it never enters prompt recall.
+        const taskResult = offerResult(msg);
+        const received = offersShown() ? taskResult : undefined;
+        // Another agent's message or harness bookkeeping (conversation/incomingMessage.ts): the row
+        // keeps the sender's words, or the typed prompt without the bookkeeping. Bookkeeping alone
+        // keeps an empty row that draws nothing, so the answer it brought stays its own turn
+        // (turns.ts). Retry resends a message as the agent got it (`resend`); a notice, like
+        // bookkeeping, is the harness's, not a prompt to send again, so it offers no Retry.
+        const incoming = received ? undefined : incomingPrompt(String(msg.text ?? ""), msg);
+        const raw = String(msg.text ?? "");
+        const shown =
+          incoming?.kind === "message"
+            ? { text: incoming.message.text, incoming, resend: raw }
+            : incoming?.kind === "notice"
+              ? { text: incoming.text, incoming }
+              : incoming?.kind === "hidden"
+                ? { text: "", incoming }
+                : { text: incoming?.kind === "prompt" ? incoming.text : raw };
+        const untyped = taskResult !== undefined || (incoming !== undefined && incoming.kind !== "prompt");
         // Its queued line, if the result waited, gives way to this prompt's.
         if (received) this.rows.delete(`received-${received.offerId}`);
         if (received) this.receivedOffers.add(received.offerId);
@@ -2071,7 +2090,8 @@ export class AcpmuxDirectClient {
           version: 1,
           at: event.at,
           kind: "user",
-          text: String(msg.text ?? ""),
+          ...shown,
+          ...(untyped ? { untyped } : {}),
           ...(sentByChief(msg) ? { from: "chief" as const } : {}),
           ...(received ? { received } : {}),
           ...(steer ? { steer } : {}),
@@ -2218,7 +2238,7 @@ export class AcpmuxDirectClient {
       const itemIndex = items.findIndex((item) => item.tool?.id === callId);
       const item = this.holdEdit(
         mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text, event.at),
-        event.kind === "tool_call",
+        itemIndex < 0 || items[itemIndex].tool?.status === "pending",
       );
       if (itemIndex >= 0) items[itemIndex] = item;
       else items.push(item);
@@ -2318,7 +2338,9 @@ export class AcpmuxDirectClient {
 
   /// `item` as the transcript shows it: an edit that waits on a permission question stays
   /// "pending". Claude asks one question at a time, so an edit that arrives while another's
-  /// question is open sends its diff before its own question, and waits too.
+  /// question is open sends its diff before its own question, and waits too. `isNew` is whether
+  /// the call had not run yet: acpmux names a call as its block starts, pending, and its input
+  /// (diff included) comes in its update.
   private holdEdit(item: AcpmuxActivity, isNew: boolean): AcpmuxActivity {
     const tool = item.tool;
     if (!tool) return item;
