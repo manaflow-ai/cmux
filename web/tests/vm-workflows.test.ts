@@ -8755,6 +8755,55 @@ describe("status read that observes a gone machine", () => {
     });
   });
 
+  // https://github.com/manaflow-ai/cmux/issues/21820: a status read that a
+  // gateway or endpoint answered with a bare 404 retired a live machine, and
+  // the next Base open handed the user a blank replacement.
+  test.each([
+    { name: "a bare gateway 404", cause: { status: 404, code: "UNKNOWN_ERROR", message: "<html>404 Not Found</html>" } },
+    { name: "a message that only says not found", cause: new Error("VM not found in upstream cache") },
+  ])("a status read that fails with $name keeps the machine", async ({ cause }) => {
+    const userId = "user-status-read-ambiguous-404";
+    const vm = goneMachine(userId, "00000000-0000-4000-8000-000000000156");
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses });
+    const provider: VmProviderGatewayShape = {
+      ...providerGone,
+      getStatus: () => Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "getStatus", cause })),
+    };
+
+    const result = await Effect.runPromise(Effect.either(
+      getVm({ userId, providerVmId: "noble-wren" }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    ));
+
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") expect(result.left).not.toBeInstanceOf(VmNotFoundError);
+    expect(observedStatuses).toEqual([]);
+    expect(usageEvents).toEqual([]);
+  });
+
+  test("a status read the provider answers with an explicit NOT_FOUND still retires the row", async () => {
+    const userId = "user-status-read-confirmed-404";
+    const vm = goneMachine(userId, "00000000-0000-4000-8000-000000000157");
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, observedStatuses });
+    const provider: VmProviderGatewayShape = {
+      ...providerGone,
+      getStatus: () => Effect.fail(new VmProviderOperationError({
+        provider: "freestyle",
+        operation: "getStatus",
+        cause: { status: 404, code: "NOT_FOUND", message: "VM not found" },
+      })),
+    };
+
+    const entry = await Effect.runPromise(
+      getVm({ userId, providerVmId: "noble-wren" }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(entry.status).toBe("destroyed");
+    expect(observedStatuses.map((update) => update.status)).toEqual(["destroyed"]);
+  });
+
   test("an access preflight that retires the row records vm.destroyed too", async () => {
     const userId = "user-access-preflight-gone";
     const vm = goneMachine(userId, "00000000-0000-4000-8000-000000000152");
