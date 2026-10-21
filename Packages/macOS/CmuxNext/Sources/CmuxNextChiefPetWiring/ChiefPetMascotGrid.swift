@@ -62,6 +62,8 @@ final class ChiefPetMascotCell: NSButton {
     static let side: CGFloat = 28
     static let pictureSide: CGFloat = 22
     let id: String
+    /// The character's name (the Settings page's title for it): VoiceOver's label and the tooltip.
+    let name: String
     private lazy var hover = ChromeHover(self, behindContent: true)
 
     /// Set again after every click: a push-on-push-off click flips `state` itself, so a click on
@@ -80,8 +82,8 @@ final class ChiefPetMascotCell: NSButton {
 
     init(id: String, title: String) {
         self.id = id
+        name = title
         super.init(frame: .zero)
-        setAccessibilityLabel(title)
         self.title = ""
         isBordered = false
         bezelStyle = .regularSquare
@@ -92,6 +94,7 @@ final class ChiefPetMascotCell: NSButton {
         image?.accessibilityDescription = title
         state = .off
         setAccessibilityRole(.radioButton)
+        setAccessibilityLabel(title)
         setAccessibilityIdentifier("cmux.home.chief.petMascot.\(id)")
         themedToolTip = title
         focusRingType = .default
@@ -106,6 +109,10 @@ final class ChiefPetMascotCell: NSButton {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
+
+    // An image-only button's title is empty: VoiceOver (and agents) read the character's name.
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityLabel() -> String? { name }
 
     override func resetCursorRects() {
         guard isEnabled else { return }
