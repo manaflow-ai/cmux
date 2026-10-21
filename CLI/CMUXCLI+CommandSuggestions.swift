@@ -55,5 +55,5 @@ extension CMUXCLI {
         // Chief remains a legacy-routed command until its facade migration.
         names.insert("chief")
         return names
-    }
+    }()
 }

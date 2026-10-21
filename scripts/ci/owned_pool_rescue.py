@@ -46,7 +46,12 @@ run finish, since GitHub re-runs no job of a run in progress and cancelling
 it would kill every healthy sibling, then confirms the head has not moved and
 re-runs its failed jobs. Only a run still going at the watch's end, or main's
 full-suite run (whose failure would open main's red-CI issue), is cancelled
-first.
+first. GitHub can also hand a job to an owned runner that never takes it, and
+after a few minutes it cancels that job alone ("The job was not acquired by
+Runner of type self-hosted even after multiple attempts"): cancelled, with no
+runner and no step (unacquired()). A run cancelled as a whole leaves its queued
+jobs the same way, so such a job counts as refused only once its run has
+finished with another conclusion; its failed and cancelled jobs are re-run.
 That attempt 2 reuses attempt 1's outputs, so its owned jobs take the owned
 labels again (a runner pinned on attempt 1 is not reused) and what already
 passed (compile admission, say) is kept. A run on an owned pool is split across pools
@@ -564,6 +569,18 @@ def refused(job: Mapping[str, Any]) -> bool:
                    for step in steps)
 
 
+def unacquired(job: Mapping[str, Any]) -> bool:
+    """An owned job GitHub cancelled because no runner took it: cancelled, with no runner and no step.
+
+    Run 39607661629's ios-simulator-build (2026-10-21) waited 4 minutes for glaeda-ios-sim, then GitHub
+    cancelled it alone ("The job was not acquired by Runner of type self-hosted even after multiple
+    attempts") and the run ended in failure. A run cancelled as a whole leaves its queued jobs the same
+    way, so watch() counts this only in a run that finished with another conclusion.
+    """
+    return bool(job_pool(job)) and job.get("status") == "completed" and job.get("conclusion") == "cancelled" \
+        and not job.get("runner_name") and not job.get("steps")
+
+
 def accepted(job: Mapping[str, Any], now: dt.datetime) -> bool:
     """An owned job its runner took and has not refused: past its setup and started over REFUSAL_SECONDS ago,
     or done."""
@@ -627,13 +644,14 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
            first_seen: Mapping[Any, dt.datetime] | None = None, deadline: dt.datetime | None = None,
            floor_seconds: int | None = None, allow_running_rescue: bool = False,
            leave_decided: bool = False, attempt_started_at: dt.datetime | None = None,
-           reserved: bool = False) -> Look:
+           reserved: bool = False, stranded: bool = False) -> Look:
     """One look at the jobs of a run on a persistent pool (each job's budget: job_budget()).
 
     With `leave_decided` (a pull request run), a stuck or held job is left queued once another job of
     the attempt has failed on its own (decided_failures()). With `reserved` (a nightly build), a job
     waiting for the one runner it names (reserved_runner()) is never stuck or held: only a refusal of
-    it is acted on.
+    it is acted on. With `stranded` (the run finished, not cancelled), a job no runner acquired
+    (unacquired()) counts as refused.
     """
     seen = first_seen or {}
     waiting = [job for job in jobs if job_pool(job) and waiting_for_runner(job)]
@@ -677,6 +695,10 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     if turned_away:
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
         return Look("refused", f"{names} refused by {job_pool(turned_away[0])} at job start or Xcode selection")
+    lost = [job for job in jobs if stranded and unacquired(job)]
+    if lost:
+        names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in lost))
+        return Look("refused", f"{names} cancelled by GitHub: no {job_pool(lost[0])} runner acquired it")
     if (stuck or held) and decided:
         waits = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stuck + held))
         return Look("watch", f"{waits} waiting on {job_pool((stuck or held)[0])}, but {', '.join(decided)} "
@@ -1079,9 +1101,11 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
         # Waiting for compile admission and late placement: nothing can be stuck yet.
         interval = POLL_SECONDS if on_persistent or picker_marker is None else IDLE_POLL_SECONDS
         if on_persistent:
-            finished = run_finished(jobs) and \
-                read(lambda: api.run(target.run_id), sleep, log).get("status") == "completed"
-            if finished and not any(refused(job) for job in jobs):
+            run = read(lambda: api.run(target.run_id), sleep, log) if run_finished(jobs) else {}
+            finished = run.get("status") == "completed"
+            # A job no runner acquired looks like one a cancelled run left queued (unacquired()).
+            stranded = finished and run.get("conclusion") not in (None, "cancelled")
+            if finished and not any(refused(job) or stranded and unacquired(job) for job in jobs):
                 return "stop", "the run finished"
             seen_at = now()
             for job in jobs:
@@ -1095,7 +1119,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                           leave_decided=bool(target.pr_number) and not (
                               target.main or target.nightly or target.push_branch),
                           attempt_started_at=target.attempt_started_at,
-                          reserved=target.nightly)
+                          reserved=target.nightly, stranded=stranded)
             if look.action == "refused" and not finished and seen_at < deadline and not target.main:
                 # GitHub re-runs no job of a run still in progress (403 "already
                 # running", for one job or the failed ones), and cancelling
@@ -1472,6 +1496,11 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
 # run gets a thread running follow(), the per-run watch.
 WATCH_MARKER = "owned-pool-watch"
 LATE_WATCH_MARKER = "owned-pool-watch-late"
+# cmux-next.yml's placement uploads this instead of WATCH_MARKER when it found
+# no free Blacksmith slot: a re-run would only rejoin the same owned queue, so
+# the run (and every re-run of it) is watched for refusals only (run
+# 39615562861 was cancelled and re-run twice while it waited, 2026-10-21).
+REFUSALS_WATCH_MARKER = "owned-pool-watch-refusals"
 SWEEP_TICK_SECONDS = 60
 # A sweeper adopts runs this long, then stops its watches and gives any rescue
 # it started RESCUE_GRACE_SECONDS. ci-owned-pool-rescue.yml's two-hourly cron
@@ -1548,6 +1577,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
     outcomes: dict[str, int] = {}
     seen: set[int] = set()
     rerun_seen: set[tuple[int, int]] = set()  # re-runs, once per attempt (owned_reruns())
+    refusals_runs: set[int] = set()  # runs with REFUSALS_WATCH_MARKER, re-runs included
     threads: list[threading.Thread] = []
     started = now()
     latest = started + dt.timedelta(seconds=sweep_seconds + RESCUE_GRACE_SECONDS)
@@ -1578,13 +1608,20 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             key = outcome.split(":")[0]
             outcomes[key] = outcomes.get(key, 0) + 1
 
-    def adopt(run_id: int, late: bool) -> None:
+    def adopt(run_id: int, late: bool, *, refusals_known: bool = True) -> None:
+        was_seen = run_id in seen
         seen.add(run_id)
         try:
             run = read(lambda: client.run(run_id), wait, log)
         except READ_ERRORS as error:
             seen.discard(run_id)  # the next tick tries again
             log(f"[run {run_id}] could not read the run ({error})")
+            return
+        if not refusals_known and run.get("path") == CMUX_NEXT_WORKFLOW_PATH:
+            # Without this tick's refusals listing a cmux-next re-run could lose its mark.
+            if not was_seen:
+                seen.discard(run_id)
+            log(f"[run {run_id}] not adopted yet: the refusals markers were not listed; next tick")
             return
         rerun_seen.add((run_id, int(run.get("run_attempt") or 0)))
         full_rerun = False
@@ -1604,6 +1641,8 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         if isinstance(target, str):
             log(f"[run {run_id}] not watched: {target}")
             return
+        if run_id in refusals_runs:
+            target = dataclasses.replace(target, refusals_only=True)
         thread = threading.Thread(target=one, args=(target,), name=f"run-{run_id}", daemon=True)
         thread.start()
         threads.append(thread)
@@ -1611,13 +1650,18 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
     while (now() - started).total_seconds() < sweep_seconds:
         oldest = now() - dt.timedelta(seconds=SWEEP_MAX_AGE_SECONDS)
         # The picker's marker first: a run with both is watched the ordinary way.
-        for name, late in ((WATCH_MARKER, False), (LATE_WATCH_MARKER, True)):
+        # Refusals-only runs are listed before the re-runs, which inherit the mark.
+        refusals_listed = False
+        for name, late in ((REFUSALS_WATCH_MARKER, False), (WATCH_MARKER, False), (LATE_WATCH_MARKER, True)):
             try:
                 marked = client.marked_runs(name, SWEEP_LISTING, oldest, SWEEP_LISTING_PAGES, log=log)
             except READ_ERRORS as error:
                 log(f"could not list {name} markers ({error}); next tick")
                 continue
+            refusals_listed = refusals_listed or name == REFUSALS_WATCH_MARKER
             for run_id, created in marked:
+                if name == REFUSALS_WATCH_MARKER:
+                    refusals_runs.add(run_id)  # at any age: a later re-run inherits it
                 if run_id in seen or (created is not None and created < oldest):
                     continue
                 adopt(run_id, late)
@@ -1629,7 +1673,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             reruns = []
         for run_id, attempt in reruns:
             if (run_id, attempt) not in rerun_seen:
-                adopt(run_id, False)
+                adopt(run_id, False, refusals_known=refusals_listed)
         threads = [thread for thread in threads if thread.is_alive()]
         log(f"tick: {len(threads)} run(s) watched, {client.remaining or '?'} of "
             f"{client.limit or '?'} API requests left this hour")

@@ -16,7 +16,9 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 # `owned-pool-watch` artifact when they place attempt 1 on an owned pool, and
 # ci-macos.yml's late-placement an `owned-pool-watch-late` one when it moves
 # jobs onto one; every minute the sweeper lists both names repository-wide
-# and gives each new run a thread running the per-run watch. Until
+# and gives each new run a thread running the per-run watch. A run marked
+# `owned-pool-watch-refusals` (cmux-next.yml, no free overflow) and its
+# re-runs are watched for refusals only: a long queue is left alone. Until
 # 2026-09-25 each such run had its own owned-pool-watch job, a "Watch owned
 # pool jobs" check on the pull request, dispatching its own rescue run: 263
 # rescue runs in the 2 hours to 12:30 UTC, and 59 of the last 60 did nothing.

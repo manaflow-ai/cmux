@@ -3448,6 +3448,7 @@
     "unsupportedParams": "Dette link indeholder ikke-understøttede parametre, cmux vil afvise: {params}",
     "conflictingParams": "Dette link indeholder parametre, der ikke kan bruges sammen: {params}",
     "invalidParams": "Dette link indeholder ugyldige parameterværdier: {params}",
+    "ignoredParams": "cmux ignorerer parametre, som den ikke bruger: {params}. Sessionen åbnes alligevel.",
     "fixParams": "Ret URL-parametrene, og genindlæs derefter denne side.",
     "examplePrefix": "Se en",
     "exampleLink": "eksempel link",
