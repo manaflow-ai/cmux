@@ -174,9 +174,23 @@ public struct WorkspaceStatus: Sendable, Hashable, Decodable {
         public var progress: Double?
         /// The reporter's style hint (`arc|native|dot|none`).
         public var style: String?
+        /// The terminal the entry is about (`target_terminal`, `term_…`); `cmux status` sets it to
+        /// the caller's terminal.
+        public var targetTerminal: String?
+        /// A finished `cmux status run`'s exit status and how long it ran (success or error only).
+        public var exitCode: Int?
+        public var durationMs: UInt64?
+
+        enum CodingKeys: String, CodingKey {
+            case key, text, icon, color, state, progress, style
+            case targetTerminal = "target_terminal"
+            case exitCode = "exit_code"
+            case durationMs = "duration_ms"
+        }
 
         public init(key: String, text: String, icon: String? = nil, color: String? = nil,
-                    state: String? = nil, progress: Double? = nil, style: String? = nil) {
+                    state: String? = nil, progress: Double? = nil, style: String? = nil,
+                    targetTerminal: String? = nil, exitCode: Int? = nil, durationMs: UInt64? = nil) {
             self.key = key
             self.text = text
             self.icon = icon
@@ -184,6 +198,23 @@ public struct WorkspaceStatus: Sendable, Hashable, Decodable {
             self.state = state
             self.progress = progress
             self.style = style
+            self.targetTerminal = targetTerminal
+            self.exitCode = exitCode
+            self.durationMs = durationMs
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            key = try c.decode(String.self, forKey: .key)
+            text = try c.decode(String.self, forKey: .text)
+            icon = try c.decodeIfPresent(String.self, forKey: .icon)
+            color = try c.decodeIfPresent(String.self, forKey: .color)
+            state = try c.decodeIfPresent(String.self, forKey: .state)
+            progress = try c.decodeIfPresent(Double.self, forKey: .progress)
+            style = try c.decodeIfPresent(String.self, forKey: .style)
+            targetTerminal = try c.decodeIfPresent(String.self, forKey: .targetTerminal)
+            exitCode = try? c.decodeIfPresent(Int.self, forKey: .exitCode)
+            durationMs = try? StateDecimal.decode(c, .durationMs)
         }
     }
 

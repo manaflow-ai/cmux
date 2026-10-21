@@ -258,7 +258,9 @@ impl Hub {
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
-        use crate::protocol::session::{QueuedPromptSummary, SessionSummary, TurnSummary};
+        use crate::protocol::session::{
+            QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
+        };
         let m = session.meta();
         let turn = session.turn();
         let summary = SessionSummary {
@@ -295,6 +297,12 @@ impl Hub {
             // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
             // with `interrupt` stops the turn and runs next.
             steering: session.steering.load(Ordering::SeqCst),
+            // Ctrl-B moves its work (`processes.rs`); no while the configuration is
+            // being written, until the next summary.
+            backgrounds_work: self
+                .config
+                .try_read()
+                .is_ok_and(|cfg| super::processes::backgrounds_work(&cfg, &m.harness)),
             turn: turn.map(|t| TurnSummary {
                 started_at: t.started_at,
                 client: t.client,
@@ -313,6 +321,15 @@ impl Hub {
                     prompt: q.preview,
                     queued_at: q.queued_at,
                     held: q.held,
+                    // By attachment id: `_acpmux/attachment` reads each back.
+                    images: super::prompt_images::named(&q.run.blocks)
+                        .into_iter()
+                        .map(|image| QueuedImage {
+                            id: image["id"].as_str().unwrap_or_default().to_owned(),
+                            mime_type: image["mimeType"].as_str().unwrap_or_default().to_owned(),
+                            name: image["name"].as_str().map(str::to_owned),
+                        })
+                        .collect(),
                 })
                 .collect(),
             pending_permissions: session.pending_permissions().len() as u64,

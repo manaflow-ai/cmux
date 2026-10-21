@@ -4,7 +4,9 @@ use std::collections::BTreeSet;
 
 use serde_json::{Value, json};
 
-use super::{Choice, DomainKind, Kind, NumberRange, Row, new_tab_page_url_is_valid};
+use super::{
+    Choice, DomainKind, Kind, NumberRange, Row, is_http_origin, new_tab_page_url_is_valid,
+};
 use crate::domains::Domains;
 use crate::refusal::Refusal;
 use crate::text::{
@@ -24,6 +26,11 @@ pub enum Accepted {
         min: f64,
         max: f64,
     },
+    /// One of the choices, or an object of the shape described in words.
+    ChoicesOrShape {
+        choices: Vec<String>,
+        shape: String,
+    },
     /// A fixed shape, described in words (`boolean`, `#RRGGBB or #RRGGBBAA`, ...).
     Shape(&'static str),
     /// A name from a value domain; `values` is `None` while the app has not
@@ -41,6 +48,9 @@ impl Accepted {
             Accepted::Range { min, max } => json!({"range": {"min": min, "max": max}}),
             Accepted::ChoicesOrRange { choices, min, max } => {
                 json!({"choices": choices, "range": {"min": min, "max": max}})
+            }
+            Accepted::ChoicesOrShape { choices, shape } => {
+                json!({"choices": choices, "shape": shape})
             }
             Accepted::Shape(shape) => json!({"shape": shape}),
             Accepted::Domain { name, values } => json!({"domain": name, "values": values}),
@@ -123,6 +133,14 @@ fn is_accepted(kind: &Kind, value: &Value, domains: &Domains) -> bool {
         Kind::ChoiceOrNumber(choices, range) => match value {
             Value::String(text) => has_choice(choices, text),
             Value::Number(number) => number.as_f64().is_some_and(|x| in_range(range, x)),
+            _ => false,
+        },
+        Kind::ChoiceOrUrl(choices, url_key) => match value {
+            Value::String(text) => has_choice(choices, text),
+            Value::Object(members) => {
+                members.len() == 1
+                    && members.get(url_key).and_then(Value::as_str).is_some_and(is_http_origin)
+            }
             _ => false,
         },
         Kind::Toggle => value.is_boolean(),
@@ -254,6 +272,10 @@ fn accepted(kind: &Kind, domains: &Domains) -> Accepted {
         Kind::ChoiceOrNumber(choices, range) => {
             Accepted::ChoicesOrRange { choices: values(choices), min: range.min, max: range.max }
         }
+        Kind::ChoiceOrUrl(choices, url_key) => Accepted::ChoicesOrShape {
+            choices: values(choices),
+            shape: format!("{{\"{url_key}\": \"http(s)://host[:port]\"}}"),
+        },
         Kind::Number(range) => Accepted::Range { min: range.min, max: range.max },
         Kind::Toggle => Accepted::Shape("boolean"),
         Kind::Color => Accepted::Shape("#RRGGBB or #RRGGBBAA"),

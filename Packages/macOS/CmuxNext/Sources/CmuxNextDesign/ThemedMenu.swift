@@ -13,10 +13,15 @@ extension NSMenu {
     /// keys and submenus work as before. Their action goes through a `ThemedMenuDispatch`, which
     /// runs it once however it arrives: AppKit's Return or key equivalent, a click on the row
     /// (AppKit sends no action for a click on a view row), or Return delivered to the row.
+    ///
+    /// A chosen row runs once the menu's tracking loop has ended, except the rows `runsInPlace`
+    /// picks: those run as the menu closes, as a native row does. That is for an engine's own
+    /// items (WebKit's Copy, Look Up, Inspect Element), whose target forgets the menu once the
+    /// engine's `popUp` returns, so a later run would do nothing.
     @discardableResult
-    public func themeRows(in scope: ThemeScope) -> NSMenu {
+    public func themeRows(in scope: ThemeScope, runsInPlace: @escaping @MainActor (NSMenuItem) -> Bool = { _ in false }) -> NSMenu {
         appearance = scope.appearance
-        themeRows(in: scope, session: ThemedMenuSession())
+        themeRows(in: scope, session: ThemedMenuSession(runsInPlace: runsInPlace))
         return self
     }
 
@@ -69,8 +74,14 @@ final class ThemedMenuAfterRun: NSObject {
 /// One opening of a themed menu, shared by its submenus: its action runs at most once.
 final class ThemedMenuSession {
     private(set) var hasRun = false
+    /// The rows that run as the menu closes, not after its tracking loop (``NSMenu/themeRows(in:runsInPlace:)``).
+    let runsInPlace: @MainActor (NSMenuItem) -> Bool
     /// A menu's delegate is weak; the rows hold the session, the session holds the relays.
     private var relays: [ThemedMenuHighlightRelay] = []
+
+    init(runsInPlace: @escaping @MainActor (NSMenuItem) -> Bool = { _ in false }) {
+        self.runsInPlace = runsInPlace
+    }
 
     func keep(_ relay: ThemedMenuHighlightRelay) { relays.append(relay) }
 
