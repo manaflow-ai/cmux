@@ -205,6 +205,14 @@ mod workflows;
 /// the task's end arrives as its own event.
 pub const STOP_TASK: &str = "_acpmux/claude/stop_task";
 
+/// The internal ACP request that moves Claude Code's running work to the
+/// background (Ctrl-B, `hub/processes.rs`), `{sessionId, toolCallId?}`:
+/// Claude Code's `background_tasks` control request, for the task the tool
+/// call started or, without one, every foreground task. Answers
+/// `{backgrounded}`; the shells it moved arrive as their own events, with
+/// origin `user_backgrounded`.
+pub const BACKGROUND_TASKS: &str = "_acpmux/claude/background_tasks";
+
 /// The refusal of a steered prompt when no turn is running (the turn ended
 /// between the hub's check and the adapter).
 pub const STEER_NO_TURN: &str = "steer: no turn is running";
@@ -397,6 +405,9 @@ struct BackgroundShell {
     background: bool,
     /// Started in the background (`run_in_background`), not moved there.
     launched: bool,
+    /// The person asked for it to go to the background (`BACKGROUND_TASKS`):
+    /// once it moves, its origin is `user_backgrounded`.
+    asked: bool,
     /// Its `running` update went out (`inbound.rs` `running`).
     announced: bool,
     /// The file Claude Code writes its output to (`output_file`), once a
@@ -413,6 +424,9 @@ enum Pending {
     Control(Setting, String),
     /// A `stop_task` (`STOP_TASK`), answered when claude takes it.
     StopTask,
+    /// A `background_tasks` (`BACKGROUND_TASKS`), with the shells it marked
+    /// `asked`, unmarked when nothing moved.
+    Background(Vec<String>),
 }
 
 #[derive(Debug, Clone, Copy)]

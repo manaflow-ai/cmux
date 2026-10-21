@@ -201,6 +201,13 @@ has the same choice.
 - 2026-10-20, hosted: H-1 red test `home-history-page.test.ts` (0da3acea717), fix 9c1e9d32091.
   Hosted Workers-pool tests after the `acceptSubscriber` seam and `PROJECTION_PRIMARY=none`:
   26 files, 165 tests green (`test/home-*`, `test/socket*`, `test/wire-ticket*`, `test/projection*`).
+- 2026-10-21, staging: backend run 39553887817 green (test, deploy-staging, promote-gates) at
+  a4f9d6162af. Smoke against `cmux-api-staging` (Stack dev account): group create, conversation
+  socket welcome and live events, resend replayed, `has_more` false on an exactly full page and true
+  with older messages, tapback, read cursor, leave. Production: promote-gates stopped at G6, the
+  hold switch `CMUX_NEXT_PRODUCTION_HOLD` ("Lawrence's go on the first deploy clears it"); not bypassed.
+- 2026-10-21, self-hosted attachments (4d1c3227c53): upload in a DM, the other member downloads the
+  same bytes, a non-member cannot mint a URL.
 - 2026-10-20, self-hosted server landed in a3d5d15c81b (`backend/apps/home-server`):
   `bun test` 9/9 (DM, group, resend replay, reply, tapback, read cursor, unread, typing, resume
   with `after_seq`, restart keeps data, alarm survives restart, admission refusals).
