@@ -15,8 +15,12 @@ impl Hub {
         meta: &SessionMeta,
         profile: &HarnessProfile,
         session_id: Option<&str>,
+        child: &crate::agent::ChildAgent,
     ) -> Value {
-        let all = crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env);
+        let all =
+            crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
+        // A fork through this child asks for the same list (`fork.rs`).
+        child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
         let servers =
             crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all);
         let mut params = json!({"cwd": meta.cwd, "mcpServers": servers});
