@@ -74,6 +74,9 @@ public nonisolated struct KeyContext: Hashable, Sendable {
     /// A list-like control has the keyboard: a combobox, listbox, menu or
     /// picker in a page, the sidebar list or its search field (R85).
     public static let listFocus = "listFocus"
+    /// The sidebar list has the keyboard with two or more rows selected: Cmd-W closes them
+    /// (Chrome's Cmd-W on several selected tabs).
+    public static let sidebarMultiSelection = "sidebar.multiSelection"
     /// The focused React page's id (`cmux.markdown`, `cmux.keybindings`).
     public static let pageID = "pageId"
     /// The top page the window shows (`home`), which fills the content area

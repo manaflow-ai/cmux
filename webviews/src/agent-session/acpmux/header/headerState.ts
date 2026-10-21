@@ -35,8 +35,11 @@ export interface HeaderState {
   readonly lit: readonly string[];
   /// The "..." menu offers Move to Floating Chat (Start Agent's floating chat is on, cx-b9qi).
   readonly floatingChat: boolean;
-  /// The header offers the session side rail (Debug Settings `agent.sessionRail`, cx-ncc.101).
-  readonly sessionRail: boolean;
+  /// Debug Settings' Side sessions (/btw) is on (`agentPane.debug.sideSessions`): the composer offers `/btw`
+  /// (aside/sideSessions.ts). Off until the app sends it; an update that leaves it out keeps its value.
+  readonly sideSessions: boolean;
+  /// The header offers the Inspector (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx).
+  readonly inspector: boolean;
   /// Browser opens the chat's page and Preview is no button of its own (Debug Settings
   /// `agentChat.browserOpensPreview`, on by default; off: separate Preview and Browser).
   readonly browserOpensPreview: boolean;
@@ -58,7 +61,8 @@ let current: HeaderState = {
   sideTabs: false,
   lit: [],
   floatingChat: false,
-  sessionRail: false,
+  sideSessions: false,
+  inspector: false,
   browserOpensPreview: true,
   version: 0,
 };
@@ -71,7 +75,8 @@ export function setHeaderState(value: unknown): void {
     sideTabs?: unknown;
     lit?: unknown;
     floatingChat?: unknown;
-    sessionRail?: unknown;
+    sideSessions?: unknown;
+    inspector?: unknown;
     browserOpensPreview?: unknown;
     pullRequest?: unknown;
     version?: unknown;
@@ -83,7 +88,8 @@ export function setHeaderState(value: unknown): void {
     sideTabs: typeof raw.sideTabs === "boolean" ? raw.sideTabs : current.sideTabs,
     lit: Array.isArray(raw.lit) ? raw.lit.filter((id): id is string => typeof id === "string") : current.lit,
     floatingChat: typeof raw.floatingChat === "boolean" ? raw.floatingChat : current.floatingChat,
-    sessionRail: typeof raw.sessionRail === "boolean" ? raw.sessionRail : current.sessionRail,
+    sideSessions: typeof raw.sideSessions === "boolean" ? raw.sideSessions : current.sideSessions,
+    inspector: typeof raw.inspector === "boolean" ? raw.inspector : current.inspector,
     browserOpensPreview:
       typeof raw.browserOpensPreview === "boolean" ? raw.browserOpensPreview : current.browserOpensPreview,
     pullRequest: "pullRequest" in raw ? pullRequestOf(raw.pullRequest) : current.pullRequest,

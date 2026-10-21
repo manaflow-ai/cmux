@@ -348,6 +348,13 @@ jobs:
         continue-on-error: true
         run: python3 tests/test_install_git_hooks.py
 
+      # Runs after the webviews install, so the real-vp case runs too.
+      - name: Post-edit formatting hook
+        id: post-edit-format
+        if: matrix.shard == 1
+        continue-on-error: true
+        run: python3 tests/test_format_post_edit.py
+
       - name: Check diff viewer eager JS budget
         id: eager-js-budget
         if: matrix.shard == 1
@@ -422,6 +429,7 @@ jobs:
         if: ${{ !cancelled() }}
         env:
           MERGE_DRIVER: ${{ steps.merge-driver.outcome }}
+          POST_EDIT_FORMAT: ${{ steps.post-edit-format.outcome }}
           EAGER_JS_BUDGET: ${{ steps.eager-js-budget.outcome }}
           REACT_COMPILER: ${{ steps.react-compiler.outcome }}
           WEBVIEWS_CHECK: ${{ steps.webviews-check.outcome }}
@@ -434,6 +442,7 @@ jobs:
           failed=0
           for gate in \
             "MERGE_DRIVER|Generated bundle merge driver" \
+            "POST_EDIT_FORMAT|Post-edit formatting hook" \
             "EAGER_JS_BUDGET|Check diff viewer eager JS budget" \
             "REACT_COMPILER|Verify React Compiler for webviews" \
             "WEBVIEWS_CHECK|Check webviews (Oxlint, Oxfmt, type check)" \
