@@ -66,6 +66,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let find: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32, Int32, Int32) -> Void
     let stopFinding: @convention(c) (Int32, Int32) -> Void
     let close: @convention(c) (Int32) -> Void
+    /// A person's close: 1 closes now, 0 runs beforeunload first (`CEFTab+UserClose`).
+    let tryClose: @convention(c) (Int32) -> Int32
+    /// Answers BEFORE_UNLOAD_DIALOG (token, 1 = Leave).
+    let beforeUnloadReply: @convention(c) (Int32, Int32) -> Int32
     let devToolsCall: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// Raw DevTools protocol (`CEFDevToolsRawMessage`): watch a browser's
     /// events, send a message with an id from 2^30 (1 sent, 0 gone, -1 refused).
@@ -282,6 +286,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         find = try r("cmux_shim_find")
         stopFinding = try r("cmux_shim_stop_finding")
         close = try r("cmux_shim_close")
+        tryClose = try r("cmux_shim_try_close")
+        beforeUnloadReply = try r("cmux_shim_before_unload_reply")
         devToolsCall = try r("cmux_shim_devtools_call")
         devToolsWatchEvents = try r("cmux_shim_devtools_watch_events")
         devToolsSend = try r("cmux_shim_devtools_send")

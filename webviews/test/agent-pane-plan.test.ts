@@ -242,7 +242,7 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
         });
       }),
     ).toBe(true);
-    expect((await mark("in_progress")).animation).toBe("cv-plan-spin");
+    expect((await mark("in_progress")).animation).toBe("cmux-spin");
     expect(await mark("pending")).toEqual({ animation: "none", border: "dashed" });
     await page.close();
   });
