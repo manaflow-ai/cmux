@@ -240,13 +240,58 @@ impl Mux {
                 }
                 continue;
             }
+            if let Err(error) = self.transition_terminal_lifecycle(
+                "terminal-adopting",
+                "adopt-terminal",
+                &terminal_id,
+                TerminalLifecycle::Adopting,
+                Some(&record.incarnation),
+            ) {
+                let current =
+                    self.workspace_registry.lock().unwrap().terminal_record(&terminal_id)?;
+                if current.as_ref().is_some_and(|terminal| {
+                    matches!(
+                        terminal.lifecycle,
+                        TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
+                    )
+                }) {
+                    if current
+                        .as_ref()
+                        .is_some_and(|terminal| terminal.lifecycle == TerminalLifecycle::Exited)
+                    {
+                        self.detach_exited_terminal_topology(&terminal_id)?;
+                    }
+                    handled_terminals.insert(terminal_id.clone());
+                    if !cleanup_terminal_host_record(&record, &record_path) {
+                        self.schedule_terminal_adoption(options.clone(), record, record_path);
+                    }
+                    continue;
+                }
+                return Err(error);
+            }
+            if terminal_host_record_liveness(&record_path, &record) == TerminalHostLiveness::Dead {
+                // Commit the durable exit before deleting the record. The
+                // record is the only proof that this host ever existed, so a
+                // failed commit must leave the next startup able to retry
+                // instead of facing a lifecycle row with no evidence.
+                self.mark_terminal_ended(
+                    &terminal_id,
+                    "terminal-host-proven-dead",
+                    "host-process-ended-before-adoption",
+                    &options,
+                )?;
+                let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
+                    &record_path,
+                    &record,
+                );
+                handled_terminals.insert(terminal_id.clone());
+                continue;
+            }
             // The host adopts on its own thread, after the owner answers its
             // clients: one host's handshake and replay must not hold the first
             // answer, nor every other terminal (launch to a live terminal,
-            // plans/cmux-next/service-start-PERF.md 5b). That thread commits
-            // the adopting lifecycle and proves a dead host, so no per-host
-            // write runs before the answer either. The tab is adopting, not
-            // dead, until then (R41).
+            // plans/cmux-next/service-start-PERF.md 5b). The tab is adopting,
+            // not dead, until then (R41).
             handled_terminals.insert(terminal_id.clone());
             match public_id {
                 // An imported or recovered row has no prefetched id: read it now.
@@ -946,17 +991,17 @@ const STARTUP_READY_WAIT: Duration = Duration::from_secs(2);
 /// One of the ``ADOPTION_SLOTS``, held while a host's handshake and replay run.
 struct AdoptionSlot;
 
-static ADOPTIONS_IN_FLIGHT: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
-static ADOPTION_SLOT_FREED: std::sync::Condvar = std::sync::Condvar::new();
+static ADOPTIONS_IN_FLIGHT: Mutex<usize> = Mutex::new(0);
+static ADOPTION_SLOT_FREED: Condvar = Condvar::new();
 
 impl AdoptionSlot {
     fn take() -> Self {
         let mut in_flight =
-            ADOPTIONS_IN_FLIGHT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            ADOPTIONS_IN_FLIGHT.lock().unwrap_or_else(PoisonError::into_inner);
         while *in_flight >= ADOPTION_SLOTS {
             in_flight = ADOPTION_SLOT_FREED
                 .wait(in_flight)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                .unwrap_or_else(PoisonError::into_inner);
         }
         *in_flight += 1;
         AdoptionSlot
@@ -965,7 +1010,7 @@ impl AdoptionSlot {
 
 impl Drop for AdoptionSlot {
     fn drop(&mut self) {
-        *ADOPTIONS_IN_FLIGHT.lock().unwrap_or_else(std::sync::PoisonError::into_inner) -= 1;
+        *ADOPTIONS_IN_FLIGHT.lock().unwrap_or_else(PoisonError::into_inner) -= 1;
         ADOPTION_SLOT_FREED.notify_one();
     }
 }
