@@ -15,12 +15,9 @@
   backdrop-filter: var(--tooltip-blur, blur(20px) saturate(1.4));
   box-shadow: var(--tooltip-shadow, var(--elevation-2));
   color: var(--agent-text);
-  font:
-    13px/18px -apple-system,
-    BlinkMacSystemFont,
-    "SF Pro Text",
-    system-ui,
-    sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
   pointer-events: auto;
 }
 
@@ -34,7 +31,7 @@
 }
 
 .acpmux-context-card-title {
-  font-size: 12px;
+  font-size: var(--text-detail);
   color: var(--agent-muted);
 }
 
@@ -83,7 +80,7 @@
   display: grid;
   gap: 4px;
   margin-top: 10px;
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 
 .acpmux-context-card-part {
@@ -121,7 +118,7 @@
   background: none;
   color: var(--agent-muted);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 
 .acpmux-context-card-details {
