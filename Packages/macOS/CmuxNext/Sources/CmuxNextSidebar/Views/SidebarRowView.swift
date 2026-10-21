@@ -46,6 +46,8 @@ class SidebarRowView: NSView {
         let local = convert(point, from: superview)
         // A button fading out after hover shows but takes no click.
         for button in interactiveSubviews where !button.isHidden && button.alphaValue > 0 && button.frame.contains(local) {
+            // A dog-ear takes only the clicks on its fold; the rest of its square is the row's.
+            if let ear = button as? SidebarDogEarButton, !ear.foldContains(ear.convert(local, from: self)) { continue }
             return button
         }
         return nil
