@@ -652,8 +652,9 @@ impl Hub {
                             (None, Some(rx)) => turn_answer(rx, steer_answers).await,
                             (None, None) => Err(RpcError::internal("agent answer lost")),
                         };
-                        let _ =
-                            hub.finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq).await;
+                        let _ = hub
+                            .finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq, None)
+                            .await;
                         // A recovered turn is not continued (`auto_resume.rs`); settle its mark.
                         hub.schedule_auto_resume(&s, &turn_id, None);
                         // A route switch or an update asked for a restart

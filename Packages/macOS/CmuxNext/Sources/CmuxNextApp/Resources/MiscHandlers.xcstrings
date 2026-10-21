@@ -2889,7 +2889,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Continue in… requires focus; use cmux acp continue for a headless handoff."
+            "value": "Continue In… requires focus; use cmux acp continue for a headless handoff."
           }
         },
         "ja": {

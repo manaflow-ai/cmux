@@ -21,6 +21,14 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func detach() async
     /// Ends the attachment and its daemon connection.
     func close() async
+    /// The chats the attached session started on that machine, as its acpmux summarizes them
+    /// (`{sessions}`, `agent-session-children-v1`); their changes then arrive as `.changed`.
+    func children() async throws -> Data
+}
+
+extension AgentSessionRemoteClient {
+    /// A daemon without `agent-session-children-v1` lists none.
+    public func children() async throws -> Data { Data(#"{"sessions":[]}"#.utf8) }
 }
 
 /// A page request: forward from `afterSeq`, or the newest `limit` before `beforeSeq`.

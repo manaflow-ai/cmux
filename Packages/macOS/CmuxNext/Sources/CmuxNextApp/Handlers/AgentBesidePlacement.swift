@@ -67,13 +67,18 @@ enum AgentBesidePlacement {
                 return "beside-caller: the new tab did not open"
             }
             if let chat, let content = lone?.workspace {
-                // The new tab is in the chat's pane, unselected: the chat docks, the tab stays.
+                // The new tab is in the chat's pane, unselected: the chat docks, the tab stays. The
+                // chat stays where it shows; only the tab's pane comes in, from the right.
+                if let lone { content.layoutModel.handOffContent(of: lone.layoutPaneID) }
                 let docked = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                     TabMoves.toNewDockColumn(chat, anchor: anchor, edge: .left, role: .agentChat, services: services) {
                         done.resume(returning: $0)
                     }
                 }
-                guard docked else { return "beside-caller: the chat did not dock (see the app log)" }
+                guard docked else {
+                    content.layoutModel.cancelContentHandoff()
+                    return "beside-caller: the chat did not dock (see the app log)"
+                }
                 // Keyboard focus stays in the chat, now in its dock.
                 if chatHadFocus || content.focusedPane?.pane === anchor {
                     let chatID = chat.id

@@ -149,7 +149,7 @@ A heavy user wants:
 | Duplicate Workspace, with or without browser tabs (`workspace.duplicate`, `.duplicateTerminalsOnly`) | Same screens, columns, splits, ratios and directories, new terminals (never a shared process), optionally the same pages. |
 | Set / Clear Workspace Icon (`workspace.setIcon`, `.clearIcon`) | An SF Symbol or one emoji tells workspaces apart faster than a color. |
 | Move Workspace to Bottom, to New Group (`workspace.moveToBottom`, `.moveToNewGroup`); Move to Top now uses the same slot path | Completes Up/Down/Top; Move to Top used to write order to the workspace's own daemon in personal mode. |
-| Merge Workspace into… (`workspace.mergeInto`) | Every tab moves into the target, the emptied workspace closes by the last-tab rule. |
+| Merge Workspace Into… (`workspace.mergeInto`) | Every tab moves into the target, the emptied workspace closes by the last-tab rule. |
 | Move Pane to New Workspace (`pane.moveToNewWorkspace`) | A split that grew into its own task. |
 | Close Other Workspaces in Group (`workspace.closeOthersInGroup`) | Close the others, scoped to a project group; destructive, so it confirms. |
 | Select First / Last Workspace, Switch to Last Used Workspace (`workspace.selectFirst`, `.selectLast`, `.selectLastUsed`, Ctrl-Cmd-`) | Toggling between two workspaces is the most used jump; per-window recency. |

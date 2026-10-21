@@ -20,6 +20,7 @@ mod catalog_reload;
 mod complete;
 pub mod composers;
 mod cursor_ext;
+mod digest;
 mod fork;
 mod fork_at;
 pub mod forum;
@@ -49,6 +50,7 @@ mod prompt_images;
 mod prompt_ledger;
 mod queue;
 mod queue_edit;
+pub use digest::declared_sender;
 pub use queue::QueuedPrompt;
 mod resolve;
 mod route_switch;
@@ -56,6 +58,7 @@ pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
+mod git_watch;
 mod offer_results;
 mod offers;
 mod secrets;
@@ -87,7 +90,7 @@ mod peer_cache;
 mod peer_lease;
 pub use peer_lease::PeerLease;
 mod peers;
-pub(crate) use peers::{PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET};
+pub(crate) use peers::{PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET, is_permission_ask};
 mod permission_groups;
 mod permissions;
 pub mod person;
@@ -230,6 +233,9 @@ pub struct PromptOptions {
     pub interrupt: bool,
     /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
     pub provenance: Option<Value>,
+    /// Another agent's name when it sent the prompt with no provenance: the session a
+    /// connection proved it runs in, or `_meta.acpmux.fromAgent` (`digest.rs`).
+    pub agent: Option<String>,
     /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
     /// this turn, checked again once it holds the turn lock, else refused unrecorded.
     pub after_turn: Option<String>,
@@ -350,6 +356,8 @@ pub struct Hub {
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
+    /// The HEAD of each attached session's folder, watched for a checkout (`git_watch.rs`).
+    pub(super) git_watch: git_watch::GitWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
     pub health: Arc<crate::harness_health::HealthService>,
@@ -445,6 +453,7 @@ impl Hub {
             start_mode_state: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
+            git_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
