@@ -61,6 +61,16 @@ enum TabMoves {
         }
     }
 
+    /// Every tab of `pane` dropped on its own `edge` (#22287): they stay, and the New Tab page (a new
+    /// pane's default, as a person's split opens it) opens on the far side, so they end at `edge`.
+    static func splitBehind(_ pane: PaneModel, edge: PaneEdge, services: AppServices, completion: @escaping Completion) {
+        if ChatDockRules.isChatDock(pane, services: services) { services.registry.refuse(RefusalStrings.chatDockCannotSplit); return completion(false) }
+        guard let controller = services.paneController(for: pane) else { return completion(false) }
+        // One commit puts a page right or below; for a drop there the page opens on that side and the panes swap.
+        let near = edge == .right || edge == .bottom
+        completion(NewTabPage.split(controller, edge: near ? edge : edge.opposite, focusesPage: false, swapsBack: near))
+    }
+
     /// New pane on `edge` of `pane` holding the tab. `roomDecided`: the
     /// caller already chose a split over a new column with the same room
     /// rule (a drag's preview did, with the emptied source pane removed),
@@ -72,6 +82,8 @@ enum TabMoves {
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
         guard services.daemon(for: pane) === daemon else { return refuseOtherMachine(services, completion) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
+        // Its own pane's only tab on that pane's edge (every entry point): the New Tab page opens behind it.
+        if respawn == nil, let source = services.locateTab(tab.id)?.1, source.handle == pane.handle, source.tabs.count == 1 { return splitBehind(pane, edge: edge, services: services, completion: completion) }
         // With a respawn the source pane stays (it gets the new tab).
         let decision = ChatDockRules.dropSplit(roomDecided: roomDecided, intoChatDock: ChatDockRules.isChatDock(pane, services: services)) {
             services.splitRoom(for: pane, edge: edge, movingFrom: respawn == nil ? services.locateTab(tab.id)?.1 : nil)
@@ -86,7 +98,11 @@ enum TabMoves {
             return completion(false)
         }
         let surface = tab.surface, paneHandle = pane.handle
-        let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
+        let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag), emptied = respawn == nil ? services.locateTab(tab.id)?.1 : nil, sizing = services.splitSizing(for: pane, edge: edge, emptying: emptied?.tabs.count == 1 ? emptied : nil)
+        // The even sizing lands with the move's echo, in the same layout update as the new split, not a
+        // reply later (a visible resize after the drop, #22287); it runs only if the tab left its pane.
+        let from = services.locateTab(tab.id)?.1.handle
+        if echoes { daemon.store.whenApplied(transaction) { if let now = services.locateTab(tab.id)?.1.handle, now != from { sizing() } } }
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-split") { connection -> Void in
                 do {
@@ -100,6 +116,7 @@ enum TabMoves {
                     try await fallbackSplit(surface, target: paneHandle, edge: edge, connection: connection)
                 }
             } != nil
+            if ok, !echoes { sizing() }
             completion(ok)
             return ok ? nil : "move-tab-to-split failed (see the app log)"
         })

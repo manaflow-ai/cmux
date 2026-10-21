@@ -76,6 +76,10 @@ final class PaneOverlayView: NSView {
     nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    /// The attention ring's running animations and model opacity (for tests and `debug.layers`).
+    var attentionAnimationKeys: [String] { attention.animationKeys() ?? [] }
+    var attentionOpacity: Float { attention.opacity }
+
     /// Whether the focus ring or glow is showing (for `debug.layers`).
     var showsRing: Bool { ring.opacity > 0 || glowClip.opacity > 0 }
     /// Whether the hairline border is showing (for `debug.layers`).
@@ -188,7 +192,8 @@ final class PaneOverlayView: NSView {
     }
 
     func update(showsRing: Bool, dim: CGFloat, dimFill: DimFill = .pane, focusRing: FocusRingSettings, ringAlphaOverride: CGFloat? = nil,
-                border borderStyle: Border, attention mark: AttentionMark?, attentionSettings: AttentionSettings, animated: Bool) {
+                border borderStyle: Border, attention mark: AttentionMark?, attentionSettings: AttentionSettings,
+                readByEntry: Bool = false, animated: Bool) {
         self.dimFill = dimFill
         let shapeChanged = focusRing != self.focusRing || attentionSettings != self.attentionSettings
             || borderStyle.width != self.borderStyle.width
@@ -221,9 +226,9 @@ final class PaneOverlayView: NSView {
         }
         Motion.feedback.transaction(animated ? .focus : nil) {
             for ((layer, value), leaves) in zip(targets, leaving) where !leaves { layer.opacity = value }
-            dimLayer.opacity = Float(dim)
         }
-        applyAttention(mark, animated: animated)
+        Motion.feedback.transaction(animated ? .paneDim : nil) { dimLayer.opacity = Float(dim) }
+        applyAttention(mark, readByEntry: readByEntry, animated: animated)
         applyColors()
     }
 
@@ -248,23 +253,38 @@ final class PaneOverlayView: NSView {
         applyColors()
     }
 
-    private func applyAttention(_ mark: AttentionMark?, animated: Bool) {
+    /// `readByEntry`: the mark went away because the person went into the
+    /// pane (a click, a key, an open): the ring blinks out, as cmux classic's
+    /// dismiss flash did. A mark cleared any other way (Mark Read, a timeout,
+    /// a mute, another device) just fades.
+    private func applyAttention(_ mark: AttentionMark?, readByEntry: Bool, animated: Bool) {
         let previous = attentionMark
         attentionMark = mark
         attentionLook = observedAttentionLook()
         guard let mark, attentionSettings.style != .none else {
             attention.removeAnimation(forKey: "attention")
+            if previous != nil, readByEntry, animated,
+               let flash = Motion.indicators.attentionDismissAnimation(attentionSettings, look: attentionLook) {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                attention.opacity = 0
+                attention.add(flash, forKey: "attention-dismiss")
+                CATransaction.commit()
+                return
+            }
             Motion.feedback.transaction(animated ? .focus : nil) { attention.opacity = 0 }
             return
         }
+        attention.removeAnimation(forKey: "attention-dismiss")
         guard previous?.generation != mark.generation else { return }
         // A new notification: run the style's animation from the start and
-        // rest at its final opacity.
+        // rest at its final opacity (the steady ring swells from its rest when
+        // it already shows, rather than dropping out first).
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook)
         attention.removeAnimation(forKey: "attention")
-        if let animation = Motion.indicators.attentionAnimation(attentionSettings, look: attentionLook) {
+        if let animation = Motion.indicators.attentionAnimation(attentionSettings, look: attentionLook, showing: previous != nil) {
             attention.add(animation, forKey: "attention")
         }
         CATransaction.commit()

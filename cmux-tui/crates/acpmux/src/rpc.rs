@@ -217,8 +217,14 @@ pub mod method {
     pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
+    /// To the agent adapter, `{sessionId}`: stop the agent's current step so it reads the steers
+    /// that wait for it, and keep the turn (Send now on a steer, `hub/queue_edit.rs`). Answers
+    /// `{interrupted}`, false when no steer waits; an agent without it answers an error.
+    pub const MUX_STEP_NOW: &str = "_acpmux/step_now";
     /// An agent message's sender takes it back (`hub/withdraw.rs`).
     pub const MUX_PROMPT_WITHDRAW: &str = "_acpmux/prompt_withdraw";
+    /// Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
+    pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
     pub const MUX_INFO: &str = "_acpmux/info";
     pub const MUX_EVENTS: &str = "_acpmux/events";
     /// Durable inter-session mailbox: send, page/wait, and recipient-only ack.
@@ -231,6 +237,8 @@ pub mod method {
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
     /// The signed app gives this launch's person key (`hub/person.rs`).
     pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
+    /// The signed app gives the daemon its legacy Computer Use agent endpoint.
+    pub const MUX_COMPUTER_USE_ENROLL: &str = "_acpmux/computer_use_enroll";
     /// The person proof for this connection's challenge (`hub/person.rs`).
     pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
     pub const MUX_PERSON_HOLDS: &str = "_acpmux/person_holds";
@@ -371,6 +379,10 @@ pub mod method {
     pub const MUX_PROCESS_LIST: &str = "_acpmux/process/list";
     pub const MUX_PROCESS_TAIL: &str = "_acpmux/process/tail";
     pub const MUX_PROCESS_KILL: &str = "_acpmux/process/kill";
+    /// Worktree cleanup (`server/worktrees.rs`).
+    pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
+    pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";
+    pub const MUX_WORKTREE_RESTORE: &str = "_acpmux/worktree/restore";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";

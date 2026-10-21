@@ -1184,6 +1184,7 @@ jobs:
           echo "::notice title=publish skipped::${REF_NAME} is build-only. Use a cmux-tui-pin-* branch to publish: git push origin ${SHA}:refs/heads/cmux-tui-pin-${short}"
 
   sentry-dsyms:
+    environment: sentry-dsyms
     # The macOS client's debug symbols (cmux-tui, cmux-tui-host, acpmux, ...),
     # so Sentry symbolicates their crashes in the app bundle, where the
     # binaries are stripped. Never blocks a publish: a failed upload is a warning.

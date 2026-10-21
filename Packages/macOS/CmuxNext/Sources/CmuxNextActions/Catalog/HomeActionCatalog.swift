@@ -16,6 +16,8 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
         return all.map { descriptor in
             var descriptor = descriptor
             descriptor.waitsForResult = waits.contains(descriptor.id)
+            // `home.chiefPetEnabled` is a user-only setting: only a person turns the pet on.
+            descriptor.isPersonOnly = ["home.toggleChiefPet", "home.messageChiefPet", "home.messageChiefFromAnyApp"].contains(descriptor.id)
             return descriptor
         }
     }
@@ -28,6 +30,14 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 keywords: ["home", "mux", "messages", "conversations", "orchestrator"], category: .window, symbol: "house",
                 surfaces: [.palette, .keyboard, .menu], cliName: "home show",
                 mainMenu: .file
+            ),
+            // The Chief's conversation in the Home workspace's chat pane: the sidebar's Chief item
+            // (`ChiefSidebar`, off by default) runs it, and so can the palette and `cmux home open-chief`.
+            ActionDescriptor(
+                id: "home.openChief", title: t("action.home.openChief", "Open Chief"),
+                keywords: ["chief", "home", "chat", "conversation", "talk", "mux", "orchestrator", "subagents"],
+                category: .window, symbol: "sparkles", surfaces: [.palette, .keyboard], cliName: "home open-chief",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
             // The native Home as a pane tab (HomePageTab): it splits next to any other tab
             // (the channels Home among them) over the same Home data. Each run opens one more.
@@ -80,6 +90,43 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 category: .window, symbol: "number", surfaces: [.palette], cliName: "home disable-channels",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // The Chief pet (`home.chiefPetEnabled`, off by default): Leo 2026-10-19, the toggle "ought to be a
+            // hell of a lot more obvious" than Settings > Home. View > Show Chief Pet and the palette row read as
+            // the change they make (Hide Chief Pet while it shows); the empty Chief conversation offers it too.
+            ActionDescriptor(
+                id: "home.toggleChiefPet", title: t("action.home.toggleChiefPet", "Show Chief Pet"),
+                keywords: ["chief", "pet", "mascot", "floating", "companion", "show", "hide", "toggle", "buddy", "notifications"],
+                category: .window, symbol: "pawprint", surfaces: [.palette, .menu],
+                mainMenu: .view,
+                // No CLI verb: the setting is user-only, so a script or agent run would be refused.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            // The pet with its reply box open, turning the pet on first if it is off (Leo 2026-10-20: grow the
+            // pet toward Codex's mini chat). Bindable in Settings > Keyboard Shortcuts, unbound by default.
+            ActionDescriptor(
+                id: "home.messageChiefPet", title: t("action.home.messageChiefPet", "Message the Chief"),
+                keywords: ["chief", "pet", "message", "reply", "ask", "chat", "mini", "floating", "summon", "quick"],
+                category: .window, symbol: "bubble.left", surfaces: [.palette, .keyboard],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            {
+                // Message the Chief's system-wide key, its own action so it has its own recorder (like Start Agent
+                // from Any App). GlobalHotKeyService registers it only while the pet is on: the person already chose
+                // to have the Chief over every app, and with the pet off the key stays with other apps.
+                var anyApp = ActionDescriptor(
+                    id: "home.messageChiefFromAnyApp",
+                    title: t("action.home.messageChiefFromAnyApp", "Message the Chief from Any App"),
+                    keywords: ["chief", "pet", "message", "reply", "ask", "chat", "global", "hotkey", "hot key", "summon"],
+                    // Ctrl-Opt-Cmd-C: free in cmux's defaults, Ghostty's reserved keys and macOS's; C for Chief.
+                    defaultShortcut: Shortcut("c", modifiers: [.control, .option, .command]),
+                    category: .window, symbol: "bubble.left", surfaces: [.keyboard],
+                    // Message the Chief is the palette row.
+                    surfacePlan: ActionSurfacePlan(palette: .exempt(.familyMember), cli: .exempt(.familyMember),
+                                                   contextMenuExemption: .noObject)
+                )
+                anyApp.isGlobalHotKey = true
+                return anyApp
+            }(),
             ActionDescriptor(
                 id: "home.attachFiles", title: t("action.home.attachFiles", "Attach Files…"),
                 keywords: ["home", "attach", "file", "photo", "video", "image", "upload", "message", "conversation"],
@@ -169,7 +216,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noTargetSurface)
             ),
             ActionDescriptor(
-                id: "home.renameConversation", title: t("action.home.renameConversation", "Rename Group…"),
+                id: "home.renameConversation", title: t("action.home.renameConversation", "Rename Group Chat…"),
                 keywords: ["home", "group", "rename", "name", "title", "conversation"],
                 category: .window, symbol: "pencil", surfaces: [.palette, .keyboard],
                 arguments: [Self.conversation,

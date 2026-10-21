@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import Observation
 import QuartzCore
 
 /// Group header (Lawrence 2026-10-11, cx-qno.22: the solid color bar is
@@ -25,7 +26,7 @@ import QuartzCore
 /// shows the group's menu (cx-a9h6); a plain click anywhere else only collapses or expands
 /// (Lawrence 2026-10-20).
 final class GroupHeaderRowView: SidebarRowView {
-    private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
+    let name = SidebarRowView.label(font: SidebarStyle.headerFont)
     /// A collapsed group's member count, after the name.
     private let count = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let chevron = DecorativeImageView()
@@ -40,15 +41,15 @@ final class GroupHeaderRowView: SidebarRowView {
     private let pin = DecorativeImageView()
     /// The group's icon inside its chip, before the name (`workspace-group-icon-v1`).
     let glyph = SidebarIconView()
-    /// The row's fill (internal so tests can read its frame and radius).
+    /// The row's fill: the band (`SidebarGroupHeaderStyle.band` and `.wash`); internal so tests can
+    /// read its frame and radius.
     let pill = CALayer()
     /// The group's color as a dot on its line (cx-25az, Leo 2026-10-10: no full
     /// pastel fill): the line starts under it and runs to the last member.
-    private let dot = CALayer()
-    /// The more button (the pack's three-dot action.more): the group editor, as a click on the
+    let dot = CALayer()
+    /// The more button (the shared ⋮, `OverflowButton`): the group editor, as a click on the
     /// name (cx-rcby, Lawrence 2026-10-08); a right-click shows the group's flat menu.
-    let moreButton = SidebarIconButton(icon: .actionMore, pointSize: { Metrics.smallIconSize - Metrics.space1 },
-                                       label: GroupEditorStrings.more)
+    let moreButton = OverflowButton(label: GroupEditorStrings.more)
     /// The add button (+): a new workspace at the end of the group (cmuxterm-hq#1829,
     /// the Edge group header). Shows with the more button.
     let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 },
@@ -208,12 +209,32 @@ final class GroupHeaderRowView: SidebarRowView {
         needsLayout = true
     }
 
+    /// The Debug Settings look (`sidebar.groupHeader`, `sidebar.groupColors`, cx-7yywz); a change
+    /// lays the header out and paints it again.
+    private var look: (style: SidebarGroupHeaderStyle, themed: Bool) {
+        let read = { (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
+        guard !observesLook else { return read() }
+        observesLook = true
+        return withObservationTracking(read) { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.observesLook = false
+                self?.needsLayout = true
+                self?.needsDisplay = true
+            }
+        }
+    }
+
+    /// One observation of the look is registered at a time.
+    private var observesLook = false
+
     override func updateLayer() {
         performWithTheme {
             // The solid bar in the group's color (Lawrence 2026-10-11); hover,
             // the open editor and a drop take tonal steps over it.
             let tokens = themeTokens
-            let chip = tint.headerChip
+            let look = look
+            if look.style != .band { return paintQuiet(tokens, look) }
+            let chip = tint.headerChip(themed: look.themed)
             var fill = chip.fill
             if isHovered || isEditing { fill = tokens.hoverFill.composited(over: fill) }
             if isDropTarget { fill = tokens.pressedFill.composited(over: fill) }
@@ -240,6 +261,43 @@ final class GroupHeaderRowView: SidebarRowView {
             layer?.cornerRadius = SidebarStyle.rowCornerRadius
             CATransaction.commit()
         }
+    }
+
+    /// The quieter headers (cx-7yywz): the name in primary ink (`tinted`: in the group's color) with
+    /// the group's color as the dot where its line starts; `wash` adds a faint tint behind the name.
+    /// Hover, the open editor and a drop take the row's own fill.
+    private func paintQuiet(_ tokens: ThemeTokens, _ look: (style: SidebarGroupHeaderStyle, themed: Bool)) {
+        let line = tint.lineRGB(themed: look.themed)
+        let ink = look.style == .tinted
+            ? ThemeTokens.readable(line, over: tokens.sidebarBackground, minimum: ThemeTokens.minimumTextContrast).nsColor
+            : tokens.textPrimary.nsColor
+        name.textColor = ink
+        count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
+        glyph.symbolInk = ink
+        let quiet = tokens.textSecondary.nsColor
+        pin.contentTintColor = quiet
+        chevron.contentTintColor = quiet
+        moreButton.tintOverride = quiet
+        addButton.tintOverride = quiet
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        dot.isHidden = false
+        dot.backgroundColor = line.nsColor.cgColor
+        pill.borderWidth = 0
+        layer?.borderColor = tokens.focusRing.nsColor.cgColor
+        layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
+        layer?.cornerRadius = SidebarStyle.rowCornerRadius
+        CATransaction.commit()
+        guard look.style == .wash else {
+            pill.backgroundColor = nil
+            return paintFill(isDropTarget ? tokens.pressedFill.nsColor : isHovered || isEditing ? tokens.hoverFill.nsColor : nil)
+        }
+        // The wash covers the row, so its states step over the wash, as the band's do.
+        var fill = tint.headerWash(themed: look.themed)
+        if isHovered || isEditing { fill = tokens.hoverFill.composited(over: fill) }
+        if isDropTarget { fill = tokens.pressedFill.composited(over: fill) }
+        ChromeHover.paint(pill, fill.nsColor, animated: fadesNextFill)
+        paintFill(nil)
     }
 
     override func layout() {
@@ -314,23 +372,26 @@ final class GroupHeaderRowView: SidebarRowView {
         if loading, !onColumn { trailing -= ind + Metrics.space2 }
         let glyphSide = min(SidebarStyle.iconBox, barHeight)
         glyph.isHidden = !hasIcon
-        glyph.frame = NSRect(x: lead, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
-        // The label's frame sits its text inset left of the column, as a workspace title's does.
-        let nx = (hasIcon ? glyph.frame.maxX + Metrics.space3 : lead) - Metrics.space1
+        // A pinned group's pin leads the bar, before its icon and name.
         let pinSide = Metrics.smallIconSize
         let pinRoom = pinned ? pinSide + Metrics.space2 : 0
+        pin.isHidden = !pinned
+        pin.frame = NSRect(x: lead, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
+        let iconLead = lead + pinRoom
+        glyph.frame = NSRect(x: iconLead, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
+        // The label's frame sits its text inset left of the column, as a workspace title's does.
+        let nx = (hasIcon ? glyph.frame.maxX + Metrics.space3 : iconLead) - Metrics.space1
         var countWidth = count.stringValue.isEmpty || renaming ? 0 : Self.drawnWidth(count)
         // A sidebar too narrow for the count drops it rather than drawing it over the trailing controls.
-        if nx + pinRoom + countWidth + Metrics.space2 > trailing { countWidth = 0 }
+        if nx + countWidth + Metrics.space2 > trailing { countWidth = 0 }
         let countRoom = countWidth > 0 ? countWidth + Metrics.space2 : 0
-        let nameWidth = min(titleIntrinsicWidth, max(0, trailing - pinRoom - countRoom - nx))
+        let nameWidth = min(titleIntrinsicWidth, max(0, trailing - countRoom - nx))
         let nh = ceil(name.intrinsicContentSize.height)
         name.frame = NSRect(x: nx, y: (b.height - nh) / 2, width: nameWidth, height: nh)
-        pin.isHidden = !pinned
-        pin.frame = NSRect(x: name.frame.maxX + Metrics.space2, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
         count.isHidden = countWidth == 0
-        count.frame = NSRect(x: (pinned ? pin.frame.maxX : name.frame.maxX) + Metrics.space2, y: (b.height - nh) / 2, width: countWidth, height: nh)
-        pill.isHidden = renaming
+        count.frame = NSRect(x: name.frame.maxX + Metrics.space2, y: (b.height - nh) / 2, width: countWidth, height: nh)
+        // The name and the color line only: no bar (cx-7yywz).
+        pill.isHidden = renaming || look.style == .line || look.style == .tinted
         // The cx-rcby chip: one full-width rounded bar, the row's full height like a workspace row's fill.
         pill.frame = NSRect(x: 0, y: 0, width: b.width, height: b.height)
         pill.cornerRadius = SidebarStyle.rowCornerRadius // one radius with the pinned and workspace rows
