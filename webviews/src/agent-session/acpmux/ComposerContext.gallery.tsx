@@ -151,7 +151,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openComputer,
     },
     "environment-picker": {
-      note: "Preview: the computer is the environment picker, one searchable list in Local, SSH and Cloud sections with ⌥⌘1–9 and New environment last.",
+      note: "Preview: the computer is the environment picker, one searchable list in Local, SSH and Cloud sections with ⌥⌘1–9; New Cloud Machine ends the Cloud section and New environment (SSH…) comes last.",
       props: {
         ...baseProps,
         environments: true,
@@ -171,6 +171,20 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         localName: "office-mac",
         peers: ["gpu-box", "build-mini", "Cloud machine"],
         peerKinds: { "gpu-box": "ssh", "build-mini": "ssh", "Cloud machine": "cloud" },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "environment-picker-no-cloud": {
+      note: "Preview: with no cloud machine yet, New Cloud Machine heads its own Cloud section with what one gives.",
+      props: {
+        ...baseProps,
+        environments: true,
+        sessions: sessions.filter((session) => session.hostKind !== "cloud"),
+        peers: ["gpu-box"],
+        peerKinds: { "gpu-box": "ssh" },
       },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
