@@ -1975,6 +1975,14 @@ export function VirtualTranscript({
   const cardRest = useRef(0);
   /// How far the rows were drawn up by the composer's growth (`lift` below) as of the last pass.
   const appliedLift = useRef(0);
+  /// Before the offset is written where rows lay out (a row's place), not where a lift draws them:
+  /// the view stops following, and the commit that follows (from an event or a layout effect,
+  /// before the frame paints) drops the lift without moving the offset by it.
+  const unlift = () => {
+    if (!appliedLift.current) return;
+    appliedLift.current = 0;
+    follow(false);
+  };
   /// The pane's width changed and no new content has come since: rows settling to their drawn
   /// heights at the new width are that resize, not growth, and never glide.
   const reflowing = useRef(false);
@@ -2128,27 +2136,36 @@ export function VirtualTranscript({
   // the room stays as it was, and a composer that grows or shrinks a line (Shift-Return, a wrap)
   // leaves the scroller's height, offset and scrollbar where they were (Leo 2026-10-20: a newline
   // made the transcript's scrollbar jump). Back at the latest row, the room is the stack's again.
-  // Followed, the composer card's own growth since the view began following (`grown`) stays out of
-  // the room too: the rows are drawn up by it instead (`lift`), so the latest row still ends above
-  // the card while the scroller's height, offset and scrollbar stay as they were. The rest of the
-  // stack (a queue, an ask) still makes room as before.
+  // Followed, the composer card's own growth since the view began following stays out of the room
+  // too (`lifted` of it): the rows are drawn up by it instead (`lift`), so the latest row still ends
+  // above the card while the scroller's height, offset and scrollbar stay as they were. The rest of
+  // the stack (a queue, an ask) still makes room as before.
   const sessionSwitched = previousSession.current !== sessionId;
   const lifting =
     following && !sessionSwitched && didOpenAtLatest.current && dockSpace > 0 && dockCard > 0 && cardRest.current > 0;
   const grown = lifting ? Math.min(dockSpace, dockCard - cardRest.current) : 0;
-  const room = sessionSwitched || following ? dockSpace - grown : heldRoom.current;
+  // The content's end with all the stack's height as room, as the view would hold it unlifted.
+  const rowsAtDock = measured.layout.totalHeight + THREAD_TOP + dockSpace;
+  const atDock = Math.max(floorHeight, rowsAtDock);
+  // A card that grew is drawn up by at most what the offset can take back: the view keeps more than
+  // the follow deadband to scroll, so the reader's scroll up still leaves the latest row (and the
+  // lift with it) in a transcript about a screen tall; the rest of the growth is room. A room held
+  // for a sent prompt (`floor`) already covers the card, so that part never lifts. A card shorter
+  // than it was draws the rows down within the room it left. Whole pixels, as the offset.
+  const lifted = Math.round(
+    grown > 0
+      ? Math.max(0, Math.min(grown, atDock - height - FOLLOW_BOTTOM_DEADBAND_PX - 1, rowsAtDock - floorHeight))
+      : grown,
+  );
+  const room = sessionSwitched || following ? dockSpace - lifted : heldRoom.current;
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + room;
   const layout = useMemo(
     () => ({ ...measured.layout, totalHeight: Math.max(floorHeight, rowsHeight) }),
     [measured, rowsHeight, floorHeight],
   );
-  // Where the rows draw against where they lay out: the end the view follows with the room `grown`
-  // taller, against the end it holds. Negative draws them up (a card that grew), positive down (a
-  // card shorter than it was), never past the content's end, so the scroller's height is the room's.
-  // Whole pixels, as the offset it stands in for.
-  const lift = grown
-    ? Math.round(Math.max(0, layout.totalHeight - height) - Math.max(0, layout.totalHeight + grown - height))
-    : 0;
+  // Where the rows draw against where they lay out: the followed offset of this layout against the
+  // one the unlifted layout would hold. Negative draws them up, positive down.
+  const lift = lifted ? Math.round(Math.max(0, layout.totalHeight - height) - Math.max(0, atDock - height)) : 0;
   const liftRef = useRef(lift);
   liftRef.current = lift;
   const reportedLayout = useRef<typeof measured | null>(null);
@@ -2157,7 +2174,8 @@ export function VirtualTranscript({
   // new session from the top once so its first paint cannot reuse the previous chat's mounted rows.
   const renderScroll = sessionSwitched ? { top: 0, delta: 0 } : scroll;
   const renderFollowing = sessionSwitched || following;
-  // The content the view shows starts `lift` above the offset (the rows are drawn that far down).
+  // The content in view starts at the offset less `lift`: rows drawn up by it show content that much
+  // further down.
   const shownTop = renderScroll.top - lift;
   const ahead = scrollLeadRanges(
     layout,
@@ -2220,8 +2238,8 @@ export function VirtualTranscript({
         pendingFocus.current = undefined;
         return;
       }
-      // Where the row draws: `lift` from its place while the rows follow a grown composer.
-      const top = (layout.tops[nextIndex] ?? 0) + liftRef.current;
+      unlift();
+      const top = layout.tops[nextIndex] ?? 0;
       const maximum = Math.max(0, layout.totalHeight - node.clientHeight);
       const nextTop = Math.max(0, Math.min(maximum, top));
       const delta = nextTop - node.scrollTop;
@@ -2505,7 +2523,7 @@ export function VirtualTranscript({
     previousRows.current = rows;
     previousViewport.current = { height, width, dockSpace };
     // With the composer's growth, which is room again once the view stops following.
-    heldRoom.current = room + grown;
+    heldRoom.current = room + lifted;
     appliedLift.current = lift;
     // A view that follows keeps the card height it began following at; any other takes the card's.
     if (!lifting) cardRest.current = dockCard;
@@ -2594,10 +2612,12 @@ export function VirtualTranscript({
     revealWindow.current = 0;
     const node = ref.current;
     if (!node || !findTarget || !targetKey) return;
-    // Where the row draws: `lift` from its place while the rows follow a grown composer.
-    const top = layout.tops[findIndex] + liftRef.current;
+    const top = layout.tops[findIndex];
     const bottom = top + layout.heights[findIndex];
-    if (top >= node.scrollTop && bottom <= node.scrollTop + node.clientHeight - dockSpaceRef.current) return;
+    // In view where it draws (`lift` from its place while the rows follow a grown composer).
+    const drawn = node.scrollTop - liftRef.current;
+    if (top >= drawn && bottom <= drawn + node.clientHeight - dockSpaceRef.current) return;
+    unlift();
     node.scrollTop = Math.max(0, top - node.clientHeight / 3);
     findMoved(node);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new target scrolls, not a layout change
@@ -2616,10 +2636,12 @@ export function VirtualTranscript({
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node || revealIndex < 0) return;
-    // Where the row draws: `lift` from its place while the rows follow a grown composer.
-    const top = layout.tops[revealIndex] + liftRef.current;
+    const top = layout.tops[revealIndex];
     const bottom = top + layout.heights[revealIndex];
-    if (top >= node.scrollTop && bottom <= node.scrollTop + node.clientHeight - dockSpaceRef.current) return;
+    // In view where it draws (`lift` from its place while the rows follow a grown composer).
+    const drawn = node.scrollTop - liftRef.current;
+    if (top >= drawn && bottom <= drawn + node.clientHeight - dockSpaceRef.current) return;
+    unlift();
     // The reader asked for this row: the view stops following the reply, or the run opening below
     // would pull it back to the latest line.
     const next = Math.max(0, top - node.clientHeight / 3);
