@@ -93,4 +93,57 @@ import Testing
         if let landing = list.landing { list.finishLand(landing, then: nil) }
         #expect(failures.isEmpty, "\(failures.prefix(12).joined(separator: "\n"))")
     }
+
+    /// The last member dragged out of its group: the group's header stays for the whole drag (it is still a drop
+    /// target), and the drop's move then drops the emptied group (one change, at the drop).
+    @Test func aGroupsLastMemberDraggedOutKeepsTheHeaderUntilTheDrop() throws {
+        _ = NSApplication.shared
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let ws = { (id: String) in SidebarWorkspace(id: WorkspaceID(id), title: id) }
+        let solo = GroupID("Solo")
+        let model = SidebarModel(sections: [
+            SidebarSection(kind: .machine(machine), nodes: [
+                .workspace(ws("top")),
+                .group(SidebarGroup(id: solo, name: "Solo", color: .green, workspaces: [ws("only")])),
+                .workspace(ws("b1")),
+                .workspace(ws("b2")),
+                .workspace(ws("b3")),
+            ]),
+        ], activeWorkspaceID: WorkspaceID("only"))
+        let list = SidebarListView(model: model)
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 240, height: 500), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 500))
+        window.contentView = root
+        list.frame = root.bounds
+        root.addSubview(list)
+        window.orderFrontRegardless()
+        list.reload(animated: false)
+
+        let dragged = SidebarRowKey.workspace(WorkspaceID("only"))
+        let row = try #require(list.displayed.row(for: dragged))
+        let start = NSPoint(x: 80, y: row.y + row.height / 2)
+        list.press = SidebarPress(key: dragged, point: start)
+        list.beginDrag(try #require(list.press))
+        try #require(list.drag != nil, "the member did not lift")
+        let bottom = (list.displayed.rows.last?.maxY ?? 300) + 10
+        var y = start.y, gone: [Int] = [], frame = 0
+        while y < bottom {
+            y += 6
+            frame += 1
+            list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))
+            if list.displayed.row(for: .group(solo)) == nil { gone.append(frame) }
+        }
+        #expect(gone.isEmpty, "the group's header left the list during the drag at frames \(gone)")
+        guard case let .position(position)? = list.drag?.target, position.group == nil else {
+            Issue.record("the drag did not end over a loose slot: \(String(describing: list.drag?.target))")
+            return
+        }
+        list.finishDrag()
+        if let landing = list.landing { list.finishLand(landing, then: nil) }
+        #expect(model.group(solo) == nil, "the emptied group is still in the model after the drop")
+        #expect(list.displayed.row(for: .group(solo)) == nil, "the emptied group's header still shows after the drop")
+    }
 }
