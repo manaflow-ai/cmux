@@ -101,6 +101,13 @@ import Testing
         return Cost(median: samples[samples.count / 2], p90: samples[(samples.count * 9) / 10], reloadsPerToggle: Double(reloads) / Double(runs))
     }
 
+    /// `measure`, with the runner's reference workload timed before and after the toggles. Not yet
+    /// calibrating: the toggles are measured alone.
+    static func measure(_ h: Harness, runs: Int = 16, calibrating calibration: inout FrameBudgetCalibration,
+                        work: @MainActor (Harness) -> Void = { toggle($0) }) -> Cost {
+        measure(h, runs: runs, work: work)
+    }
+
     /// Where one toggle's time goes (median of 16 each, ms): the model's write, the list's splice, the render, and
     /// the mouse handling around them.
     static func phases(_ h: Harness) -> String {
@@ -147,6 +154,30 @@ import Testing
             Self.toggle(h)
         }
         #expect(cost.p90 < 8, "a toggle that waited 20 ms cost \(cost.p90) ms (p90): the wait was counted as its work")
+    }
+
+    /// A slow runner, stood in deterministically as in SidebarScrollCostTests: every toggle and every
+    /// reference sample is done `slowdown` times. This host's own reference is nominal and its own
+    /// toggles set the budget, so the host's speed cancels out; the slowed toggles break that budget
+    /// as it is and hold it scaled by the reference `measure` times around them.
+    @Test func aToggleOnASlowRunnerIsHeldToAScaledBudget() {
+        let slowdown = 3
+        let h = Self.make(100)
+        defer { h.window.close() }
+        let fast = Self.measure(h)
+        FrameBudgetCalibration.referenceWork() // warm up
+        let reference = (0..<15).map { _ in FrameBudgetCalibration.cpuMs { FrameBudgetCalibration.referenceWork() } }
+        var slow = FrameBudgetCalibration(nominalMs: SidebarScrollBench.percentile(reference, 0.5),
+                                          reference: { for _ in 0..<slowdown { FrameBudgetCalibration.referenceWork() } })
+        // An even number of toggles a run leaves the group as it found it; an odd one alternates it.
+        let slowed = Self.measure(h, calibrating: &slow) { h in for _ in 0..<slowdown { Self.toggle(h) } }
+        let budget = 1.5 * fast.p90
+        print("group-toggle-calibration fast \(fast) slowed \(slowed) budget=\(String(format: "%.3f", budget))ms | \(slow.summary)")
+        #expect(slowed.p90 > budget, "the stand-in runner is not slow enough to break an unscaled budget")
+        #expect(slow.checkpoints.count == 2, "measure did not time the reference workload before and after the toggles")
+        if let reason = slow.skipReason { return print("group-toggle-calibration skipped: \(reason)") }
+        #expect(slowed.p90 < slow.budget(budget),
+                "a runner \(slowdown)x slower at the reference took \(slowed.p90) ms a toggle against a budget scaled to \(slow.budget(budget)) ms")
     }
 
     /// The guard: a toggle at 10,000 workspaces costs at most 1.5x one at 100, and fits in one 8 ms frame.
