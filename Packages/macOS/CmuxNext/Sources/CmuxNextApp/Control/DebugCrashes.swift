@@ -1,7 +1,5 @@
 import CmuxNextBrowser
-import CmuxNextCrashReporting
 import CmuxNextSettings
-import Darwin
 import Foundation
 
 /// `debug.crashes`: recent Chromium process failures (renderer per tab from
@@ -72,28 +70,15 @@ enum DebugCrashes {
     /// `reporting` tags the Sentry event `deliberate_crash`, so it can be filtered out.
     static func crashApp(_ params: [String: JSONValue], _ reporting: AppCrashReporting? = nil) -> Never {
         reporting?.reporter.markDeliberateCrash("debug.crash.app")
-        let signal = params["signal"]?.stringValue
-        switch signal {
+        switch params["signal"]?.stringValue {
         case "abort": abort()
-        case "trap", "frozen":
-            if signal == "frozen" { freezeNextTrap() }
+        case let signal? where signal == "trap" || signal == "frozen":
+            if signal == "frozen" { reporting?.reporter.freezeNextTrap() }
             fatalError("debug.crash.app")
         default:
             _ = raise(SIGSEGV)
             abort()
         }
-    }
-
-    /// Starts the crash path, then points the task's EXC_BREAKPOINT
-    /// exception port at a new port no thread receives on (`frozen`).
-    private static func freezeNextTrap() {
-        CrashReporter.beginCrashDeadline()
-        let task = mach_task_self_
-        var port = mach_port_t(0)
-        guard mach_port_allocate(task, MACH_PORT_RIGHT_RECEIVE, &port) == KERN_SUCCESS,
-              mach_port_insert_right(task, port, port, mach_msg_type_name_t(MACH_MSG_TYPE_MAKE_SEND)) == KERN_SUCCESS else { return }
-        _ = task_set_exception_ports(task, exception_mask_t(EXC_MASK_BREAKPOINT), port,
-                                     exception_behavior_t(EXCEPTION_DEFAULT), thread_state_flavor_t(THREAD_STATE_NONE))
     }
 
     /// `debug.crash.exception`: raises an NSException from a run-loop

@@ -104,12 +104,8 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// With crashing on, the crash has begun here: the crash deadline then
     /// ends the process even if a crash handler after this blocks.
     override func reportException(_ exception: NSException) {
-        let crashes = UserDefaults.standard.bool(forKey: CrashOnExceptions.key)
-        if crashes { CrashReporter.beginCrashDeadline() }
-        UncaughtExceptionRecorder.handle(exception)
-        UncaughtExceptionRecorder.reportingSurvivableException.store(!crashes, ordering: .releasing)
-        defer { UncaughtExceptionRecorder.reportingSurvivableException.store(false, ordering: .releasing) }
-        super.reportException(exception)
+        CrashReporter.reportException(exception, crashes: UserDefaults.standard.bool(forKey: CrashOnExceptions.key),
+                                      record: UncaughtExceptionRecorder.handle) { super.reportException(exception) }
     }
 
     // MARK: Accessibility windows
