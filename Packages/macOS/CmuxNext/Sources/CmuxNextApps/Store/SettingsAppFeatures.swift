@@ -7,20 +7,47 @@ public import CmuxNextSettings
 public final class SettingsAppFeatures: AppFeatureSettings {
     private let settings: () -> SettingsController?
 
+    /// The sidebar's side of the `.sidebarItem` features, given by the sidebar's owner
+    /// (`ChiefSidebar.bind`): the items it answers for, whether the sidebar shows one (observable),
+    /// and Add to Sidebar or Remove Everywhere as the person's edit (false: refused).
+    public struct SidebarItems {
+        public var names: Set<String>
+        public var isShown: @MainActor (String) -> Bool
+        public var set: @MainActor (String, Bool) -> Bool
+
+        public init(names: Set<String>, isShown: @escaping @MainActor (String) -> Bool, set: @escaping @MainActor (String, Bool) -> Bool) {
+            self.names = names
+            self.isShown = isShown
+            self.set = set
+        }
+    }
+
+    /// Nil until the sidebar binds its actions: no `.sidebarItem` feature is listed then.
+    public static var sidebarItems: SidebarItems?
+
     public init(settings: @escaping () -> SettingsController?) {
         self.settings = settings
     }
 
-    public func isAvailable(_ feature: AppFeature) -> Bool { SettingsSchema.descriptor(for: feature.path) != nil }
+    public func isAvailable(_ feature: AppFeature) -> Bool {
+        if let item = feature.sidebarItem { return Self.sidebarItems?.names.contains(item) == true }
+        return SettingsSchema.descriptor(for: feature.path) != nil
+    }
 
     public func isOn(_ feature: AppFeature) -> Bool {
+        if let item = feature.sidebarItem { return Self.sidebarItems?.isShown(item) == true }
         guard let settings = settings(), let descriptor = SettingsSchema.descriptor(for: feature.path) else { return false }
         return descriptor.effectiveValue(in: settings.snapshot.root) == Self.onValue(feature)
     }
 
-    public func isManaged(_ feature: AppFeature) -> Bool { settings()?.managedKeys[feature.setting] != nil }
+    /// A sidebar item is the person's layout, never managed.
+    public func isManaged(_ feature: AppFeature) -> Bool { feature.sidebarItem == nil && settings()?.managedKeys[feature.setting] != nil }
 
     public func set(_ feature: AppFeature, on: Bool) async throws {
+        if let item = feature.sidebarItem {
+            guard Self.sidebarItems?.set(item, on) == true else { throw SettingRefused(key: feature.setting, value: .string(item)) }
+            return
+        }
         guard let settings = settings(), let descriptor = SettingsSchema.descriptor(for: feature.path) else {
             throw SettingRefused(key: feature.setting, value: Self.onValue(feature))
         }
@@ -31,7 +58,7 @@ public final class SettingsAppFeatures: AppFeatureSettings {
     nonisolated static func onValue(_ feature: AppFeature) -> JSONValue {
         switch feature.on {
         case .toggle: .bool(true)
-        case .choice(let value): .string(value)
+        case .choice(let value), .sidebarItem(let value): .string(value)
         }
     }
 
@@ -42,7 +69,7 @@ public final class SettingsAppFeatures: AppFeatureSettings {
         if on { return onValue(feature) }
         switch feature.on {
         case .toggle: return defaultValue == .bool(true) ? .bool(false) : nil
-        case .choice: return nil
+        case .choice, .sidebarItem: return nil
         }
     }
 }

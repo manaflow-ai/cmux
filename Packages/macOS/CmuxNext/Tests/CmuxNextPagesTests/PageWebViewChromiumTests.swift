@@ -53,6 +53,21 @@ struct PageWebViewChromiumTests {
         #expect(page.closed)
     }
 
+    /// A route asked for before the Chromium page exists (the composer's Open Cloud… opens a new
+    /// Cloud tab at `#/get`) is the one the page loads, not the route the view was made with.
+    @Test func aRouteOpenedBeforeChromiumStartsIsTheOneItLoads() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        view.chromiumClock = PageTestClock.never
+        view.open(route: "/get")
+        let start = try #require(view.chromiumStart)
+        await start.value
+        let page = try #require(hosting.made.first)
+        #expect(page.loaded == [descriptor.url(route: "#/get")])
+        view.close()
+    }
+
     @Test func aPageThatNeverReachesTheHostReopensInWebKit() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()

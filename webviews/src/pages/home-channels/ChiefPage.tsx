@@ -242,7 +242,6 @@ export function ChiefPage({ service, strings, chief: given, picture, chiefName }
             type="button"
             className="ce-icon-button"
             aria-label={t("chief.page.back")}
-            title={t("chief.page.back")}
             onClick={() => service.close()}
           >
             <svg
