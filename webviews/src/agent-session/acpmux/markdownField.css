@@ -25,6 +25,8 @@
   --acpmux-md-fade-top: 0px;
   --acpmux-md-fade-bottom: 0px;
   --acpmux-md-scrollbar-lane: 8px;
+  /* The minimal scroller's track (scrollers.ts) stops short of the composer's rounded corners. */
+  --cmux-minimal-scroller-inset: calc(10px * var(--cmux-interface-scale, 1));
 }
 .acpmux-md-field[data-fade-top] {
   --acpmux-md-fade-top: var(--acpmux-md-fade-band);
