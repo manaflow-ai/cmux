@@ -649,6 +649,8 @@ impl Hub {
         // A Claude chat saved without `steering` (an older build) still steers once adopted.
         meta.steering |= crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
         let steering = meta.steering;
+        // Until it starts, an adopted chat goes by the agent it last ran (its saved `agentInfo`).
+        let backgrounds_work = crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
         Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -680,6 +682,7 @@ impl Hub {
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
             steering: AtomicBool::new(steering),
+            backgrounds_work: AtomicBool::new(backgrounds_work),
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
