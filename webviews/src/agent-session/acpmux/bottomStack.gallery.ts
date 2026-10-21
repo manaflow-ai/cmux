@@ -144,7 +144,7 @@ async function samplePinned(ctx: PlayContext, frames = 8) {
 }
 const trustThenPermission: Play = async (ctx) => {
   await checkTrust(ctx);
-  await ctx.click({ role: "button", name: "Trust" });
+  await ctx.click({ role: "button", name: "Trust folder" });
   await samplePinned(ctx);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
   if (ctx.document.querySelectorAll(".acpmux-permission-card").length !== 1)
@@ -175,7 +175,7 @@ const waitingInLine: Play = async (ctx) => {
 };
 const trusted: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-trust-ask"));
-  await ctx.click({ role: "button", name: "Trust" });
+  await ctx.click({ role: "button", name: "Trust folder" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
   ctx.find({
     role: "button",
@@ -185,6 +185,18 @@ const trusted: Play = async (ctx) => {
   });
   if (ctx.document.querySelector(".acpmux-trust-ask")) throw new Error("Granted trust still renders in transcript");
   geometry(ctx);
+};
+// The chat's folder is a repository: the pane offers Trust repo first (one answer for every
+// worktree of it), and the answer clears the question for the permission card.
+const repoNative = {
+  "acp.trust.get": { cwd: CWD, level: "unknown", repo: { root: CWD, worktree: false } },
+  "acp.trust.set": { cwd: CWD, level: "trusted" },
+};
+const trustedRepo: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-trust-ask"));
+  await ctx.click({ role: "button", name: "Trust repo" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
+  if (ctx.document.querySelector(".acpmux-trust-ask")) throw new Error("Granted trust still renders in transcript");
 };
 export default agentPaneEntry({
   id: "agent-pane.bottom-stack",
@@ -208,5 +220,6 @@ export default agentPaneEntry({
       play: waitingInLine,
     },
     "compact-trust-queue": { snapshot: grouped, native, height: 420, play: checkTrust },
+    "trust-repo-permission-queue": { snapshot: grouped, native: repoNative, play: trustedRepo },
   },
 });

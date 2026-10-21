@@ -82,7 +82,7 @@ class FleetCompileCheck(unittest.TestCase):
 
     def test_a_fleet_pass_never_overrides_a_release_compile_that_finished_red(self):
         # The fleet compiles on Linux with the pool SDK, not Xcode 26 Release: a red there is the truth.
-        for conclusion in ("failure", "cancelled", "timed_out"):
+        for conclusion in ("failure", "timed_out", "action_required", "startup_failure"):
             with self.subTest(conclusion=conclusion):
                 runs = [check(COMPILE, conclusion=conclusion)]
                 self.assertIn(f"finished {conclusion}", guard.verdict(pr(), SWIFT, runs, fleet_passed=True))
@@ -93,8 +93,20 @@ class FleetCompileCheck(unittest.TestCase):
         runs = [check(COMPILE, conclusion="failure"), check(COMPILE, "queued")]
         self.assertFalse(guard.compile_wait(runs))
         self.assertIn("still running", guard.verdict(pr(), SWIFT, runs, fleet_passed=True))
-        # A cancelled attempt is red too.
-        self.assertFalse(guard.compile_wait([check(COMPILE, conclusion="cancelled"), check(COMPILE, "queued")]))
+        # A red attempt stays red beside a cancelled one, and so does a startup failure.
+        self.assertFalse(guard.compile_wait([check(COMPILE, conclusion="startup_failure"), check(COMPILE, "queued")]))
+        self.assertFalse(guard.compile_wait([check(COMPILE, conclusion="failure"), check(COMPILE, conclusion="cancelled"),
+                                             check(COMPILE, "queued")]))
+
+    def test_a_cancelled_compile_is_no_verdict_so_a_fleet_pass_stands_in(self):
+        # #22845: two attempts cancelled, a third queued for hours, a verified fleet pass on the head.
+        cancelled = check(COMPILE, conclusion="cancelled")
+        for runs in ([cancelled, cancelled, check(COMPILE, "queued")], [cancelled],
+                     [check(COMPILE, conclusion="skipped"), cancelled]):
+            with self.subTest(runs=runs):
+                self.assertTrue(guard.compile_wait(runs))
+                self.assertNotEqual(guard.verdict(pr(), SWIFT, runs), "")
+                self.assertEqual(guard.verdict(pr(), SWIFT, runs, fleet_passed=True), "")
 
     def test_every_gh_call_shares_one_deadline_under_the_hooks_timeout(self):
         self.assertLess(guard.BUDGET, 120)

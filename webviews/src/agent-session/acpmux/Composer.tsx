@@ -5,7 +5,13 @@ import "../../theme/messages.css";
 import type { ConnectKind } from "./environments";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import { MAX_ATTACHMENTS, type AttachmentError, type ComposerAttachment } from "./attachments";
+import {
+  MAX_ATTACHMENTS,
+  type AttachmentError,
+  type ComposerAttachment,
+  type DroppedKind,
+  type LinkItem,
+} from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import type { Project } from "./ProjectChooser";
@@ -136,6 +142,10 @@ export type ComposerHandle = {
   send(): boolean;
   /// Puts the caret in the prompt (Edit and Resend).
   focus(): void;
+  /// Starts the prompt with `prefix` (the palette's Side Question writes `/btw `), keeping what is
+  /// typed after it, and puts the caret at the end. A prompt that already starts with it only
+  /// takes focus.
+  prefill(prefix: string): void;
   /// What it holds that acpmux's draft does not, for a page about to let go (`pane.wakeState`):
   /// file chips and shell mode's unrun command. Shell runs and move chips stay with their page.
   wakeState(): ComposerWake;
@@ -186,8 +196,11 @@ type Props = {
   /// The context menu's Cut, Copy, Paste and Paste as Plain Text: the host runs the web view's own
   /// editing command (`pane.edit`). Without it those items are disabled.
   onEdit?(command: ComposerEditCommand): void;
-  /// Handles a cmux-owned slash command after the user submits it.
-  onCmuxCommand?(command: CmuxCommand, args?: string): boolean | void;
+  /// Handles a cmux-owned slash command after the user submits it. False keeps the prompt; a
+  /// promise keeps it until it settles, clearing it only when it resolves.
+  onCmuxCommand?(command: CmuxCommand, args?: string): boolean | void | Promise<unknown>;
+  /// The empty prompt's text in place of the usual one (a side session's "Reply in this session…").
+  placeholder?: string;
   /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
   /// keeps it with the tab, so a relaunch opens the chat with it (cx-z5vd).
   onUnsentDraft?(text: string): void;
@@ -205,6 +218,9 @@ type Props = {
   /// moved chat's machine, or this Mac): each becomes a chip that sends its path. Undefined when this
   /// chat takes none.
   upload?(files: File[]): Promise<UploadResult>;
+  /// For a chat on this Mac: where the files of the person's drop or paste are, so a folder or a file
+  /// no block takes goes as a link to it, with nothing copied (composer/intakeFiles.ts droppedPaths).
+  localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
@@ -273,6 +289,7 @@ export function Composer({
   searchFiles,
   capture,
   upload,
+  localPaths,
   onProject,
   projectChoices,
   onBrowseProject,
@@ -293,6 +310,7 @@ export function Composer({
   sessionId,
   switching,
   blocked,
+  placeholder,
 }: Props) {
   const t = useT();
   const chrome = useComposerChrome();
@@ -399,6 +417,7 @@ export function Composer({
           ? { uploads: true }
           : undefined,
     ...(upload ? { upload } : {}),
+    ...(localPaths ? { localPaths } : {}),
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
@@ -456,6 +475,16 @@ export function Composer({
       },
       send: () => submitNow.current(true),
       focus: () => field.current?.focus(),
+      prefill(prefix) {
+        const typed = (field.current?.value() ?? textRef.current).trimStart();
+        if (!typed.startsWith(prefix.trimEnd())) {
+          const next = prefix + typed;
+          pendingCaret.current = next.length;
+          setText(next);
+          setCaret(next.length);
+        }
+        field.current?.focus();
+      },
       wakeState: () => ({
         attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
         shell: shellRef.current.shell,
@@ -698,6 +727,25 @@ export function Composer({
       } else {
         const accepted = onCmuxCommand(owned, commandArgs(prompt, owned));
         if (accepted === false) return false;
+        if (accepted instanceof Promise) {
+          // The prompt stays until the command is done; a refusal leaves it to send again.
+          const written = field.current?.value() ?? "";
+          sending.current = true;
+          accepted.then(
+            () => {
+              sending.current = false;
+              // What was typed meanwhile stays.
+              if ((field.current?.value() ?? written) !== written) return;
+              plusDraft.current = undefined;
+              edit("", 0);
+              sentAt.current = Date.now();
+            },
+            () => {
+              sending.current = false;
+            },
+          );
+          return true;
+        }
       }
       setAttachments((current) => current.filter((attachment) => !attachments.includes(attachment)));
       setAttachError(undefined);
@@ -1047,7 +1095,7 @@ export function Composer({
   // The Quick Composer's ⌘Return opens the window, so there it names Return alone; an agent that
   // cannot steer says it queues.
   // While the double press is armed, the placeholder says to press Esc again, as Stop's hint does.
-  const placeholder = escapeStop.armed
+  const placeholderKey = escapeStop.armed
     ? COMPOSER_LABELS.escapeAgainToStop
     : !queues
       ? COMPOSER_LABELS.placeholder
@@ -1056,6 +1104,10 @@ export function Composer({
         : onOpenInWindow
           ? COMPOSER_LABELS.placeholderSteerQuick
           : COMPOSER_LABELS.placeholderSteer;
+  // A side session's idle prompt reads "Reply in this session…" (the `placeholder` prop); the
+  // mid-turn and Esc hints still win, since they say what a key does now.
+  const placeholderText =
+    placeholder && placeholderKey === COMPOSER_LABELS.placeholder ? placeholder : t(placeholderKey);
   // A dictation waiting for words says so in the empty prompt, in italic (dictation.css).
   const dictating = useDictationListening();
   // An idle new chat suggests the open PR another chat in this checkout made, Tab to take it
@@ -1393,7 +1445,7 @@ export function Composer({
               shell ? "acpmux-composer-prompt is-hidden" : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}`
             }
             value={text}
-            placeholder={dictating ? t("dictation.listening") : (suggested ?? t(placeholder))}
+            placeholder={dictating ? t("dictation.listening") : (suggested ?? placeholderText)}
             placeholderKey={suggested && !dictating ? t(COMPOSER_LABELS.suggestionKey) : undefined}
             attributes={{
               "aria-description": suggested ? `${suggested}. ${t(COMPOSER_LABELS.suggestionHint)}` : undefined,
@@ -1476,7 +1528,8 @@ export function Composer({
             ) : (
               <Picker
                 label={t(COMPOSER_LABELS.add)}
-                tooltip={t(capture && allowImages ? "composer.addTooltip" : "composer.addTooltipNoCapture")}
+                // Codex's short tooltip (Leo, 2026-10-21): "Add files and more", not the menu's list.
+                tooltip={t("composer.addTooltip")}
                 className="acpmux-composer-plus"
                 button={<PlusIcon />}
                 align="start"
