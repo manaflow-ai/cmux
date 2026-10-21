@@ -960,6 +960,7 @@ function PasskeyButton({ messages }: { messages: CmuxSignInMessages }) {
 
 // MARK: Email: code and password
 
+/** The emailed code and email-and-password methods, as tabs when both are enabled; both share one email. */
 function EmailMethods({ mode, messages, returnTo, magicLinkEnabled, credentialEnabled, prefillEmail, startWithPassword }: {
   mode: Mode;
   messages: CmuxSignInMessages;
@@ -1064,6 +1065,7 @@ function TextField({ label, error, disabled, className = inputClass, onChange, .
   );
 }
 
+/** Sends a one-time code to the email, then takes the code; a refusal says why. */
 function EmailCode({ messages, email, onEmailChange, onUsePassword }: {
   messages: CmuxSignInMessages;
   email: string;
@@ -1076,6 +1078,13 @@ function EmailCode({ messages, email, onEmailChange, onUsePassword }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [unverified, setUnverified] = useState(false);
+
+  // A refusal was for the address as it was; editing it clears the refusal.
+  function changeEmail(value: string) {
+    setError(null);
+    setUnverified(false);
+    onEmailChange(value);
+  }
 
   async function send(event?: FormEvent) {
     event?.preventDefault();
@@ -1117,7 +1126,7 @@ function EmailCode({ messages, email, onEmailChange, onUsePassword }: {
   }
   return (
     <form className="grid gap-2" noValidate aria-busy={busy} onSubmit={send}>
-      <EmailField messages={messages} value={email} onChange={onEmailChange} error={error} disabled={busy} />
+      <EmailField messages={messages} value={email} onChange={changeEmail} error={error} disabled={busy} />
       <Button type="submit" focusableWhenDisabled className={primaryButtonClass} disabled={busy}>
         <BusyLabel busy={busy}>{messages.continueWithEmail}</BusyLabel>
       </Button>
