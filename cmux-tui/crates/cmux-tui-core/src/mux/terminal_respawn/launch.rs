@@ -50,6 +50,10 @@ impl Mux {
         registry: &WorkspaceRegistry,
         plan: &RespawnPlan,
     ) -> Option<TerminalReplay> {
+        // terminal.persistence.mode memory: no earlier screen comes from disk.
+        if self.output_store.memory_only() {
+            return None;
+        }
         let public_id = plan.public_id.as_str();
         match registry.terminal_exit_snapshot(public_id) {
             Ok(Some(snapshot)) if snapshot.generation == plan.old_incarnation => {

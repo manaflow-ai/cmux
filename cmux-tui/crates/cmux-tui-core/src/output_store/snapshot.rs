@@ -95,16 +95,12 @@ impl Writer {
 
 fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
     let (lock, changed) = state;
-    let mut startup = true;
     loop {
         {
             let mut guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
             loop {
                 if guard.stop {
                     return;
-                }
-                if startup {
-                    break;
                 }
                 match guard.due {
                     None => guard = changed.wait(guard).unwrap_or_else(PoisonError::into_inner),
@@ -123,23 +119,6 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
             }
         }
         let Some(mux) = mux.upgrade() else { return };
-        if startup {
-            startup = false;
-            // Apply the mode once at start: memory mode removes what an
-            // earlier mode left; the others drop files of closed terminals.
-            let policy = PersistencePolicy::current(&mux);
-            eprintln!(
-                "cmux-tui: terminal output store: mode {}, at most {} bytes per terminal, {} in total",
-                policy.mode.as_str(),
-                policy.max_bytes_per_terminal,
-                policy.max_total_bytes
-            );
-            mux.output_store.cache_policy(policy);
-            mux.output_store.full.set_enabled(policy.mode == PersistenceMode::Full);
-            let _pass = mux.output_store.lock_pass();
-            prune(&mux, &mux.output_store, policy);
-            continue;
-        }
         write_pass(&mux, &mux.output_store);
     }
 }
@@ -149,7 +128,13 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
 /// then keep the directory under its caps.
 pub(super) fn write_pass(mux: &Arc<Mux>, store: &OutputStore) {
     let policy = PersistencePolicy::current(mux);
+    let previous = store.cached_policy();
     store.cache_policy(policy);
+    if previous.is_some_and(|previous| previous.mode != policy.mode) {
+        // The mode changed at runtime: drop what the new mode does not keep.
+        eprintln!("cmux-tui: terminal output store: mode {}", policy.mode.as_str());
+        store.prune_pending.store(true, std::sync::atomic::Ordering::Release);
+    }
     write_pass_at(mux, store, policy, false);
 }
 
@@ -211,9 +196,11 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
             store.mark_log_dirty(&log);
         }
         if let Some((cols, rows, replay)) = replay {
-            let generation =
-                log.state.lock().unwrap_or_else(PoisonError::into_inner).generation.clone();
-            match write(directory, &log.terminal_id, &generation, cols, rows, &replay) {
+            let (generation, stream_end) = {
+                let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+                (state.generation.clone(), state.next_offset())
+            };
+            match write(directory, &log.terminal_id, &generation, stream_end, cols, rows, &replay) {
                 Ok(()) => {
                     let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
                     state.snapshot_digest = Some(digest);
@@ -229,7 +216,7 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
         digests.push((log, Some(digest)));
     }
     if full {
-        super::segments::flush_logs(directory, &digests, policy);
+        super::segments::flush_logs(directory, &digests, policy, quitting);
     }
     if wrote {
         enforce_total(directory, SUFFIX, snapshot_total_cap(policy));
@@ -277,6 +264,7 @@ fn write(
     directory: &Path,
     terminal_id: &TerminalPublicId,
     generation: &str,
+    stream_end: u64,
     cols: u16,
     rows: u16,
     replay: &[u8],
@@ -284,6 +272,7 @@ fn write(
     fs::create_dir_all(directory)?;
     let header = serde_json::json!({
         "generation": generation,
+        "stream_end": stream_end,
         "cols": cols,
         "rows": rows,
         "written_at_ms": crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
@@ -303,6 +292,36 @@ fn write(
     }
     fs::rename(&staged, &target)?;
     Ok(())
+}
+
+/// The header line of a snapshot file (it is short; the replay follows).
+fn read_header(file: &Path) -> Option<serde_json::Value> {
+    let mut reader = std::io::BufReader::new(fs::File::open(file).ok()?);
+    let mut magic = [0_u8; MAGIC.len()];
+    reader.read_exact(&mut magic).ok()?;
+    (magic == MAGIC).then_some(())?;
+    let mut line = Vec::new();
+    std::io::BufRead::read_until(&mut (&mut reader).take(4096), b'\n', &mut line).ok()?;
+    serde_json::from_slice(line.strip_suffix(b"\n")?).ok()
+}
+
+/// The stream end each snapshot recorded, by terminal: (generation, end).
+pub(super) fn stream_ends(
+    directory: &Path,
+) -> std::collections::HashMap<TerminalPublicId, (String, u64)> {
+    let Ok(entries) = fs::read_dir(directory) else { return Default::default() };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            (path.extension()? == SUFFIX).then_some(())?;
+            let terminal_id = TerminalPublicId::parse(path.file_stem()?.to_str()?).ok()?;
+            let header = read_header(&path)?;
+            let generation = header["generation"].as_str()?.to_owned();
+            let end = header["stream_end"].as_u64()?;
+            Some((terminal_id, (generation, end)))
+        })
+        .collect()
 }
 
 /// The terminal's last snapshot and the generation it belongs to, `None`
@@ -340,7 +359,7 @@ pub(super) fn read(
 
 /// Remove files the policy does not allow: everything in memory mode, and
 /// the files of terminals that are no longer in the session otherwise.
-fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
+pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
     let Some(directory) = store.directory() else { return };
     let Ok(entries) = fs::read_dir(directory) else { return };
     if policy.mode == PersistenceMode::Memory {

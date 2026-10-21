@@ -37,7 +37,7 @@ pub(crate) mod snapshot;
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::Mux;
@@ -245,6 +245,8 @@ pub(crate) struct OutputStore {
     /// that are no longer in the session.
     prune_pending: std::sync::atomic::AtomicBool,
     memory_budget: memory_budget::MemoryBudget,
+    /// Stream ends the snapshots recorded, by terminal: (generation, end).
+    resume: Mutex<HashMap<TerminalPublicId, (String, u64)>>,
 }
 
 impl OutputStore {
@@ -263,6 +265,7 @@ impl OutputStore {
             pass: Mutex::new(()),
             prune_pending: std::sync::atomic::AtomicBool::new(false),
             memory_budget: memory_budget::MemoryBudget::default(),
+            resume: Mutex::new(HashMap::new()),
         }
     }
 
@@ -272,11 +275,29 @@ impl OutputStore {
 
     /// Start the background writer. Without a directory there is nothing to
     /// write and no thread starts.
-    pub(crate) fn start(&self, mux: Weak<Mux>) -> anyhow::Result<()> {
-        if self.directory.is_none() {
-            return Ok(());
+    ///
+    /// The mode is applied here, before any terminal is adopted or
+    /// respawned: memory mode removes what an earlier mode left, the other
+    /// modes drop the files of terminals no longer in the session, and each
+    /// terminal's stream continues at the offset its snapshot recorded.
+    pub(crate) fn start(&self, mux: &Arc<Mux>) -> anyhow::Result<()> {
+        let Some(directory) = self.directory.as_deref() else { return Ok(()) };
+        let policy = PersistencePolicy::current(mux);
+        eprintln!(
+            "cmux-tui: terminal output store: mode {}, at most {} bytes per terminal, {} in total",
+            policy.mode.as_str(),
+            policy.max_bytes_per_terminal,
+            policy.max_total_bytes
+        );
+        self.cache_policy(policy);
+        self.full.set_enabled(policy.mode == PersistenceMode::Full);
+        {
+            let _pass = self.lock_pass();
+            snapshot::prune(mux, self, policy);
         }
-        self.writer.start(mux)
+        *self.resume.lock().unwrap_or_else(PoisonError::into_inner) =
+            snapshot::stream_ends(directory);
+        self.writer.start(Arc::downgrade(mux))
     }
 
     fn log(&self, terminal_id: &TerminalPublicId, generation: &Arc<str>) -> Arc<TerminalLog> {
@@ -284,11 +305,20 @@ impl OutputStore {
         if let Some(log) = logs.get(terminal_id) {
             return log.clone();
         }
+        // A terminal this daemon re-adopted continues its stream where the
+        // last snapshot left it (a client's cursor stays meaningful).
+        let start = self
+            .resume
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(terminal_id)
+            .filter(|(resumed, _)| resumed.as_str() == generation.as_ref())
+            .map_or(0, |(_, end)| end);
         let log = Arc::new(TerminalLog {
             terminal_id: terminal_id.clone(),
             state: Mutex::new(LogState {
                 generation: generation.clone(),
-                tail_start: 0,
+                tail_start: start,
                 tail: VecDeque::new(),
                 dirty: false,
                 snapshot_digest: None,
@@ -296,7 +326,7 @@ impl OutputStore {
                 segment_digest: None,
                 last_output: Instant::now(),
                 pending: Vec::new(),
-                pending_start: 0,
+                pending_start: start,
             }),
         });
         logs.insert(terminal_id.clone(), log.clone());
@@ -376,9 +406,9 @@ impl OutputStore {
     }
 
     /// Retained output at or after `after`, at most `max_bytes` (never less
-    /// than one byte when any exists). A cursor older than the retained
-    /// window starts at the oldest retained byte; in full mode the window
-    /// comes from the segment files first.
+    /// than one byte when any exists). A cursor older than what is kept
+    /// starts at the oldest kept byte. Full mode: bytes before the unflushed
+    /// ones come from the segment files, read without the terminal's lock.
     pub(crate) fn read_after(
         &self,
         terminal_id: &TerminalPublicId,
@@ -387,23 +417,36 @@ impl OutputStore {
     ) -> Option<OutputWindow> {
         let log =
             self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id)?.clone();
-        let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
         let budget = usize::try_from(max_bytes.max(1)).unwrap_or(usize::MAX);
-        if after < state.tail_start
+        let (generation, end, unflushed_start) = {
+            let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            let unflushed_start =
+                if state.pending.is_empty() { state.next_offset() } else { state.pending_start };
+            (state.generation.clone(), state.next_offset(), unflushed_start)
+        };
+        if self.full.enabled()
+            && after < unflushed_start
             && let Some(directory) = self.directory.as_deref()
-            && self.full.enabled()
             && let Some(mut window) =
-                segments::read_after(directory, terminal_id, &state.generation, after, budget)
+                segments::read_after(directory, terminal_id, &generation, after, budget)
         {
-            // Bytes after the stored frames are still in memory.
-            window.truncated |= window.next_offset < state.next_offset();
+            window.truncated |= window.next_offset < end;
             return Some(window);
         }
-        let start = after.clamp(state.tail_start, state.next_offset());
-        let skip = usize::try_from(start - state.tail_start).unwrap_or(usize::MAX);
-        let available = state.tail.len().saturating_sub(skip);
+        let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let end = state.next_offset();
+        // The unflushed bytes (full mode) reach further back than the tail.
+        let from_pending = !state.pending.is_empty() && state.pending_start < state.tail_start;
+        let source_start = if from_pending { state.pending_start } else { state.tail_start };
+        let start = after.clamp(source_start, end);
+        let skip = usize::try_from(start - source_start).unwrap_or(usize::MAX);
+        let available = usize::try_from(end - start).unwrap_or(usize::MAX);
         let take = available.min(budget);
-        let bytes = state.tail.range(skip..skip + take).copied().collect::<Vec<_>>();
+        let bytes = if from_pending {
+            state.pending[skip..skip + take].to_vec()
+        } else {
+            state.tail.range(skip..skip + take).copied().collect()
+        };
         Some(OutputWindow {
             start_offset: start,
             next_offset: start + take as u64,
@@ -415,6 +458,9 @@ impl OutputStore {
     /// The person cleared this terminal's history: drop the stored output
     /// (memory tail, segment files) and write the snapshot at once.
     pub(crate) fn history_cleared(&self, terminal_id: &TerminalPublicId) {
+        // A pass that already read this terminal's bytes or screen finishes
+        // before the clear, so it cannot write them back afterwards.
+        let _pass = self.lock_pass();
         let Some(log) =
             self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
         else {
@@ -462,10 +508,13 @@ impl OutputStore {
         terminal_id: &TerminalPublicId,
     ) -> Option<crate::workspace_registry::terminal_respawn_store::TerminalReplay> {
         let directory = self.directory.as_deref()?;
+        if self.memory_only() {
+            return None;
+        }
         let (snapshot, generation) = snapshot::read(directory, terminal_id)?;
-        // Segment files exist only in full mode (other modes remove them).
-        if let Some(rebuilt) =
-            segments::rebuild(directory, terminal_id, &generation, snapshot.cols, snapshot.rows)
+        if self.cached_policy().is_some_and(|policy| policy.mode == PersistenceMode::Full)
+            && let Some(rebuilt) =
+                segments::rebuild(directory, terminal_id, &generation, snapshot.cols, snapshot.rows)
         {
             return Some(rebuilt);
         }

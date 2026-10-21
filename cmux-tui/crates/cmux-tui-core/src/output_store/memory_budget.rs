@@ -127,7 +127,9 @@ pub(super) fn enforce(mux: &Mux, store: &OutputStore, budget: u64) {
             .try_with_terminal(|terminal| terminal.set_scrollback_max_bytes(restored).is_ok())
             .unwrap_or(false)
         {
-            room = room.saturating_sub(u64::try_from(restored - applied).unwrap_or(u64::MAX));
+            room = room.saturating_sub(
+                u64::try_from(restored.saturating_sub(applied)).unwrap_or(u64::MAX),
+            );
             if restored == configured {
                 limited.remove(&entry.terminal_id);
             } else {

@@ -1496,42 +1496,11 @@ mod tests {
         .unwrap();
 
         let captured = capture(&mux).unwrap();
-        assert_eq!(captured.blobs.len(), 1);
-        assert!(captured.blobs[0].reference.terminal_id.starts_with("term_"));
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn checkpoint_rejects_terminal_state_ahead_of_journal_ingress() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-journal-checkpoint-fence-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        let mux = Mux::open_persistent("checkpoint-fence", crate::SurfaceOptions::default(), &root)
-            .unwrap();
-        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
-        let surface_id = mux
-            .seed_running_terminal_for_test(
-                "00000000000040008000000000000072",
-                "10000000000040008000000000000072",
-                &workspace.key,
-            )
-            .unwrap();
-        let surface = mux.surface(surface_id).unwrap();
-        {
-            let mut pending_output = surface.begin_terminal_journal_update_for_test().unwrap();
-            assert!(pending_output.activate(), "terminal journal update must be active");
-            let error = match capture(&mux) {
-                Ok(_) => panic!("checkpoint accepted unsettled terminal output"),
-                Err(error) => error,
-            };
-            assert!(error.to_string().contains("terminal journal ingress is unsettled"));
-        }
-
-        drop(surface);
+        // Terminal screens stay out of the journal (output_store.rs).
+        assert!(captured.blobs.is_empty());
+        let terminals = captured.state["session_snapshot"]["terminals"].as_array().unwrap();
+        assert_eq!(terminals.len(), 1);
+        assert!(terminals[0]["id"].as_str().unwrap().starts_with("term_"));
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }

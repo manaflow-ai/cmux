@@ -160,6 +160,7 @@ impl Mux {
     /// `screen_checkpoint`, checkpoint the terminal screens in between.
     pub(super) fn finalize_terminal_journal(&self, context: &str, screen_checkpoint: bool) {
         if self.journal_ingress.is_closed() {
+            self.output_store.shutdown(self);
             if let Err(error) = self.journal_ingress.close_and_join() {
                 eprintln!("cmux-tui: await session journal writer during {context}: {error:#}");
             }

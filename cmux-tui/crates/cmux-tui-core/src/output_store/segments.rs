@@ -7,10 +7,12 @@
 //! seconds and at quit, never an fsync per write) and starts a new file past
 //! [`SEGMENT_FILE_BYTES`]. A frame cut by a crash is ignored when read.
 //!
-//! A flush whose terminal content did not change since the previous flush
-//! (the same digest the snapshot writer uses: a cursor redraw or a repaint of
-//! the same frame) stores nothing; the offsets of the next stored frame still
-//! name where its bytes were in the stream.
+//! A flush whose terminal content did not change since the previous stored
+//! frame (the same digest the snapshot writer uses: a cursor redraw or a
+//! repaint of the same frame) keeps its bytes in memory, up to
+//! [`UNCHANGED_FLUSH_BYTES`], and writes them with the next change or at
+//! quit. The files hold every byte in order, and an idle terminal writes
+//! almost nothing.
 //!
 //! Caps: per terminal (`terminal.persistence.maxBytesPerTerminal`, default
 //! 100 MB) and in total (`terminal.persistence.maxTotalBytes`, default
@@ -35,6 +37,8 @@ const SUFFIX: &str = "seg";
 /// A segment file is closed and a new one started past this size.
 const SEGMENT_FILE_BYTES: u64 = 8 * 1024 * 1024;
 const FRAME_HEADER_BYTES: usize = 16;
+/// Unchanged-content bytes a terminal holds before they are written anyway.
+const UNCHANGED_FLUSH_BYTES: usize = 1024 * 1024;
 /// The largest raw frame a reader accepts (a flush is at most a few MB).
 const MAX_FRAME_RAW_BYTES: u32 = 64 * 1024 * 1024;
 
@@ -91,6 +95,7 @@ pub(super) fn flush_logs(
     directory: &Path,
     logs: &[(Arc<TerminalLog>, Option<u64>)],
     policy: PersistencePolicy,
+    quitting: bool,
 ) {
     let mut wrote = false;
     for (log, digest) in logs {
@@ -99,12 +104,15 @@ pub(super) fn flush_logs(
             if state.pending.is_empty() {
                 continue;
             }
+            // Redraws of unchanged content (a blinking or moving cursor)
+            // wait in memory until a change, quit or
+            // [`UNCHANGED_FLUSH_BYTES`]: an idle terminal writes almost
+            // nothing, and the files still hold every byte in order.
             let unchanged = digest.is_some() && *digest == state.segment_digest;
-            let bytes = std::mem::take(&mut state.pending);
-            if unchanged {
-                // Redraws of the same content: not stored.
+            if unchanged && !quitting && state.pending.len() < UNCHANGED_FLUSH_BYTES {
                 continue;
             }
+            let bytes = std::mem::take(&mut state.pending);
             state.segment_digest = *digest;
             (state.generation.clone(), state.pending_start, bytes)
         };
@@ -188,8 +196,7 @@ fn frames(path: &Path) -> Vec<(u64, Vec<u8>)> {
 }
 
 /// Stored output of `generation` at or after `after`, at most `budget`
-/// bytes. `None` when nothing stored reaches past `after`. Frames left out
-/// as unchanged redraws leave a jump in offsets; the window's bytes skip it.
+/// bytes. `None` when nothing stored reaches past `after`.
 pub(super) fn read_after(
     directory: &Path,
     terminal_id: &TerminalPublicId,

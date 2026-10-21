@@ -354,7 +354,10 @@ one registry grew to 41.6 GB. The daemon's output store
 Accepted geometry changes and the small `terminal.output.gap` markers
 (`host_reconnect`, `host_respawn`; no bytes) still use the FIFO terminal lane.
 Registries written before this change keep their output records; the readers
-below still understand them.
+below still understand them. A subscription with `kinds: ["terminal.output"]` or the
+`terminal_output` regex field matches only those older records; a new hook
+with the `terminal_output` regex field is refused (it could never fire). Wait
+for terminal text with `terminal.wait` and read it with `terminal.output_read`.
 
 External producers and durable frontend observations use a second bounded
 lane. One coalesced wake signal drives both lanes; each batch reserves capacity

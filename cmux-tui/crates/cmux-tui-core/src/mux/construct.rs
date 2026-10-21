@@ -413,7 +413,7 @@ impl Mux {
             mux.record_journal_plugin_exit(plugin_id, generation);
         })));
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
-        mux.output_store.start(Arc::downgrade(&mux))?;
+        mux.output_store.start(&mux)?;
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
         #[cfg(any(unix, windows))]
