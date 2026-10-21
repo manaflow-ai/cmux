@@ -569,8 +569,9 @@ every sweep whatever the queue, which frees minis for current work. The other
 categories cancel only while more than `CI_JANITOR_QUEUE_THRESHOLD` jobs queue
 on a pool the run holds, owned pools included. A lost runner assignment
 (category e: a job queued with no runner for 30 minutes while a newer job on
-exactly its labels was taken, read from GitHub alone) is cancelled whatever
-the queue. Two cases on 2026-10-21 set the pattern: job 119450713364 (run
+exactly its labels was taken, read from GitHub alone, and no other job of its
+run is still unfinished unless lost itself) is cancelled whatever the queue.
+Two cases on 2026-10-21 set the pattern: job 119450713364 (run
 39631559018, glaeda-side-std-xcode-26.6) and job 119458409272 (PR #23694's
 run 39667716636, `cmux-next swift test` on glaeda-gui-std-xcode-26.6), each
 queued for hours with no runner while newer jobs on its labels started. At an
