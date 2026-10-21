@@ -86,11 +86,13 @@ struct ContextMenuShapeTests {
         }
     }
 
-    /// Each group's and screen's color list is a submenu titled Color, of color names.
+    /// Each group's and screen's color list is a submenu titled Color, of color names: in
+    /// Appearance ▸, or at the top level of a workspace group's flat menu (Lawrence 2026-10-20).
     @Test func colorSubmenusAreTitledColor() throws {
         for (context, prefix) in [(ActionMenuContext.tabGroup, "tabGroup"), (.workspaceGroup, "workspaceGroup"),
                                   (.screen, "screen"), (.screenGroup, "screenGroup")] {
-            let appearance = try #require(submenu("Appearance", in: rows(context)), "\(context) has Appearance")
+            let appearance = try #require(context == .workspaceGroup ? rows(context) : submenu("Appearance", in: rows(context)),
+                                          "\(context) has Appearance")
             let color = try #require(appearance.first { $0.id == ActionID(rawValue: "\(prefix).setColor") }, "\(context) has a color submenu")
             #expect(color.title == "Color", "\(context): the color submenu reads \(color.title)")
             #expect(color.children?.contains { $0.title == "Blue" } == true, "\(context): Color › Blue")
@@ -114,7 +116,24 @@ struct ContextMenuShapeTests {
         let row = rows(.workspaceRow)
         let more = try #require(submenu("More", in: row))
         #expect(submenu("Group", in: more) == nil)
-        #expect(ids(submenu("New", in: more) ?? []).contains("saveLayoutTemplate"))
+        #expect(ids(more).contains("saveLayoutTemplate"))
+    }
+
+    /// More is one submenu, not a stack of them (Leo 2026-10-20: flatten "More ›"): its short
+    /// folders (New, Appearance, Copy, Tools, Close) read as its sections; only a folder longer
+    /// than `inlineFolderLimit` (Options) stays a submenu in it.
+    @Test func moreShowsItsShortFoldersAsSections() throws {
+        for context in [ActionMenuContext.workspaceRow, .tab, .pane] {
+            let more = try #require(submenu("More", in: rows(context)), "\(context) has More")
+            for folder in more where folder.id == nil && !folder.isSeparator {
+                let count = ids(folder.children ?? []).count
+                #expect(count > ContextMenuEssentials.inlineFolderLimit, "\(context): More › \(folder.title) has \(count) rows; it should be a section")
+            }
+        }
+        let more = try #require(submenu("More", in: rows(.workspaceRow)))
+        for id: ActionID in ["workspace.copyPath", "revealWorkspaceInFinder", "palette.closeOtherWorkspaces", "workspace.newAbove"] {
+            #expect(more.contains { $0.id == id }, "\(id) is a row of More itself")
+        }
     }
 
     /// The sidebar's Sort submenu is called Sort; a section's menu names what each Hide hides.

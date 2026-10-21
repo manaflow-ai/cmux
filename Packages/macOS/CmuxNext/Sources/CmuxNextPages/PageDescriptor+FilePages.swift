@@ -33,14 +33,14 @@ public nonisolated struct EditorPageCommand {
 }
 
 /// The markdown page's generated resources (first path components of `cmux-page://cmux.markdown/`):
-/// local images of the open file's folder, the diagram libraries, and remote images the host
-/// fetches (`markdown.remoteImages`) so the page CSP stays strict.
+/// local images of the open file's folder, the diagram libraries, and reader-approved remote
+/// images the host fetches so the page CSP stays strict.
 public nonisolated struct MarkdownPageResource {
     public nonisolated init() {}
     /// `__asset/<token>/<path relative to the file's folder>`.
     public static let asset = "__asset"
     /// `__lib/mermaid.js`, `__lib/vega.js`.
     public static let library = "__lib"
-    /// `__image/<base64url of the http(s) URL>`.
+    /// `__image/<document token>/<base64url of the http(s) URL>`.
     public static let remoteImage = "__image"
 }

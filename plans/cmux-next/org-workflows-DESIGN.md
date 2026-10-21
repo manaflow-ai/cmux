@@ -41,7 +41,7 @@ per team. What it lacks is a way to do real work on a machine: `agent_prompt` bo
 and `op`. Option A adds two step types that run on one of the team's own Cloud machines
 (CloudDO, Freestyle):
 
-- `machine`: one fixed shell command on a named machine of the team, with a timeout.
+- `machine`: one fixed shell command on a named machine of the team, with a timeout (max 300 s).
 - `agent`: one acpmux turn (`claude`, `codex` or `opencode`) on that machine, with a fixed
   prompt.
 
@@ -119,9 +119,16 @@ found), requires `running`, and runs the command through its guarded driver
 command gets `CMUX_RUN`, `CMUX_STEP` and `CMUX_STEP_KEY` (`step:<run>:<i>`) so a guest script
 can dedupe its own side effects.
 
-Retries: a `machine` step retries twice on a provider failure (no answer, 5xx) because the
-command never started; it does not retry a non-zero exit. An `agent` step never retries on
-its own: a model turn may have side effects; `run.retry` makes a new run.
+Retries: none. A lost answer does not prove the command did not start, so a step runs at most
+once; `run.retry` makes a new run, and guest scripts dedupe their own effects with
+`CMUX_STEP_KEY`. A step's timeout is at most 300 s (one provider exec answers within about
+that); longer work belongs in a durable terminal. The run deadline is the sum of sleeps and
+step timeouts plus one hour of grace.
+
+Who may use a machine: only runs charged to the machine's creator (`charged_user` =
+`row.creator`), so a teammate's automation cannot run root commands on someone else's
+machine (`machine.forbidden`). An agent turn runs `acpmux run --on-permission fail --timeout
+<t-10> -- "$prompt"`: unattended turns fail on a permission request instead of waiting.
 
 ### 4.3 Triggers
 
@@ -173,8 +180,8 @@ typed, so a Chief can fix a spec in one more turn.
 
 ## 7. Proof (2026-10-20)
 
-- Tests (workerd, on a Freestyle VM): `test/automation-machine.test.ts` 7 pass, with
-  `automation-caps` and `automation-code` 22 pass in all; `tsc` clean; `catalog:check` clean
+- Tests (workerd, on a Freestyle VM): `test/automation-machine.test.ts` 8 pass, with
+  `automation-caps` and `automation-code` 23 pass in all (after the review fixes); `tsc` clean; `catalog:check` clean
   after regenerating the catalog, the TS client and the Rust wire types; `cargo check -p
   cmux-cloud-wire` clean. The workerd test runs a real `AutomationRunWorkflow` against the
   team's CloudDO: a step on a machine the team does not have ends the run `failed` with
@@ -197,5 +204,9 @@ typed, so a Chief can fix a spec in one more turn.
   the proof port ran as the work user instead of root, and acpmux was not on the login PATH;
   both are fixed (the port uses `sudo -n` like the driver's root exec; the agent command puts
   `~/.local/bin` first on PATH, test first).
+- Review (subagent, correctness first): 5 findings, all fixed test-first: a step could run
+  twice on a lost answer (now no retry), the run deadline ignored step timeouts, one
+  transport cuts execs at about 300 s (now the cap), any teammate could use any machine (now
+  creator only), the prompt could parse as an acpmux flag (now after `--`).
 - Not proven: a run through the deployed staging Worker (needs a staging deploy and a staging
   session; next step), metering of sandbox seconds per step, acpmux in the image.

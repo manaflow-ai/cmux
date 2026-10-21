@@ -68,7 +68,7 @@ struct CopyAgentIdentifierTests {
     }
 
     static func tabMenu(_ tab: TabModel, _ services: AppServices) -> NSMenu {
-        PaneController.tabMenu(tab.id, tab: tab, workspaceKind: nil, sameKind: .terminal, registry: services.registry)
+        PaneController.tabMenu(tab.id, tab: tab, keepsTab: false, sameKind: .terminal, registry: services.registry)
     }
 
     static func workspaceMenu(_ id: String, _ services: AppServices) -> NSMenu {

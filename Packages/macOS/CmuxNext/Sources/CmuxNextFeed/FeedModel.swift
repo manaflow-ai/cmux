@@ -33,8 +33,6 @@ public final class FeedModel {
     /// Opens an item's context with focus (the App: terminal, browser tab,
     /// sign-in pane). Called only from user actions.
     public var onOpenItem: (@MainActor (FeedItem) -> Void)?
-    /// Opens the feed panel (the menu bar's "Open Feed").
-    public var onOpenFeed: (@MainActor () -> Void)?
     /// Refreshes integration sources such as GitHub. The owner remains the
     /// authority for feed state; this is only a user-triggered source wakeup.
     public var onRefresh: (@MainActor () -> Void)?
@@ -90,7 +88,6 @@ public final class FeedModel {
     }
 
     public var listSections: FeedListSections { FeedListSections(items: visibleItems, now: now) }
-    public var menubarItems: [FeedItem] { FeedOrder.menubar(visibleItems, now: now) }
     public var counts: FeedCounts { FeedCounts(items: visibleItems, now: now) }
 
     /// An intent on this item still waits for the owner.
@@ -181,10 +178,6 @@ public final class FeedModel {
     public func open(_ id: String) {
         select(id)
         if let item = item(id) { onOpenItem?(item) }
-    }
-
-    public func openFeed() {
-        onOpenFeed?()
     }
 
     public func refresh() {

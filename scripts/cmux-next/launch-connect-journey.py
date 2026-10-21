@@ -22,6 +22,9 @@ became visible (`connecting_status_shown`), and saves a window still 1.5 s after
   - first: the "Connecting to cmux-tui" line never becomes visible;
   - warm, restart: the launch window draws the last layout (`launch_snapshot_shown`) and the
     connecting screen never shows;
+  - first: the first frame shows the sidebar beside the empty main pane, never glass alone;
+  - warm, restart: the first frame draws the last layout whole: the sidebar, the tab strip and
+    the pane each show in it (`reveal.<region>`, or the pane's launch frame), none after it;
   - every launch: the app shows workspace content within --usable-ms of process start.
 
 It stops only what it started: the app process it launched (its own pid, quit through the app's
@@ -46,7 +49,16 @@ MARKS = [
     "daemon.identify_end", "daemon.handshake_end", "daemon.snapshot_start", "daemon.snapshot_end",
     "daemon.first_tree_applied", "daemon_snapshot_loaded", "connecting_status_shown", "connecting_view_left",
     "workspace_content_shown", "first_terminal_frame", "agent_pane.handshake_end",
+    "sidebar_rows_shown", "reveal.sidebar", "reveal.tabs", "reveal.pane", "terminal.launch_frame_shown",
+    "agent_pane.launch_image_shown",
 ]
+# Launch regions held clear until their data lands (LaunchReveal); `reveal.<region>` marks when one shows.
+# A region that shows after the first frame was clear in it. The pane also shows in the first frame
+# when its terminal's last frame or its agent page's last image drew there.
+REGIONS = {"sidebar": [], "tabs": [], "pane": ["terminal.launch_frame_shown", "agent_pane.launch_image_shown"]}
+# A fresh profile's launch window opens on the empty main pane beside the sidebar (cx-r650e) while
+# cmux-tui starts; its tab strip comes with the first workspace.
+FIRST_REGIONS = {"sidebar": [], "pane": ["connecting_view_shown", "workspace_content_shown"]}
 USABLE = ["workspace_content_shown"]
 
 
@@ -232,18 +244,24 @@ def report(name, launch, still):
     left = marks.get("connecting_view_left")
     connecting_ms = None if shown is None or left is None else left - shown
     usable = next((marks[m] for m in USABLE if m in marks), None)
+    first_frame = marks.get("first_window_frame_committed")
+    regions = FIRST_REGIONS if name == "first" else REGIONS
+    late = [region for region, stand_ins in regions.items() if first_frame is None
+            or min([marks[m] for m in [f"reveal.{region}", *stand_ins] if m in marks] or [float("inf")]) > first_frame]
     row = {"launch": name, "marks": {m: round(marks[m], 1) for m in MARKS if m in marks},
            "connecting_screen_ms": None if connecting_ms is None else round(connecting_ms, 1),
            "connecting_screen_never_left": shown is not None and left is None,
            "connecting_status_shown": "connecting_status_shown" in marks,
            "launch_snapshot_shown": "launch_snapshot_shown" in marks,
-           "usable_ms": None if usable is None else round(usable, 1), "still": still}
+           "usable_ms": None if usable is None else round(usable, 1), "still": still,
+           "regions_after_first_frame": late}
     print(f"\n== {name}")
     for mark in MARKS:
         if mark in marks:
             print(f"  {mark:<34} {marks[mark]:>9.1f} ms")
     print(f"  connecting screen: {row['connecting_screen_ms']} ms, status line shown: {row['connecting_status_shown']},"
           f" last layout drawn at once: {row['launch_snapshot_shown']}, usable at {row['usable_ms']} ms")
+    print(f"  regions clear in the first frame: {', '.join(late) or 'none'}")
     return row
 
 
@@ -302,9 +320,13 @@ def main():
             failures.append(f"{row['launch']}: workspace content at {row['usable_ms']} ms (limit {args.usable_ms:.0f})")
         if row["launch"] == "first" and row["connecting_status_shown"]:
             failures.append("first: the Connecting to cmux-tui line became visible")
+        if row["launch"] == "first" and row["regions_after_first_frame"]:
+            failures.append("first: the first frame drew no " + ", ".join(row["regions_after_first_frame"]))
         if row["launch"] != "first":
             if not row["launch_snapshot_shown"]:
                 failures.append(f"{row['launch']}: the last layout was not drawn at launch")
+            if row["regions_after_first_frame"]:
+                failures.append(f"{row['launch']}: the first frame drew no " + ", ".join(row["regions_after_first_frame"]))
             if row["connecting_screen_never_left"]:
                 failures.append(f"{row['launch']}: the connecting screen never went away")
             elif row["connecting_screen_ms"] is not None:

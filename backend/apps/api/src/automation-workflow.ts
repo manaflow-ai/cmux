@@ -79,14 +79,12 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
           case "machine":
           case "agent": {
             // One command on one of the team's machines (org-workflows-DESIGN.md 4.2). The result is
-            // journaled, so a replay never runs it again. A machine step retries only when the machine
-            // did not answer; an agent turn never retries on its own (it may have side effects).
+            // journaled, so a replay never runs it again. No automatic retry: a lost answer does not
+            // prove the command did not start (run.retry makes a new run).
             const input = s.input_from === undefined ? null : (outputs.get(s.input_from) ?? null)
-            const r: StepOutcome = await step.do(`cmux:${s.type}-${i}`, { retries: { limit: s.type === "machine" ? 2 : 0, delay: 2000, backoff: "exponential" }, timeout: (s.timeout_seconds + 60) * 1000 }, async () => {
-              const out = await runMachineStep(machineExecFor(this.env, p.owner), s, { run: p.run, index: i }, input)
-              if (!out.ok && out.code === "machine.unavailable" && s.type === "machine") throw new Error(out.message)
-              return out
-            })
+            const r: StepOutcome = await step.do(`cmux:${s.type}-${i}`, { retries: { limit: 0, delay: 1000, backoff: "constant" }, timeout: (s.timeout_seconds + 60) * 1000 }, () =>
+              runMachineStep(machineExecFor(this.env, p.owner, p.charged_user ?? null), s, { run: p.run, index: i }, input)
+            )
             if (!r.ok) {
               await report(`cmux:${s.type}-failed-${i}`, { state: "failed", step: i - 1, error: { code: r.code, message: r.message.slice(0, 500) } })
               return
@@ -108,9 +106,9 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
 }
 
 /** The run team's CloudDO as the machine port (automationExec). */
-const machineExecFor = (env: Env, team: string): MachineExec => {
-  const stub = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(team)) as unknown as { automationExec(e: string, m: string, c: string, s: Uint8Array | null, t: number): ReturnType<MachineExec["exec"]> }
-  return { exec: (machine, command, stdin, timeoutMs) => stub.automationExec(team, machine, command, stdin, timeoutMs) }
+const machineExecFor = (env: Env, team: string, user: string | null): MachineExec => {
+  const stub = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(team)) as unknown as { automationExec(e: string, u: string | null, m: string, c: string, s: Uint8Array | null, t: number): ReturnType<MachineExec["exec"]> }
+  return { exec: (machine, command, stdin, timeoutMs) => stub.automationExec(team, user, machine, command, stdin, timeoutMs) }
 }
 
 /** The owner already ended the run; the Workflow returns without reporting again. */

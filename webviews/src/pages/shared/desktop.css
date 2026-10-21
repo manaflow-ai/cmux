@@ -119,7 +119,8 @@ select {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
-  overflow-wrap: anywhere;
+  /* Wraps between words; only a word wider than the whole tooltip (a long path) breaks. */
+  overflow-wrap: break-word;
   pointer-events: none;
   /* At rest (not "none"), so with no rise (Reduce Motion) the start and the end are the same. */
   translate: 0 0;
@@ -449,4 +450,38 @@ input[type="submit"] {
     [role="menuitem"]
   ):is(:hover, [data-highlighted]) {
   transition-duration: 0s !important;
+}
+
+/* SYNCED-SPINNERS (user 2026-10-20): the one spinner animation of every page. Clockwise, one
+   period (the native spinner's turn, Motion `spinner`), its phase pinned to the shared clock by
+   ui/spinnerClock.ts. Spinners write `animation: cmux-spin var(--cmux-spinner-period) linear
+   infinite` inside `prefers-reduced-motion: no-preference`, never their own keyframes. */
+:root {
+  --cmux-spinner-period: 900ms;
+  --cmux-breath-period: 2.4s;
+}
+@keyframes cmux-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* WORKING-LOOK: agent work's calm mark, a dot that breathes (opacity only), one breath per
+   `--cmux-breath-period`, on the same shared clock, so many working rows breathe as one. */
+@keyframes cmux-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+/* WORKING-LOOK "shimmer": a light band crosses the words of a working row, once per breath. */
+@keyframes cmux-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
 }

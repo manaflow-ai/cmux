@@ -82,7 +82,8 @@ export const Step = Schema.Union([
     machine: MachineId,
     command: NonEmptyText(4000),
     input_from: Schema.optionalKey(Int(0, 49)),
-    timeout_seconds: Int(1, 3600)
+    /** One provider exec answers within about 300 s; longer work belongs in a durable terminal. */
+    timeout_seconds: Int(1, 300)
   }),
   /**
    * One agent turn through acpmux on one of the team's machines. The prompt (and the
@@ -94,7 +95,8 @@ export const Step = Schema.Union([
     harness: Schema.Literals(["claude", "codex", "opencode"]),
     prompt: NonEmptyText(8000),
     input_from: Schema.optionalKey(Int(0, 49)),
-    timeout_seconds: Int(1, 3600)
+    /** One provider exec answers within about 300 s; longer work belongs in a durable terminal. */
+    timeout_seconds: Int(1, 300)
   })
 ]).annotate({ identifier: "Step" })
 
