@@ -8,9 +8,10 @@
 //! live terminal. The owner's own journal plugin (the bundled screen
 //! detector, which connects back at start and stays) is not a client here:
 //! counting it kept every DEV owner alive for days (cmux issue 23086). With
-//! its executable present and a live terminal an owner never stops. It never ends a terminal and never signals a terminal host: the
-//! hosts keep running for the next owner of the session to adopt (live
-//! shells are the recovery design). Release builds never start the watcher.
+//! its executable present and a live terminal an owner never stops. It
+//! never ends a terminal and never signals a terminal host: the hosts keep
+//! running for the next owner of the session to adopt (live shells are the
+//! recovery design). Release builds never start the watcher.
 //!
 //! One waiting thread, woken by client arrivals and departures or by its
 //! deadline on an injected clock. A deleted executable sends no event, so

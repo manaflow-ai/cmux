@@ -5,8 +5,9 @@
 //! the watcher can time how long the owner has had no client at all. The
 //! owner's own journal plugin (the bundled screen detector, which connects
 //! back at start and stays) is not such a client: a connection from that
-//! plugin's process group is marked at accept and not counted (cmux issue
-//! 23086: every DEV owner and Chief owner kept itself alive through it).
+//! plugin's process group is classified before it registers and is not
+//! counted (cmux issue 23086: every DEV owner and Chief owner kept itself
+//! alive through it).
 //! [`stop_orphaned_owner`] then stops the OWNER only, the way `server stop`
 //! without `end_terminals` does: no terminal ends and no terminal host is
 //! signalled. The hosts keep running for the next owner of the session to
@@ -47,14 +48,6 @@ impl ClientRegistry {
     pub(crate) fn user_client_count(&self) -> usize {
         let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.clients.values().filter(|record| !record.owner_plugin).count()
-    }
-
-    /// Marks `client` as the owner's own plugin. False when it is gone.
-    fn mark_owner_plugin(&self, client: u64) -> bool {
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(record) = state.clients.get_mut(&client) else { return false };
-        record.owner_plugin = true;
-        true
     }
 
     /// Reserves the daemon handoff for an orphan exit, atomically with the
@@ -117,30 +110,24 @@ impl Mux {
     }
 }
 
-/// Marks a new local connection whose peer is in the owner's journal plugin
-/// process group, then tells the presence observer again: `register` already
-/// reported the connection as a client before its peer was known. The
-/// supervisor records its child under the same lock it spawns under, so the
-/// plugin's own connection always finds its group here.
-pub(super) fn mark_owner_plugin(mux: &Mux, client: u64, peer_key: Option<&str>) {
-    if is_owner_plugin_peer(mux, peer_key) && mux.control_clients.mark_owner_plugin(client) {
-        mux.control_clients.notify_client_presence();
-    }
-}
-
+/// Whether a new local connection's peer is in the owner's journal plugin
+/// process group (its `register_classified` flag). The supervisor records
+/// its child under the same lock it spawns under, so the plugin's own
+/// connection always finds its group here.
 #[cfg(unix)]
-fn is_owner_plugin_peer(mux: &Mux, peer_key: Option<&str>) -> bool {
+pub(super) fn is_owner_plugin_peer(mux: &Mux, peer_key: Option<&str>) -> bool {
     let Some(pid) = peer_key.and_then(origin_gate::peer_pid) else { return false };
     let Some(group) = mux.journal_plugin_process_group() else { return false };
     let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
-    // SAFETY: getpgid only reads kernel metadata for a positive pid; the
-    // peer holds the connection open, so the pid is still its own.
+    // SAFETY: getpgid only reads kernel metadata for a positive pid. A pid
+    // reused since the connect can match only when its new process is a
+    // live member of the plugin's own group.
     unsafe { libc::getpgid(pid) == group }
 }
 
 /// Journal plugins are Unix-only.
 #[cfg(not(unix))]
-fn is_owner_plugin_peer(_mux: &Mux, _peer_key: Option<&str>) -> bool {
+pub(super) fn is_owner_plugin_peer(_mux: &Mux, _peer_key: Option<&str>) -> bool {
     false
 }
 
