@@ -410,12 +410,32 @@ final class FieldTextView: NSTextView {
             tlm.ensureLayout(for: tlm.documentRange)
             laidOut = state
         }
-        var line: CGRect?
-        tlm.enumerateTextSegments(in: NSTextRange(location: loc), type: .standard, options: upstream ? [.rangeNotRequired, .upstreamAffinity] : [.rangeNotRequired]) { _, r, _, _ in
-            line = r; return false
+        func segment(upstream: Bool) -> CGRect? {
+            var line: CGRect?
+            tlm.enumerateTextSegments(in: NSTextRange(location: loc), type: .standard,
+                                      options: upstream ? [.rangeNotRequired, .upstreamAffinity] : [.rangeNotRequired]) { _, r, _, _ in
+                line = r; return false
+            }
+            return line
         }
-        guard let l = line else { return nil }
         let o = textContainerOrigin
+        // cmux: a picture takes its whole line, as in Messages (ComposeInlineAttachment).
+        let storageText = textStorage
+        func picture(_ i: Int) -> Bool {
+            guard let s = storageText, i >= 0, i < s.length else { return false }
+            return s.attribute(.attachment, at: i, effectiveRange: nil) is ComposeInlineAttachment
+        }
+        let length = storageText?.length ?? 0
+        let next: unichar? = index < length ? (storageText?.string as NSString?)?.character(at: index) : nil
+        let previous: unichar? = index > 0 && index <= length ? (storageText?.string as NSString?)?.character(at: index - 1) : nil
+        // Right after a picture, where nothing follows on its line (the end, a line break or another
+        // picture), the caret starts the line under it: the next character goes there.
+        if picture(index - 1), next == nil || next == 0x0A || picture(index), let above = segment(upstream: true) {
+            return CGRect(x: o.x, y: above.maxY + Fixture.lineHeight / 2 + o.y + Self.caretDY, width: Self.caretWidth, height: 17)
+        }
+        // Just before a picture that follows text, the caret ends the text's line above it.
+        let beforePicture = picture(index) && previous != nil && previous != 0x0A && !picture(index - 1)
+        guard let l = segment(upstream: upstream || beforePicture) else { return nil }
         // cmux: on a line an inline picture makes taller the text sits at the bottom, so the caret
         // is on the line's last text line, not its middle (Draft+InlineMarks.swift).
         let y = l.height > Fixture.lineHeight + 0.5 ? l.maxY - Fixture.lineHeight / 2 : l.midY
@@ -1187,7 +1207,8 @@ final class ComposeView: UIView {
             Animate.scalar(glass, "bounds.size.height", from: Double(old), to: Double(h), e, begin: begin)
             for l in [veil, rim, tint] { Animate.scalar(l, "bounds.size.height", from: Double(old), to: Double(h), e, begin: begin) }
             let dTop = Double(h - old)
-            for l in [placeholderLayer, chipsLayer] {
+            // The capture caret rides with the placeholder (Fixture.SendCaret).
+            for l in [placeholderLayer, chipsLayer, caret] {
                 Animate.scalar(l, "position.y", from: Double(l.position.y) + dTop, to: Double(l.position.y), e, begin: begin)
             }
             // The text view's top stays on the field top: Catalyst animates
@@ -1265,8 +1286,8 @@ final class ComposeView: UIView {
     func applyCaret(sinceEdit tau: Double, sinceSend: Double?) {
         guard captureMode else { return }
         refreshTextSnapshot()
-        var alpha = 1.0, gray = false
-        if let s = sinceSend, s >= 0, s < 0.65 { alpha = s < 0.02 ? 0 : 1; gray = true }
+        var alpha = 1.0, color: UIColor = Fixture.caret
+        if let s = sinceSend, let st = Fixture.SendCaret.state(s) { alpha = st.alpha; color = st.color }
         else if tau >= 0.99 {
             let p = (tau - 0.99).truncatingRemainder(dividingBy: 1.0)
             alpha = p < 0.6 ? 1 : p < 0.65 ? 1 - (p - 0.6) / 0.05 : p < 0.95 ? 0 : (p - 0.95) / 0.05
@@ -1280,7 +1301,7 @@ final class ComposeView: UIView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         // Messages' caret: 1 x 17 pt, its top 7 pt under the field top (13.25 above the first baseline).
         caret.frame = CGRect(x: cx.px, y: base - 13.25 + row * 16, width: 1, height: 17)
-        caret.backgroundColor = (gray ? NSColor(white: 0.5, alpha: 1) : Fixture.caret).cgColor
+        caret.backgroundColor = color.cgColor
         caret.opacity = Float(alpha)
         CATransaction.commit()
     }

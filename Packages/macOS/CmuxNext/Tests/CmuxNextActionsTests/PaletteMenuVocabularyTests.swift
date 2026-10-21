@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextActions
 import Foundation
 import Testing
@@ -29,5 +30,42 @@ struct PaletteMenuVocabularyTests {
             #expect(try #require(byID[id]).keywords.contains("clear"), "\(id)")
         }
         #expect(try #require(byID["toggleFocusedWorkspaceGroupCollapsed"]).keywords.contains("toggle"))
+    }
+
+    /// One name per command: no two palette or menu bar actions share a name unless one is a
+    /// declared duplicate of the other (`ActionDescriptor.paletteDuplicates`), and a duplicate
+    /// carries its canonical action's name. Two different commands that read alike ("Show Feed"
+    /// for the right sidebar's mode and for the feed panel) fail here.
+    @Test func everyNameBelongsToOneCommand() throws {
+        func key(_ title: String) -> String {
+            (title.hasSuffix("…") ? String(title.dropLast()) : title).lowercased()
+        }
+        let shown = ActionCatalog.all.filter { $0.isPaletteVisible || $0.mainMenu != nil }
+        let byName = Dictionary(grouping: shown) { key($0.title) }
+        for (name, descriptors) in byName.sorted(by: { $0.key < $1.key }) where descriptors.count > 1 {
+            let commands = Set(descriptors.map(\.canonicalActionID))
+            #expect(commands.count == 1, "\(name): \(descriptors.map(\.id.rawValue).sorted()) are different commands with one name")
+        }
+        let byID = Dictionary(ActionCatalog.all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for (duplicate, canonical) in ActionDescriptor.paletteDuplicates {
+            let copy = try #require(byID[duplicate], "\(duplicate)")
+            let original = try #require(byID[canonical], "\(canonical)")
+            #expect(key(copy.title) == key(original.title), "\(duplicate) reads \(copy.title), not \(original.title)")
+            #expect(original.canonicalActionID == canonical, "\(canonical) is itself a duplicate")
+        }
+    }
+
+    /// The menu bar reads each action's name from the catalog, never a string of its own: every
+    /// item an action's descriptor places in a menu carries that descriptor's title.
+    @Test func menuBarItemsUseTheCatalogName() throws {
+        let registry = ActionRegistry.standard()
+        for menu in ActionMainMenu.allCases {
+            let items = registry.makeMainMenuItems(for: menu).filter { !$0.isSeparatorItem }
+            let placed = registry.descriptors.filter { $0.mainMenu == menu }
+            #expect(items.count == placed.count, "\(menu): \(items.count) items for \(placed.count) actions")
+            for (item, descriptor) in zip(items, placed) {
+                #expect(item.title == descriptor.title, "\(menu) \(descriptor.id) reads \(item.title), not \(descriptor.title)")
+            }
+        }
     }
 }

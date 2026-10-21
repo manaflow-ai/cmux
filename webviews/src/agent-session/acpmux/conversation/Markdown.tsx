@@ -9,6 +9,7 @@ import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { appHref, safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
+import { TableBlock } from "./TableBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
 import { canRender, RenderCard } from "./RenderCard";
 import { renderFence } from "./renderCall";
@@ -367,7 +368,8 @@ export const linkIcon = (href: string) => {
 
 function linkedGithubText(text: string, key: string, repository?: string, enabled = true): ReactNode[] {
   if (!enabled) return linkedText(text, key);
-  const refs = githubReferences(text, repository);
+  // A pull request address, so the chip opens the pull request card (an issue redirects there).
+  const refs = githubReferences(text, repository, "pull");
   if (!refs.length) return linkedText(text, key);
   const out: ReactNode[] = [];
   let at = 0;
@@ -651,37 +653,8 @@ function Block({
         </L>
       );
     }
-    case "table": {
-      // Long-text columns get a 256px minimum and the rest 128px.
-      const plain = (t: string) => t.replace(/[`*_~]|\[|\]\([^)]*\)/g, "");
-      const wide = block.header.map((_, i) => block.rows.some((r) => plain(r[i] ?? "").length > 40));
-      return (
-        <div className={`cv-table-wrap${motion}`}>
-          <table className="cv-table">
-            <thead>
-              <tr>
-                {block.header.map((c, i) => (
-                  <th key={i} style={{ textAlign: block.align[i] ?? "left", width: wide[i] ? 256 : 128 }}>
-                    {renderInline(c, opts)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {block.rows.map((r, ri) => (
-                <tr key={ri}>
-                  {r.map((c, i) => (
-                    <td key={i} style={{ textAlign: block.align[i] ?? "left" }}>
-                      {renderInline(c, opts)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
-    }
+    case "table":
+      return <TableBlock table={block} cell={(text) => renderInline(text, opts)} className={motion} />;
     case "code": {
       if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
       if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;
