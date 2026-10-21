@@ -6,9 +6,10 @@ public import CmuxNextDesign
 /// a link or an agent opening one).
 /// `afterCurrent` (the default, as in cmux classic): right after the
 /// workspace the window shows, inside its group when it has one (top when that
-/// workspace is pinned, Home, or on another machine). `top`: first in the group
-/// of the workspace the window shows; outside a group, first in the workspace
-/// list, below the Pinned section and the Home row, above every group. `bottom`: last in the
+/// workspace is pinned, Home, or on another machine). `top`: right below the
+/// workspace the window shows when that one is in a group; outside a group,
+/// first in the workspace list, below the Pinned section and the Home row, above
+/// every group. `bottom`: last in the
 /// group of the workspace the window shows; outside a group, after the last
 /// loose workspace, where the daemon puts it. An explicit place (a drop on a
 /// sidebar gap, New Workspace Above or Below) always wins; a reopened workspace
