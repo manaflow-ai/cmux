@@ -170,6 +170,12 @@
       "title" : "Permission Mode for New Chats",
       "type" : "string"
     },
+    "agents.subsessions.answerQuestions" : {
+      "default" : false,
+      "description" : "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer.",
+      "title" : "Let Sessions Answer Their Sub-sessions' Questions",
+      "type" : "boolean"
+    },
     "agents.subsessions.enabled" : {
       "default" : true,
       "description" : "An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar.",
@@ -2306,6 +2312,12 @@
       ],
       "title" : "Character",
       "type" : "string"
+    },
+    "home.clipboardHistory" : {
+      "default" : true,
+      "description" : "The Chief's + menu lists text and images you copied recently, so you can add one with a click. The list stays in memory on this Mac and skips passwords. When off, cmux doesn't read your clipboard for it.",
+      "title" : "Clipboard History in the + Menu",
+      "type" : "boolean"
     },
     "home.server" : {
       "default" : "hosted",

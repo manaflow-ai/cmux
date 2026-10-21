@@ -5,6 +5,7 @@
   "defaults": {
     "flag.CmuxNextDaemonService/PaneSplitCommand.optimisticSplitEnabled": true,
     "flag.CmuxNextDesign/Motion/MotionTrace.isEnabled": false,
+    "flag.CmuxNextSettings/HomeClipboardHistorySetting.defaultEnabled": true,
     "flag.CmuxNextSidebar/Views/SidebarListView+RowHold.rowHoldEnabled": false,
     "ghostty.super+alt+shift+w": "unbind",
     "ghostty.super+alt+w": "unbind",
@@ -245,6 +246,7 @@
     "setting.agents.chats.enabled": true,
     "setting.agents.chats.roots": [],
     "setting.agents.defaultPermissionMode": "fullAccess",
+    "setting.agents.subsessions.answerQuestions": false,
     "setting.agents.subsessions.enabled": true,
     "setting.agents.subsessions.maxChildren": 50,
     "setting.agents.subsessions.maxDepth": 10,
@@ -472,6 +474,7 @@
     "setting.home.chiefBubbleStyle": "imessage",
     "setting.home.chiefPetEnabled": false,
     "setting.home.chiefPetMascot": "orb",
+    "setting.home.clipboardHistory": true,
     "setting.home.server": "hosted",
     "setting.labs.classicHome": false,
     "setting.labs.previewFeatures": false,
