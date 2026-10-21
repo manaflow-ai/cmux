@@ -60,6 +60,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/swift_source_mask.py",
             "scripts/web_lint_prepush.py",
             "scripts/cmux-next/prepush-gate.py",
+            "scripts/ci/base_merge_warning.py",
         ):
             source, target = SOURCE / relative, root / relative
             target.parent.mkdir(parents=True, exist_ok=True)

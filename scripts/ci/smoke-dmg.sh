@@ -73,7 +73,8 @@ MOUNT_DIR="$(mktemp -d)"
 # daemon, helper hosts) that run from the mount. A forced detach takes their
 # executables away while they run; in run 39481846284 every step after the
 # DMG smoke was then 10 to 100 times slower (bundle size 13 min, a one-file
-# upload 8 min) and the verify job hit its 30-minute limit. Stop them first:
+# upload 8 min) and the verify job hit its 30-minute limit. Stop them right
+# after the launches, and again before every detach (an error path):
 # SIGTERM the exact PIDs of this user whose command runs from this mount,
 # wait at most 5 s (kill -0, no new ps per check), then SIGKILL a listed PID
 # that still runs from it.
@@ -135,6 +136,10 @@ SMOKE_LOG="$(mktemp)"
 # The app must not inherit the fd that carries the tested line.
 CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP" 3>&- 4>&- 2>&1 | tee "$SMOKE_LOG"
 CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP" 3>&- 4>&- 2>&1 | tee -a "$SMOKE_LOG"
+# The launches are done; the checks below only read files. Stop the daemons
+# the app left on the mount now: in run 39490194618 they ran on through the
+# metadata and license checks, which then took 6.5 min instead of seconds.
+stop_mount_processes || true
 if grep -q '^SKIP: cannot smoke-launch' "$SMOKE_LOG"; then
   # The same policy the in-job smokes had: an x86_64 app on a runner without
   # Rosetta is an environment gap. The stapler, Gatekeeper, metadata and

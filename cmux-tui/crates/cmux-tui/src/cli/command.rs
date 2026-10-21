@@ -2265,14 +2265,11 @@ fn run_params(
     }
     if let Some(policy) = flags.take("on-exit") {
         match policy.as_str() {
-            "close" | "keep" => {
+            "close" | "keep" | "shell" => {
                 params.insert("on_exit".into(), Value::String(policy));
             }
-            "shell" => {
-                return Err(UsageError::new("--on-exit shell is not supported yet"));
-            }
             _ => {
-                return Err(UsageError::new("--on-exit must be close or keep"));
+                return Err(UsageError::new("--on-exit must be close, keep or shell"));
             }
         }
     }
@@ -3949,14 +3946,8 @@ mod tests {
             let default = protocol(&[scope[0], scope[1], "run", "--", "true"]);
             assert!(default.params.get("on_exit").is_none());
 
-            let shell_policy = parse(
-                &strings(&[scope[0], scope[1], "run", "--on-exit", "shell", "--", "true"]),
-                super::super::Surface::CmuxTui,
-            );
-            assert!(
-                shell_policy.is_err_and(|error| error.to_string().contains("not supported yet")),
-                "--on-exit shell must be a typed not-yet-supported usage error"
-            );
+            let shell = protocol(&[scope[0], scope[1], "run", "--on-exit", "shell", "--", "true"]);
+            assert_eq!(shell.params["on_exit"], "shell");
             assert!(
                 parse(
                     &strings(&[scope[0], scope[1], "run", "--on-exit", "sh", "--", "true"]),

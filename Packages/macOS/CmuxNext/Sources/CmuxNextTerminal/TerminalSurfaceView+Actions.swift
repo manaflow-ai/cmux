@@ -104,10 +104,12 @@ extension TerminalSurfaceView {
             guard scheme == "file", safeTerminalURL(url), url.user == nil, url.password == nil,
                   url.port == nil, url.query == nil, url.fragment == nil,
                   host == nil || host == "" || host == "localhost" else { return nil }
-            return FileManager.default.fileExists(atPath: url.path) ? url : nil
+            return url
         }
-        let expanded = (trimmed as NSString).expandingTildeInPath
-        return FileManager.default.fileExists(atPath: expanded) ? URL(fileURLWithPath: expanded) : nil
+        // The app delegate resolves bare paths off-main. A delegate-free host
+        // has no machine provenance and must not stat or open them here while
+        // Ghostty holds its renderer lock.
+        return nil
     }
 
     private static func safeTerminalText(_ text: String) -> Bool {
