@@ -14,7 +14,9 @@
 //!
 //! The rule reads the column's tabs only, never a title or a page name, so
 //! it holds for every client and every path (a resource op, a JSON-lines
-//! command, a layout undo).
+//! command, a layout undo). A batch close (`close-tabs`, `close-tab-group`,
+//! `layout.bulk`, `stash.create`) keeps the rule of the single close it
+//! stands for and refuses the whole set: nothing in it closes.
 
 use super::*;
 use crate::mux::dock_columns::PINNED_COLUMN_CODE;

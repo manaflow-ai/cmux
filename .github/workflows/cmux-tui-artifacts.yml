@@ -138,6 +138,7 @@ jobs:
       legacy_key: ${{ steps.inspect.outputs.legacy_key }}
       tree_ready: ${{ steps.inspect.outputs.tree_ready }}
       daemon_tested: ${{ steps.inspect.outputs.daemon_tested }}
+      daemon_marker: ${{ steps.inspect.outputs.daemon_marker }}
       daemon_tests: ${{ steps.daemon-policy.outputs.daemon_tests }}
       run_macos: ${{ steps.inspect.outputs.run_macos }}
       superseded: ${{ steps.inspect.outputs.superseded }}
@@ -489,6 +490,20 @@ jobs:
             echo "::warning::could not read tree/$published_key/source.json; the daemon-tests marker is not checked in this run"
           fi
           echo "daemon_tested=$daemon_tested" >> "$GITHUB_OUTPUT"
+
+          # A ready tree whose daemon-tests marker exists passed its daemon tests
+          # in some run of this key (only publish-tree-tested writes the marker).
+          # A pin push that is not a full duplicate still builds its commit's
+          # binaries (takeover), but it does not test that tree again (2026-10-21).
+          # Only a pin push: main and a dispatch test what they build.
+          daemon_marker=false
+          if [[ "$tree_ready" == true && "$EVENT_NAME" == push && "$REF" == refs/heads/cmux-tui-pin-* ]] &&
+              curl --head --fail --silent --connect-timeout 5 --max-time 15 -o /dev/null \
+                "https://files.cmux.com/cmux-tui/tree/$published_key/daemon-tests.json?preflight=$RUN_ID-marker" 2>/dev/null; then
+            daemon_marker=true
+            echo "Tree $published_key has its daemon-tests marker; this run does not test it again."
+          fi
+          echo "daemon_marker=$daemon_marker" >> "$GITHUB_OUTPUT"
 
           # A cmux-tui-pin-* push also repairs a tree's Windows daemon and
           # publishes its commit's own binaries for cmux-tui.pin
@@ -1007,7 +1022,8 @@ jobs:
   cmux-next-daemon-tests:
     if: >-
       ${{ ((needs.tree-preflight.outputs.run_macos == 'true' &&
-          needs.tree-owner-wait.outputs.takeover == 'true' && needs.tree-preflight.outputs.daemon_tests == 'true') ||
+          needs.tree-owner-wait.outputs.takeover == 'true' && needs.tree-preflight.outputs.daemon_tests == 'true' &&
+          needs.tree-preflight.outputs.daemon_marker != 'true') ||
           (github.ref != 'refs/heads/main' && needs.tree-preflight.outputs.daemon_tests == 'true' &&
           ((needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false') ||
           needs.tree-owner-wait.outputs.unmarked == 'true'))) }}
