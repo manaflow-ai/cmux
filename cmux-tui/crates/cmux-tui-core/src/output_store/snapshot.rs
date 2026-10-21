@@ -84,7 +84,11 @@ impl Writer {
             changed.notify_all();
         }
         if let Some(thread) = self.thread.lock().unwrap_or_else(PoisonError::into_inner).take() {
-            let _ = thread.join();
+            // The writer can hold the last Mux handle, so the Mux may drop
+            // (and stop the writer) on the writer thread itself.
+            if thread.thread().id() != std::thread::current().id() {
+                let _ = thread.join();
+            }
         }
     }
 }
