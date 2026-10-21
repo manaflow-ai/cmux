@@ -165,6 +165,11 @@
 
 /* Send off (the folder's trust question is open, useFolderTrustAsk.ts): the empty draft's off disc
    (styles.css, --acpmux-send-off-*), one disabled look, with no step on hover. */
+/* Send's slot before the first letter (Composer.tsx sendShown): it holds Send's place, so the
+   first letter moves nothing, and shows and takes nothing. */
+button.acpmux-send.acpmux-send-reserved {
+  visibility: hidden;
+}
 button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   background: var(--acpmux-send-off-bg);
   color: var(--acpmux-send-off-fg);

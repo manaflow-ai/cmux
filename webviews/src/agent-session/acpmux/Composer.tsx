@@ -1046,6 +1046,8 @@ export function Composer({
   const returnSteers = steers && (Boolean(text.trim()) || attachments.length > 0);
   // The steer control shows once a prompt is typed.
   const steerable = steers && Boolean(text.trim());
+  // Send shows in the plain footer only with a draft, and not beside the ↵ control (its slot stays).
+  const sendShown = !plainFooter || shell || (hasDraft && !(running && steerable));
   // Mid-turn it teaches both keys, as Claude's composer does: Return steers and ⌘Return queues.
   // The Quick Composer's ⌘Return opens the window, so there it names Return alone; an agent that
   // cannot steer says it queues.
@@ -1587,16 +1589,19 @@ export function Composer({
               )}
               {!plainFooter && stop ? (
                 stopButton
-              ) : remote.canSend && (!plainFooter || shell || (hasDraft && !(running && steerable))) ? (
-                // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, the mic
-                // alone on the right; Send comes in after it with the first letter. Mid-turn it
-                // queues the draft, unless the ↵ control is there to put it into the turn.
+              ) : remote.canSend ? (
+                // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft; Send shows
+                // after the mic with the first letter. Mid-turn it queues the draft, unless the ↵
+                // control is there to put it into the turn. Its slot is there from the start, hidden
+                // and inert, so the first letter moves nothing (the mic keeps its place).
                 <button
                   key="send"
                   ref={sendButton}
                   type="submit"
                   disabled={Boolean(blocked) && !shell}
-                  className={`acpmux-send${(shell ? shellText.trim() : !blocked && hasDraft) ? " acpmux-send-ready" : ""}`}
+                  inert={!sendShown}
+                  aria-hidden={sendShown ? undefined : true}
+                  className={`acpmux-send${(shell ? shellText.trim() : !blocked && hasDraft) ? " acpmux-send-ready" : ""}${sendShown ? "" : " acpmux-send-reserved"}`}
                   aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
                   title={
                     shell
