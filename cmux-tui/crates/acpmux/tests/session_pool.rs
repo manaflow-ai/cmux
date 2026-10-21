@@ -638,6 +638,9 @@ async fn a_pooled_chat_pinned_to_full_access_by_its_argv_keeps_it_when_off() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_pooled_chat_whose_harness_never_leaves_full_access_fails_with_a_deadline() {
     let mut fakeb = profile("b");
+    // A reviewed mode to move to (spec/full-access-modes.json), so acpmux sends the switch the
+    // harness never answers; with none it would refuse at once.
+    fakeb["env"]["FAKE_MODE_IDS"] = json!("default,plan");
     fakeb["env"]["FAKE_FULL_ACCESS"] = json!("1");
     fakeb["env"]["FAKE_NEW_MODE"] = json!("full-access");
     fakeb["env"]["FAKE_SET_MODE_SILENT"] = json!("1");
