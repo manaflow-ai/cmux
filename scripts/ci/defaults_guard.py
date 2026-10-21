@@ -616,6 +616,13 @@ def command_check_stamp(args: argparse.Namespace) -> int:
     return 1 if problems else 0
 
 
+def command_source_stamp(args: argparse.Namespace) -> int:
+    """The stamp the settings sources of a commit give (what the export would write there). Base autofix
+    compares it with the stamp its exports carry: equal means the exports' inputs did not move."""
+    sys.stdout.write(settings_source_stamp(Tree.named(args.ref) if args.ref else Tree(None)))
+    return 0
+
+
 def command_check(args: argparse.Namespace) -> int:
     base, head = Tree.named(args.base), Tree.named(args.head)
     head_sha = args.head_sha or args.head
@@ -675,6 +682,9 @@ def main(argv: list[str]) -> int:
     stamp.add_argument("--ref", help="a commit to check instead of the working tree")
     stamp.add_argument("--base", help="fail only for sources changed since this commit; the rest is the base's")
     stamp.set_defaults(run=command_check_stamp)
+    source = sub.add_parser("source-stamp", help="print the settings export stamp the CmuxNextSettings sources give")
+    source.add_argument("--ref", help="a commit to read instead of the working tree")
+    source.set_defaults(run=command_source_stamp)
     check = sub.add_parser("check", help="list changed defaults between two commits and judge the approval")
     check.add_argument("--base", required=True, help="the merge base: a commit, or a directory checked out at it")
     check.add_argument("--head", required=True, help="the head: a commit, or a directory checked out at it")

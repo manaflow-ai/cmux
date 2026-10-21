@@ -277,6 +277,84 @@ class CampaignOutcomeTests(unittest.TestCase):
         self.assertEqual(led.committed(), 0)
         self.assertEqual(led.reserve("r1", 25, 3), ("r1-a2", 25))
 
+    def campaign_with(self, stderr, rc, **more):
+        import argparse
+        import shutil
+        import tempfile
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        workers = more.pop("workers", {"m1": {"last_seen": now}, "m2": {"last_seen": now}})
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        os.makedirs(os.path.join(d, "bin"))
+        fake = os.path.join(d, "bin", "cmux-ci")
+        with open(fake, "w") as f:
+            f.write(f"#!/bin/sh\necho \"$*\" >> {d}/calls\n"
+                    f"[ \"$1\" = workers ] && {{ echo '{json.dumps(workers)}'; exit 0; }}\n"
+                    f"echo {json.dumps(stderr)} >&2\nexit {rc}\n")
+        os.chmod(fake, 0o755)
+        opts = argparse.Namespace(ledger=os.path.join(d, "l.json"), cap_usd=100, out=os.path.join(d, "out"), reps=1,
+                                  task=["t"], arm=["A"], name="x", run_budget=25, margin=12, ref="r", base_url="u",
+                                  minutes=5, parallel=1, worker=[])
+        vars(opts).update(more)
+        self.calls = os.path.join(d, "calls")
+        path = os.environ["PATH"]
+        os.environ["PATH"] = os.path.join(d, "bin") + os.pathsep + path
+        try:
+            team_eval.campaign(opts)
+        finally:
+            os.environ["PATH"] = path
+        return team_eval.Ledger(opts.ledger, 100)
+
+    def test_a_step_the_controller_refused_is_void(self):
+        led = self.campaign_with("cmux-ci: controller HTTP 400: invalid ci-step: script is not on the ci-step allowlist", 1)
+        self.assertEqual(led.committed(), 0)
+
+    def test_a_step_with_no_id_and_no_refusal_keeps_its_reservation(self):
+        led = self.campaign_with("cmux-ci: connection reset", 1)
+        self.assertEqual(led.committed(), 37)
+
+    def test_a_refusal_after_the_step_existed_keeps_its_reservation(self):
+        led = self.campaign_with("cmux-ci: step s1 (exclusive, key x-A)\ncmux-ci: controller HTTP 404: no such step", 1)
+        self.assertEqual(led.committed(), 37)
+
+    def test_each_step_runs_on_a_named_worker(self):
+        self.campaign_with("cmux-ci: controller HTTP 400: no", 1, arm=["A", "B", "B2"], parallel=3, worker=["m1", "m2"])
+        runs = [c.split() for c in open(self.calls).read().splitlines() if c.startswith("run ")]
+        self.assertEqual(len(runs), 3)
+        self.assertTrue(all(c[c.index("--target-worker") + 1] in ("m1", "m2") for c in runs))
+
+    def test_an_unknown_worker_stops_the_campaign_before_any_reservation(self):
+        with self.assertRaises(SystemExit):
+            self.campaign_with("", 0, worker=["m1", "typo"])
+
+    def test_a_listed_but_offline_worker_stops_the_campaign_before_any_reservation(self):
+        with self.assertRaises(SystemExit) as e:
+            self.campaign_with("", 0, worker=["m1"], workers={"m1": {"last_seen": "2026-09-25T00:00:00Z"}})
+        self.assertIn("not live", str(e.exception))
+        self.assertEqual(open(self.calls).read(), "workers\n")
+
+    def test_a_worker_seen_with_a_short_fraction_is_live(self):
+        from datetime import datetime, timezone
+        seen = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S") + ".73317Z"
+        self.campaign_with("cmux-ci: controller HTTP 400: no", 1, worker=["m1"], workers={"m1": {"last_seen": seen}})
+        self.assertIn("--target-worker m1", open(self.calls).read())
+
+    def test_no_worker_means_no_target(self):
+        self.campaign_with("cmux-ci: controller HTTP 400: no", 1)
+        self.assertNotIn("--target-worker", open(self.calls).read())
+
+    def test_a_short_ref_is_refused_before_any_reservation(self):
+        import argparse
+        self.assertEqual(team_eval.full_sha("a" * 40), "a" * 40)
+        for bad in ("ec65b11c722", "A" * 40, "feat-cmux-next"):
+            with self.assertRaises(argparse.ArgumentTypeError):
+                team_eval.full_sha(bad)
+
+    def test_a_409_for_an_existing_key_keeps_its_reservation(self):
+        led = self.campaign_with("cmux-ci: controller HTTP 409: step_key already names a different step", 1)
+        self.assertEqual(led.committed(), 37)
+
     def test_the_scorer_excludes_failed_and_off_pin_runs(self):
         import team_eval_score
         self.assertIsNone(team_eval_score.excluded({"ok": True, "failed": [], "pin": {"ok": True}}))

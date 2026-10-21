@@ -3,8 +3,8 @@ import CmuxNextDesign
 import CmuxNextIcons
 
 /// One tab's card in the media hub menu (Edge's Now Playing, cx-6qwm.2):
-/// artwork, title, artist and site, then Previous, Play or Pause, Next and
-/// Mute. A control runs `onCommand` and keeps the menu open (the row flips
+/// artwork, title, artist and site, then Previous, Play or Pause, Next,
+/// Mute and, for a video, Picture in Picture. A control runs `onCommand` and keeps the menu open (the row flips
 /// its own Play/Pause and Mute at once; the page's next report confirms
 /// them); a click elsewhere on the card runs `onReveal` and closes the
 /// menu. Previous and Next are off when the page handles no such action.
@@ -23,6 +23,7 @@ public final class BrowserMediaRowView: NSView {
     public var artworkURL: URL?
     private lazy var playPause = button(.playPause)
     private lazy var mute = button(.toggleMute)
+    private lazy var pictureInPicture = button(.pictureInPicture)
 
     public init(title: String, subtitle: String, media: BrowserMediaState, artwork image: NSImage?,
                 onCommand: @escaping (BrowserMediaCommand) -> Void, onReveal: @escaping () -> Void) {
@@ -46,7 +47,7 @@ public final class BrowserMediaRowView: NSView {
         header.spacing = 10
         previous.isEnabled = media.actions.contains(.previoustrack)
         next.isEnabled = media.actions.contains(.nexttrack)
-        let controls = NSStackView(views: [previous, playPause, next, mute])
+        let controls = NSStackView(views: [previous, playPause, next, mute, pictureInPicture])
         controls.spacing = 12
         for view in [header, controls] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -103,6 +104,7 @@ public final class BrowserMediaRowView: NSView {
         switch sender {
         case playPause: command = .playPause; media.isPlaying.toggle()
         case mute: command = .toggleMute; media.isMuted.toggle()
+        case pictureInPicture: command = .pictureInPicture; media.isPictureInPicture.toggle()
         default: command = sender.tag == 0 ? .previousTrack : .nextTrack
         }
         onCommand(command)
@@ -112,6 +114,9 @@ public final class BrowserMediaRowView: NSView {
     private func update() {
         playPause.setIcon(media.isPlaying ? .browserTabPause : .browserTabPlay, label: media.isPlaying ? Strings.mediaPause : Strings.mediaPlay)
         mute.setIcon(media.isMuted ? .browserTabMuted : .browserTabAudio, label: media.isMuted ? Strings.mediaUnmute : Strings.mediaMute)
+        pictureInPicture.isHidden = !media.isVideo
+        pictureInPicture.setIcon(Self.pictureInPictureIcon,
+                                 label: media.isPictureInPicture ? Strings.mediaExitPictureInPicture : Strings.mediaPictureInPicture)
     }
 
     private func button(_ command: BrowserMediaCommand) -> ChromeIconButton {
@@ -120,11 +125,15 @@ public final class BrowserMediaRowView: NSView {
         case .nextTrack: (.mediaNext, Strings.mediaNext)
         case .playPause, .play, .pause: (.mediaPlay, Strings.mediaPlay)
         case .toggleMute, .muteTab, .seek: (.mediaAudio, Strings.mediaMute)
+        case .pictureInPicture: (Self.pictureInPictureIcon, Strings.mediaPictureInPicture)
         }
         let view = ChromeIconButton(icon: icon, label: title, action: #selector(pressed(_:)), target: self, toolbar: true)
         view.tag = command == .previousTrack ? 0 : 1
         return view
     }
+
+    /// The PiP glyph Page Info's permission row uses too.
+    static let pictureInPictureIcon = IconName.sitePermissionAutopictureinpicture
 
     private func style(_ field: ChromeLabel, _ text: String, font: NSFont, color: NSColor) {
         field.stringValue = text

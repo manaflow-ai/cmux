@@ -7337,268 +7337,6 @@
         }
       }
     },
-    "remote.terminal.moveBrowser": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Browser tabs cannot move to a workspace on another machine yet."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يمكن نقل علامات تبويب المتصفح إلى مساحة عمل على جهاز آخر بعد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kartice preglednika se još ne mogu premjestiti u radni prostor na drugoj mašini."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Browserfaner kan endnu ikke flyttes til et arbejdsområde på en anden maskine."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Browser-Tabs können noch nicht in einen Arbeitsbereich auf einem anderen Rechner verschoben werden."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Las pestañas del navegador aún no pueden moverse a un espacio de trabajo de otra máquina."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Les onglets du navigateur ne peuvent pas encore être déplacés vers un espace de travail d'une autre machine."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le schede del browser non possono ancora essere spostate in uno spazio di lavoro su un'altra macchina."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ブラウザタブはまだ別のマシンのワークスペースへ移動できません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្ទាំងកម្មវិធីរុករកមិនអាចផ្លាស់ទីទៅកន្លែងធ្វើការនៅលើម៉ាស៊ីនផ្សេងបានទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "브라우저 탭은 아직 다른 컴퓨터의 작업 공간으로 이동할 수 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nettleserfaner kan ennå ikke flyttes til et arbeidsområde på en annen maskin."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Karty przeglądarki nie mogą jeszcze zostać przeniesione do obszaru roboczego na innym komputerze."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Abas do navegador ainda não podem ser movidas para um espaço de trabalho em outra máquina."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вкладки браузера пока нельзя переместить в рабочую область на другой машине."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ยังย้ายแท็บเบราว์เซอร์ไปยังพื้นที่ทำงานบนเครื่องอื่นไม่ได้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tarayıcı sekmeleri henüz başka bir makinedeki çalışma alanına taşınamaz."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вкладки браузера поки не можна перемістити до робочого простору на іншій машині."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chưa thể di chuyển thẻ trình duyệt sang không gian làm việc trên máy khác."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "浏览器标签页暂时无法移到其他机器上的工作区。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "瀏覽器分頁暫時無法移到其他機器上的工作區。"
-          }
-        }
-      }
-    },
-    "remote.terminal.moveOtherTab": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Only terminal tabs can move to a workspace on another machine."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يمكن نقل علامات تبويب الطرفية فقط إلى مساحة عمل على جهاز آخر."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Samo kartice terminala mogu se premjestiti u radni prostor na drugom računaru."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kun terminalfaner kan flyttes til et arbejdsområde på en anden maskine."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nur Terminal-Tabs können in einen Arbeitsbereich auf einem anderen Gerät verschoben werden."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Solo las pestañas de terminal pueden moverse a un espacio de trabajo en otra máquina."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seuls les onglets de terminal peuvent être déplacés vers un espace de travail sur une autre machine."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Solo le schede del terminale possono essere spostate in uno spazio di lavoro su un altro computer."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "別のマシンのワークスペースに移動できるのはターミナルタブだけです。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មានតែផ្ទាំងទែមីណាល់ប៉ុណ្ណោះដែលអាចផ្លាស់ទីទៅកន្លែងធ្វើការលើម៉ាស៊ីនផ្សេងទៀតបាន។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다른 기기의 워크스페이스로는 터미널 탭만 옮길 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bare terminalfaner kan flyttes til et arbeidsområde på en annen maskin."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Do obszaru roboczego na innym komputerze można przenosić tylko karty terminala."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Somente abas de terminal podem ser movidas para um espaço de trabalho em outra máquina."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "В рабочее пространство на другом компьютере можно перемещать только вкладки терминала."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ย้ายได้เฉพาะแท็บเทอร์มินัลไปยังพื้นที่ทำงานบนเครื่องอื่น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Başka bir makinedeki çalışma alanına yalnızca terminal sekmeleri taşınabilir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "До робочого простору на іншому комп’ютері можна переміщувати лише вкладки термінала."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chỉ có thể chuyển tab terminal sang không gian làm việc trên máy khác."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "只有终端标签页可以移到另一台机器上的工作区。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "只有終端機分頁可以移到另一台機器上的工作區。"
-          }
-        }
-      }
-    },
     "remote.terminal.needsCapability": {
       "extractionState": "manual",
       "localizations": {
@@ -11525,6 +11263,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@（無 SSH 路徑）"
+          }
+        }
+      }
+    },
+    "remote.tab.cannotMoveAcrossMachines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home, conversation and app tabs cannot move to a workspace on another machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن نقل علامات تبويب الصفحة الرئيسية والمحادثات والتطبيقات إلى مساحة عمل على جهاز آخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartice Home, razgovora i aplikacija ne mogu se premjestiti u radni prostor na drugom računaru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home-, samtale- og appfaner kan ikke flyttes til et arbejdsområde på en anden maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home-, Unterhaltungs- und App-Tabs können nicht in einen Arbeitsbereich auf einem anderen Gerät verschoben werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las pestañas de Home, de conversaciones y de apps no pueden moverse a un espacio de trabajo en otra máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les onglets Home, de conversation et d’app ne peuvent pas être déplacés vers un espace de travail sur une autre machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le schede Home, di conversazione e delle app non possono essere spostate in uno spazio di lavoro su un altro computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホーム、会話、アプリのタブは別のマシンのワークスペースへ移動できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំង Home ការសន្ទនា និងកម្មវិធី មិនអាចផ្លាស់ទីទៅកន្លែងធ្វើការលើម៉ាស៊ីនផ្សេងទៀតបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "홈, 대화, 앱 탭은 다른 기기의 워크스페이스로 옮길 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home-, samtale- og appfaner kan ikke flyttes til et arbeidsområde på en annen maskin."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kart Home, rozmów i aplikacji nie można przenieść do obszaru roboczego na innym komputerze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abas da Home, de conversas e de apps não podem ser movidas para um espaço de trabalho em outra máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладки Home, бесед и приложений нельзя переместить в рабочее пространство на другом компьютере."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้ายแท็บ Home แท็บการสนทนา และแท็บแอปไปยังพื้นที่ทำงานบนเครื่องอื่นไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home, sohbet ve uygulama sekmeleri başka bir makinedeki çalışma alanına taşınamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладки Home, розмов і застосунків не можна перемістити до робочого простору на іншому комп’ютері."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể chuyển tab Home, tab hội thoại và tab ứng dụng sang không gian làm việc trên máy khác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主页、对话和应用标签页无法移到另一台机器上的工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "首頁、對話和 App 分頁無法移到另一台機器上的工作區。"
+          }
+        }
+      }
+    },
+    "remote.removeGroup.notAGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This machine is not a remote group."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンはリモートグループではありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الجهاز ليس مجموعة بعيدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova mašina nije udaljena grupa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne maskine er ikke en fjerngruppe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Maschine ist keine Remote-Gruppe."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina no es un grupo remoto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette machine n’est pas un groupe distant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa macchina non è un gruppo remoto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីននេះមិនមែនជាក្រុមពីចម្ងាយទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신은 원격 그룹이 아닙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne maskinen er ikke en ekstern gruppe."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta maszyna nie jest grupą zdalną."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta máquina não é um grupo remoto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта машина не является удалённой группой."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องนี้ไม่ใช่กลุ่มระยะไกล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu makine bir uzak grup değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця машина не є віддаленою групою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy này không phải là nhóm từ xa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此机器不是远程组。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此機器不是遠端群組。"
           }
         }
       }
