@@ -66,7 +66,7 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "notificationCopy",
-                title: String(localized: "action.notificationCopy", defaultValue: "Copy Notification", bundle: .module),
+                title: String(localized: "action.notificationCopy", defaultValue: "Copy Notification Text", bundle: .module),
                 keywords: ["notifications", "clipboard"], category: .notifications, symbol: "doc.on.doc",
                 surfaces: [.contextMenu], cliName: "notification copy"
             ),
