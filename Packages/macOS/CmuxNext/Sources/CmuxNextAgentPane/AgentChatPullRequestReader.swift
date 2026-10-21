@@ -40,10 +40,18 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
 
     /// The pull request at `url`, a link ``AgentPaneReplyRequest/pullRequestURL(_:)`` rebuilt, so
     /// gh's argument is never anything but that URL. Runs in the home folder: no repository needed.
+    ///
+    /// Kept for the shape of that one read, which ``read(urls:)`` falls back to for a link on
+    /// another host, and for the test of it. No card takes this path: a card's link is read
+    /// through ``read(urls:)`` even when it is the only one, because that read is the only one of
+    /// the two that can see the base branch's checks.
     public func read(url: URL) async -> AgentPanePullRequest? {
         await read(arguments: ["pr", "view", url.absoluteString, "--json", AgentPanePullRequest.fields],
-                   in: environment["HOME"] ?? NSHomeDirectory())
+                   in: home)
     }
+
+    /// Where a read with no repository runs: gh needs none when the pull request is named by URL.
+    private var home: String { environment["HOME"] ?? NSHomeDirectory() }
 
     /// The pull requests at `urls`, wherever their branches are checked out, by URL. github.com
     /// ones take one `gh api graphql` read per ``batchSize``, never one call per pull request;
@@ -65,8 +73,10 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
             guard let data = await run(arguments, in: nil, anyExit: true) else { continue }
             answers.merge(Self.pullRequests(fromGraphQL: data, batch)) { $1 }
         }
+        // In the home folder, like ``read(url:)``: a link on another host names its pull request,
+        // so this needs no repository, and the App's own working folder is nobody's repository.
         for url in others {
-            if let pullRequest = await read(arguments: ["pr", "view", url, "--json", AgentPanePullRequest.fields], in: nil) {
+            if let pullRequest = await read(arguments: ["pr", "view", url, "--json", AgentPanePullRequest.fields], in: home) {
                 answers[url] = pullRequest
             }
         }
@@ -102,12 +112,25 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         // Every field ``AgentPanePullRequest/fields`` reads, so a pull request from here is the
         // same pull request a `gh pr view` of it would be: a card drawn from a batched read must
         // not be missing its branches, labels or files.
+        // A rollup's contexts carry the run they came from, and both halves of that are read:
+        // ``AgentPanePullRequest/identity(_:)`` matches a head check against a base one by its
+        // workflow as well as its name, on both sides, and
+        // ``AgentPanePullRequest/latestRuns(_:)`` uses the run id on the base side, because a
+        // cancelled run a newer run of the same workflow replaced still sits in this list and
+        // reads as a failure. Trimming either field degrades the match to the name alone, which
+        // would excuse a red of one workflow with a same-named red of another.
+        let contexts = """
+            contexts(first: 100) { nodes { __typename \
+            ... on CheckRun { name status conclusion detailsUrl \
+            checkSuite { workflowRun { databaseId workflow { databaseId name } } } } \
+            ... on StatusContext { context state targetUrl } } }
+            """
         let fields = """
             url number title state isDraft reviewDecision mergeable createdAt updatedAt mergedAt additions deletions \
             changedFiles baseRefName headRefName author { login } labels(first: \(AgentPanePullRequest.maximumLabels)) \
             { nodes { name } } files(first: 100) { nodes { path additions deletions } } \
-            commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { __typename \
-            ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } } } }
+            commits(last: 1) { nodes { commit { statusCheckRollup { \(contexts) } } } } \
+            baseRef { target { ... on Commit { statusCheckRollup { \(contexts) } } } }
             """
         let aliases = targets.enumerated().map { index, target in
             "p\(index): repository(owner: \"\(target.owner)\", name: \"\(target.name)\") { pullRequest(number: \(target.number)) { ...f } }"
@@ -138,6 +161,13 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
             let contexts = (commit?["statusCheckRollup"] as? [String: Any])?["contexts"] as? [String: Any]
             view["statusCheckRollup"] = contexts?["nodes"] as? [[String: Any]] ?? []
             view["commits"] = nil
+            // The base branch's tip, under the name `AgentPanePullRequest` reads it by. The tip is
+            // what "also red on base" means: the merge rules measure a base red there, not at this
+            // pull request's merge base.
+            let baseTarget = (view["baseRef"] as? [String: Any])?["target"] as? [String: Any]
+            let baseContexts = (baseTarget?["statusCheckRollup"] as? [String: Any])?["contexts"] as? [String: Any]
+            view["baseStatusCheckRollup"] = baseContexts?["nodes"] as? [[String: Any]] ?? []
+            view["baseRef"] = nil
             // GraphQL wraps a connection's rows in `nodes`; gh prints them as a plain array.
             for key in ["labels", "files"] {
                 view[key] = (view[key] as? [String: Any])?["nodes"] as? [[String: Any]] ?? []
@@ -319,10 +349,14 @@ public final class AgentReplyPullRequests {
         return task
     }
 
+    /// Reads one link the same way ``register(_:)`` reads a reply's: the batched GraphQL read with
+    /// a batch of one, not `gh pr view <url>`. It is the same single call to GitHub, and it is the
+    /// only one of the two that reads the base branch's checks — a card refreshed through
+    /// `gh pr view` would quietly lose "also red on base" sixty seconds after it gained it. A link
+    /// on another host (GitHub Enterprise) still falls back to `gh pr view` inside that read.
     private func perform(_ url: URL) async {
-        let pullRequest = await reader.read(url: url)
-        record(pullRequest, for: url)
-        trim()
+        let answers = await reader.read(urls: [url.absoluteString])
+        absorb(answers, for: [url])
     }
 
     /// What a batched read answered. A URL GitHub did not answer for (offline, timed out, rate
