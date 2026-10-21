@@ -30,8 +30,10 @@ enum TabCloseGuard {
         guard tabs.contains(where: { !asking.contains($0.id) }) else { return }
         let ids = Set(tabs.map(\.id))
         asking.formUnion(ids)
+        reading.formUnion(ids)
         Task { @MainActor in
             let (prompt, asked) = await promptAndAnswers(closing: tabs, on: daemon, services: services)
+            reading.subtract(ids)
             guard let prompt else {
                 asking.subtract(ids)
                 return close(asked)
@@ -44,14 +46,17 @@ enum TabCloseGuard {
     }
 
     /// The tabs whose close is still asking (the daemon's read, then the question): they
-    /// stay in their strip, selected, until it answers, so a quick next Cmd-W skips them.
+    /// stay in their strip, selected, until it answers; a second close of them is the same close.
     private(set) static var asking: Set<String> = []
+    /// Those still in the daemon's read: a quick next Cmd-W skips them. Once the question
+    /// shows, a Cmd-W behind it closes nothing until the person answers.
+    private(set) static var reading: Set<String> = []
 
-    /// The tab a user's Cmd-W on `id` closes: `id`, or while `id`'s close is still asking,
+    /// The tab a user's Cmd-W on `id` closes: `id`, or while `id`'s close is still reading,
     /// the tab selected once it closes (the next not closing, else the previous), so N
     /// quick presses close N tabs (Leo 2026-10-21). Nil when every other tab is closing too.
     static func cmdWTarget(_ id: StripTabID, in strip: TabStripModel) -> StripTabID? {
-        guard asking.contains(id.rawValue) else { return id }
+        guard reading.contains(id.rawValue) else { return id }
         let ordered = strip.orderedTabs
         guard let index = ordered.firstIndex(where: { $0.id == id }) else { return id }
         func open(_ tab: TabItem) -> Bool { !asking.contains(tab.id.rawValue) && tab.isClosable }
