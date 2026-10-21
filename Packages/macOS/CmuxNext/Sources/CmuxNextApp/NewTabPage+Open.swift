@@ -108,9 +108,8 @@ extension NewTabPage {
             closeFrame.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
         }
         if case .terminal = request.kind, request.run, command(request.text) == nil { return } // opens nothing
-        // The pick takes the page's place in its pane, like a browser's new tab: no pane or divider
-        // moves (Leo 2026-10-20). `layout.newTabPageFollowsLinkPlacement` sends it right of the
-        // pane instead (LinkOpener, `layout.linkPlacement`), as every link (Lawrence 2026-10-19).
+        // The pick takes the page's place, like a browser's new tab (Leo 2026-10-20); opted in
+        // (`layout.newTabPageFollowsLinkPlacement`), it lands where links do (Lawrence 2026-10-19).
         if !keep, Self.opensBeside(key, in: pane) { return Self.openBeside(key, with: request, cwd: cwd, from: pane) }
         let closePage = keep ? close : NewTabSlot.placing(replacing: key, services: services, then: close) ?? close // the page's slot
         switch request.kind {
@@ -138,14 +137,13 @@ extension NewTabPage {
         }
     }
 
-    /// Whether what New Tab page `key` in `pane` opens goes beside it: the person turned on
-    /// `layout.newTabPageFollowsLinkPlacement`, the link placement is not Same Pane, the page shares its pane with another tab (a lone page has nothing to keep in
+    /// Whether what New Tab page `key` in `pane` opens goes beside it: `layout.newTabPageFollowsLinkPlacement`
+    /// is on, the link placement is not Same Pane, the page shares its pane with another tab (a lone page has nothing to keep in
     /// view, so it is replaced in place), and it is no split's (a split's page, which lists Open
     /// Tabs, fills the pane the person just made, NewTabPage.split).
     static func opensBeside(_ key: String, in pane: PaneController) -> Bool {
         let tabs = pane.services.agentTabs, page = tabs.resolve(key)
-        guard pane.services.linkOpener.newTabPageFollows() else { return false }
-        guard tabs.newTabPages[page]?.page.openTabs == nil, pane.pane.tabs.contains(where: { $0.id != page }) else { return false }
+        guard pane.services.settings?.snapshot.newTabPageFollowsLinkPlacement == true, tabs.newTabPages[page]?.page.openTabs == nil, pane.pane.tabs.contains(where: { $0.id != page }) else { return false }
         return pane.services.linkOpener.target(from: pane) != .pane(pane.layoutPaneID)
     }
 

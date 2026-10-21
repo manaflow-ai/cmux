@@ -1,9 +1,11 @@
 import AppKit
+@testable import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
-import CmuxNextSettings
+import CmuxNextDesign
+@testable import CmuxNextSettings
 import Foundation
 import Testing
 
@@ -15,10 +17,19 @@ import Testing
 /// `layout.linkPlacement` says, and no pane or divider moves. `layout.newTabPageFollowsLinkPlacement`
 /// opts back into the link rule (Lawrence 2026-10-19).
 @MainActor struct NewTabPagePickInPlaceTests {
-    /// A pane holding a terminal (surface 1) and the New Tab page (surface 2), or the page alone.
-    private static func pane(withTerminal: Bool) throws -> (AppServices, PaneController, String) {
+    /// A pane holding a terminal (surface 1) and the New Tab page (surface 2), or the page alone, with
+    /// `layout.newTabPageFollowsLinkPlacement` from a real settings file (`optedIn`, else unset).
+    private static func pane(withTerminal: Bool, optedIn: Bool = false) async throws -> (AppServices, PaneController, String) {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-newtab-pick-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appending(path: "cmux.json")
+        try Data((optedIn ? #"{"layout":{"newTabPageFollowsLinkPlacement":true}}"# : "{}").utf8).write(to: url)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        services.settings = settings
+        await settings.reload()
         let surfaces: [UInt64] = withTerminal ? [1, 2] : [2]
         let snapshot = PaneSnapshot(id: PaneID(rawValue: 1), tabs: surfaces.map { TabSnapshot(surface: SurfaceID(rawValue: $0), title: "~") })
         let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(PaneID(rawValue: 1)), panes: [snapshot])
@@ -34,10 +45,9 @@ import Testing
 
     /// Runs the page's terminal pick and reports whether it asked where links go (a pick routed
     /// through ``LinkOpener`` reads `layout.linkPlacement` to find the pane on the right or split).
-    private static func pickConsultsLinkPlacement(_ placement: LinkPlacement, withTerminal: Bool, optedIn: Bool = false) throws -> Bool {
-        let (services, pane, page) = try Self.pane(withTerminal: withTerminal)
+    private static func pickConsultsLinkPlacement(_ placement: LinkPlacement, withTerminal: Bool, optedIn: Bool = false) async throws -> Bool {
+        let (services, pane, page) = try await Self.pane(withTerminal: withTerminal, optedIn: optedIn)
         defer { pane.teardown() }
-        services.linkOpener.newTabPageFollows = { optedIn }
         var consulted = false
         services.linkOpener.placement = {
             consulted = true
@@ -47,16 +57,16 @@ import Testing
         return consulted
     }
 
-    @Test func aPickOnANewTabPageBesideAnotherTabTakesThePagesPlace() throws {
-        #expect(try !Self.pickConsultsLinkPlacement(.splitRight, withTerminal: true),
+    @Test func aPickOnANewTabPageBesideAnotherTabTakesThePagesPlace() async throws {
+        #expect(try await !Self.pickConsultsLinkPlacement(.splitRight, withTerminal: true),
                 "the page's pick went to the pane on the right or a new split instead of the page's tab")
-        #expect(try !Self.pickConsultsLinkPlacement(.newColumn, withTerminal: true),
+        #expect(try await !Self.pickConsultsLinkPlacement(.newColumn, withTerminal: true),
                 "the page's pick went to a new column instead of the page's tab")
     }
 
     /// Nothing else in the pane: the page becomes what it opened, as it always did.
-    @Test func aLonePageIsReplacedInPlace() throws {
-        #expect(try !Self.pickConsultsLinkPlacement(.splitRight, withTerminal: false))
+    @Test func aLonePageIsReplacedInPlace() async throws {
+        #expect(try await !Self.pickConsultsLinkPlacement(.splitRight, withTerminal: false))
     }
 
     /// The opt-in setting is off unless the person turns it on.
@@ -65,13 +75,10 @@ import Testing
     }
 
     /// `layout.newTabPageFollowsLinkPlacement` on: the pick goes where links go, beside the page.
-    @Test func optedInThePickFollowsLinkPlacement() throws {
-        #expect(try Self.pickConsultsLinkPlacement(.splitRight, withTerminal: true, optedIn: true))
-        let (_, pane, page) = try Self.pane(withTerminal: true)
+    @Test func optedInThePickFollowsLinkPlacement() async throws {
+        #expect(try await Self.pickConsultsLinkPlacement(.splitRight, withTerminal: true, optedIn: true))
+        let (_, pane, page) = try await Self.pane(withTerminal: true, optedIn: true)
         defer { pane.teardown() }
-        pane.services.linkOpener.newTabPageFollows = { true }
         #expect(NewTabPage.opensBeside(page, in: pane))
-        pane.services.linkOpener.newTabPageFollows = { false }
-        #expect(!NewTabPage.opensBeside(page, in: pane))
     }
 }
