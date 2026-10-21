@@ -49,7 +49,6 @@ struct SidebarAccount: Hashable {
         if let team = account.team, let item = registry.makeMenuItem(for: "openTeamPicker") {
             item.title = team
             item.image = NSImage(systemSymbolName: "person.2", accessibilityDescription: team)
-            item.identifier = NSUserInterfaceItemIdentifier("profileMenu.team")
             menu.insertItem(item, at: 0)
         }
         for line in [account.email, account.name].compactMap(\.self) {
