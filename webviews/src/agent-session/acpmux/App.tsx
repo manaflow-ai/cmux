@@ -102,7 +102,7 @@ import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { parseProjectRepos } from "./projectRepos";
 import { HomeLists } from "./HomeLists";
-import { endsTurn, turnFiles, turnRows, type TurnFile } from "./diff";
+import { endsTurn, turnFiles, turnPathsOnly, turnRows, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk, trustedLabel } from "./TrustAsk";
@@ -323,6 +323,7 @@ import { FolderChoice, showsFolderChoice } from "./FolderChoice";
 import { type FolderAsk, StartFolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
+import { WatchBanner } from "./WatchBanner";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
@@ -2295,7 +2296,18 @@ export function VirtualTranscript({
     (index: number, event: React.KeyboardEvent<HTMLElement>) => rowKeyDownRef.current(index, event),
     [],
   );
-  const activeVisible = rows.slice(range.first, range.last).some((row) => row.id === effectiveActiveRowId);
+  // Avoid allocating a new slice on every scroll/follow commit. Long transcripts can dispatch
+  // several state commits per frame while the reader is moving; the mounted range is already
+  // bounded, so a direct scan keeps the check allocation-free.
+  let activeVisible = false;
+  if (effectiveActiveRowId) {
+    for (let index = range.first; index < range.last; index += 1) {
+      if (rows[index]?.id === effectiveActiveRowId) {
+        activeVisible = true;
+        break;
+      }
+    }
+  }
   const tabStopId = activeVisible ? effectiveActiveRowId : rows[range.first]?.id;
   useLayoutEffect(() => {
     const spans = mountedRanges.map(({ first, last }): MountedSpan => [
@@ -2721,6 +2733,8 @@ export function VirtualTranscript({
       anchorNow.current = undefined;
     };
   }, [anchorNow]);
+  /// The older-history check (below), which every scroll event runs too.
+  const checkOlderNow = useRef<() => void>(() => {});
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
     pacing.scrolled();
     // Before the chat opens its offset moves only as pages land unseen: none of it is the reader's.
@@ -2728,6 +2742,7 @@ export function VirtualTranscript({
     // A hidden scroller has no height, so every offset would read as scrolled up (cx-t0zqt): the view
     // keeps following until the reader scrolls a visible one.
     if (event.currentTarget.clientHeight === 0) return;
+    checkOlderNow.current();
     const node = event.currentTarget;
     const next = node.scrollTop;
     const programmatic = performance.now() - readerAt.current > READER_SCROLL_MS;
@@ -2851,12 +2866,13 @@ export function VirtualTranscript({
   // to its footer. Marked on the mounted rows, so a hover renders nothing.
   // The last ended turn's prompt offers Retry under its bubble (UserBubble.tsx); turns.ts names
   // it on the turn's footer while it may be sent again.
-  let retryPromptId: string | undefined;
-  for (let index = rows.length - 1; index >= 0; index -= 1)
-    if (rows[index]!.kind === "turnSummary") {
-      retryPromptId = rows[index]!.retryRowId;
-      break;
-    }
+  // Rows are immutable snapshots. Reuse the last ended turn's retry target across scroll and
+  // focus commits, which do not change `rows` and otherwise walk the entire transcript.
+  const retryPromptId = useMemo(() => {
+    for (let index = rows.length - 1; index >= 0; index -= 1)
+      if (rows[index]!.kind === "turnSummary") return rows[index]!.retryRowId;
+    return undefined;
+  }, [rows]);
   const markTurns = useCallback(() => {
     for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? []) {
       node.toggleAttribute("data-retryable", node.dataset.rowId === retryPromptId);
@@ -2873,7 +2889,12 @@ export function VirtualTranscript({
   // A read that drew no row above the first (records that draw nothing) moves historyFrom: ask again.
   const olderLoadKey = `${sessionKey}\u0000${rows[0]?.id ?? ""}\u0000${historyFrom ?? ""}`;
   const olderLoadRequested = useRef<string | undefined>(undefined);
-  useEffect(() => {
+  // The check reads the scroller's live offset, and runs on every scroll event as well as after
+  // each commit: a page that lands moves the view down (the anchoring above) and the reader's
+  // scroll back to the top could land in the same frame, so the rendered offset never changed
+  // and a check that ran only on a change of it never asked for the next page (the scroll to the
+  // first message stalled at the top after a few pages, perf100).
+  const checkOlder = () => {
     const node = ref.current;
     if (!canLoadOlder || !onLoadOlder || !node || node.clientHeight === 0) {
       olderLoadRequested.current = undefined;
@@ -2891,6 +2912,12 @@ export function VirtualTranscript({
       // Keep transient transport failures retryable without turning every render into a request.
       if (olderLoadRequested.current === olderLoadKey) olderLoadRequested.current = undefined;
     });
+  };
+  useLayoutEffect(() => {
+    checkOlderNow.current = checkOlder;
+  });
+  useEffect(() => {
+    checkOlderNow.current();
   }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
   const pointAt = (target: EventTarget | null) => {
     const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
@@ -4203,14 +4230,16 @@ function AcpmuxPane() {
     ],
   );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
-  const diffActivity = useRef<{ key: string; files: ReturnType<typeof turnFiles> }>(undefined);
-  const diffFiles = useMemo(() => {
+  const diffActivity = useRef<{ key: string; files: TurnFile[]; pathsOnly: string[] }>(undefined);
+  const diffTurnFiles = useMemo(() => {
     if (!diffView || !diffOpen) return undefined;
     const activity = turnRows(snapshot.rows, diffView.rowId).filter((row) => row.kind === "activity");
     const key = `${diffView.rowId}\u0000${activity.map((row) => `${row.id}:${row.version}`).join("|")}`;
-    if (diffActivity.current?.key !== key) diffActivity.current = { key, files: turnFiles(activity) };
-    return diffActivity.current.files;
+    if (diffActivity.current?.key !== key)
+      diffActivity.current = { key, files: turnFiles(activity), pathsOnly: turnPathsOnly(activity) };
+    return diffActivity.current;
   }, [diffView, diffOpen, snapshot.rows]);
+  const diffFiles = diffTurnFiles?.files;
   // Each turn's checkpoint pair, named by the row that starts the turn: the checkpoints acpmux
   // recorded on its summary, diffed on the session host.
   const turnRowsRef = useRef(snapshot.rows);
@@ -4245,19 +4274,20 @@ function AcpmuxPane() {
     const pending = [...hunkDecisions].some(
       ([key, decision]) => decision === "rejected" && toolIds.has(key.split("\u0000")[0]!),
     );
-    return turnDisplay(t, diffFiles, turnCheckpoint(diffTurn) ?? { state: "loading" }, pending);
-  }, [diffFiles, diffTurn, hunkDecisions, t, turnCheckpoint]);
+    const load = turnCheckpoint(diffTurn) ?? { state: "loading" };
+    return turnDisplay(t, diffFiles, load, pending, diffTurnFiles?.pathsOnly);
+  }, [diffFiles, diffTurnFiles, diffTurn, hunkDecisions, t, turnCheckpoint]);
   // The latest edited-files card shows its turn's checkpoint counts once the turn has ended.
   const endedEditTurn = endedEditRow(marks);
   useEffect(() => {
     if (endedEditTurn) requestTurnCheckpoint(turnKey(endedEditTurn));
   }, [endedEditTurn, requestTurnCheckpoint, turnKey]);
   const turnCountsFor = useCallback<TurnCountsFor>(
-    (rowId, toolFiles) => turnCounts(toolFiles, turnCheckpoint(turnKey(rowId))),
+    (rowId, toolFiles, pathsOnly) => turnCounts(toolFiles, turnCheckpoint(turnKey(rowId)), pathsOnly),
     [turnCheckpoint, turnKey],
   );
   // The header's Changes: the last turn that edited files, with its checkpoint's counts once loaded.
-  const lastEdit = useRef<{ key: string; rowId: string; files: TurnFile[] }>(undefined);
+  const lastEdit = useRef<{ key: string; rowId: string; files: TurnFile[]; pathsOnly: string[] }>(undefined);
   const lastEditTurn = useMemo(() => {
     const rows = snapshot.rows;
     let at = rows.length - 1;
@@ -4272,12 +4302,13 @@ function AcpmuxPane() {
     const activity = rows.slice(start, end).filter((row) => row.kind === "activity");
     // Keyed by the chat too: another chat's rows never read as this one's.
     const key = `${snapshot.sessionId}\u0000${edit.id}\u0000${activity.map((row) => `${row.id}:${row.version}`).join("|")}`;
-    if (lastEdit.current?.key !== key) lastEdit.current = { key, rowId: edit.id, files: turnFiles(activity) };
+    if (lastEdit.current?.key !== key)
+      lastEdit.current = { key, rowId: edit.id, files: turnFiles(activity), pathsOnly: turnPathsOnly(activity) };
     return lastEdit.current;
   }, [snapshot.rows, snapshot.sessionId]);
   // Its files are the diff's own (the checkpoint's once loaded), so each opens at its file there.
   const lastChanges = useMemo(
-    () => (lastEditTurn ? turnCountsFor(lastEditTurn.rowId, lastEditTurn.files) : undefined),
+    () => (lastEditTurn ? turnCountsFor(lastEditTurn.rowId, lastEditTurn.files, lastEditTurn.pathsOnly) : undefined),
     [lastEditTurn, turnCountsFor],
   );
   // The header's Preview: the local page of the latest of the last few turns that started or mentioned one.
@@ -6876,8 +6907,14 @@ function AcpmuxPane() {
               // A started chat never holds the prompt (plans/cmux-next/composer-delivery-DESIGN.md):
               // it leaves the composer at once and shows as its own row, which says how far it got,
               // and a refusal stays on that row with Retry, Edit and Remove. One refused before any
-              // row showed (the chat could not take prompts) comes back to the composer.
-              if (snapshot.sessionId && surfaceRef.current !== "quick" && !projectDraft) {
+              // row showed (the chat could not take prompts) comes back to the composer. A View Only
+              // chat is taken over first (below), so the composer holds its prompt meanwhile.
+              if (
+                snapshot.sessionId &&
+                surfaceRef.current !== "quick" &&
+                !projectDraft &&
+                !snapshot.summary?.watching
+              ) {
                 const holder = composerHandle.current;
                 callNative("chat.send", { text, attachments, steer }).then(
                   () => promptLanded.current(),
@@ -6896,6 +6933,11 @@ function AcpmuxPane() {
               let accept: (taken: true) => void = () => undefined;
               const taken = new Promise<true>((resolve) => (accept = resolve));
               const send = async () => {
+                // Replying to a View Only chat takes it over first (`takeOver`); while the app that
+                // runs it still does, the pane asks how, and the composer keeps the message.
+                if (snapshot.summary?.watching && !(await directClient.current?.takeOver())) {
+                  throw new Error("watch.notTakenOver");
+                }
                 if (projectDraft && !snapshot.sessionId)
                   // The chat's start is part of this send: a trust refusal there asks the folder's
                   // question, keeps this prompt (with its send's gesture) and sends it after Trust
@@ -6996,7 +7038,8 @@ function AcpmuxPane() {
             onShellChange={setComposerShell}
             prompt={prompt}
             handle={composerRef}
-            // No prompt goes while a picked folder waits for the user's answer.
+            // No prompt goes while a picked folder waits for the user's answer, or while the chat only
+            // shows a session another app runs (WatchBanner).
             blocked={pendingFolder ? {} : trustAsk.blocked}
             accessory={<DictationMic dictation={dictation} />}
             dictating={isWaitingForWords(dictation.state)}
@@ -7174,6 +7217,7 @@ function AcpmuxPane() {
               load={(params) => callNative<AllChatsPage | undefined>("chats.page", params)}
               onOpen={(key) => void callNative("chats.open", { key }).catch(() => undefined)}
               onOpenInTerminal={(key) => void callNative("chats.openInTerminal", { key }).catch(() => undefined)}
+              onViewOnly={(key) => void callNative("chats.watch", { key }).catch(() => undefined)}
             />
           ) : showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
@@ -7399,6 +7443,19 @@ function AcpmuxPane() {
                   <LiveChatChoice
                     {...snapshot.liveChat}
                     onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
+                  />
+                )}
+                {snapshot.summary?.watching && !snapshot.liveTakeOver && (
+                  <WatchBanner
+                    family={snapshot.summary.watching}
+                    onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
+                    onContinue={() => void directClient.current?.continueWatched().catch(() => undefined)}
+                  />
+                )}
+                {snapshot.summary?.watching && snapshot.liveTakeOver && (
+                  <LiveChatChoice
+                    {...snapshot.liveTakeOver}
+                    onChoose={(choice) => void directClient.current?.takeOver(choice).catch(() => undefined)}
                   />
                 )}
                 {!reviewing && snapshot.handoff?.error && (
