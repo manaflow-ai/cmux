@@ -522,6 +522,12 @@ _ROUTING_TABLES = frozenset({
     "scripts/ci/detect_linux_guard_changes.py",
     "scripts/ci/workflow_guard_groups.py",
 })
+# Files that list test paths without running them: the execution registry, the
+# routing tables and cmux-next.yml's path router.
+_TEST_PATH_LISTS = _ROUTING_TABLES | frozenset({
+    "tests/test-execution.toml",
+    "scripts/ci/cmux_next_route.py",
+})
 _COMMENT_RE = re.compile(r"(?m)(?:^[ \t]*#(?![{!]).*$|[ \t]+#(?![{!]).*$)")
 
 
@@ -714,6 +720,19 @@ def ci_helper_areas(
             if referrer.startswith("tests/"):
                 if is_guard_only_test(referrer, test_references):
                     continue
+                if is_unrouted_test(referrer, test_references):
+                    runners = _files_naming(root, referrer)
+                    if runners is None:
+                        return every_area(f"could not search for {referrer}")
+                    runners = [runner for runner in runners if runner not in _TEST_PATH_LISTS]
+                    if runners and all(
+                        runner.startswith(".github/workflows/") and runner not in routed for runner in runners
+                    ):
+                        # Only workflows outside ci.yml's call tree run this test
+                        # (feat-cmux-next's cmux-next.yml and nightly.yml run a
+                        # checks-job test and the nightly strip test): a dead end,
+                        # like those workflows themselves.
+                        continue
                 return every_area(f"{referrer} names {token} and runs outside the Linux guards")
             if referrer.startswith("scripts/"):
                 tokens.append(Path(referrer).stem)
@@ -800,6 +819,19 @@ def _load_macos_job_test_references(root: Path) -> Optional[tuple[frozenset[str]
     except OSError:
         return None
     return frozenset(macos), frozenset(everywhere)
+
+
+def is_unrouted_test(path: str, references: Optional[tuple[frozenset[str], frozenset[str]]]) -> bool:
+    """A tests/ file no job of ci.yml's workflows names, and no macOS job reaches by a glob prefix.
+
+    ci_helper_areas() treats such a test as a dead end when only workflows outside
+    ci.yml's call tree run it; anything else still answers every area. Unreadable
+    references keep the old answer.
+    """
+    if references is None or not path.startswith("tests/"):
+        return False
+    macos, everywhere = references
+    return path not in everywhere and not any(path.startswith(reference) for reference in macos)
 
 
 def is_guard_only_test(path: str, references: Optional[tuple[frozenset[str], frozenset[str]]]) -> bool:
