@@ -692,6 +692,26 @@ async fn dispatch_request(
             hub.add_peer_from(&params).await?;
             Ok(json!({"peers": hub.peers()}))
         }
+        // A peer that lasts as long as this connection (`hub/peer_lease.rs`):
+        // the unix socket only (`remote_guard.rs`).
+        "_acpmux/peer_lease" => {
+            let text = |k: &str| str_param(&params, k).filter(|v| !v.is_empty()).map(str::to_owned);
+            let required = |k: &str| {
+                text(k).ok_or_else(|| RpcError::invalid_params(format!("{k} is required")))
+            };
+            let (name, url, token) = (required("name")?, required("url")?, required("token")?);
+            let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
+            let (lease, mut settled) = {
+                let cfg = hub.config.read().await;
+                hub.lease_peer(&name, &url, token, text("peerToken"), &cfg)?
+            };
+            conn.hold_peer_lease(hub, lease);
+            if wait {
+                let _ =
+                    tokio::time::timeout(crate::hub::PEER_SETTLE_BUDGET, settled.changed()).await;
+            }
+            Ok(json!({"lease": name, "peers": hub.peers()}))
+        }
         "_acpmux/peer_reconnect" => {
             let name = str_param(&params, "name")
                 .ok_or_else(|| RpcError::invalid_params("name is required"))?;

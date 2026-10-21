@@ -55,13 +55,16 @@ enum PaletteSourcesBridge {
     }
 
     /// Target lists for the palette's argument pages, each kind from its
-    /// owner; rename prompts also start from the titles listed here.
+    /// owner; rename prompts also start from the titles listed here. Tab
+    /// groups come first: their source narrows the list for the saved-group
+    /// actions (`targets(of:for:)`).
     static func targetSource(_ services: AppServices) -> any PaletteTargetSource {
         let windows = WindowTargetSource(services: services)
         let profiles = BrowserProfileTargetSource(services: services, next: windows)
         let screens = ScreenTargetSource(services: services, next: profiles)
-        let tabs = TabAndGroupTargetSource(services: services, next: screens)
-        return SidebarSectionTargetSource(services: services, next: tabs)
+        let spaces = SpaceAndPaneTargetSource(services: services, next: screens)
+        let sections = SidebarSectionTargetSource(services: services, next: spaces)
+        return TabAndGroupTargetSource(services: services, next: sections)
     }
 
     /// The active window's focused objects when the palette opens: the

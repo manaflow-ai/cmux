@@ -50,10 +50,12 @@ nonisolated enum ObjectMenuLabels {
     static var toggleItemLabel: String { text("menu.sidebar.toggleItemLabel", "Show/Hide Label") }
     static var hideApp: String { text("menu.sidebar.hideApp", "Hide App") }
 
-    // The pane's Layout submenu: an agent chat's zoom and the column widths, without prefixes.
-    static var chatZoomIn: String { text("menu.pane.chatZoomIn", "Zoom In Chat") }
-    static var chatZoomOut: String { text("menu.pane.chatZoomOut", "Zoom Out Chat") }
-    static var chatActualSize: String { text("menu.pane.chatActualSize", "Reset Chat Zoom") }
+    // The pane's Layout submenu: an agent chat's zoom and the column widths, without prefixes. The zoom
+    // rows are the chat menu's words (Zoom In, Zoom Out, Actual Size, `AgentChatMenuLabels`) led by
+    // "Chat", as the canvas's are ("Canvas Zoom In"), since the submenu also zooms the pane.
+    static var chatZoomIn: String { text("menu.pane.chatZoomIn", "Chat Zoom In") }
+    static var chatZoomOut: String { text("menu.pane.chatZoomOut", "Chat Zoom Out") }
+    static var chatActualSize: String { text("menu.pane.chatActualSize", "Chat Actual Size") }
     static var widthOneThird: String { text("menu.column.widthOneThird", "One-Third Width") }
     static var widthHalf: String { text("menu.column.widthHalf", "Half Width") }
     static var widthTwoThirds: String { text("menu.column.widthTwoThirds", "Two-Thirds Width") }
