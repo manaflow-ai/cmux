@@ -302,6 +302,11 @@ pub(super) fn mode_eligible(
     plain && !remote && !keep_harness_mode && !profile_sets_mode(profile)
 }
 
+/// The mode ids a session's harness offers, for the policy modes (`policy_mode.rs`).
+pub(super) fn offered_ids(meta: &crate::store::SessionMeta) -> Vec<String> {
+    available(meta)
+}
+
 /// The mode ids a session's harness offers.
 fn available(meta: &crate::store::SessionMeta) -> Vec<String> {
     offered(meta).into_iter().map(|(id, _)| id).collect()
@@ -329,7 +334,7 @@ pub(crate) fn full_access_mode(available: &[String]) -> Option<String> {
 
 /// The mode that asks before each change among `available`: the family's
 /// asking default (`web_modes::ASKING_MODES`), else a mode named `ask`.
-fn asking_mode(family: &str, available: &[String]) -> Option<String> {
+pub(super) fn asking_mode(family: &str, available: &[String]) -> Option<String> {
     let row = crate::web_modes::ASKING_MODES
         .iter()
         .find(|(f, _)| *f == family)
@@ -406,6 +411,11 @@ fn level_of(mode: &str, family: &str, asking: &[String]) -> DefaultMode {
     }
 }
 
+/// Whether mode `mode` of a harness of `family` asks before each change (or only reads).
+pub(super) fn asks(mode: &str, family: &str) -> bool {
+    level_of(mode, family, &[]) == DefaultMode::Ask
+}
+
 impl DefaultMode {
     fn as_str(self) -> &'static str {
         match self {
@@ -425,9 +435,16 @@ impl Hub {
         if offered.is_empty() {
             return None;
         }
-        let (level, _) = self.start_level().await;
-        mode_for(level, &crate::web_modes::family_of(&meta), &offered)
-            .filter(|m| crate::web_modes::mode_of(&meta).as_deref() != Some(m.as_str()))
+        // A chat with its own policy narrower than approve-all runs in the mode that keeps it
+        // (`policy_mode.rs`), never in the start level.
+        let mode = match Self::mode_for_policy(&meta, &offered) {
+            Some(mode) => mode,
+            None => {
+                let (level, _) = self.start_level().await;
+                mode_for(level, &crate::web_modes::family_of(&meta), &offered)
+            }
+        };
+        mode.filter(|m| crate::web_modes::mode_of(&meta).as_deref() != Some(m.as_str()))
     }
 
     /// A respawned ACP chat that came back in full access (its harness restored the mode on
