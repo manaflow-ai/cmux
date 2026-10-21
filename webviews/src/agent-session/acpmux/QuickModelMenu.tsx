@@ -4,6 +4,7 @@ import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import type { Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
 import { useT } from "./i18n";
+import { CHAT_COLUMN } from "./modelPickerLayout";
 import {
   Menu,
   MenuButton,
@@ -365,6 +366,7 @@ export function QuickModelMenu({
         align="start"
         label={t("picker.model")}
         className={families ? "acpmux-quick-menu acpmux-quick-railed" : "acpmux-quick-menu"}
+        boundary={CHAT_COLUMN}
         // ui-allow: 1 to 9 pick a row in place and typing filters the list, as in Claude Code's model menu.
         onKeyDown={keyDown}
       >

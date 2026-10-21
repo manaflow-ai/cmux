@@ -103,6 +103,10 @@ export const MODEL_PICKER_MAX_HEIGHT = 480;
 /// the top of the window (the New Tab chip's menu, 94 px).
 export const MODEL_PICKER_MIN_HEIGHT = 220;
 
+/// The agent pane's chat column: the model menus and their submenus stay inside it, never over the
+/// session rail, summary column or sidebar beside it (a composer outside one keeps to the window).
+export const CHAT_COLUMN = ".acpmux-main";
+
 /// The open picker's height bounds: at most the anchor's room (`room`, when known) and
 /// MODEL_PICKER_MAX_HEIGHT, never below MODEL_PICKER_MIN_HEIGHT; at least its height when it
 /// opened (`opened`), so a narrowing search does not shrink it, while a list that loads later can

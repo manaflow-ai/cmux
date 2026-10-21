@@ -214,6 +214,35 @@ const check: Play = async (ctx: PlayContext) => {
   if (problems.length) throw new Error(problems.join("; "));
 };
 
+/// The model button's open menus (the compact one, its submenus, the full picker) inside the chat
+/// column: a chip near the column's edge never opens a menu past it, over the rail beside it or off
+/// the pane (the context-menus lane, 2026-10-20: "the model menu overflows the column").
+function menusLeaveColumn(document: Document): string[] {
+  const view = document.defaultView!;
+  const box = document.querySelector(".acpmux-main")?.getBoundingClientRect() ?? { left: 0, right: view.innerWidth };
+  const problems: string[] = [];
+  for (const menu of document.querySelectorAll(".acpmux-quick-menu, .acpmux-mp")) {
+    const rect = menu.getBoundingClientRect();
+    if (rect.width === 0) continue;
+    if (rect.left < box.left - 1 || rect.right > box.right + 1)
+      problems.push(
+        `the model menu leaves the chat column (${Math.round(rect.left)}–${Math.round(rect.right)} of ${Math.round(box.left)}–${Math.round(box.right)})`,
+      );
+  }
+  return problems;
+}
+
+/// Opens the model button's menu and checks that it keeps to the chat column.
+async function openModelMenu(ctx: PlayContext) {
+  await ctx.click({ role: "button", name: "Model" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu"));
+  // Base UI places and sizes the menu over a frame or two (its --available-width): wait for it to
+  // rest inside the column rather than read its first frame.
+  await ctx.waitFor(() => menusLeaveColumn(ctx.document).length === 0, { capMs: 1000 }).catch(() => undefined);
+  const problems = menusLeaveColumn(ctx.document);
+  if (problems.length) throw new Error(problems.join("; "));
+}
+
 export default agentPaneEntry({
   id: "agent-pane.narrow",
   title: "Narrow panes",
@@ -249,15 +278,28 @@ export default agentPaneEntry({
       play: check,
     },
     "model-menu": {
-      note: "Play: open the model button's menu (icon-only below 330px); it stays inside the pane, unclipped.",
+      note: "Play: open the model button's menu (icon-only below 330px); it stays inside the pane, unclipped, and inside a chat column narrower than the pane (200 px), its width giving way.",
       checks: {
         popupLayer: { value: true, reason: "A chip's menu renders inside the chip row; a clipping row hides it." },
       },
       snapshot: withControls(chat(finished)),
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: "Model" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu"));
+        await openModelMenu(ctx);
         await check(ctx);
+        // Then a chat column narrower than the pane, as a docked rail beside it leaves it: 200 px at
+        // the pane's left, under the menu's 220 px floor and 300 px width. The menu gives way and
+        // keeps to the column, never past its edge.
+        await ctx.press("Escape");
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-quick-menu"));
+        const column = ctx.document.querySelector<HTMLElement>(".acpmux-main");
+        if (!column) throw new Error("no chat column");
+        column.style.flex = "0 0 200px";
+        await ctx.waitFor(() => column.getBoundingClientRect().width <= 201);
+        // The narrowing is the stage's, not a step's: let it paint before the next step measures shifts.
+        const view = ctx.document.defaultView!;
+        await new Promise((resolve) => view.requestAnimationFrame(() => view.requestAnimationFrame(resolve)));
+        await new Promise((resolve) => view.setTimeout(resolve, 0));
+        await openModelMenu(ctx);
       },
     },
     "access-menu": {
