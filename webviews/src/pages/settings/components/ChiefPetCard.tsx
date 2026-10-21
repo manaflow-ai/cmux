@@ -1,9 +1,10 @@
 // Chief Pet: the floating pet's own page, after ChatGPT's Mini & Pets. A preview of the pet over
 // its rail with Show Pet / Hide Pet, then every character (the Chief Dock's pixel mascots) as a
-// card with its name and a line about it, and None, which hides the pet. It draws the category's
+// card with its name and a line about it, and None, which hides the pet. Hovering or focusing a
+// character previews it on the rail; a click swaps it everywhere. It draws the category's
 // two rows (`home.chiefPetEnabled`, `home.chiefPetMascot`), so SectionView leaves them out of the
 // group list; search, the palette and `cmux settings` still reach them.
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useRowState, useStore, type RowState } from "../context";
 import { Icon } from "../icons";
 import { t } from "../strings";
@@ -56,6 +57,8 @@ export function ChiefPetCard({ focus = null }: { focus?: string | null }) {
   // A search result (`?focus=`) lands on its control (Show/Hide, or the selected choice) once per
   // focus, after the values arrive (as SettingRow): a later click that moves the selection keeps focus.
   const revealedFor = useRef<string | null>(null);
+  // The character under the pointer or keyboard focus: the preview shows it until it leaves.
+  const [previewed, setPreviewed] = useState<string | null>(null);
   const target = shown.connected && shown.readable && character.readable ? focus : null;
   const reveal = (control: HTMLElement | null) => {
     if (!control || revealedFor.current === target) return;
@@ -72,6 +75,7 @@ export function ChiefPetCard({ focus = null }: { focus?: string | null }) {
   const value = character.value;
   const mascot = CHIEF_PET_MASCOTS.find((entry) => entry.id === value) ?? CHIEF_PET_MASCOTS[0];
   const selected = enabled ? mascot.id : "none";
+  const preview = CHIEF_PET_MASCOTS.find((entry) => entry.id === previewed) ?? mascot;
   const choose = (id: string) => {
     if (id === "none") return void store.set(CHIEF_PET_ENABLED, false);
     // A refused character write leaves the pet as it was.
@@ -95,8 +99,12 @@ export function ChiefPetCard({ focus = null }: { focus?: string | null }) {
         </button>
       </div>
       <RowStatus settingKey={CHIEF_PET_ENABLED} state={shown} />
-      <div className="chief-pet-preview" data-enabled={enabled ? "true" : "false"}>
-        <img className="chief-pet-art" src={mascot.art} alt={t(`settings.choice.chiefPetMascot.${mascot.id}`)} />
+      <div
+        className="chief-pet-preview"
+        data-enabled={enabled || previewed ? "true" : "false"}
+        data-previewing={previewed ? "true" : "false"}
+      >
+        <img className="chief-pet-art" src={preview.art} alt={t(`settings.choice.chiefPetMascot.${preview.id}`)} />
         <Rail />
       </div>
       <h3 className="group-title">{t("settingsPage.chiefPet.pets")}</h3>
@@ -127,6 +135,10 @@ export function ChiefPetCard({ focus = null }: { focus?: string | null }) {
             disabled={gridLocked}
             ref={target === CHIEF_PET_MASCOT && selected === entry.id ? reveal : undefined}
             onClick={() => choose(entry.id)}
+            onMouseEnter={() => setPreviewed(entry.id)}
+            onMouseLeave={() => setPreviewed((id) => (id === entry.id ? null : id))}
+            onFocus={() => setPreviewed(entry.id)}
+            onBlur={() => setPreviewed((id) => (id === entry.id ? null : id))}
           >
             <span className="chief-pet-choice-art">
               <img src={entry.art} alt="" />

@@ -862,6 +862,7 @@
   background: transparent;
   color: var(--text);
   font: inherit;
+  position: relative;
   text-align: center;
   cursor: pointer;
   transition: border-color var(--motion-hover) var(--motion-ease);
@@ -873,6 +874,17 @@
 
 .chief-pet-choice[aria-pressed="true"] {
   border-color: var(--text);
+}
+
+/* The chosen character's check, top right (ChatGPT's picker marks its pick the same way). */
+.chief-pet-choice[aria-pressed="true"]::after {
+  content: "✓";
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  color: var(--text);
+  font-size: var(--text-body);
+  font-weight: 600;
 }
 
 .chief-pet-choice-art {
