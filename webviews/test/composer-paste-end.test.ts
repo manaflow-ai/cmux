@@ -14,9 +14,8 @@ import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownF
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-const LAST_LINE = "pasted line 40";
-
 await requireBrowserLane("composer-paste-end.test.ts", async () => {
+  const LAST_LINE = "pasted line 40";
   setDefaultTimeout(120_000);
   const engines: [string, BrowserType][] = [];
   for (const engine of [
