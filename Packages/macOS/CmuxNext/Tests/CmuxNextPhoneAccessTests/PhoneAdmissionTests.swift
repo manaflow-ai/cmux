@@ -22,7 +22,8 @@ struct PhoneAdmissionTests {
         store.attach(directory: directory)
         let closed = Closed()
         let admission = PhoneAdmission(phones: store) { await closed.add($0) }
-        admission.setUser(user)
+        // The iPhone host's account sets the user (one owner); the admission only reads it.
+        store.load(userID: user)
         return (admission, directory, closed)
     }
 
@@ -177,7 +178,7 @@ struct PhoneAdmissionTests {
         let store = MobileHostPairedStore()
         store.attach(directory: directory)
         let relaunched = PhoneAdmission(phones: store) { _ in }
-        relaunched.setUser("user-1")
+        store.load(userID: "user-1")
         relaunched.ask = { _ in Issue.record("asked an allowed phone"); return false }
         #expect(await relaunched.decide(Self.phone))
         #expect(Self.listed(relaunched) == ["dev-1"])
@@ -189,11 +190,11 @@ struct PhoneAdmissionTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         admission.ask = { _ in true }
         #expect(await admission.decide(Self.phone))
-        admission.setUser("user-2")
+        admission.phones.load(userID: "user-2")
         #expect(Self.listed(admission).isEmpty)
         admission.ask = { _ in false }
         #expect(!(await admission.decide(Self.phone)))
-        admission.setUser(nil)
+        admission.phones.load(userID: nil)
         admission.mode = .account
         admission.ask = { _ in true }
         #expect(!(await admission.decide(Self.phone)))
@@ -202,9 +203,55 @@ struct PhoneAdmissionTests {
 
     /// Escape denies, and Allow has no key: a Return typed as the question opens lets no phone in.
     @Test func theQuestionDeniesOnEscapeAndAllowHasNoKey() {
-        let spec = PhoneAccessStrings.allowSpec(name: "Leo’s iPhone")
+        let spec = PhoneAccessStrings.allowSpec(name: "Leo’s iPhone", key: String(repeating: "ab", count: 32))
         #expect(spec.identifier == PhoneAdmission.allowDialogIdentifier)
         #expect(spec.defaultButton == nil)
         #expect(spec.buttons.first { $0.role == .cancel }?.id == PhoneAccessStrings.denyID)
     }
+
+    /// The question shows the phone's key next to its name: another device on the account can copy
+    /// the name, not the key. Same fingerprint as the iPhone pairing prompt and acpmux's list.
+    @Test func theQuestionShowsTheKeysFingerprint() {
+        let key = String(repeating: "ab", count: 32)
+        let fingerprint = MobileHostPairedDevices.fingerprint(key)
+        #expect(fingerprint.count == 16)
+        let other = MobileHostPairedDevices.fingerprint(String(repeating: "cd", count: 32))
+        let spec = PhoneAccessStrings.allowSpec(name: "Leo’s iPhone", key: key)
+        #expect(spec.lines.first == PhoneAccessStrings.key(key))
+        #expect(spec.lines.contains { $0.contains(fingerprint) })
+        #expect(!spec.lines.contains { $0.contains(other) })
+    }
+
+    /// An Allow answered after another user signed in counts for nobody: it is not saved on the
+    /// new user's list nor on the old one, and lets nothing in.
+    @Test func anAllowAnsweredAfterAUserSwitchIsRefusedAndNotSaved() async {
+        let (admission, directory, _) = Self.admission()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        admission.ask = { _ in
+            admission.phones.load(userID: "user-2")
+            return true
+        }
+        #expect(!(await admission.decide(Self.phone)))
+        #expect(Self.listed(admission).isEmpty)
+        admission.phones.load(userID: "user-1")
+        #expect(Self.listed(admission).isEmpty)
+    }
+
+    /// Only the iPhone host's account sets whose list it is: the Iroh listener stopping (a team that
+    /// went away while signed in, or a sign-out the cloud auth saw first) leaves the one list alone.
+    @Test func theIrohListenerNeverSetsTheListsUser() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("phone-owner-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MobileHostPairedStore()
+        store.attach(directory: directory)
+        store.load(userID: "user-1")
+        try store.change { $0.approve(Self.phone, at: Date()) }
+        let mobile = MobileHostService(displayName: { "Mac" })
+        mobile.admit(from: store)
+        mobile.stop()
+        #expect(store.current?.userID == "user-1")
+        #expect(store.current?.devices.map(\.id) == ["dev-1"])
+        #expect(await mobile.access.admits(Self.phone))
+    }
+}
 }

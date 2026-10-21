@@ -52,7 +52,6 @@ public final class MobileHostService {
     /// listener starts now when phone access is on, else when it is turned on.
     public func start(auth: any MobileHostAuth, launch: LaunchIdentity, daemon: DaemonService) {
         account = (auth, launch, daemon)
-        admission?.setUser(auth.userID)
         allowed ? startHost(auth: auth, launch: launch, daemon: daemon) : stopHost()
         servingChanged()
     }
@@ -60,7 +59,6 @@ public final class MobileHostService {
     /// Signed out, or the app quits: no account, no listener.
     public func stop() {
         account = nil
-        admission?.setUser(nil)
         stopHost()
         servingChanged()
     }
@@ -85,12 +83,17 @@ public final class MobileHostService {
         guard follower == nil else { return }
         let directory = Self.stateDirectory(namespace: Self.namespace(launch))
         phones.attach(directory: MobileHostStateDirectory(parent: directory).resolve())
-        let admission = PhoneAdmission(phones: phones) { @MainActor [weak self] id in await self?.host?.disconnect(phone: id) }
-        admission.setUser(account?.auth.userID)
-        self.admission = admission
-        access.setAdmission({ device in await admission.decide(device) }, stillAllowed: { phones.contains($0, transport: .iroh) })
+        admit(from: phones)
         follower = PhoneAccessFollower(mobile: self, settings: settings, history: MobileHostHistory(stateDirectory: directory))
         follower?.start()
+    }
+
+    /// New phones are judged on `phones`, whose user the iPhone host's account sets (one owner):
+    /// a team that goes away while signed in stops this listener but leaves the list alone.
+    func admit(from phones: MobileHostPairedStore) {
+        let admission = PhoneAdmission(phones: phones) { @MainActor [weak self] id in await self?.host?.disconnect(phone: id) }
+        self.admission = admission
+        access.setAdmission({ device in await admission.decide(device) }, stillAllowed: { phones.contains($0, transport: .iroh) })
     }
 
     private func servingChanged() {
