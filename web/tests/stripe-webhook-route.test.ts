@@ -38,6 +38,7 @@ const applySubscriptionUpdate = mock(async () => {
   if (applySubscriptionUpdateError) throw applySubscriptionUpdateError;
   return applySubscriptionUpdateResult;
 });
+const markTeamSeatsDirty = mock(async () => {});
 const revokeCoderouterRouteTokens = mock(async () => {});
 const revokeCoderouterTeamRouteTokens = mock(async () => {});
 const captureStripeBillingEvent = mock(async () => {});
@@ -121,6 +122,7 @@ const POST = makeStripeWebhookHandler({
   recordCheckoutCompletion: recordCheckoutCompletion as never,
   recordFoundersCheckoutCompletion: recordFoundersCheckoutCompletion as never,
   applySubscriptionUpdate: applySubscriptionUpdate as never,
+  markTeamSeatsDirty,
   sendProSignupWelcome,
   isPersonalWelcomeConfigured: () => personalWelcomeConfigured,
   revokeCoderouterRouteTokens,
@@ -178,6 +180,7 @@ describe("Stripe billing webhook route", () => {
     recordCheckoutCompletion.mockClear();
     recordFoundersCheckoutCompletion.mockClear();
     applySubscriptionUpdate.mockClear();
+    markTeamSeatsDirty.mockClear();
     revokeCoderouterRouteTokens.mockClear();
     revokeCoderouterTeamRouteTokens.mockClear();
     captureStripeBillingEvent.mockClear();
@@ -605,6 +608,7 @@ describe("Stripe billing webhook route", () => {
     expect(response.status).toBe(200);
     expect(applySubscriptionUpdate).toHaveBeenCalledWith(
       retrievedSubscription,
+      { markTeamSeatsDirty },
     );
     expect(revokeCoderouterRouteTokens).toHaveBeenCalledWith("user_1");
     expect(captureStripeBillingEvent).not.toHaveBeenCalled();
@@ -682,7 +686,7 @@ describe("Stripe billing webhook route", () => {
 
     expect(response.status).toBe(200);
     expect(retrieveSubscription).toHaveBeenCalledWith("sub_1");
-    expect(applySubscriptionUpdate).toHaveBeenCalledWith(retrievedSubscription);
+    expect(applySubscriptionUpdate).toHaveBeenCalledWith(retrievedSubscription, { markTeamSeatsDirty });
     expect(revokeCoderouterRouteTokens).not.toHaveBeenCalled();
     await deferredTasks[0]();
     expect(captureStripeBillingEvent).toHaveBeenCalledWith(currentEvent, {

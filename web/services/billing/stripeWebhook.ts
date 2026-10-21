@@ -28,6 +28,7 @@ import {
 import { isStripeBillingConfigured, stripe } from "./stripe";
 import { personalProWelcomeOwnsDelivery } from "./personalProWelcome";
 import { isPersonalPlanId } from "./pro";
+import { databaseTeamSeatQueue } from "./teamSeatQueue";
 import { AccountDeletionUserMutationInProgressError } from "../account/deletionLock";
 import { STRIPE_WEBHOOK_RETRYABLE_ERROR_PREFIX } from "./stripeWebhookErrors";
 import {
@@ -45,6 +46,7 @@ type StripeWebhookDependencies = {
   recordCheckoutCompletion: typeof recordCheckoutCompletionDefault;
   recordFoundersCheckoutCompletion?: typeof recordFoundersCheckoutCompletionDefault;
   applySubscriptionUpdate: typeof applySubscriptionUpdateDefault;
+  markTeamSeatsDirty?: (stackTeamId: string) => Promise<void>;
   sendProSignupWelcome: typeof sendProSignupWelcomeDefault;
   isPersonalWelcomeConfigured?: () => boolean;
   revokeCoderouterRouteTokens: typeof revokeRouteTokensForUserDefault;
@@ -61,6 +63,7 @@ const defaultDependencies: StripeWebhookDependencies = {
   recordCheckoutCompletion: recordCheckoutCompletionDefault,
   recordFoundersCheckoutCompletion: recordFoundersCheckoutCompletionDefault,
   applySubscriptionUpdate: applySubscriptionUpdateDefault,
+  markTeamSeatsDirty: (stackTeamId) => databaseTeamSeatQueue.markDirty(stackTeamId),
   sendProSignupWelcome: sendProSignupWelcomeDefault,
   isPersonalWelcomeConfigured,
   revokeCoderouterRouteTokens: revokeRouteTokensForUserDefault,
@@ -449,7 +452,9 @@ async function applySubscriptionEntitlementUpdate(
   subscription: Stripe.Subscription,
   dependencies: StripeWebhookDependencies,
 ) {
-  const result = await dependencies.applySubscriptionUpdate(subscription);
+  const result = await dependencies.applySubscriptionUpdate(subscription, {
+    markTeamSeatsDirty: dependencies.markTeamSeatsDirty,
+  });
   if (
     !("skipped" in result)
     && !result.isActive

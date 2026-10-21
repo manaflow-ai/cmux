@@ -20,11 +20,13 @@ its own.
   counts current Stack members, and when the Stripe quantity differs updates
   it with `create_prorations`, inline after the response and from the
   `/api/cron/team-seats` sweep. The membership write never waits on billing.
-  A quantity edited in Stripe is not fought: the reconciler runs only on
-  membership facts, and then the member count wins. Pro and Max personal
-  teams keep the fixed 3-member cap in `services/teams/seats.ts` and have no
-  per-seat quantity; free teams are ignored. PR #11352 (use-time seat
-  demotion) is not merged here.
+  Team subscription create/update webhooks also mark the team dirty, so an
+  external quantity edit is reconciled back to the member count. The Team
+  Billing Portal uses a dedicated configuration that disables quantity edits
+  while preserving cancellation, invoices, and payment-method updates. Pro and
+  Max personal teams keep the fixed 3-member cap in `services/teams/seats.ts`
+  and have no per-seat quantity; free teams are ignored. PR #11352 (use-time
+  seat demotion) is not merged here.
 - Personal plans stay user-scoped. The synthetic personal entry (`id ===
   user.id`) routes to Pro/Max checkout, real teams to Team checkout.
 
