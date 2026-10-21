@@ -51,8 +51,7 @@ final class AgentPanePageSettings {
         reasoningSliderObservation = Task { [weak self] in
             for await on in ObservationStream({ (AgentPaneTunables.reasoningSlider.value, AgentPaneTunables.reasoningSliderStyle.value) }) {
                 guard let self else { return }
-                composer.reasoningSlider = on.0
-                composer.reasoningSliderStyle = on.1.rawValue
+                (composer.reasoningSlider, composer.reasoningSliderStyle) = (on.0, on.1.rawValue)
                 push()
             }
         }
