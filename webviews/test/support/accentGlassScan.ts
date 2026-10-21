@@ -26,8 +26,12 @@ export type Finding = {
 /** The baseline key of a finding on one stage (entry and variant). */
 export const findingKey = (stage: string, finding: Finding): string => `${stage} ${finding.rule} ${finding.element}`;
 
-/** Scans every element of the stage, or with `focusedOnly` just the focused one (after a Tab). */
-export function scanStage(focusedOnly: boolean): Finding[] {
+/**
+ * Scans every element of the stage, or with `focusedOnly` just the focused one (after a Tab).
+ * `orangeAllowed`: the stage's theme is on schemas/theme/orange-accent-allowlist.json, so its own
+ * orange accent is not a finding (the system-accent and glass rules still hold).
+ */
+export function scanStage({ focusedOnly, orangeAllowed }: { focusedOnly: boolean; orangeAllowed: boolean }): Finding[] {
   const canvas = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
   /** A computed color as [r, g, b, a] (0–255, a 0–1), painted and read back so every syntax
    * (`color(srgb …)`, `oklch(…)`, `color-mix(…)`) resolves the same way; null when it is not a color. */
@@ -54,11 +58,11 @@ export function scanStage(focusedOnly: boolean): Finding[] {
     return { chroma: Math.hypot(A, B), hue: ((Math.atan2(B, A) * 180) / Math.PI + 360) % 360 };
   };
   // Orange: past red (about 29° for system red) and short of yellow (about 95° for system yellow).
-  // macOS's orange accent is #ff9500 (64°) and #ff9f0a in dark mode (68°).
+  // macOS's orange accent is #ff9500 (64°) and #ff9f0a in dark mode (68°); Clay Orange's clay is 38°.
   const isOrange = (color: [number, number, number, number] | null) => {
     if (!color || color[3] < 0.05) return false;
     const { chroma, hue } = lch(color);
-    return chroma >= 0.1 && hue >= 40 && hue <= 78;
+    return !orangeAllowed && chroma >= 0.1 && hue >= 35 && hue <= 78;
   };
   const sameRgb = (a: number[], b: number[]) =>
     Math.abs(a[0]! - b[0]!) + Math.abs(a[1]! - b[1]!) + Math.abs(a[2]! - b[2]!) <= 3;

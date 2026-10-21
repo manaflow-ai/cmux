@@ -37,14 +37,21 @@ import Testing
          ("systemOrange", .systemOrange)]
     }
 
+    /// Case (a): the default theme shows no orange anywhere.
     @Test func theDefaultThemesAccentColorsAreNeitherOrangeNorTheSystemAccent() {
-        let scope = Self.neutralScope()
-        ThemeContext.push(scope)
-        defer { ThemeContext.pop() }
-        let colors: [(String, NSColor)] = [("accent", Palette.accent), ("accentFill", Palette.accentFill),
-                                           ("focusRing", Palette.focusRing), ("menuHighlight", Palette.menuHighlight),
-                                           ("selectionFill", Palette.selectionFill)]
-        for (name, color) in colors { Self.expectNotAccent(color, name) }
+        for (name, color) in Self.accentColors(in: Self.neutralScope()) { Self.expectNotAccent(color, name) }
+    }
+
+    /// Case (b): a theme on schemas/theme/orange-accent-allowlist.json (Clay Orange: the person
+    /// picked an orange theme) keeps its own orange accent, and still never the system accent.
+    @Test func anAllowlistedOrangeThemeKeepsItsAccentButNeverTheSystemAccent() throws {
+        let themes = try Self.orangeAllowlist()
+        for theme in themes {
+            let scope = try Self.scope(themeFile: theme)
+            for (name, color) in Self.accentColors(in: scope) {
+                Self.expectNotAccent(color, "\(theme) \(name)", orangeAllowed: true)
+            }
+        }
     }
 
     @Test func aThemedMenuHighlightIsNotTheSystemAccent() throws {
@@ -78,9 +85,47 @@ import Testing
 
     // MARK: Helpers
 
-    private static func expectNotAccent(_ color: NSColor, _ name: String, sourceLocation: SourceLocation = #_sourceLocation) {
+    private static let repoRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+
+    /// Every theme the allowlist names (one entry may name a dark and light pair).
+    private static func orangeAllowlist() throws -> [String] {
+        struct Allowlist: Decodable { struct Entry: Decodable { let themes: [String] }; let allowed: [Entry] }
+        let data = try Data(contentsOf: repoRoot.appending(path: "schemas/theme/orange-accent-allowlist.json"))
+        return try JSONDecoder().decode(Allowlist.self, from: data).allowed.flatMap(\.themes)
+    }
+
+    /// A shipped cmux theme as the app reads it: background, foreground and its `# cmux-accent`.
+    private static func scope(themeFile name: String) throws -> ThemeScope {
+        let text = try String(contentsOf: repoRoot.appending(path: "Resources/cmux-themes/\(name)"), encoding: .utf8)
+        func value(_ key: String) -> ThemeRGB? {
+            text.split(separator: "\n").lazy.compactMap { line -> ThemeRGB? in
+                let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+                return parts.count == 2 && parts[0] == key ? ThemeRGB(cssHex: parts[1]) : nil
+            }.first
+        }
+        var input = ThemeInput(background: try #require(value("background")), foreground: try #require(value("foreground")))
+        input.accentColor = try #require(value("# cmux-accent"), "\(name) names its accent")
+        let scope = ThemeScope(level: .room)
+        scope.setOverride(ThemeSpec(name), input: input, animated: false)
+        return scope
+    }
+
+    /// The palette's accent colors in `scope`, resolved there (a dynamic color would resolve against
+    /// the app theme once the scope is popped).
+    private static func accentColors(in scope: ThemeScope) -> [(String, NSColor)] {
+        ThemeContext.push(scope)
+        defer { ThemeContext.pop() }
+        let colors = [("accent", Palette.accent), ("accentFill", Palette.accentFill), ("focusRing", Palette.focusRing),
+                      ("menuHighlight", Palette.menuHighlight), ("selectionFill", Palette.selectionFill)]
+        return colors.map { ($0.0, $0.1.usingColorSpace(.sRGB) ?? $0.1) }
+    }
+
+    private static func expectNotAccent(_ color: NSColor, _ name: String, orangeAllowed: Bool = false,
+                                        sourceLocation: SourceLocation = #_sourceLocation) {
         guard let rgb = color.usingColorSpace(.sRGB), rgb.alphaComponent > 0.02 else { return }
-        #expect(!isOrange(rgb), "\(name) \(rgb) is orange", sourceLocation: sourceLocation)
+        if !orangeAllowed { #expect(!isOrange(rgb), "\(name) \(rgb) is orange", sourceLocation: sourceLocation) }
         for (systemName, system) in systemAccents {
             guard let system = system.usingColorSpace(.sRGB), chroma(system) >= 0.04 else { continue }
             #expect(distance(rgb, system) > 0.08, "\(name) \(rgb) is \(systemName) \(system)", sourceLocation: sourceLocation)
@@ -102,10 +147,11 @@ import Testing
 
     private static func chroma(_ color: NSColor) -> CGFloat { lch(color).chroma }
 
-    /// Past red (system red is about 29°) and short of yellow (about 95°); macOS orange is 64–68°.
+    /// Past red (system red is about 29°) and short of yellow (about 95°); macOS orange is 64–68°,
+    /// Clay Orange's clay 38°.
     private static func isOrange(_ color: NSColor) -> Bool {
         let (chroma, hue) = lch(color)
-        return chroma >= 0.1 && hue >= 40 && hue <= 78
+        return chroma >= 0.1 && hue >= 35 && hue <= 78
     }
 
     private static func sample(_ view: NSView, x: CGFloat) -> NSColor? {
