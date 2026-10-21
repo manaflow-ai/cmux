@@ -273,6 +273,8 @@ final class AppServices {
     var chromiumLikelyObservations: [Task<Void, Never>] = []
     /// Repaints on `appearance.borders` changes (`observeBorders`).
     var borderObservation: Task<Void, Never>?
+    /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
+    var updateFeedObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
     let contextMenus: BrowserContextMenuBuilder
     /// Sized browser popups (OAuth, payment), each in its own Chrome-style popup window.
@@ -389,7 +391,10 @@ final class AppServices {
         cache.profileBadgeMenu = { [weak self] key in
             guard let self, let tab = cache.tabModel(key) else { return nil }
             let target = ActionTargetRef(kind: .browserProfile, id: browserProfiles.profileID(ofTab: tab))
-            return self.registry.makeContextMenu(for: .browserProfile, target: target)
+            // The badge's tab names the place: New Tab with Browser Profile and Manage Extensions
+            // open in that tab's pane, not in whichever pane has the focus (on Home, the chat dock).
+            return self.registry.makeContextMenu(for: .browserProfile, target: target,
+                                                 arguments: ["tab": .target(ActionTargetRef(kind: .tab, id: tab.id))])
         }
         cache.browserTabs.browserEnabled = { [weak self] in self?.settings?.snapshot.linkRouting.browserEnabled ?? true }
         cache.browserTabs.resolveProfile = { [weak self] pane, explicit in
