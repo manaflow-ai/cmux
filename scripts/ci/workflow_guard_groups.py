@@ -167,6 +167,9 @@ PATH_OWNERS = {
     # The swift-package-tests lane; detect_ci_change_areas.py reads its package list.
     "scripts/ci/package-test-lane.sh": frozenset(("app-host-execution", "ci")),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
+    # tests/test_ci_owned_pool_sources.py imports the detector, which reads the
+    # pool picker's and the runner label policy's constants.
+    "scripts/ci/owned_pool_sources.py": frozenset(("ci",)),
     # tests/test_ci_ui_tests_dispatch.py imports the script and reads the
     # workflow; owned_pool_rescue.py and classify_failures.py import it too.
     "scripts/ci/ui_tests_dispatch.py": frozenset(("app-host-execution", "ci")),

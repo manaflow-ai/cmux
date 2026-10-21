@@ -153,7 +153,11 @@ re-run, keeping the jobs that had already finished. That re-run takes the
 lane's configured retry route, so the watch ends there or continues on
 cmux-next's owned label. A
 stuck run that finished some other way (a newer push cancelled it) is not
-re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS. A side-lane run that is not
+re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS. Side lanes upload no marker
+(cmux-next.yml aside), so the sweeper finds one's run by path once it has
+failed (GitHub.failed_runs()), which a refused job makes it: its failed jobs
+are re-run then. A side-lane job only queued long is moved only for a run a
+dispatch names (WATCH_RUN_ID). A side-lane run that is not
 a pull request has no head to move, like a dispatch. cmux-next.yml exists only
 on the feat-cmux-next branch; its pull request and dispatch runs upload the
 owned-pool-watch marker themselves, so the sweeper adopts them like a picker's
@@ -300,20 +304,43 @@ NIGHTLY_EVENTS = frozenset({"push", "schedule"})
 # job-started hook admits only main's push and schedule jobs. Only nightly.yml's
 # app build asks for one through this watch.
 TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+# feat-cmux-next's session and fast roles (glaeda#1530, pr_runner_pool.OWNED_LABEL there), which main's
+# picker never hands out: cmux-next-base-autofix.yml's Mac exports take glaeda-session-std-xcode-26.6.
+LANE_LABEL = re.compile(r"glaeda-(?:aws-)?(?:session-|fast-)(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+# Every other workflow that can put a job on an owned pool, on main or on
+# feat-cmux-next (whose files are not in main's tree): owned_pool_sources.py
+# finds them from their jobs' runs-on, and tests/test_ci_owned_pool_sources.py
+# fails when a workflow it finds is missing here, or one here is found in
+# neither branch. Most take a glaeda-side-* label on attempt 1 of a trusted
+# run and Blacksmith later; some (the base and PR autofix's Mac exports) take
+# a session or gui label on every attempt. None uploads a marker, so the
+# sweeper finds their failed runs by path (GitHub.failed_runs()); cmux-next.yml
+# is marked as well.
 SIDE_WORKFLOW_PATHS = frozenset({
+    ".github/workflows/agent-brands.yml",  # feat-cmux-next only
     ".github/workflows/app-host-test-rerun.yml",
     ".github/workflows/auth-refresh-tests.yml",
     ".github/workflows/cloud-command-deadlines.yml",
     ".github/workflows/cloud-machine-tests.yml",
     ".github/workflows/cloud-task-local-tests.yml",
+    ".github/workflows/cmux-next-base-autofix.yml",  # feat-cmux-next only
+    ".github/workflows/cmux-next-batch.yml",  # feat-cmux-next only
+    ".github/workflows/cmux-next-frame-pacing.yml",  # feat-cmux-next only
+    ".github/workflows/cmux-next-media.yml",  # feat-cmux-next only
+    ".github/workflows/cmux-next-pr-autofix.yml",  # feat-cmux-next only
+    ".github/workflows/cmux-next-shim-cpp.yml",  # feat-cmux-next only
+    ".github/workflows/cmux-next-terminal.yml",  # feat-cmux-next only
     # feat-cmux-next only; uploads the owned-pool-watch marker on attempt 1.
     ".github/workflows/cmux-next.yml",
+    ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
     ".github/workflows/iroh-v2.yml",
+    ".github/workflows/macos-matrix-fuzz.yml",  # feat-cmux-next only
     ".github/workflows/relay-tls.yml",
     ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
+    ".github/workflows/test-feed-reply-providers.yml",  # feat-cmux-next only
 })
 # cmux-next is the side lane whose placement and retry route are minis-first;
 # other side workflows keep their existing fallback policy.
@@ -323,6 +350,29 @@ CMUX_NEXT_WORKFLOW_PATH = ".github/workflows/cmux-next.yml"
 # these is owned-eligible like a same-repository pull request. merge_group,
 # workflow_run and pull_request_target are not: they can carry fork code.
 TRUSTED_SIDE_EVENTS = frozenset({"push", "schedule", "workflow_dispatch"})
+# Workflows that can take an owned pool but are never rescued here, each with why. A person decides
+# their re-runs. owned_pool_sources.py must find no owned workflow outside these and
+# WATCHED_WORKFLOW_PATHS (tests/test_ci_owned_pool_sources.py).
+UNRESCUED_WORKFLOW_PATHS = {
+    ".github/workflows/app-ffi-release.yml":
+        "feat-cmux-next only; builds and publishes the FFI xcframework every app build links on the trusted "
+        "promote mini: a release step, so a person re-runs it",
+    ".github/workflows/cmux-tui-nightly.yml":
+        "feat-cmux-next only; builds (on a side label it passes cmux-tui-build-package.yml) and publishes the "
+        "cmux-tui nightly packages: a release step, so a person re-runs it",
+    ".github/workflows/ios-internal-nightly.yml":
+        "feat-cmux-next only; signs and uploads the internal iOS build: a release step, so a person re-runs it",
+    ".github/workflows/main-compile-probe.yml":
+        "one optional compile data point for main's compile attribution; its dispatcher already sends a probe "
+        "that has not started to Blacksmith, and nothing waits on it",
+    ".github/workflows/seed-derived-data.yml":
+        "a cache seed on the trusted pool that nothing waits on; the next main push seeds again from the newest "
+        "earlier seed",
+}
+# Every workflow this rescue acts on (target_from_event()); owned_pool_sources.py
+# must find no owned workflow outside it and UNRESCUED_WORKFLOW_PATHS.
+WATCHED_WORKFLOW_PATHS = frozenset({CI_WORKFLOW_PATH, NIGHTLY_WORKFLOW_PATH, *DISPATCH_WORKFLOW_PATHS,
+                                    *SIDE_WORKFLOW_PATHS})
 # test-e2e.yml's job that runs e2e_runner_pool.py (and the iOS workflows' job
 # that runs ios_runner_pool.py).
 E2E_PICKER_JOB = "runner"
@@ -473,7 +523,7 @@ def parse_time(value: object) -> dt.datetime | None:
 def job_pool(job: Mapping[str, Any]) -> str | None:
     """The owned pool a job asked for, if any: a pull request pool or the trusted one."""
     for label in job.get("labels") or []:
-        if persistent(str(label)) or TRUSTED_LABEL.fullmatch(str(label)):
+        if persistent(str(label)) or TRUSTED_LABEL.fullmatch(str(label)) or LANE_LABEL.fullmatch(str(label)):
             return str(label)
     return None
 
@@ -815,6 +865,29 @@ class GitHub:
                 data = self.request("GET", f"/actions/workflows/{name}/runs?status={status}&per_page={count}")
                 found += [(int(run["id"]), int(run["run_attempt"])) for run in (data or {}).get("workflow_runs") or []
                           if isinstance(run, Mapping) and run.get("id") and owned_rerun(run)]
+        return found
+
+    def failed_runs(self, count: int, oldest: dt.datetime, since: dt.datetime | None = None,
+                    pages: int = 1) -> list[tuple[int, int]]:
+        """(run id, attempt) of the failed runs of SIDE_WORKFLOW_PATHS created since `oldest` and, when
+        `since` is given, finished after it: newest first, `count` a page, at most `pages` pages.
+
+        Those workflows upload no marker (sweep()), and a job the fleet refused fails its run, so a
+        refusal shows here once the run ends, which is when its failed jobs can be re-run.
+        """
+        created = oldest.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        found: list[tuple[int, int]] = []
+        for page in range(1, pages + 1):
+            data = self.request("GET", f"/actions/runs?status=failure&exclude_pull_requests=true&per_page={count}"
+                                       f"&page={page}&created=%3E%3D{created}")
+            runs = [run for run in (data or {}).get("workflow_runs") or [] if isinstance(run, Mapping)]
+            for run in runs:
+                finished = parse_time(run.get("updated_at"))
+                if run.get("id") and run.get("path") in SIDE_WORKFLOW_PATHS and not (
+                        since is not None and finished is not None and finished < since):
+                    found.append((int(run["id"]), int(run.get("run_attempt") or 0)))
+            if len(runs) < count:
+                break
         return found
 
     def jobs(self, run_id: int, attempt: int) -> list[Mapping[str, Any]]:
@@ -1452,9 +1525,12 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
                             log=log, deadline=deadline, floor_seconds=effective_seconds)
     if outcome not in ("rescue", "refused"):
         return f"stopped: {reason}"
-    if target.refusals_only:
-        if outcome != "refused":
-            return f"stopped: {reason}; attempt {target.attempt} stays on the minis (refusals only)"
+    if target.refusals_only and outcome != "refused":
+        return f"stopped: {reason}; attempt {target.attempt} stays on the minis (refusals only)"
+    # A refusal re-runs the run's failed jobs. A side lane (found by the failed-run listing, sweep()) or a
+    # refusals-only run that also failed on its own would re-run that failure on the minis too, so it is
+    # left red; a nightly keeps its re-run (its build is the product).
+    if outcome == "refused" and (target.refusals_only or target.side and not target.nightly):
         jobs = read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
         other = [str(job.get("name")) for job in jobs if job.get("conclusion") in ("failure", "timed_out")
                  and not carried(job, target.attempt_started_at) and not refused(job)]
@@ -1493,7 +1569,9 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
 # pool, and ci-macos.yml's late-placement uploads LATE_WATCH_MARKER when it
 # moves jobs onto one. Listing each name repository-wide is one request that
 # names every such run, finished or not, so one job watches them all: each
-# run gets a thread running follow(), the per-run watch.
+# run gets a thread running follow(), the per-run watch. The side lanes,
+# which upload no marker, are found by one listing of failed runs a tick
+# (GitHub.failed_runs()).
 WATCH_MARKER = "owned-pool-watch"
 LATE_WATCH_MARKER = "owned-pool-watch-late"
 # cmux-next.yml's placement uploads this instead of WATCH_MARKER when it found
@@ -1521,6 +1599,9 @@ SWEEP_MAX_AGE_SECONDS = E2E_WATCH_LIMIT_SECONDS
 # SWEEP_LISTING_PAGES.
 SWEEP_LISTING = 100
 SWEEP_LISTING_PAGES = 5
+# The failed side-lane runs are listed every this many ticks: a refused job is re-run within about
+# that many minutes, for at most SWEEP_LISTING_PAGES requests each time.
+SIDE_FAILURE_TICKS = 5
 MARKER_ORDER_SKEW = dt.timedelta(minutes=90)
 
 
@@ -1577,6 +1658,8 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
     outcomes: dict[str, int] = {}
     seen: set[int] = set()
     rerun_seen: set[tuple[int, int]] = set()  # re-runs, once per attempt (owned_reruns())
+    failed_seen: set[tuple[int, int]] = set()  # failed side-lane runs, once per attempt (failed_runs())
+    ticks = 0
     refusals_runs: set[int] = set()  # runs with REFUSALS_WATCH_MARKER, re-runs included
     threads: list[threading.Thread] = []
     started = now()
@@ -1608,7 +1691,8 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             key = outcome.split(":")[0]
             outcomes[key] = outcomes.get(key, 0) + 1
 
-    def adopt(run_id: int, late: bool, *, refusals_known: bool = True) -> None:
+    def adopt(run_id: int, late: bool, *, refusals_known: bool = True) -> bool:
+        """Watch the run if it needs it. False when it could not be judged yet (a read failed): try later."""
         was_seen = run_id in seen
         seen.add(run_id)
         try:
@@ -1616,13 +1700,13 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         except READ_ERRORS as error:
             seen.discard(run_id)  # the next tick tries again
             log(f"[run {run_id}] could not read the run ({error})")
-            return
+            return False
         if not refusals_known and run.get("path") == CMUX_NEXT_WORKFLOW_PATH:
             # Without this tick's refusals listing a cmux-next re-run could lose its mark.
             if not was_seen:
                 seen.discard(run_id)
             log(f"[run {run_id}] not adopted yet: the refusals markers were not listed; next tick")
-            return
+            return False
         rerun_seen.add((run_id, int(run.get("run_attempt") or 0)))
         full_rerun = False
         if int(run.get("run_attempt") or 0) > 1:
@@ -1632,7 +1716,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             except READ_ERRORS as error:
                 seen.discard(run_id)
                 log(f"[run {run_id}] could not read attempt {run['run_attempt']} ({error})")
-                return
+                return False
             picker = E2E_PICKER_JOB if run.get("path") in DISPATCH_WORKFLOW_PATHS else PICKER_JOB
             attempt_started = parse_time(run.get("run_started_at") or run.get("created_at"))
             full_rerun = any(job.get("name") == picker and int(job.get("run_attempt") or 0) > 1
@@ -1640,12 +1724,13 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         target = sweep_target(run, repository, late=late, full_rerun=full_rerun, since=since)
         if isinstance(target, str):
             log(f"[run {run_id}] not watched: {target}")
-            return
+            return True
         if run_id in refusals_runs:
             target = dataclasses.replace(target, refusals_only=True)
         thread = threading.Thread(target=one, args=(target,), name=f"run-{run_id}", daemon=True)
         thread.start()
         threads.append(thread)
+        return True
 
     while (now() - started).total_seconds() < sweep_seconds:
         oldest = now() - dt.timedelta(seconds=SWEEP_MAX_AGE_SECONDS)
@@ -1674,6 +1759,22 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         for run_id, attempt in reruns:
             if (run_id, attempt) not in rerun_seen:
                 adopt(run_id, False, refusals_known=refusals_listed)
+        # A side lane uploads no marker: its run is found once a refused job has failed it, every
+        # SIDE_FAILURE_TICKS ticks (paging through every workflow's failures costs a few requests).
+        failed: list[tuple[int, int]] = []
+        if ticks % SIDE_FAILURE_TICKS == 0:
+            try:
+                failed = client.failed_runs(SWEEP_LISTING, oldest, since, SWEEP_LISTING_PAGES)
+            except READ_ERRORS as error:
+                log(f"could not list failed runs ({error}); next tick")
+                ticks -= 1  # try again on the next tick
+        ticks += 1
+        for run_id, attempt in failed:
+            # A marked run's own watch (or the re-run listing) already follows it.
+            if (run_id, attempt) in failed_seen or (run_id, attempt) in rerun_seen or attempt <= 1 and run_id in seen:
+                continue
+            if adopt(run_id, False, refusals_known=refusals_listed):
+                failed_seen.add((run_id, attempt))  # not before: a read that failed is tried again
         threads = [thread for thread in threads if thread.is_alive()]
         log(f"tick: {len(threads)} run(s) watched, {client.remaining or '?'} of "
             f"{client.limit or '?'} API requests left this hour")
