@@ -1198,7 +1198,6 @@ const RowFrame = React.memo(function RowFrame({
           className="acpmux-row__copy cv-iconbtn"
           {...copyTabStop}
           aria-label={copied ? t("turn.copied") : t("turn.copy")}
-          title={copied ? t("turn.copied") : t("turn.copy")}
           onClick={async () => {
             try {
               await onCopyRow(row.id);
@@ -1441,7 +1440,6 @@ function JumpToLatest({
       aria-label={label}
       // Hidden, it is inert: out of the tab order and the accessibility tree while it fades out.
       inert={!shown}
-      title={label}
       // A click does not focus a button in WebKit, so focus on it means Return or Space.
       onClick={(event) => onJump(event.currentTarget === document.activeElement)}
     >

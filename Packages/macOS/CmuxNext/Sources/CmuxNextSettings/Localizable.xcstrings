@@ -149976,6 +149976,268 @@
           }
         }
       }
+    },
+    "settings.appearance.inactiveWindowDim": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dim Inactive Windows"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعتيم النوافذ غير النشطة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatamni neaktivne prozore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dæmp inaktive vinduer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktive Fenster abdunkeln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atenuar ventanas inactivas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atténuer les fenêtres inactives"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attenua finestre inattive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非アクティブなウインドウを暗くする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធ្វើឲ្យបង្អួចអសកម្មស្រអាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비활성 윈도우 흐리게"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demp inaktive vinduer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przyciemniaj nieaktywne okna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escurecer janelas inativas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Затемнять неактивные окна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หรี่หน้าต่างที่ไม่ได้ใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etkin olmayan pencereleri karart"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Затемнювати неактивні вікна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Làm mờ cửa sổ không hoạt động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "调暗非活跃窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "調暗非作用中視窗"
+          }
+        }
+      }
+    },
+    "settings.appearance.inactiveWindowDim.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How much more theme color covers a window while another one is in front. 0 keeps the same look."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مقدار لون السمة الإضافي الذي يغطي النافذة بينما تكون نافذة أخرى في المقدمة. 0 يبقي المظهر نفسه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koliko više boje teme prekriva prozor dok je drugi prozor ispred. 0 zadržava isti izgled."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor meget mere temafarve dækker et vindue, mens et andet er forrest. 0 bevarer samme udseende."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie viel mehr Themenfarbe ein Fenster bedeckt, während ein anderes im Vordergrund ist. 0 behält das gleiche Aussehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuánto color del tema adicional cubre una ventana mientras otra está delante. 0 mantiene el mismo aspecto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quantité supplémentaire de couleur du thème couvrant une fenêtre lorsqu’une autre est au premier plan. 0 conserve le même aspect."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanto colore del tema in più copre una finestra mentre un’altra è in primo piano. 0 mantiene lo stesso aspetto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のウインドウが前面にあるとき、テーマカラーをどれだけ多く重ねるか。0 では見た目が変わりません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំនួនពណ៌រចនាប័ទ្មបន្ថែមដែលគ្របលើបង្អួច ពេលបង្អួចផ្សេងនៅខាងមុខ។ 0 រក្សារូបរាងដដែល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 윈도우가 앞에 있을 때 테마 색상을 얼마나 더 덮을지 정합니다. 0이면 모습이 그대로입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor mye mer temafarge som dekker et vindu mens et annet er foran. 0 beholder samme utseende."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ile więcej koloru motywu pokrywa okno, gdy inne jest na wierzchu. 0 zachowuje ten sam wygląd."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanto mais cor do tema cobre uma janela enquanto outra está à frente. 0 mantém a mesma aparência."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Насколько сильнее цвет темы покрывает окно, когда впереди другое окно. 0 сохраняет прежний вид."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปริมาณสีธีมที่เพิ่มขึ้นซึ่งคลุมหน้าต่างขณะที่หน้าต่างอื่นอยู่ด้านหน้า 0 คงรูปลักษณ์เดิม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başka bir pencere öndeyken bir pencereyi ne kadar fazla tema rengi kaplar. 0 aynı görünümü korur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наскільки більше кольору теми вкриває вікно, коли попереду інше вікно. 0 зберігає той самий вигляд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lượng màu chủ đề phủ thêm lên một cửa sổ khi cửa sổ khác ở phía trước. 0 giữ nguyên giao diện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当另一个窗口在前面时，窗口上额外覆盖多少主题颜色。0 保持外观不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當另一個視窗在前面時，視窗上額外覆蓋多少主題顏色。0 保持外觀不變。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

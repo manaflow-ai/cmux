@@ -5589,11 +5589,25 @@ fn terminal_exit_snapshot_round_trips_and_records_journal_coverage() {
     let blob = vt_replay_blob_for_test(&terminal_id, 100, 30, replay);
 
     assert!(
-        registry.put_terminal_exit_snapshot(terminal_id.as_str(), INCARNATION_ONE, &blob).unwrap()
+        registry
+            .put_terminal_exit_snapshot(
+                terminal_id.as_str(),
+                INCARNATION_ONE,
+                output.len() as u64,
+                &blob
+            )
+            .unwrap()
     );
     // The exit latch is first-writer-wins; a replayed store is a no-op.
     assert!(
-        !registry.put_terminal_exit_snapshot(terminal_id.as_str(), INCARNATION_ONE, &blob).unwrap()
+        !registry
+            .put_terminal_exit_snapshot(
+                terminal_id.as_str(),
+                INCARNATION_ONE,
+                output.len() as u64,
+                &blob
+            )
+            .unwrap()
     );
 
     let snapshot = registry
@@ -5613,6 +5627,7 @@ fn terminal_exit_snapshot_round_trips_and_records_journal_coverage() {
             .put_terminal_exit_snapshot(
                 other.as_str(),
                 "30000000000040008000000000000002",
+                0,
                 &other_blob
             )
             .unwrap()
