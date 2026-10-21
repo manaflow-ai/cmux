@@ -772,6 +772,23 @@ Object.assign(variants, {
     focus: "home.chiefPetMascot",
     note: "Chief Pet, pet off: the chosen character (Orb) is checked; Show Pet floats it.",
   }),
+  // Settings > Chief > Diagnostics: the Chief runs; Claude Code is ready, Codex's check failed.
+  "chief-diagnostics": variant("chief", {
+    options: {
+      chiefDoctor: {
+        codex: {
+          ok: false,
+          steps: [{ name: "prompt", ok: false, detail: "Codex is not signed in.", fix: "Run codex login." }],
+        },
+      },
+    },
+    steps: [
+      click('[data-diagnostic="codex"] button'),
+      wait('[data-diagnostic="codex"] .chief-diagnostic-status[data-ok="false"]'),
+      { selector: '[data-diagnostic="codex"] button', action: "focus" },
+    ],
+    note: "Diagnostics: the Chief is running, Claude Code is ready, and Codex's check failed at its prompt with the fix.",
+  }),
   "agents-add-custom": variant("agents", {
     focus: "agents.add",
     steps: [wait("[data-agents-custom]")],

@@ -19,6 +19,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case importSuggestions
         /// Every release channel's recent builds, with the one this Mac runs (Settings > Updates).
         case channels
+        /// Settings > Chief's last card: whether the Chief runs, and a hello-turn Check per backend.
+        case chiefDiagnostics
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -172,9 +174,10 @@ public nonisolated struct SettingsPageLayout: Sendable {
             trail: [.harnesses, .agentHarnesses, .computerUse, .agentIntegrations]),
         // Every Chief setting on one page (Leo 2026-10-20: the name pill's popover is the quick
         // version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening
-        // its editor (name, picture, backend; u2586); the Chief Pet card (ChatGPT's Mini & Pets)
-        // draws the preview, Show/Hide and the characters from its group's two rows; then the
-        // chat's look.
+        // its editor (name, picture, backend; u2586); the Look card (the Chief Pet card, after
+        // ChatGPT's Mini & Pets) draws the preview, Show/Hide, the characters and the chat's Bubble
+        // Style from the two groups' rows; Diagnostics last (whether the Chief runs, and a Check per
+        // backend).
         CategorySpec(
             id: "chief", title: SettingsText.keyed("settings.category.chief", "Chief"), symbol: "crown",
             groups: [
@@ -183,7 +186,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 // The Chief pet floating over every app, and its character.
                 group("settings.group.chiefPet"),
             ],
-            lead: [.chiefs, .chiefPet]),
+            lead: [.chiefs, .chiefPet], trail: [.chiefDiagnostics]),
         // A core cmux feature: banners, sounds, the attention ring and the
         // feed for agents, terminal programs and `cmux notify`.
         CategorySpec(
