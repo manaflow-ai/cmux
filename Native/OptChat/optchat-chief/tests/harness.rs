@@ -722,7 +722,8 @@ fn an_isolated_claude_turn_keeps_the_users_login() {
 
 /// The reference's Claude Code path: Chief turns and compactor nodes load
 /// no user settings, user MCP servers, user skills or slash commands
-/// (`--setting-sources project --disable-slash-commands`; checked on Claude
+/// (`--setting-sources project` or `project,local` for turns, and
+/// `--disable-slash-commands`; checked on Claude
 /// Code 2.1.287: a user MCP server and a user skill leave the session's
 /// init, the session directory's .mcp.json and denied tools stay).
 /// Subagents keep the user's environment: they do real work.

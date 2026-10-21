@@ -660,9 +660,9 @@ pub fn without_isolation_args(args: &[Value]) -> Option<Vec<Value>> {
 /// `args` with `--setting-sources project,local` read as `project` (an
 /// acpmux from before the local source refuses it); None when it has none.
 pub fn project_sources_only(args: &[Value]) -> Option<Vec<Value>> {
-    let at = args
-        .windows(2)
-        .position(|w| w[0].as_str() == Some("--setting-sources") && w[1].as_str() == Some("project,local"))?;
+    let at = args.windows(2).position(|w| {
+        w[0].as_str() == Some("--setting-sources") && w[1].as_str() == Some("project,local")
+    })?;
     let mut kept = args.to_vec();
     kept[at + 1] = Value::String("project".into());
     Some(kept)

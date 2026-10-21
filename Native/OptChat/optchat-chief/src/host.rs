@@ -346,8 +346,8 @@ pub const TURN_TOOLS: [&str; 7] = [
 /// wait on an approval (`approval::turn_allowed_tools`).
 pub const TURN_SETTING_SOURCES: &str = "project,local";
 
-/// The Claude Code args of an isolated turn: no user or local setting
-/// source, no skills or slash commands, only `TURN_TOOLS` of the built-ins
+/// The Claude Code args of an isolated turn: no user setting source (the
+/// session folder's project and local files only), no skills or slash commands, only `TURN_TOOLS` of the built-ins
 /// (acpmux's preset allowlist).
 pub fn turn_isolation_args() -> Vec<String> {
     vec![

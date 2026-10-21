@@ -9,7 +9,9 @@
 //! `--setting-sources project` or `project,local` (no user settings: no
 //! user MCP servers, hooks or plugins; the session folder's own project and
 //! local files, their allowed and denied tools included, stay; both sit in
-//! the same folder, so `local` reaches nothing `project` does not) and `--disable-slash-commands` (no skills or slash
+//! the same folder; Claude Code takes an MCP tool's allow rule only from
+//! the local file, so a session that can write its folder could allow
+//! itself the tools of MCP servers it already loads, never a new server) and `--disable-slash-commands` (no skills or slash
 //! commands); on any other harness none. Every other word is refused, `=` forms and short aliases
 //! included, so a preset can only take capabilities away, never widen the
 //! permission policy or reach outside the session.
@@ -165,7 +167,8 @@ pub fn check_preset_args(kind: HarnessKind, args: &[String]) -> Result<(), Strin
             // `local` is the session folder's own `.claude/settings.local.json`,
             // next to the project file: Claude Code reads an allow rule for an
             // MCP tool only from there (2.1.305), so the Chief allows its own
-            // tools in it. Never the user's settings.
+            // tools in it. Never the user's settings. Fewer sources than no
+            // flag at all (user, project and local).
             "--setting-sources" => match words.next().map(String::as_str) {
                 Some("project" | "project,local") => {}
                 _ => {
