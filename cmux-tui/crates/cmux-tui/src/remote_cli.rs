@@ -52,6 +52,7 @@ use crate::remote_runtime::{
     load_shutdown_outcome, start_client_runtime, start_daemon_runtime,
 };
 use crate::session::{RemoteSession, Session};
+mod acpmux_peer;
 #[cfg(test)]
 mod remote_link_binding_tests;
 mod remote_link_mux;
@@ -581,6 +582,8 @@ fn connect_with_flags(
         if json {
             let runtime = tokio_runtime()?;
             runtime.block_on(async {
+                // Off by default (`CMUX_ACPMUX_CLOUD_PEER=1`); ends with this loop.
+                let _peer_bridge = acpmux_peer::AcpmuxPeerBridge::spawn(&connected.runtime);
                 let mut previous = None;
                 let mut finished = connected.runtime.subscribe_finished();
                 while !crate::shutdown_requested()

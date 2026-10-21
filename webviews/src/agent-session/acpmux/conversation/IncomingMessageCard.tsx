@@ -7,7 +7,7 @@
 // line's end, answers in place: the answer goes to the sending chat in the message's thread
 // (AcpmuxDirectClient.reply), from an editor under the opened message. An open reply and its draft
 // last while the page does too; closing the message closes the reply and keeps the draft.
-import { useContext, useId, useLayoutEffect, useRef, useState } from "react";
+import { useContext, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import type { PromptImage } from "../model";
 import type { IncomingMessage } from "./incomingMessage";
@@ -28,6 +28,7 @@ export function IncomingMessageLine({
   images,
   onOpen,
   onReply,
+  actions,
 }: {
   /// The row's id, which keeps the line open across remounts.
   id: string;
@@ -37,6 +38,8 @@ export function IncomingMessageLine({
   onOpen(sessionId: string): void;
   /// Sends a reply to the message's sender; rejects when it was not sent.
   onReply?(message: IncomingMessage, text: string): Promise<void>;
+  /// The message's hover row (MessageActions.tsx ReceivedActions), at the line's end.
+  actions?: ReactNode;
 }) {
   const t = useT();
   const key = `${useContext(PromptMarksSession) ?? ""}\u0000${id}`;
@@ -146,6 +149,7 @@ export function IncomingMessageLine({
             {t("message.reply")}
           </button>
         )}
+        {actions}
       </div>
       {open && (
         <div id={bodyId} className="cv-received__body selectable">
@@ -177,6 +181,10 @@ export function IncomingMessageLine({
             initial={replyDrafts.get(key) ?? ""}
             canSend
             label={t("message.replyTo", { name: message.name })}
+            // UserBubble's own prop, which takes focus through a ref when the editor mounts, not
+            // the DOM attribute the rule is about: the reader opened this reply editor with a
+            // click and types into it next.
+            // oxlint-disable-next-line jsx-a11y/no-autofocus
             autoFocus={focusEditor}
             onChange={(text) => {
               if (text) replyDrafts.set(key, text);

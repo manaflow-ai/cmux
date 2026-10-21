@@ -4,10 +4,12 @@
 2026-10-19: the settings exports went stale on feat-cmux-next (defaults-snapshot red on every PR) because
 each push cancelled the running Mac export job and the autofix job, and autofix refused to push once the
 base had moved. With merges minutes apart, 9 runs in a row were cancelled and the repair never landed.
-A repair generated at an older head may be re-applied on the moved tip only when nothing in between touched
-that repair's areas; otherwise the newer run regenerates it (a revert in between would make it wrong).
+A repair generated at an older head may land on the moved tip only where nothing in between touched that
+file's input areas; otherwise the newer run regenerates it (a revert in between would make it wrong).
 That is judged file by file (2026-10-20): the files of untouched areas land even when another area moved,
-and the run still fails so the next run's "since" covers what was left out.
+and the run still fails so the next run's "since" covers what was left out. Since 2026-10-21 the push is
+scripts/cmux-next/base-autofix-push.sh, which this drives against a local remote; it also holds a file a
+newer commit wrote itself, and its own cases are in scripts/cmux-next/tests/base-autofix-push.test.sh.
 """
 from __future__ import annotations
 
@@ -21,7 +23,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 DOC = yaml.safe_load((ROOT / ".github/workflows/cmux-next-base-autofix.yml").read_text())
-PUSH = next(step for step in DOC["jobs"]["autofix"]["steps"] if step.get("name") == "Push the repairs")["run"]
+PUSH_SCRIPT = ROOT / "scripts/cmux-next/base-autofix-push.sh"
 SETTINGS = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift"
 EXPORT = "schemas/settings/settings-schema.json"
 SNAPSHOT = "schemas/defaults/cmux-next.json"
@@ -83,15 +85,13 @@ class BaseAutofixFinishes(unittest.TestCase):
             hook.chmod(0o755)
         for path, text in repair.items():
             (runner / path).write_text(text)
-        git(runner, "commit", "-qam", "repair")
+        git(runner, "commit", "-qam", f"chore(next): base autofix at {head[:12]}")
         if reject_without_moving:
             hook = work / "remote.git" / "hooks" / "pre-receive"
             hook.write_text("#!/bin/sh\nexit 1\n")
             hook.chmod(0o755)
-        loop = PUSH[PUSH.index('repair="$(git rev-parse HEAD)"'):]
-        script = (f'set -euo pipefail\nremote="file://{work}/remote.git"\nwith_auth=(env)\n'
-                  f'HEAD_SHA={head}\nGITHUB_STEP_SUMMARY=/dev/null\n{loop}')
-        done = subprocess.run(["bash", "-c", script], cwd=runner, capture_output=True, text=True)
+        done = subprocess.run(["bash", str(PUSH_SCRIPT), f"file://{work}/remote.git", "feat-cmux-next", head],
+                              cwd=runner, capture_output=True, text=True)
         tip = git(work / "remote.git", "rev-parse", "refs/heads/feat-cmux-next")
         landed = {path: git(work / "remote.git", "show", f"{tip}:{path}") for path in repair}
         return done, landed, done.stdout + done.stderr
@@ -105,7 +105,8 @@ class BaseAutofixFinishes(unittest.TestCase):
         done, landed, out = self.push({"README.md": "r2"}, move_again={"README.md": "r3"})
         self.assertEqual(done.returncode, 0, out)
         self.assertEqual(landed[EXPORT], "new")
-        self.assertIn("attempt 3", out)
+        # The script reads the tip before its first push, so the second move costs one retry, not two.
+        self.assertIn("attempt 2 of", out)
 
     def test_a_repair_whose_inputs_changed_meanwhile_is_left_to_the_newer_run(self):
         # The settings sources moved (a revert, say): this run's export would be wrong at the tip.
@@ -131,7 +132,8 @@ class BaseAutofixFinishes(unittest.TestCase):
                                       move_again={"README.md": "r3"})
         self.assertEqual(landed[SHORTCUTS], "new")
         self.assertEqual(landed[EXPORT], "old")
-        self.assertIn("attempt 3", out)
+        # As above: one retry for the second move.
+        self.assertIn("attempt 2 of", out)
         self.assertEqual(done.returncode, 1, out)
 
     def test_a_partial_repair_never_overwrites_an_output_changed_meanwhile(self):
@@ -176,18 +178,63 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertEqual(landed["unlisted/output.txt"], "old")
         self.assertIn("unlisted/output.txt", out)
 
-    def test_a_conflict_fails_without_pushing(self):
-        # web/data/ is no input area, so only the cherry-pick itself can catch this.
+    def test_a_newer_write_of_the_file_fails_without_pushing(self):
+        # web/data/ is no input area; the script holds a file a newer commit wrote (it applies no patch,
+        # so there is no conflict to report) and names it.
         done, landed, out = self.push({SHORTCUTS: "someone else's"}, repair={SHORTCUTS: "new"})
         self.assertEqual(done.returncode, 1, out)
         self.assertEqual(landed[SHORTCUTS], "someone else's")
-        self.assertIn("conflicts", out)
+        self.assertIn(SHORTCUTS, out)
 
     def test_a_push_rejected_without_the_base_moving_says_so(self):
         done, _, out = self.push(None, reject_without_moving=True)
         self.assertEqual(done.returncode, 1)
         self.assertIn("rejected", out)
         self.assertNotIn("kept moving", out)
+
+    def test_the_workflow_pushes_through_the_script(self):
+        push = next(step for step in DOC["jobs"]["autofix"]["steps"] if step.get("name") == "Push the repairs")["run"]
+        self.assertIn("scripts/cmux-next/base-autofix-push.sh", push)
+
+    def test_the_mac_job_regenerates_the_settings_exports_on_the_newest_tip(self):
+        # 2026-10-21: a run takes ~28 minutes and feat-cmux-next takes a push a minute, so some push
+        # nearly always moved a settings input and the exports made at HEAD_SHA were held on every run.
+        # The Mac job regenerates them on the newest tip (a bounded number of times) and says where.
+        job = DOC["jobs"]["action-exports"]
+        step = next(step for step in job["steps"] if step.get("id") == "settings")
+        self.assertIn("scripts/cmux-next/base-autofix-settings-exports.sh", step["run"])
+        self.assertIn("made_at=", step["run"])
+        self.assertEqual(job["outputs"]["settings_made_at"], "${{ steps.settings.outputs.made_at }}")
+
+    def test_a_slow_settings_regeneration_never_costs_the_action_exports(self):
+        # Up to three swift builds: the settings step has its own timeout, below the job's, so a slow
+        # one fails that step (continue-on-error) and the upload of the action exports still runs.
+        job = DOC["jobs"]["action-exports"]
+        steps = job["steps"]
+        settings = next(i for i, step in enumerate(steps) if step.get("id") == "settings")
+        upload = next(i for i, step in enumerate(steps) if "upload-artifact" in str(step.get("uses", "")))
+        self.assertTrue(steps[settings].get("continue-on-error"))
+        self.assertIn("timeout-minutes", steps[settings])
+        self.assertLess(steps[settings]["timeout-minutes"], job["timeout-minutes"])
+        before = [step for step in steps[:settings] if "timeout-minutes" not in step]
+        self.assertLessEqual(steps[settings]["timeout-minutes"] + 15, job["timeout-minutes"],
+                             "leave the earlier steps and the upload room inside the job's timeout")
+        self.assertGreater(upload, settings)
+        self.assertTrue(before)
+
+    def test_the_push_judges_the_settings_exports_from_where_they_were_made(self):
+        step = next(step for step in DOC["jobs"]["autofix"]["steps"] if step.get("name") == "Push the repairs")
+        self.assertEqual(step["env"]["SETTINGS_MADE_AT"], "${{ needs.action-exports.outputs.settings_made_at }}")
+        self.assertIn('"$HEAD_SHA" "$SETTINGS_MADE_AT"', step["run"])
+
+    def test_the_push_script_knows_every_settings_export(self):
+        # The push lands the whole export made at SETTINGS_MADE_AT, file by file from this list.
+        def listed(path: Path, name: str) -> set[str]:
+            text = path.read_text()
+            body = text.split(f"{name}=(", 1)[1].split(")", 1)[0]
+            return set(body.split())
+        self.assertEqual(listed(PUSH_SCRIPT, "settings_exports"),
+                         listed(ROOT / "scripts/cmux-next/regenerate-settings-exports.sh", "exports"))
 
     def test_ci_runs_this_test(self):
         steps = DOC_NEXT["jobs"]

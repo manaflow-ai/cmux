@@ -68,12 +68,18 @@ nonisolated struct GlobalSearchCorpus: Sendable {
         query.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
     }
 
+    /// A transcript's lines with this process's environment: `load`'s default reader, a named
+    /// function because an async closure literal as a parameter default can corrupt the heap (cx-bsue).
+    @concurrent static func transcriptLines(of session: AgentTranscriptText.Session) async -> [String]? {
+        await AgentTranscriptText.lines(of: session)
+    }
+
     /// Reads every source: terminals `TerminalTextSearch.concurrentReads` at
     /// a time, transcripts alongside. A cancelled task stops queueing reads.
     @concurrent static func load(
         _ sources: [Source],
         read: @escaping @Sendable (TerminalTextSearch.Target) async -> [String]? = TerminalTextSearch.lines(of:),
-        transcript: @escaping @Sendable (AgentTranscriptText.Session) async -> [String]? = { await AgentTranscriptText.lines(of: $0) }
+        transcript: @escaping @Sendable (AgentTranscriptText.Session) async -> [String]? = transcriptLines(of:)
     ) async -> GlobalSearchCorpus {
         let texts = await withTaskGroup(of: (Int, [Content], Bool).self) { group in
             var texts = [[Content]](repeating: [], count: sources.count)

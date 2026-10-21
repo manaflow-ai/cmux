@@ -48,11 +48,16 @@ jobs:
           WORKER: ${{ inputs.worker || '' }}
         run: |
           set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=Build fleet client missing::$client is not installed on runner $RUNNER_NAME; the bench did not run."
+            exit 127
+          fi
           sha="$(git rev-parse HEAD)"
           target=()
           [ -n "$WORKER" ] && target=(--target-worker "$WORKER")
           status=0
-          "${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}" run --class exclusive --measurement --label bench \
+          "$client" run --class exclusive --measurement --label bench \
             --script scripts/measure/perf-bench.sh --ref "$sha" --timeout 23400 \
             --artifact artifacts/perf-bench/results.json ${target[@]+"${target[@]}"} \
             --arg="rounds=$ROUNDS" --arg="browsers=$BROWSERS" --arg=gate=1 | tee "$RUNNER_TEMP/bench.log" || status=$?
