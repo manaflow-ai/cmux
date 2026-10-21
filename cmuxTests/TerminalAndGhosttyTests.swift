@@ -5339,11 +5339,18 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
+        hostedView.setVisibleInUI(true)
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
 
-        // Settle: the first attaches create the runtime surface and apply the
+        // Runtime creation is asynchronous in the app host. Until it exists the
+        // attach is not a re-attach and must keep running the geometry pass.
+        guard waitUntil(timeout: 8, description: "live runtime surface", { surface.surface != nil }) else {
+            return
+        }
+
+        // Settle: the first attaches bind the runtime surface and apply the
         // initial fill and badge state.
         hostedView.attachSurface(surface)
         hostedView.attachSurface(surface)
