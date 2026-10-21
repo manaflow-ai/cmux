@@ -3,11 +3,14 @@
 // exit() (NSApp.terminate in a process whose app never ran ends that way). Linked into the test
 // bundle only: when the bundle loads, every exit() of the test process prints its stack to stderr,
 // so the caller is named in the CI log. A finished run prints one stack too, from the test
-// runner's own exit at the end.
+// runner's own exit at the end. A listing (`swift test list`) prints nothing: SwiftPM reads its
+// output as the list of tests.
 #include "CmuxNextTestExitTrace.h"
 
+#include <crt_externs.h>
 #include <execinfo.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 static int installed;
@@ -20,8 +23,18 @@ static void cmux_next_test_exit_trace(void) {
     backtrace_symbols_fd(frames, count, STDERR_FILENO);
 }
 
+/// A run that lists or dumps its tests (`--list-tests`, `--dump-tests-json`) instead of running them.
+static int lists_tests(void) {
+    int count = *_NSGetArgc();
+    char **arguments = *_NSGetArgv();
+    for (int index = 1; index < count; index++) {
+        if (strncmp(arguments[index], "--list", 6) == 0 || strncmp(arguments[index], "--dump", 6) == 0) return 1;
+    }
+    return 0;
+}
+
 __attribute__((constructor)) static void cmux_next_test_exit_trace_install(void) {
-    installed = atexit(cmux_next_test_exit_trace) == 0;
+    installed = lists_tests() || atexit(cmux_next_test_exit_trace) == 0;
 }
 
 int cmux_next_test_exit_trace_installed(void) {
