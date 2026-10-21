@@ -81,6 +81,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         let id = ObjectIdentifier(task)
         active.insert(id)
+        WebBundleServedViews.shared.add(webView)
         // task-owner: one file read or dynamic lookup per scheme task; a stopped task is never answered
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -100,7 +101,8 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// before), or the dynamic source's answer (a 404 when it has none). With a ``devServer`` a
     /// page file comes from that server instead. The live override (``WebDevOverride``) is read
     /// per request: its server's answers, else (a stopped server, a 4xx or 5xx) its overlay
-    /// folder's file, else the bundled one.
+    /// folder's file, else, with an active web update (``WebBundleOverlay``), the update's copy
+    /// of the page's folder, else the bundled one.
     func reply(to url: URL) async -> Reply? {
         guard let served = served(url) else { return nil }
         let live = liveOverride()
@@ -114,7 +116,8 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
             // The launch variable's server (Debug) fails the request, as before.
             if self.devServer != nil { return nil }
         }
-        let root = live.overlayRoot(for: served.page, bundledRoot: served.root) ?? served.root
+        let update = await WebBundleOverlay.shared.root(for: served.root)
+        let root = live.overlayRoot(for: served.page, bundledRoot: served.root) ?? update
         switch Self.route(for: url, page: served.page, root: root) {
         case nil:
             return nil
