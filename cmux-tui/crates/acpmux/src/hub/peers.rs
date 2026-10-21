@@ -17,6 +17,14 @@ pub(crate) fn is_permission_ask(kind: &str) -> bool {
     matches!(kind, "permission_request" | "permission_reissued")
 }
 
+/// Which run of a peer asked an ask (`Hub::peer_ask_run`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PeerAskRun {
+    Current,
+    Older,
+    Forged,
+}
+
 /// The record kind of a peer's `_acpmux/permission_pending`, relayed to
 /// this daemon's watchers (`server/mod.rs` `deliver`); never stored.
 pub(crate) const PEER_PERMISSION_PENDING: &str = "peer_permission_pending";
@@ -587,9 +595,17 @@ impl Hub {
     /// `strip_asks`). An ask that fails is dropped; the session stays
     /// readable.
     pub fn peer_ask_counts(&self, peer: &str, id: &str, ask: &Value) -> bool {
-        let Some(instance) = ask.get("personInstance").and_then(Value::as_str) else {
-            return false;
-        };
+        self.peer_ask_run(peer, id, ask) == PeerAskRun::Current
+    }
+
+    /// Which run of peer `peer` asked `ask` for its session `id`: the one it
+    /// named at its handshake (`Current`, what `peer_ask_counts` lets
+    /// through), an older one of its own (`Older`: a run before the peer
+    /// restarted, or none named), or not its own to show (`Forged`: a
+    /// session it never listed or one of this daemon's, this daemon's run,
+    /// or the run another connected peer named).
+    fn peer_ask_run(&self, peer: &str, id: &str, ask: &Value) -> PeerAskRun {
+        let instance = ask.get("personInstance").and_then(Value::as_str);
         let listed = self
             .remote_sessions
             .lock()
@@ -597,12 +613,48 @@ impl Hub {
             .values()
             .any(|r| r.peer == peer && r.receipt.mux_session_id == id);
         let local = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).contains_key(id);
+        if !listed || local {
+            return PeerAskRun::Forged;
+        }
+        let Some(instance) = instance else { return PeerAskRun::Older };
+        if instance == self.person.instance() {
+            return PeerAskRun::Forged;
+        }
         let peers: Vec<_> =
             self.peers.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
         let named = |p: &crate::peer::Peer| p.person_instance().as_deref() == Some(instance);
-        let own_run = peers.iter().any(|p| p.name == peer && named(p));
-        let others = peers.iter().any(|p| p.name != peer && named(p));
-        listed && !local && own_run && !others && instance != self.person.instance()
+        if peers.iter().any(|p| p.name != peer && named(p)) {
+            return PeerAskRun::Forged;
+        }
+        if peers.iter().any(|p| p.name == peer && named(p)) {
+            PeerAskRun::Current
+        } else {
+            PeerAskRun::Older
+        }
+    }
+
+    /// Whether an ask record's `msg` that peer `peer` sends in the history of
+    /// its session `id` (the `events` of a forwarded `_acpmux/attach` or
+    /// `_acpmux/events`) may stay. An ask in the run the peer named at its
+    /// handshake stays whole. Its own ask from an older run (it restarted
+    /// since: each run has its own `personInstance`, `permissions.rs`) stays
+    /// as history without its `decisionNonce`, so the chat still draws what
+    /// was asked and answered, while no app keeps a decision context for it
+    /// (`AcpmuxDecisionContexts` needs the nonce) and no allow can be proven
+    /// over it; that run's daemon is gone and answers nothing. A forged one
+    /// (`peer_ask_run`) is dropped. Pending lists and live records keep the
+    /// strict rule (`peer_ask_counts`).
+    pub fn peer_history_ask_counts(&self, peer: &str, id: &str, ask: &mut Value) -> bool {
+        match self.peer_ask_run(peer, id, ask) {
+            PeerAskRun::Current => true,
+            PeerAskRun::Forged => false,
+            PeerAskRun::Older => {
+                if let Some(ask) = ask.as_object_mut() {
+                    ask.remove("decisionNonce");
+                }
+                true
+            }
+        }
     }
 
     /// Whether a record of kind `kind` with `msg` that peer `peer` sends for
