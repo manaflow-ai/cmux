@@ -356,6 +356,7 @@ async fn dispatch_request(
                     cwd = Some(super::local_app::canonical_cwd(given).await?);
                 }
             }
+            let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
             let adopt =
                 crate::adopt::AdoptRequest::from_meta(meta).map_err(RpcError::invalid_params)?;
             let adopting = adopt.is_some();
@@ -417,11 +418,15 @@ async fn dispatch_request(
             }
             attach(hub, conn, &s.id);
             let meta = s.meta();
+            let mut summary = hub.session_summary(&s);
+            if let Some(w) = worktree {
+                summary["worktree"] = w;
+            }
             Ok(json!({
                 "sessionId": s.id,
                 "modes": meta.modes,
                 "configOptions": meta.config_options,
-                "_meta": {"acpmux": hub.session_summary(&s)},
+                "_meta": {"acpmux": summary},
             }))
         }
         method::SESSION_LOAD | method::SESSION_RESUME => {
