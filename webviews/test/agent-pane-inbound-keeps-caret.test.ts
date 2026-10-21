@@ -315,6 +315,9 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
           await caughtUp(page);
           expect({ step: name, ...(await where(page)) }).toEqual({ step: name, ...before });
         }
+        // A caret move the last step set off a little later lands before the page answers again.
+        await caughtUp(page);
+        expect({ step: "after", ...(await where(page)) }).toEqual({ step: "after", ...before });
         await page.close();
       },
     );

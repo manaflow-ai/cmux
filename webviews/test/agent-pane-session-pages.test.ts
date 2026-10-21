@@ -102,7 +102,7 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     faultSocket = undefined;
     attachHeld = Promise.resolve();
   });
-  /// What the pane asked, in order; `answered` once the daemon sent the reply, and `ended` when
+  /// What the pane asked, in order; `answered` once the daemon sent the reply (an error too), and `ended` when
   /// that reply was the list's last page (a page with no cursor, or the whole list).
   const requests: { method: string; params: Record<string, any>; answered?: boolean; ended?: boolean }[] = [];
   /// Checks run as each request comes in and each answer goes out.
@@ -172,6 +172,8 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
             refused.push(refusedAs);
             const error = { code: -32601, message: "Refused by the cmux host" };
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, error }));
+            request.answered = true;
+            recheck();
             return;
           }
           const failed =
@@ -180,6 +182,8 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
               (message.method === "_acpmux/watch" && params.limit === undefined && faults.failWhole-- > 0));
           if (failed) {
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32603, message: "page lost" } }));
+            request.answered = true;
+            recheck();
             return;
           }
           // The page is read now; a later page waits until the test lets it go, as a slow link would.
