@@ -792,6 +792,23 @@ mod tests {
         assert_eq!(say_body("x", &[]).1, "");
     }
 
+    /// A huge paste in cmux's composer goes as its own text block after the
+    /// typed one (`_meta.cmux.pasted`): the message is the typed text and
+    /// every paste, a blank line between them, never the paste alone.
+    #[test]
+    fn a_pasted_block_goes_with_the_typed_text() {
+        let pasted =
+            |text: &str| json!({"type": "text", "text": text, "_meta": {"cmux": {"pasted": true}}});
+        let blocks = vec![
+            json!({"type": "text", "text": "view "}),
+            json!({"type": "text", "text": "why does this fail?"}),
+            pasted("the log"),
+        ];
+        assert_eq!(prompt_text(&blocks, false), "why does this fail?\n\nthe log");
+        assert_eq!(prompt_text(&blocks, true), "view why does this fail?\n\nthe log");
+        assert_eq!(prompt_text(&[pasted("only a paste")], false), "only a paste");
+    }
+
     #[test]
     fn streams_deltas_once_and_ends_when_idle() {
         let mut t = Turn::new(false);

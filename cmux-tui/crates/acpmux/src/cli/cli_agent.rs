@@ -556,6 +556,30 @@ mod tests {
         assert_eq!(prompt_text(&[], true), "");
     }
 
+    /// A huge paste in cmux's composer goes as its own text block after the
+    /// typed one (`_meta.cmux.pasted`): the turn is the typed text and every
+    /// paste, a blank line between them, in both modes.
+    #[test]
+    fn a_pasted_block_goes_with_the_typed_text() {
+        let pasted =
+            |text: &str| json!({"type": "text", "text": text, "_meta": {"cmux": {"pasted": true}}});
+        let blocks = vec![
+            json!({"type": "text", "text": "view line 1\n"}),
+            json!({"type": "text", "text": "why does this fail?"}),
+            pasted("line 1\n\nline 3"),
+            pasted("second paste"),
+        ];
+        assert_eq!(
+            prompt_text(&blocks, true),
+            "why does this fail?\n\nline 1\n\nline 3\n\nsecond paste"
+        );
+        assert_eq!(
+            prompt_text(&blocks, false),
+            "view line 1\nwhy does this fail?\n\nline 1\n\nline 3\n\nsecond paste"
+        );
+        assert_eq!(prompt_text(&[pasted("only a paste")], true), "only a paste");
+    }
+
     #[test]
     fn strips_escapes() {
         assert_eq!(strip_ansi("\u{1b}[1mPONG\u{1b}[0m\r"), "PONG");
