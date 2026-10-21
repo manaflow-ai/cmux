@@ -150,6 +150,9 @@ export const PREWARM_METHOD = "_acpmux/prewarm";
 export const ATTACHMENT_PUT = "_acpmux/attachment_put";
 /// How long one put may take before its attachment goes inline instead.
 const PUT_DEADLINE_MS = 30_000;
+/// An attachment `putAttachments` sends ahead: an image's or a PDF's bytes.
+const puts = (attachment: ComposerAttachment) =>
+  (attachment.kind === "image" || attachment.kind === "document") && Boolean(attachment.data);
 
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
 /// How long Stop waits for the turn to end before the pane stops showing it as working. It is
@@ -870,6 +873,8 @@ export class AcpmuxDirectClient {
   private extensions: readonly string[] = [];
   /// Settles when the last sent prompt's request is written (`send`).
   private promptOrder: Promise<void> = Promise.resolve();
+  /// Prompts sent whose request is not written yet (`send`).
+  private unwrittenPrompts = 0;
   /// acpmux calls this connection local (`_meta.acpmux.origin: "local"`). Without that, a
   /// WebSocket connection is remote-origin to acpmux, which never pools for it.
   private localOrigin = false;
@@ -3015,19 +3020,29 @@ export class AcpmuxDirectClient {
     );
     this.emit();
     // Settles once this prompt's request is written, or it failed first: the next prompt waits.
-    let wrote!: () => void;
-    const order = new Promise<void>((resolve) => (wrote = resolve));
+    // A prompt with nothing to put and nothing before it writes its request at once, in this call,
+    // as before puts: a socket that closes right after the send then fails it like any request.
+    let written = false;
+    let resolveOrder!: () => void;
+    const order = new Promise<void>((resolve) => (resolveOrder = resolve));
+    const wrote = () => {
+      if (written) return;
+      written = true;
+      this.unwrittenPrompts -= 1;
+      resolveOrder();
+    };
+    // Prompts go to acpmux in the order they were sent, however long one's puts take.
+    const before = this.unwrittenPrompts > 0 ? this.promptOrder : undefined;
+    this.promptOrder = order;
+    this.unwrittenPrompts += 1;
     try {
       // A recording goes only to a harness that takes voice input; one moved to another
       // harness (a switch, a held prompt put back) goes as its transcript.
       const carried = takesAudio(this.summary?.agentCapabilities?.promptCapabilities, this.summary?.configOptions)
         ? attachments
         : attachments.filter((attachment) => attachment.kind !== "audio");
-      // Prompts go to acpmux in the order they were sent, however long one's puts take.
-      const before = this.promptOrder;
-      this.promptOrder = order;
-      const kept = await this.putAttachments(sessionId, carried);
-      await before;
+      const kept = this.putsAny(carried) ? await this.putAttachments(sessionId, carried) : new Map<string, string>();
+      if (before) await before;
       const request = this.request("session/prompt", {
         sessionId,
         prompt: promptBlocks(input, carried, kept),
@@ -3462,6 +3477,11 @@ export class AcpmuxDirectClient {
       // A prompt acpmux refused shows in the chat itself.
       .catch(() => undefined);
   }
+  /// Whether `putAttachments` has anything of `attachments` to put.
+  private putsAny(attachments: ComposerAttachment[]): boolean {
+    return this.extensions.includes(ATTACHMENT_PUT) && attachments.some(puts);
+  }
+
   /// Images and PDFs go to acpmux on their own, ahead of the prompt that names them, so no prompt
   /// frame carries their bytes: six screenshots in one prompt passed acpmux's frame limit and reset
   /// the chat's connection (2026-10-20). An acpmux without `_acpmux/attachment_put` (an older one,
@@ -3469,9 +3489,9 @@ export class AcpmuxDirectClient {
   /// kept attachment, by the attachment's id.
   private async putAttachments(sessionId: string, attachments: ComposerAttachment[]): Promise<Map<string, string>> {
     const kept = new Map<string, string>();
-    if (!this.extensions.includes(ATTACHMENT_PUT)) return kept;
+    if (!this.putsAny(attachments)) return kept;
     for (const attachment of attachments) {
-      if ((attachment.kind !== "image" && attachment.kind !== "document") || !attachment.data) continue;
+      if (!puts(attachment)) continue;
       // A put with no answer goes inline after a while: prompts after it wait for this one.
       const reply = (await this.request(
         ATTACHMENT_PUT,
