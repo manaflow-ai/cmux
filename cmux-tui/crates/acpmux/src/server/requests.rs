@@ -379,6 +379,8 @@ async fn dispatch_request(
                 return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
             }
             let asked_policy = policy.is_some();
+            // After the request checks above, so a request they refuse makes no worktree.
+            let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
             let req = crate::hub::NewRequest {
                 harness: pick("harness"),
                 preset: pick("preset"),
@@ -424,11 +426,15 @@ async fn dispatch_request(
                 super::ephemeral::own(hub, conn, &s).await;
             }
             let meta = s.meta();
+            let mut summary = hub.session_summary(&s);
+            if let Some(w) = worktree {
+                summary["worktree"] = w;
+            }
             Ok(json!({
                 "sessionId": s.id,
                 "modes": meta.modes,
                 "configOptions": meta.config_options,
-                "_meta": {"acpmux": hub.session_summary(&s)},
+                "_meta": {"acpmux": summary},
             }))
         }
         method::SESSION_LOAD | method::SESSION_RESUME => {
@@ -834,6 +840,8 @@ async fn dispatch_request(
         method::MUX_SCHEMA => {
             Ok(serde_json::from_str(crate::schema::SCHEMA).unwrap_or(Value::Null))
         }
+        // Read-only and the same for every origin, like `_acpmux/schema`.
+        method::MUX_PROTOCOL => Ok(crate::protocol::served().clone()),
         method::MUX_HISTORY => {
             let s = hub.resolve(session_key(&params)?)?;
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;

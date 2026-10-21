@@ -63,6 +63,7 @@ public nonisolated enum MotionTunables {
         .hoverOut: (0, "Hover and pressed fills clearing: 0 is instant (as in Edge); about 0.12 leaves a short trail on a sweep."),
         .focus: (0.1, "Pane focus ring."),
         .paneDim: (0.15, "The dim over an unfocused pane easing in and out when focus moves."),
+        .focusFlash: (0.5, "The focus ring flashed on a pane focus moved to without a click, fading out (focus.flashOnMove)."),
         .fadeIn: (0.12, "Palette, find bar, notices, hover card appear."),
         .fadeOut: (0.08, "Palette close, find bar, notices, hover card hide."),
         .crossfade: (0.1, "Hover card thumbnail swap; also the Reduce Motion ceiling."),
