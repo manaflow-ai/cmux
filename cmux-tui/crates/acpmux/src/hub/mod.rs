@@ -79,12 +79,14 @@ pub use new_request::{
 pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
 pub mod approvers;
+mod peer_cache;
 mod peers;
 pub(crate) use peers::PEER_PERMISSION_PENDING;
 mod permission_groups;
 mod permissions;
 pub mod person;
 mod processes;
+mod pull_requests;
 mod questions;
 mod remote_floor;
 mod remote_sandbox;
@@ -92,6 +94,7 @@ pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
+mod drafts;
 pub mod rules;
 mod transcript;
 mod transfer;
@@ -99,6 +102,7 @@ mod transfer_guard;
 mod transfer_in;
 mod transfer_out;
 mod transfer_watch;
+mod trust_wait;
 mod turn_git;
 mod turn_usage;
 mod turns;
@@ -106,6 +110,7 @@ pub(crate) mod views;
 mod warm;
 mod web_control;
 mod web_token;
+pub(crate) mod worktree_care;
 mod xai;
 pub use web_control::Control;
 pub(crate) use web_control::ModeWrite;
@@ -163,6 +168,8 @@ pub(super) struct PendingPermission {
     /// The nonce a relayed allow's decision proof covers (`person.rs`,
     /// cx-0q7o): new for each prompt, valid only while it is pending.
     pub(super) decision_nonce: String,
+    /// The session's status before this prompt made it Waiting (`settle_permission`).
+    pub(super) prev_status: SessionStatus,
 }
 
 #[derive(Debug, Clone)]
@@ -248,6 +255,10 @@ pub struct Hub {
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
     pub(super) events: broadcast::Sender<HubEvent>,
+    /// `_acpmux/models` replies now asking peers for theirs
+    /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
+    /// daemon's own catalog, so mutual peers cannot ping-pong.
+    pub models_fanouts: std::sync::atomic::AtomicUsize,
     pub shutdown: Notify,
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
@@ -342,6 +353,8 @@ pub struct Hub {
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
     pub(super) secrets: secrets::Secrets,
+    /// Sub-session starts waiting on a folder's trust card, and Not nows (`trust_wait.rs`).
+    pub(super) trust_waits: trust_wait::Waits,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
 }
@@ -374,6 +387,7 @@ impl Hub {
             sessions: StdMutex::new(HashMap::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             events,
+            models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             shutdown: Notify::new(),
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
@@ -421,6 +435,7 @@ impl Hub {
             auto_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
+            trust_waits: Default::default(),
             agent_pairs: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
@@ -598,8 +613,10 @@ impl Hub {
         });
     }
 
-    pub(super) fn make_session(&self, meta: SessionMeta) -> Arc<Session> {
+    pub(super) fn make_session(&self, mut meta: SessionMeta) -> Arc<Session> {
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
+        // A Claude chat saved without `steering` (an older build) still steers once adopted.
+        meta.steering |= crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
         let steering = meta.steering;
         Arc::new(Session {
             id: meta.id.clone(),
@@ -628,6 +645,7 @@ impl Hub {
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
             steering: AtomicBool::new(steering),
+            steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),
@@ -644,6 +662,7 @@ impl Hub {
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
+            pr_creates: StdMutex::new(Default::default()),
         })
     }
 
@@ -1011,6 +1030,7 @@ impl Hub {
             session.mark_waiting(status == SessionStatus::Waiting);
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
+            self.care_status(status);
         }
     }
 
@@ -1020,14 +1040,6 @@ impl Hub {
 
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {
         self.store.session_dir(id)
-    }
-}
-
-/// The unsent draft went out as `text`, from whichever client sent it: it is no longer the
-/// chat's draft. Any other prompt leaves the draft as it is.
-fn clear_sent_draft(meta: &mut SessionMeta, text: &str) {
-    if meta.composer_draft.as_deref().is_some_and(|d| d.trim() == text.trim()) {
-        meta.composer_draft = None;
     }
 }
 
