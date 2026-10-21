@@ -607,5 +607,15 @@ async fn a_narrower_policy_on_a_stopped_chat_starts_no_agent() {
     let info = app.call("_acpmux/info", json!({"sessionId": codex})).await;
     assert_eq!(info["result"]["status"], "closed", "{info}");
     assert_eq!(app.mode(&codex).await, "ask");
+    // The next start keeps it: the bridge's `mode` config option, replayed after the mode,
+    // does not bring full access back.
+    let r = app
+        .call(
+            "session/prompt",
+            json!({"sessionId": codex, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&codex).await, "ask");
     let _ = std::fs::remove_dir_all(&dir);
 }
