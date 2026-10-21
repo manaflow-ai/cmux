@@ -32,7 +32,16 @@ pub(super) async fn dispatch(
     Some(handle(hub, conn, m, params).await)
 }
 
-fn caller_required() -> RpcError {
+fn caller_required(hub: &Hub, conn: &Conn) -> RpcError {
+    // A token this daemon run did not issue: most often an agent that kept
+    // running across a daemon restart under a host that did not record its
+    // token (an older build). A new harness process gets a new one.
+    if let Some(session) = conn.unproven_caller.get().filter(|id| hub.resolve(id).is_ok()) {
+        return RpcError::invalid_params(format!(
+            "this session's caller token is not one this acpmux daemon knows: the daemon restarted (a cmux update or restart) after the agent started, so its tools still hold the earlier daemon's token. Restart the agent to get a new one: run `acpmux session restart {session}` (it restarts after the current turn ends, in the same conversation, and keeps its sub-sessions), or ask the person to restart the chat. Until then sub-session tools cannot act for it."
+        ))
+        .with_data(json!({"reason": "subsessions.caller_not_proven", "sessionId": session}));
+    }
     RpcError::invalid_params(
         "sub-session tools act for the agent session that calls them: connect with that session's caller token (its cmux-subsessions MCP server does)",
     )
@@ -77,7 +86,7 @@ async fn handle(
         );
     }
     // The caller token is read only on the unix socket (`server/mod.rs`).
-    let caller = conn.caller().ok_or_else(caller_required)?;
+    let caller = conn.caller().ok_or_else(|| caller_required(hub, conn))?;
     let caller = hub.resolve(caller)?;
     match m {
         method::MUX_SUBSESSION_START => {
@@ -88,6 +97,7 @@ async fn handle(
                 harness: text("harness"),
                 model: text("model"),
                 cwd: text("cwd").map(PathBuf::from),
+                worktree: params.get("worktree").and_then(Value::as_bool).unwrap_or(false),
             };
             hub.start_subsession(&caller, req).await
         }
@@ -104,7 +114,7 @@ async fn handle(
         method::MUX_SUBSESSION_SEND => {
             let key = str_param(params, "sessionId")
                 .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
-            let target = hub.subsession_target(&caller, key, true)?;
+            let target = hub.subsession_write_target(&caller, key, true)?;
             let text = str_param(params, "text").unwrap_or_default();
             let interrupt = params.get("interrupt").and_then(Value::as_bool).unwrap_or(false);
             let prompt_id = str_param(params, "promptId").map(str::to_owned);
@@ -113,7 +123,7 @@ async fn handle(
         method::MUX_SUBSESSION_STOP => {
             let key = str_param(params, "sessionId")
                 .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
-            let target = hub.subsession_target(&caller, key, false)?;
+            let target = hub.subsession_write_target(&caller, key, false)?;
             let close = params.get("close").and_then(Value::as_bool).unwrap_or(false);
             hub.subsession_stop(&target, close).await
         }

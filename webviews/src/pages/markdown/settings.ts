@@ -29,8 +29,9 @@ export const MARKDOWN_STYLE_DEFAULTS = {
   "--cmux-md-h5-size": "1em",
   "--cmux-md-h6-size": "0.9em",
   "--cmux-md-code-font-family": "var(--cmux-diff-code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace)",
-  "--cmux-md-code-inline-size": "0.88em",
-  "--cmux-md-code-block-size": "14px",
+  "--cmux-md-code-scale": "0.875",
+  "--cmux-md-code-inline-size": "calc(var(--cmux-md-code-scale) * 1em)",
+  "--cmux-md-code-block-size": "calc(var(--cmux-md-font-size) * var(--cmux-md-code-scale))",
   "--cmux-md-code-line-height": "1.55",
   "--cmux-md-code-background": "color-mix(in srgb, var(--page-text) 5%, transparent)",
   "--cmux-md-code-radius": "6px",
@@ -102,7 +103,13 @@ export interface MarkdownSettings {
     family?: string;
     /** Inline code, relative to the text (em) or a CSS size. */
     inlineSize?: number | string;
-    /** Code blocks, in pixels or a CSS size. */
+    /**
+     * Code (blocks and inline) as a share of the body text size: 0.875 by default, as GitHub's 85%.
+     * A monospaced font looks bigger than a proportional one at the same size, so code stays a bit
+     * smaller than the text whatever the text size is.
+     */
+    scale?: number;
+    /** Code blocks at a fixed size, in pixels or a CSS size; wins over `scale` for blocks. */
     blockSize?: number | string;
     lineHeight?: number | string;
     background?: MarkdownColor;
@@ -110,7 +117,10 @@ export interface MarkdownSettings {
     theme?: string | { light?: string; dark?: string };
   };
   layout?: {
-    /** The reading column in characters (the Reading Settings slider); wins over `maxWidth`. */
+    /**
+     * The widest the reading column gets, in characters (`ch` of the body font), 30 to 1000. The
+     * column stays centered with margins when the pane is wider. Wins over `maxWidth`.
+     */
     width?: number;
     /** The column fills the pane; wins over `width` and `maxWidth`. */
     fullWidth?: boolean;
@@ -149,13 +159,13 @@ export const MARKDOWN_FONT_PRESETS: Record<MarkdownFontPreset, string> = {
  * same keys, defaults and ranges.
  */
 export const MARKDOWN_READING = {
-  width: { key: "markdown.layout.width", default: 72, min: 40, max: 160, step: 2 },
+  width: { key: "markdown.layout.width", default: 72, min: 30, max: 1000, step: 1, bigStep: 10 },
   fullWidth: { key: "markdown.layout.fullWidth", default: false },
   fontSize: { key: "markdown.font.size", default: 16, min: 8, max: 40, step: 1 },
   fontPreset: { key: "markdown.font.preset", default: "system" as MarkdownFontPreset },
   lineHeight: { key: "markdown.font.lineHeight", default: 1.6, min: 1, max: 2.4, step: 0.05 },
   paragraph: { key: "markdown.spacing.paragraph", default: 1, min: 0, max: 3, step: 0.1 },
-  codeSize: { key: "markdown.code.blockSize", default: 14, min: 8, max: 32, step: 1 },
+  codeScale: { key: "markdown.code.scale", default: 0.875, min: 0.6, max: 1.25, step: 0.025 },
   tables: { key: "markdown.tables", default: "scroll" as MarkdownTables },
   theme: { key: "markdown.theme", default: "app" as MarkdownTheme },
 } as const;
@@ -170,7 +180,7 @@ export interface MarkdownReadingValues {
   fontPreset: MarkdownFontPreset;
   lineHeight: number;
   paragraph: number;
-  codeSize: number;
+  codeScale: number;
   tables: MarkdownTables;
   theme: MarkdownTheme;
 }
@@ -195,16 +205,125 @@ export function markdownReadingValues(settings: unknown): MarkdownReadingValues 
   const code = object(root.code);
   const r = MARKDOWN_READING;
   return {
-    width: numberIn(layout.width, r.width),
+    width: Math.round(numberIn(layout.width, r.width)),
     fullWidth: layout.fullWidth === true,
     fontSize: numberIn(font.size, r.fontSize),
     fontPreset: oneOf(font.preset, ["system", "serif", "mono"], r.fontPreset.default),
     lineHeight: numberIn(font.lineHeight, r.lineHeight),
     paragraph: numberIn(spacing.paragraph, r.paragraph),
-    codeSize: numberIn(code.blockSize, r.codeSize),
+    codeScale: numberIn(code.scale, r.codeScale),
     tables: oneOf(root.tables, ["scroll", "wrap"], r.tables.default),
     theme: oneOf(root.theme, ["app", "light", "dark"], r.theme.default),
   };
+}
+
+/** A text width in characters, rounded and kept in the range (an out-of-range value takes the nearest end). */
+export function clampWidth(value: number): number {
+  const { min, max } = MARKDOWN_READING.width;
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+/**
+ * The text width presets (the Reading Settings menu next to the width field, as Word's page margin
+ * presets): each a width in characters, or the whole pane. Any other width is "custom".
+ */
+export const MARKDOWN_WIDTH_PRESETS = [
+  { id: "narrow", width: 56 },
+  { id: "comfortable", width: 72 },
+  { id: "wide", width: 100 },
+  { id: "extraWide", width: 160 },
+  { id: "ultraWide", width: 300 },
+  { id: "fullWidth" },
+] as const;
+
+export type MarkdownWidthPreset = (typeof MARKDOWN_WIDTH_PRESETS)[number]["id"] | "custom";
+
+/** The preset the values match: full width, a preset width, else custom. */
+export function markdownWidthPreset(values: { width: number; fullWidth: boolean }): MarkdownWidthPreset {
+  if (values.fullWidth) return "fullWidth";
+  const match = MARKDOWN_WIDTH_PRESETS.find((preset) => "width" in preset && preset.width === values.width);
+  return match ? match.id : "custom";
+}
+
+/**
+ * Reads what the user typed in the width field, as a design tool's number field does: a number
+ * (characters), a number with a unit (`120ch`, `1600pt`, `1600px`; a point is a CSS pixel here), or
+ * simple arithmetic over those (`72*2`, `1200pt + 10ch`, `(100 + 60) / 2`). `chPixels` is the width
+ * of one character of the body font in CSS pixels, for `pt`/`px`. Returns the width in characters,
+ * not yet clamped, or null when the text is not a width.
+ */
+export function parseWidthInput(text: string, chPixels: number): number | null {
+  const source = text
+    .trim()
+    .toLowerCase()
+    // 1,600 is a thousands separator; 90,5 a decimal comma.
+    .replace(/(\d),(\d{3})(?!\d)/g, "$1$2")
+    .replace(/,/g, ".")
+    .replace(/×/g, "*")
+    .replace(/÷/g, "/");
+  if (!source || source.length > 80) return null;
+  let at = 0;
+  const space = () => {
+    while (source[at] === " ") at++;
+  };
+  const fail = Symbol("fail");
+  const term = (): number => {
+    let value = factor();
+    for (space(); source[at] === "*" || source[at] === "/"; space()) {
+      const op = source[at++];
+      const right = factor();
+      value = op === "*" ? value * right : value / right;
+    }
+    return value;
+  };
+  const expression = (): number => {
+    let value = term();
+    for (space(); source[at] === "+" || source[at] === "-"; space()) {
+      const op = source[at++];
+      const right = term();
+      value = op === "+" ? value + right : value - right;
+    }
+    return value;
+  };
+  function factor(): number {
+    space();
+    if (source[at] === "-") {
+      at++;
+      return -factor();
+    }
+    if (source[at] === "(") {
+      at++;
+      const value = expression();
+      space();
+      if (source[at++] !== ")") throw fail;
+      return value;
+    }
+    const match = /^(\d+(?:\.\d*)?|\.\d+)\s*(ch|pt|px)?/.exec(source.slice(at));
+    if (!match) throw fail;
+    at += match[0].length;
+    const number = Number.parseFloat(match[1]!);
+    return match[2] === "pt" || match[2] === "px" ? number / chPixels : number;
+  }
+  try {
+    const value = expression();
+    space();
+    return at === source.length && Number.isFinite(value) ? value : null;
+  } catch (error) {
+    if (error === fail) return null;
+    throw error;
+  }
+}
+
+/** The width of one character (`0`) of the reading column's font, in CSS pixels. */
+export function measureCharacterWidth(doc: Document = document): number {
+  const column = doc.querySelector(".md-doc") ?? doc.body;
+  const probe = doc.createElement("span");
+  probe.textContent = "0".repeat(100);
+  probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre;font:inherit";
+  column.append(probe);
+  const width = probe.getBoundingClientRect().width / 100;
+  probe.remove();
+  return width > 0 ? width : 8.8;
 }
 
 /** A CSS value the page accepts from settings: no rule or tag breakouts, not empty, short. */
@@ -272,14 +391,14 @@ export function markdownStyleVariables(settings: unknown): Partial<Record<Markdo
     put(name, explicit ?? scaled);
   });
   put("--cmux-md-code-font-family", cssValue(code.family));
+  if (typeof code.scale === "number" && Number.isFinite(code.scale))
+    put("--cmux-md-code-scale", String(numberIn(code.scale, MARKDOWN_READING.codeScale)));
   put("--cmux-md-code-inline-size", length(code.inlineSize, "em"));
   put("--cmux-md-code-block-size", length(code.blockSize));
   put("--cmux-md-code-line-height", cssValue(code.lineHeight));
   put("--cmux-md-code-background", color(code.background));
   const width =
-    typeof layout.width === "number" && Number.isFinite(layout.width) && layout.width >= 20 && layout.width <= 400
-      ? `${layout.width}ch`
-      : null;
+    typeof layout.width === "number" && Number.isFinite(layout.width) ? `${clampWidth(layout.width)}ch` : null;
   put("--cmux-md-content-width", layout.fullWidth === true ? "none" : (width ?? length(layout.maxWidth)));
   put("--cmux-md-page-padding", length(layout.padding));
   put("--cmux-md-paragraph-spacing", length(spacing.paragraph, "em"));

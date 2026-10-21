@@ -1,6 +1,7 @@
 /// The few rows a crowded right-click menu keeps at its top level (Leo 2026-10-11: the
 /// workspace menu's twelve rows were "overwhelming"). Every other row of that menu moves into
-/// one More submenu, in its old order with its folders inside; the close rows end the menu
+/// one More submenu, in its old order; its short folders show there as sections, its long ones
+/// as submenus (`inlineFolderLimit`). The close rows end the menu
 /// after a separator. The group rows stay at the top level in their own section (Lawrence
 /// 2026-10-14: "my groups UI is lost"); More never takes them.
 nonisolated enum ContextMenuEssentials {
@@ -17,14 +18,27 @@ nonisolated enum ContextMenuEssentials {
     static let choiceTrailers: [ActionID: ActionID] = ["moveWorkspaceToGroup": "workspace.moveToNewGroup"]
 
     static let menus: [ActionMenuContext: Rows] = [
+        // Move ▸ (Up, Down, Top, Bottom of the group, …) stays at the top level (u2418: "I need an
+        // option to … move a workspace to the top of a group"; under More it was not found).
+        // Send Message… (u5402: "send messages in the iMessage UI via right clicking") opens the
+        // Chief's chat about this workspace.
+        // Rename and the color row open the menu as its name field and swatches (MenuIdentityHeader,
+        // Leo 2026-10-20: "like Chrome"). Duplicate joins the top level from More's New.
         .workspaceRow: Rows(top: [.action("renameWorkspace"), .action("palette.toggleWorkspacePin"), .choices("palette.workspaceColor"),
-                                  .action("workspace.newBelow")],
+                                  .action("workspace.newBelow"), .action("workspace.duplicate"), .action("home.messageAbout"), .folder(.move, [])],
                             group: [.choices("moveWorkspaceToGroup"), .action("groupSelectedWorkspaces"), .action("removeWorkspaceFromGroup")],
                             close: ["closeWorkspace"]),
-        .tab: Rows(top: [.action("tab.restart"), .action("renameTab"), .action("palette.toggleTabPin"), .action("newTab.toRight"),
-                         .action("duplicateTab")],
-                   group: [.action("tabGroup.create"), .action("tabGroup.addTab"), .action("tabGroup.removeTab")],
-                   close: ["closeTab"]),
+        // Chrome's tab menu, in its order (`TabMenuModel::Build`, Leo 2026-10-19: "make sure that
+        // chrome right click tab situation works"): New Tab to the Right and the group rows; Reload,
+        // Duplicate, Pin, Mute; More; then Close Tab, Close Other Tabs and Close Tabs to the Right.
+        // A page-only row (Reload, Mute) leaves a terminal's menu. The 12-row cap
+        // (everyMenuKeepsAShortTopLevel, Lawrence 2026-10-01) leaves Chrome's Move Tab to New
+        // Window in More > Move, with cmux's Rename, Back to Pinned Page and Restart (the dead
+        // tab's overlay also has Restart).
+        .tab: Rows(top: [.action("newTab.toRight"), .action("tabGroup.create"), .action("tabGroup.addTab"), .action("tabGroup.removeTab"),
+                         .separator,
+                         .action("reloadTab"), .action("duplicateTab"), .action("palette.toggleTabPin"), .action("toggleTabAudioMute")],
+                   close: ["closeTab", "closeOtherTabsInPane", "closeTabsToRight"]),
         // Split Left and Split Up sit in Split beside Split Right and Split Down (menu audit S1).
         .pane: Rows(top: [.action("splitRight"), .action("splitDown"), .folder(.split, []), .action("toggleSplitZoom"), .action("renamePane")],
                     close: ["closePane"]),
@@ -40,10 +54,24 @@ nonisolated enum ContextMenuEssentials {
         let close = rows.close.filter(placed.contains)
         // referencedIDs counts a choices row's trailer, so More drops New Group with Move to Group.
         // A section whose rows all went to the top leaves no empty section behind in More.
-        let rest = collapsingSeparators(ContextMenuCatalog.removing(Set(ContextMenuCatalog.referencedIDs(top + group) + close), from: entries))
+        let rest = collapsingSeparators(inliningShortFolders(ContextMenuCatalog.removing(Set(ContextMenuCatalog.referencedIDs(top + group) + close), from: entries)))
         let more: [ContextMenuEntry] = rest.isEmpty ? [] : [.folder(.more, rest)]
         let groupSection: [ContextMenuEntry] = group.isEmpty ? [] : [.separator] + group + [.separator]
         return top + groupSection + more + [.separator] + close.map(ContextMenuEntry.action)
+    }
+
+    /// The most rows a folder inside More may have and still show as a section of More, between
+    /// separators, rather than a submenu of its own (Leo 2026-10-20: flatten "More ›"; a longer
+    /// folder stays one submenu so More fits a laptop screen).
+    static let inlineFolderLimit = 8
+
+    /// More's top-level folders with at most `inlineFolderLimit` rows as sections, longer ones as
+    /// they were.
+    private static func inliningShortFolders(_ entries: [ContextMenuEntry]) -> [ContextMenuEntry] {
+        entries.flatMap { entry -> [ContextMenuEntry] in
+            guard case .folder(_, let children) = entry, ContextMenuCatalog.referencedIDs(children).count <= inlineFolderLimit else { return [entry] }
+            return [.separator] + children + [.separator]
+        }
     }
 
     /// A listed folder as the menu's own folder of that kind, with its rows; other rows as listed.

@@ -32,6 +32,7 @@ cmux-tui/crates/acpmux/src/daemon.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/hub/turns.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/peer.rs	2	keep	~/.acpmux on a remote SSH host
 cmux-tui/crates/acpmux/src/hand/policy.rs	1	keep	security classifier keyword, not a filesystem state root
+cmux-tui/crates/acpmux/src/subsession_worktree.rs	1	keep	same root as cmux-tui-core git_ops/worktree.rs (git.worktree.create), so Apply and Remove find sub-session worktrees; the person's worktrees, not per-build state
 cmux-tui/crates/acpmux/src/tui/actions.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/tui/session_ops.rs	2	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/tui/skills.rs	2	move	unreviewed at S7 (cx-is1kf.8)
@@ -47,3 +48,4 @@ cmux-tui/crates/cmux-tui-core/src/state/projects_store.rs	1	move	unreviewed at S
 cmux-tui/crates/cmux-tui/src/acp.rs	1	keep	resolver: acpmux home of the CLI (S2)
 cmux-tui/crates/cmux-tui/src/cli/chief/home.rs	1	keep	resolver: Chief home (CLI)
 cmux-tui/crates/cmux-tui/src/cli/chief/link.rs	1	move	unreviewed at S7 (cx-is1kf.8)
+cmux-tui/crates/cmux-tui/src/remote_host/config.rs	1	keep	machine-wide cmux host config (one listener per machine, not per build); serve --dir and CMUX_HOST_DIR override it

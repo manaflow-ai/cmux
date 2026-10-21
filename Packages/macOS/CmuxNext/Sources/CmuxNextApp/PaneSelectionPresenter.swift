@@ -12,6 +12,7 @@ extension PaneController {
             services.presentation.showNow(self)
             return
         }
+        DebugTabSwitch.kind(self, "cold")
         if let key = currentTabKey {
             services.cache.withdraw(key, by: self)
             letGo(key, parks: true) // what showed stays parked here

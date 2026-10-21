@@ -2,16 +2,19 @@ import type { OwnerFrame } from "@cmux/ownership"
 
 /**
  * A host that left its owner loses its read replica (plans/cmux-next/object-sync/DESIGN.md
- * phase 3): when TeamDO commits `host.remove`, `server.revoke`, or a member cleanup that orphans
- * the member's hosts, it queues each host here and tells its HostDO to purge the stored streams
- * and close every replica socket (`HostDO.dropReplica`). The queue is TeamDO SQL with a backoff per
- * host, so a failed or lost RPC is retried by the alarm until HostDO confirms; the drop is
- * idempotent there.
+ * phase 3): when TeamDO commits `host.remove`, `server.revoke`, a member cleanup that orphans the
+ * member's hosts, or the owner's `host.replica.purge`, it queues each host here and tells its
+ * HostDO to purge the stored streams and close every replica socket (`HostDO.dropReplica`). The
+ * queue is TeamDO SQL with a backoff per host, so a failed or lost RPC is retried by the alarm
+ * until HostDO confirms; the drop is idempotent there.
  *
  * A removed host is also tombstoned in HostDO (later upgrades get 410): `hostDelete` drops the
  * install index, so the same install enrolls again under a new id. An orphaned host is not: its
  * record and id stay, and the former owner can enroll it again after rejoining, so only the stored
- * streams and sockets go, and TeamDO.hostReplicaRole refuses the orphaned record meanwhile.
+ * streams and sockets go, and TeamDO.hostReplicaRole refuses the orphaned record meanwhile. A
+ * purged host is not either: it keeps its id. A Mac that was off publishes again at its next lease
+ * while its own switch is on; an open publisher is closed 4403 like every replica socket, and its
+ * daemon stays off until the app clears the replica (its off switch or a sign-out).
  */
 
 type Sql = DurableObjectStorage["sql"]
@@ -31,6 +34,11 @@ export const hostsLeavingOwner = (op: string, frames: ReadonlyArray<OwnerFrame>)
   if (op === "host.remove" || op === "server.revoke") {
     const host = (result.value as { host?: unknown } | undefined)?.host
     return typeof host === "string" ? [{ host, tombstone: true, reason: "the host was removed" }] : []
+  }
+  // The owner's delete: the host keeps its id and may publish again.
+  if (op === "host.replica.purge") {
+    const host = (result.value as { host?: unknown } | undefined)?.host
+    return typeof host === "string" ? [{ host, tombstone: false, reason: "the owner deleted the replica" }] : []
   }
   if (op === "team.member.cleaned") {
     const orphaned = (result.value as { orphaned?: unknown } | undefined)?.orphaned

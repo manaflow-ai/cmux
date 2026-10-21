@@ -5,7 +5,8 @@
 //! `children`; the width and depth limits come from the settings file and
 //! refuse with a reason and advice; a parent closes a child's subtree, which
 //! frees its slots; limits change at runtime only from an ancestor within
-//! its own budget (the person path is the app's proof, `hub/person.rs`).
+//! its own budget (the person path is the app's proof, `hub/person.rs`);
+//! what the tools read back of a child's text is masked (`secret_scan`).
 //!
 //! Stand-in agents (fake_agent.py); the live run against Claude Code and
 //! Codex is `subsessions_live.rs`. One test function: the settings file is
@@ -163,6 +164,42 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
     p.ok("_acpmux/wait", json!({"sessions": [a], "until": ["ready"], "timeoutMs": 20000})).await;
     let got = p.ok("_acpmux/subsession/get", json!({"sessionId": a})).await;
     assert_eq!(got["lastReply"], "echo: echo child a", "{got}");
+    // A secret in a child's text comes back masked from every read.
+    let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
+    p.ok("_acpmux/subsession/send", json!({"sessionId": a, "text": format!("echo use {key}")}))
+        .await;
+    p.ok("_acpmux/wait", json!({"sessions": [a], "until": ["ready"], "timeoutMs": 20000})).await;
+    let got = p.ok("_acpmux/subsession/get", json!({"sessionId": a})).await;
+    let reply = got["lastReply"].as_str().unwrap_or_default();
+    assert!(reply.starts_with("echo: echo use [") && !reply.contains(&key), "{got}");
+    let list = p.ok("_acpmux/subsession/list", json!({})).await;
+    assert!(!list.to_string().contains(&key), "{list}");
+    // A reply cut at its length cap is masked before the cut: a key that
+    // straddles the cap leaves no unmasked head behind.
+    let pad = "a".repeat(3983);
+    p.ok("_acpmux/subsession/send", json!({"sessionId": a, "text": format!("{pad} {key}")})).await;
+    p.ok("_acpmux/wait", json!({"sessions": [a], "until": ["ready"], "timeoutMs": 20000})).await;
+    let got = p.ok("_acpmux/subsession/get", json!({"sessionId": a})).await;
+    let reply = got["lastReply"].as_str().unwrap_or_default();
+    assert!(reply.ends_with('…') && !reply.contains(&key[..10]), "{reply}");
+    // The prompt of the child's running turn is masked too.
+    #[cfg(unix)]
+    {
+        let gate = root.join(key.clone());
+        let c = std::ffi::CString::new(gate.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: valid NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        let text = format!("gate: {}", gate.display());
+        p.ok("_acpmux/subsession/send", json!({"sessionId": a, "text": text})).await;
+        let got = p.ok("_acpmux/subsession/get", json!({"sessionId": a})).await;
+        assert!(got["turn"]["prompt"].is_string(), "{got}");
+        assert!(!got.to_string().contains(&key), "{got}");
+        let list = p.ok("_acpmux/subsession/list", json!({})).await;
+        assert!(!list.to_string().contains(&key), "{list}");
+        std::fs::write(&gate, b"go").unwrap();
+        p.ok("_acpmux/wait", json!({"sessions": [a], "until": ["ready"], "timeoutMs": 20000}))
+            .await;
+    }
 
     // Depth: the child starts a grandchild (depth 2); the grandchild may not go deeper.
     let mut pa = Client::as_session(&hub, &a).await;

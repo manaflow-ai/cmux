@@ -32,8 +32,13 @@ extension ControlError {
     /// missed its deadline is a `timeout` that says the terminal may still
     /// appear; a command whose reply missed its deadline is a `timeout` that
     /// says it may still apply; a typed refusal answers as the same refusal
-    /// made at once (``actionOutcome(_:action:)``); anything else is a `daemon_error`.
+    /// made at once (``actionOutcome(_:action:)``); a failure with its own `code` answers that
+    /// code; anything else is a `daemon_error`.
     static func actionWork(_ failure: ActionWorkFailure, action: String, method: String) -> ControlError {
+        if let code = failure.code {
+            return ControlError(code: code, message: failure.message,
+                                data: ["action": .string(action), "reason": .string(failure.message)])
+        }
         if let refusal = failure.refusal {
             let outcome: ControlActionOutcome = switch refusal {
             case .unavailable: .refused(failure.message)

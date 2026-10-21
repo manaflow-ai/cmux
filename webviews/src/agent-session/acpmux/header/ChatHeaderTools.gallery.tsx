@@ -85,12 +85,29 @@ const openMenu: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
 };
 
-// The App reports Terminal's, Browser's, Changes' and Preview's panels open and panes beside the chat
-// (its headerState push).
+// The App reports Terminal's, Browser's (a plain browser and the chat's page, both Browser's to close),
+// and Changes' panels open and panes beside the chat (its headerState push).
 const panelsOpen: Play = async (ctx) => {
   const { setHeaderState } = await import("./headerState");
   setHeaderState({ lit: ["splitRight", "splitBrowserRight", "openDiffViewer", "preview"], sideTabs: true });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-header-tool[aria-pressed="true"]'));
+};
+
+// Action controls and session metadata stay separate in the compact top-right cluster while every
+// existing control keeps its 26px hit target.
+const groupedControls: Play = async (ctx) => {
+  const actions = ctx.find({ selector: ".acpmux-header-tool-group-actions" });
+  const meta = ctx.find({ selector: ".acpmux-header-tool-group-meta" });
+  const separator = ctx.find({ selector: ".acpmux-header-separator" });
+  if (actions.getBoundingClientRect().width <= 0 || meta.getBoundingClientRect().width <= 0)
+    throw new Error("header control groups must remain visible");
+  // An <hr> is a separator by its implicit role, so the play checks the element, not an attribute.
+  if (separator.tagName !== "HR") throw new Error("header group separator is not semantic");
+  if (separator.getAttribute("aria-orientation") !== "vertical")
+    throw new Error("header separator orientation changed");
+  const tools = ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools button");
+  if ([...tools].some((button) => Math.round(button.getBoundingClientRect().height) !== 26))
+    throw new Error("header control hit target changed");
 };
 
 // The App found the chat branch's pull request: open, 3 of 5 checks passed, one failing (cx-tcwj).
@@ -282,7 +299,7 @@ export default componentEntry<HeaderToolsProps>({
       props: base,
     },
     "panels-open": {
-      note: "Changes, Preview, Terminal and Browser are lit while their panels are open beside the chat (cx-00n1); Hide tabs is in the chat menu.",
+      note: "Changes, Terminal and Browser are lit while their panels are open beside the chat (cx-00n1); Browser holds the chat's page; Hide tabs is in the chat menu.",
       props: {
         ...base,
         sideTabs: true,
@@ -292,6 +309,15 @@ export default componentEntry<HeaderToolsProps>({
         onPreview: () => undefined,
       },
       play: panelsOpen,
+    },
+    "browser-preview": {
+      note: "The chat's last turn named a local page: Browser opens it beside the chat and its tooltip names it; there is no separate Preview button.",
+      props: { ...base, previewUrl: "http://localhost:5173/", onPreview: () => undefined },
+    },
+    "grouped-controls": {
+      note: "Quick actions and session metadata are separated without changing the existing button hit targets.",
+      props: base,
+      play: groupedControls,
     },
     "pull-request": {
       note: "The chat branch's pull request leads the tools: its number, its state and how its checks stand (cx-tcwj).",

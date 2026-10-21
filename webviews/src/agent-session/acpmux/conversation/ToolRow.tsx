@@ -16,8 +16,10 @@ import { CopyButton } from "./CopyButton";
 import { experimentArm } from "../../../experiments/experiment";
 import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { menuPartRef } from "./menuParts";
+import { BackgroundHint } from "./BackgroundHint";
 import { ShellBlock } from "./ShellBlock";
 import { OutputMore, useOutput } from "./toolOutput";
+import { cleanText } from "./mcpCalls";
 import { ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
 /// ACP tool kinds (`ToolKind`) to row glyphs.
@@ -65,9 +67,13 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const label = toolLabel(tool, item.text, (command) => t("tools.ranCommand", { command }), cwd);
   const running = tool.status === "pending" || tool.status === "in_progress";
   const failed = tool.status === "failed";
-  const body = tool.output?.replace(/\n$/, "");
   // Only a call with a command line is a shell; an MCP call can also say "execute".
   const shell = tool.kind === "execute" && Boolean(tool.command);
+  // A shell prints what it printed; any other output loses the context a host injects into it.
+  const body = useMemo(
+    () => (shell || !tool.output ? tool.output : cleanText(tool.output))?.replace(/\n$/, ""),
+    [shell, tool.output],
+  );
   const images = useMemo(() => toolImages(tool), [tool]);
   const content = (
     <>
@@ -94,6 +100,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
             strokeWidth={1.2}
             className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
           />
+          {running && shell && <BackgroundHint />}
         </button>
       ) : (
         <div className={`cv-tool${running ? " is-live" : " is-strong"}`}>{content}</div>
@@ -145,7 +152,7 @@ function ToolOutput({ id, output, reveal }: { id: string; output: string; reveal
 /// The images a call returned or wrote, shown under its row whether or not it is open: a returned
 /// image draws at once, a file loads through the host (ReplyImage, ReplyMedia for video and audio),
 /// and a click opens the viewer.
-function ToolImages({ sources }: { sources: string[] }) {
+export function ToolImages({ sources }: { sources: string[] }) {
   return (
     <div className="cv-tool-images">
       {sources.map((source) =>

@@ -12,7 +12,7 @@ struct AgentChatPullRequestStatusTests {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
-    private static let fields = "url,number,title,state,isDraft,reviewDecision,mergeable,statusCheckRollup,createdAt,mergedAt"
+    private static let fields = AgentPanePullRequest.fields
     private static let view = """
         {"url":"https://github.com/o/r/pull/7","number":7,"title":"Stage single hunks","state":"OPEN","isDraft":false,
          "reviewDecision":"CHANGES_REQUESTED","mergeable":"MERGEABLE","createdAt":"2026-10-01T09:30:00Z","mergedAt":null,

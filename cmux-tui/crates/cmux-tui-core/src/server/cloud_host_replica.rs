@@ -112,10 +112,53 @@ fn refusal_of(error: &Value) -> HostOpRefusal {
     )
 }
 
+/// The workspace fields the cloud copy keeps: what a reader lists and what
+/// `workspace.rename` needs. Screens, tab and screen titles, the app and the
+/// kind stay on this Mac (a title can name a folder or a command).
+const PUBLISHED_WORKSPACE_FIELDS: &[&str] = &[
+    "id",
+    "resource_id",
+    "short_id",
+    "name",
+    "name_revision",
+    "group",
+    "color",
+    "icon",
+    "pinned",
+    "marked_unread",
+    "unread_count",
+    "active",
+];
+
+/// The published projection of the daemon's workspace list.
+fn published_state(listed: &Value) -> Value {
+    let workspaces: Vec<Value> = listed["workspaces"]
+        .as_array()
+        .map(|all| {
+            all.iter()
+                .map(|workspace| {
+                    let kept: Map<String, Value> = PUBLISHED_WORKSPACE_FIELDS
+                        .iter()
+                        .filter_map(|field| {
+                            workspace.get(*field).map(|v| (field.to_string(), v.clone()))
+                        })
+                        .collect();
+                    Value::Object(kept)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    serde_json::json!({
+        "workspaces": workspaces,
+        "registry_id": listed["registry_id"],
+        "generation": listed["generation"],
+    })
+}
+
 impl HostSource for MuxHostSource {
     fn session_state(&self) -> Value {
         let Some(mux) = self.mux.upgrade() else { return Value::Null };
-        list_workspaces_reply(&mux).unwrap_or(Value::Null)
+        list_workspaces_reply(&mux).map_or(Value::Null, |listed| published_state(&listed))
     }
 
     fn apply(
@@ -147,7 +190,7 @@ impl HostSource for MuxHostSource {
             ));
         }
         let allowed: Map<String, Value> = given.clone();
-        let message = crate::apps::routing::request(
+        let message = crate::apps::envelope::request(
             op,
             Value::Object(allowed),
             Some(cloud_key(user, idempotency_key)),
@@ -167,7 +210,7 @@ impl HostSource for MuxHostSource {
         }
         let response = crate::resource_router::handle_parsed_resource_request(&mux, parsed)
             .map_err(|error| refusal(&error.code, error.message.clone(), error.retryable))?;
-        crate::apps::routing::answer(op, response).map_err(|error| refusal_of(&error))
+        crate::apps::envelope::answer(op, response).map_err(|error| refusal_of(&error))
     }
 }
 
@@ -175,6 +218,12 @@ impl HostSource for MuxHostSource {
 /// marks every tree change for publishing. A second install is refused.
 pub fn install_host_replica(mux: &Arc<Mux>, replica: HostReplica) -> bool {
     let source = Arc::new(MuxHostSource { mux: Arc::downgrade(mux) });
+    let weak = Arc::downgrade(mux);
+    replica.set_sink(Arc::new(move |event| {
+        if let Some(mux) = weak.upgrade() {
+            mux.emit(crate::MuxEvent::CloudConversation(Arc::new(event)));
+        }
+    }));
     if mux.set_host_replica(replica).is_err() {
         return false;
     }

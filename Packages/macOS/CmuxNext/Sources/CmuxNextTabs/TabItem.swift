@@ -18,14 +18,15 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// paused (page or command loading), or working (an agent), with
     /// progress when known. Waiting, error and done stay on the `status` badge.
     public var indicator: StatusIndicatorState = .idle
-    /// Replaces the icon with the status indicator (process running, page
-    /// loading, agent working).
+    /// Shows the status indicator (process running, page loading, agent
+    /// working) at the tab's trailing end; the icon stays. On a tab too
+    /// narrow for its title it takes the icon's place.
     public var isBusy: Bool {
         get { indicator.replacesTabIcon }
         set { if newValue != isBusy { indicator = newValue ? .busy : .idle } }
     }
-    /// A busy page still waiting for its first response: its spinner turns the other way
-    /// (Chromium's waiting throbber), until the page commits and loads.
+    /// A busy page still waiting for its first response, until the page commits and loads.
+    /// Its spinner turns like every other one (same direction and phase); this is state only.
     public var isWaiting = false
     /// The reporter's indicator style hint; nil uses
     /// `appearance.statusIndicator.style`.

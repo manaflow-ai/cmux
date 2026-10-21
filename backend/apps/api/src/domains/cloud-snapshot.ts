@@ -2,15 +2,20 @@ import type { ReduceContext, ReduceResult, RowWrite, StoredRow } from "@cmux/own
 import { CloudSnapshotCreate, CloudSnapshotDelete, CloudSnapshotRestore, planRequiredDetails, type CloudDriverResultParams, type CloudSnapshot } from "@cmux/protocol"
 import { decodeParams, reject } from "./common.ts"
 import { limitDetails, providerName, teamPlan, type CloudConfig } from "./cloud-plan.ts"
-import { ledgerKey, machineRow, TABLE_SNAPSHOT, mayManage, next, noChangePower, PENDING_SAFETY_MS, unavailable, upsertLedger, withoutPending, type CloudState, type LedgerRow } from "./cloud.ts"
+import { ledgerKey, machineRow, TABLE_LEDGER, TABLE_SNAPSHOT, mayManage, next, noChangePower, PENDING_SAFETY_MS, unavailable, upsertLedger, withoutPending, type CloudState, type LedgerRow } from "./cloud.ts"
 
 /**
  * Snapshots (state-placement.md 7 item 4; CLOUDDO-MONEY-OPS). A snapshot row is private; the public
  * view is CloudSnapshot. The provider slug is `<prefix>snap-<20 hex>` (the guard checks it); only the
- * slug recorded here is ever deleted. `saved` counts creating and ready snapshots against max_saved.
+ * slug recorded here is ever deleted. `saved` also reserves uncertain VM API deletions until cleanup is verified.
  */
 
 export interface SnapshotRow {
+  /** This intent requires the journaled VM API capture protocol before it can send. */
+  readonly capture_protocol?: 1
+  /** A VM API deletion still holds its saved slot until verified cleanup. */
+  readonly saved_reserved?: boolean
+  readonly transport?: import("../cloud-vm-api-config.ts").CloudTransport
   readonly id: string
   readonly machine: string
   readonly name: string | null
@@ -26,10 +31,11 @@ export interface SnapshotRow {
 }
 
 export const publicSnapshot = (r: SnapshotRow): typeof CloudSnapshot.Type => {
-  const { provider_name: _p, size: _s, creator: _c, ...view } = r
+  const { transport: _t, provider_name: _p, size: _s, creator: _c, capture_protocol: _cp, saved_reserved: _sr, ...view } = r
   return view
 }
 const counts = (s: SnapshotRow["status"]) => (s === "creating" || s === "ready" ? 1 : 0)
+const counted = (r: SnapshotRow) => counts(r.status) || (r.status === "deleting" && r.saved_reserved === true ? 1 : 0)
 const upsertSnapshot = (row: SnapshotRow, n: number | null): RowWrite => ({ table: TABLE_SNAPSHOT, op: "upsert", key: row.id, n, row })
 export const snapshotRow = (ctx: ReduceContext, id: string) => ctx.rows?.get<SnapshotRow>(TABLE_SNAPSHOT, id)
 
@@ -49,9 +55,10 @@ export const snapshotCreate = (config: CloudConfig, state: CloudState, params: u
   const rev = state.rev + 1
   const id = ctx.newId("snap")
   const size = { cpu: m.size.cpu ?? 0, memory_mb: m.size.memory_mb ?? 0, disk_mb: m.size.disk_mb ?? 0 }
-  const row: SnapshotRow = { id, machine: m.id, name: d.value.name ?? null, size_mb: size.disk_mb, status: "creating", created_at: ctx.now, revision: String(rev), provider_name: providerName(config.prefix, id), size, creator: ctx.principal.user! }
+  const protocol = m.transport === "vm-api" ? { capture_protocol: 1 as const } : {}
+  const row: SnapshotRow = { ...protocol, transport: m.transport ?? "direct", id, machine: m.id, name: d.value.name ?? null, size_mb: size.disk_mb, status: "creating", created_at: ctx.now, revision: String(rev), provider_name: providerName(config.prefix, id), size, creator: ctx.principal.user! }
   const key = ledgerKey(ctx.principal.identity, ctx.idempotencyKey)
-  const ledger: LedgerRow = { key, op: "snapshot", machine: m.id, provider_name: m.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, snapshot: id, snapshot_name: row.provider_name }
+  const ledger: LedgerRow = { ...protocol, transport: m.transport ?? "direct", key, op: "snapshot", machine: m.id, provider_name: m.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, snapshot: id, snapshot_name: row.provider_name }
   const s = next(state, { saved: state.saved + 1, pending: { ...state.pending, [key]: { machine: m.id, due_at: ctx.now + PENDING_SAFETY_MS } } }, { machine: m.id, removed: false, snapshot: id })
   return { ok: true, state: s, value: { snapshot: publicSnapshot(row) }, writes: [upsertLedger(ledger, rev), upsertSnapshot(row, rev)] }
 }
@@ -62,21 +69,35 @@ export const snapshotDelete = (config: CloudConfig, state: CloudState, params: u
   const stored = snapshotRow(ctx, d.value.snapshot)
   if (!stored) return reject("cloud.snapshot.not_found", "no such snapshot")
   const r = stored.row
-  if (r.status === "deleting") return noChangePower(state, { deleted: true })
   const source = machineRow(ctx.rows, r.machine)
   // The machine may be gone; then the team admin (or the creator recorded on no row) decides: personal teams only today.
   // The machine's creator or a team admin; once the machine is gone, the snapshot's own creator or a team admin (review P3).
   const owner = (source ? source.row : { creator: r.creator ?? "" }) as Parameters<typeof mayManage>[1]
   if (!mayManage(ctx.principal, owner)) return reject("auth.forbidden", "only the machine's creator or a team admin may delete its snapshots")
-  if (Object.values(state.pending).some((e) => e.machine === r.machine) && r.status === "creating") return reject("cloud.machine.busy", "the snapshot is still being taken; retry when it is ready", { snapshot: r.id })
+  if (r.status === "deleting" && r.transport !== "vm-api") return noChangePower(state, { deleted: true })
+  if (Object.values(state.pending).some((e) => e.machine === r.machine) && r.status === "creating" && r.transport !== "vm-api") return reject("cloud.machine.busy", "the snapshot is still being taken; retry when it is ready", { snapshot: r.id })
   if (!config.prefix || !ctx.idempotencyKey) return unavailable()
   const rev = state.rev + 1
   const key = ledgerKey(ctx.principal.identity, ctx.idempotencyKey)
-  const ledger: LedgerRow = { key, op: "snapshot_delete", machine: r.machine, provider_name: r.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, snapshot: r.id, snapshot_name: r.provider_name, snapshot_status: r.status }
-  const row: SnapshotRow = { ...r, status: "deleting", revision: String(rev) }
-  const s = next(state, { saved: state.saved - counts(r.status), pending: { ...state.pending, [key]: { machine: r.machine, due_at: ctx.now + PENDING_SAFETY_MS } } }, { machine: r.machine, removed: false, snapshot: r.id })
-  return { ok: true, state: s, value: { deleted: true }, writes: [upsertLedger(ledger, rev), upsertSnapshot(row, stored.n)] }
+  const protocol = r.capture_protocol === 1 ? { capture_protocol: 1 as const } : {}
+  const ledger: LedgerRow = { ...protocol, transport: r.transport ?? "direct", key, op: "snapshot_delete", machine: r.machine, provider_name: r.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, snapshot: r.id, snapshot_name: r.provider_name, snapshot_status: r.status }
+  const pending = { ...state.pending }, cancelled: RowWrite[] = []
+  if (r.transport === "vm-api") for (const k of Object.keys(pending)) {
+    const original = ctx.rows?.get<LedgerRow>(TABLE_LEDGER, k)
+    if (original?.row.op !== "snapshot" || original.row.snapshot !== r.id) continue
+    delete pending[k]
+    cancelled.push(upsertLedger({ ...original.row, state: "cancelled", cancel: true, updated_at: ctx.now }, original.n))
+  }
+  const hold = r.transport === "vm-api"
+  const row: SnapshotRow = { ...r, status: "deleting", revision: String(rev), ...(hold ? { saved_reserved: true } : {}) }
+  const s = next(state, { saved: state.saved + (hold ? 1 - counted(r) : -counted(r)), pending: { ...pending, [key]: { machine: r.machine, due_at: ctx.now + PENDING_SAFETY_MS } } }, { machine: r.machine, removed: false, snapshot: r.id })
+  return { ok: true, state: s, value: { deleted: true }, writes: [...cancelled, upsertLedger(ledger, rev), upsertSnapshot(row, stored.n)] }
 }
+
+/** A snapshot_delete may settle on an empty key fence when no capture under the key can still be in flight:
+ *  a journaled capture, or a row whose capture already ended (ready, or a legacy failure that predates the journal). */
+export const emptyFenceSettles = (l: Pick<LedgerRow, "capture_protocol" | "snapshot_status">): boolean =>
+  l.capture_protocol === 1 || l.snapshot_status === "ready" || l.snapshot_status === "failed"
 
 /** cloud.snapshot.restore: a new machine from a ready snapshot (all create checks), through create's from_snapshot. */
 export const snapshotRestore = (_state: CloudState, params: unknown, ctx: ReduceContext, create: (params: unknown) => ReduceResult<CloudState>): ReduceResult<CloudState> => {
@@ -104,7 +125,7 @@ export const snapshotResult = (state: CloudState, stored: StoredRow<LedgerRow>, 
   }
   if (r.ok) {
     writes.push({ table: TABLE_SNAPSHOT, op: "delete", key: snap.row.id })
-    return { ok: true, state: next(state, { pending }, { machine: snap.row.machine, removed: true, snapshot: snap.row.id }), value: { applied: true }, writes }
+    return { ok: true, state: next(state, { pending, saved: state.saved - (snap.row.saved_reserved === true ? 1 : 0) }, { machine: snap.row.machine, removed: true, snapshot: snap.row.id }), value: { applied: true }, writes }
   }
   // The provider kept the snapshot: its status (and count) from before the delete (review P3).
   const before = l.snapshot_status && l.snapshot_status !== "deleting" ? l.snapshot_status : "ready"

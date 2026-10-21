@@ -1,4 +1,7 @@
+public import CmuxNextActions
+public import CmuxNextAgentPane
 import CmuxNextCompat
+public import CmuxNextSettings
 public import CmuxNextSidebar
 
 /// What the sidebar's Now Playing card (cx-ouoxo) shows and controls: the
@@ -27,26 +30,55 @@ extension NowPlayingSource {
 }
 
 extension SidebarModel {
-    /// Shows `source` on the Now Playing card while `enabled` (the App passes
-    /// `sidebar.nowPlaying.enabled`, on by default).
-    /// The source runs while `enabled` (`NowPlayingSource.run`).
-    public func followNowPlaying(_ source: any NowPlayingSource, enabled: @escaping @MainActor () -> Bool) -> Task<Void, Never> {
+    /// Shows `source` on the Now Playing card while `sidebar.nowPlaying.enabled` is on (off by
+    /// default) and `dismissal` does not hide it, and on the New Tab page while
+    /// `tabs.newTabNowPlaying` is on (on by default), hidden card or not; the page's menu writes
+    /// that key and opens its row in Settings through `registry` (`NewTabNowPlaying.page`).
+    public func followNowPlaying(_ source: any NowPlayingSource, dismissal: NowPlayingCardDismissal? = nil,
+                                 settings: @escaping @MainActor () -> SettingsController?,
+                                 registry: ActionRegistry?) -> Task<Void, Never> {
+        NewTabNowPlaying.page = NewTabNowPlaying.liveActions(settings: settings, registry: registry)
+        return followNowPlaying(source, dismissal: dismissal,
+                                enabled: { settings()?.snapshot.nowPlaying.enabled ?? NowPlayingSettings.enabledDefault },
+                                onNewTab: { settings()?.snapshot.nowPlaying.newTab ?? NowPlayingSettings.newTabDefault })
+    }
+
+    /// Shows `source` on the Now Playing card while `enabled` and `dismissal` does not hide it,
+    /// and on the New Tab page's player (`NewTabNowPlaying`) while `onNewTab`, each on its own:
+    /// off on the New Tab page, the page gets nil, so it draws no player and keeps no space. The
+    /// source runs while either shows it (`NowPlayingSource.run`); with both off nothing reads
+    /// what plays.
+    public func followNowPlaying(_ source: any NowPlayingSource, dismissal: NowPlayingCardDismissal? = nil,
+                                 enabled: @escaping @MainActor () -> Bool,
+                                 onNewTab: @escaping @MainActor () -> Bool = { false },
+                                 player: AgentPaneNowPlaying = .shared) -> Task<Void, Never> {
         Task { [weak self] in
-            for await followed in ObservationStream({ enabled() ? NowPlayingFollowed.on(source.nowPlaying) : .off }) {
+            // The hide state is read with the source, so a Hide or a Show reaches the card at once.
+            for await (followed, _) in ObservationStream({
+                (NowPlayingFollowed(card: enabled(), newTab: onNewTab(), source: source),
+                 dismissal.map { [$0.hiddenMedia ?? "", "\($0.hiddenUntilRelaunch)"] })
+            }) {
                 guard let self else { return }
-                source.run(followed != .off)
-                if self.nowPlaying != followed.nowPlaying { self.nowPlaying = followed.nowPlaying }
+                source.run(followed.card || followed.newTab)
+                let offered = followed.card ? followed.nowPlaying : nil
+                let card = dismissal.map { $0.card(for: offered, from: source) } ?? offered
+                if self.nowPlaying != card { self.nowPlaying = card }
+                NewTabNowPlaying.show(followed.newTab ? followed.nowPlaying : nil, from: source, to: player)
             }
         }
     }
 }
 
-/// What the card follows: nothing while it is off, else what plays (nil while nothing does).
-nonisolated enum NowPlayingFollowed: Equatable, Sendable {
-    case off
-    case on(SidebarNowPlaying?)
+/// Where Now Playing shows (the sidebar card, the New Tab page), and what plays while either does
+/// (nil while nothing does, or while neither shows it: the source is not read then).
+nonisolated struct NowPlayingFollowed: Equatable, Sendable {
+    var card: Bool
+    var newTab: Bool
+    var nowPlaying: SidebarNowPlaying?
 
-    var nowPlaying: SidebarNowPlaying? {
-        if case .on(let nowPlaying) = self { nowPlaying } else { nil }
+    @MainActor init(card: Bool, newTab: Bool, source: any NowPlayingSource) {
+        self.card = card
+        self.newTab = newTab
+        nowPlaying = card || newTab ? source.nowPlaying : nil
     }
 }

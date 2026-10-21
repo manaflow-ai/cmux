@@ -1,6 +1,7 @@
 """Fix-forward merging requires actual builds and same-base test evidence."""
 import copy
 from datetime import datetime, timedelta, timezone
+import base64
 import json
 import importlib.util
 from pathlib import Path
@@ -329,13 +330,21 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next"):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", risk_tier_workflow=None, now=None):
         gh = Path(directory) / "gh"
         checks = [{"id": 1, "name": check_name, "status": "completed", "conclusion": check_conclusion}]
         checks.extend(
-            {"id": index + 2, "name": name, "status": status, "conclusion": conclusion}
-            for index, (name, status, conclusion) in enumerate(extra_checks)
+            {"id": index + 2, "name": check[0], "status": check[1], "conclusion": check[2],
+             **({"started_at": check[3], "completed_at": check[4] if len(check) > 4 else check[3]} if len(check) > 3 else {})}
+            for index, check in enumerate(extra_checks)
         )
+        risk_route = ""
+        if risk_tier_workflow is not None:
+            contents = json.dumps({"encoding": "base64", "content": base64.b64encode(risk_tier_workflow.encode()).decode()})
+            risk_route = (
+                "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/risk-tier.yml'; then "
+                "printf 'HTTP/2.0 200\\r\\n\\r\\n%s\\n' " + shlex.quote(contents) + "; exit 0; fi\n"
+            )
         check_payload = shlex.quote(json.dumps([{"check_runs": checks}]))
         runs_payload = shlex.quote(json.dumps({"total_count": len(cmux_next_runs), "workflow_runs": [
             {"id": 900 + index, "status": status, "conclusion": conclusion, "run_attempt": attempt, "head_sha": HEAD, "event": "pull_request"}
@@ -362,6 +371,7 @@ class InstalledHelperRegression(unittest.TestCase):
             + workflow_route + "; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files'; then "
             "printf '%s\\n' " + " ".join(shlex.quote(f) for f in changed_files) + "; exit 0; fi\n"
+            + risk_route +
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/contents/'; then printf '%s\\n' 'HTTP/2.0 200'; exit 0; fi\n"
             "if [ \"$1\" = api ]; then printf '%s\\n' '[]'; exit 0; fi\n"
             "exit 2\n"
@@ -369,7 +379,7 @@ class InstalledHelperRegression(unittest.TestCase):
         gh.chmod(0o755)
         return subprocess.run(
             [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", *extra_args, "--squash"],
-            env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events"), "MERGE_ARGS_LOG": str(Path(directory) / "merge-args"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"},
+            env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events"), "MERGE_ARGS_LOG": str(Path(directory) / "merge-args"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1", **({"GH_MERGE_GREEN_NOW": now} if now else {})},
             capture_output=True,
             text=True,
         )
@@ -627,6 +637,72 @@ class InstalledHelperRegression(unittest.TestCase):
                     self.assertFalse(events.exists(), "the override reason was posted before refusing")
                     self.assertIn(name, result.stderr)
                     self.assertIn("--override cannot bypass", result.stderr)
+
+    RISK_TIER_WORKFLOW = """name: risk tier
+jobs:
+  evidence:
+    steps:
+      - name: Require the tier's evidence
+        env:
+          ENFORCE_FROM: "2026-10-24T00:00:00Z"
+"""
+
+    def run_risk_case(self, directory, marker, *, now, completed_at=None, started_at=None, workflow=None):
+        extra = [] if completed_at is None else [("risk evidence", "completed", "success", started_at or completed_at, completed_at)]
+        return self.run_helper(directory, marker, extra_checks=extra,
+                               risk_tier_workflow=self.RISK_TIER_WORKFLOW if workflow is None else workflow, now=now)
+
+    def test_risk_evidence_started_while_advisory_refuses_even_if_it_finished_after(self):
+        # The evidence step decides advisory-or-not while the job runs, so a job that started
+        # before the cutover may have graded as advisory and still finished after it.
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_risk_case(directory, marker, now="2026-10-24T01:00:00Z",
+                                        started_at="2026-10-23T23:58:00Z", completed_at="2026-10-24T00:01:00Z")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("advisory", result.stderr)
+
+    def test_a_risk_tier_workflow_without_a_readable_enforce_from_refuses(self):
+        workflow = self.RISK_TIER_WORKFLOW.replace('ENFORCE_FROM: "2026-10-24T00:00:00Z"', 'ENFORCE_FROM: "2026-10-24"')
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_risk_case(directory, marker, now="2026-10-24T01:00:00Z",
+                                        completed_at="2026-10-24T00:30:00Z", workflow=workflow)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("ENFORCE_FROM", result.stderr)
+
+    def test_risk_evidence_graded_while_advisory_refuses_after_the_cutover(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_risk_case(directory, marker, now="2026-10-24T01:00:00Z", completed_at="2026-10-23T12:00:00Z")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("advisory", result.stderr)
+
+    def test_risk_evidence_missing_refuses_after_the_cutover(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_risk_case(directory, marker, now="2026-10-24T01:00:00Z")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("risk evidence", result.stderr)
+
+    def test_risk_evidence_graded_after_the_cutover_merges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_risk_case(directory, marker, now="2026-10-24T01:00:00Z", completed_at="2026-10-24T00:30:00Z")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
+    def test_risk_evidence_advisory_verdict_still_merges_before_the_cutover(self):
+        for completed_at in ("2026-10-22T12:00:00Z", None):
+            with self.subTest(completed_at=completed_at), tempfile.TemporaryDirectory() as directory:
+                marker = Path(directory) / "merged"
+                result = self.run_risk_case(directory, marker, now="2026-10-23T01:00:00Z", completed_at=completed_at)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue(marker.exists())
 
     def test_red_lint_check_refuses_without_override(self):
         name = "cmux-next checks (god files, concurrency, crash safety, l10n)"

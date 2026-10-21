@@ -24,6 +24,13 @@ use tokio::sync::Mutex;
 /// The session/update variants and ids this translator emits are plain ACP.
 pub const AGENT_NAME: &str = "claude-stdio";
 
+/// Whether a chat's saved `agentInfo` names this adapter, which always steers
+/// (`_meta.steering.supported` at initialize). A chat saved without `steering`
+/// and adopted since never initializes again, so its steering comes from this.
+pub fn steers_by_info(info: Option<&Value>) -> bool {
+    info.and_then(|i| i.get("name")).and_then(Value::as_str) == Some(AGENT_NAME)
+}
+
 /// Claude mode ids, offered as ACP session modes.
 /// Claude's own modes. acceptEdits is not offered: acpmux's policy answers
 /// permission prompts itself, so `perms approve-edits` covers it for every
@@ -174,9 +181,16 @@ pub fn models() -> &'static [(String, String)] {
 }
 
 #[cfg(test)]
+mod background_output_tests;
+mod early_calls;
+#[cfg(test)]
+mod early_calls_tests;
+#[cfg(test)]
 mod edit_diff_tests;
 mod inbound;
 mod outbound;
+#[cfg(test)]
+mod steer_now_tests;
 #[cfg(test)]
 mod subagent_tests;
 #[cfg(test)]
@@ -190,6 +204,14 @@ mod workflows;
 /// `stop_task` control request. The answer is `{}` once Claude Code took it;
 /// the task's end arrives as its own event.
 pub const STOP_TASK: &str = "_acpmux/claude/stop_task";
+
+/// The internal ACP request that moves Claude Code's running work to the
+/// background (Ctrl-B, `hub/processes.rs`), `{sessionId, toolCallId?}`:
+/// Claude Code's `background_tasks` control request, for the task the tool
+/// call started or, without one, every foreground task. Answers
+/// `{backgrounded}`; the shells it moved arrive as their own events, with
+/// origin `user_backgrounded`.
+pub const BACKGROUND_TASKS: &str = "_acpmux/claude/background_tasks";
 
 /// The refusal of a steered prompt when no turn is running (the turn ended
 /// between the hub's check and the adapter).
@@ -363,6 +385,9 @@ pub struct Translator {
     /// Running file edits: tool_use id -> their ACP diff content, which their
     /// completion carries again so the diff outlives the tool's text result.
     edits: Mutex<HashMap<String, Value>>,
+    /// Tool calls named as their block started (`early_calls.rs`), before
+    /// their input streamed: tool_use id -> the session they run in.
+    announced: Mutex<HashMap<String, (String, Option<String>)>>,
     /// Running shells by tool_use id (cx-ncc.84): each Bash call until its
     /// result (or, once a `local_bash` task names it, its `task_notification`),
     /// and those in the background (`run_in_background`, or moved there) until
@@ -380,6 +405,9 @@ struct BackgroundShell {
     background: bool,
     /// Started in the background (`run_in_background`), not moved there.
     launched: bool,
+    /// The person asked for it to go to the background (`BACKGROUND_TASKS`):
+    /// once it moves, its origin is `user_backgrounded`.
+    asked: bool,
     /// Its `running` update went out (`inbound.rs` `running`).
     announced: bool,
     /// The file Claude Code writes its output to (`output_file`), once a
@@ -396,6 +424,9 @@ enum Pending {
     Control(Setting, String),
     /// A `stop_task` (`STOP_TASK`), answered when claude takes it.
     StopTask,
+    /// A `background_tasks` (`BACKGROUND_TASKS`), with the shells it marked
+    /// `asked`, unmarked when nothing moved.
+    Background(Vec<String>),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -441,6 +472,7 @@ impl Translator {
             loop_model: Mutex::new(String::new()),
             message_ids: Mutex::new(HashMap::new()),
             edits: Mutex::new(HashMap::new()),
+            announced: Mutex::new(HashMap::new()),
         })
     }
 
@@ -544,6 +576,30 @@ impl Translator {
                  {"value": "on", "name": "On", "description": "Faster output, increased usage"},
              ]},
         ])
+    }
+}
+
+/// A Claude Code `tool_use` as the fields of the ACP `tool_call` a turn sends for it (without
+/// its id and status): kind, title, input, and an edit's diffs and file. A live turn
+/// (`inbound.rs`) and an adopted chat's past turns (`adopt_tools.rs`) both draw calls from it.
+pub(crate) fn tool_call_fields(name: &str, input: &Value) -> Value {
+    let mut call = json!({
+        "title": tool_title(name, input),
+        "kind": tool_kind(name),
+        "rawInput": input,
+        "_meta": {"claude": {"tool": name}}
+    });
+    with_edit(&mut call, name, input);
+    call
+}
+
+/// Adds a file edit's diff and location to its ACP tool call.
+fn with_edit(call: &mut Value, name: &str, input: &Value) {
+    if let Some(diffs) = edit_diffs(name, input) {
+        call["content"] = diffs;
+        if let Some(locations) = tool_locations(input) {
+            call["locations"] = locations;
+        }
     }
 }
 

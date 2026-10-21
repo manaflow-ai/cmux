@@ -130,18 +130,50 @@ type_dirs() { # root repo -> module directories whose types to measure
   done <<<"$files" | sort -u
   return 0
 }
+# Top-level primary Swift declarations (extensions and small nested helpers are fine).
+swift_type_re='^(public |internal |package |fileprivate |private |final |nonisolated |indirect |@MainActor |@Observable |@frozen )*(final )?(class|struct|enum|actor|protocol) '
+# count_rows KIND PREFIX: one row per NUL-separated path on stdin (PREFIX + path is
+# the file; a Swift path is relative to ROOT/, a Rust path to REPO/). Lines are
+# newline characters (wc -l); the count is matching lines (grep -cE). One perl
+# process instead of three forks per file: ~8,700 files, twice with --base.
+count_rows() {
+  KIND="$1" PREFIX="$2" SWIFT_RE="$swift_type_re" RUST_RE="$rust_fn_re" \
+  SFL=$swift_file_limit STFL=$swift_test_file_limit RFL=$rust_file_limit RFN=$rust_fn_limit \
+  RTFL=$rust_test_file_limit RTFN=$rust_test_fn_limit perl -e '
+    use strict; use warnings;
+    my ($kind, $prefix) = @ENV{qw(KIND PREFIX)};
+    my $re = $kind eq "swift-file" ? qr/$ENV{SWIFT_RE}/ : qr/$ENV{RUST_RE}/;
+    local $/ = "\0";
+    while (my $path = <STDIN>) {
+      chomp $path;
+      next if $path eq "";
+      my $file = $path;
+      if ($kind eq "swift-file") {
+        $path = substr($path, length $prefix) if index($path, $prefix) == 0;
+      } else {
+        $file = $prefix . $path;
+        next unless -f $file;
+      }
+      open(my $fh, "<", $file) or next;
+      my $text = do { local $/; <$fh> } // "";
+      close $fh;
+      my $lines = ($text =~ tr/\n//);
+      my $count = grep { /$re/ } split /\n/, $text;
+      my ($limit, $climit);
+      if ($kind eq "swift-file") {
+        ($limit, $climit) = $file =~ m{/Tests/} ? ($ENV{STFL}, 0) : ($ENV{SFL}, 3);
+      } elsif ($path =~ m{/(tests|benches|examples)/} || $path =~ m{(^|/|_)tests\.rs$}) {
+        ($limit, $climit) = ($ENV{RTFL}, $ENV{RTFN});
+      } else {
+        ($limit, $climit) = ($ENV{RFL}, $ENV{RFN});
+      }
+      printf "%s\t%s\t%d\t%d\t%d\t%d\n", $kind, $path, $lines, $count, $limit, $climit;
+    }'
+}
 measure() {
-  local root="$1" repo="$2" rev="${3:-}" file lines limit types tlimit rel fns
+  local root="$1" repo="$2" rev="${3:-}"
   # 1. Swift files: absolute limits.
-  (( check_swift )) && while IFS= read -r -d '' file; do
-    lines=$(wc -l < "$file" | tr -d ' ')
-    limit=$swift_file_limit
-    tlimit=3
-    [[ "$file" == */Tests/* ]] && limit=$swift_test_file_limit && tlimit=0
-    # Top-level primary declarations (extensions and small nested helpers are fine).
-    types=$(grep -cE '^(public |internal |package |fileprivate |private |final |nonisolated |indirect |@MainActor |@Observable |@frozen )*(final )?(class|struct|enum|actor|protocol) ' "$file" || true)
-    printf 'swift-file\t%s\t%d\t%d\t%d\t%d\n' "${file#"$root"/}" "$lines" "$types" "$limit" "$tlimit"
-  done < <(swift_files "$root" "$repo")
+  (( check_swift )) && count_rows swift-file "$root/" < <(swift_files "$root" "$repo")
 
   # 2. Ratcheted entries. Swift types: a top-level declaration starts at column 0
   # and ends at the next line that starts with "}" (the package is formatted that way).
@@ -181,17 +213,8 @@ measure() {
   fi
 
   # Rust files in cmux-tui (tracked only, so build output never counts).
-  (( check_rust )) && while IFS= read -r rel; do
-    [[ -f "$repo/$rel" ]] || continue
-    lines=$(wc -l < "$repo/$rel" | tr -d ' ')
-    fns=$(grep -cE "$rust_fn_re" "$repo/$rel" || true)
-    if [[ "$rel" =~ /(tests|benches|examples)/ || "$rel" =~ (^|/|_)tests\.rs$ ]]; then
-      printf 'rust-file\t%s\t%d\t%d\t%d\t%d\n' "$rel" "$lines" "$fns" "$rust_test_file_limit" "$rust_test_fn_limit"
-    else
-      printf 'rust-file\t%s\t%d\t%d\t%d\t%d\n' "$rel" "$lines" "$fns" "$rust_file_limit" "$rust_fn_limit"
-    fi
-  done < <(if [[ -n "$rev" ]]; then git -C "$script_repo" ls-tree -r --name-only "$rev" -- cmux-tui; else git -C "$repo" ls-files 'cmux-tui/*.rs'; fi \
-    | grep -E '\.rs$' | grep -vE '^cmux-tui/(vendor/|bindings/rust/src/generated/)' | in_files)
+  (( check_rust )) && count_rows rust-file "$repo/" < <(if [[ -n "$rev" ]]; then git -C "$script_repo" ls-tree -r --name-only "$rev" -- cmux-tui; else git -C "$repo" ls-files 'cmux-tui/*.rs'; fi \
+    | grep -E '\.rs$' | grep -vE '^cmux-tui/(vendor/|bindings/rust/src/generated/)' | in_files | tr '\n' '\0')
   return 0
 }
 

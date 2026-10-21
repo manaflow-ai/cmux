@@ -182,11 +182,22 @@ pub(super) fn subscribe_command(
                 }
                 // The person's own clients: Unix, or an authenticated page
                 // (`ws-cloud-conversations-v1`); `delivers` narrows it to the lease's.
+                // The host replica's renewal only to the verified app: it holds the install token.
+                MuxEvent::CloudConversation(event)
+                    if host_replica_needed(event)
+                        && !matches!(
+                            super::origin_gate::connection_actor(&event_mux, client),
+                            crate::workspace_registry::Actor::Frontend { .. }
+                        ) =>
+                {
+                    continue;
+                }
                 MuxEvent::CloudConversation(_) if !conversation_client => {
                     continue;
                 }
-                MuxEvent::CloudConversation(_)
-                    if !super::cloud_conversations::delivers(&event_mux, client) =>
+                MuxEvent::CloudConversation(event)
+                    if !host_replica_needed(event)
+                        && !super::cloud_conversations::delivers(&event_mux, client) =>
                 {
                     continue;
                 }
@@ -318,6 +329,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             source,
             session,
             agent,
+            agent_session_id,
             updated_at_ms,
             since_ms,
             last_prompt,
@@ -328,6 +340,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "source": source.as_ref(),
             "session": session.as_deref(),
             "agent": agent.as_deref(),
+            "agent_session_id": agent_session_id.as_deref(),
             "updated_at_ms": updated_at_ms,
             "since_ms": since_ms,
             "last_prompt": last_prompt.as_deref(),
@@ -515,4 +528,8 @@ pub(super) fn subscription_overflow_json() -> Value {
         "event": "overflow",
         "error": "subscriber fell behind; resubscribe to continue receiving events",
     })
+}
+
+fn host_replica_needed(event: &crate::cloud_conversations::CloudEvent) -> bool {
+    matches!(event, crate::cloud_conversations::CloudEvent::HostReplicaNeeded { .. })
 }

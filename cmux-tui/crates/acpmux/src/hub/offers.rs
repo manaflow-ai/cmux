@@ -10,7 +10,7 @@
 //! outcome, childSessionId?}`, accepted only from the person's connection,
 //! records `session_offer_decision`. An accepted offer's new session records
 //! the offering session as its parent (`parentId`, with no `forkSeq`: it is
-//! not a fork). Outcome `here` (cx-lo9yf) starts no chat: the page sends the
+//! not a fork), and becomes its sub-session (`Hub::offer_link`). Outcome `here` (cx-lo9yf) starts no chat: the page sends the
 //! prompt to this chat itself.
 //!
 //! Suggested tasks (cx-lo9yf): the agent's `suggest_tasks` tool offers each
@@ -178,6 +178,11 @@ impl Hub {
         let offered_at = self
             .with_open_offers(session, |open| Ok(open.get(offer_id).copied()))?
             .ok_or_else(no_offer)?;
+        // The task's title names the sub-session (`subsessions.rs`).
+        let title = child.as_ref().and_then(|_| self.offer_title(session, offer_id));
+        // Made before the chat's lock is taken: `offer_link` reads this
+        // chat's meta, and two chats never hold each other's meta locks.
+        let link = child.as_ref().map(|_| self.offer_link(session, title.as_deref()));
         if let Some(child) = &child {
             // Checked and set under the chat's lock: one parent, and only a chat
             // started for this offer.
@@ -192,6 +197,13 @@ impl Hub {
                 return Err(no_offer());
             }
             meta.parent_id = Some(session.id.clone());
+            // Its sub-session too, unless something already linked it.
+            if meta.subsession.is_none() {
+                meta.subsession = link;
+                if meta.status != super::SessionStatus::Closed {
+                    self.subsessions.set_open(&session.id, &child.id, true);
+                }
+            }
         } else if !self.with_open_offers(session, |open| Ok(open.remove(offer_id).is_some()))? {
             return Err(no_offer());
         }
@@ -220,6 +232,22 @@ impl Hub {
         let mut all = self.offers.open.lock().unwrap_or_else(|e| e.into_inner());
         let open = all.entry(session.id.clone()).or_insert_with(|| read.unwrap_or_default());
         f(open)
+    }
+
+    /// The title of the chat's recorded offer `offer_id`.
+    fn offer_title(&self, session: &Session, offer_id: &str) -> Option<String> {
+        let mut title = None;
+        let _ = self.store.scan(&session.id, 0, &mut |event: EventRecord| {
+            if event.dir == "mux"
+                && event.kind == "session_offer"
+                && event.msg.get("offerId").and_then(Value::as_str) == Some(offer_id)
+            {
+                title = event.msg.get("title").and_then(Value::as_str).map(str::to_owned);
+                return false;
+            }
+            true
+        });
+        title
     }
 
     /// The ids of the chat's recorded offers without a recorded decision.

@@ -90,6 +90,10 @@ public final class UpdaterService {
     public internal(set) var stagedVersion: String?
     public internal(set) var stagedNotes: ReleaseNotes?
     @ObservationIgnored var stagedNotesTask: (build: String, task: Task<Void, Never>)?
+    /// This build's own verified notes, read once when the Updated card has
+    /// no change list of its record (``loadCurrentBuildNotesIfNeeded()``).
+    public internal(set) var currentBuildNotes: ReleaseNotes?
+    @ObservationIgnored var currentBuildNotesTask: Task<Void, Never>?
     /// The staged appcast item's build (replaced by tests).
     @ObservationIgnored var stagedBuild: () -> String? = { nil }
     /// `updates.downloadAutomatically` (the card's Automatic Updates box).
@@ -115,11 +119,14 @@ public final class UpdaterService {
     @ObservationIgnored var activationObservation: Task<Void, Never>?
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public internal(set) var testFeedURL: String?
+    /// The release ring followed in the cmux-next appcast (`updates.channel`, ``follow(ring:)``).
+    public internal(set) var ring: UpdateRing = .nightly
     /// The `updates.*` settings the gate reads (set by the App).
     public var preferences = UpdatePreferences.defaults
     /// Sparkle's staged install and its cancel (replaced by tests).
     @ObservationIgnored var installStaged: () -> Void = {}
-    @ObservationIgnored var cancelStaged: () -> Void = {}
+    /// The cancel returns whether an installer was held and is now cancelled.
+    @ObservationIgnored var cancelStaged: () -> Bool = { false }
     @ObservationIgnored var acceptAvailable: () -> Void = {}
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
@@ -152,6 +159,8 @@ public final class UpdaterService {
     @ObservationIgnored private var probeTask: Task<String?, Never>?
     @ObservationIgnored private var switchTask: Task<String?, Never>?
     @ObservationIgnored private var started = false
+    /// A check the person asked for runs in Sparkle (cleared when the flow leaves checking).
+    @ObservationIgnored var userCheckRunning = false
     /// Whether ``start()`` ran (the managed policy checks only after it).
     var isStarted: Bool { started }
 
@@ -190,6 +199,10 @@ public final class UpdaterService {
             // Set on this updater only; no defaults change, so the legacy app
             // sharing the domain keeps its own behavior.
             controller.installsUpdatesInBackground = true
+            // The nightly feed lists each build's deltas minutes after its DMG
+            // (nightly.yml generate-nightly-deltas); a scheduled check in that gap
+            // waits once instead of downloading the full DMG.
+            if identity.track == .nightly { controller.pendingDeltaWindow = 45 * 60 }
             self.controller = controller
         } else {
             #if DEBUG
@@ -200,7 +213,7 @@ public final class UpdaterService {
         }
         if let controller {
             installStaged = { [weak controller] in controller?.installStagedUpdate() }
-            cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() }
+            cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() ?? false }
             acceptAvailable = { [weak controller] in controller?.acceptAvailableUpdate() }
             stagedBuild = { [weak controller] in controller?.stagedUpdate?.versionString }
         }
@@ -247,12 +260,20 @@ public final class UpdaterService {
     /// whose result the circle notes (never under a managed policy, which
     /// forbids touching the feed). The returned task finishes when a probe
     /// has its result (nil) or failed (the reason).
+    ///
+    /// The answer is on screen before this returns (Lawrence 2026-10-19: "I
+    /// can't tell if it's being checked for right now"): the gate takes the
+    /// new phase here, not one observation hop later, so the notice card
+    /// shows "Checking for Updates…" in the next frame. A request while the
+    /// person's check runs joins it: the same progress shows and nothing new
+    /// is fetched.
     @discardableResult
     public func checkForUpdates() -> Task<String?, Never>? {
         if needsSheet { presentUpdateUI?() }
         // The person asked: a closed or snoozed update card shows again.
         clearUpdateSnooze()
         send(.checkRequested)
+        defer { syncFlowPhase() }
         switch disabledReason {
         case .managedPolicy:
             log.append("check suppressed (managed policy)")
@@ -266,8 +287,14 @@ public final class UpdaterService {
                 log.append("check while an update waits: showing the staged update")
                 return nil
             }
+            if userCheckRunning, case .checking = flow.phase {
+                // Sparkle would queue a second check after this one, which only delays the answer.
+                log.append("check while the person's check runs: joined")
+                return nil
+            }
             controller.model.setOverrideState(nil)
             controller.checkForUpdates()
+            userCheckRunning = true
             return nil
         case .developmentBuild, .missingPublicKey:
             showsProbeResult = true
@@ -282,12 +309,14 @@ public final class UpdaterService {
         if let probeTask { return probeTask }
         isProbing = true
         let prober = prober
+        // Sparkle's allowedChannels reads the baked feed, not a test feed: the probe does the same.
+        let allowed = identity.feed().channel.allowedSparkleChannels(ring: ring)
         var identity = identity
         if let testFeedURL { identity.infoFeedURL = testFeedURL }
         let task = Task { [weak self] () -> String? in
             let failure: String?
             do {
-                let result = try await prober.probe(identity)
+                let result = try await prober.probe(identity, allowedChannels: allowed)
                 self?.lastProbe = result
                 self?.lastProbeError = nil
                 self?.log.append("probe \(result.outcome.kind) feed=\(result.feedURL) items=\(result.itemCount)")
@@ -321,6 +350,8 @@ public final class UpdaterService {
         clearUpdateSnooze()
         controller.model.setOverrideState(nil)
         syncFlowPhase()
+        // As for a check: the loading card shows in the next frame, not one observation hop later.
+        defer { syncFlowPhase() }
         switch flow.phase {
         case .ready, .available, .downloading, .checking:
             // The gate installs once the update is staged and no agent is busy.
@@ -394,6 +425,7 @@ public final class UpdaterService {
             lastProbeError: lastProbeError,
             channelSwitchTarget: identity.channelSwitchTarget,
             testFeedURL: testFeedURL,
+            ring: ring,
             card: card,
             cardPresentation: cardPresentation,
             badge: footerPill?.title

@@ -32,7 +32,7 @@ final class BrowserNoticeView: NSView {
         label.lineBreakMode = .byTruncatingTail
         // The pill fits its text; only a narrow page truncates it (cx-whr7).
         label.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
-        let close = ChromeIconButton(icon: .actionClose, label: Strings.dismissNotice, action: #selector(close), target: self)
+        let close = ChromeIconButton(icon: .browserToolbarClose, label: Strings.dismissNotice, action: #selector(close), target: self)
 
         let stack = NSStackView(views: [label, actionButton, close])
         stack.translatesAutoresizingMaskIntoConstraints = false

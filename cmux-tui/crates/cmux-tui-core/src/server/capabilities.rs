@@ -11,6 +11,12 @@ const AGENT_CLI_APP_PROVIDER_CAPABILITY: &str = "agent-cli-app-provider-v1";
 /// on `set-personal-workspace` and the personal workspace rows.
 pub const PERSONAL_REMOTE_LOCALHOST_CAPABILITY: &str = "personal-remote-localhost-v1";
 
+/// A pinned column may be a screen's only column (the Home dock with nothing
+/// beside it): `move-tab-to-column` with a pinned `dock` makes it from a
+/// screen's only tab without a `respawn`, and closing the last column beside
+/// it leaves the pinned column alone instead of being refused.
+pub const PINNED_DOCK_ALONE_CAPABILITY: &str = "pinned-dock-alone-v1";
+
 /// `identify`'s capabilities: the static set plus `cloud-conversations-v1`
 /// and `cloud-lease-app-only-v1` when the binary installed a cloud transport, `history-search-v1` when it
 /// installed the search index,
@@ -22,6 +28,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     // Receipts can outlive the acpmux configuration that prepared them.
     #[cfg(unix)]
     capabilities.push(agent_cli_job::CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(agent_cli_job::RESOLVE_CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(agent_cli_intents::CAPABILITY);
     capabilities.push(activity::CAPABILITY);
     capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
     capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);
@@ -49,6 +59,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     capabilities.push(tab_restart::KEPT_LAYOUT_CAPABILITY);
     #[cfg(unix)]
+    capabilities.push(tab_park::CAPABILITY);
+    #[cfg(unix)]
     capabilities.push(AGENT_CLI_APP_PROVIDER_CAPABILITY);
     #[cfg(unix)]
     capabilities.push(crate::apps::AGENT_INVENTORY_INVALIDATION_CAPABILITY);
@@ -75,6 +87,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_update() {
         capabilities.push(agent_transfer::agent_update::AGENT_UPDATE_CAPABILITY);
+        capabilities.push(agent_transfer::agent_update::AGENT_UPDATE_OWNER_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_transfer() {
@@ -151,6 +164,7 @@ pub(super) fn advertised_capabilities(
         split_kind::SPLIT_CLIENT_KEYS_CAPABILITY,
         split_kind::SPLIT_CLIENT_SPLIT_ID_CAPABILITY,
         creating_input::TERMINAL_INPUT_WHILE_CREATING_CAPABILITY,
+        cmd_terminal_io::SEND_EXPECT_FOREGROUND_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
         GUARDED_BROWSER_POINTER_CAPABILITY,
@@ -162,7 +176,9 @@ pub(super) fn advertised_capabilities(
         DOCK_COLUMN_ROLE_CAPABILITY,
         PERMANENT_DOCK_CAPABILITY,
         PINNED_DOCK_CAPABILITY,
+        PINNED_DOCK_ALONE_CAPABILITY,
         ROWS_CAPABILITY,
+        COLUMN_MOVE_CAPABILITY,
         PANE_BROWSER_KIND_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,
@@ -194,6 +210,7 @@ pub(super) fn advertised_capabilities(
         SERVER_STATS_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
+        RESUME_COMMAND_CAPABILITY,
         END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
         BATCH_CLOSE_CAPABILITY,
         CLOSE_WORKSPACE_IF_EMPTY_CAPABILITY,
@@ -205,6 +222,9 @@ pub(super) fn advertised_capabilities(
         WORKSPACE_PIN_CAPABILITY,
         NOTIFICATION_MARK_UNREAD_CAPABILITY,
         TAB_MARK_UNREAD_CAPABILITY,
+        WORKSPACE_DESCRIPTION_CAPABILITY,
+        WORKSPACE_STATUS_CAPABILITY,
+        WORKSPACE_CREATE_FOCUS_CAPABILITY,
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         FRONTEND_BROWSER_HISTORY_CAPABILITY,
@@ -253,6 +273,7 @@ pub(super) fn advertised_capabilities(
         chief_registry_resource::CHIEF_PROFILE_WS_CAPABILITY,
         chief_registry_resource::CHIEF_EVENTS_CAPABILITY,
         chief_registry_resource::CHIEF_PROFILE_ADOPT_CAPABILITY,
+        chief_registry_resource::CHIEF_PROFILE_HISTORY_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,
@@ -286,6 +307,7 @@ pub(super) fn advertised_capabilities(
         crate::state::palette_usage_store::CAPABILITY,
         crate::state::stash_store::CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
+        crate::state::workspace_checklist::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,
         crate::state::browser_devices::FIT_WIDTH_CAPABILITY,
         crate::browser_profile_ops::CAPABILITY,

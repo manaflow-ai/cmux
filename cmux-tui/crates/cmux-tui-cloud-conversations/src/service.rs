@@ -13,7 +13,8 @@ use serde_json::{Value, json};
 use super::CloudError;
 use super::contract::{
     self, InboxOpRequest, MAX_PAGE, MAX_TAIL, OpRequest, Target, history_data, inbox_list_data,
-    mutation_data, read_body, read_value, require_agent, require_conversation, snapshot_data,
+    mutation_data, read_body, read_value, requests_list_data, require_agent, require_conversation,
+    snapshot_data,
 };
 use super::session::{CloudSession, SessionParams};
 use super::stream::{CloudEvent, StreamAction, StreamState};
@@ -423,6 +424,14 @@ impl CloudConversations {
         let reply = self.post("/v1/read", &read_body("inbox.list", params))?;
         let (value, revision) = read_value(reply)?;
         inbox_list_data(value, revision)
+    }
+
+    /// `cloud-requests-list`: the lease person's open message requests
+    /// (`home.requests.list`), rows without a valid conversation id dropped.
+    pub fn requests_list(&self) -> Result<Value, CloudError> {
+        let reply = self.post("/v1/read", &read_body("home.requests.list", json!({})))?;
+        let (value, _revision) = read_value(reply)?;
+        requests_list_data(value)
     }
 
     /// `cloud-conversation-snapshot`.

@@ -167,6 +167,13 @@ public final class HomeCloudLease {
         return sub
     }
 
+    /// The `team` claim of an install token (read for consistency, never
+    /// trusted as a credential). Nil when the token is not a JWT with a team.
+    public nonisolated static func team(ofJWT token: String) -> String? {
+        guard let team = claims(ofJWT: token)?["team"] as? String, !team.isEmpty else { return nil }
+        return team
+    }
+
     /// The decoded payload of a JWT, unverified.
     nonisolated private static func claims(ofJWT token: String) -> [String: Any]? {
         let segments = token.split(separator: ".", omittingEmptySubsequences: false)

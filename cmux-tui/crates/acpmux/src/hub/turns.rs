@@ -84,8 +84,11 @@ impl Hub {
         steer: bool,
         mut opts: PromptOptions,
     ) -> Result<Value, RpcError> {
+        // A deferred start reads the queues after its ready line: a new prompt waits, so it
+        // never runs ahead of a prompt queued under the previous daemon.
+        self.wait_logs().await;
         let Some(prompt_id) = opts.prompt_id.clone() else {
-            return self.run_prompt(session, blocks, client, steer, opts).await;
+            return self.prompt_unless_held(session, blocks, client, steer, opts).await;
         };
         let duplicate = |v: Value| json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true, "queued": false, "turnId": v.pointer("/_meta/acpmux/turnId")});
         let seen = {
@@ -142,7 +145,7 @@ impl Hub {
             let accepted = accepted.clone();
             opts.on_accepted = Some(Box::new(move |_| accepted.store(true, Ordering::SeqCst)));
         }
-        let result = self.run_prompt(session, blocks, client, steer, opts).await;
+        let result = self.prompt_unless_held(session, blocks, client, steer, opts).await;
         if !accepted.load(Ordering::SeqCst) {
             session.prompts.lock().unwrap().retain(|(id, _)| *id != prompt_id);
         }
@@ -279,23 +282,20 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
+        let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
+        if let Err(e) = self.start_turn(session, after_turn.as_deref(), turn) {
+            drop(guard);
+            return Err(e);
+        }
         {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
-            clear_sent_draft(&mut m, &text);
+            drafts::clear_sent_draft(&mut m, &text);
             super::titles::set_fallback_title(&mut m, &text);
             m.preview = Some(String::new());
             m.turn_count += 1;
         }
-        *session.turn.lock().unwrap() = Some(TurnInfo {
-            started_at: now_ms(),
-            client: client.to_owned(),
-            prompt_preview: short_text(&text, 200),
-            turn_id: turn_id.clone(),
-            prompt_id: prompt_id.clone(),
-            turn_seq: 0,
-            control,
-        });
         session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
         self.reset_stream(session);
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
@@ -558,6 +558,7 @@ impl Hub {
         // preview) are applied before the turn settles, so every record below
         // and the chat activity it sends see them.
         Self::drain_inbound(session).await;
+        let git = super::turn_git::turn_git(session).await;
         match &result {
             Ok(v) => {
                 self.note_reply_refusal(session);
@@ -579,8 +580,7 @@ impl Hub {
                     }
                     o.extend(super::turn_usage::turn_usage(session, v));
                 }
-                self.record_last_turn(session, &msg);
-                self.append(session, "mux", "turn_result", msg);
+                self.write_turn_result(session, msg, git);
             }
             Err(e) => {
                 self.append(
@@ -602,8 +602,7 @@ impl Hub {
                         o.extend(info.clone());
                     }
                 }
-                self.record_last_turn(session, &msg);
-                self.append(session, "mux", "turn_result", msg);
+                self.write_turn_result(session, msg, git);
             }
         }
         self.reset_stream(session);
@@ -678,7 +677,7 @@ impl Hub {
     /// Waits until the inbound loop handled every agent message queued before
     /// now. Bounded: a loop that is gone (closed channel) or stuck never holds
     /// a turn's settlement past the bound.
-    async fn drain_inbound(session: &Session) {
+    pub(super) async fn drain_inbound(session: &Session) {
         let (done, handled) = tokio::sync::oneshot::channel();
         let queued = tokio::time::timeout(
             std::time::Duration::from_secs(5),
@@ -688,6 +687,39 @@ impl Hub {
         if matches!(queued, Ok(Ok(()))) {
             let _ = tokio::time::timeout(std::time::Duration::from_secs(5), handled).await;
         }
+    }
+
+    /// A bare "agent process closed" from a process that died while it
+    /// started (`initialize`, `session/new`): the same error with the last
+    /// stderr line that says why, once the inbound loop has taken what the
+    /// process printed. Any other error is returned as is.
+    pub(super) async fn explain_start_failure(session: &Session, mut e: RpcError) -> RpcError {
+        if e.message != "agent process closed" {
+            return e;
+        }
+        let last = || {
+            session
+                .stderr_tail
+                .lock()
+                .unwrap()
+                .iter()
+                .rev()
+                .map(|l| l.trim().to_owned())
+                .find(|l| explains_exit(l))
+        };
+        Self::drain_inbound(session).await;
+        let mut found = last();
+        if found.is_none() {
+            // The stderr reader can trail stdout's close by a moment: one
+            // bounded wait for its last lines, then the bare error.
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            Self::drain_inbound(session).await;
+            found = last();
+        }
+        if let Some(line) = found {
+            e.message = format!("agent process closed ({}): {line}", session.meta().harness);
+        }
+        e
     }
 
     /// Keep the outcome of the last turn on the session (`lastTurn` in the
@@ -721,6 +753,13 @@ impl Hub {
         m: &str,
         mut params: Value,
     ) -> Result<Value, RpcError> {
+        // Every switch into a mode that skips approvals, from any client (the app, the CLI, a
+        // script), passes here: refused while `sessions.allowFullAccess` is off.
+        if super::start_mode::requests_full_access(m, &params)
+            && !super::start_mode::full_access_allowed()
+        {
+            return Err(super::start_mode::full_access_off());
+        }
         let child = self.child_for(session).await?;
         let sid = session
             .meta()
@@ -899,6 +938,8 @@ impl Hub {
         }
         let old = {
             let mut m = session.meta.lock().unwrap();
+            // A chat renamed before it was titled asks no model for a title (`titles.rs`).
+            super::titles::title_renamed(&mut m);
             std::mem::replace(&mut m.name, name.clone())
         };
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));

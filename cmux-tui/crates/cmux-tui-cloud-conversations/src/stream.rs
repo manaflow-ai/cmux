@@ -74,6 +74,14 @@ pub enum CloudEvent {
         reason: &'static str,
         expires_at: Option<u64>,
     },
+    /// The host replica publisher needs a new install token lease
+    /// (`cloud-host-replica-needed`, host_replica.rs): `expiring` before the
+    /// lease ends, `unauthenticated` when the cloud refused it. Only the
+    /// verified app connection hears it.
+    HostReplicaNeeded {
+        reason: &'static str,
+        expires_at: Option<u64>,
+    },
     /// A Chief's run in a subscribed conversation changed (the owner's
     /// `conversation-run-changed` frame: the run and the steps that changed;
     /// ephemeral, never stored by the owner's stream).
@@ -119,7 +127,7 @@ impl CloudEvent {
             | Self::Typing { account, .. } => {
                 *account = socket_account.map(str::to_string);
             }
-            Self::SessionNeeded { .. } => {}
+            Self::SessionNeeded { .. } | Self::HostReplicaNeeded { .. } => {}
         }
         self
     }
@@ -136,7 +144,7 @@ impl CloudEvent {
             | Self::RunChanged { account, .. }
             | Self::Live { account, .. }
             | Self::Typing { account, .. } => account.as_deref(),
-            Self::SessionNeeded { .. } => None,
+            Self::SessionNeeded { .. } | Self::HostReplicaNeeded { .. } => None,
         }
     }
 
@@ -190,6 +198,13 @@ impl CloudEvent {
             }
             Self::SessionNeeded { reason, expires_at } => {
                 let mut value = json!({"event": "cloud-session-needed", "reason": reason});
+                if let Some(expires_at) = expires_at {
+                    value["expires_at"] = json!(expires_at);
+                }
+                value
+            }
+            Self::HostReplicaNeeded { reason, expires_at } => {
+                let mut value = json!({"event": "cloud-host-replica-needed", "reason": reason});
                 if let Some(expires_at) = expires_at {
                     value["expires_at"] = json!(expires_at);
                 }

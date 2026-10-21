@@ -166,4 +166,38 @@ describe("host read replica (object-sync phase 3)", () => {
     expect((await socket(host, owner.session)).status).toBe(403)
     expect((await socket(host, owner.installToken)).status).toBe(403)
   })
+  it("lets the owner delete the replica while the host is off; the host may publish again later", async () => {
+    const owner = await signedInWithInstall("host-replica-owner-purge")
+    const enrolled = await post("/v1/ops", owner.installToken, { op: "host.enroll", params: { name: "away", platform: "macos" }, idempotency_key: crypto.randomUUID(), origin: "user" })
+    const host = enrolled.body.value.id as string
+    const stream = `host:${host}/session`
+    const pub = opened(await socket(host, owner.installToken))
+    await pub.until((f) => f.t === "welcome")
+    pub.send({ t: "publish", stream, snapshot: { t: "snapshot", stream, seq: 1, state: { title: "secret" }, decided: [] } })
+    const reader = opened(await socket(host, owner.session))
+    reader.send({ t: "subscribe", stream })
+    await reader.until((f) => f.t === "snapshot")
+    pub.ws.close(1000, "bye")
+    await reader.until((f) => f.t === "owner.status" && f.status === "offline")
+
+    // Only the host's owner: another account does not even see the host.
+    const stranger = await signedInWithInstall("host-replica-purge-stranger")
+    const refused = await post("/v1/ops", stranger.session, { op: "host.replica.purge", params: { host }, idempotency_key: crypto.randomUUID(), origin: "user" })
+    expect(refused.body.ok).toBe(false)
+
+    const purged = await post("/v1/ops", owner.session, { op: "host.replica.purge", params: { host }, idempotency_key: crypto.randomUUID(), origin: "user" })
+    expect(purged.body).toMatchObject({ ok: true, value: { host } })
+    // The open reader is closed; a new one finds no cached copy.
+    await expect(reader.until(() => false)).rejects.toThrow(/closed 4403/)
+    const fresh = opened(await socket(host, owner.session))
+    fresh.send({ t: "subscribe", stream })
+    fresh.send({ t: "nothing" })
+    const end = await fresh.until((f) => f.t === "error")
+    expect(fresh.frames.slice(0, end).find((f) => f.t === "owner.status").cached_seq).toBeUndefined()
+    expect(fresh.frames.slice(0, end).some((f) => f.t === "snapshot" || f.t === "event")).toBe(false)
+
+    // The host is not removed: its install publishes again (the Mac's own switch decides).
+    const again = opened(await socket(host, owner.installToken))
+    await again.until((f) => f.t === "welcome")
+  })
 })

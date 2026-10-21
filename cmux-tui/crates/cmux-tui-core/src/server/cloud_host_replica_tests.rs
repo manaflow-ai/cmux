@@ -9,7 +9,7 @@ use super::super::origin_gate::{set_role_for_test, set_verified_app_for_test};
 use super::super::*;
 use super::install_host_replica;
 use crate::cloud_conversations::testing::{FakeBackend, ScriptedWire, wait_until};
-use crate::cloud_conversations::{HostReplica, HostReplicaOptions};
+use crate::cloud_conversations::{ConnectError, HostReplica, HostReplicaOptions};
 
 const ME: &str = "user_00000000000000000001";
 const HOST: &str = "host_0123456789abcdefghij";
@@ -27,6 +27,10 @@ fn writer() -> MessageWriter {
 }
 
 fn replica_mux() -> (Arc<Mux>, u64, Arc<FakeBackend>) {
+    replica_mux_with(HostReplicaOptions::default())
+}
+
+fn replica_mux_with(defaults: HostReplicaOptions) -> (Arc<Mux>, u64, Arc<FakeBackend>) {
     let mux = Mux::new_for_test("host-replica", crate::SurfaceOptions::default());
     let backend = Arc::new(FakeBackend::default());
     let options = HostReplicaOptions {
@@ -36,7 +40,7 @@ fn replica_mux() -> (Arc<Mux>, u64, Arc<FakeBackend>) {
         settle: Duration::from_millis(5),
         max_delay: Duration::from_millis(50),
         purge_timeout: Duration::from_secs(5),
-        ..HostReplicaOptions::default()
+        ..defaults
     };
     assert!(install_host_replica(&mux, HostReplica::with_options(backend.clone(), options)));
     let client = mux.control_clients.register(ClientTransport::Unix, writer());
@@ -129,6 +133,29 @@ fn the_daemon_publishes_its_tree_and_runs_only_the_owners_allowed_ops() {
     // A stream the replica does not hold starts at the wall clock (ms).
     assert!(snapshot["snapshot"]["seq"].as_u64().unwrap() > 1_600_000_000_000);
     assert!(snapshot["snapshot"]["state"].to_string().contains("before"));
+    // Only the listed workspace fields leave the Mac: no screens, no titles.
+    let published = &snapshot["snapshot"]["state"]["workspaces"][0];
+    for kept in published.as_object().unwrap().keys() {
+        assert!(
+            [
+                "id",
+                "resource_id",
+                "short_id",
+                "name",
+                "name_revision",
+                "group",
+                "color",
+                "icon",
+                "pinned",
+                "marked_unread",
+                "unread_count",
+                "active"
+            ]
+            .contains(&kept.as_str()),
+            "{kept} is published"
+        );
+    }
+    assert!(published.get("screens").is_none() && published.get("title").is_none(), "{published}");
 
     // The owner's rename: the daemon runs it, publishes the change, then answers.
     let op = |key: &str, to: &str, user: &str, op: &str, params: Value| {
@@ -323,4 +350,187 @@ fn the_off_switch_never_moves_a_reader_back_and_a_removed_host_stays_off() {
     lease(&mux, client, INSTALL_TOKEN).unwrap();
     wait_frame(&third, "the snapshot after enrolling again", |f| f["snapshot"].is_object());
     assert_eq!(backend.posted().len(), enrolls + 1);
+}
+
+fn lease_until(mux: &Arc<Mux>, client: u64, token: &str, expires_at: u64) -> Value {
+    run(
+        mux,
+        client,
+        json!({"cmd":"cloud-host-replica-set","api_base_url":"https://api.cmux.test",
+               "install_token":token,"expires_at":expires_at,"host_name":"studio"}),
+    )
+    .unwrap()
+}
+
+fn needed(events: &crate::MuxEventReceiver, seen: &mut Vec<Value>) -> Vec<Value> {
+    seen.extend(
+        events
+            .try_iter()
+            .filter(|event| matches!(event, MuxEvent::CloudConversation(_)))
+            .map(|event| subscribed_event_json(&event)),
+    );
+    seen.iter().filter(|event| event["event"] == "cloud-host-replica-needed").cloned().collect()
+}
+
+/// The publisher asks the app for a new install token before the lease
+/// ends, takes a renewal without dropping its socket, connects again with
+/// the new token when the old one expires (4401), and asks again with
+/// `unauthenticated` when it holds no newer token.
+#[test]
+fn the_daemon_asks_for_a_new_token_in_time_and_a_renewal_keeps_the_socket() {
+    let (mux, client, backend) = replica_mux();
+    set_role_for_test(&mux, client, "main");
+    set_verified_app_for_test(&mux, client, true);
+    let events = mux.subscribe();
+    let mut seen = Vec::new();
+    let now = u64::try_from(
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),
+    )
+    .unwrap();
+    let renewed_token = INSTALL_TOKEN.replace(".sig", ".sig2");
+
+    // A lease that ends inside the refresh lead: the daemon asks at once.
+    let first = connect_again(&backend, json!({}));
+    lease_until(&mux, client, INSTALL_TOKEN, now + 30_000);
+    wait_frame(&first, "online", |f| f["snapshot"].is_object());
+    wait_until("the expiring ask", || {
+        needed(&events, &mut seen).iter().any(|e| e["reason"] == "expiring")
+    });
+    let ask = needed(&events, &mut seen)[0].clone();
+    assert_eq!(ask["expires_at"], now + 30_000, "{ask}");
+
+    // The renewal swaps the token in place: the same socket answers an op.
+    lease_until(&mux, client, &renewed_token, now + 3_600_000);
+    first.push_text(
+        json!({"t":"op","stream":stream(),"op":"workspace.close","params":{},"idempotency_key":"after-renewal",
+               "origin":"user","to":"r1","principal":{"user":ME,"kind":"session"}})
+        .to_string(),
+    );
+    wait_frame(&first, "an answer on the same socket", |f| f["t"] == "reject" && f["to"] == "r1");
+    assert_eq!(backend.connected().len(), 1, "a renewal does not reconnect");
+    assert_eq!(status(&mux, client)["state"], "online");
+
+    // The old token expires: HostDO closes 4401, and the new token connects at once.
+    let second = backend.wire();
+    second.push_text(json!({"t":"welcome","role":"publisher","host":HOST,"heads":{}}).to_string());
+    first.push_close(Some(4401));
+    wait_frame(&second, "the reconnect", |f| f["snapshot"].is_object());
+    assert_eq!(backend.connected()[1].bearer, renewed_token);
+    assert!(!needed(&events, &mut seen).iter().any(|e| e["reason"] == "unauthenticated"));
+
+    // No newer token: the publisher stops and asks for one.
+    second.push_close(Some(4401));
+    wait_until("unauthenticated", || status(&mux, client)["state"] == "unauthenticated");
+    wait_until("the unauthenticated ask", || {
+        needed(&events, &mut seen).iter().any(|e| e["reason"] == "unauthenticated")
+    });
+}
+
+#[test]
+fn a_refused_token_is_asked_for_again_until_a_new_lease_comes() {
+    let (mux, client, backend) = replica_mux_with(HostReplicaOptions {
+        reask: Duration::from_millis(50),
+        ..HostReplicaOptions::default()
+    });
+    set_role_for_test(&mux, client, "main");
+    set_verified_app_for_test(&mux, client, true);
+    let wire = connect_again(&backend, json!({}));
+    lease(&mux, client, INSTALL_TOKEN).unwrap();
+    wait_frame(&wire, "online", |f| f["snapshot"].is_object());
+
+    // The cloud refuses the token while no app connection listens: that ask is missed.
+    wire.push_close(Some(4401));
+    wait_until("unauthenticated", || status(&mux, client)["state"] == "unauthenticated");
+
+    // An app connection that subscribes later still hears the ask.
+    let events = mux.subscribe();
+    let mut seen = Vec::new();
+    wait_until("the ask again", || {
+        needed(&events, &mut seen).iter().any(|e| e["reason"] == "unauthenticated")
+    });
+
+    // A new lease connects again.
+    let again = connect_again(&backend, json!({}));
+    lease(&mux, client, &INSTALL_TOKEN.replace(".sig", ".sig2")).unwrap();
+    wait_frame(&again, "online again", |f| f["snapshot"].is_object());
+}
+
+/// A purge whose token the cloud refuses (4401) waits for a new lease and
+/// asks for it at the `reask` pace; it does not reconnect with the dead
+/// token in a loop.
+#[test]
+fn a_purge_whose_token_is_refused_waits_for_a_new_one_instead_of_reconnecting_at_once() {
+    let (mux, client, backend) = replica_mux_with(HostReplicaOptions {
+        reask: Duration::from_millis(100),
+        ..HostReplicaOptions::default()
+    });
+    set_role_for_test(&mux, client, "main");
+    set_verified_app_for_test(&mux, client, true);
+    let events = mux.subscribe();
+    let mut seen = Vec::new();
+    let wire = connect_again(&backend, json!({}));
+    lease(&mux, client, INSTALL_TOKEN).unwrap();
+    wait_frame(&wire, "online", |f| f["snapshot"].is_object());
+
+    // The off switch, and the token expires before the cloud confirms the purge.
+    run(&mux, client, json!({"cmd":"cloud-host-replica-clear","purge":true})).unwrap();
+    wait_frame(&wire, "the purge", |f| f["t"] == "replica.purge");
+    for _ in 0..40 {
+        backend.refuse(ConnectError::Unauthenticated);
+    }
+    wire.push_close(Some(4401));
+    // Two asks are one `reask` apart: the time to count the connects.
+    wait_until("the ask and the ask again", || {
+        needed(&events, &mut seen).iter().filter(|e| e["reason"] == "unauthenticated").count() >= 2
+    });
+    let attempts = backend.connected().len();
+    assert!(attempts <= 3, "{attempts} connects while the token is refused");
+    assert_eq!(status(&mux, client)["purge_pending"], true);
+
+    // The app's answer (CloudHostReplicaFollower): a new lease, then the purge again.
+    backend.wires.lock().unwrap().clear();
+    let again = connect_again(&backend, json!({}));
+    lease(&mux, client, &INSTALL_TOKEN.replace(".sig", ".sig2")).unwrap();
+    run(&mux, client, json!({"cmd":"cloud-host-replica-clear","purge":true})).unwrap();
+    wait_frame(&again, "the purge with the new token", |f| f["t"] == "replica.purge");
+    again.push_text(json!({"t":"replica.purged"}).to_string());
+    wait_until("off", || status(&mux, client)["state"] == "off");
+    assert_ne!(status(&mux, client)["purge_pending"], true);
+}
+
+/// A Mac clock ahead of the cloud's (every new token reads as expiring) and
+/// a cloud that refuses every token: each new lease asks `expiring` and then
+/// `unauthenticated`. Each reason keeps its own `reask` pace, so the asks do
+/// not drive a loop of token mints.
+#[test]
+fn expiring_and_refused_asks_keep_their_pace_across_leases() {
+    let (mux, client, backend) = replica_mux_with(HostReplicaOptions {
+        reask: Duration::from_secs(60),
+        ..HostReplicaOptions::default()
+    });
+    set_role_for_test(&mux, client, "main");
+    set_verified_app_for_test(&mux, client, true);
+    let events = mux.subscribe();
+    let mut seen = Vec::new();
+    let now = u64::try_from(
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),
+    )
+    .unwrap();
+    let count = |events: &crate::MuxEventReceiver, seen: &mut Vec<Value>, reason: &str| {
+        needed(events, seen).iter().filter(|e| e["reason"] == reason).count()
+    };
+
+    backend.reply("/v1/ops", 200, json!({"ok":true,"value":{"id":HOST,"name":"studio"}}));
+    backend.refuse(ConnectError::Unauthenticated);
+    lease_until(&mux, client, INSTALL_TOKEN, now + 30_000);
+    wait_until("the refused ask", || count(&events, &mut seen, "unauthenticated") == 1);
+    assert_eq!(count(&events, &mut seen, "expiring"), 1);
+
+    // The app's answer: a new token that also reads as expiring, also refused.
+    backend.refuse(ConnectError::Unauthenticated);
+    lease_until(&mux, client, &INSTALL_TOKEN.replace(".sig", ".sig2"), now + 31_000);
+    wait_until("the second connect", || backend.connected().len() == 2);
+    wait_until("refused again", || status(&mux, client)["state"] == "unauthenticated");
+    assert_eq!(count(&events, &mut seen, "expiring"), 1, "{seen:?}");
+    assert_eq!(count(&events, &mut seen, "unauthenticated"), 1, "{seen:?}");
 }

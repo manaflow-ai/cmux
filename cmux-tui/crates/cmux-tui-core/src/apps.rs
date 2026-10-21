@@ -25,6 +25,7 @@ mod cancel;
 mod catalog;
 #[cfg(unix)]
 mod egress;
+pub(crate) mod envelope;
 #[cfg(unix)]
 mod grants;
 #[cfg(unix)]

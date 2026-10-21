@@ -35,8 +35,8 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
   const script = await built.outputs[0].text();
   fs.rmSync(path.dirname(entry), { recursive: true, force: true });
 
-  // A dark and a light theme as the host sets them (WebTheme.swift), without the host's tint: the
-  // pages' own fallback must hold too.
+  // A dark and a light theme as the host sets them (WebTheme.swift); a test adds the host's tint
+  // (--cmux-tooltip-tint) where it needs one.
   const themes = {
     dark: { popup: "rgb(52, 49, 68)", text: "rgb(224, 222, 244)" },
     light: { popup: "rgb(255, 255, 255)", text: "rgb(36, 41, 47)" },
@@ -233,13 +233,41 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
       .slice(0, 3)
       .map(Number);
 
+  /** The host's tint (TooltipSurface.tintAlpha, sent as --cmux-tooltip-tint): the popup surface at
+   * the least alpha from minimumTintAlpha, in 1% steps, at which the text keeps 4.5:1 over the tint
+   * laid on pure black and on pure white. The pages' own fallback is that floor alone (60%), which a
+   * dark theme's text does not read on over white (about 0.7 there; Leo 2026-10-18, #21785), so the
+   * app always sends this tint and the check below draws with it. */
+  const minimumTintAlpha = Number(
+    fs
+      .readFileSync(
+        path.resolve(
+          import.meta.dir,
+          "../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tooltip/TooltipSurface.swift",
+        ),
+        "utf8",
+      )
+      .match(/static let minimumTintAlpha: Double = ([\d.]+)/)![1],
+  );
+  const hostTint = (name: keyof typeof themes) => {
+    const fill = rgb(themes[name].popup);
+    const ink = rgb(themes[name].text);
+    const over = (alpha: number, backdrop: number) => fill.map((c) => c * alpha + backdrop * (1 - alpha));
+    for (let percent = Math.round(minimumTintAlpha * 100); percent < 100; percent++) {
+      const alpha = percent / 100;
+      if (Math.min(contrast(ink, over(alpha, 0)), contrast(ink, over(alpha, 255))) >= 4.5)
+        return `rgba(${fill.join(", ")}, ${alpha})`;
+    }
+    return `rgb(${fill.join(", ")})`;
+  };
+
   test("the tooltip's text keeps 4.5:1 over pure black and pure white, light and dark, glass and opaque", async () => {
     const seen: Record<string, number> = {};
     for (const name of ["dark", "light"] as const) {
       for (const backdrop of ["#000", "#fff"]) {
         for (const reduce of [false, true]) {
           const body = `<div style="position:fixed;inset:0;z-index:-1;background:${backdrop}"></div>${toolbar}`;
-          const page = await open(theme(name), body);
+          const page = await open(theme(name, `--cmux-tooltip-tint:${hostTint(name)}`), body);
           if (reduce) await page.evaluate(() => document.documentElement.setAttribute("data-reduce-transparency", ""));
           await hoverAndWait(page, "b0");
           await page.evaluate(() =>

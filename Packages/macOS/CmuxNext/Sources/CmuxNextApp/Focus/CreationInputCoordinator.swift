@@ -63,6 +63,21 @@ final class CreationInputCoordinator {
         guard let ticket, let window, let buffer = buffers[window.windowNumber] else { return }
         buffer.resolve(ticket, awaitsFocus: landed)
         scheduleFlush(in: window)
+        // The focus it asked for may never land (a split from a page tab shows a New Tab page):
+        // the keys go on `holdLimit` after the reply at the latest.
+        let number = window.windowNumber
+        buffer.expire(after: holdLimit) { [weak self, weak window] buffer in
+            guard let self, buffers[number] === buffer else { return }
+            if let window { flush(in: window, force: true) } else { buffers[number] = nil }
+        }
+    }
+
+    /// Whether `event`'s binding in `controller`'s focus is a close action (Close Tab, Cmd-W).
+    private static func closes(_ event: NSEvent, in window: NSWindow, controller: WindowController, router: KeyRouter) -> Bool {
+        guard KeyRouter.isChord(event.modifierFlags) else { return false }
+        let context = router.keyContext(for: controller.focus.currentState(), facts: router.facts(in: window, controller: controller))
+        guard let binding = router.resolve(event, context: context) else { return false }
+        return WindowKeyTable.isClose(binding.command)
     }
 
     /// Takes `event` while a creation in its window is pending.
@@ -72,11 +87,13 @@ final class CreationInputCoordinator {
         // A Chromium page window is a child of the shell, whose number keys the buffer.
         let shell = controller?.window ?? window
         guard let buffer = buffers[shell.windowNumber] else { return false }
+        // A close key (Cmd-W) acts now on what it closes; held, it ran later with the other keys.
+        let closes = controller.map { Self.closes(event, in: shell, controller: $0, router: router) } ?? false
         // Focus left the content (a sidebar or bar field) or the hold lets this key go: the held
         // keys go on first, then this one (into a hold a replayed key opened, if it keeps it).
-        guard kind == .content, controller != nil, buffer.holds(event, limit: holdLimit, expiring: true) else {
+        guard kind == .content, controller != nil, buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
             flush(in: shell, force: true)
-            guard let next = buffers[shell.windowNumber], next.holds(event, limit: holdLimit, expiring: false) else { return false }
+            guard let next = buffers[shell.windowNumber], next.holds(event, limit: holdLimit, expiring: false, closes: closes) else { return false }
             next.capture(event)
             return true
         }

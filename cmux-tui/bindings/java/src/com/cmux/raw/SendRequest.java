@@ -13,6 +13,7 @@ import java.util.Objects;
 /** Immutable send request. Protocol v5; authority: control. */
 public final class SendRequest implements WireValue {
     private final Field<Bytes> bytes;
+    private final Field<String> expectForeground;
     private final Field<Boolean> paste;
     private final Field<UInt64> surface;
     private final Field<String> terminalId;
@@ -20,6 +21,7 @@ public final class SendRequest implements WireValue {
 
     private SendRequest(Builder builder) {
         this.bytes = builder.bytes;
+        this.expectForeground = builder.expectForeground;
         this.paste = builder.paste;
         this.surface = builder.surface;
         this.terminalId = builder.terminalId;
@@ -29,6 +31,7 @@ public final class SendRequest implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public Field<Bytes> bytes() { return bytes; }
+    public Field<String> expectForeground() { return expectForeground; }
     public Field<Boolean> paste() { return paste; }
     public Field<UInt64> surface() { return surface; }
     public Field<String> terminalId() { return terminalId; }
@@ -40,6 +43,10 @@ public final class SendRequest implements WireValue {
         Object rawBytes = Wire.optional(object, "bytes");
         if (!Wire.isMissing(rawBytes)) {
             builder.bytes(rawBytes == null ? null : Wire.bytes(rawBytes, "SendRequest.bytes"));
+        }
+        Object rawExpectForeground = Wire.optional(object, "expect_foreground");
+        if (!Wire.isMissing(rawExpectForeground)) {
+            builder.expectForeground(rawExpectForeground == null ? null : Wire.string(rawExpectForeground, "SendRequest.expect_foreground"));
         }
         Object rawPaste = Wire.optional(object, "paste");
         if (!Wire.isMissing(rawPaste)) {
@@ -64,6 +71,7 @@ public final class SendRequest implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "bytes", bytes);
+        Wire.put(object, "expect_foreground", expectForeground);
         Wire.put(object, "paste", paste);
         Wire.put(object, "surface", surface);
         Wire.put(object, "terminal_id", terminalId);
@@ -74,17 +82,18 @@ public final class SendRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SendRequest that)) return false;
-        return Objects.equals(bytes, that.bytes) && Objects.equals(paste, that.paste) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(text, that.text);
+        return Objects.equals(bytes, that.bytes) && Objects.equals(expectForeground, that.expectForeground) && Objects.equals(paste, that.paste) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(text, that.text);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(bytes, paste, surface, terminalId, text); }
+    public int hashCode() { return Objects.hash(bytes, expectForeground, paste, surface, terminalId, text); }
 
     @Override
     public String toString() { return "SendRequest" + toWire(); }
 
     public static final class Builder {
         private Field<Bytes> bytes = Field.omitted();
+        private Field<String> expectForeground = Field.omitted();
         private Field<Boolean> paste = Field.omitted();
         private Field<UInt64> surface = Field.omitted();
         private Field<String> terminalId = Field.omitted();
@@ -92,6 +101,10 @@ public final class SendRequest implements WireValue {
 
         public Builder bytes(Bytes value) {
             this.bytes = Field.ofNullable(value);
+            return this;
+        }
+        public Builder expectForeground(String value) {
+            this.expectForeground = Field.ofNullable(value);
             return this;
         }
         public Builder paste(Boolean value) {

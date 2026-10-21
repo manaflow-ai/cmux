@@ -30,6 +30,15 @@ test("the most recent project is the newest local chat's folder", () => {
   expect(mostRecentProject(sessions.slice(2), HOME)).toBeUndefined();
 });
 
+// coord-2 review: a deleted or removed folder must not become the start project. The host's
+// project list (`project.list` drops a missing folder) decides which chat folders count.
+test("with the host's project list, only a listed folder is the most recent project", () => {
+  expect(mostRecentProject(sessions, HOME, ["/Users/you/src/older"])).toBe("/Users/you/src/older");
+  expect(mostRecentProject(sessions, HOME, ["/Users/you/src/atlas/"])).toBe("/Users/you/src/atlas");
+  // Not loaded yet: every local chat folder counts.
+  expect(mostRecentProject(sessions, HOME, [])).toBe("/Users/you/src/atlas");
+});
+
 const scope = globalThis as Record<string, unknown>;
 const keys = [
   "window",
@@ -82,7 +91,7 @@ afterAll(() => {
 
 const noop = () => {};
 
-async function askFrom(fields: { cwd?: string; startCwd?: string }) {
+async function askFrom(fields: { cwd?: string; startCwd?: string; knownProjects?: string[] }) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   act(() => root?.unmount());
@@ -127,6 +136,46 @@ test("a New Tab with no folder starts on the most recent project", async () => {
 test("a New Tab in the home folder or a private folder starts on the most recent project too", async () => {
   expect((await askFrom({ cwd: HOME })).folder).toBe("/Users/you/src/atlas");
   expect((await askFrom({ cwd: AGENT_HOME })).folder).toBe("/Users/you/src/atlas");
+});
+
+test("a New Tab skips a recent chat folder the host does not list", async () => {
+  expect((await askFrom({ knownProjects: ["/Users/you/src/older"] })).folder).toBe("/Users/you/src/older");
+});
+
+// coord-2 review: the chip must not change under the user while a chat elsewhere updates.
+test("the start project stays put when a newer chat lands", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const calls: unknown[][] = [];
+  const page = (list: typeof sessions) => (
+    <NewTabScreen
+      snapshot={noChat(list)}
+      omnibar={EMPTY_OMNIBAR}
+      lastAgent="claude"
+      home={HOME}
+      onAsk={(...args) => calls.push(args)}
+      onOpen={noop}
+      onSearch={noop}
+      onShell={noop}
+      onJump={noop}
+      onOpenSession={noop}
+      onShowAll={noop}
+    />
+  );
+  await act(async () => root!.render(page(sessions)));
+  const newer = session({ sessionId: "newer", cwd: "/Users/you/src/billing", updatedAt: Date.now() });
+  await act(async () => root!.render(page([...sessions, newer])));
+  expect(host.querySelector(".nt-location")?.textContent).toContain("atlas");
+  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+  await act(async () => {
+    setValue.call(field, "fix the flaky upload test");
+    field.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  expect(calls[0]?.[2]).toBe("/Users/you/src/atlas");
 });
 
 test("a tab with a project folder, or a start folder from the host, keeps it", async () => {
@@ -196,4 +245,101 @@ test("a no-project ask sends chat.new with noProject and no folder", async () =>
   });
   actions.onAsk("claude", "hi", undefined, undefined, true);
   expect(sent.find(([method]) => method === "chat.new")?.[1]).toEqual({ harness: "claude", noProject: true });
+});
+
+// Leo 2026-10-19: a New Tab painted "Choose folder" on its first frame, then the recent project once
+// its own daemon connection listed the chats. A page that hears this Mac's list keeps its newest
+// folders for the run (every agent page shares one localStorage); the next page decides from them
+// as it mounts, and a page with nothing to go on holds the chip's place instead of a wrong label.
+test("a page's heard chats name the next page's recent project before its own list", async () => {
+  const stored = new Map<string, string>();
+  const store = {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => void stored.set(key, value),
+  };
+  const had = "localStorage" in scope;
+  const before = scope.localStorage;
+  scope.localStorage = store;
+  try {
+    const recent = await import("../src/agent-session/acpmux/newtab/recentProject");
+    recent.resetRecentProjectForTests();
+    expect(recent.initialRecentProject([], HOME, [])).toBeUndefined();
+    // Another machine's list (a chat opened on a peer) is not this Mac's.
+    recent.rememberRecentFolders({ origin: "remote", sessions: noChat(sessions).sessions });
+    expect(recent.initialRecentProject([], HOME, [])).toBeUndefined();
+    recent.rememberRecentFolders({ origin: "local", sessions: noChat(sessions).sessions });
+    // The home folder and agent-home are no project; the newest local folder is.
+    expect(recent.initialRecentProject([], HOME, [])).toBe("/Users/you/src/atlas");
+    // A page on another machine (the host gives it no home) never starts in this Mac's folder.
+    expect(recent.initialRecentProject([], undefined, [])).toBeUndefined();
+    // The host's project list still decides, and the page's own chats come first.
+    expect(recent.initialRecentProject([], HOME, ["/Users/you/src/older"])).toBe("/Users/you/src/older");
+    const own = [session({ sessionId: "own", cwd: "/Users/you/src/billing", updatedAt: minutesAgo(0) })];
+    expect(recent.initialRecentProject(noChat(own).sessions, HOME, [])).toBe("/Users/you/src/billing");
+    // An empty list (a connection before its first answer) keeps what was heard.
+    recent.rememberRecentFolders({ origin: "local", sessions: [] });
+    expect(recent.initialRecentProject([], HOME, [])).toBe("/Users/you/src/atlas");
+
+    // The New Tab's chip names it on its first render, before any chat reaches the page.
+    const { createRoot } = await import("react-dom/client");
+    const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+    act(() => root?.unmount());
+    root = createRoot(host);
+    act(() =>
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat([])}
+          omnibar={EMPTY_OMNIBAR}
+          lastAgent="claude"
+          home={HOME}
+          chatsPending
+          onAsk={noop}
+          onOpen={noop}
+          onSearch={noop}
+          onShell={noop}
+          onJump={noop}
+          onOpenSession={noop}
+          onShowAll={noop}
+        />,
+      ),
+    );
+    expect(host.querySelector(".nt-location")?.textContent).toContain("atlas");
+    expect(host.querySelector(".nt-location")?.hasAttribute("data-project-pending")).toBe(false);
+  } finally {
+    if (had) scope.localStorage = before;
+    else delete scope.localStorage;
+  }
+});
+
+test("with no recent project known yet, the folder chip holds its place until the chats are listed", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const page = (list: typeof sessions, pending: boolean) => (
+    <NewTabScreen
+      snapshot={noChat(list)}
+      omnibar={EMPTY_OMNIBAR}
+      lastAgent="claude"
+      home={HOME}
+      {...(pending ? { chatsPending: true } : {})}
+      onAsk={noop}
+      onOpen={noop}
+      onSearch={noop}
+      onShell={noop}
+      onJump={noop}
+      onOpenSession={noop}
+      onShowAll={noop}
+    />
+  );
+  await act(async () => root!.render(page([], true)));
+  expect(host.querySelector(".nt-location")?.hasAttribute("data-project-pending")).toBe(true);
+  await act(async () => root!.render(page(sessions, false)));
+  expect(host.querySelector(".nt-location")?.hasAttribute("data-project-pending")).toBe(false);
+  expect(host.querySelector(".nt-location")?.textContent).toContain("atlas");
+  // A daemon with no chats at all: the chip shows as it is.
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () => root!.render(page([], false)));
+  expect(host.querySelector(".nt-location")?.hasAttribute("data-project-pending")).toBe(false);
 });

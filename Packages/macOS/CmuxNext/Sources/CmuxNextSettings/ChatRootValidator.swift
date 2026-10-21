@@ -46,6 +46,35 @@ public nonisolated struct ChatRootValidator: Sendable {
         return guarded("/" + resolved.joined(separator: "/"), final: true)
     }
 
+    /// True when `path` or a folder on its way is a protected folder by identity (device and inode),
+    /// whatever its spelling: the disk matches `Documentſ` to Documents, and
+    /// `/System/Volumes/Data/Users/…` is the home folder by another path. Only `lstat`, which raises
+    /// no privacy prompt (protected-folders.json: a stat does not, opening does); the walk stops at
+    /// the first protected folder. A path through a link into one lstats below it and still opens
+    /// nothing: callers check the resolved path again before they read.
+    public func reachesProtectedFolder(_ path: String) -> Bool {
+        let guarded = Set((homes.flatMap { home in ProtectedFolderEntry.inHome.map { home + "/" + $0.path } }
+            + ProtectedFolderEntry.roots.map(\.path)).compactMap(Self.identity))
+        guard !guarded.isEmpty else { return false }
+        var prefix = ""
+        for part in path.split(separator: "/") where part != "." {
+            prefix += "/" + part
+            if let identity = Self.identity(prefix), guarded.contains(identity) { return true }
+        }
+        return false
+    }
+
+    private struct Identity: Hashable {
+        let device: Int64
+        let inode: UInt64
+    }
+
+    private static func identity(_ path: String) -> Identity? {
+        var info = stat()
+        guard lstat(path, &info) == 0 else { return nil }
+        return Identity(device: Int64(info.st_dev), inode: UInt64(info.st_ino))
+    }
+
     private func guarded(_ path: String, final: Bool) -> String? {
         let folded = path.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let homes = homes.map { $0.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/")) }

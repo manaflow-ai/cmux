@@ -3,7 +3,8 @@
 // settings key (settings.ts MARKDOWN_READING; the same rows are in Settings > Appearance > Markdown
 // Viewer and in cmux.json). A change shows at once and is written through the host
 // (MarkdownStore.setPreference), so it persists and every open viewer follows it. Reset removes
-// every key the popover edits.
+// every key the popover edits. The text width row is WidthField (a typed field, stepper, scrubbing
+// label and a preset menu, not a slider).
 import { useId, type ReactNode } from "react";
 import { Popover, type UiAnchor } from "../../ui/Popover";
 import type { Strings } from "../shared/i18n";
@@ -16,6 +17,7 @@ import {
   type MarkdownTheme,
 } from "./settings";
 import { L } from "./strings";
+import { WidthField } from "./WidthField";
 
 /** What the popover changes: one option's value, or null to reset every option. */
 export interface ReadingSettingsActions {
@@ -50,18 +52,15 @@ export function ReadingSettings({ open, onOpenChange, anchor, settings, strings,
       side="bottom"
     >
       <div className="md-reading-body">
-        <Slider
-          label={t(L.readingWidth)}
-          value={values.width}
-          range={r.width}
-          disabled={values.fullWidth}
-          display={format(L.readingCharacters, String(values.width))}
-          onChange={(value) => actions.set("width", value)}
-        />
-        <Check
-          label={t(L.readingFullWidth)}
-          checked={values.fullWidth}
-          onChange={(value) => actions.set("fullWidth", value)}
+        <WidthField
+          width={values.width}
+          fullWidth={values.fullWidth}
+          strings={strings}
+          setWidth={(width) => {
+            if (values.fullWidth) actions.set("fullWidth", false);
+            actions.set("width", width);
+          }}
+          setFullWidth={(fullWidth) => actions.set("fullWidth", fullWidth)}
         />
         <Slider
           label={t(L.readingFontSize)}
@@ -96,10 +95,10 @@ export function ReadingSettings({ open, onOpenChange, anchor, settings, strings,
         />
         <Slider
           label={t(L.readingCodeSize)}
-          value={values.codeSize}
-          range={r.codeSize}
-          display={format(L.readingPoints, String(values.codeSize))}
-          onChange={(value) => actions.set("codeSize", value)}
+          value={values.codeScale}
+          range={r.codeScale}
+          display={percent.format(values.codeScale)}
+          onChange={(value) => actions.set("codeScale", value)}
         />
         <Choice<MarkdownTables>
           label={t(L.readingTables)}
@@ -177,22 +176,6 @@ function Slider({
         onChange={(event) => onChange(Number(event.currentTarget.value))}
       />
     </Row>
-  );
-}
-
-function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange(value: boolean): void }) {
-  const id = useId();
-  return (
-    <div className="md-reading-row md-reading-check">
-      <input
-        id={id}
-        aria-label={label}
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.currentTarget.checked)}
-      />
-      <label htmlFor={id}>{label}</label>
-    </div>
   );
 }
 

@@ -117,6 +117,8 @@ await requireBrowserLane("markdown-wide-table-scroll.test.ts", async () => {
 
       test("a sideways wheel over the code line scrolls the code block", async () => {
         const page = await open(engine);
+        // A wheel lands only on what is on screen: the code block sits below the 14-column table.
+        await page.locator(".md-prose .md-code pre").scrollIntoViewIfNeeded();
         await wheel(page, ".md-prose .md-code pre", 240, 0);
         const after = await measure(page);
         expect(after.code.left).toBeGreaterThan(0);

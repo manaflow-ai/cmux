@@ -20,8 +20,16 @@ A prompt ending in "settings-probe" replies with the prompt text as Claude
 read it, every `apply_flag_settings` it got, and its argv.
 "slow-stop" runs until the interrupt, then echoes the next prompt line it
 reads before the stopped turn's result (a Stop Claude Code answers late).
+"long-step" is one step (a long tool call) that runs until the interrupt, as
+Claude Code 2.1 does it: user lines written during the step wait; at the
+interrupt the step's result comes first, then each waiting line is echoed and
+answered ("read: TEXT") as one more turn (cosmic-gray, 2026-10-20).
 A stop_task control request ends its task killed (task_updated);
 FAKE_CLAUDE_STOP_NOTIFY=1 sends the task's task_notification too.
+"fg-shell" runs a foreground Bash call until a background_tasks control
+request (Ctrl-B) moves it to the background, then ends the turn with the
+shell still running; FAKE_CLAUDE_BACKGROUND_ERROR=<text> refuses that
+request with the text instead.
 FAKE_CLAUDE_AUTH=1 looks for a sign-in the way Claude Code does (the
 environment, then `env` and `apiKeyHelper` in <Claude home>/settings.json,
 then <Claude home>/.credentials.json; the home is CLAUDE_CONFIG_DIR or
@@ -30,7 +38,8 @@ Claude Code's own "Not logged in · Please run /login".
 FAKE_CLAUDE_SKILLS=1 has one skill installed and sends system/init every turn.
 FAKE_CLAUDE_INIT (a JSON object) adds its fields to system/init (`mcp_servers`,
 `skills`, ...); with FAKE_CLAUDE_CONTROL_LOG set, the subtype of every
-control request is appended to that file, one per line. Any plain prompt
+control request is appended to that file, one per line. "env: NAME"
+replies with that environment variable. Any plain prompt
 replies with the process's argv (spawn flags such as `--disallowedTools`).
 "cost-probe" ends its turn the way Claude Code reports spend: the turn's own
 token usage, and `total_cost_usd` as the process's running total (0.25 more
@@ -159,6 +168,89 @@ def slow_stop():
           "num_turns": 1, "duration_api_ms": 5})
 
 
+def long_step(prompt):
+    """The "long-step" turn (module doc)."""
+    send({"type": "user", "isReplay": True, "uuid": prompt.get("uuid"), "message": prompt.get("message")})
+    send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                             "delta": {"type": "text_delta", "text": "stepping"}}})
+    waiting = []
+    while True:
+        try:
+            got = LINES.get(timeout=20)
+        except queue.Empty:
+            break
+        if got is None:
+            sys.exit(0)
+        msg = json.loads(got)
+        if msg.get("type") == "user":
+            waiting.append(msg)
+        elif msg.get("type") == "control_request":
+            send({"type": "control_response", "response": {"subtype": "success",
+                  "request_id": msg.get("request_id"), "response": {}}})
+            if (msg.get("request") or {}).get("subtype") == "interrupt":
+                break
+    send({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": None,
+          "num_turns": 1, "duration_api_ms": 5})
+    for msg in waiting:
+        said = "".join(b.get("text", "") for b in (msg.get("message") or {}).get("content") or []
+                       if isinstance(b, dict))
+        send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message")})
+        send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                 "delta": {"type": "text_delta", "text": "read: " + said}}})
+        send({"type": "result", "subtype": "success", "result": "read: " + said, "num_turns": 1,
+              "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
+
+
+def fg_shell():
+    """The "fg-shell" turn (module doc). Like Claude Code 2.1.305, background_tasks
+    answers `backgrounded`: false when its tool_use_id names no foreground task."""
+    send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_fg", "name": "Bash",
+          "input": {"command": "npm run build", "description": "Build"}}]}})
+    send({"type": "system", "subtype": "task_started", "task_id": "f1", "tool_use_id": "toolu_fg",
+          "description": "Build", "task_type": "local_bash", "is_backgrounded": False})
+    stopped = False
+    while True:
+        try:
+            got = LINES.get(timeout=20)
+        except queue.Empty:
+            break
+        if got is None:
+            sys.exit(0)
+        msg = json.loads(got)
+        if msg.get("type") != "control_request":
+            continue
+        request = msg.get("request") or {}
+        rid = msg.get("request_id")
+        if request.get("subtype") == "background_tasks":
+            refused = os.environ.get("FAKE_CLAUDE_BACKGROUND_ERROR")
+            if refused:
+                send({"type": "control_response", "response": {"subtype": "error", "request_id": rid,
+                      "error": refused}})
+                continue
+            moved = request.get("tool_use_id") in (None, "toolu_fg")
+            send({"type": "control_response", "response": {"subtype": "success", "request_id": rid,
+                  "response": {"backgrounded": moved}}})
+            if moved:
+                send({"type": "system", "subtype": "task_updated", "task_id": "f1",
+                      "patch": {"is_backgrounded": True}})
+                send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_fg",
+                      "content": "Command was manually backgrounded by user with ID: f1"}]}})
+                break
+            continue
+        send({"type": "control_response", "response": {"subtype": "success", "request_id": rid, "response": {}}})
+        if request.get("subtype") == "interrupt":
+            stopped = True
+            break
+    if stopped:
+        send({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": None,
+              "num_turns": 1, "duration_api_ms": 5})
+        return
+    send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                             "delta": {"type": "text_delta", "text": "building in the background"}}})
+    send({"type": "result", "subtype": "success", "result": "building in the background", "num_turns": 1,
+          "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
+
+
 while True:
     line = AGAIN.pop(0) if AGAIN else LINES.get()
     if line is None:
@@ -279,7 +371,8 @@ while True:
                                                or k == "FORCE_PROMPT_CACHING_5M"},
                                "turnScoped": {k: os.environ[k] for k in ("SUBROUTER_SESSION_KEY", "CODEX_PROMPT_CACHE_KEY",
                                                                          "OPTCHAT_TURN_SEAL", "OPTCHAT_SUBAGENT", "AI_AGENT")
-                                              if k in os.environ}})
+                                              if k in os.environ},
+                               "customHeaders": os.environ.get("ANTHROPIC_CUSTOM_HEADERS")})
             send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                                                      "delta": {"type": "text_delta", "text": text}}})
             send({"type": "result", "subtype": "success", "result": text, "num_turns": 1, "duration_api_ms": 1,
@@ -329,6 +422,12 @@ while True:
         if said.strip() == "slow-stop":
             slow_stop()
             continue
+        if said.strip() == "long-step":
+            long_step(msg)
+            continue
+        if said.strip() == "fg-shell":
+            fg_shell()
+            continue
         # "/compact" runs Claude Code 2.1.303's compaction: the compacting status, the
         # boundary, the summary as a synthetic user line, the command's stdout, a result.
         if said.strip() == "/compact":
@@ -352,6 +451,13 @@ while True:
             while not os.path.exists(said[len("hold: "):]):
                 time.sleep(0.02)
         text = json.dumps(sys.argv[1:])
+        # "env: NAME" replies with that environment variable, for spawn-time checks.
+        if said.startswith("env:"):
+            name = said[4:].strip()
+            text = f"{name}={os.environ.get(name, '')}"
+        if said.startswith("envs:"):
+            names = [name.strip() for name in said[5:].split(",") if name.strip()]
+            text = json.dumps({name: os.environ.get(name, "") for name in names}, sort_keys=True)
         if said.endswith("settings-probe"):
             text = json.dumps({"said": said, "settings": FLAG_SETTINGS, "argv": sys.argv[1:]})
         if said.strip() == "history-probe" and STORE and LAYOUT:
@@ -375,14 +481,18 @@ while True:
             }, sort_keys=True)
         # "sandbox-probe OUTSIDE PORT": what this process may do, as JSON:
         # write a file at OUTSIDE, connect to 127.0.0.1:PORT, write in its cwd.
-        # "keychain-probe": whether this process may query the keychain
-        # (`security dump-keychain` lists item metadata when it may). The
-        # System keychain, by path: the user's keychain search list depends
-        # on HOME, and a test's HOME is a scratch folder.
+        # "keychain-probe": whether this process can retrieve a synthetic
+        # generic-password item from the test's temporary keychain.
         if said.strip() == "keychain-probe":
             import subprocess
             rc = subprocess.run(
-                ["/usr/bin/security", "dump-keychain", "/Library/Keychains/System.keychain"],
+                [
+                    "/usr/bin/security",
+                    "find-generic-password",
+                    "-a", "synthetic-account",
+                    "-s", "synthetic-service",
+                    "-w", os.environ["FAKE_KEYCHAIN_PATH"],
+                ],
                 capture_output=True,
             ).returncode
             text = json.dumps({"keychain": "allowed" if rc == 0 else "denied"})

@@ -1,6 +1,6 @@
 [package]
 name = "cmux-tui"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -71,6 +71,7 @@ unicode-width.workspace = true
 unicode-segmentation.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+cmux-panic-log.workspace = true
 # `cmux agents wait --regex` checks a pattern as the daemon's terminal.wait does.
 regex.workspace = true
 # `cmux mcp serve` code mode: `cmux_exec` scripts run in an embedded engine.
@@ -88,6 +89,8 @@ parking_lot.workspace = true
 sha2.workspace = true
 uuid.workspace = true
 wait-timeout.workspace = true
+# Verifies the signed invite-wave flags (feature_flags.rs); tests sign with it.
+ring.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 # `cmux host …`, the machine supervisor and process roles (server.md 5.1).

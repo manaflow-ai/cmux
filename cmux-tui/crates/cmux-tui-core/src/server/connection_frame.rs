@@ -37,6 +37,10 @@ pub(super) fn handle_connection_frame(
     if mux.daemon_handoff_in_progress() {
         return pending_handoff::reject_message_during_pending_handoff(message, writer);
     }
+    // An older client's line, upgraded to this daemon's API revision before
+    // any parse (server/api_revision_wire.rs); borrowed unchanged otherwise.
+    let upgraded = writer.api_revision.upgrade_request(message);
+    let message: &str = &upgraded;
     if let Some(request) = crate::resource_router::parse_resource_line(message) {
         // A v2 line the catalog parse refuses may name a routed namespace
         // operation (page-router-v1): the same JSON parse decides, so every
@@ -81,6 +85,7 @@ pub(super) fn handle_connection_frame(
         .or_else(|| agent_transfer::try_handle(mux, client, message, writer))
         .or_else(|| agent_inventory::try_handle(mux, client, message, writer))
         .or_else(|| agent_cli_job::try_handle(mux, client, message, writer))
+        .or_else(|| agent_cli_intents::try_handle(mux, client, message, writer))
         .or_else(|| agent_inventory::watch::try_handle(mux, client, message, writer))
     {
         return keep_open;

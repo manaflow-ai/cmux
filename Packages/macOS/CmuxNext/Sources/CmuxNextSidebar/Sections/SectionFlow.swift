@@ -43,7 +43,7 @@ nonisolated enum SectionFlow {
 
     /// `labelWidths`: each item's icon + label width (inline); a missing
     /// entry means icon only. `iconWidths`: an icon-only item wider than a
-    /// square on an icon line (the profile avatar with its chevron).
+    /// square on an icon line.
     static func place(_ section: LayoutSection, mode: Mode, x: CGFloat, y: CGFloat, width: CGFloat,
                       labelWidths: [LayoutItemID: CGFloat], iconWidths: [LayoutItemID: CGFloat] = [:],
                       metrics m: SidebarRegionMetrics) -> Result {

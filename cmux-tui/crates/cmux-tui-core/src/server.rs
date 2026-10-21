@@ -122,6 +122,8 @@ pub use loopback_forward::{
 };
 mod admission;
 #[cfg(unix)]
+mod agent_cli_intents;
+#[cfg(unix)]
 mod agent_cli_job;
 #[cfg(unix)]
 mod agent_inventory;
@@ -170,6 +172,7 @@ use resource_trust::{
     conversation_resource_client, handles_resource_connection_operation,
     trusted_local_resource_client,
 };
+mod api_revision_wire;
 mod conversation_tabs_wire;
 mod conversations;
 mod detached_terminals;
@@ -192,13 +195,11 @@ mod cmd_attach;
 mod cmd_browser;
 #[cfg(test)]
 use cmd_browser::browser_provider_registration;
+mod cmd_frontend;
 mod cmd_panes;
 mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
-#[cfg(test)]
-use cmd_server::{stamped_build_commit, stamped_ghostty_commit};
-mod cmd_frontend;
 mod cmd_sizing;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
 mod cmd_subscribe;
@@ -208,6 +209,7 @@ mod cmd_terminals;
 mod creating_input;
 use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
+mod column_move;
 mod command_history;
 mod page_credential;
 mod page_files;
@@ -222,6 +224,7 @@ mod session_stream;
 mod split_kind;
 mod split_respawn;
 mod tab_column;
+mod tab_park;
 mod tab_restart;
 mod websocket_listener;
 #[cfg(test)]
@@ -260,7 +263,9 @@ use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_a
 mod capabilities;
 pub use capabilities::build_capabilities;
 mod daemon_build;
-pub use daemon_build::{DAEMON_BUILD_CAPABILITY, DaemonBuild, install_daemon_build};
+pub use daemon_build::{
+    BuildStamp, DAEMON_BUILD_CAPABILITY, DaemonBuild, install_build_stamp, install_daemon_build,
+};
 mod socket_path;
 #[cfg(test)]
 use socket_path::default_socket_path_in_runtime_dir;
@@ -273,6 +278,7 @@ pub use socket_path::{
 pub(crate) mod activity;
 mod browser_input;
 mod chief_control;
+mod chief_engine_mirror;
 mod chief_inspect;
 mod chief_manage;
 mod chief_registry_resource;
@@ -315,6 +321,8 @@ pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
 pub const DOCK_COLUMN_ROLE_CAPABILITY: &str = "dock-column-role-v1";
 /// `new-row`, `set-row-heights` and `Screen.columns[].rows` (rows.md).
 pub const ROWS_CAPABILITY: &str = "rows-v1";
+/// `move-column`: a whole viewport column moves one place left or right.
+pub const COLUMN_MOVE_CAPABILITY: &str = "column-move-v1";
 /// `kind` (`pty` | `browser`) and `url` on `split` and `new-pane-right`.
 pub const PANE_BROWSER_KIND_CAPABILITY: &str = "pane-browser-kind-v1";
 pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
@@ -387,6 +395,9 @@ pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
 /// field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped`
 /// event, and `end_terminals` on `shutdown-daemon`.
 pub const TERMINAL_REAP_CAPABILITY: &str = "terminal-reap-v1";
+/// Advertises `terminal-resume-command`: a person's resume command for one
+/// terminal, typed on the new prompt when the terminal is respawned.
+pub const RESUME_COMMAND_CAPABILITY: &str = "resume-command";
 /// Advertised only while this owner's unplaced-terminal reaper runs (the
 /// owner was started with `--terminal-reap-grace-seconds`). Without it a
 /// detached terminal lives until it is ended or the session ends, so a
@@ -435,6 +446,16 @@ pub const NOTIFICATION_MARK_UNREAD_CAPABILITY: &str = "notification-mark-unread-
 /// resource's `extra.marked_unread`. It needs no notification; clients clear
 /// it when the person views the tab.
 pub const TAB_MARK_UNREAD_CAPABILITY: &str = "tab-mark-unread-v1";
+/// A workspace's description: `description` on `workspace.update` (null
+/// clears it) and the workspace snapshot's `extra.description` while set.
+pub const WORKSPACE_DESCRIPTION_CAPABILITY: &str = "workspace-description-v1";
+/// A workspace's manual task status (classic cmux lanes `todo`, `working`,
+/// `needs-attention`, `review`, `done`): `task_status` on `workspace.update`
+/// (null is automatic) and the workspace snapshot's `extra.task_status`.
+pub const WORKSPACE_STATUS_CAPABILITY: &str = "workspace-status-v1";
+/// `workspace.create` takes `focus`: a created workspace becomes the focused
+/// one only with `focus: true` (the app sends it for the person's creations).
+pub const WORKSPACE_CREATE_FOCUS_CAPABILITY: &str = "workspace-create-focus-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
@@ -535,6 +556,12 @@ pub const SESSION_JOURNAL_PROTOCOL_VERSION: u32 = PER_SURFACE_CLIENT_SIZING_PROT
 pub const TERMINAL_LIFECYCLE_PROTOCOL_VERSION: u32 = 11;
 pub const LIFECYCLE_READINESS_PROTOCOL_VERSION: u32 = 12;
 pub const PROTOCOL_VERSION: u32 = LIFECYCLE_READINESS_PROTOCOL_VERSION;
+
+/// The API revisions this build speaks: `(current, oldest it translates)`
+/// (server/api_revision_wire.rs, cmux-tui/spec/api-compat.json).
+pub fn api_revision_range() -> (u32, u32) {
+    api_revision_wire::identify_fields()
+}
 mod protocol_key;
 #[cfg(test)]
 use protocol_key::PROTOCOL_KEY_TEXT_MAX_BYTES;
@@ -665,12 +692,18 @@ impl DetachNotice {
     }
 }
 
+// Variant names are the wire command names (`terminal-resume-command`).
+#[allow(clippy::enum_variant_names)]
 #[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify {
         #[serde(default)]
         machine_metadata: bool,
+        /// Adds `api_revision`, `min_api_revision`, `crate_version`,
+        /// `install` and `update_command` (server/api_revision_wire.rs).
+        #[serde(default)]
+        revisions: bool,
     },
     BrowserHostProvider,
     SubscribeActivity,
@@ -757,6 +790,17 @@ enum Command {
         device_name: Option<String>,
         #[serde(default)]
         device_id: Option<String>,
+        /// The API revision the client reads and writes
+        /// (server/api_revision_wire.rs). Absent: revision 12.
+        #[serde(default)]
+        api_revision: Option<u32>,
+        /// The client's release (`cmux --version`), for refusals and logs.
+        #[serde(default)]
+        version: Option<String>,
+        /// How the client was installed (`npm`, `pypi`, `app`, `other`),
+        /// so a refusal names its update command.
+        #[serde(default)]
+        install: Option<String>,
     },
     ListClients,
     /// Read the machine-level model spend readout hosted by this daemon.
@@ -889,22 +933,8 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
-    Send {
-        /// The terminal surface; or `terminal_id` (exactly one).
-        #[serde(default)]
-        surface: Option<SurfaceId>,
-        /// `terminal-input-while-creating-v1`: the host terminal id, also of a terminal still
-        /// being created (the input is queued for it, `mux::creating_input`).
-        #[serde(default)]
-        terminal_id: Option<String>,
-        #[serde(default)]
-        text: Option<String>,
-        /// Base64-encoded raw bytes, written verbatim to the pty.
-        #[serde(default)]
-        bytes: Option<String>,
-        #[serde(default)]
-        paste: bool,
-    },
+    /// `send`: write input to a terminal.
+    Send(cmd_terminal_io::SendParams),
     ReadScreen {
         surface: SurfaceId,
     },
@@ -1050,6 +1080,18 @@ enum Command {
         terminal_id: Option<String>,
         keep: bool,
     },
+    /// Read, set (a string) or clear (null) the resume command of one hosted
+    /// terminal, named by exactly one of a PTY `surface` or a stable
+    /// `terminal_id`. A respawn of the terminal types the command on its new
+    /// prompt without a newline. An absent `command` only reads it.
+    TerminalResumeCommand {
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        #[serde(default)]
+        terminal_id: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        command: Option<Option<String>>,
+    },
     /// New tab in a pane (default: the active pane).
     NewTab {
         #[serde(default)]
@@ -1080,6 +1122,7 @@ enum Command {
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     NewFrontendBrowserTab(frontend_browser_history::NewTabParams),
     RestartTab(tab_restart::Params),
+    ParkTabs(tab_park::Params),
     UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
     SetFrontendBrowserHistory(frontend_browser_history::SetParams),
     GetFrontendBrowserHistory(frontend_browser_history::GetParams),
@@ -1607,6 +1650,8 @@ enum Command {
     MoveTabToColumn(tab_column::MoveTabToColumnParams),
     NewRow(rows::NewRowParams),
     SetRowHeights(rows::SetRowHeightsParams),
+    /// Move a whole viewport column one place (`column-move-v1`).
+    MoveColumn(column_move::MoveColumnParams),
     /// Drop a tab on the sidebar: a new workspace holding the tab.
     MoveTabToNewWorkspace {
         surface: SurfaceId,
@@ -1701,6 +1746,8 @@ enum Command {
     /// `ws-listen` (`ws-listen-v1`, server/page_listener.rs): open the owner's page listener.
     WsListen(page_listener::WsListenParams),
     CloudInboxList(cloud_conversations::InboxListParams),
+    /// `cloud-requests-list`: the person's message requests (no fields).
+    CloudRequestsList(cloud_conversations::NoParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
     CloudConversationThread(cloud_conversations::ThreadParams),
@@ -2199,8 +2246,8 @@ impl Command {
             | Self::ReattachView { surface, .. }
             | Self::NoteSizeActivity { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
+            Self::Send(send) => send.surface,
             Self::AttachSurface { surface, .. }
-            | Self::Send { surface, .. }
             | Self::Notify { surface, .. }
             | Self::ListAgents { surface, .. }
             | Self::Subscribe { surface, .. }
@@ -2217,7 +2264,7 @@ impl Command {
         matches!(
             self,
             Self::ClearHistory { .. }
-                | Self::Send { .. }
+                | Self::Send(_)
                 | Self::SendKey { .. }
                 | Self::BrowserFramePresented { .. }
                 | Self::BrowserMouse { .. }
@@ -2540,7 +2587,7 @@ pub use restoring::RestoringServer;
 use websocket_listener::handle_websocket_connection;
 pub use websocket_listener::{
     WebSocketAccess, WebSocketServer, parse_websocket_origin, serve_websocket,
-    serve_websocket_with_access, serve_websocket_with_pages,
+    serve_websocket_with_access, serve_websocket_with_keepalive, serve_websocket_with_pages,
 };
 
 #[cfg(test)]
@@ -2792,6 +2839,10 @@ mod pinned_columns_tests;
 #[cfg(test)]
 #[path = "server/rows_tests.rs"]
 mod rows_tests;
+
+#[cfg(test)]
+#[path = "server/column_move_tests.rs"]
+mod column_move_tests;
 
 #[cfg(test)]
 #[path = "server/pane_browser_kind_tests.rs"]

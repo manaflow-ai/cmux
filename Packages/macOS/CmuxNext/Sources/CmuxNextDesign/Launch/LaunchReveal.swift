@@ -66,9 +66,17 @@ public final class LaunchReveal {
         for view in views {
             // The model value at once; the fade runs on the layer.
             view.alphaValue = 1
-            if let layer = view.layer { Motion.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0)) }
+            if let layer = view.layer { Motion.panes.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0)) }
         }
         for work in waiters.removeValue(forKey: region) ?? [] { work() }
+    }
+
+    /// `view` has its data before its region (a terminal's frame from the last quit): it shows at
+    /// once, with no fade, while the region's other views stay held.
+    public func release(_ view: NSView) {
+        guard held.values.contains(where: { $0.contains(view) }) else { return }
+        for table in held.values { table.remove(view) }
+        view.alphaValue = 1
     }
 
     /// Every region is ready (or will never be): nothing stays held.

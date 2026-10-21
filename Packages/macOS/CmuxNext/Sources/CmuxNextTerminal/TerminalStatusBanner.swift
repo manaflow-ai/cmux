@@ -75,7 +75,7 @@ final class TerminalStatusBanner: NSView {
     private func beginReveal() {
         guard let layer else { return }
         layer.add(Motion.hold("opacity", at: 0), forKey: Self.revealHoldKey)
-        layer.add(Motion.scheduledFade(.fadeIn, "opacity", from: 0, to: 1, after: Self.restoringRevealDelay, on: layer),
+        layer.add(Motion.overlays.scheduledFade(.fadeIn, "opacity", from: 0, to: 1, after: Self.restoringRevealDelay, on: layer),
                   forKey: Self.revealFadeKey)
     }
 

@@ -24,6 +24,16 @@ public struct MacName: Sendable {
         return host.isEmpty ? "Mac" : host
     }
 
+    /// `cmux-<host>`, as the old app named its Cloud link device (moved from
+    /// CloudService). Reads the kernel hostname: `ProcessInfo.hostName`
+    /// resolves through DNS and blocked the main thread for 35 s on launch.
+    public nonisolated func linkDeviceName() -> String {
+        let name = kernelHostName()
+        let host = name.isEmpty ? "mac" : name
+        let cleaned = host.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }
+        return "cmux-" + String(String(cleaned).prefix(40))
+    }
+
     /// The kernel host name's first label (`gethostname`: a syscall, no DNS).
     public nonisolated func kernelHostName() -> String {
         var buffer = [CChar](repeating: 0, count: 256)

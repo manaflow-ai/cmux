@@ -50,8 +50,8 @@ pub(super) struct Slot<'a> {
     pub(super) prompt_id: &'a str,
     pub(super) control: Control,
     pub(super) trust_gate: bool,
-    /// A steer the agent cannot take: it goes to the head of the queue and the running turn
-    /// stops (`queue_edit.rs` `send_queued_now`).
+    /// A steer the agent cannot take (`_meta.acpmux.interrupt`): it goes to the head of the
+    /// queue and the running turn stops.
     pub(super) interrupt: bool,
     pub(super) provenance: Option<&'a Value>,
 }
@@ -233,7 +233,13 @@ impl Hub {
         drop(queue);
         // `prompt`, `control`, `trustGate` and the provenance let a new daemon run it
         // (`restore_queues`).
-        let queued = json!({"text": p.text, "client": p.client, "position": position, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate});
+        let mut queued = json!({"text": p.text, "client": p.client, "position": position, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate});
+        // Its images are kept now and named, so its row shows them before it runs
+        // (`prompt_images.rs`).
+        let images = super::prompt_images::keep(p.blocks);
+        if !images.is_empty() {
+            queued["images"] = Value::Array(images);
+        }
         self.append(
             session,
             "mux",
@@ -471,10 +477,32 @@ impl Hub {
     /// removed, in queue order. They run once `resume_queues` starts them; a client that resends
     /// one meanwhile waits for that run (the ledger entry made here).
     pub(super) fn restore_queues(&self) {
-        for session in self.sessions() {
-            self.restore_queue(&session);
-        }
+        // Sessions restore apart (each reads only its own log), so they run on every core.
+        let sessions = self.sessions();
+        self.on_every_core(&sessions, |session| self.restore_queue(session));
     }
+
+    /// The record kinds `restore_queue` reads; the store parses no other line.
+    const QUEUE_KINDS: &[&str] = &[
+        "queued",
+        "transfer_out",
+        "transfer_aborted",
+        "imported",
+        "dequeued",
+        "queue_removed",
+        "user_message",
+        "turn_started",
+        "queue_updated",
+        "queue_paused",
+        "queue_resumed",
+        "queue_order",
+        // A paused agent pair's records (`agent_pairs.rs`).
+        "agent_pair_held",
+        "agent_pair_released",
+        "agent_pair_dropped",
+        "agent_pair_paused",
+        "agent_pair_resumed",
+    ];
 
     /// One session's queue, from its log (also a chat moved here, `transfer_in.rs`).
     pub(super) fn restore_queue(&self, session: &Arc<Session>) {
@@ -487,44 +515,67 @@ impl Hub {
         // A move that began and neither committed nor aborted (`transfer_out.rs`); a chat
         // moved here was the source's until its `imported` record.
         let mut moving: Option<String> = None;
-        let scanned = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            let turn_id = e.msg.get("turnId");
-            match e.kind.as_str() {
-                "queued" => waiting.push(e),
-                "transfer_out" => moving = e.msg["transferId"].as_str().map(str::to_owned),
-                "transfer_aborted" | "imported" => moving = None,
-                "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
-                    waiting.retain(|q| q.msg.get("turnId") != turn_id);
+        // What a paused agent pair held here, what its releases took, its pauses and resumes,
+        // and the prompt ids that reached the session (`agent_pairs.rs`).
+        let mut pair_records: Vec<EventRecord> = Vec::new();
+        let mut recorded: std::collections::HashSet<String> = Default::default();
+        let scanned =
+            self.store.scan_kinds(&session.id, Self::QUEUE_KINDS, &mut |e: EventRecord| {
+                if matches!(e.kind.as_str(), "queued" | "user_message")
+                    && let Some(id) = e.msg.get("promptId").and_then(Value::as_str)
+                {
+                    recorded.insert(id.to_owned());
                 }
-                // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones,
-                // and it has no `_meta.provenance` (the person rewrote it).
-                "queue_updated" => {
-                    if let Some(q) = waiting.iter_mut().find(|q| q.msg.get("turnId") == turn_id) {
-                        for k in ["text", "prompt", "control", "trustGate"] {
-                            q.msg[k] = e.msg.get(k).cloned().unwrap_or(Value::Null);
-                        }
-                        if let Some(meta) = q.msg.get_mut("_meta").and_then(Value::as_object_mut) {
-                            meta.remove("provenance");
+                let turn_id = e.msg.get("turnId");
+                match e.kind.as_str() {
+                    "queued" => waiting.push(e),
+                    "agent_pair_held"
+                    | "agent_pair_released"
+                    | "agent_pair_dropped"
+                    | "agent_pair_paused"
+                    | "agent_pair_resumed" => pair_records.push(e),
+                    "transfer_out" => moving = e.msg["transferId"].as_str().map(str::to_owned),
+                    "transfer_aborted" | "imported" => moving = None,
+                    "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
+                        waiting.retain(|q| q.msg.get("turnId") != turn_id);
+                    }
+                    // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones,
+                    // and it has no `_meta.provenance` (the person rewrote it).
+                    "queue_updated" => {
+                        if let Some(q) = waiting.iter_mut().find(|q| q.msg.get("turnId") == turn_id)
+                        {
+                            for k in ["text", "prompt", "control", "trustGate"] {
+                                q.msg[k] = e.msg.get(k).cloned().unwrap_or(Value::Null);
+                            }
+                            if let Some(meta) =
+                                q.msg.get_mut("_meta").and_then(Value::as_object_mut)
+                            {
+                                meta.remove("provenance");
+                            }
                         }
                     }
-                }
-                "queue_paused" => {
-                    let ids = e.msg.get("held").and_then(Value::as_array);
-                    held.extend(ids.into_iter().flatten().cloned());
-                }
-                "queue_resumed" => held.clear(),
-                "queue_order" => {
-                    // Sent now (`put_next`): no longer held.
-                    if e.msg.get("next") == Some(&Value::Bool(true)) {
-                        held.retain(|id| Some(id) != e.msg.get("promptId"));
+                    "queue_paused" => {
+                        let ids = e.msg.get("held").and_then(Value::as_array);
+                        held.extend(ids.into_iter().flatten().cloned());
                     }
-                    order =
-                        e.msg.get("order").and_then(Value::as_array).cloned().unwrap_or_default()
+                    "queue_resumed" => held.clear(),
+                    "queue_order" => {
+                        // Sent now (`put_next`): no longer held.
+                        if e.msg.get("next") == Some(&Value::Bool(true)) {
+                            held.retain(|id| Some(id) != e.msg.get("promptId"));
+                        }
+                        order = e
+                            .msg
+                            .get("order")
+                            .and_then(Value::as_array)
+                            .cloned()
+                            .unwrap_or_default()
+                    }
+                    _ => {}
                 }
-                _ => {}
-            }
-            true
-        });
+                true
+            });
+        self.restore_agent_pairs(&session.id, pair_records, &recorded);
         session.moving.lock().unwrap_or_else(|e| e.into_inner()).clone_from(&moving);
         if scanned.is_err() || waiting.is_empty() {
             return;
@@ -577,6 +628,8 @@ impl Hub {
     /// Runs the prompts `restore_queues` put back, each in its place in the queue (after any
     /// turn recovered from an agent host). Called once at daemon start, after adoption.
     pub fn resume_queues(self: &Arc<Self>) {
+        // And what a resumed agent pair still held when the daemon stopped (`agent_pairs.rs`).
+        self.resume_agent_pair_drains();
         for session in self.sessions() {
             let restored: Vec<QueuedPrompt> = session
                 .queue
