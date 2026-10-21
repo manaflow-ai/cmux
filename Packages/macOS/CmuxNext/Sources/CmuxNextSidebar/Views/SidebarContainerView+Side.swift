@@ -26,6 +26,20 @@ extension SidebarContainerView {
         SidebarResizeBand(width: max(Metrics.dividerHitWidth, SidebarResizeBand.minimumWidth), gutter: Metrics.mainPaneGutter)
     }
 
+    /// The resize band in window coordinates; nil while the handle is hidden or out of a window.
+    /// A Chromium page is a child window above this one and would take the mouse there, so the
+    /// window covers the band with a catcher panel above pages, as for a pane divider
+    /// (`DividerMouseCatchers`).
+    public var resizeBandInWindow: CGRect? {
+        guard handle.window != nil, !handle.isHiddenOrHasHiddenAncestor, handle.bounds.width > 0 else { return nil }
+        return handle.convert(handle.bounds, to: nil)
+    }
+
+    /// The pointer is over the band's catcher panel: the handle under it gets no pointer events.
+    public func setResizeHovered(_ hovered: Bool) {
+        handle.setHovered(hovered)
+    }
+
     /// Puts the resize handle in the superview, just above this view, and pins it across the
     /// edge facing the content (`SidebarResizeBand`). Without a superview it waits in this view.
     /// Inside this view its outer part would be clipped from clicks, the cursor and hover; in
