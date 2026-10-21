@@ -1,9 +1,9 @@
 // l10n-allow-file: test fixture prompts and commands, not shipped UI.
 // Ctrl-B moves a Claude Code chat's running work to the background, as in Claude Code
-// (conversation/runInBackground.ts): a running command's row says "⌃B to run in background", and
-// Ctrl-B, with the composer focused too, asks acpmux `_acpmux/process/background`. A chat whose
-// turn holds no running call keeps Ctrl-B for the composer's caret, and a Codex chat never shows
-// the hint. A running subagent draws no tool row, and takes Ctrl-B by itself. When nothing moved
+// (conversation/runInBackground.ts): the turn's live line, which names the running command, says
+// "⌃B to run in background", and Ctrl-B, with the composer focused too, asks acpmux
+// `_acpmux/process/background`. A chat whose turn holds no running call keeps Ctrl-B for the
+// composer's caret, and a Codex chat never shows the hint. A running subagent draws no tool row, and takes Ctrl-B by itself. When nothing moved
 // (acpmux found nothing in the foreground, refused, never answered, or the connection closed), a
 // notice above the composer says so until the next key (conversation/backgroundNotice.ts). The page is the pane's dev entry
 // with its browser host, talking JSON-RPC to a stand-in acpmux daemon.
@@ -255,9 +255,14 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     return backgrounded;
   };
 
-  test("a running command's row says Ctrl-B runs it in the background", async () => {
+  test("a running command's live line says Ctrl-B runs it in the background", async () => {
     const page = await open(CLAUDE);
-    await page.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
+    // The command in flight draws no row of its own (Debug toggles agentPane.debug.codexToolRuns
+    // and liveLineBelow, on by default): the live line at the turn's foot names it and offers the
+    // hint its row did (Thinking.tsx).
+    const line = page.locator(".cv-worked.is-below");
+    await line.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
+    expect(await line.locator(".cv-thinking").textContent()).toBe("Running cargo test --workspace");
     await page.close();
   });
 

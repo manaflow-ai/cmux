@@ -268,14 +268,24 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
         rawInput: { file_path: "src/auth.ts" },
       }),
     ]);
-    // The read's own row: the running turn's status line names the call in flight too (#21631),
-    // and that line heads the turn, above the question.
+    // While it runs the read draws no row of its own (Debug toggle agentPane.debug.codexToolRuns,
+    // on by default): the live line at the turn's foot names it (Thinking.tsx), under the record.
+    const live = page.locator(".cv-worked.is-below .cv-thinking", { hasText: "Read auth.ts" });
+    await live.waitFor({ timeout: 5_000 });
+    const line = await live.boundingBox();
+    // Done, it is the read's own row, under the record too.
+    push([
+      "in",
+      "tool_call_update",
+      update({ sessionUpdate: "tool_call_update", toolCallId: "read-auth", status: "completed" }),
+    ]);
     const after = page.locator(".cv-tool__text", { hasText: "Read src/auth.ts" }).first();
     await after.waitFor({ timeout: 5_000 });
     const [record, read] = await Promise.all([
       page.locator(".acpmux-question-answered").first().boundingBox(),
       after.boundingBox(),
     ]);
+    expect(line!.y).toBeGreaterThan(record!.y);
     expect(read!.y).toBeGreaterThan(record!.y);
     await page.close();
   });

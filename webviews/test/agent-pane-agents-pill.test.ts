@@ -156,11 +156,12 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${session}`;
   };
-  const open = async (session: string, shown = "Read src/app.ts") => {
+  const open = async (session: string, shown = "Read app.ts") => {
     sockets.clear();
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(session));
-    // The running line names the call in flight too (WorkingFor.tsx): the first match is its row.
+    // The read in flight draws no row of its own (Debug toggle agentPane.debug.codexToolRuns, on by
+    // default): the turn's live line names it by its file (Thinking.tsx).
     await page.getByText(shown).first().waitFor({ timeout: 25_000 });
     return page;
   };
