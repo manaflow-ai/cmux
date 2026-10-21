@@ -206,6 +206,53 @@ test("editing a queued prompt removes one of its images and saves the rest", asy
   expect(edits).toEqual([["p-1", { op: "update", text: "why does this overlap?", images: [SHOT_B] }]]);
 });
 
+test("from the keyboard, Tab reaches an image's remove control without ending the edit", async () => {
+  const edits: [string, QueueEdit][] = [];
+  const container = await renderPictured(async (id, edit) => {
+    edits.push([id, edit]);
+    return true;
+  }, []);
+  const [edit] = actions(container, "p-1");
+  await act(async () => edit.click());
+  const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
+  const [remove] = container.querySelectorAll<HTMLButtonElement>('[data-prompt-id="p-1"] .acpmux-queued-image-remove');
+  // Tab from the field to the first image's remove control: the edit stays open.
+  await act(async () => remove!.focus());
+  expect(edits).toEqual([]);
+  expect(field.isConnected).toBe(true);
+  // Return on it removes the image and hands focus back to the field, where Return saves.
+  await act(async () => remove!.click());
+  expect(thumbnails(container).length).toBe(1);
+  expect(dom!.window.document.activeElement).toBe(field);
+  await act(async () => {
+    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  expect(edits).toEqual([["p-1", { op: "update", text: "why does this overlap?", images: [SHOT_B] }]]);
+});
+
+test("focus leaving an image's remove control for outside the row saves the edit", async () => {
+  const edits: [string, QueueEdit][] = [];
+  const container = await renderPictured(async (id, edit) => {
+    edits.push([id, edit]);
+    return true;
+  }, []);
+  const [edit] = actions(container, "p-1");
+  await act(async () => edit.click());
+  const [first, second] = container.querySelectorAll<HTMLButtonElement>(
+    '[data-prompt-id="p-1"] .acpmux-queued-image-remove',
+  );
+  await act(async () => first!.focus());
+  // To the next image's control: still editing.
+  await act(async () => second!.focus());
+  expect(edits).toEqual([]);
+  await act(async () => second!.click());
+  const outside = dom!.window.document.createElement("button");
+  dom!.window.document.body.append(outside);
+  await act(async () => first!.focus());
+  await act(async () => outside.focus());
+  expect(edits).toEqual([["p-1", { op: "update", text: "why does this overlap?", images: [SHOT_A] }]]);
+});
+
 test("editing only a queued prompt's text sends no image list, so it keeps them all", async () => {
   const edits: [string, QueueEdit][] = [];
   const container = await renderPictured(async (id, edit) => {
