@@ -799,6 +799,9 @@ export class AcpmuxDirectClient {
   private streamingActivity?: string;
   /// The open turn's plan row: its later `plan` updates redraw this one list (cx-ncc.80).
   private planRow?: string;
+  /// Compaction rows noted as failed while Claude may still be compacting (the next turn started,
+  /// or acpmux forced a Stop): the compaction's next running note takes the row back.
+  private readonly compactionsMayGoOn = new Set<string>();
   private supersededMessageIds = new Set<string>();
   /// The rows each message streamed into; tool calls split one message into several.
   private messageRows = new Map<string, string[]>();
@@ -1101,6 +1104,7 @@ export class AcpmuxDirectClient {
     this.toolRows.clear();
     this.planCalls.clear();
     this.planRow = undefined;
+    this.compactionsMayGoOn.clear();
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
     this.waitingPermissions.clear();
@@ -1753,6 +1757,7 @@ export class AcpmuxDirectClient {
     this.messageRows.clear();
     this.offerRows.clear();
     this.receivedOffers.clear();
+    this.compactionsMayGoOn.clear();
     this.toolRows.clear();
     this.planCalls.clear();
     this.subagents = new SubagentFold();
@@ -2109,7 +2114,7 @@ export class AcpmuxDirectClient {
       } else if (event.kind === "turn_started") {
         this.turnOpen = true;
         this.subagents.startTurn();
-        this.settleCompactions(event.seq);
+        this.settleCompactions(event.seq, true);
         // A Stop before this turn never judges it.
         this.stopAnswered(event);
         this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" });
@@ -2124,7 +2129,7 @@ export class AcpmuxDirectClient {
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
         this.turnOpen = false;
-        this.settleCompactions(event.seq);
+        this.settleCompactions(event.seq, event.kind === "turn_result" && msg.cancelForced === true);
         this.landSteer();
         // Stop was answered: its grace must not judge the next turn.
         this.stopAnswered(event);
@@ -2274,26 +2279,33 @@ export class AcpmuxDirectClient {
       this.streamingActivity = undefined;
       // One row per compaction: its end replaces the latest running note before it, or the
       // latest one its turn's end noted as failed (a Stop acpmux forced while the compaction
-      // went on: its end comes after the turn's). A running note always starts its own row, and
-      // an older history page binds to its own rows, never to a live one.
+      // went on: its end comes after the turn's). Claude Code says it is compacting again every
+      // 30 seconds, so a running note joins the latest one still running, or the latest one the
+      // next turn's start noted as failed (it kept running into that turn); otherwise it starts
+      // its own row. An older history page binds to its own rows, never to a live one.
       let running: AcpmuxRow | undefined;
-      if (compaction.state !== "running")
-        for (const row of this.rows.values())
-          if (
-            row.kind === "compaction" &&
-            (row.compaction?.state === "running" || row.compaction?.inferred === true) &&
-            (row.seq ?? 0) < event.seq &&
-            (row.seq ?? 0) > (running?.seq ?? -1)
-          )
-            running = row;
+      for (const row of this.rows.values())
+        if (
+          row.kind === "compaction" &&
+          (row.compaction?.state === "running" ||
+            (row.compaction?.inferred === true &&
+              (compaction.state !== "running" || this.compactionsMayGoOn.has(row.id)))) &&
+          (row.seq ?? 0) < event.seq &&
+          (row.seq ?? 0) > (running?.seq ?? -1)
+        )
+          running = row;
       const id = running?.id ?? `compaction-${event.seq}`;
+      this.compactionsMayGoOn.delete(id);
       this.rows.set(id, {
         id,
         version: (running?.version ?? 0) + 1,
         at: running?.at ?? event.at,
         seq: running?.seq ?? event.seq,
         kind: "compaction",
-        compaction,
+        compaction:
+          compaction.state === "running" && running?.compaction
+            ? stillRunning(running.compaction, compaction)
+            : compaction,
       });
     } else if (event.kind === "plan") {
       const plan = planEntries(update.entries);
@@ -2386,15 +2398,18 @@ export class AcpmuxDirectClient {
   /// A compaction still running when its turn ends (a Stop, the agent process exiting, a
   /// relaunch) or the next turn starts may never send how it ended: it is noted as failed, so
   /// the row stops spinning, live and when the history is read again. `inferred` lets an end
-  /// that does come later (a forced Stop the compaction outlived) take the row back.
-  private settleCompactions(seq: number) {
+  /// that does come later (a forced Stop the compaction outlived) take the row back, and
+  /// `mayGoOn` lets its next running note do so too.
+  private settleCompactions(seq: number, mayGoOn = false) {
     for (const row of this.rows.values())
-      if (row.kind === "compaction" && row.compaction?.state === "running" && (row.seq ?? 0) < seq)
+      if (row.kind === "compaction" && row.compaction?.state === "running" && (row.seq ?? 0) < seq) {
+        if (mayGoOn) this.compactionsMayGoOn.add(row.id);
         this.rows.set(row.id, {
           ...row,
           version: row.version + 1,
           compaction: { ...row.compaction, state: "failed", inferred: true },
         });
+      }
   }
 
   private endAssistantSegment(): void {
@@ -3734,7 +3749,14 @@ export function harnessBlock(error: unknown): HarnessBlock | undefined {
   return { reason, harness: data.harness, folder: data.folder };
 }
 
-/// A `compaction` update's state and sizes; undefined for a state acpmux does not send.
+/// A compaction's next running note on its row: what the row knew (a wrapper's reason), still running.
+function stillRunning(prior: AcpmuxCompaction, next: AcpmuxCompaction): AcpmuxCompaction {
+  const { inferred: _inferred, ...known } = prior;
+  return { ...known, ...next };
+}
+
+/// A `compaction` update's state, sizes and, for a failed one, why; undefined for a state
+/// acpmux does not send.
 function compactionOf(update: any): AcpmuxCompaction | undefined {
   const state = update?.state;
   if (state !== "running" && state !== "completed" && state !== "failed") return undefined;
@@ -3742,6 +3764,9 @@ function compactionOf(update: any): AcpmuxCompaction | undefined {
   return {
     state,
     ...(typeof update.reason === "string" && update.reason ? { reason: update.reason } : {}),
+    ...(state === "failed" && typeof update.error === "string" && update.error.trim()
+      ? { error: update.error.trim() }
+      : {}),
     ...(count(update.preTokens) !== undefined ? { preTokens: count(update.preTokens) } : {}),
     ...(count(update.postTokens) !== undefined ? { postTokens: count(update.postTokens) } : {}),
   };
