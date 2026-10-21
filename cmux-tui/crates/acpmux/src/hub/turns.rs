@@ -1029,6 +1029,7 @@ impl Hub {
         crate::agent_tools::remove_mcp_config(&crate::config::home(), &session.id);
         if purge {
             session.purged.store(true, Ordering::SeqCst);
+            let replaced = session.replaced.load(Ordering::SeqCst);
             self.sessions.lock().unwrap().remove(&session.id);
             // Its temporary folder goes with it (`agent/session_tmp.rs`).
             #[cfg(unix)]
@@ -1045,12 +1046,24 @@ impl Hub {
                     at: now_ms(),
                     dir: "mux".into(),
                     kind: "purged".into(),
-                    msg: json!({"sessionId": session.id}),
+                    msg: if replaced {
+                        json!({"sessionId": session.id, "replaced": true})
+                    } else {
+                        json!({"sessionId": session.id})
+                    },
                     host_seq: None,
                 }),
                 remote: None,
             });
             self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
+            // The files dropped into the chat go with it (`file_uploads.rs`), unless the chat
+            // itself comes back under this id.
+            if !replaced {
+                let id = session.id.clone();
+                let _ =
+                    tokio::task::spawn_blocking(move || super::file_uploads::remove_session(&id))
+                        .await;
+            }
         }
         Ok(())
     }
