@@ -1975,6 +1975,8 @@ export function VirtualTranscript({
   const cardRest = useRef(0);
   /// How far the rows were drawn up by the composer's growth (`lift` below) as of the last pass.
   const appliedLift = useRef(0);
+  /// The composer's growth kept out of the room under the last row (`lifted` below) as of that pass.
+  const liftedBefore = useRef(0);
   /// Before the offset is written where rows lay out (a row's place), not where a lift draws them:
   /// the view stops following, and the commit that follows (from an event or a layout effect,
   /// before the frame paints) drops the lift without moving the offset by it.
@@ -2126,10 +2128,12 @@ export function VirtualTranscript({
   const kept = following && keptFor && floor.current.width === width && floor.current.sessionId === sessionId;
   const box = previousViewport.current;
   const footDropped = height - dockSpace > box.height - box.dockSpace;
+  // Held as the end the view would have with all the stack's room (the composer's growth not taken
+  // out, `lifted` below): the content end the reader sees is that less the lift on screen.
   const floorHeight = !kept
     ? 0
     : queueLeft.current && footDropped && previousLayout.current
-      ? Math.max(floor.current.height, previousLayout.current.totalHeight - box.height + height)
+      ? Math.max(floor.current.height, previousLayout.current.totalHeight + liftedBefore.current - box.height + height)
       : floor.current.height;
   // The room under the last row is the stack's height while the view follows the latest row, so
   // the latest row ends above a composer that grows. Scrolled up, nothing under the stack is in view:
@@ -2149,19 +2153,26 @@ export function VirtualTranscript({
   const atDock = Math.max(floorHeight, rowsAtDock);
   // A card that grew is drawn up by at most what the offset can take back: the view keeps more than
   // the follow deadband to scroll, so the reader's scroll up still leaves the latest row (and the
-  // lift with it) in a transcript about a screen tall; the rest of the growth is room. A room held
-  // for a sent prompt (`floor`) already covers the card, so that part never lifts. A card shorter
-  // than it was draws the rows down within the room it left. Whole pixels, as the offset.
+  // lift with it) in a transcript about a screen tall; the rest of the growth is room. While a room
+  // held for a sent prompt (`floor`) reaches past the rows, it already covers the card: the lift on
+  // screen stays as it is (shrinking it drew every row down by the queue card that left, and up
+  // again as its prompt came), and growth meanwhile never adds to it. A card shorter than it was
+  // draws the rows down within the room it left. Whole pixels, as the offset.
+  const floorHolds = floorHeight > rowsAtDock;
   const lifted = Math.round(
     grown > 0
-      ? Math.max(0, Math.min(grown, atDock - height - FOLLOW_BOTTOM_DEADBAND_PX - 1, rowsAtDock - floorHeight))
+      ? Math.max(
+          0,
+          Math.min(grown, atDock - height - FOLLOW_BOTTOM_DEADBAND_PX - 1, floorHolds ? liftedBefore.current : grown),
+        )
       : grown,
   );
   const room = sessionSwitched || following ? dockSpace - lifted : heldRoom.current;
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + room;
+  // The held room less the lift, as the rows' end is: what the reader sees stays where it was drawn.
   const layout = useMemo(
-    () => ({ ...measured.layout, totalHeight: Math.max(floorHeight, rowsHeight) }),
-    [measured, rowsHeight, floorHeight],
+    () => ({ ...measured.layout, totalHeight: Math.max(floorHeight - lifted, rowsHeight) }),
+    [measured, rowsHeight, floorHeight, lifted],
   );
   // Where the rows draw against where they lay out: the followed offset of this layout against the
   // one the unlifted layout would hold. Negative draws them up, positive down.
@@ -2369,6 +2380,9 @@ export function VirtualTranscript({
     if (old && node && !following && appliedLift.current) {
       node.scrollTop -= appliedLift.current;
       scrolledTo.current = { ...scrolledTo.current, top: scrolledTo.current.top - appliedLift.current };
+      // The rows mounted for this frame read the offset too, before its scroll event comes.
+      const moved = node.scrollTop;
+      setScroll((current) => ({ top: moved, delta: moved - current.top }));
     }
     const rewrapped = width !== previousViewport.current.width;
     // The bottom stack's room changing (a composer line, a queue) is the view's foot moving, as a
@@ -2525,10 +2539,11 @@ export function VirtualTranscript({
     // With the composer's growth, which is room again once the view stops following.
     heldRoom.current = room + lifted;
     appliedLift.current = lift;
+    liftedBefore.current = lifted;
     // A view that follows keeps the card height it began following at; any other takes the card's.
     if (!lifting) cardRest.current = dockCard;
     // The room a followed view keeps (`floor` above), until the rows fill it or it stops following.
-    const holding = didOpenAtLatest.current && followingRef.current && floorHeight > rowsHeight;
+    const holding = didOpenAtLatest.current && followingRef.current && floorHeight - lifted > rowsHeight;
     // Held for a sent prompt: once, for the prompt to arrive. Held only for a withdrawn one (the
     // reply was working): again at each pass, so it lasts while the reply grows and goes soon after.
     const forSent = [...heldFor.current].some((id) => !withdrawn.current.has(id));
