@@ -24,6 +24,15 @@
   pointer-events: auto;
 }
 
+/* Reduce Transparency: the card's solid popup surface, with no blur. */
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-context-card.ui-card {
+    background: var(--surface-popup);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
 .acpmux-context-card-title {
   font-size: 12px;
   color: var(--agent-muted);
