@@ -179,3 +179,27 @@ test("an ended turn's open Worked for merges runs split by a short note too", ()
   expect(kinds(open)).toEqual(["user", "worked", "activity", "assistant", "turnSummary"]);
   expect(open.find((entry) => entry.kind === "assistant")!.id).toBe("ans");
 });
+
+test("Find and a shell's count reach every row a merged run absorbed", async () => {
+  const { findRowIndex, isRevealRow } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  const rows = [
+    row("u", "user"),
+    row("x", "activity", { items: [call("git log")] }),
+    row("n", "assistant", { text: "Now checking the zebra config." }),
+    row("y", "activity", { items: [call("cat bravo.json")] }),
+    row("ans", "assistant", { text: "Done." }),
+    row("s", "turnSummary", { status: "completed", toolCount: 2 }),
+  ];
+  const open = turnView(rows, new Set(["worked-u"]), { liveRuns: true });
+  const merged = open.findIndex((entry) => entry.id === "x");
+  expect(open[merged]!.joined).toEqual(["x", "n", "y"]);
+  for (const id of ["x", "n", "y"]) expect(findRowIndex(open, id)).toBe(merged);
+  expect(isRevealRow(open[merged]!, { rowId: "y", card: false })).toBe(true);
+  const live = codex(rows.slice(0, 4));
+  expect(findRowIndex(live, "n")).toBe(live.findIndex((entry) => entry.id === "x"));
+});
+
+test("shortCommand splits only outside quotes", () => {
+  expect(shortCommand('cd ~/x && python -c "import x; print(1)"')).toBe('python -c "import x; print(1)"');
+  expect(shortCommand("A='a;b' bun test; echo done")).toBe("bun test");
+});

@@ -222,6 +222,9 @@ export type AcpmuxRow = {
   turnEnded?: boolean;
   /// The edits an edited-files card merges (their row ids), so Find reaches each (chatFind.ts).
   merged?: string[];
+  /// The rows a run absorbed (conversation/turns.ts `mergeShortNotes`): its own, the short note and
+  /// the run after it, so Find and a shell's count reach each (chatFind.ts).
+  joined?: string[];
   /// A shell mode command's block (shell/shellRuns.ts), which the page adds; never from acpmux.
   shell?: ShellRun;
   /// A subagent group's subagents (subagents/subagentFold.ts).

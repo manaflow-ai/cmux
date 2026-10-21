@@ -79,16 +79,36 @@ export function toolLabel(
 /// "export PATH=\"/Applications/…\"; gh run list" reads "gh run list". The whole line stays in the
 /// call's Shell block. A line that is only setup keeps its last part.
 export function shortCommand(command: string): string {
-  const parts = command
-    .trim()
-    .split(/\s*(?:&&|;|\n)\s*/)
-    .filter(Boolean);
+  const parts = commandParts(command.trim());
   for (const part of parts) {
     if (/^cd(?:\s|$)/.test(part)) continue;
     const bare = part.replace(ASSIGNMENTS, "").trim();
     if (bare) return bare;
   }
   return (parts.at(-1) ?? command).trim();
+}
+
+/// A command line's parts between `&&`, `;` and line breaks outside quotes, so
+/// `python -c "import x; print(1)"` stays one part.
+function commandParts(line: string): string[] {
+  const parts: string[] = [];
+  let quote = "";
+  let start = 0;
+  for (let at = 0; at < line.length; at += 1) {
+    const char = line[at]!;
+    if (quote) {
+      if (char === "\\" && quote === '"') at += 1;
+      else if (char === quote) quote = "";
+    } else if (char === '"' || char === "'") quote = char;
+    else if (char === "\\") at += 1;
+    else if (char === ";" || char === "\n" || (char === "&" && line[at + 1] === "&")) {
+      parts.push(line.slice(start, at).trim());
+      if (char === "&") at += 1;
+      start = at + 1;
+    }
+  }
+  parts.push(line.slice(start).trim());
+  return parts.filter(Boolean);
 }
 
 /// `export A=1 B="x y" ` in front of a command: the assignments a shell line sets before it runs.

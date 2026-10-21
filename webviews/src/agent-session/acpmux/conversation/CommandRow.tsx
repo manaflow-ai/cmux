@@ -26,6 +26,8 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const running = isRunning(tool);
   const failed = isFailed(tool);
   const duration = toolDuration(t, tool);
+  // Find counts the whole line, so a shortened one is skipped; opened, the Shell block draws it.
+  const short = shortCommand(tool.command ?? "");
   const exited = tool.exitCode !== undefined && tool.exitCode !== 0;
   // "Ran {command}" in the reader's language, the command drawn as code where the string puts it.
   const [before = "", after = ""] = t("tools.ranCommand", { command: "\u0000" }).split("\u0000");
@@ -46,12 +48,13 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
           {tool.description ? (
             // What the command does in a few words (Claude Code's Bash description); the raw line
             // waits in its Shell block, opened.
-            <span>{tool.description}</span>
+            // Find counts the command, not this, so it is not highlighted.
+            <span data-find-skip>{tool.description}</span>
           ) : (
             <>
               {before && <span data-find-skip>{before}</span>}
-              <code className="cv-command__line" data-find-skip={open || undefined}>
-                {shortCommand(tool.command ?? "")}
+              <code className="cv-command__line" data-find-skip={open || short !== tool.command?.trim() || undefined}>
+                {short}
               </code>
               {after && <span data-find-skip>{after}</span>}
             </>

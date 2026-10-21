@@ -410,7 +410,8 @@ function shapeTurn(
           ...row,
           id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
           settled: true,
-          ...(liveRuns && row.kind === "activity" && !isEdit(row) && { foldRun: true }),
+          // A folded run draws otherwise, so its version moves (memos compare versions).
+          ...(liveRuns && row.kind === "activity" && !isEdit(row) && { foldRun: true, version: row.version * 4 + 3 }),
         })),
       );
   }
@@ -787,6 +788,7 @@ export function mergeShortNotes(rows: readonly AcpmuxRow[]): AcpmuxRow[] {
         ...previous!,
         items: [...(previous!.items ?? []), { kind: "note", text: row.text!.trim() }, ...(next.items ?? [])],
         toolCount: (previous!.toolCount ?? 0) + (next.toolCount ?? 0),
+        joined: [...(previous!.joined ?? [previous!.id]), row.id, next.id],
         version: mixVersion(mixVersion(previous!.version, row.version), next.version),
       };
       index += 1;
