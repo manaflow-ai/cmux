@@ -17,7 +17,7 @@
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { webkit as chromium, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { papercutPane } from "./support/papercutChat";
