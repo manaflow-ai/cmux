@@ -62,7 +62,7 @@ extension ActionDescriptor {
         "palette.copyWorkspaceID", "palette.copyWorkspaceIDAndRef", "palette.copyPaneID", "palette.copySurfaceID",
         "palette.copyIdentifiers", "workspaceGroup.copyID", "cloudCopyMachineID", "agentChat.copyIdentifier",
         // Diagnostics, recovery and one-time setup.
-        "palette.restartSocketListener", "palette.restartServer", "palette.attemptUpdate", "openDebugSettings",
+        "palette.restartSocketListener", "palette.restartServer", "palette.restartBackgroundServices", "palette.attemptUpdate", "openDebugSettings",
         "help.featureFlags", "help.showCrashLogs", "ghostty.showDiagnostics", "home.saveFlightRecording",
         "taskManager.killProcess", "palette.installCLI", "palette.uninstallCLI", "palette.makeDefaultBrowser",
         "palette.makeDefaultTerminal", "palette.switchAppChannel", "updates.rollback", "palette.shortcutKeymap",
