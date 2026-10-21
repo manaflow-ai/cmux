@@ -17,13 +17,16 @@
 //!
 //! A Web client cannot answer the question (`acp.trust.set` is refused for it
 //! in `remote_guard.rs`), so its prompts wait for the user's answer in the
-//! app or the CLI. The unix socket (the user's own CLI and TUI) is not gated:
+//! app or the CLI. For the same reason an auto-trust rule (`trust_auto.rs`: the person's
+//! project roots and organizations) answers only the app's pane: a Web client's folder needs
+//! a decision a person made (`trust::web_session_level`). The unix socket (the user's own CLI and TUI) is not gated:
 //! it never shows the question, and the user who types there is the one who
 //! answers it. A session on a peer is the peer's to judge: this daemon marks
 //! what it forwards for its pane (`via: app`) or a Web client (`via: web`),
 //! and the peer gates those with its own record. A peer's own request (no
 //! mark) is not gated. `_acpmux/warm` starts no agent in such a folder
-//! (`hub/warm.rs`). The gate is on only when the daemon set its paths
+//! (`hub/warm.rs`), and for a Web client none in a folder only an auto-trust rule trusts.
+//! `_acpmux/prewarm` with no folder named checks the folder it picks the same way. The gate is on only when the daemon set its paths
 //! (`Hub::set_trust_gate`).
 
 use std::sync::Arc;
@@ -46,6 +49,7 @@ pub(super) async fn check(
         return Ok(());
     }
     let Some(paths) = hub.trust_gate() else { return Ok(()) };
+    let web = for_web(origin, params);
     if m == method::SESSION_NEW {
         if params
             .pointer("/_meta/acpmux/peer")
@@ -54,10 +58,10 @@ pub(super) async fn check(
         {
             return Ok(());
         }
-        return check_new(hub, &paths, params, origin.web_class()).await;
+        return check_new(hub, &paths, params, origin.web_class(), web).await;
     }
     if m == method::MUX_PREWARM {
-        return check_prewarm(hub, &paths, params).await;
+        return check_prewarm(hub, &paths, params, web).await;
     }
     if m == method::MUX_HANDOFF_PREPARE {
         let Some(source) = resolved
@@ -72,6 +76,7 @@ pub(super) async fn check(
             paths.clone(),
             source.meta().cwd.to_string_lossy().into_owned(),
             family,
+            web,
         )
         .await;
     }
@@ -100,12 +105,14 @@ pub(super) async fn check(
     let fork_cwd = params.get("cwd").and_then(Value::as_str).filter(|_| m == method::SESSION_FORK);
     let cwd = fork_cwd.map_or_else(|| meta.cwd.to_string_lossy().into_owned(), str::to_owned);
     let family = meta.family.clone().unwrap_or_else(|| meta.harness.clone());
-    folder_answered(paths, cwd, family).await
+    folder_answered(paths, cwd, family, web).await
 }
 
+/// `web`: the prompt came from a Web client or a peer forwarding for one.
 pub(crate) async fn check_dispatch(
     hub: &Arc<Hub>,
     gated_request: bool,
+    web: bool,
     session: &Arc<crate::hub::Session>,
 ) -> Result<(), RpcError> {
     if !gated_request {
@@ -117,6 +124,7 @@ pub(crate) async fn check_dispatch(
         paths,
         meta.cwd.to_string_lossy().into_owned(),
         meta.family.clone().unwrap_or(meta.harness.clone()),
+        web,
     )
     .await
 }
@@ -126,6 +134,7 @@ async fn check_new(
     paths: &crate::trust::Paths,
     params: &Value,
     remote: bool,
+    web: bool,
 ) -> Result<(), RpcError> {
     let cwd = params.get("cwd").and_then(Value::as_str).map(str::to_owned);
     let meta = params.get("_meta").and_then(|v| v.get("acpmux"));
@@ -154,17 +163,19 @@ async fn check_new(
         return Ok(());
     }
     let family = resolve_family(hub, &family).await;
-    folder_answered(paths.clone(), cwd, family).await
+    folder_answered(paths.clone(), cwd, family, web).await
 }
 
 async fn check_prewarm(
     hub: &Arc<Hub>,
     paths: &crate::trust::Paths,
     params: &Value,
+    web: bool,
 ) -> Result<(), RpcError> {
     let Some(cwd) = params.get("cwd").and_then(Value::as_str) else { return Ok(()) };
     let family = params.get("harness").and_then(Value::as_str).unwrap_or_default();
-    folder_answered(paths.clone(), cwd.to_owned(), resolve_family(hub, family).await).await
+    let family = resolve_family(hub, family).await;
+    folder_answered(paths.clone(), cwd.to_owned(), family, web).await
 }
 
 async fn resolve_family(hub: &Arc<Hub>, name: &str) -> String {
@@ -178,6 +189,16 @@ async fn resolve_family(hub: &Arc<Hub>, name: &str) -> String {
             cfg.harnesses.get(&resolved).map(|p| crate::config::derive_family(&resolved, p))
         })
         .unwrap_or_else(|| name.to_owned())
+}
+
+/// A Web client, or a peer that forwards for one: an auto-trust rule is no answer for it
+/// (`trust::web_session_level`).
+pub(super) fn for_web(origin: Origin, params: &Value) -> bool {
+    match origin {
+        Origin::Web => true,
+        Origin::Peer => params.pointer("/_meta/acpmux/via").and_then(Value::as_str) == Some("web"),
+        Origin::LocalApp | Origin::Local => false,
+    }
 }
 
 /// The app's pane, a Web client, and a peer that forwards for either.
@@ -197,17 +218,24 @@ pub(super) fn peer_unsupported(peer: &str) -> RpcError {
     .with_data(json!({"reason": "trust.peer_unsupported", "peer": peer}))
 }
 
-/// Ok when the folder is trusted for `family`; else the refusal.
+/// Ok when the folder is trusted for `family`; else the refusal. For `web`, only a person's
+/// decision (or an agent's own) answers, never an auto-trust rule.
 async fn folder_answered(
     paths: crate::trust::Paths,
     cwd: String,
     family: String,
+    web: bool,
 ) -> Result<(), RpcError> {
     let asked = cwd.clone();
-    let read =
-        tokio::task::spawn_blocking(move || crate::trust::session_level(&paths, &cwd, &family))
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()))?;
+    let read = tokio::task::spawn_blocking(move || {
+        if web {
+            crate::trust::web_session_level(&paths, &cwd, &family)
+        } else {
+            crate::trust::session_level(&paths, &cwd, &family)
+        }
+    })
+    .await
+    .map_err(|e| RpcError::internal(e.to_string()))?;
     // A record that cannot be read is no answer: the prompt waits for one.
     let (cwd, level) = read.unwrap_or((asked, Level::Unknown));
     let (reason, why) = match level {
@@ -239,6 +267,10 @@ pub(super) async fn answer(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Va
     })
     .await
     .map_err(|e| RpcError::internal(e.to_string()))?;
+    if setting && reply.is_ok() {
+        // A sub-session start waiting on this folder's card goes on (`hub/trust_wait.rs`).
+        hub.trust_changed();
+    }
     reply.map_err(|failure| match failure {
         crate::trust::Failure::Invalid(message) => RpcError::invalid_params(message),
         crate::trust::Failure::Record(message) => RpcError::internal(message),

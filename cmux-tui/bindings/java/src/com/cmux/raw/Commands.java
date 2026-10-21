@@ -68,6 +68,7 @@ public final class Commands {
     public static final CommandMetadata CLOUD_MUX_UNSUBSCRIBE = new CommandMetadata("cloud-mux-unsubscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_PARTICIPANT_AVATAR_GET = new CommandMetadata("cloud-participant-avatar-get", Authority.LOCAL_ADMIN, 12, "participant-avatars-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_REQUESTS_LIST = new CommandMetadata("cloud-requests-list", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_SELFHOST_INFO = new CommandMetadata("cloud-selfhost-info", Authority.LOCAL_ADMIN, 12, "cloud-selfhost-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_CLEAR = new CommandMetadata("cloud-session-clear", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_SET = new CommandMetadata("cloud-session-set", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_STATUS = new CommandMetadata("cloud-session-status", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -188,6 +189,7 @@ public final class Commands {
     public static final CommandMetadata PAGE_CREDENTIAL = new CommandMetadata("page-credential", Authority.LOCAL_ADMIN, 12, "page-credential-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PAIRING_RESPONSE = new CommandMetadata("pairing-response", Authority.LOCAL_ADMIN, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PANE_NEIGHBOR = new CommandMetadata("pane-neighbor", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata PARK_TABS = new CommandMetadata("park-tabs", Authority.CONTROL, 12, "tab-park-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PASTE_IMAGE = new CommandMetadata("paste-image", Authority.CONTROL, 12, "terminal-image-paste-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PIN_WORKSPACE = new CommandMetadata("pin-workspace", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PING = new CommandMetadata("ping", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -352,6 +354,7 @@ public final class Commands {
         values.put("cloud-mux-unsubscribe", CLOUD_MUX_UNSUBSCRIBE);
         values.put("cloud-participant-avatar-get", CLOUD_PARTICIPANT_AVATAR_GET);
         values.put("cloud-requests-list", CLOUD_REQUESTS_LIST);
+        values.put("cloud-selfhost-info", CLOUD_SELFHOST_INFO);
         values.put("cloud-session-clear", CLOUD_SESSION_CLEAR);
         values.put("cloud-session-set", CLOUD_SESSION_SET);
         values.put("cloud-session-status", CLOUD_SESSION_STATUS);
@@ -472,6 +475,7 @@ public final class Commands {
         values.put("page-credential", PAGE_CREDENTIAL);
         values.put("pairing-response", PAIRING_RESPONSE);
         values.put("pane-neighbor", PANE_NEIGHBOR);
+        values.put("park-tabs", PARK_TABS);
         values.put("paste-image", PASTE_IMAGE);
         values.put("pin-workspace", PIN_WORKSPACE);
         values.put("ping", PING);

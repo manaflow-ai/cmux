@@ -60,7 +60,7 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       const post = handler.postMessage.bind(handler);
       handler.postMessage = (message: unknown) => {
         const { method, params } = message as Call;
-        if (method === "chat.permission") calls.push({ method, params });
+        if (method === "chat.permission" || method === "chat.cancel") calls.push({ method, params });
         return post(message);
       };
       Object.assign(window, { permissionCalls: calls });
@@ -159,6 +159,21 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       expect(await permissionCalls(page, 1)).toEqual([
         { method: "chat.permission", params: { permissionId: "perm_toolu_single", optionId: "reject_once" } },
       ]);
+      await page.close();
+    });
+
+    test("Esc on the card while the turn runs is the double press's first: Stop shows the Esc hint, the next Esc stops", async () => {
+      // The card's Esc falls through to the composer's double press (escapeStop.ts), so a card Esc
+      // and one more stop the turn: never three presses, and never an answer.
+      const page = await pendingQuestion();
+      expect(await focusedInCard(page)).toBe(true);
+      await page.getByRole("button", { name: "Stop", exact: true }).waitFor({ timeout: 2_000 });
+      await page.keyboard.press("Escape");
+      await page.getByRole("button", { name: "Press Esc again to stop" }).waitFor({ timeout: 1_000 });
+      expect(await permissionCalls(page, 0)).toEqual([]);
+      await page.keyboard.press("Escape");
+      const calls = await permissionCalls(page, 1);
+      expect(calls.map((call) => call.method)).toEqual(["chat.cancel"]);
       await page.close();
     });
 

@@ -422,12 +422,14 @@ cmux workspace create --name build --cwd ~/src/app -- make watch
 cmux workspace create --cwd ~/src/app --shell 'npm install && npm run dev'
 ```
 
-Both run forms accept `--on-exit <close|keep>`. `close` (the default)
+Both run forms accept `--on-exit <close|keep|shell>`. `close` (the default)
 detaches every view when the process exits and leaves only the durable exit
 receipt. `keep` retains the tab and the final screen next to that receipt
 until the terminal is closed; after a daemon restart a kept-exited terminal
-degrades to the normal detach.
-Both policies apply only to a process end, an exit status or signal that
+degrades to the normal detach. `shell` keeps the tab and the final screen,
+then starts a new shell in it under the same terminal id (as Restart does);
+that shell's own exit closes the tab.
+The policies apply only to a process end, an exit status or signal that
 the terminal host reported. When the host dies without one (it is killed,
 or it dies while no daemon runs), every tab stays and shows the terminal
 dead; only a close removes it. A process that dies of a signal while its
@@ -905,6 +907,15 @@ daemon has loaded, it hands the agent's queued messages to Codex as one input
 and marks them `delivered`. Any other terminal agent's message, or one Codex
 cannot take now, stays `queued` until the agent's hooks take it. The command exits 1 when this message's own delivery failed; the message is
 stored either way, and problems with older messages are reported on stderr.
+
+`terminal <t> write` (and `send-keys -l`) into a terminal whose hooks report a
+live agent (any state but `done`) still types the text, then prints on stderr
+the `agent message` command that would send it as a message instead, with the
+caller's `--machine`, `--session` and `--socket`, and `--` before the text so
+text that starts with a dash stays the message. Text with a control character, a line
+break or more than 200 characters shows as `'…'`. `--quiet` prints no hint,
+`terminal <t> keys` gets none, and the lookup (`terminal.get`, `agent.list`)
+gives up silently when a read waits 500 ms.
 
 `agent message release` is the person's decision on a held delivery of
 `<message-id>` to `--recipient`: `--approve` queues it, `--decline` declines

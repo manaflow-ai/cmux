@@ -102,6 +102,8 @@ const customValues: Record<string, unknown> = Object.fromEntries(
     else if (setting.kind === "font_family") value = "Menlo";
     else if (setting.kind === "sound") value = "Glass";
     else if (setting.kind === "choice_or_number") value = 45;
+    else if (setting.kind === "choice_or_url")
+      value = { [setting.url_key ?? "url"]: "http://mini.tail1234.ts.net:7320" };
     else if (setting.kind === "host_list") value = ["docs.example.test", "*.research.example.test"];
     else if (setting.kind === "folder_list")
       // Chat roots take absolute paths only (validate.ts); the other folder lists also take ~/.
@@ -197,23 +199,6 @@ Object.assign(variants, {
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
-  // Leo, 10-19: "the knob, the slider still doesn't work". Over a picture the Opacity slider starts
-  // at the legibility floor the app reports (62% here, on the grid at 65%) and says why.
-  "backdrops-opacity-floor": variant("appearance", {
-    options: { values: { "appearance.background": "starryNight" } },
-    host: {
-      ...host,
-      derived: { "appearance.backgroundOpacity": 0.7 },
-      derived_min: { "appearance.backgroundOpacity": 0.62 },
-      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
-    },
-    backdropImages: { starryNight: VAN_GOGH_STARRY_NIGHT },
-    steps: [
-      wait('[data-card="backdrop"]'),
-      { selector: '[data-card="backdrop"] input[type="range"]', action: "focus" },
-    ],
-    note: "Over a picture the Opacity slider's travel is 65% to 95%, every step of which changes the window; the summary says why it starts at 65%.",
-  }),
   // Leo, 10-19: Appearance's floating Undo, Redo and Reset, after a background pick (Undo names it).
   "appearance-undo-bar": variant("appearance", {
     host: {
@@ -223,11 +208,11 @@ Object.assign(variants, {
     },
     steps: [
       wait('[data-card="backdrop"]'),
-      click('[data-card="backdrop"] .backdrop-tile[aria-label="Shuffle Daily"]'),
+      click('[data-card="backdrop"] .backdrop-tile[aria-label="Shuffle Paintings"]'),
       wait("[data-appearance-bar] [data-undo]:not([disabled])"),
       { selector: "[data-appearance-bar] [data-undo]", action: "focus" },
     ],
-    note: "Appearance's floating bar at the bottom right after picking Shuffle Daily: Undo names the step, Redo waits, Reset offers Restore How It Was or Reset to Defaults.",
+    note: "Appearance's floating bar at the bottom right after picking Shuffle Paintings: Undo names the step, Redo waits, Reset offers Restore How It Was or Reset to Defaults.",
   }),
   // Unset surface rows rest on the window's values, dimmed under an "Inherits window" badge.
   "surfaces-inherit-window": variant("appearance", {
@@ -907,6 +892,7 @@ export default settingsPageEntry({
     "pages/settings/components/ArtBrowser.tsx",
     "pages/settings/components/BackdropLink.tsx",
     "pages/settings/components/BackdropScope.tsx",
+    "pages/settings/components/ChiefPetCard.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",
     "pages/settings/components/Highlight.tsx",
@@ -945,6 +931,7 @@ export default settingsPageEntry({
     "pages/settings/editors/SegmentedEditor.tsx",
     "pages/settings/editors/Select.tsx",
     "pages/settings/editors/SoundEditor.tsx",
+    "pages/settings/editors/StringMapEditor.tsx",
     "pages/settings/editors/TextEditor.tsx",
     "pages/settings/editors/TimeRangeEditor.tsx",
     "pages/settings/editors/ToggleEditor.tsx",

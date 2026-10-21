@@ -21,7 +21,7 @@ import Testing
         // The model shows by the name acpmux offers, and acpmux's own "default" is not an item.
         #expect(titles.defaultModel == Self.named("Opus 5.5"))
         #expect(titles.models.map(\.value) == ["claude-opus-5-5"])
-        #expect(titles.defaultEffort == Self.named("high"))
+        #expect(titles.defaultEffort == Self.named(HomeEngineStrings.effortTitle("high")))
     }
 
     /// The effective engine includes the owner's choice, so a chosen field's

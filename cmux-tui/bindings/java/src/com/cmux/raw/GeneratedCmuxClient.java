@@ -303,6 +303,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudSelfhostInfo() throws CmuxException {
+        Object result = execute(Commands.CLOUD_SELFHOST_INFO, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudSessionClear() throws CmuxException {
         Object result = execute(Commands.CLOUD_SESSION_CLEAR, Map.of());
         return Wire.immutableJson(result);
@@ -905,6 +910,11 @@ public abstract class GeneratedCmuxClient {
     public final PaneNeighborResult paneNeighbor(PaneNeighborRequest request) throws CmuxException {
         Object result = execute(Commands.PANE_NEIGHBOR, request.toWire());
         return PaneNeighborResult.fromWire(result);
+    }
+
+    public final Object parkTabs(ParkTabsRequest request) throws CmuxException {
+        Object result = execute(Commands.PARK_TABS, request.toWire());
+        return Wire.immutableJson(result);
     }
 
     public final PasteImageResult pasteImage(PasteImageRequest request) throws CmuxException {

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '5e69f4f6edf2b8c3c330c70dcc2f1d5ece8784de7423f90cc4a35d660bc1c512'
+IR_SHA256 = '22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc'
 
 
 @dataclass(frozen=True)
@@ -798,6 +798,16 @@ COMMANDS = {
         {
         },
     ),
+    'cloud-selfhost-info': CommandMetadata(
+        'cloud-selfhost-info',
+        'local-admin',
+        12,
+        'cloud-selfhost-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'cloud-session-clear': CommandMetadata(
         'cloud-session-clear',
         'local-admin',
@@ -818,6 +828,7 @@ COMMANDS = {
         {
             'access_token': CommandFieldMetadata(None, None),
             'api_base_url': CommandFieldMetadata(None, None),
+            'auth': CommandFieldMetadata(None, None),
             'client_version': CommandFieldMetadata(None, None),
             'expires_at': CommandFieldMetadata(None, None),
         },
@@ -2431,6 +2442,17 @@ COMMANDS = {
         {
             'dir': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
+        },
+    ),
+    'park-tabs': CommandMetadata(
+        'park-tabs',
+        'control',
+        12,
+        'tab-park-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surfaces': CommandFieldMetadata(None, None),
         },
     ),
     'paste-image': CommandMetadata(

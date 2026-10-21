@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5e69f4f6edf2b8c3c330c70dcc2f1d5ece8784de7423f90cc4a35d660bc1c512. */
+/* cmux-tui mux protocol 12, IR 22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc. */
 
 
 import type * as T from "./types.js";
@@ -601,6 +601,12 @@ export interface CloudRequestsListRequest extends CmuxRequestBase {
 export type CloudRequestsListResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
+export interface CloudSelfhostInfoRequest extends CmuxRequestBase {
+  cmd: "cloud-selfhost-info";
+}
+export type CloudSelfhostInfoResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
 export interface CloudSessionClearRequest extends CmuxRequestBase {
   cmd: "cloud-session-clear";
 }
@@ -609,10 +615,11 @@ export type CloudSessionClearResult = T.JsonValue;
 /** Protocol v12; authority: local-admin. */
 export interface CloudSessionSetRequest extends CmuxRequestBase {
   cmd: "cloud-session-set";
-  "access_token": string;
+  "access_token"?: string;
   "api_base_url": string;
+  "auth"?: (string) | null;
   "client_version"?: (string) | null;
-  "expires_at": bigint;
+  "expires_at"?: bigint;
 }
 export type CloudSessionSetResult = T.JsonValue;
 
@@ -1877,6 +1884,13 @@ export interface PaneNeighborRequest extends CmuxRequestBase {
 }
 
 /** Protocol v12; authority: control. */
+export interface ParkTabsRequest extends CmuxRequestBase {
+  cmd: "park-tabs";
+  "surfaces": Array<T.TabRef>;
+}
+export type ParkTabsResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
 export interface PasteImageRequest extends CmuxRequestBase {
   cmd: "paste-image";
   "data"?: (string) | null;
@@ -2897,6 +2911,7 @@ export type CmuxRequest =
   | CloudMuxUnsubscribeRequest
   | CloudParticipantAvatarGetRequest
   | CloudRequestsListRequest
+  | CloudSelfhostInfoRequest
   | CloudSessionClearRequest
   | CloudSessionSetRequest
   | CloudSessionStatusRequest
@@ -3017,6 +3032,7 @@ export type CmuxRequest =
   | PageCredentialRequest
   | PairingResponseRequest
   | PaneNeighborRequest
+  | ParkTabsRequest
   | PasteImageRequest
   | PinWorkspaceRequest
   | PingRequest
@@ -3584,6 +3600,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-selfhost-info": {
+    request: CloudSelfhostInfoRequest;
+    result: CloudSelfhostInfoResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-selfhost-v1";
     stream: null;
   };
   "cloud-session-clear": {
@@ -4544,6 +4568,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "park-tabs": {
+    request: ParkTabsRequest;
+    result: ParkTabsResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-park-v1";
     stream: null;
   };
   "paste-image": {

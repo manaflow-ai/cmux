@@ -24,34 +24,20 @@ public struct BackdropPaletteColor: Equatable, Hashable, Sendable {
 /// Layout hints authored with each bundled artwork.
 public struct BackdropArtMetadata: Equatable, Sendable {
     public let focalAnchor: BackdropFocalAnchor
-    /// The subject to keep whole and clear of the panes over the art; nil for art that names
-    /// only its focal anchor (``placement(forViewSize:imageSize:visible:)``).
+    /// Where the work's subject is (catalog data); nil for art that names only its focal anchor.
     public let subjectBox: BackdropSubjectBox?
     public let tone: BackdropArtTone
     public let dominantPalette: [BackdropPaletteColor]
     public let quietZone: BackdropQuietZone
-    /// The least theme tint drawn over the art at full window opacity, above the theme's own
-    /// `ThemeTokens.wallpaperTintOpacity`. 0 leaves the theme's tint.
-    public let minimumTintOpacity: Double
-    /// The tint this work looks best under, replacing the theme's own when set: dark works show
-    /// more of themselves. The legibility floor still applies on top.
-    public let preferredTintOpacity: Double?
-    /// The measured darkest and lightest colors of the work, so the legibility floor need not
-    /// assume the art could be anything from black to white.
-    public let range: BackdropArtRange?
 
     public nonisolated init(focalAnchor: BackdropFocalAnchor, tone: BackdropArtTone,
                 dominantPalette: [BackdropPaletteColor], quietZone: BackdropQuietZone,
-                minimumTintOpacity: Double = 0, preferredTintOpacity: Double? = nil,
-                range: BackdropArtRange? = nil, subjectBox: BackdropSubjectBox? = nil) {
+                subjectBox: BackdropSubjectBox? = nil) {
         self.focalAnchor = focalAnchor
         self.subjectBox = subjectBox
         self.tone = tone
         self.dominantPalette = dominantPalette
         self.quietZone = quietZone
-        self.minimumTintOpacity = minimumTintOpacity
-        self.preferredTintOpacity = preferredTintOpacity
-        self.range = range
     }
 }
 

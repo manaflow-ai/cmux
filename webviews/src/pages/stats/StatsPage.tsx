@@ -14,6 +14,7 @@ import {
   formatWait,
   heatmap,
   hourShares,
+  stripLabel,
 } from "./shape";
 import type { StatsStore } from "./store";
 import { RANGES, type StatsSummary } from "./types";
@@ -65,6 +66,8 @@ function Summary({ summary, strings }: { summary: StatsSummary; strings: Strings
   const empty = summary.turns === 0 && summary.workingMs === 0;
   const attention = attentionRows(summary);
   const ratio = new Intl.NumberFormat(language, { maximumFractionDigits: 2 });
+  const cells = heatmap(summary.days, summary.until, summary.tzOffsetMinutes, range);
+  const days = cells.filter((cell) => cell.day);
   const tiles: { key: string; value: string; detail?: string }[] = [
     { key: "stats.tile.agentTime", value: duration(summary.workingMs) },
     { key: "stats.tile.waiting", value: duration(summary.waitingMs) },
@@ -94,15 +97,34 @@ function Summary({ summary, strings }: { summary: StatsSummary; strings: Strings
       {empty && <p className="stats-message stats-muted">{strings.t("stats.page.empty")}</p>}
       <section className="stats-section">
         <h2 className="stats-section-title">{strings.t("stats.section.activity")}</h2>
-        <div className="stats-heatmap">
-          {heatmap(summary.days, summary.until, summary.tzOffsetMinutes, range).map((cell, index) => (
-            <div
-              key={cell.day ?? `pad-${index}`}
-              className={cell.day ? `stats-heat stats-heat-${cell.level}` : "stats-heat is-padding"}
-              title={cell.day ? `${formatDay(cell.day, language)} · ${duration(cell.workingMs)}` : undefined}
-            />
-          ))}
-        </div>
+        {range > 31 ? (
+          <div className="stats-heatmap">
+            {cells.map((cell, index) => (
+              <div
+                key={cell.day ?? `pad-${index}`}
+                className={cell.day ? `stats-heat stats-heat-${cell.level}` : "stats-heat is-padding"}
+                title={cell.day ? `${formatDay(cell.day, language)} · ${duration(cell.workingMs)}` : undefined}
+              />
+            ))}
+          </div>
+        ) : (
+          // A week or a month is too few columns for the weekday grid: one row of days fills the width.
+          <div className="stats-days">
+            {days.map((cell, index) => (
+              <div
+                key={cell.day}
+                className="stats-day"
+                // tooltip-allow: the day shows a short label; the tooltip is its date and working time
+                title={`${formatDay(cell.day!, language)} · ${duration(cell.workingMs)}`}
+              >
+                <div className={`stats-heat stats-heat-${cell.level}`} />
+                <span className="stats-day-label">
+                  {stripLabel(cell.day!, days.length - 1 - index, range, language)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
       <section className="stats-section">
         <h2 className="stats-section-title">{strings.t("stats.section.hours")}</h2>

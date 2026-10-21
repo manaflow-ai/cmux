@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "5e69f4f6edf2b8c3c330c70dcc2f1d5ece8784de7423f90cc4a35d660bc1c512";
+pub const ir_sha256 = "22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -56,6 +56,8 @@ pub const AgentPresenceActivity = enum {
 pub const AgentRecord = struct {
     /// Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports.
     agent: wire.Field([]const u8) = .absent,
+    /// The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this.
+    agent_session_id: wire.Field([]const u8) = .absent,
     /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
     last_prompt: wire.Field([]const u8) = .absent,
     session: wire.Nullable([]const u8),
@@ -4513,6 +4515,23 @@ pub fn cloudRequestsList(client: anytype, request: CloudRequestsListRequest) !wi
     );
 }
 
+pub const CloudSelfhostInfoRequest = struct {};
+
+pub const CloudSelfhostInfoResult = JsonValue;
+
+pub fn cloudSelfhostInfo(client: anytype, request: CloudSelfhostInfoRequest) !wire.Decoded(CloudSelfhostInfoResult) {
+    return client.callTyped(
+        CloudSelfhostInfoResult,
+        .{
+            .name = "cloud-selfhost-info",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cloud-selfhost-v1",
+        },
+        request,
+    );
+}
+
 pub const CloudSessionClearRequest = struct {};
 
 pub const CloudSessionClearResult = JsonValue;
@@ -4531,10 +4550,16 @@ pub fn cloudSessionClear(client: anytype, request: CloudSessionClearRequest) !wi
 }
 
 pub const CloudSessionSetRequest = struct {
-    access_token: []const u8,
+    access_token: ?[]const u8 = null,
     api_base_url: []const u8,
+    auth: wire.Field([]const u8) = .absent,
     client_version: wire.Field([]const u8) = .absent,
-    expires_at: u64,
+    expires_at: ?u64 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "access_token",
+        "expires_at",
+    };
 };
 
 pub const CloudSessionSetResult = JsonValue;
@@ -7439,6 +7464,25 @@ pub fn paneNeighbor(client: anytype, request: PaneNeighborRequest) !wire.Decoded
     );
 }
 
+pub const ParkTabsRequest = struct {
+    surfaces: []const TabRef,
+};
+
+pub const ParkTabsResult = JsonValue;
+
+pub fn parkTabs(client: anytype, request: ParkTabsRequest) !wire.Decoded(ParkTabsResult) {
+    return client.callTyped(
+        ParkTabsResult,
+        .{
+            .name = "park-tabs",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-park-v1",
+        },
+        request,
+    );
+}
+
 pub const PasteImageRequest = struct {
     data: wire.Field([]const u8) = .absent,
     lease: []const u8,
@@ -9780,6 +9824,8 @@ pub const ActivityChangedEvent = struct {
 pub const AgentChangedEvent = struct {
     /// Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified.
     agent: wire.Field([]const u8) = .absent,
+    /// The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this.
+    agent_session_id: wire.Field([]const u8) = .absent,
     event: []const u8,
     /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
     last_prompt: wire.Field([]const u8) = .absent,
@@ -11351,7 +11397,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 280;
+pub const command_count: usize = 282;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11411,6 +11457,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "cloud-mux-unsubscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-participant-avatar-get", .authority = "local-admin", .since = 12, .capability = "participant-avatars-v1", .stream = null },
     .{ .name = "cloud-requests-list", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
+    .{ .name = "cloud-selfhost-info", .authority = "local-admin", .since = 12, .capability = "cloud-selfhost-v1", .stream = null },
     .{ .name = "cloud-session-clear", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-set", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-status", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
@@ -11531,6 +11578,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "page-credential", .authority = "local-admin", .since = 12, .capability = "page-credential-v1", .stream = null },
     .{ .name = "pairing-response", .authority = "local-admin", .since = 7, .capability = null, .stream = null },
     .{ .name = "pane-neighbor", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "park-tabs", .authority = "control", .since = 12, .capability = "tab-park-v1", .stream = null },
     .{ .name = "paste-image", .authority = "control", .since = 12, .capability = "terminal-image-paste-v1", .stream = null },
     .{ .name = "pin-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "ping", .authority = "control", .since = 6, .capability = null, .stream = null },

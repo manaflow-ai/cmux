@@ -32,8 +32,8 @@
     },
     {
       "path": "AgentChangedEvent.java",
-      "sha256": "eb163b8cee8f6b31f8c18f03763fa3f52c8aece1e46f49747e20b5ad90687aec",
-      "size": 7571
+      "sha256": "3a63deb5c81601441ad2516bae6388d4d8e4e48bd3636795c9bec6e67242e264",
+      "size": 8714
     },
     {
       "path": "AgentInventoryChangedEvent.java",
@@ -57,8 +57,8 @@
     },
     {
       "path": "AgentRecord.java",
-      "sha256": "8ba40a5b0023bfd44704bc8b38e3f6ddbef799c08c4eb655f15851678fd68974",
-      "size": 7129
+      "sha256": "6b92f6f86a3e23879109db7f03ba27df6dd5ddda1312fc0afb97547c901b143d",
+      "size": 8266
     },
     {
       "path": "AgentReportSource.java",
@@ -656,6 +656,11 @@
       "size": 1409
     },
     {
+      "path": "CloudSelfhostInfoRequest.java",
+      "sha256": "ea6a31b3008dfceb97a4f6a4847a811f37e8a91dd8945e32e928d002ec730b5b",
+      "size": 1409
+    },
+    {
       "path": "CloudSessionClearRequest.java",
       "sha256": "1abc73226ded01960a5f0f3d4a76a159b8963c32c117601dab0c2930a9fa89c4",
       "size": 1409
@@ -667,8 +672,8 @@
     },
     {
       "path": "CloudSessionSetRequest.java",
-      "sha256": "009e06b3f521064b0dec76358e6e35e386eb72bec6acaf2dea4ed0c9e52edb36",
-      "size": 4488
+      "sha256": "15602957adaafd5befac3c6d59ea4dab68b80a7c450ea2609f7bd2713a3842e3",
+      "size": 4888
     },
     {
       "path": "CloudSessionStatusRequest.java",
@@ -702,8 +707,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "ab5d77219b0761a81828e93deebd14231ed152fa7551bf7972dbff05c91869f7",
-      "size": 76892
+      "sha256": "e1af96a8170f92fb3c34f4d0134cc78c54920318a2f2ccf46916c5b8d6569d34",
+      "size": 77352
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1352,8 +1357,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "df0fd84a1ccf0fff81d483ebc5acfd38a8471afccdd40f46ec4ef26d63541361",
-      "size": 66667
+      "sha256": "a3c8644663e5a6ad03553b9af315ec20819e1c9d74f0e0b66764e31ce456ce92",
+      "size": 67059
     },
     {
       "path": "GetBlobRequest.java",
@@ -2021,6 +2026,11 @@
       "size": 5474
     },
     {
+      "path": "ParkTabsRequest.java",
+      "sha256": "6ed7d00dae5a18d65894f7e47f22a4a6a99c1705a7cb6905c0f17e614c39797d",
+      "size": 2108
+    },
+    {
       "path": "ParticipantAvatarChangedEvent.java",
       "sha256": "6aab504220406f0e1f3a2c065224b671dc7528a092d6800b5d021c2f230ccbac",
       "size": 3266
@@ -2077,7 +2087,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "e2a6bd31ef16af3995f6fa69b30baddfe8528f7cd87e46396ff7e2c6a989ad92",
+      "sha256": "f10a21a929a1c847d5b74228ee478237b3fca90a1b9157a06df06f0c57c8c6dc",
       "size": 7486
     },
     {
@@ -3347,7 +3357,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "5e69f4f6edf2b8c3c330c70dcc2f1d5ece8784de7423f90cc4a35d660bc1c512",
+  "ir_sha256": "22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

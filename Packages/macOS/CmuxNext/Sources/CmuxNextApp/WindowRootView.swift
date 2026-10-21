@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHistory
@@ -229,8 +230,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// when every frame is final: the agent cursor goes back on top after a
     /// reorder that added no view (no add hook ran), and the sidebar stays
     /// above Chromium pages and pane overlays (R126) as an occluder of the
-    /// window's overlay host.
+    /// window's overlay host. The sidebar's resize band gets a catcher panel
+    /// above pages, like a pane divider's hit area.
     func windowDidLayout() {
+        // Before the guard: the band's catcher needs no overlay host.
+        (window as? ShellWindow)?.overlayLayer.setSidebarResizeBand(sidebar.resizeBandInWindow)
         guard let window, let host = WindowOverlayHost.existingHost(for: window) else { return }
         host.repairAgentCursorOrder()
         let shows = sidebar.frame.width > 0.5 && !sidebar.isHidden
@@ -322,15 +326,21 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         }
         view.autoresizingMask = [.width, .height]
         view.isHidden = false
+        let paneCards = (view as? WorkspaceContentView)?.layoutView as? any PaneCardSource
         if holds, let outgoing {
-            paintHold.begin(outgoing: outgoing, incoming: view, in: contentHost) { [weak self] outgoing in
+            paintHold.begin(outgoing: outgoing, incoming: view, in: contentHost, release: { [weak self] outgoing in
                 guard let self, outgoing.superview === contentHost, outgoing !== content else { return }
                 withdraw(outgoing)
-            }
+            }, ended: { [weak self, weak view] in
+                // The shade cuts out the panes on screen: the incoming workspace's once it shows.
+                guard let self, let view, view === content else { return }
+                mainPaneShade.paneCards = paneCards
+            })
+        } else {
+            mainPaneShade.paneCards = paneCards
         }
         // A workspace's theme scope inherits this window's room theme.
         view.reparentRootedThemeScope()
-        mainPaneShade.paneCards = (view as? WorkspaceContentView)?.layoutView as? any PaneCardSource
         onContentChange?()
     }
 
