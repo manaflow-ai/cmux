@@ -161,11 +161,15 @@ final class TabHoverCardController: HoverCardSource {
             body.setResources(resources.report ?? lastReport(for: tab))
             // On a retarget, a tab whose thumbnail is not known yet keeps what the card
             // shows (the last tab's picture, or no frame) until its own lands: never an
-            // empty frame that collapses again (R131).
+            // empty frame that collapses again (R131). A card opening fresh shows no frame
+            // until the picture lands (`loadThumbnail` grows it): an empty gray well under
+            // the facts read as broken (Leo 2026-10-20).
             if !full || noThumbnail.contains(tab) {
                 body.setThumbnailVisible(false)
-            } else if thumbnails.image(for: tab) != nil || (bodyID != id && opensFresh) {
+            } else if thumbnails.image(for: tab) != nil {
                 body.setThumbnailVisible(true)
+            } else if bodyID != id && opensFresh {
+                body.setThumbnailVisible(false)
             }
         }
         let newCard = bodyID != id
