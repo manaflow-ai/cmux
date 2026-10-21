@@ -16,7 +16,7 @@ import { rowIconSize } from "../icons/iconSize";
 import { openProcessTerminal } from "../processTerminal";
 import { useNow } from "../subagents/SubagentGroup";
 import type { SummaryWakeup } from "../summary/sessionSummary";
-import { splitCommands, type BackgroundCommand } from "./processes";
+import { arrivalKey, splitCommands, type BackgroundCommand } from "./processes";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -45,7 +45,7 @@ export function TasksSection({
   const { running, finished } = splitCommands(commands);
   const now = useNow(running.length > 0);
   // Every command's id, so opening the finished fold, or a command finishing, replays nothing.
-  const arrived = useArrivals(commands.map((command) => command.id));
+  const { arrived, played } = useArrivals(commands.map(arrivalKey));
   const row = (command: BackgroundCommand, time: string | undefined, state?: string, enters = false) => {
     const toolCallId = command.toolCallId;
     return (
@@ -54,6 +54,9 @@ export function TasksSection({
         className="acpmux-chat-inspector-task acpmux-chat-inspector-task--command"
         data-state={command.state}
         data-enter={enters ? "top" : undefined}
+        onAnimationEnd={
+          enters ? (event) => event.target === event.currentTarget && played(arrivalKey(command)) : undefined
+        }
       >
         <button
           type="button"
@@ -86,7 +89,7 @@ export function TasksSection({
                 ? formatDuration(Math.max(0, now - command.startedAt))
                 : t(COMMAND_STATE.running),
               undefined,
-              arrived.has(command.id),
+              arrived.has(arrivalKey(command)),
             ),
           )}
           {scheduled.map((wakeup) => (

@@ -213,7 +213,9 @@ export function useChatInspector({
     ),
     panel: drawn ? (
       <InspectorPanel width={width} placement={push ? "push" : "overlay"} presence={presence}>
+        {/* Another chat's sections start drawn with what that chat has: none of its rows drops in. */}
         <ChatInspector
+          key={snapshot.sessionId}
           summary={snapshot.summary}
           machineName={machineName}
           peerKinds={snapshot.peerKinds}
