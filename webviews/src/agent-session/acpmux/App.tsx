@@ -4993,8 +4993,10 @@ function AcpmuxPane() {
           };
           // The connection went before acpmux took the prompt: the host sends it again on the next
           // one. The sender (the composer) holds it until it shows there; "Not sent" only when it
-          // never does.
-          const resent = async (error: unknown): Promise<string | undefined> => {
+          // never does. The host may still send it later (acpmux back after the wait), so a
+          // composer that kept the prompt sends it again under the same promptId, which acpmux
+          // runs at most once.
+          const resent = async (error: unknown, inComposer: boolean): Promise<string | undefined> => {
             const lost = lostPrompt(error);
             if (!lost) throw error;
             const next = await connectedClients.next(client, LOST_PROMPT_CONNECT_MS);
@@ -5002,6 +5004,7 @@ function AcpmuxPane() {
               accepted?.();
               return lost.sessionId;
             }
+            if (inComposer) void heldPrompt.hold(lost.promptId);
             (next ?? directClient.current ?? client).notice(
               translate("prompt.notSent", { reason: errorMessage(error) }),
             );
@@ -5013,7 +5016,7 @@ function AcpmuxPane() {
           if (held) {
             accepted?.();
             return held
-              .catch(resent)
+              .catch((error: unknown) => resent(error, false))
               .catch((error: unknown) => refused(error, (error as { handedBack?: unknown }).handedBack === true));
           }
           // A prompt acpmux held goes with the gesture its first send kept.
@@ -5029,7 +5032,7 @@ function AcpmuxPane() {
           await persistSession(sessionId);
           const turn = client
             .send(text, attachments, kept?.promptId, accepted, kept?.ticket, steer)
-            .catch(resent)
+            .catch((error: unknown) => resent(error, Boolean(accepted)))
             .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The prompt is written; a Quick Composer hand-off can close this page now.
           promptLanded.current();
