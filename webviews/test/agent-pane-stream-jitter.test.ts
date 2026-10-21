@@ -299,10 +299,38 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     },
   );
 
-  test.each(engines.map(([name]) => name))(
+  // DIAG (temporary, scroll-jitter-2): four runs per engine, each printing its per-frame trace.
+  test.each(engines.flatMap(([name]) => [1, 2, 3, 4].map((run) => `${name} ${run}`)))(
     "%s: scrolling up while a reply streams is never pulled back",
-    async (name) => {
+    async (label) => {
+      const name = label.split(" ")[0]!;
       const page = await open(name);
+      await page.evaluate(() => {
+        const w = window as unknown as { __trace: unknown[] };
+        w.__trace = [];
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const t0 = performance.now();
+        const at = () => Math.round(performance.now() - t0);
+        const eye = () => {
+          const box = scroller.getBoundingClientRect();
+          const row = document
+            .elementFromPoint(box.left + box.width / 2, box.top + 120)
+            ?.closest<HTMLElement>(".acpmux-row");
+          return row ? `${row.getAttribute("aria-posinset")}@${row.getBoundingClientRect().top.toFixed(1)}` : "-";
+        };
+        for (const kind of ["wheel", "scroll"])
+          scroller.addEventListener(kind, () => w.__trace.push(`${at()} ${kind} ${scroller.scrollTop.toFixed(1)}`), {
+            passive: true,
+          });
+        let last = "";
+        const tick = () => {
+          const line = `${scroller.scrollTop.toFixed(1)}/${scroller.scrollHeight} ${eye()}`;
+          if (line !== last) w.__trace.push(`${at()} frame ${line}`);
+          last = line;
+          if (w.__trace.length < 4000) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
       const turn = events.length;
       const box = (await page.locator(".acpmux-scroll").boundingBox())!;
       let wheeled: Promise<number> | undefined;
@@ -315,8 +343,15 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
             .then(() => scrollTop(page));
       });
       const left = await wheeled!;
+      await page.evaluate((left) => (window as unknown as { __trace: unknown[] }).__trace.push(`left ${left}`), left);
       endTurn();
       await page.waitForTimeout(600);
+      const final = await scrollTop(page);
+      if (Math.abs(final - left) > 1)
+        console.log(
+          `DIAG ${label} left=${left} final=${final}\n` +
+            (await page.evaluate(() => (window as unknown as { __trace: string[] }).__trace.join("\n"))),
+        );
       expect({ kept: Math.abs((await scrollTop(page)) - left) <= 1, behind: (await fromEnd(page)) > 200 }).toEqual({
         kept: true,
         behind: true,
