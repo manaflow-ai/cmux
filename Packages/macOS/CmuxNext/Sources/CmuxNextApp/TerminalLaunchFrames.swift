@@ -30,7 +30,15 @@ final class TerminalLaunchFrames {
     /// live frame replaces it. Returns whether it showed one.
     @discardableResult
     func show(_ key: String, on session: TerminalSession, in content: NSView, reveal: LaunchReveal = .shared) -> Bool {
-        false
+        guard let image = images.take(key) else { return false }
+        // Not laid out yet (zero): the pane takes the launch snapshot's size, which the frame was saved at.
+        let size = session.surfaceView.bounds.size
+        guard size == .zero || (abs(image.size.width - size.width) < 1 && abs(image.size.height - size.height) < 1),
+              let frame = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              TerminalLaunchFrame(frame).show(on: session) else { return false }
+        reveal.release(content)
+        DebugTimings.markLaunch("terminal.launch_frame_shown")
+        return true
     }
 
     /// The frames of `cache`'s terminals on screen that show output, by tab key, at their point

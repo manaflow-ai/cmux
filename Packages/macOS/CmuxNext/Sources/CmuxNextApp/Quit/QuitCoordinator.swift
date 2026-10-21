@@ -167,6 +167,7 @@ final class QuitCoordinator {
                 await services.remoteTerminals.saveSnapshots()
                 // Agent panes on screen draw their last page at the next launch.
                 await services.agentTabs.launchImages.save(services.agentTabs.shownPageImages())
+                await TerminalLaunchFrames.shared.save(TerminalLaunchFrames.shared.shownFrames(of: services.cache))  // and terminals their last frame
                 // Browser tabs reopen at their recorded page (before any
                 // session ends, while the daemon still answers).
                 await services.cache.browserTabs.flushRecords()

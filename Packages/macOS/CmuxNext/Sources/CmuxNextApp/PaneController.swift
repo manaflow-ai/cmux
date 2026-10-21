@@ -380,9 +380,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.mark(self, "stripSync")
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
         DebugTabSwitch.mark(self, "view")
-        // Terminals come in on their first frame (`LaunchSettle`); other
-        // content (a page, an agent) is ready once shown.
-        if let content, !content.isTerminal { LaunchReveal.shared.markReady(.pane) }
+        // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last
+        // quit (`TerminalLaunchFrames`); other content (a page, an agent) is ready once shown.
+        if let content, !content.isTerminal { LaunchReveal.shared.markReady(.pane) } else if let key, let terminal = services.cache.terminals[key] { TerminalLaunchFrames.shared.show(key, on: terminal.session, in: view.contentHost) }
         // The content view exists now: the coordinator re-applies focus if
         // this pane has it (content is shown a frame after selection).
         if workspace?.isParked == false { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
