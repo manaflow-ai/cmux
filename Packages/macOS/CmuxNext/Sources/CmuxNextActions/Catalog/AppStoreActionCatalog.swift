@@ -11,7 +11,8 @@ nonisolated enum AppStoreActionCatalog: ActionCatalogGroup {
                 id: "appStore.show", title: t("action.appStore.show", "App Store"),
                 keywords: ["apps", "store", "extensions", "plugins", "install", "marketplace", "sidebar sections"],
                 category: .settings, symbol: "bag", surfaces: [.palette, .keyboard, .contextMenu],
-                arguments: [ActionArgument(name: "app", title: t("argument.appStore.app", "App"), kind: .string, isRequired: false)],
+                arguments: [ActionArgument(name: "app", title: t("argument.appStore.app", "App"), kind: .string, isRequired: false),
+                            ActionArgument(name: "tab", title: t("argument.appStore.tab", "Tab"), kind: .string, isRequired: false)],
                 cliName: "app store",
                 surfacePlan: ActionSurfacePlan(
                     // A tab of the active window; automation opens it without
