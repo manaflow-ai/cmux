@@ -199,8 +199,8 @@ enum RowDraw {
         case let .notice(s):
             // As the unsent notice below (ask 9, HostHooks.swift).
             // cmux: at the typing bubble's left edge, the row above it (Layout), not centered.
-            let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
-            TextDraw.line(s, font: f, color: Fixture.secondaryText, x: noticeLeft, baseline: top + 12, in: ctx)
+            // cmux: one row per line, each cut to the column (HomeNoticeRows; one line draws as upstream's).
+            HomeNoticeRows.draw(s, x: noticeLeft, baseline: top + 12, maxWidth: m.receiptRight - noticeLeft, in: ctx)
         case let .unsent(outgoing):
             let s = outgoing ? Strings.unsentMine : Strings.unsentTheirs
             let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
@@ -280,9 +280,10 @@ enum RowDraw {
     /// circles against the bubble's pixel edges; window places within 0.04 pt of cx-3cb typing-breath's).
     static let typingDiscs = [CGRect(x: 24.78 - 4.59, y: typingBubble.maxY - 2.27 - 4.59, width: 9.18, height: 9.18),
                               CGRect(x: 19.00 - 2.375, y: typingBubble.maxY + 3.40 - 2.375, width: 4.75, height: 4.75)]
+    /// iOS only (its row bitmap): one palette there, so the active colours (no view state reaches a bitmap).
     static func drawTypingBubble(_ ctx: CGContext, top: CGFloat) {
         let b = CGRect(x: typingBubble.minX, y: top, width: typingBubble.width, height: typingBubble.height)
-        Fixture.typingFill.setFill()
+        Fixture.typingColors(inactive: false).fill.setFill()
         UIBezierPath(roundedRect: b, cornerRadius: b.height / 2).fill()
     }
     static func typingDotCenter(_ i: Int) -> CGPoint {

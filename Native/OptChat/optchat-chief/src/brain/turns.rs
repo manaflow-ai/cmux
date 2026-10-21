@@ -430,50 +430,21 @@ impl Brain {
         );
         let items_sources: Vec<&'static str> =
             items.iter().map(|i| source_name(&i.source)).collect();
-        // Per-turn ambient state is read before choosing the policy. The whole
-        // Home view is untrusted: terminal/browser titles and URLs are just as
-        // attacker-controlled as terminal screen text. Asking whenever Home is
-        // available also covers a later `chief workspace` refresh in this turn.
         let home = self
             .settings
             .home_view
             .as_ref()
             .and_then(crate::home_view::HomeView::read);
-        // The whole Home view is untrusted text; it gates the turn only when
-        // the owner turned on `home.ask` (the host reads Home on every turn,
-        // so an always-on gate asked for every effect of every turn).
-        let ambient_requires_approval = self.settings.home_view.is_some() && self.chief.home_ask;
-        // The strictest origin wins. Another participant always asks; the
-        // owner's paired devices and the Home view ask only when the owner
-        // turned that gate on (`remote.ask`, `home.ask`).
-        self.turn_remote = std::mem::take(&mut self.remote_taint)
-            || items.iter().any(|i| {
-                matches!(
-                    i.source,
-                    Source::Message {
-                        remote: Some(_),
-                        ..
-                    } | Source::Resume { remote: true, .. }
-                )
-            });
-        let participant_requires_approval = items.iter().any(Queued::requires_approval);
-        let remote_requires_approval = self.turn_remote && self.chief.remote_gate();
-        self.turn_why = if participant_requires_approval {
-            Some(crate::approval::Why::Participant)
-        } else if remote_requires_approval {
-            Some(crate::approval::Why::Device(self.device_name(&items)))
-        } else if ambient_requires_approval {
-            Some(crate::approval::Why::Home)
-        } else {
-            None
-        };
-        self.turn_ask = self.turn_why.is_some();
+        // The Chief never asks (Lawrence, 2026-10-20). The owner's turns, from
+        // this Mac, a paired device or Home, run with the configured policy;
+        // a turn that carries another person's text runs with policy `ask`
+        // and every local effect it asks for is refused at once
+        // (`turn_permission`), with no question to anyone.
+        self.turn_ask = items.iter().any(Queued::requires_approval);
+        self.last_turn_ask = self.turn_ask;
         self.turn_denied.clear();
         self.repeat_denials = 0;
-        self.clear_turn_approvals();
         self.interrupt.set_gate(self.turn_ask);
-        // The shared rule (cmux_chief::policy::turn_policy, the corpus's
-        // `policy` cases).
         let policy = if self.turn_ask {
             crate::approval::ASK.to_owned()
         } else {
@@ -591,9 +562,19 @@ impl Brain {
             ),
         };
         // The kept session, when this turn has the same session shape and
-        // keeps the frozen view: only what it has not read goes to it.
-        let sig =
-            keep.then(|| keep_sig(&engine, &preset, system_prompt.as_deref(), &view.text, ttl));
+        // keeps the frozen view: only what it has not read goes to it. The
+        // policy is part of the shape: an approve-all session never serves a
+        // turn another person started, and an `ask` one never an owner turn.
+        let sig = keep.then(|| {
+            keep_sig(
+                &engine,
+                &preset,
+                system_prompt.as_deref(),
+                &view.text,
+                ttl,
+                &policy,
+            )
+        });
         let kept = self.kept.take();
         let stale = self
             .state
@@ -903,9 +884,6 @@ impl Brain {
         // in between tool calls when the session steers, else it waits and
         // the next turn starts the moment this one ends. Native: the engine
         // delivers it after the next tool results. Only chief.stop stops.
-        // A pending approval stays pending: a newer message never answers
-        // it (only the person's Allow or Deny does); the message is steered
-        // in once the tool call is answered.
         if matches!(self.settings.engine, Engine::Acpmux) {
             self.try_steer();
         }
@@ -1158,6 +1136,8 @@ impl Brain {
             return;
         }
         self.cuts = 0;
+        // The turn answers its messages itself: no receipt after its end.
+        self.desk.take_if(|d| d.turn == key);
         let outcome_done = outcome.done_draft.take();
         self.keep_turn_session(key, &mut outcome);
         if self.state.turn.as_ref().is_some_and(|t| t.key == key) {
@@ -1245,9 +1225,9 @@ impl Brain {
             text
         };
         let text = match &denial_stopped {
-            Some(what) if !quiet => {
+            Some((what, why)) if !quiet => {
                 (self.log)(&format!("turn {key} stopped: it asked again for {what}"));
-                format!("I stopped: I kept asking to {what} after you denied it.")
+                format!("I stopped: I kept trying to {what}, and {}.", why.reason())
             }
             _ => text,
         };
@@ -1258,15 +1238,10 @@ impl Brain {
         }
         if superseded {
             (self.log)(&format!("turn {key} stopped for a newer message"));
-            // The turn that answers both keeps this one's remote origin.
-            self.remote_taint |= self.turn_remote;
         }
-        self.turn_remote = false;
         self.turn_ask = false;
-        self.turn_why = None;
         self.turn_denied.clear();
         self.repeat_denials = 0;
-        self.clear_turn_approvals();
         self.interrupt.set_gate(false);
         if let Some(orphan) = outcome.orphan {
             self.state.orphans.push(orphan);
@@ -1577,13 +1552,10 @@ impl Brain {
                 logged: false,
             });
         }
-        self.turn_remote = false;
         self.turn_ask = false;
-        self.turn_why = None;
         self.turn_denied.clear();
         self.repeat_denials = 0;
         self.denial_stopped = None;
-        self.clear_turn_approvals();
         self.interrupt.set_gate(false);
         self.stop_wanted = false;
         self.save_with(extra);
@@ -1831,6 +1803,7 @@ fn keep_sig(
     system: Option<&str>,
     view: &str,
     ttl: CacheTtl,
+    policy: &str,
 ) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -1842,6 +1815,7 @@ fn keep_sig(
         system,
         view,
         ttl.as_str(),
+        policy,
     )
         .hash(&mut h);
     h.finish()

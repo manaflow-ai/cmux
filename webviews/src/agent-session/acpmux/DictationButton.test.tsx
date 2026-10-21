@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { DictationButton } from "./DictationButton";
+import { DictationFinishButton } from "./DictationListening";
 import type { Dictation } from "./dictation";
 import { SHORTCUT_ACTIONS, ShortcutsContext } from "./shortcuts";
 
@@ -28,6 +29,7 @@ function installDom(): HTMLElement {
     en: {
       "dictation.start": "Dictate",
       "dictation.stop": "Stop dictation",
+      "dictation.finish": "Finish dictation",
     },
   };
   return dom.window.document.getElementById("root")!;
@@ -53,11 +55,14 @@ afterEach(async () => {
   await resetDom();
 });
 
-function fakeDictation(state: Dictation["state"]): Dictation {
+function fakeDictation(state: Dictation["state"], finished: string[] = []): Dictation {
   return {
     state,
     notice: null,
     toggle() {},
+    finish() {
+      finished.push(state);
+    },
     cancel() {},
     openSettings() {},
     dismiss() {},
@@ -102,4 +107,35 @@ test("idle and listening remain settled controls", async () => {
   expect(listening.getAttribute("aria-label")).toBe("Stop dictation");
   expect(listening.getAttribute("aria-pressed")).toBe("true");
   expect(listening.getAttribute("aria-busy")).toBeNull();
+});
+
+test("a running session's mic stays a mic glyph, pressed; its level shows beside it, not in it", async () => {
+  const listening = await render("listening");
+  expect(listening.getAttribute("aria-pressed")).toBe("true");
+  expect(listening.getAttribute("data-state")).toBe("listening");
+  expect(listening.querySelector("svg")).not.toBeNull();
+  expect(listening.querySelector(".acpmux-mic-meter")).toBeNull();
+});
+
+async function renderFinish(state: Dictation["state"], finished: string[]): Promise<HTMLButtonElement> {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<DictationFinishButton dictation={fakeDictation(state, finished)} />);
+  });
+  return container.querySelector("button")!;
+}
+
+test("the finish key finishes the session (keeps its words) and waits while the last words land", async () => {
+  const finished: string[] = [];
+  const listening = await renderFinish("listening", finished);
+  expect(listening.getAttribute("aria-label")).toBe("Finish dictation");
+  expect(listening.disabled).toBe(false);
+  await act(async () => listening.click());
+  expect(finished).toEqual(["listening"]);
+
+  await resetDom();
+
+  const finalizing = await renderFinish("finalizing", finished);
+  expect(finalizing.disabled).toBe(true);
 });

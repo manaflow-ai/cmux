@@ -23,7 +23,7 @@ home-core `fanout.ts wakesFor`). It adds no new conversation kind and no new bac
 
 | Gap | Added |
 |---|---|
-| Starting a group with Chiefs took typing names or the + list | A **Chiefs strip** under To: (one button per Chief not chosen yet, its name and where it runs); one click adds it. Shown while any Chief can be added. |
+| Starting a group with Chiefs took typing names or the + list | The **Chiefs list** under To: before anything is typed (one row per Chief not chosen yet: avatar, full name, "Chief · Main · Cloud"); a click or Down then Return adds it. |
 | No way to say when Chiefs answer | **Chiefs Reply** in group info: "Automatically", "Only When @Mentioned", "Every Message". It is `conversation.settings.set {wake_policy}` (owner of the group only). Hidden in a group with no Chief and in a local group (the local owner has no settings). |
 | The daemon refused `conversation.settings.set` | Added to `CLOUD_OP_KINDS` (default deny list) so the Mac can send it. |
 | The app did not read `settings` | `ConversationSummary.chiefReplies` (from `settings.wake_policy`). |
@@ -58,9 +58,14 @@ turn budget (6 agent turns per person message, 2 s gap) still stops two Chiefs f
 
 ## 5. UI designs (gallery: `plans/cmux-next/chief-group-chats-gallery.html`)
 
-- **A. Chiefs strip under To: (Recommended, shipped).** A row of capsule buttons "🫡 Chief ·
-  Cloud", "Unii · This Mac" under the field. No new sheet; the strip goes when every Chief is
-  chosen. Group info gets the Chiefs Reply picker.
+- A. Chiefs strip under To: (shipped first, replaced 2026-10-20). A row of capsule buttons
+  "+ Chief" under the field. Two Chiefs named "Chief" (the Hosted Chief and this Mac's) showed as
+  two identical "+ Ch…" pills squeezed by the "Chiefs" label; Leo: "this is bad".
+- **D. Chiefs list under To: (shipped).** Before anyone is chosen or typed, the suggestion list
+  under To: lists the Chiefs, main first: avatar, full name, and under it "Chief · Main · Cloud"
+  or "Chief · This Mac" (the Home list's tags). Nothing is highlighted until Down; Return picks
+  the highlighted one. Typing narrows to everyone; + lists everyone. Archived Chiefs are left out.
+  Group info gets the Chiefs Reply picker.
 - B. Chiefs section in the + list: Chiefs grouped first with a header. Needs a click on + first.
 - C. Chief toggle in the composer ("Ask Chief" pill): adds the main Chief only; hides the others.
 

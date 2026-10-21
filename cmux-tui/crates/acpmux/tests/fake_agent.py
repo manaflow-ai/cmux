@@ -11,6 +11,8 @@ Behaviour per prompt text:
   "deaf-to-cancel" -> streams "running", ignores session/cancel, answers end_turn after 20 s
   "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
+  "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
+  image blocks -> the echo ends with " image:<sha256 of its bytes>" for each
   anything     -> echoes the text as one agent_message_chunk
 
 FAKE_CODEX_STEER=1: steering as codex-acp 1.10.0 does it. The agent
@@ -38,11 +40,22 @@ task_complete, written a moment after the turn answers. session/load finds a rol
 unknown id fails), and "history-probe" replies with the prompts and session
 ids the loaded rollout holds.
 
+FAKE_FORK_DEFAULTS=1: session/fork answers with the harness's default model and effort
+(configOptions), not the forked session's, as Codex does.
+
+FAKE_FORK_ERROR=1: the agent offers session/fork but answers it with a bare "Internal
+error", as Claude's ACP adapter does for a chat with no turn.
+
+FAKE_NO_FORK=1: the agent does not advertise sessionCapabilities.fork and answers
+session/fork with a bare "Internal error", as Kimi does.
+
 FAKE_ASK_MODE=1: the sample harness of `cmux harness add sample` (cx-00p) as a remote
 start takes it: its one mode is "ask" (an acpmux config.json `webAskingModes` entry
 {"sample": ["ask"]} lists it), and a prompt naming "hostname" runs `hostname` as a tool
 call through the ACP permission flow: announced, asked, run only after an allow.
 """
+import base64
+import hashlib
 import json
 import sys
 import os
@@ -52,6 +65,7 @@ import time
 lock = threading.Lock()
 cancelled = set()
 failed_once = set()
+failed_digest = set()
 # Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
 net_down = set()
 # Sessions whose "net-flaky" prompt left one more prompt to fail (auto-resume tests).
@@ -244,6 +258,39 @@ def run_hostname(rid, sid):
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
 
 
+def run_gh_pr_create(rid, sid):
+    """"gh-pr-create": opens two pull requests as Claude Code and codex-acp report them (the
+    command only on the tool call, the URL only in its result), views a third that it did not
+    open, shows the first again, greps for "gh pr create", and chains a view after a create."""
+    calls = [
+        ("pr-1", "gh pr create --fill", {"command": "gh pr create --fill"},
+         "https://github.com/manaflow-ai/cmux/pull/7\n"),
+        ("pr-2", "Run gh pr create", {"command": ["bash", "-lc", "gh pr create -B main --title x"]},
+         "Creating pull request for b into main\n\nhttps://github.com/manaflow-ai/cmux-tui/pull/8"),
+        ("view-1", "gh pr view 9", {"command": "gh pr view 9 --json url"},
+         '{"url":"https://github.com/manaflow-ai/cmux/pull/9"}'),
+        ("pr-3", "gh pr create --fill", {"command": "gh pr create --fill"},
+         "https://github.com/manaflow-ai/cmux/pull/7"),
+        # gh exits 1 when the branch has a pull request already, printing its URL: not opened now.
+        ("pr-5", "gh pr create --fill", {"command": "gh pr create --fill"},
+         "a pull request for branch \"c\" into branch \"main\" already exists:\nhttps://github.com/manaflow-ai/cmux/pull/12",
+         "failed"),
+        # Mentions gh pr create but runs grep: not counted.
+        ("grep-1", "grep -rn 'gh pr create' notes", {"command": "grep -rn 'gh pr create' notes"},
+         "https://github.com/manaflow-ai/cmux/pull/10"),
+        # gh pr create is not its whole command: the view's pull/11 is not counted.
+        ("pr-4", "gh pr create --fill && gh pr view 11", {"command": "gh pr create --fill && gh pr view 11 --json url -q .url"},
+         "https://github.com/manaflow-ai/cmux/pull/7\nhttps://github.com/manaflow-ai/cmux/pull/11"),
+    ]
+    for tid, title, raw, out, *status in calls:
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": tid, "title": title, "kind": "execute",
+                     "status": "in_progress", "rawInput": raw})
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": tid, "status": (status or ["completed"])[0],
+                     "content": [{"type": "content", "content": {"type": "text", "text": out}}]})
+    update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "opened"}})
+    send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+
+
 def handle_prompt(rid, params):
     sid = params["sessionId"]
     blocks = params.get("prompt", [])
@@ -258,6 +305,8 @@ def handle_prompt(rid, params):
         return
     if os.environ.get("FAKE_ASK_MODE") == "1" and "hostname" in text:
         return run_hostname(rid, sid)
+    if text == "gh-pr-create":
+        return run_gh_pr_create(rid, sid)
     # Connection-loss simulation for auto-resume tests. "net-fail-once: X" fails that prompt
     # with a transport error once per session; "net-down" fails it and every later prompt of
     # the session the same way. Any other prompt after a net-fail-once is answered as usual.
@@ -311,6 +360,13 @@ def handle_prompt(rid, params):
             )
             for b in links
         )
+    # Each image block the agent got, by the SHA-256 of its bytes (acpmux's attachment id).
+    images = [b for b in blocks if isinstance(b, dict) and b.get("type") == "image"]
+    if images:
+        text += " " + " ".join(
+            "image:" + hashlib.sha256(base64.b64decode(b.get("data", ""))).hexdigest()
+            for b in images
+        )
     if text.startswith("permission-batch:"):
         with open(os.path.join(os.path.dirname(__file__), "fixtures", "permission-batches.json")) as f:
             fixture = json.load(f)[text.split(":", 1)[1].strip()]
@@ -346,11 +402,28 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate":"agent_message_chunk", "content":{"type":"text", "text":json.dumps(choices)}})
         send({"jsonrpc":"2.0", "id":rid, "result":{"stopReason":"end_turn"}})
         return
+    # "work-gate: PATH [| TITLE]" reports a plan step in progress and a running
+    # tool call (TITLE, else "Run cargo test"), then blocks on the FIFO at PATH
+    # (as "gate:") and ends.
+    if text.startswith("work-gate:"):
+        path, _, title = text[len("work-gate:"):].partition(" | ")
+        update(sid, {"sessionUpdate": "plan", "entries": [
+            {"content": "Read the brief", "status": "completed", "priority": "high"},
+            {"content": "Fix the queue", "status": "in_progress", "priority": "high"}]})
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "wg-1", "title": title.strip() or "Run cargo test",
+                     "kind": "execute", "status": "in_progress"})
+        with open(path.strip()) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "wg-1", "status": "completed"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "worked"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "gate: PATH" streams "before-gate", blocks until the test writes to
     # the FIFO at PATH (no timers), then streams "after-gate" and ends.
     if text.startswith("gate:"):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "before-gate"}})
-        with open(text[5:].strip()) as gate:
+        # The path ends where a hidden context block (`<cmux-rules-context>`) starts.
+        with open(text[5:].split("<", 1)[0].strip()) as gate:
             gate.read()
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "after-gate"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
@@ -379,6 +452,53 @@ def handle_prompt(rid, params):
         answers = res.get("_meta", {}).get("updatedInput", {}).get("answers")
         update(sid, {"sessionUpdate": "agent_message_chunk",
                      "content": {"type": "text", "text": f"chose {chosen} {json.dumps(answers, sort_keys=True)}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "tool-question: TOOL KIND" asks to run tool TOOL (`_meta.claude.tool`)
+    # whose input also holds `questions`, with one allow option of KIND: a
+    # question by its input's shape alone, or (AskUserQuestion with
+    # allow_always) one that offers only a lasting allow.
+    if text.startswith("tool-question:"):
+        tool, kind = text[14:].split()
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "tq1", "title": tool, "kind": "execute", "status": "pending",
+                             "rawInput": {"command": "rm -rf build",
+                                          "questions": [{"question": "ok?", "options": [{"label": "yes"}]}]},
+                             "_meta": {"claude": {"tool": tool}}},
+                "options": [
+                    {"optionId": "go", "name": "Go", "kind": kind},
+                    {"optionId": "no", "name": "No", "kind": "reject_once"},
+                ],
+            },
+        )
+        chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "meta-question: Q" asks to run a command with its own
+    # `_meta.acpmux.question` asking Q: no tool name, no `questions` input.
+    if text.startswith("meta-question:"):
+        q = text[14:].strip()
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "mq1", "title": "run", "kind": "execute", "status": "pending",
+                             "rawInput": {"command": "rm -rf build"},
+                             "_meta": {"acpmux": {"question": {"harness": "claude", "agent": "Claude Code", "items": [
+                                 {"id": "q0", "prompt": q, "options": [{"id": "yes", "label": "yes"}],
+                                  "multiSelect": False, "allowsOther": True}]}}}},
+                "options": [
+                    {"optionId": "go", "name": "Go", "kind": "allow_once"},
+                    {"optionId": "no", "name": "No", "kind": "reject_once"},
+                ],
+            },
+        )
+        chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "xai-question: Q" asks Q the way Grok does (`_x.ai/ask_user_question`)
@@ -463,6 +583,12 @@ def handle_prompt(rid, params):
         chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # A prompt with "[fail-digest-once]" anywhere in it (a turn of agent messages, acpmux
+    # hub/digest.rs) fails the first time in a session, then runs as any other.
+    if "[fail-digest-once]" in text and sid not in failed_digest:
+        failed_digest.add(sid)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "simulated internal error"}})
         return
     # Failure simulation for retry tests. "fail-once: X" fails the first
     # prompt of a session with an ACP internal error and echoes X after that;
@@ -703,6 +829,11 @@ def handle_prompt(rid, params):
             time.sleep(0.3)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "do-work" anywhere: the turn edits a file (a tool call) before it answers, as a turn that
+    # makes progress does (hub_integration/agent_pairs.rs).
+    if "do-work" in text:
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "work-1", "title": "Edit notes.md",
+                     "kind": "edit", "status": "completed"})
     update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "thinking"}})
     # FAKE_TOOL_CALLS=N: N finished shell calls first, as a working agent's turn shows them.
     for k in range(int(os.environ.get("FAKE_TOOL_CALLS", "0") or 0)):
@@ -722,6 +853,17 @@ CLAUDE_MODELS = [("default", "Default"), ("claude-opus-5-5", "Opus 5.5"), ("clau
                  ("claude-haiku-5-5", "Haiku 5.5"), ("claude-fable-5-1", "Fable 5.1")]
 
 
+def stdin_lines(early):
+    """stdin's lines, starting with the bytes read while waiting at the start gate."""
+    if early:
+        if not early.endswith(b"\n"):
+            early += sys.stdin.buffer.readline()
+        # Split and decoded as stdin is: only at newlines (serde_json leaves U+2028 unescaped).
+        import io
+        yield from io.TextIOWrapper(io.BytesIO(early), encoding=sys.stdin.encoding, errors=sys.stdin.errors)
+    yield from sys.stdin
+
+
 def main():
     global LAST_MCP_SERVERS
     # `--fake-login` (the terminal sign-in): sign in and exit.
@@ -733,13 +875,21 @@ def main():
         import signal
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
     # FAKE_START_GATE=<path>: start (read stdin) only once that file exists: a slow agent start.
+    # It still watches stdin while it waits: once the daemon that started it is gone (EOF), it exits, so a
+    # test that never opens the gate leaves no agent behind (257 of them polled forever on huge-blue, 2026-10-21).
+    # What arrives meanwhile is kept for after the gate.
     gate = os.environ.get("FAKE_START_GATE")
+    early = b""
     if gate:
-        import time
+        import select
         while not os.path.exists(gate):
-            time.sleep(0.02)
+            if select.select([sys.stdin.fileno()], [], [], 0.02)[0]:
+                chunk = os.read(sys.stdin.fileno(), 65536)
+                if not chunk:
+                    return
+                early += chunk
     sessions = 0
-    for line in sys.stdin:
+    for line in stdin_lines(early):
         line = line.strip()
         if not line:
             continue
@@ -753,6 +903,9 @@ def main():
         m = msg["method"]
         rid = msg.get("id")
         params = msg.get("params") or {}
+        # FAKE_SET_MODE_SILENT=1: never answer session/set_mode, while staying alive.
+        if m == "session/set_mode" and os.environ.get("FAKE_SET_MODE_SILENT") == "1":
+            continue
         if m == "initialize" and os.environ.get("FAKE_DIE_AT_START"):
             sys.stderr.write(os.environ["FAKE_DIE_AT_START"] + "\n")
             sys.stderr.flush()
@@ -791,6 +944,10 @@ def main():
                     result["modes"] = {"currentModeId": "default", "availableModes": [
                         {"id": "default", "name": "Default"}, {"id": "acceptEdits", "name": "Accept Edits"},
                         {"id": "plan", "name": "Plan Mode"}, {"id": "bypassPermissions", "name": "Bypass Permissions"}]}
+                # FAKE_MODELS=<id,id>: the models this account offers (ACP `models`), as Codex reports them.
+                if os.environ.get("FAKE_MODELS"):
+                    ids = os.environ["FAKE_MODELS"].split(",")
+                    result["models"] = {"currentModelId": ids[0], "availableModels": [{"modelId": i, "name": i} for i in ids]}
                 send({"jsonrpc": "2.0", "id": rid, "result": result})
             elif m == "session/set_model" and params.get("modelId") == os.environ.get("FAKE_REFUSE_ID"):
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32602, "message": "model not available"}})
@@ -852,7 +1009,7 @@ def main():
                 "protocolVersion": 1,
                 "_meta": {"steering": {"supported": "1" in (os.environ.get("FAKE_CODEX_STEER"), os.environ.get("FAKE_CLAUDE_STEER"))}},
                 "agentInfo": {"name": "fake", "version": "0"},
-                "agentCapabilities": {"loadSession": os.environ.get("FAKE_NO_LOAD") != "1", "sessionCapabilities": {"fork": {}}},
+                "agentCapabilities": {"loadSession": os.environ.get("FAKE_NO_LOAD") != "1", "sessionCapabilities": {} if os.environ.get("FAKE_NO_FORK") == "1" else {"fork": {}}},
                 "authMethods": [] if not os.environ.get("FAKE_AUTH_FILE") else [
                     {"id": "fake-login", "name": "Fake login", "description": "opens a browser"},
                     {"id": "fake-terminal", "name": "Terminal login", "type": "terminal", "args": ["--fake-login"]},
@@ -884,6 +1041,10 @@ def main():
             # FAKE_ASK_MODE=1: the sample harness's one mode, "ask".
             if os.environ.get("FAKE_ASK_MODE") == "1":
                 result["modes"] = {"currentModeId": "ask", "availableModes": [{"id": "ask", "name": "Ask"}]}
+            # FAKE_NEW_MODE=<id>: a new chat starts in that mode, as a harness whose own settings
+            # choose it (not its argv).
+            if os.environ.get("FAKE_NEW_MODE") and "modes" in result:
+                result["modes"]["currentModeId"] = os.environ["FAKE_NEW_MODE"]
             send({"jsonrpc": "2.0", "id": rid, "result": result})
             # FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts,
             # before any prompt.
@@ -916,10 +1077,35 @@ def main():
                 threading.Thread(target=finish_load, daemon=True).start()
                 continue
             update(params["sessionId"], {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "replayed"}})
+            # FAKE_LOAD_MODE=<id>: the load restores the chat's own mode, as an adapter that keeps
+            # it with the conversation does (with FAKE_FULL_ACCESS=1, a full-access one too).
+            load_mode = os.environ.get("FAKE_LOAD_MODE")
+            if load_mode:
+                offered = [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]
+                if os.environ.get("FAKE_FULL_ACCESS") == "1":
+                    offered.append({"id": "full-access", "name": "Full access"})
+                # FAKE_LOAD_ONLY_MODE=1: the loaded chat offers only that mode, nothing lower.
+                if os.environ.get("FAKE_LOAD_ONLY_MODE") == "1":
+                    offered = [m for m in offered if m["id"] == load_mode]
+                send({"jsonrpc": "2.0", "id": rid, "result": {"modes": {"currentModeId": load_mode, "availableModes": offered}}})
+                continue
             send({"jsonrpc": "2.0", "id": rid, "result": None})
         elif m == "session/fork":
+            # FAKE_NO_FORK=1: an agent without session/fork (Kimi, DeepSeek): a bare internal error.
+            if os.environ.get("FAKE_NO_FORK") == "1" or os.environ.get("FAKE_FORK_ERROR") == "1":
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "Internal error"}})
+                continue
             sessions += 1
-            send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": f"{SESSION_PREFIX}{sessions}"}})
+            result = {"sessionId": f"{SESSION_PREFIX}{sessions}"}
+            # FAKE_FORK_DEFAULTS=1 (with FAKE_PICKER_MODES=claude): the fork's reply reports the
+            # harness's defaults, not the forked session's model and effort, as Codex does.
+            if os.environ.get("FAKE_FORK_DEFAULTS") == "1":
+                result["configOptions"] = [
+                    {"id": "effort", "name": "Reasoning", "category": "thought_level", "type": "select", "currentValue": "high",
+                     "options": [{"value": v, "name": v} for v in ("low", "medium", "high")]},
+                    {"id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "default",
+                     "options": [{"value": v, "name": n} for v, n in CLAUDE_MODELS]}]
+            send({"jsonrpc": "2.0", "id": rid, "result": result})
         elif m == "session/set_mode":
             # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change.
             if os.environ.get("FAKE_SET_MODE_FAIL") == "1":

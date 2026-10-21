@@ -120,8 +120,6 @@ impl Brain {
             return;
         };
         if message.author == self.settings.membership.participant {
-            // A person answered an approval card the Chief posted.
-            self.answer_card(&main, message);
             return;
         }
         let key = format!("{main}#{}", message.seq);
@@ -263,59 +261,39 @@ impl Brain {
                 |id| self.mux_messages.contains(id),
             )
         {
-            // An answer to a pending approval of the running turn: it
-            // answers, is logged, and is not a new message (it neither
-            // queues nor interrupts the turn).
-            match crate::approval::Answer::parse(&text) {
-                Some(answer)
-                    if self.settings.membership.is_owner_message(summary, &message)
-                        && self.has_approval(None) =>
-                {
-                    self.answer_approval(answer, &message, None);
-                    if let Err(e) = self.chat.append(optchat_core::Kind::User, &text) {
-                        (self.log)(&format!("logging an approval failed: {e}"));
-                    }
+            let remote = message
+                .origin
+                .as_ref()
+                .map(|cmux_conversation::Origin::Remote { install }| install.clone());
+            // The turn sees the images; the log keeps their references.
+            let images = match self.daemon.as_mut() {
+                Some(daemon) if has_images => super::images::read_images(daemon.as_mut(), &message),
+                _ => Vec::new(),
+            };
+            // The turn opens other files from this Mac; the line names where.
+            let files = match self.daemon.as_mut() {
+                Some(daemon) if has_files => {
+                    let root = self.file.attachments_dir();
+                    super::files::read_files(daemon.as_mut(), &message, &root)
                 }
-                _ => {
-                    let remote = message
-                        .origin
-                        .as_ref()
-                        .map(|cmux_conversation::Origin::Remote { install }| install.clone());
-                    // The turn sees the images; the log keeps their references.
-                    let images = match self.daemon.as_mut() {
-                        Some(daemon) if has_images => {
-                            super::images::read_images(daemon.as_mut(), &message)
-                        }
-                        _ => Vec::new(),
-                    };
-                    // The turn opens other files from this Mac; the line names where.
-                    let files = match self.daemon.as_mut() {
-                        Some(daemon) if has_files => {
-                            let root = self.file.attachments_dir();
-                            super::files::read_files(daemon.as_mut(), &message, &root)
-                        }
-                        _ => Vec::new(),
-                    };
-                    let logged = super::files::logged_text(
-                        &super::images::logged_text(&text, &images),
-                        &files,
-                    );
-                    self.queue_with_images(
-                        logged,
-                        images,
-                        Source::Message {
-                            seq: message.seq,
-                            id: message.id.clone(),
-                            remote,
-                            requires_approval: !self
-                                .settings
-                                .membership
-                                .is_owner_message(summary, &message),
-                        },
-                    );
-                    return;
-                }
-            }
+                _ => Vec::new(),
+            };
+            let logged =
+                super::files::logged_text(&super::images::logged_text(&text, &images), &files);
+            self.queue_with_images(
+                logged,
+                images,
+                Source::Message {
+                    seq: message.seq,
+                    id: message.id.clone(),
+                    remote,
+                    requires_approval: !self
+                        .settings
+                        .membership
+                        .is_owner_message(summary, &message),
+                },
+            );
+            return;
         }
         if !self.queued_messages_of(None) {
             self.state.logged_seq = self.handled;

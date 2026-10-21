@@ -28,6 +28,7 @@ mod schema;
 #[cfg(test)]
 mod tests;
 mod transport;
+mod upstream;
 mod v2_tools;
 mod watch;
 
@@ -306,6 +307,15 @@ pub(super) fn refusal(path: &std::path::Path) -> Option<String> {
     refusal_for(path, agent_chat)
 }
 
+/// The settings file, and whether it turns `serve` on for a client outside
+/// a cmux agent chat (Claude Code or Codex started in a terminal), or why
+/// it cannot be read (`cmux setup mcp`).
+pub(super) fn outside_chats() -> (PathBuf, Result<bool, String>) {
+    let path = config::path();
+    let on = config::setting(&path).map(|setting| setting == Some(true));
+    (path, on)
+}
+
 fn refusal_for(path: &std::path::Path, agent_chat: bool) -> Option<String> {
     let messages = messages::messages();
     match config::setting(path) {
@@ -331,6 +341,10 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
     server.list_changed = true;
     server.code_mode = code_mode;
     server.allowed = allowed_tools(std::env::var_os(ALLOWED_TOOLS_ENV));
+    server.upstreams = upstream::specs(std::env::var_os(upstream::ENV))
+        .into_iter()
+        .map(|spec| upstream::Proxied::new(upstream::Upstream::new(spec)))
+        .collect();
     server.run(io::stdin().lock(), &output)
 }
 
@@ -402,8 +416,15 @@ pub(super) struct Server<B> {
     /// `CMUX_MCP_TOOLS`: the only tools listed and callable. It turns code
     /// mode off (the few tools are listed directly).
     allowed: Option<BTreeSet<String>>,
+    /// The agent chat's other MCP servers (`upstream`), behind this one.
+    upstreams: Vec<upstream::Proxied>,
+    /// While a `cmux_exec` script runs: its time limit, which also bounds a
+    /// proxied call it makes (the script holds this thread).
+    call_cap: Option<Duration>,
     /// Where `run` writes, for a call's `notifications/progress`.
     notes: Option<watch::Output>,
+    /// The ids `render` returned in this process: a render may update only one of these.
+    renders: std::collections::HashSet<String>,
 }
 
 impl<B: Backend> Server<B> {
@@ -419,7 +440,10 @@ impl<B: Backend> Server<B> {
             code_mode: false,
             script_limits: code_mode::Limits::default(),
             allowed: None,
+            upstreams: Vec::new(),
+            call_cap: None,
             notes: None,
+            renders: std::collections::HashSet::new(),
         }
     }
 
@@ -489,7 +513,20 @@ impl<B: Backend> Server<B> {
                 Ok(json!({ "tools": code_mode::descriptors(&tools) }))
             }
             "tools/list" => Ok(json!({ "tools": self.list() })),
-            "tools/call" => self.call(&params),
+            "tools/call" => {
+                // A proxied server's call runs on its own thread, so one that
+                // waits (a secret card) never holds up the other tools.
+                if let Some(output) = self.notes.clone()
+                    && let Some(job) = self.proxied_job(&params)
+                {
+                    std::thread::spawn(move || {
+                        let response = json!({"jsonrpc": "2.0", "id": id, "result": job.run(None)});
+                        let _ = output.send(&response);
+                    });
+                    return None;
+                }
+                self.call(&params)
+            }
             _ => Err((-32601, format!("method not found: {method}"))),
         };
         Some(match result {
@@ -518,6 +555,20 @@ impl<B: Backend> Server<B> {
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
+        for proxied in &mut self.upstreams {
+            proxied.refresh();
+            let taken = tools
+                .iter()
+                .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
+                .collect::<BTreeSet<_>>();
+            tools.extend(
+                proxied
+                    .listed
+                    .iter()
+                    .filter(|t| t["name"].as_str().is_some_and(|n| !taken.contains(n)))
+                    .cloned(),
+            );
+        }
         if let Some(allowed) = &self.allowed {
             tools.retain(|tool| tool["name"].as_str().is_some_and(|name| allowed.contains(name)));
         }
@@ -571,19 +622,32 @@ impl<B: Backend> Server<B> {
         if name == code_mode::DOCS {
             let tools = self.list();
             return Ok(match code_mode::docs(&tools, &arguments) {
-                Ok(value) => success(value, false),
+                Ok(mut value) => {
+                    self.add_server_rules(&mut value);
+                    success(value, false)
+                }
                 Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
             });
         }
         if name == code_mode::EXEC {
             // One tool list per script, for its docs searches.
             let mut tools = None;
+            let mut images = Vec::new();
+            self.call_cap = Some(self.script_limits.total);
             let answered = code_mode::exec(&arguments, self.script_limits, &mut |request| {
-                self.script_request(request, &mut tools)
+                self.script_request(request, &mut tools, &mut images)
             });
-            return Ok(answered.unwrap_or_else(|message| {
+            self.call_cap = None;
+            let mut result = answered.unwrap_or_else(|message| {
                 tool_error(envelope(v2_tools::invalid(message), "not_run", None))
-            }));
+            });
+            if let Some(content) = result["content"].as_array_mut() {
+                content.extend(images);
+            }
+            return Ok(result);
+        }
+        if let Some(job) = self.proxied_tool(name, &arguments) {
+            return Ok(job.run(self.call_cap));
         }
         if let Some(tool) = v2_tools::find(name) {
             return Ok(self.call_v2(tool, &arguments));
@@ -685,7 +749,7 @@ impl<B: Backend> Server<B> {
             return Ok(agent_events_tool::call(&self.backend, &arguments));
         }
         if name == render_tool::NAME {
-            return Ok(match render_tool::receipt(&arguments) {
+            return Ok(match render_tool::receipt(&arguments, &mut self.renders) {
                 Ok(receipt) => success(receipt, false),
                 Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
             });
@@ -722,16 +786,18 @@ impl<B: Backend> Server<B> {
         &mut self,
         request: code_mode::Request,
         tools: &mut Option<Vec<Value>>,
+        images: &mut Vec<Value>,
     ) -> Value {
         match request {
             code_mode::Request::Call { name, .. } if name == code_mode::EXEC => {
-                code_mode::script_answer(Err((
-                    -32602,
-                    "a script cannot start another script".into(),
-                )))
+                code_mode::script_answer(
+                    Err((-32602, "a script cannot start another script".into())),
+                    images,
+                )
             }
             code_mode::Request::Call { name, arguments } => {
-                code_mode::script_answer(self.call(&json!({"name": name, "arguments": arguments})))
+                let result = self.call(&json!({"name": name, "arguments": arguments}));
+                code_mode::script_answer(result, images)
             }
             code_mode::Request::Docs { query } => {
                 let tools = match tools {
@@ -740,8 +806,10 @@ impl<B: Backend> Server<B> {
                 };
                 let mut arguments = Map::new();
                 arguments.insert("query".into(), Value::String(query));
-                code_mode::docs(tools, &arguments)
-                    .unwrap_or_else(|message| json!({"error": message}))
+                let mut value = code_mode::docs(tools, &arguments)
+                    .unwrap_or_else(|message| json!({"error": message}));
+                self.add_server_rules(&mut value);
+                value
             }
         }
     }

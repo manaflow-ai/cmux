@@ -31,7 +31,7 @@ extension AgentPaneView {
         let width = notice.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -32)
         width.priority = .defaultHigh
         NSLayoutConstraint.activate([
-            notice.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            notice.topAnchor.constraint(equalTo: tabRowCover.bottomAnchor, constant: 8), // below a shared tab row
             notice.centerXAnchor.constraint(equalTo: centerXAnchor),
             width,
         ])

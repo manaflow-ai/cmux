@@ -48,8 +48,7 @@ export default componentEntry<Props>({
   },
   styles: async () => {
     await import("../../shared/pageBase.css");
-    await import("../styles.css");
-    await import("../layout.css");
+    await import("../page.css");
   },
   height: 220,
   variants: {

@@ -8,6 +8,7 @@
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { createMockPair } from "../../protocol/adapters/mock";
 import { updatable } from "./harnesses";
+import { recentAfterPick } from "./fontPickerModel";
 import { ProtocolError, ProtocolErrorCode } from "../../protocol/errors";
 import { Session, type EventSourceContext } from "../../protocol/session";
 import {
@@ -72,6 +73,7 @@ export const mockDomains: Domains = {
   ],
   font_families: ["Berkeley Mono", "Iosevka", "JetBrains Mono", "Menlo", "SF Mono"],
   sounds: ["default", "Basso", "Funk", "Glass", "Ping", "Submarine", "none"],
+  recent_fonts: ["JetBrains Mono"],
 };
 
 /** The fixture managed key: a device profile pins remote localhost forwarding off. */
@@ -166,6 +168,10 @@ export class MockSettingsProvider {
       this.workspaceBackgrounds.set(background.workspace, background);
   }
 
+  /** The ops and streams `serve` registered: a host that bridges this mock (the gallery stage) forwards
+   * exactly these, so an op added here reaches the page without a second list to keep in step. */
+  served: { ops: string[]; streams: string[] } = { ops: [], streams: [] };
+
   /** Registers every op and stream on `session` (the provider side). */
   serve(session: Session): void {
     const ops: Record<string, (params: Params) => unknown> = {
@@ -206,7 +212,7 @@ export class MockSettingsProvider {
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
       // Agents > Chiefs (ChiefsCard): the host's page relay to the Chief owner and harness center.
       "cmux.chief.profile.list": () => ({ chiefs: this.chiefs }),
-      "cmux.chief.profile.avatar.get": () => ({ avatar: null }),
+      "cmux.chief.profile.avatar.get": (params) => ({ avatar: this.chiefAvatars.get(params.chief as string) ?? null }),
       "cmux.chief.profile.history": (params) => ({
         chief: params.chief,
         revisions: this.chiefs
@@ -418,6 +424,11 @@ export class MockSettingsProvider {
       "cmux.app.action.run",
       "cmux.app.clipboard.write",
     ]);
+    this.served = { ops: Object.keys(ops), streams: [] };
+    const provide: Session["provide"] = (stream, source) => {
+      this.served.streams.push(stream);
+      return session.provide(stream, source);
+    };
     for (const [op, handler] of Object.entries(ops)) {
       session.register(op, (params) => {
         this.log.push({ op, params });
@@ -429,18 +440,21 @@ export class MockSettingsProvider {
         return handler((params ?? {}) as Params);
       });
     }
-    session.provide("cmux.settings.changed", (ctx) => this.track(this.changed, ctx));
-    session.provide("cmux.page.connection", (ctx) => this.track(this.connection, ctx));
-    session.provide("cmux.page.command", (ctx) => this.track(this.commands, ctx));
-    session.provide("cmux.settings.host.changed", (ctx) => this.track(this.hostChanged, ctx));
-    session.provide("cmux.settings.accounts.changed", (ctx) => this.track(this.accountsChanged, ctx));
-    session.provide("cmux.settings.agents.changed", (ctx) => {
+    provide("cmux.settings.changed", (ctx) => this.track(this.changed, ctx));
+    provide("cmux.page.connection", (ctx) => this.track(this.connection, ctx));
+    provide("cmux.page.command", (ctx) => this.track(this.commands, ctx));
+    provide("cmux.settings.host.changed", (ctx) => this.track(this.hostChanged, ctx));
+    provide("cmux.settings.accounts.changed", (ctx) => this.track(this.accountsChanged, ctx));
+    provide("cmux.settings.agents.changed", (ctx) => {
       const listener = (state: AgentsState) => ctx.emit(state);
       this.agents.listeners.add(listener);
       ctx.signal.addEventListener("abort", () => this.agents.listeners.delete(listener));
     });
-    session.provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
+    provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
   }
+
+  /** Custom Chief pictures by Chief id (`chief.profile.avatar.get`); a Chief without one reads null. */
+  chiefAvatars = new Map<string, Params>();
 
   /** The Chief records the host's page relay lists (`chief.profile.list`). */
   chiefs: Params[] = [
@@ -756,7 +770,7 @@ export class MockSettingsProvider {
         [...this.managed].map(([key, { source, reason, team }]) => [key, { source, reason, team: team ?? null }]),
       ),
       diagnostics: this.diagnostics,
-      domains: this.domains ?? { themes: null, font_families: null, sounds: null },
+      domains: this.domains ?? { themes: null, font_families: null, sounds: null, recent_fonts: null },
     };
   }
 
@@ -817,6 +831,9 @@ export class MockSettingsProvider {
     const reason = validate(rowsByKey.get(key)!, value, this.domains ?? undefined);
     if (reason) throw new ProtocolError("cmux.settings.invalid", `${key}: ${reason}`, { details: { key, value } });
     this.values.set(key, value);
+    // The host keeps the fonts written lately (RecentFonts.swift).
+    if (this.domains && rowsByKey.get(key)?.kind === "font_family" && typeof value === "string")
+      this.domains = { ...this.domains, recent_fonts: recentAfterPick(this.domains.recent_fonts, value) };
     return this.commit([key], "user");
   }
 

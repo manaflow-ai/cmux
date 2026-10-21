@@ -585,7 +585,7 @@ impl Mux {
     /// fact); the store's records keep its tabs.
     fn end_terminal_keeping_tabs(&self, terminal: &RegistryTerminal) -> anyhow::Result<()> {
         let runtime = {
-            let registry = self.workspace_registry.lock().unwrap();
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             let public_id = registry.terminal_resource_id(&terminal.terminal_id)?;
             drop(registry);
             let state = self.state.lock().unwrap();

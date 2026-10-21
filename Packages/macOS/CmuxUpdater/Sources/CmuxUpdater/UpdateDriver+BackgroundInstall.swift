@@ -8,6 +8,7 @@ extension UpdateDriver {
     func acceptInBackground(_ available: UpdateState.UpdateAvailable) {
         log.append("background install: accepting \(available.appcastItem.displayVersionString)")
         backgroundItem = available.appcastItem
+        quitInstallItem = nil
         stagedInstall = nil
         stagedCancel = nil
         setState(.startingDownload)
@@ -29,9 +30,12 @@ extension UpdateDriver {
         )))
     }
 
-    /// The staged update, or nil when nothing waits for the user.
+    /// The staged update, or nil when nothing waits for the user: this driver's held download,
+    /// else the one Sparkle's silent driver staged while its install still waits.
     var stagedItem: SUAppcastItem? {
-        stagedInstall == nil ? nil : backgroundItem
+        if stagedInstall != nil { return backgroundItem }
+        guard case .installing(let installing) = model.state, installing.isAutoUpdate else { return nil }
+        return quitInstallItem
     }
 
     /// Whether `state` ends a click's request to install when ready: nothing
@@ -60,9 +64,11 @@ extension UpdateDriver {
 
     /// Replies Skip to the held ready prompt once: Sparkle cancels the installer that would run
     /// when the app quits. Unlike Skip on the update-found prompt, this records no skipped
-    /// version, so the next check offers the update again.
-    func cancelStaged() {
-        guard let cancel = stagedCancel else { return }
+    /// version, so the next check offers the update again. False when this driver holds no
+    /// staged installer.
+    @discardableResult
+    func cancelStaged() -> Bool {
+        guard let cancel = stagedCancel else { return false }
         log.append("background install: cancelling the staged update's installer")
         stagedInstall = nil
         stagedCancel = nil
@@ -70,5 +76,6 @@ extension UpdateDriver {
         backgroundItem = nil
         setState(.idle)
         cancel()
+        return true
     }
 }

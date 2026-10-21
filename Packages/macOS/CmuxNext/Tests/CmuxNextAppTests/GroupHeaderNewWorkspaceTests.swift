@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
@@ -56,7 +57,7 @@ struct GroupHeaderNewWorkspaceTests {
         services.palette.bindRegistryActions()
         services.windows.ordersWindowsIn = false
         services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true), endpointProvider: launcher.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
         await Self.wait(within: .seconds(90)) {
@@ -64,6 +65,26 @@ struct GroupHeaderNewWorkspaceTests {
                 && services.machines.local.store.personal.isLoaded
         }
         return Launched(services: services, root: root)
+    }
+
+    /// Leo 2026-10-20: every group an agent made drew the same grey header. A group made by
+    /// automation (the CLI, MCP, the socket) takes the next palette color, as a person's does.
+    @Test func aGroupMadeByAutomationTakesAPaletteColorNotGrey() async throws {
+        let launched = try await Self.launch()
+        let services = launched.services, personal = services.machines.local.store.personal
+        let workspace = try #require(services.daemon.store.workspaces.first?.id)
+
+        // `cmux workspace group create --name agent-group` on the launch workspace.
+        _ = services.registry.perform("newWorkspaceGroup", invocation: ActionInvocation(
+            target: ActionTargetRef(kind: .workspace, id: workspace), arguments: ["name": .string("agent-group")], origin: .cli))
+        await Self.wait(within: .seconds(30)) { personal.groups.contains { $0.name == "agent-group" } }
+        let color = personal.groups.first { $0.name == "agent-group" }?.color
+
+        await launched.stop()
+
+        let stored = try #require(color, "no group was made, or it stored no color")
+        #expect(stored != GroupColor.grey.rawValue, "an automation group is stored grey")
+        #expect(stored != GroupColor.blue.rawValue, "the app never picks blue by itself")
     }
 
     @Test func groupHeaderPlusMakesTheNewWorkspaceInThatGroup() async throws {

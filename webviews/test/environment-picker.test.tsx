@@ -1,9 +1,10 @@
 // The environment picker (preview, Settings > Advanced > Labs `labs.previewFeatures`): the composer
 // location row's computer control becomes one searchable list of where a chat runs, as Claude's
 // desktop app has it: Local, SSH and Cloud sections, ⌥⌘1–9 on the first nine rows, and New
-// environment at the bottom, which opens the host's SSH and cmux Cloud connect flows. It defaults
-// to this computer. The machines come from acpmux (`_acpmux/status` peers, by URL scheme, and the
-// hosts its chats ran on); with previews off the row keeps its plain Computer menu.
+// environment at the bottom, which opens the host's SSH connect flow; New Cloud Machine ends the
+// Cloud section and opens the host's create flow. It defaults to this computer. The machines come
+// from acpmux (`_acpmux/status` peers, by URL scheme, and the hosts its chats ran on); with
+// previews off the row keeps its plain Computer menu.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -37,6 +38,8 @@ const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
 let root: Root | undefined;
 let host: HTMLElement;
+/// How often the picker asked the host to read the machines again (`onRefreshMachines`).
+let refreshes = 0;
 
 beforeAll(() => {
   dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
@@ -95,16 +98,17 @@ const status = {
 // peer's name and the scheme of its URL reach the page.
 const relayedStatus = {
   peers: [
-    { name: "gpu-box", transport: "ssh" },
-    { name: "cloud-1", transport: "wss" },
+    { name: "gpu-box", transport: "ssh", connected: true },
+    { name: "cloud-1", transport: "wss", connected: false },
   ],
 };
 
 async function mount(environments: boolean, extra: Record<string, unknown> = {}) {
   const { createRoot } = await import("react-dom/client");
   const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
-  const { peerKindsFromStatus } = await import("../src/agent-session/acpmux/environments");
+  const { peerKindsFromStatus, peerConnectedFromStatus } = await import("../src/agent-session/acpmux/environments");
   const calls: unknown[][] = [];
+  refreshes = 0;
   const props = {
     environments,
     summary: { sessionId: "", harness: "claude", host: "This Mac", hostKind: "local" },
@@ -114,6 +118,8 @@ async function mount(environments: boolean, extra: Record<string, unknown> = {})
     ],
     peers: status.peers.map((peer) => peer.name),
     peerKinds: peerKindsFromStatus(relayedStatus),
+    peerConnected: peerConnectedFromStatus(relayedStatus),
+    onRefreshMachines: () => refreshes++,
     localName: "cosmic-gray",
     projectChoices: [{ cwd: "/Users/you/src/cmux", label: "cmux" }],
     onProject: (cwd: string, peer?: string) => calls.push(["project", cwd, peer]),
@@ -164,6 +170,19 @@ async function type(text: string) {
   });
 }
 
+// Typing as a person does: Base UI auto-highlights only on an input event with an `inputType`.
+async function typeKeys(text: string) {
+  const field = doc().querySelector<HTMLInputElement>(".acpmux-env-popover input")!;
+  const setValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
+  for (const data of text) {
+    await act(async () => {
+      setValue.call(field, field.value + data);
+      field.dispatchEvent(new dom.window.InputEvent("input", { bubbles: true, inputType: "insertText", data }));
+    });
+  }
+  return field;
+}
+
 async function press(target: Element, init: KeyboardEventInit) {
   await act(async () => {
     target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
@@ -176,6 +195,35 @@ test("a peer's transport reads the same from the relayed reply and the daemon's 
   expect(peerKindsFromStatus(relayedStatus)).toEqual(kinds);
   expect(peerKindsFromStatus(status)).toEqual(kinds);
   expect(peerKindsFromStatus({ peers: [{ name: "bare" }] })).toEqual({ bare: "cloud" });
+});
+
+test("a peer's connected flag reads the same from the relayed reply and the daemon's own", async () => {
+  const { peerConnectedFromStatus } = await import("../src/agent-session/acpmux/environments");
+  const connected = { "gpu-box": true, "cloud-1": false };
+  expect(peerConnectedFromStatus(relayedStatus)).toEqual(connected);
+  expect(
+    peerConnectedFromStatus({ peers: [...status.peers.slice(0, 1), { ...status.peers[1], connected: false }] }),
+  ).toEqual(connected);
+  // An older acpmux or relay that sends no flag (or not a boolean) says nothing about the machine.
+  expect(peerConnectedFromStatus({ peers: [{ name: "bare" }, { name: "odd", connected: 1 }] })).toEqual({});
+});
+
+test("each remote machine shows whether it is connected, read again as the list opens; this Mac shows none", async () => {
+  await mount(true);
+  expect(refreshes).toBe(0);
+  await openPicker();
+  expect(refreshes).toBe(1);
+  const states = machineRows().map((row) => {
+    const mark = row.querySelector(".acpmux-env-status");
+    return mark ? [mark.getAttribute("data-connected"), mark.textContent] : null;
+  });
+  expect(states).toEqual([
+    null,
+    ["true", t("composer.envConnected")],
+    ["false", t("composer.envNotConnected")],
+    // A Cloud chat's host acpmux does not list: nothing is known, so nothing is claimed.
+    null,
+  ]);
 });
 
 test("previews off: the row keeps its plain Computer menu", async () => {
@@ -209,12 +257,36 @@ test("previews on: one list in Local, SSH and Cloud sections, numbered ⌥⌘1�
     false,
     false,
   ]);
-  // New environment, last: SSH… and cmux Cloud… under its heading.
-  expect(rows().slice(-2)).toEqual(newRows());
-  expect(newRows().map(rowText)).toEqual([t("composer.connectSSH"), t("composer.connectCloud")]);
-  expect(newRows()[0]!.querySelector(".acpmux-env-row")!.getAttribute("data-section")).toBe(
+  // New Cloud Machine and Open Cloud… close the Cloud section, the first with what one
+  // gives; New environment, last, holds SSH….
+  expect(rows().slice(-3)).toEqual(newRows());
+  expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+    t("composer.newCloudMachine"),
+    t("composer.openCloud"),
+    t("composer.connectSSH"),
+  ]);
+  expect(newRows()[0]!.querySelector(".acpmux-env-detail")?.textContent).toBe(t("composer.newCloudMachineDetail"));
+  expect(newRows().map((row) => row.querySelector(".acpmux-env-row")!.getAttribute("data-section"))).toEqual([
+    null,
+    null,
     t("composer.newEnvironment"),
-  );
+  ]);
+});
+
+test("with no cloud machine yet, New Cloud Machine heads its own Cloud section and opens the create flow", async () => {
+  const calls = await mount(true, {
+    sessions: [{ sessionId: "a", cwd: "/home/dev/model", host: "gpu-box", peer: "gpu-box", updatedAt: 0 }],
+    peers: ["gpu-box"],
+    peerKinds: { "gpu-box": "ssh" },
+  });
+  await openPicker();
+  expect(machineRows().some((row) => row.querySelector('.acpmux-env-row[data-kind="cloud"]'))).toBe(false);
+  const cloud = newRows()[0]!;
+  expect(cloud.querySelector(".acpmux-env-row")!.getAttribute("data-section")).toBe(t("composer.cloud"));
+  // Open Cloud… stays in that one Cloud section.
+  expect(newRows()[1]!.querySelector(".acpmux-env-row")!.getAttribute("data-section")).toBeNull();
+  await act(async () => cloud.click());
+  expect(calls).toEqual([["connect", "cloud"]]);
 });
 
 test("the search field filters by name and section, keeping each machine's shortcut", async () => {
@@ -222,8 +294,8 @@ test("the search field filters by name and section, keeping each machine's short
   await openPicker();
   await type("cloud");
   const shown = machineRows();
-  expect(shown.map((row) => rowText(row))).toEqual(["cloud-1⌥⌘3", "build-cloud⌥⌘4"]);
-  expect(newRows()).toHaveLength(2);
+  expect(shown.map((row) => rowText(row))).toEqual([`cloud-1${t("composer.envNotConnected")}⌥⌘3`, "build-cloud⌥⌘4"]);
+  expect(newRows()).toHaveLength(3);
 });
 
 test("⌥⌘2 in the composer picks the second environment and its folder there", async () => {
@@ -242,12 +314,136 @@ test("⌥⌘ digits do nothing while focus is outside the composer", async () =>
   expect(calls).toEqual([]);
 });
 
-test("New environment's rows open the SSH and cmux Cloud connect flows", async () => {
+test("New Cloud Machine, Open Cloud… and SSH… open the host's create flow, the Cloud page and the connect flow", async () => {
   const calls = await mount(true);
+  for (const index of [0, 1, 2]) {
+    await openPicker();
+    await act(async () => newRows()[index]!.click());
+    expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
+  }
+  expect(calls).toEqual([
+    ["connect", "cloud"],
+    ["connect", "cloudPage"],
+    ["connect", "ssh"],
+  ]);
+});
+
+test("each connect choice runs its own host action", async () => {
+  const { CONNECT_ACTIONS } = await import("../src/agent-session/acpmux/environments");
+  // Open Cloud… opens the Cloud page, whose Sizes and Plans view lists the plan's sizes.
+  expect(CONNECT_ACTIONS).toEqual({
+    ssh: "remote.connect",
+    cloud: "newCloudMachine",
+    cloudPage: "palette.openCloudPane",
+    move: "cloudMove",
+    bringBack: "cloudBringBack",
+  });
+});
+
+// A started chat's computer is fixed, so its picker lists no other machine to pick: it shows where
+// the chat runs and the one move that chat can make, the same action as the tab's right-click menu.
+// Which move applies is the app's call (`pane.tabState` `moves`, from that menu), never the page's.
+const startedOn = (hostKind: "local" | "cloud" | "ssh") => ({
+  started: true,
+  onProject: undefined,
+  onOffload: undefined as unknown,
+  offloads: (hostKind === "local" ? ["move"] : hostKind === "cloud" ? ["bringBack"] : []) as unknown,
+  summary:
+    hostKind === "local"
+      ? { sessionId: "s", harness: "claude", host: "This Mac", hostKind: "local", cwd: "/Users/you/src/cmux" }
+      : hostKind === "cloud"
+        ? { sessionId: "s", harness: "claude", host: "build-cloud", hostKind: "cloud", cwd: "/home/you/cache" }
+        : {
+            sessionId: "s",
+            harness: "claude",
+            host: "gpu-box",
+            peer: "gpu-box",
+            hostKind: "remote",
+            cwd: "/home/dev/model",
+          },
+});
+
+async function mountStarted(hostKind: "local" | "cloud" | "ssh", offload = true, offloads?: string[]) {
+  const calls: unknown[][] = [];
+  const extra = startedOn(hostKind);
+  if (offloads) extra.offloads = offloads;
+  if (offload) extra.onOffload = (kind: string) => calls.push(["offload", kind]);
+  const mounted = await mount(true, extra);
+  return { calls, mounted };
+}
+
+test("a started chat on this Mac: the picker shows this Mac and Move to Cloud, which runs the move", async () => {
+  const { calls, mounted } = await mountStarted("local");
   await openPicker();
-  await act(async () => newRows()[1]!.click());
-  expect(calls).toEqual([["connect", "cloud"]]);
+  expect(machineRows().map(rowText)).toEqual([expect.stringContaining("cosmic-gray")]);
+  expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+    t("composer.moveToCloud"),
+  ]);
+  expect(newRows()[0]!.querySelector(".acpmux-env-detail")?.textContent).toBe(t("composer.moveToCloudDetail"));
+  await act(async () => newRows()[0]!.click());
   expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
+  expect(calls).toEqual([["offload", "move"]]);
+  expect(mounted).toEqual([]);
+});
+
+test("a started Cloud chat: the picker shows its machine and Bring Back Local", async () => {
+  const { calls } = await mountStarted("cloud");
+  await openPicker();
+  expect(machineRows().map(rowText)).toEqual([expect.stringContaining("build-cloud")]);
+  expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+    t("composer.bringBackLocal"),
+  ]);
+  await act(async () => newRows()[0]!.click());
+  expect(calls).toEqual([["offload", "bringBack"]]);
+});
+
+test("Return on a search never moves a chat by itself", async () => {
+  const { calls } = await mountStarted("local");
+  await openPicker();
+  await press(await typeKeys("cloud"), { key: "Enter" });
+  expect(calls).toEqual([]);
+});
+
+test("a started chat with no move to offer keeps the fixed computer label", async () => {
+  const fixed = () =>
+    [...host.querySelectorAll(".acpmux-location-readonly")].some((label) =>
+      (label.getAttribute("aria-label") ?? "").startsWith(t("composer.computer") + ":"),
+    );
+  // An SSH machine's chat has no move; the floating chat offers none (the host passes no onOffload);
+  // a Cloud chat that no move from this Mac put there, or a chat the app won't move, gets none
+  // from the app, whatever its machine's kind.
+  const cases: [hostKind: "local" | "cloud" | "ssh", offload: boolean, offloads?: string[]][] = [
+    ["ssh", true],
+    ["local", false],
+    ["cloud", true, []],
+    ["local", true, []],
+  ];
+  for (const [hostKind, offload, offloads] of cases) {
+    await mountStarted(hostKind, offload, offloads);
+    expect(computerButton()).toBeUndefined();
+    expect(fixed()).toBe(true);
+    act(() => root?.unmount());
+    root = undefined;
+  }
+});
+
+test("Return on a search runs no action Base UI highlighted by itself, but picks a matching machine", async () => {
+  let calls = await mount(true);
+  await openPicker();
+  await press(await typeKeys("gpu"), { key: "Enter" });
+  expect(calls).toEqual([["project", "/home/dev/model", "gpu-box"]]);
+  act(() => root?.unmount());
+  calls = await mount(true);
+  await openPicker();
+  // "gpu" shows gpu-box; the "z" leaves only New Cloud Machine and SSH…, and Base UI moves its
+  // highlight onto New Cloud Machine.
+  const field = await typeKeys("gpuz");
+  await press(field, { key: "Enter" });
+  expect(calls).toEqual([]);
+  await press(field, { key: "ArrowDown" });
+  await press(field, { key: "ArrowUp" });
+  await press(field, { key: "Enter" });
+  expect(calls).toEqual([["connect", "cloud"]]);
 });
 
 test("choosing the environment already chosen hands focus back to the prompt", async () => {

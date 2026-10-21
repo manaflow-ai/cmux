@@ -52,16 +52,31 @@
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
 }
-/* A reference stays whole on one line: its mark, owner/repo#N and a title cut short. */
+/* A reference stays whole on one line: its mark, owner/repo#N and its title, which is cut off
+   only when the chip is as wide as the line (it moves to a line of its own first). The negative
+   margin keeps the padding out of the line's height, as an inline chip's is. */
 .cv-chip.is-ref {
+  display: inline-flex;
+  align-items: baseline;
+  max-width: 100%;
+  margin-block: -1px;
+  box-sizing: border-box;
   white-space: nowrap;
 }
-.cv-chip.is-ref .cv-chip__title {
-  display: inline-block;
-  max-width: 32ch;
+.cv-chip.is-ref .cv-chip__icon {
+  flex: none;
+  align-self: center;
+}
+.cv-chip.is-ref .cv-chip__label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  vertical-align: bottom;
+}
+.cv-chip.is-ref .cv-chip__title {
+  flex-shrink: 1000;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .cv-chip.is-ref:hover,
 .cv-chip.is-path:hover {

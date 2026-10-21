@@ -102,6 +102,18 @@ final class SidebarFooterBand {
 
     /// The smallest side of the Search button: the macOS minimum control size (HIG, 28 pt).
     static let searchButtonMinSide: CGFloat = 28
+    /// The Search button's side: the minimum control size, or the row where that is taller.
+    static var searchButtonSide: CGFloat { max(searchButtonMinSide, Metrics.sidebarRowHeight) }
+
+    /// The pinned footer section's padding under its last row. The footer is one line, the
+    /// account control and the Search button centered on it, whose taller control ends on
+    /// `SidebarStyle.bottomInset` (Leo 2026-10-20: the line sat too high, the section's own
+    /// padding stacked on the margin): no padding under a row as tall as the button, half the
+    /// difference under a shorter one, which the button overhangs.
+    func footerBottomPadding(rowHeight: CGFloat) -> CGFloat {
+        guard host?.design.sidebarSections.showSearchButton == true else { return 0 }
+        return max(0, (Self.searchButtonSide - rowHeight) / 2)
+    }
 
     /// Places the Search button (plans/cmux-next/sidebar-search.md) after the
     /// footer band's first-row items (the profile avatar), on their line, or
@@ -116,14 +128,15 @@ final class SidebarFooterBand {
             return nil
         }
         button.isHidden = false
-        let side = max(Self.searchButtonMinSide, Metrics.sidebarRowHeight)
+        let side = Self.searchButtonSide
         let x: CGFloat, midY: CGFloat
         if let row = bandFirstRow {
             (x, midY) = (row.itemsMaxX + Metrics.space2, row.frame.midY)
         } else {
             let footer = host.footer.frame
-            // An empty band: the footer row, or the sidebar's bottom when the footer has no height.
-            (x, midY) = (Metrics.space4, footer.height > 0 ? footer.midY : host.bounds.maxY - SidebarStyle.footerHeight / 2)
+            // An empty band: the footer row, or on the bottom inset when the footer has no height.
+            (x, midY) = (Metrics.space4, footer.height > 0 ? footer.midY
+                : host.bounds.maxY - SidebarStyle.bottomInset - side / 2)
         }
         button.frame = NSRect(x: x, y: (midY - side / 2).rounded(), width: side, height: side)
         return button.frame.maxX
@@ -141,7 +154,7 @@ final class SidebarFooterBand {
     var profileControl: (id: LayoutItemID, view: SidebarItemRowView)? {
         for region in host?.bandRegions ?? [] {
             for row in region.layoutResult.rows {
-                // A tile draws the avatar alone; a chip, the avatar and the name.
+                // The profile control draws the avatar alone, as a tile or a chip.
                 let id: LayoutItemID
                 switch row.kind {
                 case .tile(let tile, _), .chip(let tile, _): id = tile

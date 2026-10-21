@@ -111,9 +111,9 @@ public struct HomeNewMessageDraft: Hashable, Sendable {
         return Array(result.prefix(limit))
     }
 
-    /// The Chiefs strip under the To: field (plans/cmux-next/chief-group-chats-DESIGN.md): the
-    /// user's Chiefs not chosen yet, in the contacts' order, at most `limit`. One click on one
-    /// adds it as a token; two Chiefs (or a Chief and a person) make a group.
+    /// The Chiefs listed under the To: field before anything is typed
+    /// (plans/cmux-next/chief-group-chats-DESIGN.md): the user's Chiefs not chosen yet, in the
+    /// contacts' order, at most `limit`. Choosing one adds it as a token.
     public func chiefShortcuts(contacts: [HomeContact], limit: Int = 6) -> [HomeContact] {
         let chosen = Set(recipients)
         return Array(contacts.filter { $0.source == .agent && !chosen.contains(.contact($0)) }.prefix(limit))

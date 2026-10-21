@@ -38,6 +38,11 @@ env:
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
   CMUX_GHOSTTY_SRC: ""
+  # The Rust god-file ratchet and rustfmt are structural and style guards:
+  # while this is `warn` they print their findings as warnings and pass (Leo,
+  # 2026-10-19). clippy -D warnings stays blocking: it is also this gate's
+  # all-targets compile check. Set to `fail` to make the style guards block again.
+  CMUX_NEXT_STYLE_GUARDS: warn
 
 jobs:
   validate-inputs:
@@ -268,7 +273,14 @@ jobs:
             && git fetch --quiet --no-tags --depth=1 origin "$merge_base"; then
             base=(--base "$merge_base")
           fi
-          scripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+          # Exit 1 is a god file (warn-only while CMUX_NEXT_STYLE_GUARDS is warn); any other code is a broken check.
+          rc=0
+          scripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" || rc=$?
+          if (( rc == 1 )) && [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; then
+            echo "::warning title=god files (rust)::over the hard ceiling; warn-only (Leo 2026-10-19), see this step's log"
+            exit 0
+          fi
+          exit "$rc"
 
       - name: Init ghostty submodule
         shell: bash
@@ -355,18 +367,25 @@ jobs:
       - name: cargo fmt
         id: rustfmt-check
         working-directory: cmux-tui
-        run: cargo fmt --check
+        run: |
+          if ! cargo fmt --check; then
+            echo "unformatted=true" >> "$GITHUB_OUTPUT"
+            echo "::warning title=cmux-tui rustfmt::cmux-tui is not rustfmt-clean; run cargo fmt in cmux-tui"
+            [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1
+          fi
 
       - name: Prepare hosted rustfmt patch
-        if: ${{ failure() && steps.rustfmt-check.outcome == 'failure' }}
+        if: ${{ !cancelled() && steps.rustfmt-check.outputs.unformatted == 'true' }}
         working-directory: cmux-tui
         run: |
           cargo fmt
           git diff --binary -- . > "$RUNNER_TEMP/rustfmt.patch"
+          # The later lint and test steps check the commit as pushed, not the reformatted tree.
+          git checkout -- .
           test -s "$RUNNER_TEMP/rustfmt.patch"
 
       - name: Upload hosted rustfmt patch
-        if: ${{ failure() && steps.rustfmt-check.outcome == 'failure' }}
+        if: ${{ !cancelled() && steps.rustfmt-check.outputs.unformatted == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rustfmt-${{ matrix.os }}-${{ github.sha }}
@@ -384,7 +403,7 @@ jobs:
       - name: cmux-rd-ffi (own workspace)
         working-directory: cmux-tui/crates/cmux-rd-ffi
         run: |
-          cargo fmt --check
+          cargo fmt --check || { echo "::warning title=cmux-rd-ffi rustfmt::not rustfmt-clean"; [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1; }
           cargo clippy --all-targets --locked -- -D warnings
           cargo test --locked
 
@@ -395,7 +414,7 @@ jobs:
       - name: cmux-layout-reducer-ffi (own workspace)
         working-directory: cmux-tui/crates/cmux-layout-reducer-ffi
         run: |
-          cargo fmt --check
+          cargo fmt --check || { echo "::warning title=cmux-layout-reducer-ffi rustfmt::not rustfmt-clean"; [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1; }
           cargo clippy --all-targets -- -D warnings
           cargo test
           cd ../cmux-app-ffi
@@ -1245,6 +1264,7 @@ jobs:
           Unregister-ScheduledTask -TaskName 'acpmux-peer' -Confirm:$false -ErrorAction SilentlyContinue
           Get-CimInstance Win32_Process -Filter "ExecutablePath LIKE 'C:\\amx-peer\\%'" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
           Remove-Item -Recurse -Force 'C:\amx-peer' -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force 'C:\amx-peer-home' -ErrorAction SilentlyContinue
 
   cdp-browser-smoke:
     name: CDP browser smoke (${{ matrix.os }})
@@ -1277,6 +1297,11 @@ jobs:
       - name: Install pinned Playwright dependencies
         working-directory: web
         run: bun install --frozen-lockfile
+
+      - name: Cache Playwright's apt packages
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
 
       - name: Install pinned Playwright Chromium (Linux)
         if: runner.os == 'Linux'
@@ -1440,8 +1465,18 @@ jobs:
       package_pypi: ${{ inputs.mode == 'full' }}
       include_windows: ${{ inputs.mode == 'full' }}
       target_set: ${{ inputs.mode == 'full' && 'all' || 'macos-arm64' }}
-      # Build the exact reference plugin beside the daemon artifact.
-      build_agent_plugin: true
+      # Focused runs build the macOS target on a Linux runner
+      # (scripts/ci/macos-cross.sh, the same path cmux-tui-artifacts
+      # publishes from), so they never wait in the macOS runner queue: the
+      # Mac leg queued 23-84 min and ran 17-20 min on 2026-10-20, and was the
+      # critical path. Full runs keep the Mac build, which also packages npm
+      # and PyPI. The Linux path stages the reference plugin inside the
+      # cmux-tui-<target> artifact (cmux-tui-agent-screen-detection-<target>,
+      # optional: left out with a warning when it does not build), so only
+      # full runs build it as a separate artifact.
+      # scripts/verify-cmux-tui-hosted.sh reads it from there in focused mode.
+      darwin_builder: ${{ inputs.mode == 'full' && 'mac' || 'linux' }}
+      build_agent_plugin: ${{ inputs.mode == 'full' }}
       verify_linux_arm64: ${{ inputs.mode == 'full' }}
       # The macOS builds go straight to Blacksmith macOS 15 on every attempt.
       # Never the minis' side label: there they queued behind the side lane

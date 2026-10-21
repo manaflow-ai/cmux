@@ -21,7 +21,7 @@ public struct SidebarTabRowDragHandoff {
 
     func dragged(_ workspace: WorkspaceID, _ tab: TabID, press: SidebarPress, event: NSEvent, in list: SidebarListView) {
         let point = list.convert(event.locationInWindow, from: nil)
-        guard hypot(point.x - press.point.x, point.y - press.point.y) >= SidebarStyle.dragThreshold else { return }
+        guard SidebarPress.movedPastThreshold(from: press.point, to: point) else { return }
         list.press?.cancelled = true
         guard let offer, let window = list.window, let row = list.displayed.row(for: .tab(workspace, tab)) else { return }
         let rowFrame = window.convertToScreen(list.convert(list.frame(for: row), to: nil))

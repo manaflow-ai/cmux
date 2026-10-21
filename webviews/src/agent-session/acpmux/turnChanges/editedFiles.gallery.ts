@@ -185,7 +185,7 @@ const variants: Record<string, AgentPaneVariant> = {
     ]),
   },
   "sources-changes": {
-    note: "Play: open Sources; Changes lists the turn's fourteen files under its totals, five until View all. A file opens the turn's diff at it.",
+    note: "Play: open Sources; Outputs lists the turn's fourteen files, five until View all, and Changes their totals. A file opens the turn's diff at it.",
     height: 700,
     snapshot: turn(FOURTEEN, "Move the retry policy into its own module"),
     play: async ({ click, waitFor, document }) => {

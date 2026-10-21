@@ -80,6 +80,7 @@ import {
   vmRequestLocale,
   vmRequiresProCopy,
   vmMemoryErrorCopy,
+  vmMutationGuardCopy,
   vmGoLimitCopy,
   vmPlanBudgetCopy,
   vmActiveLimitCountedCopy,
@@ -1081,25 +1082,44 @@ export const vmWorkflowErrorResponders = {
     retryable: false,
     details: { resource: error.resource, requested: error.requested, max: error.max, planId: error.planId, upgradePlanId: error.upgradePlanId ?? null },
   }),
-  VmSnapshotInProgressError: () =>
-    vmErrorResponse({
+  VmSnapshotInProgressError: async (_error, context) => {
+    const copy = await vmMutationGuardCopy("snapshotInProgress", context.locale);
+    return vmErrorResponse({
       error: "vm_snapshot_in_progress",
       status: 409,
-      message: "A snapshot with this idempotency key is still running for this Cloud VM.",
-      action: "Wait for the first snapshot to finish, then retry with the same idempotency key.",
+      message: copy.message,
+      action: copy.action,
+      displayTitle: copy.title,
       phase: "snapshot",
       retryable: true,
       retryAfterSeconds: 5,
-    }),
-  VmSnapshotIdempotencyConflictError: () =>
-    vmErrorResponse({
+    });
+  },
+  VmSnapshotIdempotencyConflictError: async (_error, context) => {
+    const copy = await vmMutationGuardCopy("snapshotIdempotencyConflict", context.locale);
+    return vmErrorResponse({
       error: "vm_snapshot_idempotency_conflict",
       status: 409,
-      message: "This idempotency key was already used for another snapshot request on this Cloud VM.",
-      action: "Use a new idempotency key for a snapshot with another name.",
+      message: copy.message,
+      action: copy.action,
+      displayTitle: copy.title,
       phase: "snapshot",
       retryable: false,
-    }),
+    });
+  },
+  VmSnapshotQuotaExceededError: async (error, context) => {
+    const copy = await vmMutationGuardCopy("snapshotQuota", context.locale);
+    return vmErrorResponse({
+      error: "vm_snapshot_quota_exceeded",
+      status: 409,
+      message: copy.message,
+      action: copy.action,
+      displayTitle: copy.title,
+      phase: "snapshot",
+      retryable: false,
+      details: { limit: error.limit },
+    });
+  },
   VmResizeInProgressError: () =>
     vmErrorResponse({
       error: "vm_resize_in_progress",

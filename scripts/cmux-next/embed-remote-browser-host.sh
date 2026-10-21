@@ -12,7 +12,7 @@
 # codesign --verify --deep --strict passes on the app; a strict verify of the
 # host app alone rejects the symlink, so a notarized release needs the host to
 # load CEF from an explicit path first (tracker cx-0y2y; unproven either way,
-# see cnx-ios/SECURITY.md `browser`). Also:
+# see cmux-next-ios/SECURITY.md `browser`). Also:
 #   - a Release build that cannot embed it (no pinned artifact reachable, a CEF
 #     pin mismatch) builds without it and says so, unless
 #     CMUX_NEXT_REQUIRE_RB_HOST=1; a DEV build fails, as below;

@@ -57,9 +57,11 @@ mod mux;
 pub mod net_keepalive;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
+mod output_store;
 mod program_status;
 mod prompt_mode_reset;
 pub mod provider_management;
+mod pty_input_room;
 #[cfg(unix)]
 mod pty_write;
 mod terminal_title;

@@ -294,7 +294,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 // Also "Go to Tab…": `palette.goToTab` is an alias (legacyAliases).
                 keywords: ["tab", "search", "find", "switch", "switcher", "go to tab", "surface", "recently closed", "url",
                            "folder", "process"],
-                // No default key: Cmd-Shift-A opens Search with the Chats & agents chip (`search.chats`).
+                // No default key: Cmd-Shift-A opens Search (`search.chats`).
                 category: .tab, symbol: "magnifyingglass",
                 surfaces: [.palette, .keyboard, .menu], arguments: [CatalogArgument.queryString], targets: [.tab],
                 cliName: "tab search", mainMenu: .file,

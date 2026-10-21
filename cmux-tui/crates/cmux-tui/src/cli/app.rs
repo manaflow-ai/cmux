@@ -604,7 +604,7 @@ pub(super) fn connect_command(global: &GlobalArgs) -> Result<UnixStream, Value> 
     // request runs there. `--app-socket` names the app socket itself.
     if flag == "--socket" {
         // An app's refusal is an object with a code (a classic app in
-        // password mode refuses ping before `auth.login`); a daemon's
+        // older password-mode app refuses ping before `auth.login`; a daemon's
         // refusal of the unknown line is a plain string.
         let pong = exchange(&mut stream, "system.ping", json!({}), READ_TIMEOUT);
         let is_app = match &pong {

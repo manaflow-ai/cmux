@@ -64,10 +64,9 @@ final class TextBoxView: NSView, NSTextViewDelegate {
             addSubview(button)
         }
         actionButton.action = #selector(cycle(_:))
-        actionButton.toolTip = TextBoxStrings.cycleHelp
+        actionButton.themedToolTip = TextBoxStrings.cycleHelp
         attachButton.action = #selector(attach(_:))
         attachButton.image = NSImage.icon(.composerAttach, size: 14)
-        attachButton.toolTip = TextBoxStrings.addFiles
         attachButton.setAccessibilityLabel(TextBoxStrings.addFiles)
         follow()
     }
@@ -85,7 +84,7 @@ final class TextBoxView: NSView, NSTextViewDelegate {
         if textView.string != text { textView.string = text }
         actionButton.image = NSImage.icon(symbol: action.symbol, size: 14)
         actionButton.setAccessibilityLabel(action.title)
-        actionButton.toolTip = "\(action.title): \(TextBoxStrings.cycleHelp)"
+        actionButton.themedToolTip = "\(action.title): \(TextBoxStrings.cycleHelp)"
         if isHidden == visible { isHidden = !visible }
         refreshHeight()
     }

@@ -77,6 +77,8 @@ export type ChipHostFixture = {
   browsers?: { id: string; name: string; icon?: string }[];
   /** `project.icon` answers: a project folder's favicon as a data URL (projectIcon.ts). */
   projectIcons?: Record<string, string>;
+  /** `project.icon` answers' `glyph`: a project folder's language or framework (projectIcon.ts). */
+  projectGlyphs?: Record<string, string>;
 };
 
 /** One step of an experiment's scripted interaction (the compare view replays them in sync). */
@@ -159,6 +161,9 @@ export type AgentPaneVariant = VariantBase & {
   /** The in-session status toggle (Debug Settings `agent.sessionStatus`, off by default) on, as the
    *  app's `sessionStatus` push sends it: the live plan card and the recap card. */
   sessionStatus?: boolean;
+  /** `<html data-*>` attributes the app sets at document start for Debug Settings choices
+   *  (AgentPaneTunables `documentAttributes`), by name without `data-`: `{ "needs-you": "off" }`. */
+  documentAttributes?: Record<string, string>;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */
@@ -209,10 +214,14 @@ export type AppsPageVariant = VariantBase & {
 /** The Cloud page on an in-page cmuxPage host serving the Cloud app server's projection. */
 export type CloudPageVariant = VariantBase & {
   mode?: "normal" | "loading" | "error";
-  action?: "select-machine" | "create";
+  action?: "select-machine" | "create" | "get";
   error?: { code: string; message: string };
   signedIn?: boolean;
   layout?: "rows" | "cards";
+  /** The page's URL fragment, e.g. `#/get` for the storefront. */
+  hash?: string;
+  /** The plan's active machine limit, when the variant needs another than the sample plan's. */
+  maxActive?: number;
   machines: CloudMachine[];
   snapshots: CloudSnapshot[];
 };

@@ -375,6 +375,22 @@
    "alias": false
   },
   {
+   "name": "browser.extensions.sidepanel",
+   "meaning": "Extensions menu row: open the extension's side panel (Chrome kDockToRightOldIcon)",
+   "sf": "sidebar.right",
+   "family": "browser.extensions",
+   "source": "chromium",
+   "alias": false
+  },
+  {
+   "name": "browser.extensions.webstore",
+   "meaning": "Extensions menu footer: get extensions from the Chrome Web Store (Chrome kStorefrontOldIcon)",
+   "sf": "storefront",
+   "family": "browser.extensions",
+   "source": "chromium",
+   "alias": false
+  },
+  {
    "name": "browser.find.next",
    "meaning": "Find bar next match (Chrome kKeyboardArrowDownChromeRefreshOldIcon)",
    "sf": "chevron.down",

@@ -66,9 +66,16 @@ jobs:
         with:
           workspaces: workers/cmux-vm/cli -> target
 
+      # Formatting is a style guard: on feat-cmux-next it warns (Leo 2026-10-19).
       - name: cargo fmt
         if: ${{ !cancelled() }}
-        run: cargo fmt --all --check
+        env:
+          CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
+        run: |
+          if ! cargo fmt --all --check; then
+            echo "::warning title=cmux-vm cli rustfmt::not rustfmt-clean; run cargo fmt --all in workers/cmux-vm/cli"
+            [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1
+          fi
 
       - name: cargo clippy
         if: ${{ !cancelled() }}

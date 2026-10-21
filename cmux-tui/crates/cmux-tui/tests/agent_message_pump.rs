@@ -97,6 +97,8 @@ mod agent_message_pump {
         assert_eq!(prompt["sessionId"], "b");
         let meta = &prompt["_meta"]["acpmux"];
         assert_eq!(meta["promptId"], message["id"], "the message id is the prompt id");
+        // It reaches a running turn at once when the agent steers, else it queues.
+        assert_eq!(meta["steer"], true, "a message steers by default: {meta}");
         assert_eq!(meta["provenance"]["msgId"], message["id"]);
         assert_eq!(meta["provenance"]["from"], "acp:a");
         assert_eq!(meta["provenance"]["to"], "acp:b");
@@ -447,6 +449,20 @@ mod agent_message_pump {
         let last_first = order.iter().rposition(|p| *p == first);
         let first_second = order.iter().position(|p| *p == second);
         assert!(last_first < first_second, "the second went out before the first: {order:?}");
+    }
+
+    /// The pump hands a message over while acpmux still reads its chat logs
+    /// after a restart: naming the recipient (`_acpmux/info`) does not wait
+    /// for them (`waitLogs: false`), as a large log store outlasts its 2 s.
+    #[test]
+    fn a_message_is_delivered_while_acpmux_reads_its_chat_logs() {
+        let daemon = Daemon::start_owner_with_acpmux("pump-logs");
+        let (_, alpha) = daemon.workspace("alpha");
+        daemon.place_session("b", &alpha);
+        daemon.reading_chat_logs();
+        let message = id(&daemon.sent(None, to("acp:b", "while the logs load")));
+        daemon.wait_for(&message, "the delivery", |m| state(m, "acp:b") == "delivered");
+        assert_eq!(daemon.prompts().len(), 1, "{:?}", daemon.prompts());
     }
 
     #[test]

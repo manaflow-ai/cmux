@@ -58,7 +58,9 @@ pub(super) fn serve_line_connection(
         writer.close();
         return;
     };
+    let peer_key = stream.peer_process_key();
     let client = mux.control_clients.register(transport, writer.clone());
+    origin_gate::set_peer_identity_at_accept(&mux, client, peer_key);
     if !admission.registered(&mux, client) {
         // Refused before its first frame (the remote entry's revocation
         // limits): nothing is read or dispatched.

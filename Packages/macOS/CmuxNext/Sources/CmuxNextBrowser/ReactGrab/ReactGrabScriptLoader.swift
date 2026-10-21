@@ -16,8 +16,8 @@ public actor ReactGrabScriptLoader: ReactGrabScriptSource {
     /// The SHA-256 (lowercase hex) of ``pinnedVersion``'s `dist/index.global.js`.
     public static let pinnedSHA256 = "4a1e71090e8ad8bb6049de80ccccdc0f5bb147b9f8fb88886d871612ac7ca04b"
 
-    /// Where the library is downloaded from.
-    public nonisolated let url: URL
+    /// Where the library is downloaded from; nil when `version` makes no valid URL.
+    public nonisolated let url: URL?
     private let sha256: String
     private let fetch: @Sendable (URL) async throws -> Data
     private var cached: String?
@@ -31,10 +31,10 @@ public actor ReactGrabScriptLoader: ReactGrabScriptSource {
     public init(
         version: String = ReactGrabScriptLoader.pinnedVersion,
         sha256: String = ReactGrabScriptLoader.pinnedSHA256,
-        fetch: @escaping @Sendable (URL) async throws -> Data = { try await URLSession.shared.data(from: $0).0 }
+        fetch: @escaping @Sendable (URL) async throws -> Data = ReactGrabScriptLoader.download
     ) {
         // The version is a fixed npm semver from this file or a test, never user input.
-        self.url = URL(string: "https://unpkg.com/react-grab@\(version)/dist/index.global.js")!
+        self.url = URL(string: "https://unpkg.com/react-grab@\(version)/dist/index.global.js")
         self.sha256 = sha256
         self.fetch = fetch
     }
@@ -46,7 +46,8 @@ public actor ReactGrabScriptLoader: ReactGrabScriptSource {
     public func script() async throws -> String {
         if let cached { return cached }
         if let inFlight { return try await inFlight.value }
-        let task = Task { [url, sha256, fetch] in
+        guard let url else { throw ReactGrabError.badVersion }
+        let task = Task { [sha256, fetch] in
             let data = try await fetch(url)
             let hex = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
             guard hex == sha256 else { throw ReactGrabError.integrityMismatch }
@@ -58,5 +59,11 @@ public actor ReactGrabScriptLoader: ReactGrabScriptSource {
         let text = try await task.value
         cached = text
         return text
+    }
+
+    /// The default `fetch`: the URL's bytes through `URLSession.shared` (a named function, not
+    /// an async closure default argument; cx-bsue).
+    public nonisolated static func download(_ url: URL) async throws -> Data {
+        try await URLSession.shared.data(from: url).0
     }
 }

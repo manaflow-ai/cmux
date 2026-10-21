@@ -97,9 +97,9 @@
       "notices": ["first-party", "section:rust-optchat-chief", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
-      "path": "Contents/Resources/bin/cnx-hostd",
-      "what": "the iPhone connection host that Settings > Mobile runs (cnx-ios/rust/crates/cnx-hostd with cnx-link and cmux-tui path crates; build-cnx-hostd.sh)",
-      "notices": ["first-party", "section:rust-cnx-hostd", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
+      "path": "Contents/Resources/bin/cmux-mobile-host",
+      "what": "the iPhone connection host that Settings > Mobile runs (cmux-next-ios/rust/crates/cmux-mobile-host with cmux-mobile-link and cmux-tui path crates; build-mobile-host.sh)",
+      "notices": ["first-party", "section:rust-mobile-host", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
       "path": "Contents/Resources/bin/ghostty",

@@ -27,7 +27,13 @@ async function picker(path = "/settings/appearance", background = "none") {
       ...page.provider.host,
       backdrops: [
         ...(page.provider.host.backdrops ?? []),
-        { id: `file:${FOLDER}/Harbor.png`, title: "Harbor", attribution: "", collection: "yours", collection_title: "Your images" },
+        {
+          id: `file:${FOLDER}/Harbor.png`,
+          title: "Harbor",
+          attribution: "",
+          collection: "yours",
+          collection_title: "Your images",
+        },
       ],
     }),
   );
@@ -49,7 +55,10 @@ test("Shuffle Your Images shuffles the folder the person's images are in", async
   const { page, card } = await picker();
   await act(async () => card.querySelector<HTMLInputElement>('[aria-label="Shuffle Your Images"]')!.click());
   await settle();
-  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: `folder:${FOLDER}` });
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({
+    key: "appearance.background",
+    value: `folder:${FOLDER}`,
+  });
   page.unmount();
 });
 
@@ -82,9 +91,9 @@ test("This Workspace comes after the shuffles: All Workspaces is the default", a
 
 test("Change Picture is in the card, on while a shuffle is chosen and off otherwise", async () => {
   const control = (card: HTMLElement) =>
-    card.querySelector<HTMLElement>('[data-row-key="appearance.backgroundRotation"]')!.querySelector<HTMLInputElement>(
-      ".row-control input, .row-control button, .row-control select",
-    )!;
+    card
+      .querySelector<HTMLElement>('[data-row-key="appearance.backgroundRotation"]')!
+      .querySelector<HTMLInputElement>(".row-control input, .row-control button, .row-control select")!;
   const still = await picker();
   expect(control(still.card).disabled).toBe(true);
   still.page.unmount();

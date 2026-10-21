@@ -182,10 +182,12 @@ public final class FilesPaneView: NSView {
             button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
             button.bezelStyle = .accessoryBarAction
             button.isBordered = false
-            button.toolTip = label
+            button.setAccessibilityLabel(label)
             button.target = self
             button.action = action
         }
+        // Back and forward are plain chevrons; only "up" says where it goes.
+        upButton.themedToolTip = FilesStrings.enclosingFolder
         pathControl.pathStyle = .standard
         pathControl.target = self
         pathControl.action = #selector(pathClicked)
@@ -199,7 +201,6 @@ public final class FilesPaneView: NSView {
             case .columns: ("rectangle.split.3x1", FilesStrings.viewColumns)
             }
             layoutControl.setImage(NSImage(systemSymbolName: symbol, accessibilityDescription: label), forSegment: index)
-            layoutControl.setToolTip(label, forSegment: index)
         }
         layoutControl.segmentStyle = .separated
         layoutControl.target = self
@@ -220,7 +221,7 @@ public final class FilesPaneView: NSView {
         zoomSlider.target = self
         zoomSlider.action = #selector(zoomChanged)
         zoomSlider.controlSize = .small
-        zoomSlider.toolTip = FilesStrings.iconSize
+        zoomSlider.themedToolTip = FilesStrings.iconSize
         for view in [toolbar, sidebarView.view, content, status, zoomSlider] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
@@ -275,21 +276,25 @@ public final class FilesPaneView: NSView {
 
     // MARK: Quick Look (responder chain)
 
-    override nonisolated public func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
+    override nonisolated public func acceptsPreviewPanelControl(_ panel: QLPreviewPanel?) -> Bool { true }
 
-    // QLPreviewPanel calls these on the main thread (it is an AppKit panel).
-    override nonisolated public func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
-        MainActor.assumeIsolated {
-            panel.dataSource = quickLook
-            panel.delegate = quickLook
-            quickLook.onKey = { [weak self] event in self?.handleQuickLookKey(event) ?? false }
-        }
+    // QLPreviewPanel calls these on the main thread (it is an AppKit panel); off main (never
+    // seen) the change hops there instead of trapping.
+    override nonisolated public func beginPreviewPanelControl(_ panel: QLPreviewPanel?) {
+        guard let panel else { return }
+        guard Thread.isMainThread else { Task { @MainActor in attachQuickLook(panel, true) }; return }
+        MainActor.assumeIsolated { attachQuickLook(panel, true) } // main-proof: checked Thread.isMainThread above
     }
 
-    override nonisolated public func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
-        MainActor.assumeIsolated {
-            panel.dataSource = nil
-            panel.delegate = nil
-        }
+    override nonisolated public func endPreviewPanelControl(_ panel: QLPreviewPanel?) {
+        guard let panel else { return }
+        guard Thread.isMainThread else { Task { @MainActor in attachQuickLook(panel, false) }; return }
+        MainActor.assumeIsolated { attachQuickLook(panel, false) } // main-proof: checked Thread.isMainThread above
+    }
+
+    private func attachQuickLook(_ panel: QLPreviewPanel, _ on: Bool) {
+        panel.dataSource = on ? quickLook : nil
+        panel.delegate = on ? quickLook : nil
+        if on { quickLook.onKey = { [weak self] event in self?.handleQuickLookKey(event) ?? false } }
     }
 }

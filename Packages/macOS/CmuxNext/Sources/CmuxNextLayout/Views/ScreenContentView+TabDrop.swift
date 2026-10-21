@@ -5,8 +5,10 @@ extension ScreenContentView {
     /// Drop target, its highlight rect and the region it belongs to (the
     /// whole pane content rect, or the column gap), in local coordinates.
     /// `removing`: the pane the drag empties (frees room; the commit obeys).
-    /// `previous` is the zone hit the preview shows now (`hit`, before the
-    /// room check), so the shown zone holds near its line.
+    /// `previous` is the target hit the preview shows now (`hit`, before the
+    /// room check): panes, docks and column gaps hold near their lines with
+    /// `dropZoneHysteresis`. Docks and gaps shrink for entry from the split
+    /// zone that faces them; dock, gap and pane priority stays the same.
     /// `edgesArmed` false: a pane edge (a new split) joins the pane instead, until the drag has
     /// held that edge (`LayoutRootView.updateTabDrag`'s dwell); `hit` stays the edge.
     /// `joinsFrom`: a terminal tab's source pane (`DropZoneGeometry.joiningSharedEdge`).
@@ -17,7 +19,7 @@ extension ScreenContentView {
         let (topInset, bottomInset) = dockInsets(at: localPoint)
         if context.model.acceptsEdgeDockDrops,
            let dock = DropZoneGeometry.dockTarget(atView: localPoint, screen: screenID, geometry: geometry, style: context.style,
-                                                  topInset: topInset, bottomInset: bottomInset),
+                                                  topInset: topInset, bottomInset: bottomInset, previous: previous),
            let rect = DropZoneGeometry.highlightRectInView(for: dock, offset: scroll.value, geometry: geometry, style: context.style) {
             return (dock, dock, rect, rect, [])
         }

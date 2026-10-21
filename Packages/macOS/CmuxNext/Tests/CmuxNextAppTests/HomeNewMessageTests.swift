@@ -239,6 +239,64 @@ struct HomeNewMessageTests {
         #expect(escaped == 1)
     }
 
+    @Test func beforeAnythingIsTypedTheListOffersTheChiefsAndDownThenReturnPicksOne() {
+        let field = Self.field()
+        let unii = HomeContact(id: ParticipantID("agent_unii"), name: "Unii", source: .agent)
+        field.idleSuggestions = { [Self.chief, unii].filter { !field.draft.recipients.contains(.contact($0)) } }
+        var done = 0
+        field.onDone = { done += 1 }
+        field.refreshSuggestions()
+        #expect(!field.suggestions.isHidden)
+        #expect(field.suggestions.items == [.contact(Self.chief), .contact(unii)])
+        #expect(field.suggestions.highlighted == nil, "nothing is picked until the person moves")
+        field.handle(#selector(NSResponder.insertNewline(_:)))
+        #expect(done == 1)
+        #expect(field.draft.recipients.isEmpty)
+        #expect(field.handle(#selector(NSResponder.moveDown(_:))))
+        #expect(field.handle(#selector(NSResponder.moveDown(_:))))
+        field.handle(#selector(NSResponder.insertNewline(_:)))
+        #expect(field.draft.recipients == [.contact(unii)])
+        #expect(field.suggestions.isHidden, "once someone is chosen the list waits for typing")
+    }
+
+    @Test func tabWithNothingTypedGoesToTheMessageBoxEvenWithASuggestionHighlighted() {
+        let field = Self.field()
+        var done = 0
+        field.onDone = { done += 1 }
+        field.addButton.performClick(nil)
+        #expect(field.suggestions.highlighted == 0)
+        field.handle(#selector(NSResponder.insertTab(_:)))
+        #expect(done == 1)
+        #expect(field.draft.recipients.isEmpty)
+    }
+
+    @Test func escapeWithTheChiefsListedAsksThePageToLeave() {
+        let field = Self.field()
+        field.idleSuggestions = { [Self.chief] }
+        var escaped = 0
+        field.onEscape = { escaped += 1 }
+        field.refreshSuggestions()
+        field.handle(#selector(NSResponder.cancelOperation(_:)))
+        #expect(escaped == 1)
+    }
+
+    /// Two Chiefs named "Chief" (the Hosted Chief and this Mac's) were two identical "+ Ch…" pills.
+    @Test func eachSuggestionShowsItsFullNameAndChiefsSayWhereTheyRun() throws {
+        let cloud = HomeContact(id: ParticipantID("agent_cloud"), name: "Chief", source: .agent)
+        let mac = HomeContact(id: ParticipantID("agent_mux"), name: "Chief", source: .agent)
+        let list = HomeRecipientSuggestionsView(frame: NSRect(x: 0, y: 0, width: 380, height: 200))
+        list.look = { recipient in
+            guard case .contact(let contact) = recipient, contact.source == .agent else { return HomeRecipientLook() }
+            return HomeRecipientLook(avatar: .chiefDefault, tag: contact == cloud ? "Main \u{00B7} Cloud" : "This Mac")
+        }
+        list.show([.contact(cloud), .contact(mac), .contact(Self.ada)], highlightFirst: false)
+        let labels = try (0..<3).map { try #require(list.tableView(list.table, viewFor: nil, row: $0)?.accessibilityLabel()) }
+        let chief = HomeConversationStrings.sourceAgent
+        #expect(labels == ["Chief, \(chief) \u{00B7} Main \u{00B7} Cloud", "Chief, \(chief) \u{00B7} This Mac",
+                           "Ada Lovelace, \(HomeConversationStrings.sourceTeam)"])
+        #expect(Set(labels).count == 3)
+    }
+
     @Test func plusListsEveryoneNotChosenYet() {
         let field = Self.field()
         field.choose(.contact(Self.ada))

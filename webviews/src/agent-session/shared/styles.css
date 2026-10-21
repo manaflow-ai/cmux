@@ -23,7 +23,7 @@
   /* Links are blue in every theme (Leo 2026-10-19: "links are blue, period", as Claude desktop
      and Codex). A fixed blue for the page's light or dark scheme (theme.ts sets color-scheme), a
      fifth of it the theme's own bright blue (ANSI 12), so a theme shifts it only mildly. */
-  --agent-link-base: light-dark(#0b63d6, #5aa2ff);
+  --agent-link-base: light-dark(#0b63d6, #5aa2ff); /* theme-fixed: links are blue in every theme (Leo 2026-10-19, #22345) */
   --agent-link: color-mix(in oklab, var(--agent-link-base) 80%, var(--agent-ansi-12, var(--agent-link-base)));
   --agent-accent-soft: color-mix(in srgb, var(--agent-text) 20%, transparent);
   --agent-danger: var(--cmux-app-danger, #ff8d7e);
@@ -33,8 +33,8 @@
   --agent-card-hover: color-mix(in srgb, var(--agent-input-bg) 96%, transparent);
   --agent-primary: color-mix(in srgb, var(--agent-accent) 90%, var(--agent-text));
   /* Compatibility aliases for older ACPMUX sheets; the host's motion tokens remain authoritative. */
-  --acpmux-motion-hover: var(--agent-motion-hover, 80ms);
-  --acpmux-motion-ease: var(--agent-ease-out, ease-out);
+  --acpmux-motion-hover: var(--agent-motion-hover, var(--cmux-motion-quick, 80ms));
+  --acpmux-motion-ease: var(--agent-ease-out, var(--cmux-ease-out, ease-out));
 }
 
 * {

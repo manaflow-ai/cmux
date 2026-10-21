@@ -31,6 +31,11 @@ struct AppDiscoverView: View {
                 VStack(spacing: 0) {
                     chips
                     ScrollView {
+                        if let open = model.onOpenApp, model.query.isEmpty, model.category == nil {
+                            AppCloudFeature(open: open)
+                                .appStoreColumn()
+                                .padding(.top, Metrics.space4)
+                        }
                         if model.layout == .grid {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: Metrics.space4)], spacing: Metrics.space4) {
                                 ForEach(model.listings) { AppListingCard(model: model, listing: $0) }

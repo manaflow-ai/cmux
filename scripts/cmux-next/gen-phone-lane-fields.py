@@ -37,8 +37,8 @@ REVIEWED_FIELDS = {
                                            "603297ce84b828a2"),
     ("clear-history", "fallback_key"): ("TerminalKeyInput: a key to send when the surface cannot clear",
                                         "a5c09e7823e98e46"),
-    # This lane refuses new-conversation-tab outright (DaemonLanePolicy.evaluate); cnx-hostd is the
-    # lane that forwards it, with its own agent_session review (cnx-hostd/src/policy.rs).
+    # This lane refuses new-conversation-tab outright (DaemonLanePolicy.evaluate); cmux-mobile-host is the
+    # lane that forwards it, with its own agent_session review (cmux-mobile-host/src/policy.rs).
     ("new-conversation-tab", "agent_session"): ("AgentSessionSource: four strings naming the acpmux session a "
                                                 "tab shows (host, session, harness, host_name); the daemon "
                                                 "only records them and starts nothing",

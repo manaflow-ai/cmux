@@ -1,9 +1,12 @@
+// cmux-web-test-timeout: 300
 // The composer's controls row and footer (hq#1957 item 15). Leo saw a huge empty gap between
 // Effort and the permission chip while the model and effort chips truncated ("Claude Opu…",
 // "Med…"), and the folder footer cut at the card's bottom edge. In the gallery's
 // `agent-pane.composer-row` entry at a narrow, a normal and a wide pane:
-//   - the controls are two clusters: + model effort access on the left, mic and Send (or Stop)
-//     on the right; the row's free space sits only between the two;
+//   - the controls are two clusters: + model access on the left, mic and Send (or Stop) on the
+//     right; the row's free space sits only between the two;
+//   - the effort is the model button's own label, "Opus 5.5  Medium" (Leo 2026-10-20), never a
+//     chip of its own, and it is never cut either;
 //   - the row is compact and calm (hq#1957 item 15 compact row): the left cluster's controls sit
 //     4 to 12 px apart (composer-row-rhythm.test.ts: one gap per group); no ring or spinner; one lock at
 //     most; no granted-permission status chip; Stop has Send's footprint and a square glyph of 9
@@ -18,8 +21,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 type Rect = { left: number; right: number; top: number; bottom: number; width: number };
 type Row = {
@@ -38,11 +41,15 @@ type Row = {
   locks: number;
   /** Whether the granted-permission status chip sits in the row. */
   status: boolean;
+  /** Whether an effort chip of its own is drawn anywhere (none since Leo 2026-10-20). */
+  effortChip: boolean;
   /** Send or Stop, whichever shows, and Stop's glyph. */
   send: Rect | undefined;
   stop: Rect | undefined;
   stopGlyph: Rect | undefined;
-  /** Send's or Stop's fill and ink, whichever shows. */
+  /** The trailing cluster's controls, left to right by position (mic, Send or Stop, ↵). */
+  trailing: string[];
+  /** Send's or Stop's fill and ink, whichever shows; empty when neither does. */
   fill: string;
   ink: string;
   /** The theme's --agent-text and --acpmux-base, resolved in the bar. */
@@ -65,7 +72,6 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
     const named: [string, string][] = [
       ["plus", ".acpmux-composer-plus .acpmux-picker-button"],
       ["model", ".acpmux-model .acpmux-picker-button"],
-      ["effort", ".acpmux-effort .acpmux-picker-button"],
       ["access", ".acpmux-access-trigger"],
       ["plan", ".acpmux-plan"],
     ];
@@ -108,6 +114,20 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       footer: footer && rect(footer),
       left,
       right: rect(bar.querySelector(".acpmux-composer-actions")!),
+      trailing: [...bar.querySelectorAll<HTMLElement>(".acpmux-composer-actions button")]
+        .filter(visible)
+        .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)
+        .map((button) =>
+          button.classList.contains("acpmux-mic")
+            ? "mic"
+            : button.classList.contains("acpmux-steer-now")
+              ? "steer"
+              : button.classList.contains("acpmux-cancel")
+                ? "stop"
+                : button.classList.contains("acpmux-send")
+                  ? "send"
+                  : button.className,
+        ),
       barGap: parseFloat(getComputedStyle(bar).columnGap) || 0,
       labels: {
         model: label(
@@ -115,7 +135,11 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
           '[data-fit-part="model"][data-fit-forms~="full"], .acpmux-model-name:not([data-short])',
           ".acpmux-model",
         ),
-        effort: label(".acpmux-effort .acpmux-picker-button", "span", ".acpmux-effort"),
+        effort: label(
+          ".acpmux-model .acpmux-picker-button",
+          '.acpmux-model-detail[data-fit-forms~="full"]:not(.acpmux-fit-label)',
+          ".acpmux-model",
+        ),
         access: label(".acpmux-access-trigger", ".acpmux-mode-text", ".acpmux-access"),
       },
       spinners: [
@@ -126,6 +150,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       // LockIcon (ComposerPickers.tsx): its shackle path.
       locks: bar.querySelectorAll('svg path[d^="M5.5 7V5.6"]').length,
       status: bar.querySelector(".acpmux-permission-status") !== null,
+      effortChip: document.querySelector(".acpmux-effort") !== null,
       send: bar.querySelector(".acpmux-send:not(.acpmux-cancel)")
         ? rect(bar.querySelector(".acpmux-send:not(.acpmux-cancel)")!)
         : undefined,
@@ -133,8 +158,15 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       stopGlyph: bar.querySelector(".acpmux-cancel svg rect")
         ? rect(bar.querySelector(".acpmux-cancel svg rect")!)
         : undefined,
-      fill: getComputedStyle(bar.querySelector(".acpmux-send")!).backgroundColor,
-      ink: getComputedStyle(bar.querySelector(".acpmux-send")!).color,
+      // Claude desktop's box: no Send until there is a draft (Leo 2026-10-20), so an idle row may have neither.
+      fill: (() => {
+        const shown = bar.querySelector(".acpmux-send");
+        return shown ? getComputedStyle(shown).backgroundColor : "";
+      })(),
+      ink: (() => {
+        const shown = bar.querySelector(".acpmux-send");
+        return shown ? getComputedStyle(shown).color : "";
+      })(),
       ...(() => {
         const probe = document.createElement("span");
         probe.style.color = "var(--agent-text)";
@@ -160,7 +192,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const stageURL = (variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.composer-row&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.composer-row", { variant })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -169,32 +201,27 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
-    const warm = await browser.newPage({ viewport: { width: 720, height: 300 } });
-    await warm.goto(stageURL("claude-auto"));
-    for (;;) {
-      try {
-        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-        break;
-      } catch (error) {
-        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-      }
-    }
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.composer-row", { browser, params: { variant: "claude-auto" } });
   });
   afterAll(async () => {
     await browser?.close();
     await vite?.close();
   });
 
-  const row = async (variant: string, width: number) => {
+  /** The row's geometry; `draft` is typed first, so an idle row draws its Send. */
+  const row = async (variant: string, width: number, draft?: string) => {
     const page = await browser!.newPage({ viewport: { width, height: 300 } });
     await page.goto(stageURL(variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    await page.locator(".acpmux-effort .acpmux-picker-button").waitFor();
+    await page.locator(".acpmux-model .acpmux-model-detail:visible").first().waitFor();
     await page.evaluate(() => document.fonts.ready);
+    if (draft) {
+      await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+      await page.keyboard.type(draft);
+      await page.locator(".acpmux-composer-bar .acpmux-send:not(.acpmux-cancel)").waitFor();
+    }
     const measured = await page.evaluate(measure);
     await page.close();
     return measured;
@@ -213,9 +240,8 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
           if (gap > barGap + 0.5)
             problems.push(`${Math.round(gap)} px gap between ${names[index - 1]} and ${names[index]}`);
         }
-        // The permission mode follows effort directly, in the left cluster.
-        if (names.indexOf("access") < names.indexOf("effort"))
-          problems.push(`access is not after effort: ${names.join(", ")}`);
+        // The effort rides the model button: no control of its own (Leo 2026-10-20).
+        if (measured.effortChip) problems.push("an effort chip of its own is drawn");
         // The row's free space sits between the clusters: the trailing one starts after the left ends.
         if (right.left < left.at(-1)!.rect.right + barGap - 0.5)
           problems.push(
@@ -266,7 +292,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       const page = await browser!.newPage({ viewport: { width: 720, height } });
       await page.goto(stageURL("queued"));
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-      await page.locator(".acpmux-composer-foot .acpmux-effort .acpmux-picker-button").waitFor();
+      await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-model-detail:visible").first().waitFor();
       const drawn = await page.evaluate(() => {
         const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
         const main = rect(".acpmux-main")!;
@@ -300,19 +326,23 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
     });
 
   for (const width of [420, 720, 1100])
-    test(`at ${width} px Stop takes Send's box as a solid, theme-inverted disc`, async () => {
-      const idle = await row("claude-auto", width);
+    test(`at ${width} px Stop has Send's footprint as a solid, theme-inverted disc`, async () => {
+      // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, so the idle row
+      // Stop is held against has a prompt typed; there Send comes after the mic. While a turn
+      // runs Stop comes before the mic, which keeps the right edge, so Stop matches Send's size
+      // and line, not its x.
+      const idle = await row("claude-auto", width, "Add a test for the 429 path");
       const running = await row("queued", width);
       const send = idle.send!;
       const stop = running.stop!;
       expect(stop).toBeDefined();
-      const off = (["left", "right", "top", "bottom"] as const).filter(
-        (side) => Math.abs(send[side] - stop[side]) > 0.5,
-      );
+      const off = (["width", "top", "bottom"] as const).filter((side) => Math.abs(send[side] - stop[side]) > 0.5);
       expect(off.map((side) => `${side} ${send[side].toFixed(1)} -> ${stop[side].toFixed(1)}`)).toEqual([]);
-      // A solid disc in the text color with a base-colored square, never the faint resting circle
-      // of an empty draft's Send (design panel Q4-B: that read as a disabled Send).
-      expect(running.fill).not.toBe(idle.fill);
+      expect(idle.trailing.slice(-2)).toEqual(["mic", "send"]);
+      expect(running.trailing.slice(-2)).toEqual(["stop", "mic"]);
+      // A solid disc in the text color with a base-colored square, never the faint off circle
+      // (design panel Q4-B: that read as a disabled Send). An empty draft draws no Send at all now,
+      // so the solid text fill is the check, not a difference from the idle row's ready Send.
       expect(running.fill).toBe(running.text);
       expect(running.ink).toBe(running.base);
       // The square sits in the disc's centre.

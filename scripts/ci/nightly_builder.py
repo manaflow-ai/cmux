@@ -3,7 +3,8 @@
 
 Design: plans/cmux-next/nightly-builder-DESIGN.md.
 
-  nightly_builder.py admit            job-started hook; exit 1 refuses the job
+  nightly_builder.py admit [--role R] job-started hook; exit 1 refuses the job
+                                      (R: nightly-app, the default, or next-gate)
   nightly_builder.py watch [--loop]   one health tick (or every 60 s)
   nightly_builder.py status [--json]  print the last tick
 """
@@ -24,6 +25,15 @@ REPO = "manaflow-ai/cmux"
 WORKFLOW = ".github/workflows/nightly.yml"
 JOB = "build-nightly-app"
 REF = "refs/heads/nightly-next"
+# Each runner on cmux22 admits one job shape. The role comes from the runner's
+# job-started hook script (an argument), never from the job's environment, so
+# a workflow cannot pick its own role. next-gate is the cmux_next_ daemon tests
+# that gate nightly-next promotion (a feat-cmux-next push's owner run).
+ROLES = {
+    "nightly-app": (WORKFLOW, JOB, REF, "cmux-next nightly app build"),
+    "next-gate": (".github/workflows/cmux-tui-artifacts.yml", "cmux-next-daemon-tests",
+                  "refs/heads/feat-cmux-next", "cmux-next nightly gate daemon tests"),
+}
 MIN_FREE_BYTES = 40 * 1024 ** 3
 STALE_AFTER = dt.timedelta(minutes=75)
 DIAG_KEEP_S = 7 * 86400
@@ -36,23 +46,29 @@ STATE_DIR = Path(os.environ.get("NIGHTLY_BUILDER_STATE_DIR", HOME / "Library/App
 LOG_PATH = Path(os.environ.get("NIGHTLY_BUILDER_LOG", HOME / "Library/Logs/nightly-builder.log"))
 
 
-def admit(env: dict, free_bytes: int, min_free: int = MIN_FREE_BYTES) -> tuple[bool, str]:
-    """Admit only nightly.yml's build-nightly-app for a push to nightly-next in manaflow-ai/cmux."""
+def admit(env: dict, free_bytes: int, min_free: int = MIN_FREE_BYTES,
+          role: str = "nightly-app") -> tuple[bool, str]:
+    """Admit only the role's one job: by default nightly.yml's build-nightly-app for a
+    push to nightly-next in manaflow-ai/cmux; next-gate admits cmux-tui-artifacts.yml's
+    cmux-next-daemon-tests for a push to feat-cmux-next."""
+    if role not in ROLES:
+        return False, f"role {role or '<unset>'} is not one of {', '.join(sorted(ROLES))}"
+    workflow, job, ref, what = ROLES[role]
     repo = env.get("GITHUB_REPOSITORY", "")
     workflow_ref = env.get("GITHUB_WORKFLOW_REF", "")
-    want_workflow = f"{REPO}/{WORKFLOW}@"
+    want_workflow = f"{REPO}/{workflow}@"
     checks = [
         (repo == REPO, f"repository {repo or '<unset>'} is not {REPO}"),
-        (workflow_ref.startswith(want_workflow), f"workflow {workflow_ref or '<unset>'} is not {WORKFLOW}"),
-        (env.get("GITHUB_JOB", "") == JOB, f"job {env.get('GITHUB_JOB') or '<unset>'} is not {JOB}"),
+        (workflow_ref.startswith(want_workflow), f"workflow {workflow_ref or '<unset>'} is not {workflow}"),
+        (env.get("GITHUB_JOB", "") == job, f"job {env.get('GITHUB_JOB') or '<unset>'} is not {job}"),
         (env.get("GITHUB_EVENT_NAME", "") == "push", f"event {env.get('GITHUB_EVENT_NAME') or '<unset>'} is not push"),
-        (env.get("GITHUB_REF", "") == REF, f"ref {env.get('GITHUB_REF') or '<unset>'} is not {REF}"),
+        (env.get("GITHUB_REF", "") == ref, f"ref {env.get('GITHUB_REF') or '<unset>'} is not {ref}"),
         (free_bytes >= min_free, f"disk has {free_bytes / 1024 ** 3:.1f} GiB free, below {min_free / 1024 ** 3:.0f} GiB"),
     ]
     for ok, reason in checks:
         if not ok:
             return False, reason
-    return True, "admitted: cmux-next nightly app build"
+    return True, f"admitted: {what}"
 
 
 def _parse(stamp: str) -> dt.datetime:
@@ -223,7 +239,8 @@ def print_status(as_json: bool) -> int:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("admit")
+    admit_cmd = sub.add_parser("admit")
+    admit_cmd.add_argument("--role", default="nightly-app", help=f"one of {', '.join(sorted(ROLES))}")
     watch = sub.add_parser("watch")
     watch.add_argument("--loop", action="store_true")
     watch.add_argument("--interval", type=int, default=60)
@@ -231,9 +248,10 @@ def main(argv: list[str]) -> int:
     status.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     if args.cmd == "admit":
-        ok, reason = admit(dict(os.environ), _free_bytes(Path(os.environ.get("GITHUB_WORKSPACE", HOME))))
+        ok, reason = admit(dict(os.environ), _free_bytes(Path(os.environ.get("GITHUB_WORKSPACE", HOME))),
+                           role=args.role)
         print(f"nightly-builder: {reason}", file=sys.stderr if not ok else sys.stdout)
-        _log({"time": dt.datetime.now(dt.timezone.utc).isoformat(), "admit": ok, "reason": reason,
+        _log({"time": dt.datetime.now(dt.timezone.utc).isoformat(), "admit": ok, "role": args.role, "reason": reason,
               "run": os.environ.get("GITHUB_RUN_ID"), "job": os.environ.get("GITHUB_JOB"),
               "workflow": os.environ.get("GITHUB_WORKFLOW_REF")})
         return 0 if ok else 1

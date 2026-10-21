@@ -33,6 +33,7 @@ public struct WebKitInspector {
     /// Whether the inspector is shown.
     public var isVisible: Bool {
         guard let inspector, inspector.responds(to: Selector(("isVisible"))) else { return false }
+        // crash-allow: guarded by responds(to: isVisible) above; KVC's "visible" getter search finds -isVisible, so no undefined-key exception
         return inspector.value(forKey: "visible") as? Bool ?? false
     }
 
@@ -53,6 +54,7 @@ public struct WebKitInspector {
         call("show")
         let active = inspector.flatMap { inspector in
             inspector.responds(to: Selector(("isElementSelectionActive")))
+                // crash-allow: guarded by responds(to: isElementSelectionActive) above; KVC's getter search finds it, so no undefined-key exception
                 ? inspector.value(forKey: "elementSelectionActive") as? Bool : nil
         } ?? false
         if !active { call("toggleElementSelection") }

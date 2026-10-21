@@ -25,7 +25,12 @@ const YOURS = "yours";
 export const MATERIAL_KEY = "appearance.backgroundBlur";
 /** `appearance.backgroundRotation`: how often a shuffle turns, shown in the card while one is chosen. */
 export const ROTATION_KEY = "appearance.backgroundRotation";
-export const BACKDROP_ROWS: ReadonlySet<string> = new Set([BACKGROUND_KEY, BACKGROUND_OPACITY_KEY, MATERIAL_KEY, ROTATION_KEY]);
+export const BACKDROP_ROWS: ReadonlySet<string> = new Set([
+  BACKGROUND_KEY,
+  BACKGROUND_OPACITY_KEY,
+  MATERIAL_KEY,
+  ROTATION_KEY,
+]);
 /** `folder:<absolute path>`: the pictures in that folder, shuffled. */
 const FOLDER_PREFIX = "folder:";
 const folderName = (id: string) => id.slice(FOLDER_PREFIX.length).split("/").filter(Boolean).at(-1) ?? id;
@@ -267,7 +272,11 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         {/* Folders shuffle for All Workspaces; a workspace picks its own images below. */}
         {!own &&
           yours &&
-          tile(yours, t("settingsWindow.backdropPicker.shuffleYours"), t("settingsWindow.backdropPicker.shuffleYoursHelp"))}
+          tile(
+            yours,
+            t("settingsWindow.backdropPicker.shuffleYours"),
+            t("settingsWindow.backdropPicker.shuffleYoursHelp"),
+          )}
         {otherFolder &&
           tile(
             otherFolder,
@@ -337,7 +346,8 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           but still here, so search and a deep link find it. */}
         {!own && rotation && <SettingRow row={rotation} focused={focus === ROTATION_KEY} inactive={!shuffles} />}
         {!own && opacity && (
-          <SettingRow row={current === "none" ? opacity : overArt(opacity)}
+          <SettingRow
+            row={current === "none" ? opacity : overArt(opacity)}
             focused={focus === BACKGROUND_OPACITY_KEY}
           />
         )}
@@ -375,7 +385,13 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                     className="icon-button backdrop-remove"
                     aria-label={t("settingsWindow.backdropPicker.remove", choice.title)}
                     disabled={current === choice.id}
-                    onClick={() => void store.removeBackdropImage(choice.id).then((bytes) => setUsage((now) => (bytes === null ? null : { bytes, folder: now?.folder ?? null })))}
+                    onClick={() =>
+                      void store
+                        .removeBackdropImage(choice.id)
+                        .then((bytes) =>
+                          setUsage((now) => (bytes === null ? null : { bytes, folder: now?.folder ?? null })),
+                        )
+                    }
                   >
                     ×
                   </button>

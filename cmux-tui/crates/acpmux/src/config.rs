@@ -773,11 +773,16 @@ pub struct Config {
     /// the cmux app, and for hermetic tests.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_permission_mode: Option<String>,
-    /// `lastPermissionMode`, `lastPermissionModeSetting`: the level of the latest mode pick
-    /// from the app pane, and the cmux setting then (`hub/start_mode.rs` `start_level`).
+    /// `lastPermissionMode`, `lastPermissionModeChange`: the level of the latest mode pick
+    /// from the app pane, and how many changes to the cmux setting acpmux had counted then,
+    /// in which count (`hub/start_mode_state.rs`; `hub/start_mode.rs` `start_level`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_permission_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_permission_mode_change: Option<PermissionModeChange>,
+    /// `lastPermissionModeSetting`: an older build's record beside a pick (the setting's value
+    /// then). Read once to upgrade the pick (`Hub::start_level`), never written.
+    #[serde(default, skip_serializing)]
     pub last_permission_mode_setting: Option<String>,
     /// `composerMaxRows`: most rows the TUI composer grows to before it
     /// scrolls. Env `ACPMUX_COMPOSER_ROWS` overrides. Default 12.
@@ -1163,6 +1168,17 @@ impl Config {
     }
 }
 
+/// `lastPermissionModeChange`: where acpmux's count of changes to the cmux
+/// setting `agents.defaultPermissionMode` stood at a mode pick
+/// (`hub/start_mode_state.rs`). `epoch` names the count: a count started
+/// again (its state file lost) has another, so an older pick never matches it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionModeChange {
+    pub epoch: String,
+    pub changes: u64,
+}
+
 fn is_default_kind(k: &HarnessKind) -> bool {
     *k == HarnessKind::Acp
 }
@@ -1231,7 +1247,7 @@ mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
 pub use discover::{
-    CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, add_coderouter_route,
+    CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_coderouter_route,
     coderouter_claude_route, discover_harnesses, discover_harnesses_from,
 };
 mod peer;

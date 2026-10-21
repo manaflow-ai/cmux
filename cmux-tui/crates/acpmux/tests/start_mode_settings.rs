@@ -3,8 +3,13 @@
 //! acpmux config.json names none; a settings file acpmux cannot read, or a
 //! value it does not know, never gives full access (cx-wx93i). A change to
 //! the setting after the person's latest mode pick wins over that pick, and a
-//! later pick wins again. Its own test
-//! binary: it sets CMUX_NEXT_CONFIG_FILE, which every session start reads.
+//! later pick wins again; "later" counts changes, not values, so a setting
+//! changed and changed back still wins over a pick made before. A value MDM
+//! or team policy forces, which the app pushes (`_acpmux/chat_settings`
+//! `permissionMode` + `permissionModeManaged`), beats the file, config.json
+//! and every pick. Its own test binary: it sets CMUX_NEXT_CONFIG_FILE and
+//! ACPMUX_HOME, which every session start reads; `ENV` runs its tests one at
+//! a time.
 
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
@@ -24,6 +29,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+
+/// Held for a whole test: the tests set process-wide variables.
+static ENV: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// 32 bytes as hex: the person key the app makes at each launch.
 const KEY: &str = "5e1f0c2a9b8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f";
@@ -116,6 +124,35 @@ impl Client {
         }
     }
 
+    /// The app's settings push (`ChatSettingsPush`), as it sends it after
+    /// each settings change: the chat settings plus the effective
+    /// `agents.defaultPermissionMode` and whether policy forces it.
+    async fn push(&mut self, mode: Option<&str>, managed: bool) {
+        let params = json!({
+            "enabled": true, "discovery": false, "roots": [], "managedRoots": [],
+            "permissionMode": mode, "permissionModeManaged": managed,
+        });
+        let r = self.call("_acpmux/chat_settings", params).await;
+        assert_eq!(r["result"]["applied"], true, "{r}");
+    }
+
+    /// A settings push with `permissionMode` exactly as given (any JSON).
+    async fn push_raw(&mut self, mode: Value, managed: bool) -> Value {
+        let params = json!({
+            "enabled": true, "discovery": false, "roots": [], "managedRoots": [],
+            "permissionMode": mode, "permissionModeManaged": managed,
+        });
+        self.call("_acpmux/chat_settings", params).await
+    }
+
+    /// `_acpmux/start_mode` for codex: its `source`.
+    async fn source(&mut self, dir: &Path) -> Value {
+        let r = self
+            .call("_acpmux/start_mode", json!({"harness": "codex", "cwd": dir.join("work")}))
+            .await;
+        r["result"]["source"].clone()
+    }
+
     /// A new chat on `harness`: the whole reply.
     async fn new_chat(&mut self, dir: &Path, harness: &str) -> Value {
         let params = json!({"cwd": dir.join("work"), "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}});
@@ -147,8 +184,12 @@ async fn start_mode_answer_and_new_chats_follow_the_settings_file_never_full_acc
         "{\n  \"agents\": {\"defaultPermissionMode\": \"ask\", /* safer */},\n  // more\n}\n",
     )
     .unwrap();
-    // SAFETY: the only test in this binary, set before the daemon starts.
-    unsafe { std::env::set_var("CMUX_NEXT_CONFIG_FILE", &settings) };
+    let _env = ENV.lock().await;
+    // SAFETY: tests in this binary hold `ENV`; set before the daemon starts.
+    unsafe {
+        std::env::set_var("CMUX_NEXT_CONFIG_FILE", &settings);
+        std::env::set_var("ACPMUX_HOME", &dir);
+    }
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
     assert_eq!(app.chat(&dir, "codex").await.1, "ask");
@@ -198,34 +239,245 @@ async fn start_mode_answer_and_new_chats_follow_the_settings_file_never_full_acc
     std::fs::write(&settings, r#"{"agents": {}}"#).unwrap();
     assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
 
-    // A catalog reload reads both: a pick of `standard` made under `ask`
-    // (another daemon, or the file restored) wins while the setting is `ask`.
+    // A catalog reload reads both: a pick of `standard` saved at the change
+    // count it is at now (another daemon, or the file restored) wins.
     std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "ask"}}"#).unwrap();
+    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    let config_path = dir.join("config.json");
+    let read_config =
+        || -> Value { serde_json::from_slice(&std::fs::read(&config_path).unwrap()).unwrap() };
     let edit = |pick: Value| {
-        let path = dir.join("config.json");
-        let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let mut config = read_config();
         for (k, v) in pick.as_object().unwrap() {
             match v {
                 Value::Null => config.as_object_mut().unwrap().remove(k),
                 v => config.as_object_mut().unwrap().insert(k.clone(), v.clone()),
             };
         }
-        std::fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
     };
-    edit(json!({"lastPermissionMode": "standard", "lastPermissionModeSetting": "\"ask\""}));
+    let state: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("start-mode.json")).unwrap()).unwrap();
+    assert!(state["changes"].is_u64(), "{state}");
+    let now = json!({"epoch": state["epoch"], "changes": state["changes"]});
+    edit(json!({"lastPermissionMode": "standard", "lastPermissionModeChange": now}));
     daemon.reload_catalog().await.unwrap();
     assert_eq!(app.chat(&dir, "codex").await.1, "agent");
     drop(app);
     drop(daemon);
 
-    // A pick saved before acpmux recorded the setting beside it (an upgrade)
-    // keeps winning, and the setting as it is now is recorded, so a later
-    // change to the setting still wins over it.
-    edit(json!({"lastPermissionMode": "ask", "lastPermissionModeSetting": null}));
+    // A pick saved before acpmux counted changes (an upgrade) keeps winning,
+    // and the count as it is now is recorded, so a later change to the
+    // setting still wins over it.
+    edit(json!({"lastPermissionMode": "ask", "lastPermissionModeChange": null}));
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
     assert_eq!(app.chat(&dir, "codex").await.1, "ask");
     std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "fullAccess"}}"#).unwrap();
     assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
+    drop(app);
+    drop(daemon);
+    // An older build's pick saved beside a setting that is no longer the
+    // setting: the setting changed after the pick, so the setting wins.
+    edit(json!({
+        "lastPermissionMode": "ask",
+        "lastPermissionModeChange": null,
+        "lastPermissionModeSetting": "\"standard\"",
+    }));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
+    assert!(read_config().get("lastPermissionModeSetting").is_none(), "{}", read_config());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The app pushes the value MDM or team policy forces: it beats the settings
+/// file, config.json and the person's latest pick, survives a daemon restart
+/// without the app, and new chats follow the file and picks again once the
+/// policy is lifted.
+#[tokio::test]
+async fn a_managed_value_the_app_pushes_beats_the_file_config_and_picks() {
+    let dir = home("managed", json!({}));
+    let settings = dir.join("cmux-next.json");
+    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "fullAccess"}}"#).unwrap();
+    let _env = ENV.lock().await;
+    // SAFETY: tests in this binary hold `ENV`; set before the daemon starts.
+    unsafe {
+        std::env::set_var("CMUX_NEXT_CONFIG_FILE", &settings);
+        std::env::set_var("ACPMUX_HOME", &dir);
+    }
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let mut socket = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    socket.call("initialize", json!({"protocolVersion": 1})).await;
+    socket.push(Some("fullAccess"), false).await;
+    // A prior pick: the harness's own mode.
+    let (chat, mode) = app.chat(&dir, "codex").await;
+    assert_eq!(mode, "agent-full-access");
+    let r = app.call("session/set_mode", json!({"sessionId": chat, "modeId": "agent"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent");
+
+    // The admin forces `ask`: it beats the file's `fullAccess` and the pick.
+    socket.push(Some("ask"), true).await;
+    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    assert_eq!(app.source(&dir).await, "managed");
+    // A pick while it is forced changes the chat it is made in, never new chats.
+    let r = app
+        .call("session/set_mode", json!({"sessionId": chat, "modeId": "agent-full-access"}))
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    drop(app);
+    drop(socket);
+    drop(daemon);
+
+    // A restarted daemon keeps the forced value before the app pushes again,
+    // over config.json too.
+    let path = dir.join("config.json");
+    let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    config["defaultPermissionMode"] = json!("fullAccess");
+    std::fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    // A forced value acpmux does not know is the harness's own mode, never
+    // full access.
+    let mut socket = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    socket.call("initialize", json!({"protocolVersion": 1})).await;
+    socket.push(Some("Ask"), true).await;
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent");
+    socket.push(Some("ask"), true).await;
+    config.as_object_mut().unwrap().remove("defaultPermissionMode");
+    std::fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    daemon.reload_catalog().await.unwrap();
+
+    // The policy is lifted: a change to the setting, so the pick made under
+    // it does not come back; the file applies.
+    socket.push(Some("fullAccess"), false).await;
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
+    assert_eq!(app.source(&dir).await, "settings");
+
+    // "Latest choice wins" counts changes, not values: a pick, then the
+    // setting changed and changed back (each change pushed by the app), and
+    // the setting wins.
+    let (chat, _) = app.chat(&dir, "codex").await;
+    let r = app.call("session/set_mode", json!({"sessionId": chat, "modeId": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "standard"}}"#).unwrap();
+    socket.push(Some("standard"), false).await;
+    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "fullAccess"}}"#).unwrap();
+    socket.push(Some("fullAccess"), false).await;
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
+    assert_eq!(app.source(&dir).await, "settings");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A forced value the app could not read as a string (pushed as null, a
+/// number, or a string too long to be a mode) is a forced value acpmux does
+/// not know: the harness's own mode, never full access, and the rest of the
+/// push still applies. A value a team default or an MDM recommendation gives
+/// while the file has no key is what new chats start in, as Settings shows.
+#[tokio::test]
+async fn a_forced_value_acpmux_cannot_read_never_gives_full_access_and_unforced_layers_apply() {
+    let dir = home("malformed", json!({}));
+    let settings = dir.join("cmux-next.json");
+    std::fs::write(&settings, r#"{"agents": {}}"#).unwrap();
+    let _env = ENV.lock().await;
+    // SAFETY: tests in this binary hold `ENV`; set before the daemon starts.
+    unsafe {
+        std::env::set_var("CMUX_NEXT_CONFIG_FILE", &settings);
+        std::env::set_var("ACPMUX_HOME", &dir);
+    }
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let mut socket = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    socket.call("initialize", json!({"protocolVersion": 1})).await;
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
+
+    // A team default (or MDM recommended value) of `ask` under a file with no key.
+    socket.push(Some("ask"), false).await;
+    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    assert_eq!(app.source(&dir).await, "settings");
+    // The file's own value beats it.
+    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "fullAccess"}}"#).unwrap();
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
+    std::fs::write(&settings, r#"{"agents": {}}"#).unwrap();
+    socket.push(None, false).await;
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
+
+    // Forced, but no string the app could read.
+    for mode in [Value::Null, json!(1), json!("a".repeat(65))] {
+        socket.push(None, false).await;
+        assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access", "{mode}");
+        let r = socket.push_raw(mode.clone(), true).await;
+        assert_eq!(r["result"]["applied"], true, "{mode}: {r}");
+        assert_eq!(app.chat(&dir, "codex").await.1, "agent", "{mode}");
+        assert_eq!(app.source(&dir).await, "managed", "{mode}");
+    }
+    // Unforced and unreadable: no value, so the file applies.
+    let r = socket.push_raw(json!("a".repeat(65)), false).await;
+    assert_eq!(r["result"]["applied"], true, "{r}");
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A pick is spent once the setting changes after it, also when the state
+/// file that counts changes is lost and the count starts again: a pick from
+/// before never comes back when the new count reaches the one saved with it.
+#[tokio::test]
+async fn a_spent_pick_stays_spent_when_the_change_count_is_lost() {
+    let dir = home("lost-count", json!({}));
+    let settings = dir.join("cmux-next.json");
+    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "fullAccess"}}"#).unwrap();
+    let _env = ENV.lock().await;
+    // SAFETY: tests in this binary hold `ENV`; set before the daemon starts.
+    unsafe {
+        std::env::set_var("CMUX_NEXT_CONFIG_FILE", &settings);
+        std::env::set_var("ACPMUX_HOME", &dir);
+    }
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let mut socket = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    socket.call("initialize", json!({"protocolVersion": 1})).await;
+    let values = ["standard", "fullAccess"];
+    // A change as the app makes it: the file written, then pushed.
+    let write = |value: &str| {
+        let doc = json!({"agents": {"defaultPermissionMode": value}});
+        std::fs::write(&settings, doc.to_string()).unwrap();
+    };
+    // Some changes, then a pick of `ask` at that count.
+    for value in values.iter().cycle().take(4) {
+        write(value);
+        socket.push(Some(value), false).await;
+    }
+    let (chat, _) = app.chat(&dir, "codex").await;
+    let r = app.call("session/set_mode", json!({"sessionId": chat, "modeId": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    let state = |dir: &Path| -> Value {
+        serde_json::from_slice(&std::fs::read(dir.join("start-mode.json")).unwrap()).unwrap()
+    };
+    let picked_at = state(&dir)["changes"].as_u64().unwrap();
+    assert!(picked_at > 0, "{}", state(&dir));
+    drop(app);
+    drop(socket);
+    drop(daemon);
+
+    // The count is lost; the setting changes until the new count passes the
+    // pick's. New chats follow the setting at every step.
+    std::fs::remove_file(dir.join("start-mode.json")).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let mut socket = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    socket.call("initialize", json!({"protocolVersion": 1})).await;
+    socket.push(Some("fullAccess"), false).await;
+    for value in values.iter().cycle().take(picked_at as usize + 1) {
+        write(value);
+        socket.push(Some(value), false).await;
+        let expected = if *value == "standard" { "agent" } else { "agent-full-access" };
+        assert_eq!(app.chat(&dir, "codex").await.1, expected, "{}", state(&dir));
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }

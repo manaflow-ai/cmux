@@ -1128,7 +1128,7 @@ impl AcpmuxCompactor {
             model: self.model(),
             effort: self.spec.effort.clone(),
             preset: Some(preset.clone()),
-            tags: crate::acpmux::chief_tags(&self.spec.chief, "compactor"),
+            tags: crate::acpmux::chief_tags(&self.spec.chief, crate::acpmux::COMPACTOR_ROLE),
             env: Default::default(),
             fast: self.spec.fast,
             peer: None,

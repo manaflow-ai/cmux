@@ -18,10 +18,15 @@ typealias SidebarListViewComponents = SidebarListView
 final class SidebarListView: NSView {
     let model: SidebarModel
     var displayed = SidebarLayout.empty
+    /// Each layout `apply` draws, in order (a test records every frame the list shows, a one-hop glitch too).
+    var onApply: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var tabs: [TabID: SidebarTab] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
+    /// Each group and the groups under it, in document order (`reload`): a section lists a subgroup
+    /// after its parent, not inside it, so a parent's card reads its members through this.
+    var groupSubtrees: [GroupID: [GroupID]] = [:]
     var sections: [SectionID: SidebarSection] = [:]
     /// The sections the list draws in their own arrangement (tiles, a grid, a line, item rows) on the sidebar document.
     var blocks: SidebarListBlocks? {
@@ -58,6 +63,8 @@ final class SidebarListView: NSView {
     let decorations = SidebarDecorationView()
     /// Open groups' members' lines, under the rows, moving with them.
     let groupLineViews = SidebarGroupLineViews()
+    /// The session tree's chat history (Pinned and Earlier), in the gaps the layout leaves for them.
+    let chatHistory = SidebarChatHistoryViews()
     /// Recycled row views by class; only rows near the viewport have views.
     var rowPool = SidebarRowViewPool()
     var hoveredKey: SidebarRowKey?
@@ -182,7 +189,7 @@ final class SidebarListView: NSView {
             // once self is gone (touching the lazy property here would create one).
             if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
             if let faviconObserver { NotificationCenter.default.removeObserver(faviconObserver) }
-            for observer in settleObservers { NotificationCenter.default.removeObserver(observer) }
+            for observer in settleObservers + focusObservers { NotificationCenter.default.removeObserver(observer) }
         }
     }
     // MARK: - Window occlusion
@@ -190,6 +197,7 @@ final class SidebarListView: NSView {
     private var occlusionObserver: (any NSObjectProtocol)?
     private var faviconObserver: (any NSObjectProtocol)?
     private var settleObservers: [any NSObjectProtocol] = []
+    private var focusObservers: [any NSObjectProtocol] = []
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         // Off screen a card's landing never completes: it ends now (its held rows show, the reloads stop adopting).
@@ -205,10 +213,21 @@ final class SidebarListView: NSView {
         let center = NotificationCenter.default
         if let occlusionObserver { center.removeObserver(occlusionObserver) }
         observedWindow = window
+        // A gesture ends when its window or the app loses focus (`pointerFocusLost`). Off screen no card can land:
+        // a drag ends in place (`abandonDrag`, its rows shown again).
+        for observer in focusObservers { center.removeObserver(observer) }
+        focusObservers = window == nil ? [] : observeFocusLoss(of: window)
+        if window == nil {
+            if let drag { abandonDrag(drag) }
+            press = nil
+        }
         // queue: .main (inline for AppKit's post on main); a selector into this main-actor view trapped off main.
         occlusionObserver = window.map { center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: $0, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.windowOcclusionChanged() } // main-proof: observer on queue: .main
         } }
+        // The rows read the window when they moved in; the list's own reading starts them all from
+        // the same state, not each from whatever its window said a moment earlier.
+        if window != nil { windowOcclusionChanged() }
     }
     private func windowOcclusionChanged() {
         setWindowVisible(window?.occlusionState.contains(.visible) ?? false)

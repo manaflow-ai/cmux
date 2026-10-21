@@ -61,6 +61,11 @@ final class BrowserPromptDialogs {
         case .textInput(let message, let defaultText):
             return CmuxDialogSpec(title: title, lines: [message],
                                   fields: [.text("text", initial: defaultText ?? "")], buttons: [cancel, ok], identifier: identifier)
+        case .beforeUnload(let isReload):
+            // Chrome's dialog: the page's own text never shows (spec).
+            let leave = CmuxDialogButton(id: "ok", title: isReload ? Strings.beforeUnloadReload : Strings.beforeUnloadLeave, role: .default)
+            return CmuxDialogSpec(title: isReload ? Strings.beforeUnloadReloadTitle : Strings.beforeUnloadLeaveTitle,
+                                  lines: [Strings.beforeUnloadMessage], buttons: [cancel, leave], identifier: "browser.dialog.beforeunload")
         }
     }
 

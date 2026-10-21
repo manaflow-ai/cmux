@@ -8,7 +8,10 @@ import { join } from "node:path";
 const root = join(import.meta.dir, "../src/agent-session/acpmux");
 
 test("every cv-link-preview class the URL chip renders has a rule in the pane's stylesheet", () => {
-  const chips = readFileSync(join(root, "chips/LinkChips.tsx"), "utf8");
+  // The card itself is the shared LinkHoverCard (reply links, pull request chips and bars).
+  const chips = ["chips/LinkChips.tsx", "chips/LinkHoverCard.tsx"]
+    .map((file) => readFileSync(join(root, file), "utf8"))
+    .join("\n");
   const styles = readFileSync(join(root, "styles.css"), "utf8");
   const used = [...new Set(chips.match(/cv-link-preview[\w-]*/g) ?? [])].sort();
   expect(used.length).toBeGreaterThan(0);

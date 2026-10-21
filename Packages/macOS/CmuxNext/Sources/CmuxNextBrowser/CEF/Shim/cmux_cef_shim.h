@@ -164,6 +164,24 @@ typedef enum {
   // tab navigated or closed and the prompt can no longer be answered.
   // Answer once with cmux_shim_password_prompt_answer.
   CMUX_SHIM_PASSWORD_PROMPT = 43,
+  // The page's beforeunload asks before it unloads (a navigation, a reload,
+  // or a close the host started with cmux_shim_try_close); Chromium's own
+  // dialog does not show. request = the question's token, a = 1 for a
+  // reload. Chromium waits for cmux_shim_before_unload_reply (Leave or
+  // Stay). A close by cmux_shim_close or cmux_shim_close_all never asks.
+  CMUX_SHIM_BEFORE_UNLOAD_DIALOG = 44,
+  // Chromium ended a waiting BEFORE_UNLOAD_DIALOG itself (the renderer
+  // ended, the page navigated or closed). Not sent after the host's answer.
+  CMUX_SHIM_BEFORE_UNLOAD_DISMISSED = 45,
+  // A cmux-page:// page asks for one of its dynamic paths
+  // (cmux_shim_page_scheme_add_first_party_dynamic). request = token,
+  // s1 = the full URL. Chromium waits for cmux_shim_page_resource_respond
+  // (during the event or later); a request the page cancels drops it.
+  CMUX_SHIM_PAGE_RESOURCE = 46,
+  // A drag of files from outside the app entered a page (CefDragHandler::
+  // OnDragEnter); s1 = JSON array of the files' absolute paths. The page
+  // still gets the drag.
+  CMUX_SHIM_PAGE_DRAG_ENTER = 47,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -338,7 +356,18 @@ CMUX_SHIM_EXPORT int cmux_shim_print(int browser_id);
 // FIND_RESULT events carry `find_id`.
 CMUX_SHIM_EXPORT void cmux_shim_find(int browser_id, int find_id, const char* text, int forward, int match_case, int find_next);
 CMUX_SHIM_EXPORT void cmux_shim_stop_finding(int browser_id, int clear_selection);
+// Closes the browser without asking: a beforeunload question is answered
+// Leave (quit, a replaced page, a tab the daemon removed).
 CMUX_SHIM_EXPORT void cmux_shim_close(int browser_id);
+// A person's close (CefBrowserHost::TryCloseBrowser): returns 1 when the
+// browser closes now without a question (or is gone), 0 when its
+// beforeunload runs first. After 0 the page may ask (BEFORE_UNLOAD_DIALOG);
+// BEFORE_CLOSE follows only if the close goes on, and nothing follows when
+// the person stays. Calling it again while it waits is ignored by Chromium.
+CMUX_SHIM_EXPORT int cmux_shim_try_close(int browser_id);
+// Answers BEFORE_UNLOAD_DIALOG `token` (accept = 1: Leave or Reload).
+// Returns 0 when the token is unknown or already answered.
+CMUX_SHIM_EXPORT int cmux_shim_before_unload_reply(int token, int accept);
 // DevTools protocol message ids. Raw sends (cmux_shim_devtools_send) and
 // shim-internal calls (cmux_shim_devtools_call, the DevTools calls of a CEF
 // tab) share ONE id space per browser. Raw sends use ids >= 2^30
@@ -745,6 +774,21 @@ CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add(const char* id, const char* resou
 // first-party registration, which passes the page's bundled resource root
 // after checking it against the first-party table (FirstPartyPageSchemes).
 CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party(const char* id, const char* resource_root, const char* csp);
+// The same, and the page host answers every path whose first component
+// (percent-decoded) is one of dynamic_prefixes (newline-separated, e.g.
+// "__patch\nasset"); the folder never serves such a path. A request from a
+// page in a browser emits CMUX_SHIM_PAGE_RESOURCE; any other is a 404.
+// entry is the file "/" serves (NULL or empty = index.html; a plain file
+// name, as diff-page.html for pages that share one build folder).
+CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party_dynamic(const char* id, const char* resource_root,
+                                                                   const char* csp, const char* dynamic_prefixes,
+                                                                   const char* entry);
+// The page host's answer to CMUX_SHIM_PAGE_RESOURCE `token`: status (200,
+// 404), mime (NULL = application/octet-stream) and length bytes of body,
+// copied. The page's CSP and the other page headers are added. Any thread.
+// Returns 1 when the request was waiting, 0 when it ended or was answered.
+CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int token, int status, const char* mime, const void* body,
+                                                     size_t length);
 
 #ifdef __cplusplus
 }

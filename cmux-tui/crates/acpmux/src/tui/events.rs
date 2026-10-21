@@ -40,7 +40,8 @@ impl App {
                             },
                         );
                     }
-                    self.transcripts.entry(id).or_default().apply_event(&p);
+                    self.transcripts.entry(id.clone()).or_default().apply_event(&p);
+                    self.follow_removed_rows(&id);
                 }
             }
             method::MUX_SESSION_CHANGED => {
@@ -171,6 +172,7 @@ impl App {
                         }
                         next_seq = t.last_seq;
                     }
+                    self.follow_removed_rows(&id);
                     self.details.insert(id.clone(), detail);
                     let total_recovered = self.recovery_replayed.entry(id.clone()).or_default();
                     *total_recovered += recovered;
@@ -229,6 +231,8 @@ impl App {
                 for e in &events {
                     t.apply_event(e);
                 }
+                // A fresh replay: folds already name its rows.
+                t.removed_items.clear();
                 t.status = detail.get("status").and_then(Value::as_str).unwrap_or("").to_owned();
                 t.mode = detail.get("currentModeId").and_then(Value::as_str).map(str::to_owned);
                 t.model = detail.get("model").and_then(Value::as_str).map(str::to_owned);

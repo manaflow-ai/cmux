@@ -212,13 +212,20 @@ pub mod method {
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
     pub const MUX_KILL: &str = "_acpmux/kill";
+    pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";
     /// Stop one of a session's background subagents (a Claude background
     /// agent or workflow): `{sessionId, subagentSessionId}`.
     pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
+    /// To the agent adapter, `{sessionId}`: stop the agent's current step so it reads the steers
+    /// that wait for it, and keep the turn (Send now on a steer, `hub/queue_edit.rs`). Answers
+    /// `{interrupted}`, false when no steer waits; an agent without it answers an error.
+    pub const MUX_STEP_NOW: &str = "_acpmux/step_now";
     /// An agent message's sender takes it back (`hub/withdraw.rs`).
     pub const MUX_PROMPT_WITHDRAW: &str = "_acpmux/prompt_withdraw";
+    /// Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
+    pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
     pub const MUX_INFO: &str = "_acpmux/info";
     pub const MUX_EVENTS: &str = "_acpmux/events";
     /// Durable inter-session mailbox: send, page/wait, and recipient-only ack.
@@ -274,6 +281,8 @@ pub mod method {
     /// Read or replace the unsent composer text for one session.
     pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
     pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";
+    pub const MUX_COMPOSER_SET: &str = "_acpmux/composer_set";
+    pub const MUX_COMPOSERS: &str = "_acpmux/composers";
     pub const MUX_BOOKMARK_GET: &str = "_acpmux/bookmark_get";
     pub const MUX_BOOKMARK_SET: &str = "_acpmux/bookmark_set";
     pub const MUX_ASK: &str = "_acpmux/ask";
@@ -281,8 +290,13 @@ pub mod method {
     /// cheap model, sent the question; answers with its session id at once.
     pub const MUX_BTW: &str = "_acpmux/btw";
     pub const MUX_SCHEMA: &str = "_acpmux/schema";
+    /// The protocol IR this daemon was built with (`protocol::ir()`).
+    pub const MUX_PROTOCOL: &str = "_acpmux/protocol";
     pub const MUX_EXPORT: &str = "_acpmux/export";
     pub const MUX_IMPORT: &str = "_acpmux/import";
+    /// A file the person dropped into a chat, saved on the machine that runs it
+    /// (`hub/file_uploads.rs`).
+    pub const MUX_FILE_PUT: &str = "_acpmux/file_put";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
     /// Fork a session through its latest completed turn (`server/fork_through.rs`).
     pub const ACP_SESSION_FORK: &str = "acp.session.fork";
@@ -365,14 +379,28 @@ pub mod method {
     pub const MUX_SUBSESSION_GET: &str = "_acpmux/subsession/get";
     pub const MUX_SUBSESSION_SEND: &str = "_acpmux/subsession/send";
     pub const MUX_SUBSESSION_STOP: &str = "_acpmux/subsession/stop";
+    /// Answers a descendant's pending question (never a permission prompt).
+    pub const MUX_SUBSESSION_ANSWER: &str = "_acpmux/subsession/answer";
     /// Sets a session's limits: the person, or an ancestor session.
     pub const MUX_SUBSESSION_LIMITS: &str = "_acpmux/subsession/limits";
+    /// Forum announcements (`forum.rs`, `hub/forum.rs`, `server/forum.rs`):
+    /// post a rule by key, read the current rules, ack one.
+    pub const MUX_FORUM_ANNOUNCE: &str = "_acpmux/forum/announce";
+    pub const MUX_FORUM_RULES: &str = "_acpmux/forum/rules";
+    pub const MUX_FORUM_ACK: &str = "_acpmux/forum/ack";
     /// The background-process registry (`hub/processes.rs`): list a chat's
     /// (or every chat's) background processes, read one's output, and stop
     /// one.
     pub const MUX_PROCESS_LIST: &str = "_acpmux/process/list";
     pub const MUX_PROCESS_TAIL: &str = "_acpmux/process/tail";
     pub const MUX_PROCESS_KILL: &str = "_acpmux/process/kill";
+    /// Ctrl-B: move a chat's running work to the background, `{sessionId,
+    /// toolCallId?}` -> `{backgrounded}`. Claude Code only.
+    pub const MUX_PROCESS_BACKGROUND: &str = "_acpmux/process/background";
+    /// Worktree cleanup (`server/worktrees.rs`).
+    pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
+    pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";
+    pub const MUX_WORKTREE_RESTORE: &str = "_acpmux/worktree/restore";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";

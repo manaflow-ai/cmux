@@ -54,6 +54,7 @@ impl Hub {
         self.catalog_ready.send_replace(true);
         self.verify_launchers().await;
         self.startup_ready.send_replace(true);
+        self.care_worker();
         tracing::info!("startup complete; agents may spawn");
         // Probes and one-shots of earlier runs left files behind: remove them.
         let _ = tokio::task::spawn_blocking(crate::probe_cleanup::at_daemon_start).await;
@@ -73,6 +74,11 @@ impl Hub {
 
     pub fn startup_complete(&self) -> bool {
         *self.startup_ready.borrow()
+    }
+
+    /// Whether the chat logs are read (`load_logs`; always outside a deferred start).
+    pub fn logs_loaded(&self) -> bool {
+        *self.logs_ready.borrow()
     }
 
     /// Wait until background startup has finished (immediate outside a daemon).
