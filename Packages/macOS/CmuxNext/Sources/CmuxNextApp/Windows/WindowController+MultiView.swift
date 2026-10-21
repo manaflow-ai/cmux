@@ -49,13 +49,13 @@ extension WindowController {
             controller.park(serial: controller.parkedSerial)
         }
         for (id, view) in views {
+            // A companion coming on screen draws its attention rings again (parking stopped following them).
+            if view.isHidden || view.superview !== host { parked[id]?.followAttention() }
             if view.superview !== host {
                 host.addSubview(view)
                 view.reparentRootedThemeScope()
                 parked[id]?.layoutView.syncWithModel()
             }
-            // A companion coming on screen draws its attention rings again (parking stopped following them).
-            if view.isHidden || view.superview !== host { parked[id]?.followAttention() }
             view.autoresizingMask = []
             view.isHidden = false
         }
@@ -118,6 +118,7 @@ extension WindowController {
         host.arrangeContent = nil
         for (id, controller) in parked where controller.contentView.superview === host && id != state.workspaceID {
             controller.contentView.isHidden = true
+            controller.park(serial: controller.parkedSerial)
         }
         // The workspace a page covers fills the content area again too, so a page closing shows no half-size frame.
         if let view = (content ?? state.workspaceID.flatMap { parked[$0] })?.contentView {
