@@ -60,6 +60,7 @@ import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, startModeChanged } from "./startMode";
 import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
+import { pasteRanges } from "./conversation/promptCollapse";
 import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks";
 
 export type AcpmuxHostConfig = {
@@ -1748,6 +1749,12 @@ export class AcpmuxDirectClient {
     return () => void this.processListeners.delete(listener);
   }
 
+  /// The end of background process `processId`'s output, at most `maxBytes` (acpmux reads at most
+  /// 1 MiB): `{data (base64), fromByte, nextByte, eof}`. Claude Code's processes only.
+  tailProcess(processId: string, maxBytes: number): Promise<unknown> {
+    return this.request("_acpmux/process/tail", { processId, maxBytes });
+  }
+
   /// Stops background process `processId` (Claude's stop_task, Codex's terminate). A harness
   /// that never answers fails it after 10 s.
   killProcess(processId: string): Promise<unknown> {
@@ -2610,6 +2617,10 @@ export class AcpmuxDirectClient {
           ...(continues ? { continues } : {}),
           ...(steer === "waiting" && promptId ? { steerPromptId: promptId } : {}),
           ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
+          // The blocks the composer sent as pastes, by where they sit in the text acpmux recorded;
+          // only while the row shows that text as recorded (a harness note it hides moves them).
+          ...(shown.text === raw &&
+            pasteRanges(msg.pasted, raw).length > 0 && { pasted: pasteRanges(msg.pasted, raw) }),
           ...(fallbackPromptId && this.optimisticPromptAttachments.get(fallbackPromptId)?.length
             ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
             : {}),
@@ -4871,6 +4882,8 @@ function backgroundTask(update: any): BackgroundUpdate | undefined {
     command: typeof update.command === "string" ? update.command : "",
     state,
     ...(typeof update.reason === "string" && update.reason ? { reason: update.reason } : {}),
+    ...(typeof update.summary === "string" && update.summary ? { summary: update.summary } : {}),
+    ...(Number.isInteger(update.exitCode) ? { exitCode: update.exitCode as number } : {}),
   };
 }
 

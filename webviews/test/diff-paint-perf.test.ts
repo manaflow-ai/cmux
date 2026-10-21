@@ -8,7 +8,7 @@
 //     a 1,500-line rewrite after them;
 //   - `huge`: one generated 1,000,000-line bundle (about 60 MB of patch) ahead of 50 small files.
 //
-// For each it reads, every frame from the moment the harness's patch is ready (`patch-ready`):
+// For each it reads, after every painted frame from the moment the harness's patch is ready (`patch-ready`):
 //   - firstRow: the first diff row is drawn inside the viewer (plain text or highlighted);
 //   - firstHighlight: the first row is drawn with syntax colors.
 // And on `mixed` the first row must draw while most of the patch is still streaming (FIRST_ROW_SHARE
@@ -29,6 +29,7 @@ import net from "node:net";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { stopDevServer } from "./support/devServer";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmDevServer } from "./support/warmDevServer";
 
@@ -82,15 +83,16 @@ await requireBrowserLane("diff-paint-perf.test.ts", async () => {
     stopDevServer(server);
   });
 
-  /// Runs in the page before its scripts: marks, per frame, when the first row and the first
-  /// highlighted row are drawn inside the viewer, and when every file has streamed.
+  /// Runs in the page before its scripts: marks, after each painted frame (installPaintedFrames),
+  /// the frame that first drew a row inside the viewer, the first that drew a highlighted row, and
+  /// the first after every file had streamed.
   function probe() {
     const first: Record<string, number> = {};
     (window as unknown as { __diffPaint: Record<string, number> }).__diffPaint = first;
-    const mark = (name: string) => {
-      if (first[name] == null) first[name] = performance.now();
-    };
-    const tick = () => {
+    window.cmuxAfterPaint((frame) => {
+      const mark = (name: string) => {
+        if (first[name] == null) first[name] = frame;
+      };
       const viewer = document.querySelector("#viewer")?.getBoundingClientRect();
       if (viewer != null) {
         for (const host of document.querySelectorAll("#viewer diffs-container")) {
@@ -104,9 +106,8 @@ await requireBrowserLane("diff-paint-perf.test.ts", async () => {
         }
       }
       if (document.body.dataset.streamElapsedMs) mark("complete");
-      if (first.firstRow == null || first.firstHighlight == null || first.complete == null) requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
+      return first.firstRow == null || first.firstHighlight == null || first.complete == null;
+    });
   }
 
   type Run = {
@@ -120,6 +121,7 @@ await requireBrowserLane("diff-paint-perf.test.ts", async () => {
   async function open(fixture: keyof typeof BUDGETS): Promise<Run> {
     const context = await browser!.newContext({ viewport: { width: 1400, height: 900 } });
     const page = await context.newPage();
+    await installPaintedFrames(page);
     await page.addInitScript(probe);
     await page.goto(`${base}/test/browser/diff-virtualization.html?fixture=${fixture}`);
     await page.waitForFunction(

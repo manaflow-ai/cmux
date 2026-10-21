@@ -11,7 +11,7 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     let model: FindSectionModel
     private let rootFolder: @MainActor () -> URL
     private let effects: any FileExplorerEffects
-    let field = NSSearchField()
+    let field = NSSearchField() // text-focus-allow: no rounded control owns this sidebar field; its ring is the only focus cue (accessibility).
     private let status = NSTextField(labelWithString: "")
     let table = FindResultsTableView()
     private let scroll = NSScrollView()
@@ -56,12 +56,10 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     private func build() {
         field.placeholderString = FileExplorerStrings.findPlaceholder
         field.sendsWholeSearchString = true
-        field.focusRingType = .none
         field.target = self
         field.action = #selector(submit)
         field.delegate = self
         field.font = Typography.body
-        field.focusRingType = .none
         status.font = Typography.caption
         status.textColor = .secondaryLabelColor
         status.lineBreakMode = .byTruncatingMiddle
