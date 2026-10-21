@@ -106,10 +106,11 @@ test("a Ledger row shows its whole description, with its picture beside the text
   dom.window.document.body.append(root);
   await act(async () => {
     mountChangelogPage(root, new MockChangelogProvider(notes as never) as never);
-    // Yield until the notes load and the row renders: a condition, not a fixed delay.
-    for (let turn = 0; turn < 200 && !root.querySelector(".cl-has-media"); turn++)
-      await new Promise((resolve) => setTimeout(resolve, 0));
   });
+  // Until the notes load and the row renders: a condition, not a fixed delay. Each turn is its own
+  // act, so React commits to the DOM before the next check.
+  for (let turn = 0; turn < 50 && !root.querySelector(".cl-has-media"); turn++)
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
   const row = root.querySelector<HTMLElement>(".cll .cl-group li.cl-has-media")!;
   expect(row.querySelector(".cl-row-title")?.textContent).toBe("Bands");
   expect([...row.querySelectorAll(".cl-row-summary")].map((p) => p.textContent)).toEqual([
