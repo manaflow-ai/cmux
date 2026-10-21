@@ -64,7 +64,9 @@ final class BackgroundServicesPresenter {
             list.append(BackgroundService(role: .agents, running: builds.running, bundled: builds.bundled,
                                           skip: builds.keepsAgents ? nil : .endsAgents))
         }
-        if let environment = ChiefHomeAcpmux.environment(home: chief.home) {
+        // A Chief on this app's acpmux (NIGHTLY, ChiefHome.usesAppAcpmux) has no daemon of its
+        // own: the Agents row and its restart cover it.
+        if !chief.home.usesAppAcpmux, let environment = ChiefHomeAcpmux.environment(home: chief.home) {
             let builds = await AcpmuxServiceRestart(environment: environment).builds()
             // Only the Chief host starts this daemon (cx-ebm.54): without one it would stay stopped.
             let hostRuns = ChiefHostStop.runningHostPID(home: chief.home) != nil
@@ -88,7 +90,8 @@ final class BackgroundServicesPresenter {
                 result.failed.append(.init(role: .agents, reason: .other(String(describing: error))))
             }
         }
-        if due.contains(.chiefAgents), let environment = ChiefHomeAcpmux.environment(home: services.home.chief.home) {
+        if due.contains(.chiefAgents), !services.home.chief.home.usesAppAcpmux,
+           let environment = ChiefHomeAcpmux.environment(home: services.home.chief.home) {
             let heal = ChiefAcpmuxHeal(home: services.home.chief.home, environment: environment) { [weak services] in
                 await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
             }
