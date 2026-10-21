@@ -15,7 +15,11 @@ which then found cmux#22988. A receipt, for the exact head, is one of:
   "Review (subagent, correctness first): SHIP at 4b438e85a74f".
 
 Only people (author __typename User) with OWNER, MEMBER or COLLABORATOR association count. The newest verdict
-naming the head decides, so a later BLOCK beats an earlier SHIP. Nothing waives a missing receipt.
+naming the head decides, so a later BLOCK beats an earlier SHIP. Before that, as next-autoland's review_state()
+judges it, the newest review-like word on any head must not say wait: a change request, "Review (codex): BLOCK",
+"Verdict: BLOCK", or a comment starting "Hold..." refuses even after a SHIP on the head. Comments starting `<!--`
+are tools' marked comments, not reviews. Nothing waives a refusal. A base merge (merge-main.sh, update-branch)
+makes a new head, which needs its own receipt.
 
 One GraphQL read. --pr-file reads a recorded response instead (tests). Prints `receipt=<who passed it>`.
 Exit 0: receipt; 1: refused (the reason on stderr); 3: GitHub rate-limited the read.
@@ -32,13 +36,21 @@ from pathlib import Path
 from typing import Callable
 
 TRUSTED = {"OWNER", "MEMBER", "COLLABORATOR"}
+REVIEW_LINE = re.compile(r"review", re.I)  # "Review (subagent, correctness first): SHIP", "Self-review", ...
+HOLD_LINE = re.compile(r"^\W*hold(?:ing)?\b", re.I)  # "**Holding this PR. ...**"
+# A review-like comment counts only with an explicit verdict in a label near its top (next_autoland.py).
+LABELLED = r"(?:\breview[^:\n]{0,160}|\bverdict\W{0,4}):\W{0,8}"
+SHIPS = re.compile(LABELLED + r"(?:ship|approved?|lgtm|merge|nothing blocking|no (?:defects|findings|blocking issues))\b",
+                   re.I)
+WAIT = re.compile(LABELLED + r"(?:block(?:ed|ing|s)?|fix|not ship|hold|changes needed)\b|still owed|do not merge|"
+                  r"don't merge", re.I)
 MARKER = re.compile(r"<!-- autoreview verdict=(SHIP|BLOCK) sha=([0-9a-f]{40}) -->")
 SHA_TOKEN = re.compile(r"\b[0-9a-f]{7,40}\b")
 RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])", re.I)
 QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){"
          "headRefOid "
-         "reviews(last:100){nodes{state submittedAt body authorAssociation author{__typename login} commit{oid}}} "
-         "comments(last:100){nodes{createdAt body authorAssociation author{__typename login}}}}}}")
+         "reviews(last:30){nodes{state submittedAt body authorAssociation author{__typename login} commit{oid}}} "
+         "comments(last:40){nodes{createdAt body authorAssociation author{__typename login}}}}}}")
 
 Runner = Callable[[list[str]], tuple[int, str, str]]
 
@@ -56,6 +68,56 @@ def _load_rate_limit():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def trusted(item: dict) -> bool:
+    return bool(item) and ((item.get("author") or {}).get("__typename") == "User"
+                           and item.get("authorAssociation") in TRUSTED)
+
+
+def review_verdict(body: str) -> str | None:
+    """"reviewed", "blocked", or None for a comment with no verdict near its top."""
+    marker = MARKER.search(body)
+    if marker:
+        return "reviewed" if marker.group(1) == "SHIP" else "blocked"
+    top = body[:600]
+    if WAIT.search(top):
+        return "blocked"
+    return "reviewed" if SHIPS.search(top) else None
+
+
+def review_state(pr: dict) -> tuple[str, str]:
+    """(state, detail) from the newest review-like word by someone with write access, on any head: "reviewed",
+    "blocked" (changes requested, a BLOCK verdict, a review still owed), "held" (a comment starting "Hold..."),
+    or "none". A port of next_autoland.py's review_state()."""
+    found = []
+    for item in (pr.get("reviews") or {}).get("nodes") or []:
+        if not trusted(item):
+            continue
+        login = item["author"].get("login")
+        body, at = item.get("body") or "", item.get("submittedAt") or ""
+        first = next((line for line in body.splitlines() if line.strip()), "")
+        if item.get("state") == "APPROVED":
+            found.append((at, "reviewed", f"approved by {login}"))
+        elif item.get("state") == "CHANGES_REQUESTED":
+            found.append((at, "blocked", f"changes requested by {login}"))
+        elif REVIEW_LINE.search(first) and review_verdict(body):
+            found.append((at, review_verdict(body), first.strip()[:80]))
+    for item in (pr.get("comments") or {}).get("nodes") or []:
+        if not trusted(item):
+            continue
+        body = (item.get("body") or "").strip()
+        first = next((line for line in body.splitlines() if line.strip()), "")
+        if body.startswith("<!--"):
+            continue  # a tool's marked comment (base-red-watch, previews), not a person's review
+        if HOLD_LINE.search(first):
+            found.append((item.get("createdAt") or "", "held", first.strip()[:80]))
+        elif REVIEW_LINE.search(first) and review_verdict(body):
+            found.append((item.get("createdAt") or "", review_verdict(body), first.strip()[:80]))
+    if not found:
+        return "none", ""
+    _, state, detail = max(found, key=lambda f: f[0])
+    return state, detail
 
 
 def names_head(line: str, head: str) -> bool:
@@ -79,10 +141,6 @@ def head_verdicts(pr: dict, head: str) -> list[tuple[str, str, str]]:
         if line and "self" not in line.group(1).lower() and names_head(first, head):
             found.append((at, "ship" if line.group(2).lower() == "ship" else "block", f"{login}: {first.strip()[:60]}"))
 
-    def trusted(item: dict) -> bool:
-        return bool(item) and ((item.get("author") or {}).get("__typename") == "User"
-                               and item.get("authorAssociation") in TRUSTED)
-
     for item in (pr.get("reviews") or {}).get("nodes") or []:
         if not trusted(item):
             continue
@@ -103,6 +161,17 @@ def receipt(pr: dict, head: str) -> str:
         return ""
     _, kind, detail = max(found, key=lambda f: f[0])
     return detail if kind == "ship" else ""
+
+
+def decide(pr: dict, head: str) -> tuple[str, str]:
+    """(who passed the head, "") or ("", why it may not merge), in next-autoland's order."""
+    state, detail = review_state(pr)
+    if state in ("blocked", "held"):
+        return "", f"no SHIP review receipt on {head} can merge while the newest review says wait: {detail}"
+    who = receipt(pr, head)
+    if not who:
+        return "", f"no SHIP review receipt on {head}"
+    return who, ""
 
 
 def _gh(args: list[str]) -> tuple[int, str, str]:
@@ -149,11 +218,12 @@ def main(argv: list[str] | None = None, run: Runner = _gh) -> int:
         head = pr.get("headRefOid") or ""
         if head != args.sha:
             raise Refused(f"the head is {head or 'unknown'}, not {args.sha}; review and merge the current head")
-        who = receipt(pr, args.sha)
+        who, why = decide(pr, args.sha)
         if not who:
-            raise Refused(f"no SHIP review receipt on {args.sha}: after an independent review of this head, comment "
-                          f"'Review (subagent, correctness first): SHIP at {args.sha[:12]}' (a newer BLOCK, FIX or "
-                          "change request on the head wins over a SHIP)")
+            raise Refused(f"{why}: after an independent review of this head, comment "
+                          f"'Review (subagent, correctness first): SHIP at {args.sha[:12]}'. A newer BLOCK, FIX, hold "
+                          "or change request wins over a SHIP, and a base merge (merge-main.sh or update-branch) "
+                          "makes a new head that needs its own receipt")
     except RateLimited as error:
         print(f"rate-limited: {error}", file=sys.stderr)
         return 3

@@ -11,7 +11,7 @@
 # --full keeps the wait for every check (main, classic), as does every base other than
 # feat-cmux-next. Every feat-cmux-next merge, on either gate, also needs an independent review's SHIP
 # receipt for the exact head (scripts/ci/review_receipt.py), which nothing waives.
-# feat-cmux-next. One `gh-merge-green:` line at exit says what was checked and how long it waited.
+# One `gh-merge-green:` line at exit says what was checked and how long it waited.
 set -Eeuo pipefail
 
 repair_note='see cmuxterm-hq REPAIR.md#merging'
@@ -458,9 +458,10 @@ fi
 # exact commit (scripts/ci/review_receipt.py), the rule next-autoland applies: cmux#22899 merged
 # before its re-review, which then found cmux#22988 (2026-10-21). Like a red risk evidence,
 # nothing waives a missing receipt, --override included. It is read before the gate waits and
-# again right before the merge, so a BLOCK posted during the wait still stops it.
+# again before the merge, ahead of any merge-override comment, so a BLOCK posted during the
+# wait stops it. Pass `final` for that second read.
 review_receipt_gate() {
-  local receipt_args=("$repo" "$num" "$sha") receipt_out receipt_err receipt_status=0
+  local receipt_args=("$repo" "$num" "$sha") receipt_out receipt_err receipt_status=0 fixture
   # Tests hand the checker a recorded read. GH_MERGE_GREEN_TEST left set in a real shell
   # without the fixture refuses, rather than reading as no reviews.
   if [ -n "${GH_MERGE_GREEN_TEST:-}" ]; then
@@ -469,7 +470,10 @@ review_receipt_gate() {
         "not merged: review receipt unknown for $ref (GH_MERGE_GREEN_TEST is set without GH_MERGE_GREEN_REVIEWS)" \
         'unset GH_MERGE_GREEN_TEST for a real merge; tests set the reviews fixture'
     fi
-    receipt_args+=(--pr-file "$GH_MERGE_GREEN_REVIEWS")
+    fixture=$GH_MERGE_GREEN_REVIEWS
+    # A test's reviews may change while the gate waits: the second read takes the _FINAL fixture.
+    [ "${1:-}" != final ] || fixture=${GH_MERGE_GREEN_REVIEWS_FINAL:-$GH_MERGE_GREEN_REVIEWS}
+    receipt_args+=(--pr-file "$fixture")
   fi
   receipt_err=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-receipt.XXXXXX")
   tmp_files+=("$receipt_err")
@@ -480,7 +484,7 @@ review_receipt_gate() {
   if [ "$receipt_status" -ne 0 ]; then
     refuse \
       "not merged: $ref: $(cat "$receipt_err")" \
-      'get an independent review of the exact head and post its receipt; --override cannot waive the review receipt'
+      'get an independent review of the exact head and post its receipt (after a base merge, of the new head); --override cannot waive the review receipt'
   fi
   printf 'note: review receipt on %s: %s\n' "$sha" "${receipt_out#receipt=}" >&2
 }
@@ -1394,6 +1398,7 @@ elif [ "$fast" -eq 1 ]; then
     merged_head_checks 1
   fi
 fi
+[ "$base" != feat-cmux-next ] || review_receipt_gate final
 if [ "$dry_run" -eq 1 ]; then
   printf 'dry-run: every gate passes for %s at %s; would run: gh pr merge %s --repo %s --match-head-commit %s%s\n' \
     "$ref" "$sha" "$num" "$repo" "$sha" "$(printf ' %q' "$@")"
@@ -1461,7 +1466,6 @@ if [ -n "$current_state" ] && [ "$current_state" != open ]; then
     "not merged: $ref is $current_state, not open" \
     'reopen the pull request, then retry'
 fi
-[ "$base" != feat-cmux-next ] || review_receipt_gate
 
 rest_merge_method() {
   local method='' arg
