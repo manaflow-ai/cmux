@@ -163,6 +163,7 @@ jobs:
       # Non-fatal: the feed is already pulled and read back, so the fix-forward must still run,
       # and a re-run sees changed=false and would never retry this step.
       - name: Record the pulled builds (pulled.json)
+        id: pulled_json
         if: steps.plan.outputs.changed == 'true' && !inputs.dry_run
         continue-on-error: true
         env:
@@ -209,6 +210,7 @@ jobs:
           PULLED: ${{ steps.plan.outputs.pulled }}
           DRY_RUN: ${{ inputs.dry_run }}
           JOB_STATUS: ${{ job.status }}
+          PULLED_JSON: ${{ steps.pulled_json.outcome }}
         run: |
           {
             echo "### cmux NEXT feed rollback"
@@ -224,7 +226,11 @@ jobs:
             elif [ "$JOB_STATUS" = success ]; then
               echo "Pulled $PULLED. The feed serves $SERVING."
               echo ""
-              echo "Macs on a pulled build keep it until a newer build is published. pulled.json lists it, so the app offers its kept build (Roll Back to Previous Version) or waiting for the fix."
+              if [ "$PULLED_JSON" = success ]; then
+                echo "Macs on a pulled build keep it until a newer build is published. pulled.json lists it, so the app offers its kept build (Roll Back to Previous Version) or waiting for the fix."
+              else
+                echo "pulled.json was not updated ($PULLED_JSON): Macs on the pulled build show no banner until it is written. Write it by hand with scripts/ci/nightly_next_feed_rollback.py pulled and scripts/ci/upload-r2-object.py; a re-run sees nothing to pull."
+              fi
             else
               echo "Failed before the pull of $PULLED was confirmed; check the feed."
             fi
