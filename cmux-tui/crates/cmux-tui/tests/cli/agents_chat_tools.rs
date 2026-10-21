@@ -601,3 +601,147 @@ fn a_read_masks_secrets_in_another_chats_text() {
         }
     }
 }
+
+/// `cmux agents chat new` started by another chat's agent (#23026): a chat in
+/// a workspace of this session, with the harness asked for, whose first
+/// prompt goes in as an agent message; then `state`, `continue` and
+/// `interrupt` reach it. With no app to show it, the chat still runs and the
+/// receipt says no tab shows it.
+#[test]
+fn an_agent_starts_a_chat_in_a_workspace_and_drives_it_without_the_app() {
+    let daemon = machine("chat-new");
+    let workspace = workspace(&daemon);
+    let caller = chat(&daemon, Some(&workspace));
+    let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
+    let no_app = daemon.dir.join("no-app.sock");
+    let as_caller = || {
+        let mut command = cmux(&daemon, Some(&caller));
+        command.arg("--app-socket").arg(&no_app);
+        command
+    };
+
+    let (code, created) = chat_json(
+        as_caller(),
+        &[
+            "new",
+            "--workspace",
+            &workspace.to_lowercase(),
+            "--harness",
+            "fake",
+            "--cwd",
+            work.to_str().unwrap(),
+            "--name",
+            "helper",
+            "--",
+            "please list the files",
+        ],
+    );
+    assert_eq!(code, Some(0), "{created}");
+    assert_eq!(created["action"], "chat.new", "{created}");
+    let result = &created["result"];
+    let started = result["chat"].as_str().unwrap_or_else(|| panic!("{created}")).to_owned();
+    assert_ne!(started, caller, "{created}");
+    assert_eq!(result["opened"], false, "no app shows it: {created}");
+    assert!(result["open_error"].is_object(), "{created}");
+    assert_eq!(result["prompt"]["state"], "delivered", "{created}");
+
+    // The chat runs in that workspace, so this session's chat verbs reach it.
+    let info = Acp::connect(&daemon).call("_acpmux/info", json!({"sessionId": started}));
+    assert_eq!(
+        info["result"]["sessionEnv"]["CMUX_WORKSPACE_ID"].as_str().map(str::to_uppercase),
+        Some(workspace.clone()),
+        "{info}"
+    );
+    let page = read_until(&daemon, &caller, json!({"target": started}), |items| {
+        items.iter().any(|item| item["role"] == "turn_end")
+    });
+    let prompts = items_of(page["items"].as_array().unwrap(), "user");
+    assert_eq!(prompts[0]["origin"], "agent_message", "{page}");
+    assert!(prompts[0]["text"].as_str().unwrap().contains("please list the files"), "{page}");
+
+    let (code, state) = chat_json(as_caller(), &["state", &started]);
+    assert_eq!(code, Some(0), "{state}");
+    assert_eq!(state["result"]["chat"], started.as_str(), "{state}");
+    assert_eq!(state["result"]["running"], false, "{state}");
+
+    // A nudge is an agent message with the default text.
+    let (code, nudged) = chat_json(as_caller(), &["continue", &started]);
+    assert_eq!(code, Some(0), "{nudged}");
+    assert_eq!(nudged["result"]["state"], "delivered", "{nudged}");
+    let after = page["next_after"].clone();
+    let next = read_until(&daemon, &caller, json!({"target": started, "after": after}), |items| {
+        items.iter().any(|item| item["role"] == "turn_end")
+    });
+    let nudges = items_of(next["items"].as_array().unwrap(), "user");
+    assert!(nudges[0]["text"].as_str().unwrap().contains("Continue."), "{next}");
+
+    let (code, stopped) = chat_json(as_caller(), &["interrupt", &started]);
+    assert_eq!(code, Some(0), "{stopped}");
+    assert_eq!(stopped["result"]["state"], "cancel_requested", "{stopped}");
+
+    // Never the caller's own chat, never a chat outside this session.
+    let (code, own) = chat_json(as_caller(), &["interrupt", &caller]);
+    assert_eq!(code, Some(3), "{own}");
+    assert_eq!(error_of(&own)["code"], "chat.own_chat", "{own}");
+    let elsewhere = chat(&daemon, None);
+    let (code, outside) = chat_json(as_caller(), &["state", &elsewhere]);
+    assert_eq!(code, Some(3), "{outside}");
+    assert_eq!(error_of(&outside)["code"], "chat.out_of_scope", "{outside}");
+
+    // In a pane of that workspace, named by its pane_ id.
+    let output = as_caller().args(["--json", "agents", "snapshot"]).output().unwrap();
+    let snapshot: Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
+        panic!("snapshot: {}", String::from_utf8_lossy(&output.stderr))
+    });
+    let daemon_snapshot = snapshot.get("daemon").unwrap_or(&snapshot);
+    let workspace_id = daemon_snapshot["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|item| {
+            item["extra"]["key"].as_str().is_some_and(|key| uuid_form(key) == workspace)
+        })
+        .map(|item| item["id"].clone())
+        .unwrap_or_else(|| panic!("no workspace {workspace} in {snapshot}"));
+    let screen_ids: Vec<Value> = daemon_snapshot["screens"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|screen| screen["workspace_id"] == workspace_id)
+        .map(|screen| screen["id"].clone())
+        .collect();
+    let pane = daemon_snapshot["panes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|pane| screen_ids.contains(&pane["screen_id"]))
+        .and_then(|pane| pane["id"].as_str())
+        .unwrap_or_else(|| panic!("no pane of {workspace_id} in {snapshot}"))
+        .to_owned();
+    let (code, in_pane) =
+        chat_json(as_caller(), &["new", "--pane", &pane, "--cwd", work.to_str().unwrap()]);
+    assert_eq!(code, Some(0), "{in_pane}");
+    let second = in_pane["result"]["chat"].as_str().unwrap_or_else(|| panic!("{in_pane}"));
+    let (code, _) = chat_json(as_caller(), &["state", second]);
+    assert_eq!(code, Some(0), "a chat started in a pane is in this session's scope");
+
+    // An agent never starts a chat that approves edits without asking.
+    let (code, policy) = chat_json(as_caller(), &["new", "--policy", "approve-all"]);
+    assert_eq!(code, Some(2), "{policy}");
+
+    // A workspace this session does not have starts nothing.
+    let (code, unknown) = chat_json(as_caller(), &["new", "--workspace", "ws_nope", "--", "hi"]);
+    assert_eq!(code, Some(3), "{unknown}");
+    assert_eq!(error_of(&unknown)["code"], "selector.not_found", "{unknown}");
+    let (code, both) = chat_json(as_caller(), &["new", "--workspace", "a", "--pane", "b"]);
+    assert_eq!(code, Some(2), "{both}");
+
+    // The MCP tools list the new verbs with the right annotations.
+    let (tools, _) = mcp(&daemon, &caller, &[]);
+    let tool = |name: &str| {
+        tools.iter().find(|tool| tool["name"] == name).cloned().unwrap_or_else(|| panic!("{name}"))
+    };
+    assert_eq!(tool("agents_chat_state")["annotations"]["readOnlyHint"], true);
+    assert_eq!(tool("agents_chat_interrupt")["annotations"]["destructiveHint"], true);
+    assert_eq!(tool("agents_chat_new")["inputSchema"]["additionalProperties"], false);
+}
