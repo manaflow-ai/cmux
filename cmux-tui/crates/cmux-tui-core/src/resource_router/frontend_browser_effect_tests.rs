@@ -20,10 +20,8 @@ struct Session {
 
 impl Session {
     fn new(name: &str) -> (Self, Arc<Mux>) {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-frontend-effect-{name}-{}",
-            crate::resource::WorkspacePublicId::random().unwrap()
-        ));
+        let root = std::env::temp_dir()
+            .join(format!("cmux-frontend-effect-{name}-{}", WorkspacePublicId::random().unwrap()));
         let registry = WorkspaceRegistry::open(&root, "frontend-effect").unwrap();
         let mux = Mux::from_workspace_registry(
             "frontend-effect".into(),
