@@ -64,6 +64,9 @@ extension SidebarViewComponents {
             self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
         }
         region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
+        // Edit mode's ✕: the menu's Remove (one undo step, the document's own op).
+        region.onRemoveItem = { [weak self] id in self?.model.send(.layout(.itemRemove(id))) }
+        region.isEditing = isEditingItems && region !== footerRegion
     }
 
     /// Gives the three regions their sections: the band above the list,
@@ -98,8 +101,12 @@ extension SidebarViewComponents {
             let docSections = above.presenting(hidingItems: hidden, apps: apps).map(titled)
             // Only the blocks' own items' infos: another item's change does not reload the list.
             let shownIDs = Set(docSections.flatMap(\.items).map(\.id))
+            // A block's rows end where the list's other rows do, short of the inset (`rowTrailingTrim`).
+            var listMetrics = metrics
+            listMetrics.trailingTrim = SidebarStyle.rowTrailingTrim
             let blocks = SidebarListBlocks(sections: Dictionary(docSections.map { ($0.id.rawValue, $0) }, uniquingKeysWith: { first, _ in first }),
-                                           infos: selectedInfos.filter { shownIDs.contains($0.key) }, collapsed: model.collapsedLayoutSections, look: look, metrics: metrics,
+                                           infos: selectedInfos.filter { shownIDs.contains($0.key) }, collapsed: model.collapsedLayoutSections, look: look,
+                                           metrics: listMetrics,
                                            drawsLines: Borders.drawsLines, appHeights: appHeights(docSections, width: width))
             aboveRegion.update(content(model.placingTransientItems(in: [])), width: width)
             if list.blocks != blocks {

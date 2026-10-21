@@ -75,11 +75,13 @@ pub(super) const INSTRUCTIONS: &str = "cmux tools run in code mode. cmux_docs se
     cmux_exec runs a JavaScript script that calls those tools: `await cmux.call(\"pane_split\", \
     {...})` or `await cmux.pane_split({...})`. Put related steps in one script and return the \
     value you need. Tools of the chat's other cmux servers (cua_* computer use, secrets_*, \
-    sessions_*) come with their server's rules in `servers` of a cmux_docs answer: read and \
+    sessions_* suggested tasks, subsessions_* sub-sessions, forum_* shared rules) come with their server's rules in `servers` of a cmux_docs answer: read and \
     follow them before you call those tools. Objects have stable public ids (ws_…, screen_…, pane_…, tab_…, term_…, \
     win_…) that the *_list tools report; a unique prefix works, and <session>:<id> reaches \
     another session. A change takes idempotency_key: when a call fails with state \
-    in_progress, retry it with the key from the error so it cannot apply twice. Tools never \
+    in_progress, retry it with the key from the error so it cannot apply twice; a call to \
+    another server's tool that fails with in_progress has no key and may have run, so check \
+    its effect before you call it again. Tools never \
     move the user's focus unless the call passes focus: true or the tool's purpose is focus.";
 
 /// The two tools `serve` lists. `tools` is the full list, for the family

@@ -328,7 +328,7 @@ final class SessionTransferService {
         case Failure.noSessions:
             String(localized: "sessionTransfer.error.noSessions", defaultValue: "No sessions are available to move from another cmux build.", bundle: .module)
         case Failure.missingAgentID:
-            String(localized: "sessionTransfer.error.missingAgentID", defaultValue: "The selected agent has no resumable session id.", bundle: .module)
+            String(localized: "sessionTransfer.error.missingAgentID", defaultValue: "The selected agent has no resumable session ID.", bundle: .module)
         case Failure.agentNotOpened:
             String(localized: "sessionTransfer.error.agentNotOpened", defaultValue: "The agent chat did not open in cmux-next, so the source was left as it was.", bundle: .module)
         case Failure.unavailable:

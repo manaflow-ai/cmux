@@ -5,19 +5,20 @@
    nothing of its own (Leo 2026-10-19): no shrink and no dip.
 
    Motion tokens: the native host sends its MotionFade durations with the theme
-   (AgentPaneTheme.motion, after ui.animationSpeed and Reduce Motion), and these defaults are
-   its `fast` values for the dev page and the mock. The focus and fade-out tokens are there for
-   the pane's other stylesheets. Every transition sits under prefers-reduced-motion:
-   no-preference, as the transcript's do. */
+   (AgentPaneTheme.motion, after ui.animationSpeed and Reduce Motion). Without the host (the dev
+   page, the mock) they fall back to the motion scale (--cmux-motion-*, pages/shared/desktop.css;
+   the literal inside each var() is the same step, for a page that loads no desktop.css). The
+   focus and fade-out tokens are there for the pane's other stylesheets. Every transition sits
+   under prefers-reduced-motion: no-preference, as the transcript's do. */
 :root {
-  --agent-motion-hover: 80ms;
-  --agent-motion-focus: 100ms;
-  --agent-motion-in: 120ms;
-  --agent-motion-out: 80ms;
-  /* The native move spring's timed equivalent (MotionSpring.move). */
-  --agent-motion-move: 190ms;
+  --agent-motion-hover: var(--cmux-motion-quick, 80ms);
+  --agent-motion-focus: var(--cmux-motion-quick, 80ms);
+  --agent-motion-in: var(--cmux-motion-micro, 120ms);
+  --agent-motion-out: var(--cmux-motion-quick, 80ms);
+  /* The native move spring's timed equivalent (MotionSpring.move: visibly at rest by 180 ms). */
+  --agent-motion-move: var(--cmux-motion-standard, 180ms);
   /* Core Animation's easeOut, which the native fades use. */
-  --agent-ease-out: cubic-bezier(0, 0, 0.58, 1);
+  --agent-ease-out: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
 }
 
 .acpmux-shell {
@@ -35,6 +36,20 @@
      none in a dark one, where a drop shadow on a dark page shows nothing. */
   --acpmux-composer-shadow: var(--elevation-1);
   --acpmux-menu-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
+}
+
+/* A solid card blurs nothing it can show (glass is never opaque, accent-glass-invariants.test.ts):
+   the blur is only for the see-through glass below. */
+:root:not([data-cmux-see-through]) .acpmux-composer-box,
+:root[data-reduce-transparency] .acpmux-composer-box {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-composer-box {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 /* Over art or a see-through window (data-cmux-see-through, desktop.ts) the composer is glass, like
@@ -198,10 +213,13 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   background: var(--acpmux-menu-press);
 }
 
-/* The picker and slash menus fade in on the appear token; ui.animationSpeed off makes it 0ms. */
+/* The picker, model and slash menus fade in on the appear token, rising a few points out of the
+   composer (or dropping, for a menu that opens below its chip: useUiAnchor sets --ui-popup-y);
+   ui.animationSpeed off makes it 0ms. */
 @keyframes acpmux-menu-in {
   from {
     opacity: 0;
+    translate: var(--ui-popup-x, 0) var(--ui-popup-y, 4px);
   }
 }
 /* Hover and press colors ease, and the picker and slash menus fade in; with Reduce Motion they apply at once. */
@@ -233,7 +251,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
     transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
   }
   .acpmux-menu,
-  .acpmux-slash-menu {
+  .acpmux-slash-menu,
+  .acpmux-mp {
     animation: acpmux-menu-in var(--agent-motion-in) var(--agent-ease-out);
   }
 }
@@ -485,4 +504,79 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-queue-fold:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1px;
+}
+
+/* A queued prompt's images (QueuedImages.tsx): small thumbnails under its text, in the text's
+   column, each opening the image viewer. While the prompt is edited each shows its remove
+   control. No motion: they show and go at once. */
+.acpmux-queued-images {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 0 2px;
+}
+.acpmux-queued-image-slot {
+  position: relative;
+  flex: none;
+}
+.acpmux-queued-image {
+  display: block;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  cursor: zoom-in;
+}
+.acpmux-queued-image:disabled {
+  cursor: default;
+}
+.acpmux-queued-image img {
+  display: block;
+  width: auto;
+  min-width: 28px;
+  max-width: 72px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 6px;
+  /* The edge draws over the image, so a screenshot as dark or light as the tray still ends. */
+  outline: 1px solid color-mix(in srgb, var(--agent-text) 30%, transparent);
+  outline-offset: -1px;
+}
+.acpmux-queued-image-empty {
+  display: block;
+  width: 36px;
+  height: 36px;
+}
+.acpmux-queued-image:not(:disabled):hover img {
+  outline-color: color-mix(in srgb, var(--agent-text) 60%, transparent);
+}
+.acpmux-queued-image:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
+.acpmux-queued-image-remove {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: var(--acpmux-composer-bg);
+  box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
+  color: var(--agent-text);
+  cursor: default;
+}
+.acpmux-queued-image-remove:hover {
+  background: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-bg));
+}
+.acpmux-queued-image-remove:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
 }

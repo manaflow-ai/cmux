@@ -31,6 +31,11 @@ pub(super) fn acp_prompt_blocks(
         std::fs::create_dir_all(&dir).map_err(|e| {
             RpcError::internal(format!("cannot create PDF attachment directory: {e}"))
         })?;
+        // The folder sits in the user's project; keep it out of their commits.
+        let ignore = dir.join(".gitignore");
+        if !ignore.exists() {
+            let _ = std::fs::write(&ignore, "*\n");
+        }
         let path = dir.join(format!("{}-{safe_name}", uuid::Uuid::now_v7()));
         let encoded = block.get("data").and_then(Value::as_str).unwrap_or("");
         use base64::Engine;
@@ -39,7 +44,7 @@ pub(super) fn acp_prompt_blocks(
             .map_err(|e| RpcError::invalid_params(format!("invalid PDF attachment: {e}")))?;
         std::fs::write(&path, bytes)
             .map_err(|e| RpcError::internal(format!("cannot save PDF attachment: {e}")))?;
-        let uri = format!("file://{}", path.display());
+        let uri = file_uri(&path);
         out.push(json!({
             "type": "text",
             "text": format!("PDF attachment saved at {}; open it with your tools.", path.display())
@@ -52,6 +57,15 @@ pub(super) fn acp_prompt_blocks(
         }));
     }
     Ok(out)
+}
+
+/// A `file://` URI for the saved file, percent-encoded so a project folder with
+/// spaces or non-ASCII letters still names a valid link (and a Windows path
+/// gets its drive form).
+fn file_uri(path: &std::path::Path) -> String {
+    reqwest::Url::from_file_path(path)
+        .map(String::from)
+        .unwrap_or_else(|()| format!("file://{}", path.display()))
 }
 
 impl Hub {
@@ -162,6 +176,27 @@ impl Hub {
         steer: bool,
         opts: PromptOptions,
     ) -> Result<Value, RpcError> {
+        // The agent messages that go in with this one (`digest.rs`) answer with its answer, or
+        // wait again when it failed.
+        let joined = super::digest::DigestTurn::default();
+        let result = self.run_prompt_joined(session, blocks, client, steer, opts, &joined).await;
+        // `finish_turn` put them back already when the turn itself failed; this is any other way.
+        if result.is_err() {
+            self.requeue_joined(session, &joined);
+        }
+        joined.answer.send_replace(Some(result.clone()));
+        result
+    }
+
+    async fn run_prompt_joined(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        blocks: Vec<Value>,
+        client: &str,
+        steer: bool,
+        opts: PromptOptions,
+        joined: &super::digest::DigestTurn,
+    ) -> Result<Value, RpcError> {
         let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let control = opts.control;
         let trust_gate = opts.trust_gate;
@@ -205,6 +240,7 @@ impl Hub {
         let after_turn = opts.after_turn.clone();
         super::auto_resume::check_cut(session, after_turn.as_deref(), false)?;
         // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
+        let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         let slot = super::queue::Slot {
             text: &text,
             blocks: &blocks,
@@ -214,6 +250,7 @@ impl Hub {
             trust_gate,
             interrupt: opts.interrupt,
             provenance: opts.provenance.as_ref(),
+            agent: agent.as_deref(),
         };
         let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
         {
@@ -235,6 +272,9 @@ impl Hub {
         }
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
         let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
+        // A pushed forum rule whose key moved on while it waited tells the current one.
+        let mut provenance = run.provenance.clone();
+        let pushed = self.forum_refresh_push(&prompt_id, &mut blocks, &mut provenance);
         let text = prompt_text(&blocks);
         if let Err(e) =
             self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
@@ -249,6 +289,23 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // An agent message's turn takes the agent messages waiting behind it (`digest.rs`), once
+        // the turn has started, so none leaves the queue for a turn that never runs. A forum push
+        // is no agent's message: it never leads one.
+        let parts = self.take_joined(session, &run, &prompt_id, &turn_id, joined);
+        let (blocks, text) = if parts.is_empty() {
+            (blocks, text)
+        } else {
+            let sender = run.agent.clone().unwrap_or_default();
+            let head =
+                super::digest::Part { prompt_id: prompt_id.clone(), sender, run: run.clone() };
+            let parts: Vec<_> = std::iter::once(head).chain(parts).collect();
+            provenance = Some(super::digest::digest_provenance(&parts));
+            let blocks = super::digest::digest_blocks(&parts);
+            let text = prompt_text(&blocks);
+            (blocks, text)
+        };
+        let mut blocks = blocks;
         {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
@@ -260,7 +317,7 @@ impl Hub {
         session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
         self.reset_stream(session);
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
-        let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
+        let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
         self.append_prompt(session, msg, &blocks);
         if !waiting {
             accept(
@@ -304,6 +361,8 @@ impl Hub {
                     json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
                 );
         }
+        // The forum rules this session was not told yet (`hub/forum.rs`).
+        let mut told = self.forum_context(session, pushed.clone(), &mut blocks).await;
         session.stderr_tail.lock().unwrap().clear();
         let turn_seq = self
             .append(
@@ -329,6 +388,7 @@ impl Hub {
             let e = RpcError::new(-32000, "the remote floor cancelled this turn before its prompt")
                 .with_data(json!({"reason": reason}));
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+            self.forum_turn_end(session, &told, false);
             drop(guard);
             return Err(e);
         }
@@ -388,6 +448,8 @@ impl Hub {
                                 0,
                                 json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
                             );
+                            // The new agent session gets every rule again.
+                            told = self.forum_retell(session, pushed.clone(), &mut blocks).await;
                         }
                         if let Some(sid2) = session.meta().agent_session_id {
                             result = child2
@@ -407,8 +469,11 @@ impl Hub {
         // model switch (`detach_child`) that ended the turn is no connection error.
         let agent_error = result.as_ref().err().map(|e| e.message.clone());
         let detached = session.turn().is_none_or(|t| t.turn_id != turn_id);
-        let mut result =
-            self.finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq).await;
+        let mut result = self
+            .finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq, Some(joined))
+            .await;
+        // A rule counts as told once the agent answered the prompt that carried it.
+        self.forum_turn_end(session, &told, result.is_ok());
         // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
         let cut = match (&result, detached) {
             (Err(e), false) => Some(super::auto_resume::CutTurn {
@@ -444,6 +509,7 @@ impl Hub {
         prompt_id: &str,
         turn_id: &str,
         turn_seq: u64,
+        joined: Option<&super::digest::DigestTurn>,
     ) -> Result<Value, RpcError> {
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
         let detached = self.take_turn(session, turn_id).is_none_or(|t| t.turn_id != turn_id);
@@ -494,6 +560,11 @@ impl Hub {
         if let Some(e) = harness_failure {
             result = Err(e);
         }
+        // The agent messages that went in with it go back before anything here waits, so one sent
+        // from now on goes behind them (`digest.rs`).
+        if let (Err(_), Some(joined)) = (&result, joined) {
+            self.requeue_joined(session, joined);
+        }
         // A failure on a bound route names the route and its fallback
         // (route_switch.rs), in the error's data and the turn result.
         let route_info = match &result {
@@ -542,6 +613,10 @@ impl Hub {
                     o.extend(super::turn_usage::turn_usage(session, v));
                 }
                 self.write_turn_result(session, msg, git);
+                // The chat works again: agent messages a failed turn held go in (`digest.rs`).
+                if status == "completed" {
+                    self.release_held_agent_messages(session);
+                }
             }
             Err(e) => {
                 self.append(
@@ -962,17 +1037,18 @@ impl Hub {
         if purge {
             session.purged.store(true, Ordering::SeqCst);
             self.sessions.lock().unwrap().remove(&session.id);
+            self.git_branch_forget(&session.id);
             // Tell watchers (peers, TUIs) the session is gone.
             let _ = self.events.send(HubEvent {
                 session_id: session.id.clone(),
-                record: EventRecord {
+                record: Arc::new(EventRecord {
                     seq: session.meta().last_seq + 1,
                     at: now_ms(),
                     dir: "mux".into(),
                     kind: "purged".into(),
                     msg: json!({"sessionId": session.id}),
                     host_seq: None,
-                },
+                }),
                 remote: None,
             });
             self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;

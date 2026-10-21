@@ -492,7 +492,8 @@ final class NotificationCenterService {
     /// where it came from (`workspaceName › tab`), which the app writes, so a terminal program
     /// cannot pose as another terminal; the poster's title is the subtitle.
     private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, workspaceName: String? = nil,
-                      sound: String?, program: ProgramStatusNotification? = nil, headline: String? = nil, owner: TabModel? = nil) {
+                      sound: String?, program: ProgramStatusNotification? = nil, headline: String? = nil,
+                      owner: TabModel? = nil) {
         let id = "cmux-notification-\(notification.notification.rawValue)"
         let owner = owner ?? tab
         // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.

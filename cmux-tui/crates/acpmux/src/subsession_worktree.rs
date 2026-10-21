@@ -261,7 +261,9 @@ fn layout(folder: &Path, home: &Path) -> Result<Layout, String> {
         .unwrap_or_else(|| "repository".into());
     // The app's `git.worktree.create` root (`git_ops/worktree.rs`), so its
     // Apply and Remove find these: the person's worktrees, not build state.
-    let parent = home.join(".cmux").join("worktrees").join(project);
+    let parent = cmux_git::worktree_root::worktree_root(home)
+        .map_err(|e| format!("cannot prepare ~/.cmux/worktrees: {e}"))?
+        .join(project);
     Ok(Layout { objects, prefix, format, parent })
 }
 

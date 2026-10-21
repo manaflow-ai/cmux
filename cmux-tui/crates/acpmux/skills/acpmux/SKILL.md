@@ -31,10 +31,22 @@ session's caller token is not one this acpmux daemon knows", run
 the turn ends, with tools that work again; your sub-sessions keep running.
 
 To put a session's chat in front of the user without moving their focus, run
-`cmux agent open SESSION_ID` (the `cmux` MCP server's `app_agent_open`); a
+`cmux agent open SESSION_ID` (the `cmux` MCP server's `app_agent_open`) for a
+new workspace, or `cmux agent open-tab SESSION_ID --target PANE_ID`
+(`app_agent_open_tab`) for a tab in a pane you name; a
 `start_session` child is also listed under your chat in the chat list. Post progress on a workspace's
 sidebar row with `cmux workspace WS status set KEY TEXT`, and ask for
 attention with `cmux notify`. `cmux docs search "show the user"` lists the rest.
+
+When a sub-session asks a question (its AskUserQuestion or other ask),
+`wait_for_sessions` returns and its row lists it under `questions`. Tell the
+user what it asks. Only when the user turned on Settings > Agents >
+Sub-sessions > Let Sessions Answer Their Sub-sessions' Questions (off by
+default) may you answer one marked `answerable` yourself with
+`answer_question` (keys: each item's `id` or `prompt`); otherwise it is
+refused (`subsessions.answers_off`, `subsessions.not_a_question`). A
+permission request or a plan approval is never a question: only the user
+allows it, in cmux NEXT, so tell the user which sub-session waits.
 
 ## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`
 
@@ -131,6 +143,11 @@ acpmux session allow NAME [OPTION]           # or: acpmux session deny NAME
 acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"]}'
 acpmux run --on-permission deny|fail …       # never hang a script on a prompt (fail = exit 5)
 ```
+
+`acpmux pending --json` gives each request a `needsYou` link
+(`cmux://needs-you/<permissionId>`). Put it in a reply to point the user at an
+open ask instead of restating it; cmux draws it as a chip that opens the ask in
+its Needs you list.
 
 `--policy ask` sends every request to a human or to you; the other policies
 answer locally. Rules sit above the policy and match tool kind, title, and

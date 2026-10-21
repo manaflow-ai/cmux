@@ -262,6 +262,7 @@ impl Hub {
             QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
         };
         let m = session.meta();
+        let waiting = super::subsession_send::waiting_on(session);
         let turn = session.turn();
         let summary = SessionSummary {
             session_id: m.id.clone(),
@@ -294,15 +295,13 @@ impl Hub {
             queue_paused: session.queue_paused(),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
             moving: session.moving().is_some(),
+            // Shows a conversation another app runs (`watch.rs`): it takes no prompt until taken over.
+            watching: m.watching.as_ref().map(|w| w.family.clone()),
             // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
             // with `interrupt` stops the turn and runs next.
             steering: session.steering.load(Ordering::SeqCst),
-            // Ctrl-B moves its work (`processes.rs`); no while the configuration is
-            // being written, until the next summary.
-            backgrounds_work: self
-                .config
-                .try_read()
-                .is_ok_and(|cfg| super::processes::backgrounds_work(&cfg, &m.harness)),
+            // Ctrl-B moves its work: by the kind its harness started as (`processes.rs`).
+            backgrounds_work: session.backgrounds_work.load(Ordering::SeqCst),
             turn: turn.map(|t| TurnSummary {
                 started_at: t.started_at,
                 client: t.client,
@@ -310,6 +309,8 @@ impl Hub {
                 turn_id: t.turn_id,
                 prompt_id: t.prompt_id,
                 turn_seq: t.turn_seq,
+                activity: t.activity,
+                plan_step: t.plan_step,
             }),
             queue: session
                 .queue()
@@ -333,6 +334,8 @@ impl Hub {
                 })
                 .collect(),
             pending_permissions: session.pending_permissions().len() as u64,
+            waiting_on: waiting.as_ref().map(|w| w.0.to_owned()),
+            waiting_prompt: waiting.and_then(|w| w.1),
             // Since when it waits on the person (`lane`); null while it does not.
             input_since: match session.input_since.load(Ordering::SeqCst) {
                 0 => None,
@@ -375,6 +378,9 @@ impl Hub {
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
         summary["qualifiedSessionId"] = Value::String(receipt.qualified_id());
         summary["sessionReceipt"] = receipt.to_value();
+        // The branch its folder has checked out now (`git_watch.rs`); null on
+        // a detached HEAD or outside a repository.
+        summary["gitBranch"] = json!(self.git_branch_now(&m));
         decide(&mut summary);
         summary
     }
@@ -388,10 +394,14 @@ impl Hub {
         v["agentInfo"] = m.agent_info.clone().unwrap_or(Value::Null);
         v["agentCapabilities"] = m.agent_capabilities.clone().unwrap_or(Value::Null);
         v["usage"] = m.usage.clone().unwrap_or(Value::Null);
+        // The newest command list: a client that has it needs no read of the log for it.
+        if let Some(commands) = &m.available_commands {
+            v["availableCommands"] = commands.clone();
+        }
         v["forkSeq"] = json!(m.fork_seq);
         v["rulesJson"] = m.permission_rules.clone().unwrap_or(Value::Null);
-        // The folder's branch and HEAD when the session started (`git_state.rs`).
-        v["gitBranch"] = json!(m.git_branch);
+        // The folder's HEAD when the session started (`git_state.rs`); its
+        // `gitBranch` is the summary's, the branch checked out now.
         v["gitHead"] = json!(m.git_head);
         // What the session's turns cost together (`turn_usage.rs`).
         v["totals"] = json!(m.totals);
@@ -418,6 +428,11 @@ impl Hub {
             "version": VERSION,
             "build": BUILD,
             "pid": std::process::id(),
+            // Its own executable, and whether it runs as `cmux-tui acp …`, so a
+            // client (host enroll) tells which program runs it without scanning
+            // processes. Never its command line: `--token` is on it.
+            "exe": std::env::current_exe().ok().map(|e| e.to_string_lossy().into_owned()),
+            "runsAsCmuxTuiAcp": runs_as_cmux_tui_acp(std::env::args_os()),
             "startedAt": self.started_at,
             // Whether this run holds a person key, and its id (`hub/person.rs`):
             // the app checks that a daemon it started with a key still runs.
@@ -451,6 +466,17 @@ impl Hub {
             "chiefMuxHome": crate::config::chief_builtins::Context::current().chief_home,
         })
     }
+}
+
+/// Whether a command line runs `cmux-tui acp …` (a cmux session daemon, or
+/// enroll's `~/.local/bin/acpmux` link to a cmux-tui), not `acpmux …`.
+pub(crate) fn runs_as_cmux_tui_acp<A: AsRef<std::ffi::OsStr>>(
+    args: impl IntoIterator<Item = A>,
+) -> bool {
+    let mut args = args.into_iter();
+    let first = args.next();
+    first.is_some_and(|a| std::path::Path::new(a.as_ref()).file_name() == Some("cmux-tui".as_ref()))
+        && args.next().is_some_and(|a| a.as_ref() == "acp")
 }
 
 #[cfg(test)]

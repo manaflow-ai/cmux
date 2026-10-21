@@ -54,12 +54,30 @@ pub struct Session {
     pub(super) asks_in_flight: std::sync::atomic::AtomicUsize,
     pub(super) asks_landed: Notify,
     pub(super) rehydrate: AtomicBool,
+    /// The agent's context was emptied (`/clear`, `/compact`): its next
+    /// prompt is told every forum rule again (`hub/forum.rs`).
+    pub(super) forum_retell: AtomicBool,
+    /// The posts already told again since the context was emptied, while a
+    /// retell takes more than one prompt (agents' posts past one block's
+    /// share, `hub/forum.rs`).
+    pub(super) forum_retold: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// The forum posts the running turn's prompt tells, until it ends: an
+    /// urgent retirement of their key reaches this session too.
+    pub(super) forum_telling: std::sync::Mutex<Vec<String>>,
+    /// Whether its running agent was launched with cmux's tools (0: not
+    /// launched yet, 1: with, 2: without), so forum rules follow the launch,
+    /// not a profile reloaded since (`hub/tools.rs`).
+    pub(super) launched_with_tools: std::sync::atomic::AtomicU8,
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
     pub(super) steering: AtomicBool,
+    /// Ctrl-B moves its work: decided by the harness kind it last started as
+    /// (`processes.rs` `backgrounds_work`), or by what an adopted host runs
+    /// (`hosts.rs`), never by the config read later.
+    pub(super) backgrounds_work: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
     /// step for one that waits (`queue_edit.rs`).
     pub(super) steer_now: StdMutex<SteerNow>,
@@ -108,6 +126,8 @@ pub struct Session {
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    /// The places typing into it, and who sent its prompts (`composers.rs`).
+    pub(super) composers: StdMutex<super::composers::Composers>,
 }
 
 impl Session {
@@ -175,12 +195,42 @@ pub(crate) fn short_text(s: &str, max: usize) -> String {
 /// The person's text of a prompt: its text blocks, without the hidden context acpmux added
 /// (`prompt_context.rs`).
 pub(crate) fn prompt_text(blocks: &[Value]) -> String {
-    blocks
+    prompt_text_parts(blocks).0
+}
+
+/// The text `prompt_text` records of `blocks`, and the `{start, end}` range of each text
+/// block the composer marked pasted (`_meta.cmux.pasted`) in it, in UTF-16 code units so a
+/// client's `text.slice(start, end)` reads the paste. Both come from this one walk, so the
+/// ranges always match the text.
+pub(crate) fn prompt_text_parts(blocks: &[Value]) -> (String, Vec<Value>) {
+    let (mut text, mut units, mut pasted) = (String::new(), 0usize, Vec::new());
+    let parts = blocks
         .iter()
         .filter(|b| !crate::prompt_context::is_context(b))
-        .filter_map(|b| b.get("text").and_then(Value::as_str))
-        .collect::<Vec<_>>()
-        .join("\n")
+        .filter_map(|b| b.get("text").and_then(Value::as_str).map(|t| (b, t)));
+    for (i, (block, part)) in parts.enumerate() {
+        if i > 0 {
+            text.push('\n');
+            units += 1;
+        }
+        let start = units;
+        text.push_str(part);
+        units += part.encode_utf16().count();
+        if block.pointer("/_meta/cmux/pasted").and_then(Value::as_bool) == Some(true) {
+            pasted.push(json!({"start": start, "end": units}));
+        }
+    }
+    (text, pasted)
+}
+
+/// Adds `pasted` (the ranges of `blocks`' pasted text, `prompt_text_parts`) to the prompt
+/// record `msg`, whose `text` is `prompt_text(blocks)`; none when nothing was pasted, or
+/// when `msg` records some other text the ranges would not fit.
+pub(crate) fn mark_pasted(msg: &mut Value, blocks: &[Value]) {
+    let (text, pasted) = prompt_text_parts(blocks);
+    if !pasted.is_empty() && msg.get("text").and_then(Value::as_str) == Some(text.as_str()) {
+        msg["pasted"] = Value::Array(pasted);
+    }
 }
 
 /// What acpmux last set on a session (`Session::applied`).

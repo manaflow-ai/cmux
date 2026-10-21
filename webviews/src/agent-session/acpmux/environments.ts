@@ -9,13 +9,18 @@ export type Environment = { id: string; label: string; kind: EnvironmentKind; co
 /// The location row's connect choices and the app action each runs (the agent pane allows exactly
 /// these; AgentPaneModel.connectActions): SSH… connects a machine, New Cloud Machine creates one on
 /// the plan's default size, and Open Cloud… opens the Cloud page, whose storefront lists
-/// the plan's sizes (the pane knows no plan).
+/// the plan's sizes (the pane knows no plan). A started chat's picker offers its one move instead:
+/// Move to Cloud on this Mac, Bring Back Local on a Cloud machine (the tab menu's same actions).
 export const CONNECT_ACTIONS = {
   ssh: "remote.connect",
   cloud: "newCloudMachine",
   cloudPage: "palette.openCloudPane",
+  move: "cloudMove",
+  bringBack: "cloudBringBack",
 } as const;
 export type ConnectKind = keyof typeof CONNECT_ACTIONS;
+/// A started chat's move: to a Cloud machine, or back to this Mac.
+export type OffloadKind = Extract<ConnectKind, "move" | "bringBack">;
 
 const SECTION_ORDER: readonly EnvironmentKind[] = ["local", "ssh", "cloud"];
 

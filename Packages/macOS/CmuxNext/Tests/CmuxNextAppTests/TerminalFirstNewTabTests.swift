@@ -38,13 +38,16 @@ struct TerminalFirstNewTabTests {
             }
             @MainActor func pages() -> [TabModel] { tabs().filter { services.agentTabs.isNewTabPage($0.id) } }
             @MainActor func terminals() -> [TabModel] { tabs().filter { $0.kind == .pty } }
-            @MainActor func describe() -> String { "tabs: \(tabs().map { "\($0.id) \($0.kind)" }), panes: \(paneCount())" }
+            @MainActor func describe() -> String {
+                "tabs: \(tabs().map { "\($0.id) \($0.kind)\(services.agentTabs.isNewTabPage($0.id) ? " page" : "")" }), panes: \(paneCount())"
+            }
 
-            // The default: Cmd-T opens the New Tab page, selected in the focused pane.
-            let terminalsBefore = terminals().count
+            // The default: Cmd-T opens the New Tab page, selected in the focused pane. The launch
+            // workspace may already show a page (a new workspace starts on one): count the new one.
+            let terminalsBefore = terminals().count, before = Set(tabs().map(\.id)), pagesBefore = pages().count
             #expect(services.registry.perform("newTab.default", invocation: ActionInvocation(origin: .user)))
-            try await PasswordManagerRouteTests.until({ pages().count == 1 }, report: describe)
-            let page = try #require(pages().first?.id)
+            try await PasswordManagerRouteTests.until({ pages().count == pagesBefore + 1 }, report: describe)
+            let page = try #require(pages().first { !before.contains($0.id) }?.id)
             try await PasswordManagerRouteTests.until({ pane.currentTabKey == page }, report: { "selected: \(pane.currentTabKey ?? "none")" })
             #expect(terminals().count == terminalsBefore, "\(describe())")
 
@@ -56,12 +59,12 @@ struct TerminalFirstNewTabTests {
             #expect(services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)))
             try await PasswordManagerRouteTests.until({ paneCount() == panesBefore + 1 && terminals().count == terminalsBefore + 1 },
                                                       report: describe)
-            #expect(pages().count == 1, "\(describe())")
+            #expect(pages().count == pagesBefore + 1, "\(describe())")
 
             // Cmd-T: a terminal tab, never the page.
             #expect(services.registry.perform("newTab.default", invocation: ActionInvocation(origin: .user)))
             try await PasswordManagerRouteTests.until({ terminals().count == terminalsBefore + 2 }, report: describe)
-            #expect(pages().count == 1, "\(describe())")
+            #expect(pages().count == pagesBefore + 1, "\(describe())")
         }
     }
 }

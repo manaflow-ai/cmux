@@ -134,6 +134,25 @@ struct ChatDraftAttachmentsTests {
         #expect(!FileManager.default.fileExists(atPath: folder.path))
     }
 
+    @Test func duplicateAttachmentIdsKeepOnlyTheLatestChip() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let store = AgentPaneDraftAttachments(directory: directory)
+        AgentPaneDraftAttachments.shared = store
+        var first = Self.chip(1)
+        first.id = "same"
+        var latest = Self.chip(2)
+        latest.id = "same"
+
+        try await Self.keep([first, latest], for: "s-duplicate")
+        let kept = try await Self.kept("s-duplicate")
+        #expect(kept.map(\.id) == ["same"])
+        #expect(kept.first?.data.flatMap { Data(base64Encoded: $0) } == Self.screenshot(2))
+    }
+
     @Test func aChatPastItsCapKeepsNothingAndBadCallsAreRefused() async throws {
         let directory = try Self.directory()
         defer {

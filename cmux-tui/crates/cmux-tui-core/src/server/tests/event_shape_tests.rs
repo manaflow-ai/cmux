@@ -145,7 +145,7 @@ fn list_agents_and_agent_changed_carry_the_hook_session_id() {
     .unwrap();
     mux.append_journal_ingress(&hook, "test", "hook-1").unwrap();
 
-    let listed = super::cmd_frontend::list_agents(&mux, Some(surface.id), None).unwrap();
+    let listed = cmd_frontend::list_agents(&mux, Some(surface.id), None).unwrap();
     let agents = listed["agents"].as_array().unwrap();
     assert_eq!(agents.len(), 1, "{listed}");
     assert_eq!(agents[0]["agent"], "claude", "{listed}");

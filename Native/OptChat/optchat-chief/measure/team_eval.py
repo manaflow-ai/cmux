@@ -711,10 +711,41 @@ def step_spend(stdout):
     return None
 
 
+def full_sha(ref):
+    """cmux-ci takes only a full SHA and refuses anything else before a step
+    exists, so reject it here, before any reservation."""
+    if not re.fullmatch(r"[0-9a-f]{40}", ref):
+        raise argparse.ArgumentTypeError(f"{ref!r} is not a lowercase 40-character commit SHA")
+    return ref
+
+
 def campaign(opts):
+    import queue
     from concurrent.futures import ThreadPoolExecutor
 
+    if opts.worker:
+        # A targeted step waits for its worker with no limit, so a name the
+        # controller does not know, or a machine it still lists but has not
+        # heard from lately, would hang the campaign on its reservation.
+        from datetime import datetime, timedelta, timezone
+        known = json.loads(subprocess.run(["cmux-ci", "workers"], capture_output=True, text=True, check=True).stdout)
+        recent = datetime.now(timezone.utc) - timedelta(minutes=10)
+
+        def live(w):
+            seen = known.get(w, {}).get("last_seen", "")
+            # Go drops trailing zeros from the fraction; Python 3.9 parses only 3 or 6 digits.
+            seen = re.sub(r"\.(\d+)", lambda m: "." + (m.group(1) + "000000")[:6], seen.replace("Z", "+00:00"))
+            return bool(seen) and datetime.fromisoformat(seen) > recent
+
+        down = [w for w in opts.worker if not live(w)]
+        if down:
+            sys.exit(f"team-eval campaign: not live controller workers (unknown, or unseen for 10 minutes): {down}")
     ledger = Ledger(opts.ledger, opts.cap_usd)
+    # A step must run where --base-url resolves (a tailnet host, not an AWS Mac):
+    # with --worker each step takes a free one of these, so no two share one.
+    free = queue.Queue()
+    for w in opts.worker:
+        free.put(w)
     out = os.path.abspath(opts.out)
     os.makedirs(out, exist_ok=True)
     runs = [(t, a, n) for n in range(1, opts.reps + 1) for t in opts.task for a in opts.arm]
@@ -731,7 +762,12 @@ def campaign(opts):
                f"--arg=base_url={opts.base_url}", f"--arg=task={task}", f"--arg=arm={arm}", f"--arg=budget={budget}",
                f"--arg=minutes={opts.minutes}",
                "--artifact", ".build/team-eval/out.tgz", "--timeout", str(int(opts.minutes) * 60 + 3600), "--key", key]
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        worker = free.get() if opts.worker else None
+        try:
+            r = subprocess.run(cmd + (["--target-worker", worker] if worker else []), capture_output=True, text=True)
+        finally:
+            if worker:
+                free.put(worker)
         step = next((m.group(1) for m in re.finditer(r"cmux-ci: step (\S+) ", r.stderr)), None)
         os.makedirs(os.path.join(out, key), exist_ok=True)
         log = r.stdout
@@ -755,6 +791,12 @@ def campaign(opts):
             with open(run_json) as f:
                 pin = json.load(f).get("pin")
         failed = line.get("failed", [f"step rc {r.returncode}, no TEAM-EVAL line"])
+        # 409: the key already names a step that may have run, so keep the reservation.
+        refused = re.search(r"cmux-ci: controller HTTP 4(?!09)\d\d: .*", r.stderr)
+        if not step and refused:
+            # The controller refused the step (allowlist, bad args): it never existed, $0, retryable.
+            ledger.void(key, None, [refused.group(0)])
+            return key, f"VOID, refused: {refused.group(0)}"
         if line.get("started") is False:
             # The step failed before any agent ran (route, build, install): $0, retryable.
             ledger.void(key, step, failed)
@@ -774,7 +816,7 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("campaign")
     c.add_argument("--name", required=True, help="the campaign's name, in every step key (pilot, full)")
-    c.add_argument("--ref", required=True)
+    c.add_argument("--ref", required=True, type=full_sha, help="the full 40-character commit the steps check out")
     c.add_argument("--base-url", required=True)
     c.add_argument("--task", nargs="+", required=True)
     c.add_argument("--arm", nargs="+", required=True, choices=CAMPAIGN_ARMS)
@@ -786,6 +828,9 @@ def main():
                    help="dollars a run may overshoot its budget by: about $3 per Opus response in flight when it "
                         "stops (the Chief and up to three subagents), read every 2 s")
     c.add_argument("--parallel", type=int, default=3)
+    c.add_argument("--worker", nargs="+", default=[],
+                   help="controller workers to run on (names from cmux-ci workers) that can reach --base-url; "
+                        "each step takes a free one")
     c.add_argument("--minutes", type=int, default=60)
     c.add_argument("--out", required=True)
     r = sub.add_parser("run")
