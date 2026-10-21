@@ -349,6 +349,8 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     const restHeight = await page.evaluate(
       () => document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().height,
     );
+    // The first frame is sampled at rest, before the first key.
+    await page.waitForFunction(() => ((window as unknown as { __frames?: unknown[] }).__frames?.length ?? 0) > 0);
     for (let line = 1; line <= 5; line++) {
       await page.keyboard.type(`Line ${line} of a longer prompt`);
       await page.keyboard.press("Shift+Enter");
@@ -423,6 +425,8 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     const restHeight = await page.evaluate(
       () => document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().height,
     );
+    // The first frame is sampled at rest, before the first key.
+    await page.waitForFunction(() => ((window as unknown as { __frames?: unknown[] }).__frames?.length ?? 0) > 0);
     for (let line = 1; line <= 5; line++) {
       await page.keyboard.type(`Line ${line} of a longer prompt`);
       await page.keyboard.press("Shift+Enter");
