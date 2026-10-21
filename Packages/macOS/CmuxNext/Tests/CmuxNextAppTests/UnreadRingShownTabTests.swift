@@ -33,4 +33,23 @@ struct UnreadRingShownTabTests {
         let workspace = try Self.workspace(activeTab: 1)
         #expect(NotificationCenterService().attentionMarks(for: workspace).count == 1)
     }
+
+    /// The window's own tab selection decides, not the daemon's default tab.
+    @Test func theWindowSelectionDecidesWhichTabThePaneShows() throws {
+        let workspace = try Self.workspace(activeTab: 1)
+        let service = NotificationCenterService()
+        let tabs = try #require(workspace.screens.first?.panes.first?.tabs)
+        #expect(service.attentionMarks(for: workspace, shownTab: { _ in tabs[0].id }).isEmpty)
+        #expect(service.attentionMarks(for: workspace, shownTab: { _ in tabs[1].id }).count == 1)
+    }
+
+    /// A finished agent chat behind the shown tab rings no pane either; shown, it does.
+    @Test func aFinishedChatBehindTheShownTabDrawsNoRing() throws {
+        let workspace = try Self.workspace(activeTab: 0)
+        let service = NotificationCenterService()
+        let tabs = try #require(workspace.screens.first?.panes.first?.tabs)
+        service.agentFinished[tabs[1].id] = 1 << 62
+        #expect(service.attentionMarks(for: workspace, shownTab: { _ in tabs[0].id }).isEmpty)
+        #expect(service.attentionMarks(for: workspace, shownTab: { _ in tabs[1].id }).count == 1)
+    }
 }
