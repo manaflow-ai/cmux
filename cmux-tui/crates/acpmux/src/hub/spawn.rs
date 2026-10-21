@@ -184,6 +184,12 @@ impl Hub {
                 p.env.insert(crate::agent_tools::OFF_ENV.to_owned(), off.join(","));
             }
         }
+        // OpenCode asked to ask (`opencode_ask.rs`, `policy_mode.rs`), never by a profile's own marker.
+        p.env.remove(crate::opencode_ask::MARKER);
+        let default_policy = self.config.read().await.permission_policy;
+        if super::policy_mode::asks_opencode(meta, profile, default_policy) {
+            p.env.insert(crate::opencode_ask::MARKER.to_owned(), "1".to_owned());
+        }
         Ok((p, digest, account_home))
     }
 }
