@@ -965,7 +965,7 @@
   margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
   padding: 4px 0 calc(4px + var(--acpmux-tray-tuck));
   border-radius: 14px 14px 0 0;
-  background: var(--acpmux-top-tray);
+  background: color-mix(in srgb, var(--acpmux-top-tray) var(--acpmux-queue-glass, 100%), transparent);
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge);
 }
 :root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
@@ -974,6 +974,27 @@
 :root[data-top-strip="tray"] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-queue {
   margin-bottom: 0;
   padding-bottom: 0;
+}
+/* A long queue's fold is the tray's bottom: the queue's fill and inset, its label on the rows'
+   numbers, and it tucks under the card in the queue's place. It had the composer's darker tray tone
+   and the card's full width, an opaque second band (layout pass, 2026-10-20). */
+:root[data-top-strip="tray"] .acpmux-composer > .acpmux-queue-foldbar {
+  --acpmux-composer-tray: var(--acpmux-top-tray);
+  margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
+  padding: 0 0 calc(2px + var(--acpmux-tray-tuck)) calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset));
+  background: color-mix(in srgb, var(--acpmux-top-tray) var(--acpmux-queue-glass, 100%), transparent);
+  box-shadow: none;
+}
+/* As specific as the focused card's queue rule above, so the queue stops over its fold then too. */
+:root[data-top-strip="tray"] .acpmux-composer > .acpmux-composer-queue:has(+ .acpmux-queue-foldbar),
+:root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-queue-foldbar)
+  > .acpmux-composer-queue:has(+ .acpmux-queue-foldbar) {
+  margin-bottom: 0;
+  padding-bottom: 4px;
+}
+:root[data-top-strip="tray"] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-queue-foldbar {
+  margin-bottom: 0;
+  padding-bottom: 2px;
 }
 :root[data-top-strip="tray"] .acpmux-composer-queue .acpmux-queued {
   padding-inline: calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset));

@@ -1684,7 +1684,7 @@ impl Brain {
             .values()
             .flat_map(|r| r.subs.iter())
             .filter(|s| s.peer.is_none())
-            .filter(|s| matches!(s.status, SubStatus::Starting | SubStatus::Running))
+            .filter(|s| s.at_work())
             .count()
     }
 
@@ -1772,6 +1772,8 @@ impl Brain {
             return json!({"stopped": false, "error": format!("{name} is still starting; stop it again in a moment")});
         }
         (self.log)(&format!("the owner stopped subagent {name}"));
+        self.save();
+        self.start_queued();
         json!({"stopped": true, "subagents": stopped, "note": format!("Stopped by the user: {}.", stopped.join(", "))})
     }
 
@@ -1785,13 +1787,6 @@ impl Brain {
                 "subagent {id}: ending its background processes: {e}"
             )),
         }
-    }
-
-    /// chief.stop: every subagent at work stops (`session/cancel`; its
-    /// report comes quiet), with the background processes its runs left
-    /// running, and every queued one is dropped. Their ids.
-    pub(super) fn stop_subagents(&mut self) -> Vec<String> {
-        self.stop_subagents_where(|_| true)
     }
 
     /// Stops the subagents at work (or queued) whose id `pick` takes.
@@ -1828,6 +1823,11 @@ impl Brain {
                         continue;
                     }
                     self.end_background_processes(&id, &session);
+                    // Stopped for good: no longer at work, even when its
+                    // session never ends the turn (#7).
+                    if let Some(s) = self.state.sub_mut(&id) {
+                        s.cancelled = true;
+                    }
                 }
                 // Its session is not made yet: nothing to stop.
                 (_, None) => continue,
@@ -1866,7 +1866,7 @@ impl Brain {
             .spawns
             .values()
             .flat_map(|r| r.subs.iter())
-            .filter(|s| matches!(s.status, SubStatus::Starting | SubStatus::Running))
+            .filter(|s| s.at_work())
             .map(|s| s.id.as_str())
             .collect();
         (!ids.is_empty()).then(|| format!("Subagents at work now: {}.", ids.join(", ")))
