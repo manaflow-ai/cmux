@@ -1241,9 +1241,6 @@ mark {
   height: 100%;
   object-fit: cover;
 }
-.chiefs-initial {
-  font-weight: 600;
-}
 .chiefs-backend {
   flex: none;
   max-width: 40%;
