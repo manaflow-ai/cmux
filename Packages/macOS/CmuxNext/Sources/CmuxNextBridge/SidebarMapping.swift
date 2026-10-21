@@ -85,7 +85,8 @@ public struct SidebarMapping {
                 var made = SidebarGroup(
                     id: GroupID(group.id.rawValue),
                     name: group.name,
-                    color: color(group.color) ?? .grey,
+                    // No stored color (a group an agent or the CLI made): a stable palette color, not grey.
+                    color: color(group.color) ?? .unset(id: group.id.rawValue),
                     // A custom `#RRGGBB` (cx-25az) draws instead of the token.
                     custom: group.color.flatMap { $0.hasPrefix("#") ? GroupTint(wire: $0)?.wire : nil },
                     isCollapsed: group.collapsed || collapsedGroups.contains(group.id.rawValue),
