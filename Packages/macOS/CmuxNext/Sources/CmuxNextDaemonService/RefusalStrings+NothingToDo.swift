@@ -34,4 +34,12 @@ nonisolated extension RefusalStrings {
     public static var noOtherWorkspaceInGroup: String { text("handlers.refusal.group.noOtherWorkspace", "This workspace is the only one in its group.") }
     /// Rename Workspace (the name field) on Home, which the sidebar shows as its Home item.
     public static var homeKeepsItsName: String { text("handlers.refusal.rename.homeKeepsName", "Home keeps its name.") }
+    /// Move Workspace Group Up or to Top on the section's first row.
+    public static var groupAlreadyAtTop: String { text("handlers.refusal.group.atTop", "The group is already at the top.") }
+    /// Move Workspace Group Down or to Bottom on the section's last row.
+    public static var groupAlreadyAtBottom: String { text("handlers.refusal.group.atBottom", "The group is already at the bottom.") }
+    /// Next or Previous Workspace Group in a room with no group.
+    public static var noWorkspaceGroups: String { text("handlers.refusal.group.none", "There are no workspace groups.") }
+    /// Next or Previous Workspace Group when no group lists a workspace to show.
+    public static var noWorkspaceGroupToGoTo: String { text("handlers.refusal.group.noneToGoTo", "No workspace group has a workspace to go to.") }
 }

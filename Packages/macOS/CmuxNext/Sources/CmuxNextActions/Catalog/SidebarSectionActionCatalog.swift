@@ -104,12 +104,8 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar move-section-scrolling",
                 surfacePlan: plan(menus: [p(.sidebarSection, .move, 110, folder: .move)])
             ),
-            ActionDescriptor(
-                id: "sidebar.section.moveToBottom", title: t("action.sidebar.section.moveToBottom", "Move Section to Bottom"),
-                keywords: ["sidebar", "section", "move", "bottom", "pinned"], category: .sidebar, symbol: "arrow.down.to.line",
-                surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar move-section-bottom",
-                surfacePlan: plan(menus: [p(.sidebarSection, .move, 120, folder: .move)])
-            ),
+            // No Move Section to Bottom: the sidebar has no bottom area (cx-n0i9), so a section
+            // after the workspaces would not draw; Move to Top and Move to Scrolling Area are the moves.
             ActionDescriptor(
                 id: "sidebar.section.useBuiltInLook", title: t("action.sidebar.section.useBuiltInLook", "Built-in Look"),
                 keywords: ["sidebar", "section", "look", "style", "chrome", "built-in"], category: .sidebar, symbol: "house",
