@@ -127,7 +127,7 @@ test("a long chat with no experiment override draws no minimap and no marks down
       "[data-tick]",
     ])
       expect(document.querySelector(selector)).toBeNull();
-    expect(document.querySelector('nav[aria-label]')).toBeNull();
+    expect(document.querySelector("nav[aria-label]")).toBeNull();
     // The rows keep the centered chat column: no gutter is reserved for a rail.
     const { inset, width } = transcriptColumn(PANE);
     expect(inset * 2 + width).toBe(PANE);

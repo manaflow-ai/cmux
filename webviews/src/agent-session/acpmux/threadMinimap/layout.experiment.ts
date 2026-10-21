@@ -11,7 +11,8 @@ import { defineExperiment } from "../../../experiments/experiment";
 export const threadMinimapLayout = defineExperiment({
   id: "thread-minimap-layout",
   title: "Thread minimap layout",
-  description: "Whether the transcript draws a minimap at all, and if so whether it spans the transcript height or is the compact Codex rail.",
+  description:
+    "Whether the transcript draws a minimap at all, and if so whether it spans the transcript height or is the compact Codex rail.",
   arms: {
     off: { label: "Off", description: "No minimap: nothing at the transcript's left edge, only the shared scroller." },
     full: {
