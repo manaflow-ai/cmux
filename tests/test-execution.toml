@@ -1466,6 +1466,10 @@ path = "tests/test_ci_prune_media_derived_data.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_tour_requirements.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_media_module_cache_stamp.py"
 lane = "linux-guard"
 
