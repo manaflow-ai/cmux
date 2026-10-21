@@ -387,10 +387,12 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     };
     // A stroke icon's drawn ink, left to right in page px: its shapes' boxes widened by half their
     // stroke, mapped through the icon's viewBox. The ink lies a different way inside each icon's box
-    // (the mic's ~2.4 px, the chevron's ~3.5 px), so the marks are compared ink to ink.
+    // (the mic's ~2.7 px, the chevron's ~3.5 px), so the marks are compared ink to ink.
     const ink = (element: Element | null | undefined) => {
       const svg = element instanceof SVGSVGElement ? element : element?.querySelector("svg");
-      const shapes = [...(svg?.querySelectorAll<SVGGraphicsElement>("path, line, circle, rect, polyline, polygon") ?? [])];
+      const shapes = [
+        ...(svg?.querySelectorAll<SVGGraphicsElement>("path, line, circle, rect, polyline, polygon") ?? []),
+      ];
       const edges = shapes.flatMap((shape) => {
         const box = shape.getBBox();
         const matrix = shape.getScreenCTM();
