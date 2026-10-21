@@ -45,4 +45,22 @@ import Testing
         try await settings.setSetting(at: ["terminal", "fontFamily"], to: nil, by: .user)
         #expect(settings.recentFonts.families == ["SF Mono", "Menlo"])
     }
+
+    /// A font family setting's palette values: the default first, a current family that is not
+    /// installed kept, the installed fonts picked lately next (marked recent), then every other
+    /// installed family, each once.
+    @Test func recentFontsLeadTheOptionsAndEachFamilyShowsOnce() {
+        let options = RecentFonts.options(current: "Menlo", families: ["Iosevka", "Menlo", "SF Mono"],
+                                          recent: ["Fira Code", "SF Mono", "Menlo"], defaultLabel: "Ghostty Config")
+        #expect(options.map(\.title) == ["Ghostty Config", "SF Mono", "Menlo", "Iosevka"])
+        #expect(options.map(\.isCurrent) == [false, false, true, false])
+        #expect(options.map(\.isRecent) == [false, true, true, false])
+        #expect(options.first?.value == nil)
+    }
+
+    @Test func aCurrentFamilyNotInstalledStaysListedAsCurrent() {
+        let options = RecentFonts.options(current: "Gone Mono", families: ["Menlo"], recent: [], defaultLabel: "Default")
+        #expect(options.map(\.title) == ["Default", "Gone Mono", "Menlo"])
+        #expect(options[1].isCurrent)
+    }
 }

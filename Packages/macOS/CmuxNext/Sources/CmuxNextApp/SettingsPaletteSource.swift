@@ -66,7 +66,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     }
 
     func commit(row: String, text: String) {
-        guard let descriptor = descriptor(row), let value = Self.parse(text, for: descriptor) else { return }
+        guard let descriptor = descriptor(row), let value = descriptor.value(typed: text) else { return }
         commitValue(descriptor, value)
     }
 
@@ -96,13 +96,11 @@ final class SettingsPaletteSource: PaletteSettingsSource {
 
     private func row(_ descriptor: SettingDescriptor, current: JSONValue?, colors: [ThemeRGB]) -> PaletteSettingRow {
         let isFont = descriptor.kind == .fontFamily
-        let recent = isFont ? settings.recentFonts.families : []
         let options = if descriptor.kind == .theme, let themes {
             Self.themeOptions(current: current?.stringValue, names: themes.names, defaultLabel: descriptor.defaultLabel ?? "",
                               strip: themes.swatches(for:))
         } else if isFont {
-            Self.fontOptions(current: current?.stringValue, families: SettingsPageDomains.fontFamilies, recent: recent,
-                             defaultLabel: descriptor.defaultLabel ?? descriptor.title)
+            settings.recentFonts.options(current: current?.stringValue, families: SettingsPageDomains.fontFamilies, defaultLabel: descriptor.defaultLabel ?? descriptor.title)
         } else {
             descriptor.paletteOptions(current: current, themeColors: colors)
         }
@@ -113,11 +111,8 @@ final class SettingsPaletteSource: PaletteSettingsSource {
             kind = .toggle(isOn: current?.boolValue ?? false)
         } else {
             let custom = Self.customInput(for: descriptor)
-            kind = .options(options.map { option in
-                let family = isFont ? option.value?.stringValue : nil
-                return PaletteSettingOption(id: option.id, title: option.title, swatches: option.swatches, isCurrent: option.isCurrent,
-                                            fontFamily: family, isRecent: family.map { recent.contains($0) } ?? false)
-            }, customInput: custom)
+            kind = .options(options.map { PaletteSettingOption(id: $0.id, title: $0.title, swatches: $0.swatches, isCurrent: $0.isCurrent,
+                                                               fontFamily: isFont ? $0.value?.stringValue : nil, isRecent: $0.isRecent) }, customInput: custom)
         }
         return PaletteSettingRow(
             id: descriptor.id, title: descriptor.title, group: descriptor.group, value: label, kind: kind,
@@ -133,24 +128,14 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         case .toggle, .choice: nil
         case .hostList, .folderList, .timeRange, .numberList, .stringMap, .stringList, .orderedChoices, .choiceSet: nil
         case .color:
-            PaletteSettingCustomInput(placeholder: "#RRGGBB") { parse($0, for: descriptor) != nil }
+            PaletteSettingCustomInput(placeholder: "#RRGGBB") { descriptor.value(typed: $0) != nil }
         case .number(let number), .choiceOrNumber(_, let number):
             PaletteSettingCustomInput(placeholder: "\(number.range.lowerBound.formatted())–\(number.range.upperBound.formatted())") {
-                parse($0, for: descriptor) != nil
+                descriptor.value(typed: $0) != nil
             }
         case .sound, .url, .theme, .fontFamily, .text:
-            PaletteSettingCustomInput(placeholder: descriptor.title) { parse($0, for: descriptor) != nil }
+            PaletteSettingCustomInput(placeholder: descriptor.title) { descriptor.value(typed: $0) != nil }
         }
-    }
-
-    /// The JSON value for typed text, when the schema accepts it.
-    static func parse(_ text: String, for descriptor: SettingDescriptor) -> JSONValue? {
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        let candidate: JSONValue = switch descriptor.kind {
-        case .number, .choiceOrNumber: Double(trimmed).map(JSONValue.number) ?? .string(trimmed)
-        default: .string(trimmed)
-        }
-        return descriptor.accepts(candidate) ? candidate : nil
     }
 
     /// The value behind an option id (`SettingOption.id`): "reset" is nil.
@@ -172,21 +157,6 @@ final class SettingsPaletteSource: PaletteSettingsSource {
             options.append(SettingOption(value: .string(current), title: current, swatches: strip(current), isCurrent: true))
         }
         options += listed.map { SettingOption(value: .string($0), title: $0, swatches: strip($0), isCurrent: current == $0) }
-        return options
-    }
-
-    /// A font family setting's values: the default (the Ghostty config, the terminal font) first,
-    /// a current family not installed, the fonts picked lately (`recent`, newest first), then every
-    /// other installed family. Each row draws in its own face (`PaletteSettingOption.fontFamily`).
-    static func fontOptions(current: String?, families: [String], recent: [String], defaultLabel: String) -> [SettingOption] {
-        let installed = Set(families)
-        let lately = recent.filter(installed.contains)
-        let listed = lately + families.filter { !lately.contains($0) }
-        var options = [SettingOption(value: nil, title: defaultLabel, isCurrent: current == nil)]
-        if let current, !installed.contains(current) {
-            options.append(SettingOption(value: .string(current), title: current, isCurrent: true))
-        }
-        options += listed.map { SettingOption(value: .string($0), title: $0, isCurrent: current == $0) }
         return options
     }
 
