@@ -68,7 +68,7 @@ first_repair() {
 lane_commit() { # <subject> <file> <text> [<file> <text>]...
   local subject="$1"; shift
   (cd "$tmp/lane" && git pull -q --ff-only origin feat \
-    && while (( $# )); do echo "$2" > "$1" && shift 2; done \
+    && while (( $# )); do mkdir -p "$(dirname "$1")" && echo "$2" > "$1" && shift 2; done \
     && git add -A && git commit -q -m "$subject" && git push -q origin feat)
 }
 remote_tip() { git -C "$tmp/remote.git" rev-parse feat; }
@@ -143,6 +143,43 @@ first_repair settings
 lane_commit "lane edits a setting" "$setting" "setting v2"
 if run > "$tmp/out" 2>&1; then fail "a run that held the settings exports passed: $(cat "$tmp/out")"; fi
 [[ ! -s "$tmp/again" ]] || fail "the repair was made again although only the Mac exports waited"
+
+# 7b. A push that never got through (the branch moved under every attempt) is no hold: nothing of
+#     the repair landed, so making only the held part again would drop the rest (the settings
+#     exports here) while the run passed. The run fails and the next run repairs it all.
+setup
+first_repair settings
+lane_commit "lane edits the manifest" "$manifest" "manifest v2"
+cat > "$tmp/remote.git/hooks/pre-receive" <<HOOK
+#!/bin/sh
+unset GIT_QUARANTINE_PATH
+n=\$(cat "$tmp/rejects" 2>/dev/null || echo 0)
+if [ "\$n" -lt 2 ]; then
+  echo \$((n + 1)) > "$tmp/rejects"
+  (cd "$tmp/lane" && git pull -q --ff-only origin feat && echo "readme \$n" > README.md && git commit -q -am "lane moves" && git push -q origin feat) >/dev/null 2>&1 &
+  wait
+  exit 1
+fi
+HOOK
+chmod +x "$tmp/remote.git/hooks/pre-receive"
+rm -f "$tmp/rejects"
+if run CMUX_BASE_AUTOFIX_PUSH_ATTEMPTS=2 > "$tmp/out" 2>&1; then
+  fail "a run whose push never got through passed: $(cat "$tmp/out")"
+fi
+rm -f "$tmp/remote.git/hooks/pre-receive"
+[[ ! -s "$tmp/again" ]] || fail "a push that never got through was taken for a hold and made again: $(cat "$tmp/out")"
+[[ "$(remote_show "$schema")" == "schema old" ]] || fail "the settings exports landed: $(remote_show "$schema")"
+
+# 7c. A held Chief inspector page comes only from the webviews formatting job's patch, which a round
+#     on the tip does not apply: it waits for the next run and the run fails.
+setup
+inspector=Native/OptChat/optchat-chief/inspector/index.html
+(cd "$tmp/bot" && mkdir -p "$(dirname "$inspector")" && echo "page new" > "$inspector" && git add -A \
+  && git commit -q -m "chore(next): base autofix at ${base:0:12}")
+lane_commit "lane rebuilds the page" "$inspector" "page lane"
+if run > "$tmp/out" 2>&1; then fail "a held inspector page passed the run: $(cat "$tmp/out")"; fi
+[[ "$(remote_show "$inspector")" == "page lane" ]] || fail "the lane's page was overwritten"
+grep -q "$inspector" "$tmp/out" || fail "the run does not name the held page: $(cat "$tmp/out")"
 
 # 8. The workflow lands its repair through this script, with the same repair for every round.
 workflow="$here/../../../.github/workflows/cmux-next-base-autofix.yml"
