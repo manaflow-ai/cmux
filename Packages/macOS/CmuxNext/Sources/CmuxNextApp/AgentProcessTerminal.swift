@@ -52,7 +52,7 @@ struct AgentProcessTerminal {
 
     /// Starts `viewer` as a new tab at the end of `pane`: `create-terminal` with its argv, which
     /// lands in `workspace`'s active pane, then moved to `pane` when it landed in another one.
-    private static func spawn(_ viewer: AgentPaneProcessViewer, in pane: PaneID, workspace: WorkspaceKey, cwd: String?,
+    private static func spawn(_ viewer: AgentPaneProcessViewer, in pane: CmuxNextDaemon.PaneID, workspace: WorkspaceKey, cwd: String?,
                               connection: DaemonConnection) async throws -> SurfaceID {
         let created = try await connection.createTerminal(in: workspace, cwd: cwd, argv: viewer.argv, name: viewer.title,
                                                           env: viewer.environment)

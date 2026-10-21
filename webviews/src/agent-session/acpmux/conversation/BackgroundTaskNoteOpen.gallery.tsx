@@ -103,10 +103,7 @@ export default componentEntry<Props>({
   title: "Background task note, opened",
   area: "Agent pane",
   pane: true,
-  covers: [
-    "agent-session/acpmux/conversation/BackgroundTaskNote.tsx#BackgroundTaskNote",
-    "agent-session/acpmux/conversation/backgroundTaskOutput.ts",
-  ],
+  covers: ["agent-session/acpmux/conversation/BackgroundTaskNote.tsx#BackgroundTaskNote"],
   load: async () => GalleryNote,
   height: 420,
   anchors: [{ selector: NOTE }],
