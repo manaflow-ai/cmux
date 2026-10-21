@@ -374,8 +374,11 @@ jobs:
           set -euo pipefail
           bun install --frozen-lockfile --ignore-scripts
           node_modules/.bin/vp fmt
-          git diff --binary -- . > "$RUNNER_TEMP/webviews-fmt.patch"
-          git checkout --quiet -- .
+          # The Chief memory inspector page is bundled from webviews sources and
+          # committed; a stale one fails every webviews bundle build (#22839).
+          ../scripts/cmux-next/build-optchat-inspector-web.sh
+          git diff --binary -- . :/Native/OptChat/optchat-chief/inspector/index.html > "$RUNNER_TEMP/webviews-fmt.patch"
+          git checkout --quiet -- . :/Native/OptChat/optchat-chief/inspector/index.html
 
       - name: Download the regenerated action exports
         if: steps.areas.outputs.skip == 'false' && needs.action-exports.outputs.exports == 'true'
