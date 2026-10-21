@@ -166,21 +166,35 @@ html[data-cmux-page="changelog"] body {
 .cl-build { user-select: all; }
 .cl-maintenance { margin: 12px 0 0; color: var(--page-text-2); }
 
-.cl-reels { display: flex; flex-direction: column; gap: 6px; margin: 12px 0 0; }
-.cl-reel {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  padding: 8px 12px;
+/* The span's reels as one player: the video, then a row of nightly chips and the open link. */
+.cl-reel-player { margin: 16px 0 8px; }
+.cl-reel-video { aspect-ratio: 16 / 9; margin: 0 0 10px; }
+.cl-reel-video video { object-fit: contain; background: transparent; }
+.cl-reel-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.cl-reel-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+.cl-reel-chip {
+  height: 24px;
+  padding: 0 10px;
   border: 1px solid var(--page-separator);
-  border-radius: 8px;
-  color: var(--page-text);
-  font-size: var(--text-body);
-  line-height: var(--text-body--line-height);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+.cl-reel-chip:hover { background: var(--page-hover); color: var(--page-text); }
+.cl-reel-chip[aria-pressed="true"] { background: var(--page-selection); color: var(--page-text); }
+.cl-reel {
+  margin-left: auto;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
   text-decoration: none;
 }
-.cl-reel::before { content: "▶"; color: var(--page-text-2); font-size: var(--text-caption); }
-.cl-reel:hover { background: var(--page-hover); }
+.cl-reel::after { content: " ↗"; }
+.cl-reel:hover { color: var(--page-text); text-decoration: underline; text-underline-offset: 3px; }
+.cl-reel-chip:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
 
 .cl-updated { margin: 0 0 16px; font-size: var(--text-heading); line-height: var(--text-heading--line-height); font-weight: 600; }
 .cl-muted { color: var(--page-text-3); }
@@ -188,6 +202,15 @@ html[data-cmux-page="changelog"] body {
 .cl-empty { padding: 40px; color: var(--page-text-3); }
 
 /* ---------- A: Journal ---------- */
+/* The update's own section spans the tab up to 1100 px (Leo 2026-10-21: "how are you still going
+   this narrow"); the history under it keeps its design's measure. */
+.clw > main > .clj-span {
+  box-sizing: border-box;
+  max-width: calc(1100px + 2 * 32px);
+  margin: 0 auto 32px;
+  padding: 48px 32px 40px;
+}
+.clw > main > .clj-span + .clj { padding-top: 0; }
 .clj {
   padding: 48px max(32px, calc((100% - 640px) / 2)) 96px;
 }
