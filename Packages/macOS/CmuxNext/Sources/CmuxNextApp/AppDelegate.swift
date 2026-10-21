@@ -93,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.services = services
         // A main-thread hang still running after 2 s goes to crash reporting with its stack.
         let reporter = services.crashReporting.reporter
-        control.watchdog.onHang = { hang in reporter.reportHang(duration: hang.duration, addresses: hang.addresses) }
+        control.watchdog.onHang = { reporter.reportHang(duration: $0.duration, addresses: $0.addresses, otherThreads: $0.otherThreads.map { ($0.name, $0.addresses) }) }
         // Shorter lag spikes (250 ms and up, rate-limited) go there too, once they end.
         let lagSpikes = LagSpikeReporter(reporter: reporter)
         lagSpikes.setContextProvider {
@@ -441,10 +441,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
-    /// Dock click with no window open: the last closed window comes back with its workspaces, else a new window with a new workspace.
+    /// Dock click with no window open: the last closed window comes back
+    /// with its workspaces, else a new window (in background mode a panel or the menu bar item may count as visible).
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        guard !hasVisibleWindows, let windows = services?.windows else { return true }
-        windows.reopenOrCreateWindow()
+        guard let services, !hasVisibleWindows || services.background.isBackground else { return true }
+        services.windows.reopenOrCreateWindow()
         return false
     }
 }

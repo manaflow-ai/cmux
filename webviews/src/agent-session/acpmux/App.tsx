@@ -7,6 +7,7 @@ import React, {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   useSyncExternalStore,
@@ -235,6 +236,7 @@ import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
+import { PendingSteer } from "./conversation/PendingSteer";
 import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
@@ -660,6 +662,7 @@ const MessageRow = memo(
           )}
           <DeliveryFailure row={row} />
           {row.steer && <SteerMark steer={row.steer} />}
+          <PendingSteer row={row} send={editQueued} />
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>
@@ -1006,18 +1009,33 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
 
 /// Slides the thread from `step` px below (above, when negative) to its place over 180 ms, so
 /// content that grew at the latest row glides in. Glides stack (`composite: "add"`): two started
-/// before one paint move the text by their sum. None under Reduce Motion.
-function glide(node: HTMLElement | null, step: number): void {
+/// before one paint move the text by their sum. None under Reduce Motion (undefined).
+function glide(node: HTMLElement | null, step: number): Animation | undefined {
   // Content that grew while the chat was hidden, or as it shows again, is drawn in place.
-  if (isAgentMotionOff() || !entranceAllowed() || !node || typeof node.animate !== "function") return;
-  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-  node.animate([{ transform: `translateY(${step}px)` }, { transform: "translateY(0px)" }], {
+  if (isAgentMotionOff() || !entranceAllowed() || !node || typeof node.animate !== "function") return undefined;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return undefined;
+  return node.animate([{ transform: `translateY(${step}px)` }, { transform: "translateY(0px)" }], {
     duration: GLIDE_MS,
     easing: "cubic-bezier(0.2, 0, 0, 1)",
     composite: "add",
   });
 }
 const GLIDE_MS = 180;
+/// How many rows from the end a glide looks for the row it holds.
+const FOLLOWED_ROW_SEARCH = 64;
+
+/// Where `id` sits in `layout`'s content (its top), looked for among the last rows; undefined when gone.
+function trailingRowTop(layout: ConversationLayout, rows: readonly { id: string }[], id: string): number | undefined {
+  for (let at = rows.length - 1; at >= Math.max(0, rows.length - FOLLOWED_ROW_SEARCH); at -= 1)
+    if (rows[at]!.id === id) return layout.tops[at];
+  return undefined;
+}
+
+/// What a followed view's glides hold still: the latest row as the reader last saw it (`id`, drawn
+/// `top` px down the view, its glides aside), and the glides started since then (`added` px in all).
+/// A frame can lay the rows out several times before it paints (each streamed snapshot, then its
+/// drawn heights): each glide is measured from what was painted, not from a layout nobody saw.
+type GlideHold = { id: string; top: number; added: number; glides: Animation[] };
 
 /// Whether `updates` change any drawn height in `current`.
 function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, DrawnHeight>): boolean {
@@ -1320,6 +1338,8 @@ const JUMP_LATEST_SETTLE_MS = 600;
 /// the latest line, which stopped the chat following for good (cx-02st5).
 const READER_SCROLL_MS = 1000;
 const STRAY_SCROLL_PX = 24;
+/// How long a followed view keeps the room a queued prompt's card left, for the prompt to arrive.
+const FLOOR_HOLD_MS = 1000;
 /// How long a reopened chat stays unseen while older pages bring back the row the reader left it on
 /// (cx-odzaz): each page must land within OPEN_AT_PAGE_MS and the whole walk within OPEN_AT_SEEK_MS,
 /// else the chat opens at its latest message.
@@ -1525,6 +1545,22 @@ export function VirtualTranscript({
   const [dockSpace, setDockSpace] = useState(0);
   const dockSpaceRef = useRef(0);
   dockSpaceRef.current = dockSpace;
+  /// A queued prompt left the bottom stack this frame: it is about to come in as the latest row.
+  const queueLeft = useRef(false);
+  const queueCount = useRef(0);
+  const dockRef = useRef(dock);
+  dockRef.current = dock;
+  /// Counts the stack's queued prompts; called first by each size observer (the stack's, and the
+  /// view's, for a stack laid out under the transcript), so the render a size change makes knows.
+  const noteQueue = useCallback(() => {
+    const count = dockRef.current?.querySelectorAll(".acpmux-queued").length ?? 0;
+    if (count < queueCount.current && !queueLeft.current) {
+      queueLeft.current = true;
+      // Only the size change of this frame is the card leaving.
+      requestAnimationFrame(() => requestAnimationFrame(() => (queueLeft.current = false)));
+    }
+    queueCount.current = count;
+  }, []);
   useLayoutEffect(() => {
     if (!dock) {
       setDockSpace(0);
@@ -1540,13 +1576,15 @@ export function VirtualTranscript({
       return stack.height > 0 && view ? Math.max(0, Math.min(stack.height, view.bottom - stack.top)) : 0;
     };
     const observer = new ResizeObserver(() => {
+      noteQueue();
       const next = over();
       if (Math.abs(next - dockSpaceRef.current) >= 0.5) flushSync(() => setDockSpace(next));
     });
     observer.observe(dock);
+    noteQueue();
     setDockSpace(over());
     return () => observer.disconnect();
-  }, [dock]);
+  }, [dock, noteQueue]);
   const [width, setWidth] = useState(() => lastTranscriptBox.width);
   // The column's cap (layout.json `chatWidth`): a new one measures every row again.
   const chatWidth = useChatWidth();
@@ -1772,11 +1810,14 @@ export function VirtualTranscript({
     };
     // Before the frame paints: a resized pane (its tab strip showing or hiding) otherwise drew the
     // transcript at its old offset and caught up a frame later.
-    const observer = new ResizeObserver(() => flushSync(() => measure(true)));
+    const observer = new ResizeObserver(() => {
+      noteQueue();
+      flushSync(() => measure(true));
+    });
     observer.observe(node);
     measure(false);
     return () => observer.disconnect();
-  }, []);
+  }, [noteQueue]);
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
   const previousRows = useRef<AcpmuxRow[]>(rows);
   const previousViewport = useRef({ height, width, dockSpace });
@@ -1784,6 +1825,8 @@ export function VirtualTranscript({
   /// heights at the new width are that resize, not growth, and never glide.
   const reflowing = useRef(false);
   const thread = useRef<HTMLDivElement>(null);
+  /// What the glides hold since the last paint (GlideHold); cleared once a frame paints.
+  const glideHold = useRef<GlideHold | undefined>(undefined);
   // The reader scrolls: a glide in flight ends at once, so the view goes where they scroll.
   useEffect(() => {
     const node = ref.current;
@@ -1901,9 +1944,28 @@ export function VirtualTranscript({
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
   // The bottom stack's room follows the rows, so the latest row ends above it.
+  // A followed view does not move down when a queued prompt's card leaves the stack: its offset stays,
+  // and the room the card leaves stays under the last row for the prompt, which arrives as the latest
+  // row a moment later. Dropping it moved the view down a card's height, and the prompt moved it back
+  // up. That holds for a stack over the view's foot (its room shrinks) and under it (the view grows).
+  // The room goes once rows grow into it, the reader leaves the latest row, the rows rewrap, or after
+  // FLOOR_HOLD_MS (a prompt deleted from the queue never arrives), when the view glides down.
+  const floor = useRef({ height: 0, width, sessionId });
+  const [, releaseFloor] = useReducer((count: number) => count + 1, 0);
+  const floorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(floorTimer.current), []);
+  const kept = following && floor.current.width === width && floor.current.sessionId === sessionId;
+  const box = previousViewport.current;
+  const footDropped = height - dockSpace > box.height - box.dockSpace;
+  const floorHeight = !kept
+    ? 0
+    : queueLeft.current && footDropped && previousLayout.current
+      ? Math.max(floor.current.height, previousLayout.current.totalHeight - box.height + height)
+      : floor.current.height;
+  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + dockSpace;
   const layout = useMemo(
-    () => ({ ...measured.layout, totalHeight: measured.layout.totalHeight + THREAD_TOP + dockSpace }),
-    [measured, dockSpace],
+    () => ({ ...measured.layout, totalHeight: Math.max(floorHeight, rowsHeight) }),
+    [measured, rowsHeight, floorHeight],
   );
   const reportedLayout = useRef<typeof measured | null>(null);
   const reportedEstimate = useRef<typeof estimated | null>(null);
@@ -2110,12 +2172,26 @@ export function VirtualTranscript({
       // the new end; the offset recorded before this commit is where the reader was.
       // A clamp lands exactly on the scroller's own end, which rounds the layout's
       // fractional height, so compare with that rather than allow for the rounding.
+      // A viewport that grew clamps at the end the content had then: the room a queued prompt's
+      // card leaves (`floor`) can make the content taller again in this same commit.
       const live = node.scrollTop;
-      const clamped = live < scrolledTo.current.top - 0.5 && live >= node.scrollHeight - node.clientHeight - 0.5;
+      // The browser rounds the height it clamps to, so the old end allows a pixel either way.
+      const end = Math.min(node.scrollHeight, old.totalHeight) - node.clientHeight;
+      const clamped = live < scrolledTo.current.top - 0.5 && live >= end - 1;
       // An offset that has not moved since it was recorded was at the latest row if it was
       // then; a shorter viewport alone would otherwise read as scrolled up.
       const unmoved = Math.abs(live - scrolledTo.current.top) <= 0.5;
       const top = clamped ? scrolledTo.current.top : live;
+      // The reader scrolled up and its scroll event has not come yet: WebKit moves the offset with
+      // the wheel and reports it a frame later, and a snapshot that lands between them put the view
+      // back at the latest row. A move up past a stray's (or past the deadband, right after the
+      // reader's own input) is theirs, so the view stops following now.
+      const readerLeft =
+        followingRef.current &&
+        !clamped &&
+        scrolledTo.current.top - live >
+          (performance.now() - readerAt.current <= READER_SCROLL_MS ? FOLLOW_BOTTOM_DEADBAND_PX : STRAY_SCROLL_PX);
+      if (readerLeft) follow(false);
       const atLatest = followingRef.current
         ? true
         : clamped || unmoved
@@ -2128,8 +2204,26 @@ export function VirtualTranscript({
       if (didOpenAtLatest.current && atLatest) {
         // At the latest row: stay there as rows settle to their drawn heights.
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-        const step = latest - node.scrollTop;
-        const settled = settleFollowBottom(node, latest);
+        // A clamp moved the offset already (content that shrank under the view): from where it was.
+        const before = top;
+        const settled = settleFollowBottom(node, latest) || clamped;
+        // The glide holds the latest row the reader saw where it was painted, then slides it to its
+        // place. Gliding by the offset's step alone also moved it by what grew above it (a working
+        // line opening over a turn's first tool call), and by layouts of the same frame that never
+        // painted (a new turn's rows by estimate, then by drawn height): the text dropped that far,
+        // then slid up past where it was. The offset is read back, as WebKit keeps it to whole pixels.
+        const lastSeen = oldRows.at(-1);
+        if (!glideHold.current && lastSeen) {
+          const was = trailingRowTop(old, oldRows, lastSeen.id);
+          if (was !== undefined) {
+            glideHold.current = { id: lastSeen.id, top: was - before, added: 0, glides: [] };
+            // After this frame paints (a task queued from its animation frame runs after it).
+            requestAnimationFrame(() => setTimeout(() => (glideHold.current = undefined), 0));
+          }
+        }
+        const hold = glideHold.current;
+        const heldTop = hold && trailingRowTop(layout, rows, hold.id);
+        const step = hold && heldTop !== undefined ? hold.top - (heldTop - node.scrollTop) - hold.added : 0;
         if (settled) followTrace.set(latest);
         // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll"); a
         // resized viewport only moves the offset. A row that grew is placed by its estimate, then
@@ -2140,8 +2234,20 @@ export function VirtualTranscript({
         // then drawn height, at every frame of the drag: none of that glides, and a glide in
         // flight ends, so the text sits at the end of the view on every frame.
         if (rewrapped) for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
-        if (settled && Math.abs(step) < node.clientHeight && !resized && !reflowing.current)
-          glide(thread.current, step);
+        const glided =
+          settled && Math.abs(step) >= 0.5 && Math.abs(step) < node.clientHeight && !resized && !reflowing.current
+            ? glide(thread.current, step)
+            : undefined;
+        if (glided) {
+          hold!.added += step;
+          hold!.glides.push(glided);
+        } else if (settled || resized) {
+          // The view moved without a glide: what it holds is placed again from here. A resize also
+          // takes back this frame's glides: they slid toward a layout the resize has replaced (a
+          // queued prompt's card leaving clamps the offset, which the room it leaves then restores).
+          if (resized) for (const each of hold?.glides ?? []) each.cancel();
+          glideHold.current = undefined;
+        }
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
@@ -2196,6 +2302,16 @@ export function VirtualTranscript({
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width, dockSpace };
+    // The room a followed view keeps (`floor` above), until the rows fill it or it stops following.
+    const holding = didOpenAtLatest.current && followingRef.current && floorHeight > rowsHeight;
+    if (holding && !floor.current.height) {
+      clearTimeout(floorTimer.current);
+      floorTimer.current = setTimeout(() => {
+        floor.current = { ...floor.current, height: 0 };
+        releaseFloor();
+      }, FLOOR_HOLD_MS);
+    } else if (!holding) clearTimeout(floorTimer.current);
+    floor.current = { height: holding ? floorHeight : 0, width, sessionId };
     if (node && node.clientHeight > 0 && didOpenAtLatest.current) {
       scrolledTo.current = scrollPosition(node, layout.totalHeight);
       seenAnchor.current = restingAnchor(node.scrollTop, scrolledTo.current.atLatest, layout, rows);
