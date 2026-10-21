@@ -15,6 +15,7 @@
    appearance.borders none clears every line of the rim. */
 :root {
   /* The theme surface the tint mixes from (WebTheme.swift: the page color made opaque). */
+  /* glass-opaque-allow: the color --glass-tint mixes from at 40-60%; never painted as a fill itself */
   --glass-surface: var(--cmux-surface-solid, Canvas);
   /* The fill. With no wallpaper still to bend it is plain glass's; while the lens draws it is
      clearer (below): the bend, not the frost, says it is glass. */
