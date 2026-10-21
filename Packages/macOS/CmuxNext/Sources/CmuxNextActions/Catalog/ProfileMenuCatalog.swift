@@ -25,7 +25,7 @@ nonisolated enum ProfileMenuActionCatalog: ActionCatalogGroup {
 }
 
 /// What the profile menu holds, top to bottom: the current profile (with its
-/// options submenu), the submenus, Settings,
+/// options submenu), the submenus, Settings and Check for Updates,
 /// then New Tab and Incognito Window. A submenu row or action the build
 /// does not register is left out, and a submenu with no row is left out
 /// (items whose feature does not exist are omitted, not disabled). "New
@@ -50,6 +50,9 @@ public nonisolated struct ProfileMenuSpec: Sendable {
     public var profileActions: [ActionID]
     public var submenus: [Submenu]
     public var settings: Row
+    /// Check for Updates…, under Settings: the app menu has it, and the
+    /// profile menu is the sidebar's app menu.
+    public var updates: Row
     public var creation: [Row]
 
     public init() {
@@ -70,6 +73,7 @@ public nonisolated struct ProfileMenuSpec: Sendable {
                     actions: ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement"]),
         ]
         settings = Row(action: "openSettings", title: nil, symbol: "gear")
+        updates = Row(action: "palette.checkForUpdates", title: nil, symbol: "arrow.down.circle")
         creation = [
             Row(action: "newTab.default", title: nil, symbol: "plus"),
             Row(action: "newIncognitoWindow", title: Self.text("menu.profile.incognito", "Incognito Window"), symbol: "eyeglasses"),
