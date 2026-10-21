@@ -369,8 +369,8 @@ jobs:
 
       # For feat-cmux-next (CMUX_NEXT_STYLE_GUARDS=warn, Leo 2026-10-19) the lint, format,
       # layer, type-scale, glyph, system-blue, text-focus, dialog-key and switch-fetch checks each
-      # run and only warn; the type check, the browser test-lane check and the
-      # protocol codegen check still fail.
+      # run and only warn; the type check, the browser test-lane check, the
+      # protocol codegen check and the string catalog key check still fail.
       # Elsewhere `bun run check` gates as before.
       - name: Check webviews (Oxlint, Oxfmt, type check)
         id: webviews-check
@@ -388,6 +388,8 @@ jobs:
           bun run typecheck || status=1
           # The generated protocol must match the daemon's IR: a wire-format check, not style.
           bun run acpmux-protocol:check || status=1
+          # A key named twice in a string catalog silently drops one of its texts: data, not style.
+          bun run check:catalog-keys || status=1
           for check in check:layers check:type-scale check:status-glyphs check:system-blue check:text-focus check:dialog-keys check:switch-fetches; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
