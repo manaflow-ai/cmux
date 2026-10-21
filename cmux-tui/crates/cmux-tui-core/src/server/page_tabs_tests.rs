@@ -13,10 +13,15 @@ fn writer_with_outbound() -> (MessageWriter, Arc<BoundedOutbound>) {
     (writer, outbound)
 }
 
-fn run(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
+fn run_as(mux: &Arc<Mux>, client: u64, request: Value) -> anyhow::Result<Value> {
     let command: Command = serde_json::from_value(request)?;
     let (writer, _) = writer_with_outbound();
-    handle_command(mux, mux.local_test_client(0), command, &writer)
+    handle_command(mux, client, command, &writer)
+}
+
+fn run(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
+    let client = mux.local_test_client(0);
+    run_as(mux, client, request)
 }
 
 fn test_mux(name: &str) -> Arc<Mux> {
@@ -319,6 +324,28 @@ fn page_source_is_validated() {
     );
     assert!(both.unwrap_err().to_string().starts_with("bad request"));
     assert!(page_tab(&mux, pane, "debug-settings").is_ok());
+    mux.shutdown();
+}
+
+/// The Phone page starts a raw device-frame stream. A raw CLI/agent may create ordinary
+/// internal pages, but only the app connection that proved frontend authority may create this
+/// sensitive page; otherwise it would bypass the person-only `phone.show` action.
+#[test]
+fn phone_page_requires_the_verified_frontend() {
+    let mux = test_mux("page-tabs-phone-person-only");
+    let (_, pane) = terminal_pane(&mux);
+    let request = json!({"cmd":"new-conversation-tab","pane":pane,"page":"phone"});
+    let before = pane_tabs(&mux, pane);
+
+    let error = run(&mux, request.clone()).expect_err("an automated caller created Phone");
+    assert!(error.to_string().contains("verified frontend"), "{error}");
+    assert_eq!(pane_tabs(&mux, pane), before, "the refusal created no tab");
+
+    let app = mux.local_test_client(7);
+    origin_gate::set_role_for_test(&mux, app, "main");
+    origin_gate::set_verified_app_for_test(&mux, app, true);
+    let created = run_as(&mux, app, request).expect("the verified app can create Phone");
+    assert_eq!(created["conversation"], json!({"page":"phone"}), "{created}");
     mux.shutdown();
 }
 
