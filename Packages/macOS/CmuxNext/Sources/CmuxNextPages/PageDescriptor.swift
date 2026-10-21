@@ -166,7 +166,9 @@ public extension PageDescriptor {
                   // Machines > Add Server… opens the Add Server card (no code: the page never approves).
                   "server.addServer",
                   // Agents > Computer Use card (ComputerUseSetup).
-                  "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording"])
+                  "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
+                  // Settings › Import's cards (CmuxNextImportCards): a card's button, and Import from Browser.
+                  "import.card", "importFromBrowser"])
             .union(settingsSectionActions),
         dynamicPrefixes: ["backdrop", "museum", "icon"], ownsSearchField: true, acceptsFirstMouse: false)
 

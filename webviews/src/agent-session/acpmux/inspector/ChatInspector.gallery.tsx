@@ -201,6 +201,14 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => /Generated/.test(ctx.document.body.textContent ?? ""));
       },
     },
+    "row-hover": {
+      note: "The pointer on a pull request's row: a faint tint of the text inside the card's padding, with the card's radius less that padding, never a solid fill and never past the card's edge. Every row in the panel hovers the same way.",
+      props: full,
+      play: async (ctx) => {
+        await ctx.waitFor(() => /already on base/.test(text(ctx)));
+        await ctx.hover({ selector: ".acpmux-chat-inspector-pr" });
+      },
+    },
     "subagents-open": {
       note: "A click on the avatar row opens the list of the chat's subagents and the chats it started: Active, then Done.",
       props: full,

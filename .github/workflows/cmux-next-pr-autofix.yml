@@ -171,10 +171,14 @@ jobs:
         shell: bash
         run: rm -f "${GITHUB_WORKSPACE:-$PWD}/.git/index.lock" 2>/dev/null || true
 
+      # The generator check needs the merge base, not historical blobs: with every
+      # blob this fetch put 5.3 GiB of all-branch history into the mini's reused
+      # workspace, which every later job on that runner kept (cmux14, 2026-10-21).
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+          filter: blob:none # the commit graph without historical blobs, as action-areas
           persist-credentials: false
           submodules: false
 
@@ -286,6 +290,13 @@ jobs:
           path: ${{ runner.temp }}/action-exports
           if-no-files-found: error
           retention-days: 1
+
+      # The next job on this runner starts from the git seed at its own depth, not from
+      # this job's all-branch partial clone (a later job's missing blob would be fetched
+      # mid-step, unretried).
+      - name: Discard the workspace repository (self-hosted reused workspace)
+        if: always()
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
 
   repair:
     name: autofix repairs

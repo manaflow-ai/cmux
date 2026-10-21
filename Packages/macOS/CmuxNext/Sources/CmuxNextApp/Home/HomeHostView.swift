@@ -29,6 +29,8 @@ final class HomeHostView: NSView {
     private let petRows: ChiefPetSettingsRows
     private var isChief = false
     private var engineWatch: Task<Void, Never>?
+    /// Each Chief's avatar beside this conversation's group bubbles, as its Home row draws it.
+    private var avatarsWatch: Task<Void, Never>?
     private var agentsWatch: Task<Void, Never>?
     private var shortcutsWatch: Task<Void, Never>?
     /// The Chief's avatar when its profile sets none: the pet character `mascot` picks
@@ -116,9 +118,9 @@ final class HomeHostView: NSView {
             return (try? await CmuxNextDaemon.ConversationClient(connection).op(
                 CmuxNextDaemon.ConversationOpRequest(conversation: conversation, idempotencyKey: key, transaction: nil, op: .setTitle(name)))) != nil
         }
-        // The shared stop action (palette, the stop button, Esc and Cmd-.): the key window's Home stops its Chief.
+        // The stop button (HomeHostView+StopAll): a click, Esc and Cmd-. stop the Chief; Option-click stops all agents.
         let registry = services.registry
-        transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
+        wireStopButton(registry)
         // A cmux app link (a workspace, pane, tab, chat or Chief subagent): opened here, through link.open.
         // An attachment or a path link opens in cmux on the right of Home, never in Finder (a
         // folder in a Files tab); right-click has Open With (HomeFileActions).
@@ -137,7 +139,7 @@ final class HomeHostView: NSView {
         }
         // A link pressed and moved: dragged into the layout's drop zones, a split or a pane opens it (LinkDragSession).
         transcript.onDragLink = { [weak services] url, point in services?.linkDrags.begin(url, screenPoint: point) ?? false }
-        // Forward… on a bubble: Send to… with its text (the palette asks where).
+        // Forward… on a bubble: Send To… with its text (the palette asks where).
         transcript.onForward = { text in
             _ = registry.perform("home.sendSelectionTo", invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
         }
@@ -176,6 +178,19 @@ final class HomeHostView: NSView {
                 settingsView.setName(title)
                 if !isChief, settings.isShown { settings.close() }
                 if settings.isShown { settingsView.refresh() }
+            }
+        }
+        // task-owner: lives as long as this view; event-driven (Observation): each Chief of
+        // this conversation wears its Home row's avatar beside a group's bubbles, again after a
+        // swap (a Chief's picture or text, the pet character a Chief with none wears).
+        avatarsWatch = Task { [weak self, weak service, weak services] in
+            for await avatars in ObservationStream({ () -> [String: HomeChiefAvatar] in
+                guard let service else { return [:] }
+                let participants = store.rows.first { $0.summary.id == id }?.summary.participants ?? []
+                let fallback = HomeHostView.defaultTileAvatar(mascot: services?.settings?.snapshot.homeChiefPetMascot)
+                return HomeChiefAvatar.bubbleAvatars(for: participants, own: service.directory.chiefAvatars, fallback: fallback)
+            }) {
+                self?.transcript.setChiefBubbleAvatars(avatars)
             }
         }
         // Settings > Home: whether attached photos and videos keep their location.
@@ -274,6 +289,7 @@ final class HomeHostView: NSView {
         MainActor.assumeIsolated {
             availability?.cancel()
             engineWatch?.cancel()
+            avatarsWatch?.cancel()
             hostWatch?.cancel()
             agentsWatch?.cancel()
             shortcutsWatch?.cancel()

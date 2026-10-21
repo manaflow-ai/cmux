@@ -8,8 +8,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("reasoning-menu-check.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -35,7 +35,7 @@ await requireBrowserLane("reasoning-menu-check.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
   const stageURL = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}&frame=component&width=760&theme=Catppuccin+Mocha`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, frame: "component", width: 760, theme: "Catppuccin Mocha" })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -44,23 +44,11 @@ await requireBrowserLane("reasoning-menu-check.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
-    for (const [name, engine] of engines) {
-      const browser = await engine.launch({ headless: true });
-      browsers.set(name, browser);
-      // The first load can run Vite's dependency optimizer and reload mid-compile.
-      const warm = await browser.newPage({ viewport: { width: 760, height: 600 } });
-      await warm.goto(stageURL("agent-pane.new-tab", "reasoning-chip"));
-      for (;;) {
-        try {
-          await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-          break;
-        } catch (error) {
-          if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-        }
-      }
-      await warm.close();
-    }
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
+    await warmGalleryFrame(vite, "agent-pane.new-tab", {
+      browser: [...browsers.values()][0],
+      params: { variant: "reasoning-chip" },
+    });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
@@ -83,7 +71,6 @@ await requireBrowserLane("reasoning-menu-check.test.ts", async () => {
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     await page.mouse.up();
-    await page.waitForTimeout(300);
   };
 
   for (const [engine] of engines)
@@ -94,6 +81,15 @@ await requireBrowserLane("reasoning-menu-check.test.ts", async () => {
       await page.getByRole("menuitem", { name: /^Effort/ }).click();
       await page.waitForFunction(() => document.querySelectorAll(".acpmux-quick-menu").length >= 2);
       await page.locator(".acpmux-quick-menu").last().locator("[role=menuitemradio][aria-checked=true]").waitFor();
+      // Measure the open menu, not its open motion (finite animations only).
+      await page.evaluate(() =>
+        Promise.all(
+          document
+            .getAnimations()
+            .filter((animation) => Number.isFinite(Number(animation.effect?.getComputedTiming().endTime)))
+            .map((animation) => animation.finished.catch(() => undefined)),
+        ),
+      );
       const geometry = await page.evaluate(() => {
         const menus = document.querySelectorAll(".acpmux-quick-menu");
         const menu = menus[menus.length - 1]!;

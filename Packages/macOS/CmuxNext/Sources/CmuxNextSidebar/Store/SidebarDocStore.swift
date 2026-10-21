@@ -238,7 +238,7 @@ public final class SidebarDocStore {
     /// `group.update` with the value, not a toggle, so fast clicks each send what they show, and it
     /// rebuilds no row, now or at the echo. `refused` runs when the daemon or the mirror refuses it.
     public func setGroupCollapsed(_ group: String, _ collapsed: Bool, refused: @escaping @MainActor () -> Void) {
-        let ops: [[String: Any]] = [["op": "group.update", "id": group, "patch": ["collapsed": collapsed]]]
+        let ops: [[String: Any]] = [["op": "group.update", "id": Self.item(group: GroupID(group), in: records), "patch": ["collapsed": collapsed]]]
         guard let data = try? JSONSerialization.data(withJSONObject: ops) else { return refused() }
         let intent = SidebarMirrorIntent.apply(data, key: Self.newKey())
         foldRefusals[intent.idempotencyKey] = refused
