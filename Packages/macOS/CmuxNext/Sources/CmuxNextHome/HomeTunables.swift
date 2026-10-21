@@ -59,9 +59,16 @@ public nonisolated struct HomeTunables {
         help: "Tables in the Chief's replies break out of the bubble as full-width cards, and assignment tables (who does what) show as a plan card with owner chips, live states and pull requests. Off keeps tables as text in the bubble.",
         default: true, code: "HomeTunables.richTables")
 
+    /// The message box's mic (`HomeVoiceDictation`): on-device dictation into the field. On by
+    /// default (Leo 2026-10-20); off shows Messages' drawn waveform, which does nothing.
+    public static let voiceInput = Tunable<Bool>.toggle(
+        "home.voiceInput", section, "Mic button in the message box",
+        help: "The mic in the empty message box dictates into it (on-device speech). Off shows the drawn waveform instead.",
+        default: true, code: "HomeTunables.voiceInput")
+
     public static var all: [TunableDescriptor] {
         [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, launchIntoHome.descriptor,
-         turnProgress.descriptor, richTables.descriptor]
+         turnProgress.descriptor, richTables.descriptor, voiceInput.descriptor]
     }
 }
 

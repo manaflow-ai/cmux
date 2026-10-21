@@ -12,9 +12,9 @@ final class AppFileExplorerEffects: FileExplorerEffects {
         self.services = services
     }
 
-    func openInCmux(_ file: URL) -> Bool {
+    func openInCmux(_ file: URL, at position: FilePosition?) -> Bool {
         guard let services else { return false }
-        return services.linkOpener.openFile(file, from: services.windows.active?.focusedPane)
+        return services.linkOpener.openFile(file, from: services.windows.active?.focusedPane, at: position)
     }
 
     func openInDefaultApp(_ item: URL) {
