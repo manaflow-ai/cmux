@@ -113,6 +113,29 @@ open "$HOME/Library/Developer/Xcode/DerivedData/cmux-lawmux/Build/Products/Debug
 テスト側は意図的に直していません。lawmux では本家の CI も動かしていないので、
 変更の確認はビルドと実機での動作確認で行っています。
 
+## lawmux 固有の機能
+
+### Shift+Space でアプリを呼び出す／戻る
+
+本家の「Show/Hide All Windows」（システム全体のホットキー）をそのまま使います。lawmux が前面なら
+隠して直前のアプリに戻り、そうでなければ呼び出してウィンドウを画面いっぱいにします
+（Hammerspoon で行っていた `win:maximize()` 相当）。権限は不要です。
+
+本家は Command / Option / Control のいずれかを必須にしていて Shift+Space を受け付けないため、
+lawmux ではその検証を Shift だけでも通るよう緩めています（`// lawmux:` の 2 か所）。
+
+設定は次の 2 つです。
+
+```sh
+# ショートカット本体（~/.config/lawmux/cmux.json に書かれる）
+/Applications/lawmux.app/Contents/Resources/bin/cmux config set shortcuts.bindings.showHideAllWindows '"shift+space"'
+# 有効化フラグ（設定 → Global Hotkey → Enable System-Wide Hotkey と同じ）
+defaults write com.lawrenceturnerw.lawmux systemWideHotkey.enabled -bool true
+```
+
+lawmux が起動していないときはホットキーは反応しません（アプリ内で登録しているため）。
+Shift+Space は他のアプリでも lawmux に取られます。
+
 ## 本家の更新の取り込み
 
 週に一度、GitHub Actions（`lawmux-upstream-check`）が本家の更新を確認し、
