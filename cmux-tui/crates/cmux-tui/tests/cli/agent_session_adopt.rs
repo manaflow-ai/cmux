@@ -67,7 +67,8 @@ fn listing_acpmux(socket: PathBuf) -> FakeAcpmux {
                         ]}),
                         "_acpmux/web_modes" => json!({
                             "refusedFamilies": [], "families": {"fake": ["ask"]},
-                            "session": {"family": "fake", "mode": *state.mode.lock().unwrap()},
+                            "session": {"sessionId": "own-1", "family": "fake",
+                                        "mode": *state.mode.lock().unwrap()},
                         }),
                         "_acpmux/attach" => json!({"session": {
                             "sessionId": "own-1", "name": "lane", "pending": []}, "events": []}),

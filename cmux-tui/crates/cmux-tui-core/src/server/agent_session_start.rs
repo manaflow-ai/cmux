@@ -523,7 +523,7 @@ pub(super) fn asks(table: &Value) -> (bool, Option<String>) {
 /// reply, the attach reply's `agentMode` and `agent-session-mode` carry it:
 /// its family, its mode and whether it asks before acting ([`asks`]); the app
 /// shows `asking: false` as the bypass badge.
-pub(super) fn mode_facts(session: &str, table: &Value) -> Value {
+fn mode_facts(session: &str, table: &Value) -> Value {
     let (asking, _) = asks(table);
     json!({
         "session": session,
@@ -533,13 +533,22 @@ pub(super) fn mode_facts(session: &str, table: &Value) -> Value {
     })
 }
 
-/// [`mode_facts`] of `session`, read on `link`.
-pub(super) fn read_mode(
-    link: &AcpmuxLink,
-    session: &str,
-) -> Result<Value, super::agent_session_link::LinkError> {
-    let table = link.call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)?;
-    Ok(mode_facts(session, &table))
+/// [`mode_facts`] of `session` in `table`, only when acpmux knows that
+/// session by exactly this id (an unknown or purged one has no `session`, and
+/// a prefix resolves to another id): never facts for a chat that is not there.
+pub(super) fn checked_mode(session: &str, table: &Value) -> Result<Value, Refusal> {
+    if table.pointer("/session/sessionId").and_then(Value::as_str) != Some(session) {
+        return Err(Refusal::UnknownSession);
+    }
+    Ok(mode_facts(session, table))
+}
+
+/// [`checked_mode`] of `session`, read on `link`.
+pub(super) fn read_mode(link: &AcpmuxLink, session: &str) -> Result<Value, Refusal> {
+    let table = link
+        .call("_acpmux/web_modes", json!({"sessionId": session}), CALL_TIMEOUT)
+        .map_err(Refusal::of)?;
+    checked_mode(session, &table)
 }
 
 /// A Home Chief session (acpmux `hub/route_switch.rs` is_chief, the app's

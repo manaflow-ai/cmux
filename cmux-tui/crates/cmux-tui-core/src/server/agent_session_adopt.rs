@@ -24,13 +24,14 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::agent_session_link::AcpmuxLink;
 use super::agent_session_start::{
-    AgentSessionStarts, CALL_TIMEOUT, THREAD_STACK_BYTES, is_chief, mode_facts, read_mode,
+    AgentSessionStarts, CALL_TIMEOUT, THREAD_STACK_BYTES, checked_mode, is_chief, read_mode,
     startable,
 };
 use super::{MessageWriter, Refusal, SurfaceId, ok, refuse};
@@ -43,6 +44,31 @@ pub const AGENT_SESSION_ADOPT_CAPABILITY: &str = "agent-session-adopt-v1";
 #[serde(deny_unknown_fields)]
 pub(super) struct ModeParams {
     surface: SurfaceId,
+}
+
+/// At most [`MAX_MODE_READS`] `agent-session-mode` reads run at once, each on
+/// its own thread and acpmux connection; one more is `agent_session.limit`.
+const MAX_MODE_READS: usize = 8;
+static MODE_READS: AtomicUsize = AtomicUsize::new(0);
+
+/// One running mode read; dropping it frees the slot.
+struct ModeRead;
+
+impl ModeRead {
+    fn admit() -> Option<Self> {
+        MODE_READS
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                (n < MAX_MODE_READS).then_some(n + 1)
+            })
+            .ok()
+            .map(|_| Self)
+    }
+}
+
+impl Drop for ModeRead {
+    fn drop(&mut self) {
+        MODE_READS.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 /// `agent-session-mode {surface}` of a trusted local connection (the parent
@@ -61,16 +87,20 @@ pub(super) fn mode(
     let Some(session) = super::tab_session(mux, params.surface) else {
         return refuse(writer, id, Refusal::UnknownTab);
     };
+    let Some(slot) = ModeRead::admit() else {
+        return refuse(writer, id, Refusal::Limit);
+    };
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let spawned = std::thread::Builder::new()
         .name("mux-agent-mode".into())
         .stack_size(THREAD_STACK_BYTES)
         .spawn(move || {
+            let _slot = slot;
             let read = AcpmuxLink::connect(&socket, |_| {})
                 .map_err(|_| Refusal::Unavailable)
                 .and_then(|link| {
-                    let read = read_mode(&link, &session).map_err(Refusal::of);
+                    let read = read_mode(&link, &session);
                     link.close();
                     read
                 });
@@ -161,7 +191,7 @@ fn adopt_and_bind(
     let table = link
         .call("_acpmux/web_modes", json!({"sessionId": params.session}), CALL_TIMEOUT)
         .map_err(Refusal::of)?;
-    let facts = mode_facts(&params.session, &table);
+    let facts = checked_mode(&params.session, &table)?;
     let family = facts["family"].as_str().unwrap_or_default();
     // The tab's brand mark: the agent acpmux runs (a profile by its last
     // part), else its family.

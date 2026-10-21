@@ -463,6 +463,7 @@ public final class DaemonService {
         runTask = nil
         keptLayoutRelaunch?.cancel()
         keptLayoutRelaunch = nil
+        endAgentModeReads()
         // task-owner: teardown hop; close() is idempotent and finishes the store pump
         if let connection { Task { await connection.close() } }
         connection = nil

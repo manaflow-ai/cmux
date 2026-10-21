@@ -9232,8 +9232,10 @@ the chat and never rests on what one app remembers:
 - `{id, cmd:"agent-session-mode", surface}` answers `{surface, session,
   family, mode, asking}` for the session the tab's record names, read from
   this machine's `_acpmux/web_modes` (`agent_session.unknown_tab` for a tab
-  with no session). Read-only; the app reads each bound tab it lists once per
-  connect.
+  with no session, `agent_session.unknown_session` when acpmux no longer knows
+  that exact session id, `agent_session.limit` past 8 reads at once).
+  Read-only; the app reads each bound tab it lists once per connect. Adopt
+  checks the same way that acpmux still knows the session.
 - An `agent-session-attach` reply carries `agentMode: {session, family, mode,
   asking}` when acpmux answers `_acpmux/web_modes`.
 - An attach with `mode_events: true` also pushes `{event:

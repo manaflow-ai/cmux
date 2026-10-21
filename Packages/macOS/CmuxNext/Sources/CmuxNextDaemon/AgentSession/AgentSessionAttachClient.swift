@@ -66,14 +66,14 @@ public actor AgentSessionAttachClient {
     }
 
     /// `agent-session-mode` (`agent-session-adopt-v1`) of tab `surface` over a connection of its
-    /// own: the mode of the chat it is bound to goes to ``AgentBypassSessions``. A daemon without
-    /// the verb is not asked.
-    public static func readMode(surface: UInt64, endpoint: @escaping EndpointProvider) async throws {
+    /// own: the answer (``AgentBypassSessions/Carrier/answer``), nil from a daemon without the verb.
+    /// The caller notes it only while its connection is current.
+    public static func readMode(surface: UInt64, endpoint: @escaping EndpointProvider) async throws -> Data? {
         let client = AgentSessionAttachClient(surface: surface, endpoint: endpoint)
         let result: Result<Data?, any Error>
         do { result = .success(try await client.mode()) } catch { result = .failure(error) }
         await client.close()
-        if let data = try result.get() { AgentBypassSessions.note(.answer, of: data) }
+        return try result.get()
     }
 
     /// The `agent-session-mode` answer; nil from a daemon without the verb.

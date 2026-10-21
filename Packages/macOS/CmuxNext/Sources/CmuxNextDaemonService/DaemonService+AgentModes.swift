@@ -8,9 +8,15 @@ import os
 /// agent adopted there). A shown chat's attachment keeps its mode current after that
 /// (`AgentSessionAttachClient`). Nothing is read on a timer.
 extension DaemonService {
+    /// Ends this connection's reads (a reconnect or the shutdown).
+    func endAgentModeReads() {
+        agentModeReads?.cancel()
+        agentModeReads = nil
+    }
+
     /// Starts the reads of this connection, ending the previous connection's.
     func readAgentModes() {
-        agentModeReads?.cancel()
+        endAgentModeReads()
         guard let endpoint = remoteEndpoint else { return }
         let store = store
         // task-owner: one watch per connection, cancelled by the next connect; it ends with the stream
@@ -20,7 +26,11 @@ extension DaemonService {
                 for chat in bound.subtracting(read) {
                     read.insert(chat)
                     do {
-                        try await AgentSessionAttachClient.readMode(surface: chat.surface, endpoint: endpoint)
+                        let answer = try await AgentSessionAttachClient.readMode(surface: chat.surface, endpoint: endpoint)
+                        // A read of an earlier connection (cancelled by the next connect or the
+                        // shutdown) never overwrites what the current one says.
+                        if Task.isCancelled { return }
+                        if let answer { AgentBypassSessions.note(.answer, of: answer) }
                     } catch {
                         logger.info("agent mode read of surface \(chat.surface, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                     }
