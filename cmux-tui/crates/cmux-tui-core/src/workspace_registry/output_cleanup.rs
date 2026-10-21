@@ -40,8 +40,8 @@ use super::{WorkspaceRegistry, meta_value};
 pub(crate) use pruned::{PRUNED_RANGES_SCHEMA, pruned_gap};
 pub(crate) use stage::{StageControl, StageOutcome, stage_registry};
 pub(super) use swap::{
-    note_full_start, remove_previous_registry_when_started, restore_interrupted_swap,
-    roll_back_swap, rollback_possible, swap_at_open,
+    note_full_start, refuse_open_beside_backup, remove_previous_registry_when_started,
+    restore_interrupted_swap, roll_back_swap, rollback_possible, swap_at_open,
 };
 
 /// Registry meta key set once the cleanup is done (or was not needed). The

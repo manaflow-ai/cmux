@@ -796,6 +796,61 @@ fn a_swap_start_that_never_finished_rolls_back_at_a_later_failed_start() {
 }
 
 #[test]
+fn an_owner_refuses_to_start_beside_a_backup_it_cannot_put_back() {
+    let dir = state_dir("no-restore");
+    let session = "oc-no-restore";
+    let prepared = prepare(&dir.0, session);
+    stage(&dir.0, session, "stage").stop();
+    let owner = Owner::start(&dir.0, session, "swap", &[]);
+    owner.wait_for_log("output cleanup: swapped the registry");
+    owner.stop();
+    let registry = &prepared.registry;
+    let previous = sidecar(registry, ".pre-output-cleanup");
+    let backup = fs::read(&previous).unwrap();
+
+    // As a swap interrupted after it moved the registry aside: only the
+    // backup is left, beside the shared-memory file of the new registry. It
+    // must be moved aside first, and a file where the recovery directory
+    // goes makes that fail, so the backup cannot be put back. (A WAL with
+    // data would be refused by the orphaned-journal check on its own.)
+    fs::remove_file(registry).unwrap();
+    let _ = fs::remove_file(sidecar(registry, "-wal"));
+    fs::write(sidecar(registry, "-shm"), b"index of the new registry").unwrap();
+    let blocker = registry.parent().unwrap().join("registry-recovery");
+    fs::write(&blocker, b"not a directory").unwrap();
+
+    let socket = dir.0.join("mux.sock");
+    let _ = fs::remove_file(&socket);
+    let mut child = command(&dir.0)
+        .args(["--headless", "--session", session, "--socket"])
+        .arg(&socket)
+        .env("CMUX_TUI_TEST_OUTPUT_CLEANUP_DELAY_MS", NEVER)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let Some(status) = child.wait_timeout(Duration::from_secs(60)).unwrap() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        panic!("the owner served beside the backup instead of refusing");
+    };
+    let mut stderr = String::new();
+    std::io::Read::read_to_string(&mut child.stderr.take().unwrap(), &mut stderr).unwrap();
+    assert!(!status.success(), "the owner must refuse: {stderr}");
+    assert!(stderr.contains(".pre-output-cleanup"), "the error names the backup: {stderr}");
+    assert!(!registry.exists(), "no empty registry was created: {stderr}");
+    assert_eq!(fs::read(&previous).unwrap(), backup, "the backup stays as it was");
+
+    // With the obstacle gone, the next start puts the backup back and serves.
+    fs::remove_file(&blocker).unwrap();
+    let owner = Owner::start(&dir.0, session, "restored", &[]);
+    owner.wait_for_log("restored the registry after an interrupted swap");
+    assert_eq!(workspaces(&owner), prepared.workspaces, "the session is back");
+    owner.stop();
+}
+
+#[test]
 fn a_restore_preview_reads_across_a_pruned_tail() {
     let dir = state_dir("tail");
     let session = "oc-tail";

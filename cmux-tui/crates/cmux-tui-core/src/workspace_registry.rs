@@ -2522,8 +2522,11 @@ impl WorkspaceRegistry {
             Ok(())
         });
         // A swap that failed after it moved the registry aside left only
-        // the backup: put it back before anything opens db_path.
+        // the backup: put it back before anything opens db_path. If that
+        // fails, refuse: an open now would create an empty registry beside
+        // the only copy of the session.
         output_cleanup::restore_interrupted_swap(&db_path);
+        output_cleanup::refuse_open_beside_backup(&db_path)?;
         // The locks stay held across a failed open and its rollback: no
         // other owner can open either file in between.
         let mut session_guard = Some(session_guard);

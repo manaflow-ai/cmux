@@ -140,10 +140,43 @@ pub(crate) fn roll_back_swap(db_path: &Path, error: &anyhow::Error) {
     write_failure_marker(db_path, &format!("the new registry did not serve: {error:#}"));
 }
 
+/// Refuses an open while the registry exists only as the backup of a swap
+/// (the restore of an interrupted swap failed). The error names the backup.
+pub(crate) fn refuse_open_beside_backup(db_path: &Path) -> anyhow::Result<()> {
+    let previous = previous_path(db_path);
+    anyhow::ensure!(
+        db_path.exists() || !previous.is_file(),
+        "the workspace registry exists only as the output cleanup backup {}; it could not be \
+         put back in place (see the log above). Move it to {} by hand to start this session",
+        previous.display(),
+        db_path.display()
+    );
+    Ok(())
+}
+
+/// The registry at `db_path` is the one a swap made from the backup: same
+/// registry id, and the swap's completion record. A registry created in its
+/// place (another id, or no record) never lets the backup be removed or
+/// counts a start for it.
+fn is_swapped_registry(db_path: &Path) -> bool {
+    let read = |path: &Path, key: &str| -> Option<String> {
+        open_registry_database_read_only(path)
+            .ok()?
+            .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| {
+                row.get::<_, String>(0)
+            })
+            .ok()
+    };
+    let current = read(db_path, "registry_id");
+    current.is_some()
+        && current == read(&previous_path(db_path), "registry_id")
+        && read(db_path, DONE_META_KEY).is_some_and(|value| value.contains("\"kept\""))
+}
+
 /// A previous registry exists and no owner got through a full start on the
 /// registry that replaced it: a failed owner build may still roll back.
 pub(crate) fn rollback_possible(db_path: &Path) -> bool {
-    if !previous_path(db_path).is_file() || !db_path.is_file() {
+    if !previous_path(db_path).is_file() || !db_path.is_file() || !is_swapped_registry(db_path) {
         return false;
     }
     open_registry_database_read_only(db_path)
@@ -167,7 +200,14 @@ pub(crate) fn note_full_start(db_path: &Path) {
     if !previous_path(db_path).exists() {
         return;
     }
-    let noted = (|| -> anyhow::Result<()> {
+    if !is_swapped_registry(db_path) {
+        eprintln!(
+            "cmux-tui: output cleanup: the registry is not the one made from {}; it stays",
+            previous_path(db_path).display()
+        );
+        return;
+    }
+    let note = || -> anyhow::Result<()> {
         let connection = open_registry_database_with_flags(
             db_path,
             OpenFlags::default().difference(OpenFlags::SQLITE_OPEN_CREATE),
@@ -179,8 +219,10 @@ pub(crate) fn note_full_start(db_path: &Path) {
             [FULL_STARTS_META_KEY],
         )?;
         Ok(())
-    })();
-    if let Err(error) = noted {
+    };
+    // Once more after a failure (a busy registry); the next full start
+    // records it otherwise, and the backup stays until then.
+    if let Err(error) = note().or_else(|_| note()) {
         eprintln!("cmux-tui: output cleanup: could not record the start: {error:#}");
     }
 }
@@ -191,6 +233,13 @@ pub(crate) fn note_full_start(db_path: &Path) {
 pub(crate) fn remove_previous_registry_when_started(db_path: &Path) {
     let previous = previous_path(db_path);
     if !previous.exists() {
+        return;
+    }
+    if !is_swapped_registry(db_path) {
+        eprintln!(
+            "cmux-tui: output cleanup: kept {}: the registry is not the one made from it",
+            previous.display()
+        );
         return;
     }
     let started = open_registry_database_read_only(db_path)
