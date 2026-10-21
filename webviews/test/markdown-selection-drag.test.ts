@@ -25,9 +25,8 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-const ENTRY_PATH = "src/pages/markdown/markdown.gallery.ts";
-
 await requireBrowserLane("markdown-selection-drag.test.ts", async () => {
+  const ENTRY_PATH = "src/pages/markdown/markdown.gallery.ts";
   // Half the runner's limit per file (scripts/ci/run-webviews-tests.sh): a stuck step fails as its
   // own test, by name, instead of the runner killing the file with no failure in its log.
   setDefaultTimeout(60_000);
