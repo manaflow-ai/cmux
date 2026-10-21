@@ -81,13 +81,19 @@ async function mount(props: Parameters<typeof ContextRing>[0]) {
 
 const card = () => document.querySelector<HTMLElement>(".acpmux-context-card");
 
+/// Lets React and the hover timers run, one macrotask at a time, until `done` or `capMs` passes.
+async function until(done: () => boolean, capMs = 3000) {
+  const deadline = Date.now() + capMs;
+  while (!done() && Date.now() < deadline) await wait();
+}
+
 test("resting the pointer on the ring shows the card without a click", async () => {
   const ring = await mount({ used: 111_000, size: 475_000 });
   expect(card()).toBeNull();
   await act(async () => {
     ring.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
   });
-  await wait(1200);
+  await until(() => card() !== null);
   expect(card()).not.toBeNull();
   expect(document.querySelector(".acpmux-context-pop")).toBeNull();
 });
@@ -148,7 +154,8 @@ test("with nowhere to open, the card has no Details link", async () => {
 test("before the first usage report the ring is inert and shows no card", async () => {
   const ring = await mount({});
   await act(async () => ring.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true })));
-  await wait(1200);
+  // fixed-wait: proving no card shows means outwaiting the hover delay (450 ms) once.
+  await wait(600);
   expect(card()).toBeNull();
 });
 
