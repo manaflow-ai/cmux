@@ -1,13 +1,13 @@
 import AppKit
 import CmuxNextDesign
 
-/// The bubble's card: the theme's glass at Chrome's 12-point radius, hosting the content edge to
-/// edge. The host draws the popup shadow around it (``PopupHostView``).
+/// The bubble's card: the theme's glass at the popover radius (``PopupStyle``), hosting the content
+/// edge to edge. The host draws the popup shadow around it (``PopupHostView``).
 final class ExtensionsMenuCardView: NSView {
     let glass: OverlaySurfaceView
     let content: ExtensionsMenuView
 
-    init(content: ExtensionsMenuView, style: ExtensionsMenuStyle = .chrome) {
+    init(content: ExtensionsMenuView, style: ExtensionsMenuStyle = .standard) {
         self.content = content
         glass = Glass.makeOverlayPanel(content: content, cornerRadius: style.cornerRadius)
         super.init(frame: content.frame)
