@@ -47,6 +47,16 @@
       "title" : "Chat Full Width",
       "type" : "boolean"
     },
+    "agentPane.display.inspector.placement" : {
+      "default" : "overlay",
+      "description" : "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+      "enum" : [
+        "push",
+        "overlay"
+      ],
+      "title" : "Inspector",
+      "type" : "string"
+    },
     "agentPane.display.width" : {
       "default" : 800,
       "description" : "The widest the chat's column gets. On a wider pane the chat stays centered.",
@@ -872,17 +882,6 @@
       "title" : "Focused Pane",
       "type" : "string"
     },
-    "appearance.glass" : {
-      "default" : "lens",
-      "description" : "How glass surfaces bend the wallpaper behind them. Plain Glass blurs only. Reduce Transparency and Low Power Mode use Plain Glass.",
-      "enum" : [
-        "lens",
-        "plain",
-        "spectrum"
-      ],
-      "title" : "Glass",
-      "type" : "string"
-    },
     "appearance.glassTransparency" : {
       "default" : 0,
       "description" : "How much of the desktop or wallpaper shows through the glass.",
@@ -1619,6 +1618,16 @@
       "title" : "Toolbar Buttons",
       "type" : "array"
     },
+    "browser.toolbarPosition" : {
+      "default" : "top",
+      "description" : "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward.",
+      "enum" : [
+        "top",
+        "bottom"
+      ],
+      "title" : "Browser Toolbar Position",
+      "type" : "string"
+    },
     "browser.urlsToAlwaysOpenExternally" : {
       "default" : [
 
@@ -2298,6 +2307,15 @@
       "title" : "Character",
       "type" : "string"
     },
+    "home.server" : {
+      "default" : "hosted",
+      "description" : "Direct messages and group chats use cmux Cloud by default. A self-hosted server is reached over Tailscale by its MagicDNS name, for example http://mini.tail1234.ts.net:7320. No password is sent: the server knows you by your Tailscale login. Also accepts a dictionary {\"selfHosted\": \"http(s)://host[:port]\"} in a raw profile.",
+      "enum" : [
+        "hosted"
+      ],
+      "title" : "Server",
+      "type" : "string"
+    },
     "labs.classicHome" : {
       "default" : false,
       "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
@@ -2673,6 +2691,18 @@
       "title" : "Pulse Duration",
       "type" : "number"
     },
+    "notifications.attention.flash" : {
+      "default" : true,
+      "description" : "Clicking an unread pane, typing in it or jumping to it flashes its ring as it goes.",
+      "title" : "Flash the Pane When Read",
+      "type" : "boolean"
+    },
+    "notifications.attention.flashOnTyping" : {
+      "default" : true,
+      "description" : "notifications.attention.flashOnTyping",
+      "title" : "Flash When Typing Reads It",
+      "type" : "boolean"
+    },
     "notifications.attention.moveToTop" : {
       "default" : false,
       "description" : "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
@@ -2785,6 +2815,17 @@
       },
       "title" : "Quiet Hours",
       "type" : "object"
+    },
+    "notifications.showPreviews" : {
+      "default" : "whenUnlocked",
+      "description" : "Whether a banner shows what the agent said, or only where and what state.",
+      "enum" : [
+        "always",
+        "whenUnlocked",
+        "never"
+      ],
+      "title" : "Show Message in Banners",
+      "type" : "string"
     },
     "notifications.sound" : {
       "default" : "default",
@@ -3082,6 +3123,12 @@
       ],
       "title" : "Keep Mac Awake While Agents Work",
       "type" : "string"
+    },
+    "sessions.promptSuggestions" : {
+      "default" : false,
+      "description" : "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it.",
+      "title" : "Suggest Follow-Up Tasks",
+      "type" : "boolean"
     },
     "sessions.resumeAgents" : {
       "default" : true,
@@ -3384,8 +3431,8 @@
     },
     "sidebar.showChats" : {
       "default" : true,
-      "description" : "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar.",
-      "title" : "Show All Chats",
+      "description" : "On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only.",
+      "title" : "Show All Chats on New Tab",
       "type" : "boolean"
     },
     "sidebar.showProfileControl" : {
@@ -3940,7 +3987,7 @@
     },
     "tabs.barOrder" : {
       "default" : "aboveToolbar",
-      "description" : "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it.",
+      "description" : "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it.",
       "enum" : [
         "aboveToolbar",
         "belowToolbar"
@@ -4020,6 +4067,12 @@
       "default" : false,
       "description" : "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused.",
       "title" : "Swap Cmd-T and Cmd-N",
+      "type" : "boolean"
+    },
+    "tabs.terminalFirst" : {
+      "default" : false,
+      "description" : "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page.",
+      "title" : "New Tabs and Splits Open a Terminal",
       "type" : "boolean"
     },
     "tabs.toolbarButtons" : {
@@ -4289,7 +4342,7 @@
       "type" : "boolean"
     },
     "workspaces.newPlacement" : {
-      "default" : "top",
+      "default" : "afterCurrent",
       "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",
       "enum" : [
         "top",

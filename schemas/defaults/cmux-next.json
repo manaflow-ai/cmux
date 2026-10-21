@@ -283,7 +283,6 @@
     "setting.appearance.density": "compact",
     "setting.appearance.experimentalControls": false,
     "setting.appearance.focusIndicator": "tabs",
-    "setting.appearance.glass": "lens",
     "setting.appearance.glassTransparency": 0,
     "setting.appearance.hue": 0.5,
     "setting.appearance.inactiveWindowDim": 0,
