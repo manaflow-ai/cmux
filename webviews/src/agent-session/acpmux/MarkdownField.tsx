@@ -20,7 +20,7 @@ import { baseKeymap, chainCommands, selectAll } from "@milkdown/kit/prose/comman
 import { redo, redoDepth, undo, undoDepth } from "@milkdown/kit/prose/history";
 import { keymap } from "@milkdown/kit/prose/keymap";
 import { splitListItem } from "@milkdown/kit/prose/schema-list";
-import { Plugin, TextSelection } from "@milkdown/kit/prose/state";
+import { type EditorState, Plugin, Selection, TextSelection } from "@milkdown/kit/prose/state";
 import type { Node as ProseNode } from "@milkdown/kit/prose/model";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
@@ -125,6 +125,9 @@ const trailingSpaces = (view: EditorView) => /[ \t]+$/.exec(view.state.doc.lastC
 
 /** HTML/JSX copied from a code editor is plain text, even when its clipboard advertises HTML. */
 const looksLikeMarkupText = (text: string) => /<>|<\/?[A-Za-z][\w.-]*(?:\s[^<>]*)?\/?>(?=\s|$|[.,;:!?)]|<)/.test(text);
+
+/// How long after a focus with no click the browser's own caret placement is overruled.
+const KEEP_CARET_MS = 100;
 
 /** The document as the prompt's markdown, keeping the spaces typed at its end. */
 function promptMarkdown(editor: Editor | undefined, view: EditorView): string {
@@ -254,6 +257,9 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   const touched = useRef(false);
   // Focus asked for before the editor exists is applied once it does.
   const pendingFocus = useRef(false);
+  // The selection to put back when the field gets focus again without a click, and until when the
+  // browser's own placement right after that focus is overruled (see `keepCaret`).
+  const refocus = useRef<{ doc: ProseNode; selection: Selection; until: number } | null>(null);
   const surfacePlugins = useRef(plugins);
   const lines = useRef(multiline);
   const empty = useRef<HTMLSpanElement>(null);
@@ -377,6 +383,80 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           }),
         }),
     );
+    // WebKit clears the selection when the web view gives the keyboard to the app (another pane,
+    // tab or workspace, the palette) and, taking it back, puts a contenteditable's caret at its
+    // start; ProseMirror took that as the person's caret, and the next keys landed at the front. A
+    // textarea gets its selection back. So does the field now: a focus that no click placed puts
+    // back the selection it had, also over a placement the browser makes just after the focus.
+    const keepCaret = $prose(() => {
+      const kept = (state: EditorState) => {
+        const saved = refocus.current;
+        if (!saved || !state.doc.eq(saved.doc)) return null;
+        // The same document: the saved selection (text, node or all) holds as it was.
+        const selection = Selection.fromJSON(state.doc, saved.selection.toJSON());
+        return selection.eq(state.selection) ? null : selection;
+      };
+      const leave = (editorView: EditorView) => {
+        const { doc, selection } = editorView.state;
+        refocus.current = { doc, selection, until: 0 };
+      };
+      const enter = (editorView: EditorView) => {
+        if (!refocus.current) return;
+        refocus.current.until = performance.now() + KEEP_CARET_MS;
+        const selection = kept(editorView.state);
+        if (selection) editorView.dispatch(editorView.state.tr.setSelection(selection));
+      };
+      // The web view letting go of the keyboard may blur only the window, the editor keeping focus.
+      const focused = (editorView: EditorView) => editorView.dom.contains(document.activeElement);
+      return new Plugin({
+        view: (editorView) => {
+          const windowBlur = () => {
+            if (focused(editorView)) leave(editorView);
+          };
+          const windowFocus = () => {
+            if (focused(editorView)) enter(editorView);
+          };
+          window.addEventListener("blur", windowBlur);
+          window.addEventListener("focus", windowFocus);
+          return {
+            destroy: () => {
+              window.removeEventListener("blur", windowBlur);
+              window.removeEventListener("focus", windowFocus);
+            },
+          };
+        },
+        props: {
+          handleDOMEvents: {
+            mousedown: () => {
+              refocus.current = null;
+              return false;
+            },
+            keydown: () => {
+              refocus.current = null;
+              return false;
+            },
+            blur: (editorView) => {
+              leave(editorView);
+              return false;
+            },
+            focus: (editorView) => {
+              enter(editorView);
+              return false;
+            },
+          },
+        },
+        appendTransaction: (transactions, _previous, state) => {
+          const saved = refocus.current;
+          if (!saved || performance.now() > saved.until) return null;
+          if (transactions.some((tr) => tr.docChanged)) {
+            refocus.current = null;
+            return null;
+          }
+          const selection = kept(state);
+          return selection ? state.tr.setSelection(selection) : null;
+        },
+      });
+    });
     const blockKeys = $prose(() =>
       keymap({
         "Shift-Enter": (state, dispatch, editorView) => {
@@ -408,6 +488,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
       })
       .use(composerKeys)
       .use(surfacePlugins.current.map((plugin) => $prose(() => plugin)))
+      .use(keepCaret)
       .use(blockKeys)
       .use(commonmark)
       .use(gfm)
@@ -480,6 +561,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         setCaret: (offset) => {
           const current = view.current;
           if (!current) return;
+          refocus.current = null;
           const { doc } = current.state;
           const first = doc.firstChild;
           // Inside the first paragraph when it is one; past a longer offset (or another block), the end.
@@ -491,6 +573,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         caret: () => (view.current ? caretOf(view.current) : 0),
         type: (markdown) => {
           if (!editor.current) return;
+          refocus.current = null;
           // Not `known`: the view plugin reports the change as the user's.
           setDocument(markdown);
           const current = view.current;
@@ -512,6 +595,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         writeText: (value, selectionStart, selectionEnd) => {
           const current = view.current;
           if (!current) return;
+          refocus.current = null;
           const { doc } = current.state;
           const old = doc.textBetween(0, doc.content.size, "\n", "\n");
           // Only the span that changed is replaced, so formatting around it stays.
@@ -549,6 +633,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           if (view.current) redo(view.current.state, view.current.dispatch);
         },
         selectAll: () => {
+          refocus.current = null;
           if (view.current) selectAll(view.current.state, view.current.dispatch);
         },
         element: () => wrapper.current,
