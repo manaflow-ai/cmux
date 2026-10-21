@@ -14,12 +14,32 @@ extension HomeService {
     /// The people New Message offers: team members, then people of the
     /// user's DMs, then the user's Chiefs. The cloud source learns their
     /// names for new groups.
+    /// An archived Chief is left out, as the Home list hides its conversation.
     func contacts() -> [HomeContact] {
         let me = homeStore.me?.id ?? homeSource.me.id
         let team = directory.teamMembers
         cloudSource.remember(team.map { Participant(id: $0.id, kind: .human, displayName: $0.name) })
-        return HomeContact.merged(team: team, connections: HomeContact.connections(in: homeStore.rows, me: me),
-                                  agents: HomeContact.agents(in: homeStore.rows, me: me))
+        let rows = TopHomePageView.visible(homeStore.rows, archivedChiefs: directory.archivedChiefs, me: me)
+        return HomeContact.merged(team: team, connections: HomeContact.connections(in: rows, me: me),
+                                  agents: HomeContact.agents(in: rows, me: me))
+    }
+
+    /// The Chiefs New Message lists before anything is typed: those not chosen yet, the main Chief first.
+    func newMessageChiefs(_ draft: HomeNewMessageDraft) -> [HomeContact] {
+        let chiefs = draft.chiefShortcuts(contacts: contacts())
+        guard let main = chiefRoster.main, let row = homeStore.rows.first(where: { $0.id == main }) else { return chiefs }
+        let isMain = { (chief: HomeContact) in row.summary.participants.contains { $0.id == chief.id } }
+        return chiefs.filter(isMain) + chiefs.filter { !isMain($0) }
+    }
+
+    /// How New Message's list draws `recipient`: a Chief's avatar and where it runs, as the Home
+    /// list tags it ("Main · Cloud", "This Mac"), so two Chiefs named alike tell apart.
+    func recipientLook(_ recipient: HomeRecipient) -> HomeRecipientLook {
+        guard case .contact(let contact) = recipient, contact.source == .agent else { return HomeRecipientLook() }
+        let id = contact.id.rawValue
+        let row = homeStore.rows.first { $0.kind == .chief && $0.summary.participants.contains { $0.id == contact.id } }
+        let tag = row.flatMap { chiefRoster.tag(for: $0.id, engine: ChiefBackend.badge(for: directory.chiefHarnesses[id])) }
+        return HomeRecipientLook(avatar: directory.chiefAvatars[id] ?? HomeHostView.defaultTileAvatar, tag: tag)
     }
 
     /// Starts a DM or a group; the page shows it once the inbox lists it.

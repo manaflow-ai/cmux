@@ -6,8 +6,11 @@ import CmuxNextDesign
 /// the draft (``HomeNewMessageDraft``) and the suggestion list under it:
 /// typing suggests people, Return / comma / Tab make the text a token (the
 /// highlighted suggestion when there is one), Backspace with nothing typed
-/// removes the last token, Up / Down move through the suggestions. Return or
-/// Tab with nothing typed hands the keyboard to the message box.
+/// removes the last token, Up / Down move through the suggestions. Before
+/// anyone is chosen and while nothing is typed, the list offers the Chiefs
+/// (``idleSuggestions``) with nothing highlighted until Down. Return with
+/// nothing typed chooses the highlighted suggestion, else (and Tab) hands
+/// the keyboard to the message box.
 public final class HomeRecipientField: NSView, NSTextFieldDelegate {
     /// The draft changed (a token added or removed, or the typed text).
     public var onChange: (HomeNewMessageDraft) -> Void = { _ in }
@@ -17,6 +20,8 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
     public var onEscape: () -> Void = {}
     /// The people the field suggests (read on each change).
     public var contacts: () -> [HomeContact] = { [] }
+    /// What the list offers before anyone is chosen or typed (the Chiefs, main first).
+    public var idleSuggestions: () -> [HomeContact] = { [] }
 
     public private(set) var draft = HomeNewMessageDraft()
     /// The suggestions under the field; the page places it (it overlaps the content).
@@ -99,14 +104,15 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
     }
 
     /// The typed text becomes a token: the highlighted suggestion, else what it parses as.
+    /// With nothing typed only a highlighted suggestion is chosen.
     @discardableResult
     public func commit() -> Bool {
         let typed = text.stringValue.trimmingCharacters(in: HomeNewMessageDraft.separators)
-        guard !typed.isEmpty else { return false }
         if let pick = suggestions.highlightedItem, !suggestions.isHidden {
             choose(pick)
             return true
         }
+        guard !typed.isEmpty else { return false }
         draft.query = typed
         draft.commit(contacts: contacts())
         text.stringValue = ""
@@ -159,9 +165,14 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
         onChange(draft)
     }
 
-    private func refreshSuggestions() {
+    /// Shows the suggestions for the typed text; before anyone is chosen or typed, the Chiefs.
+    public func refreshSuggestions() {
         guard !browsing else { return }
-        suggestions.show(draft.suggestions(contacts: contacts()))
+        if draft.isEmpty {
+            suggestions.show(idleSuggestions().map(HomeRecipient.contact), highlightFirst: false)
+        } else {
+            suggestions.show(draft.suggestions(contacts: contacts()))
+        }
         superview?.needsLayout = true
     }
 
@@ -202,7 +213,8 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
             suggestions.move(-1)
             return true
         case #selector(NSResponder.cancelOperation(_:)):
-            if !suggestions.isHidden {
+            // The Chiefs offered before anything is typed stay: Escape goes to the page.
+            if !suggestions.isHidden, browsing || !draft.isEmpty {
                 browsing = false
                 suggestions.show([])
                 return true
