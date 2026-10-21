@@ -1367,6 +1367,26 @@ class SideLanes(unittest.TestCase):
         self.assertNotIn("rerun", api.calls)
         self.assertIn("also failed for a reason that is not a refusal", outcome)
 
+    def test_a_cmux_next_attempt_two_on_blacksmith_gets_no_redundant_rerun(self):
+        # The rescue's attempt 2 overflows to a free Blacksmith slot. A job kept from attempt 1 still
+        # names the mini label, but nothing of attempt 2 waits on the fleet, so a long Blacksmith
+        # queue is never moved again as attempt 3.
+        kept = job("cmux-next swift test", status="completed", labels=[SIDE], runner="mini-1-glaeda-1")
+        kept.update(conclusion="success", started_at=stamp(-3600), completed_at=stamp(-1800))
+
+        def jobs(seconds):
+            moved = job("cmux app scheme compile (Debug)", labels=[BLACKSMITH], created=0,
+                        status="completed" if seconds >= 1800 else "queued")
+            if seconds >= 1800:
+                moved["conclusion"] = "success"
+            return [kept, moved]
+
+        api, outcome, log = self.follow_cmux_next_attempt_two(jobs)
+        self.assertNotIn("cancel", api.calls, log)
+        self.assertNotIn("rerun", api.calls, log)
+        self.assertNotIn("rerun-failed", api.calls, log)
+        self.assertTrue(outcome.startswith("stopped"), outcome)
+
     def test_a_bot_attempt_three_is_outside_the_owned_pool_sweep(self):
         self.assertFalse(rescue.owned_rerun({"path": rescue.CMUX_NEXT_WORKFLOW_PATH, "run_attempt": 3,
                                              "triggering_actor": {"login": rescue.RESCUE_ACTOR}}))
