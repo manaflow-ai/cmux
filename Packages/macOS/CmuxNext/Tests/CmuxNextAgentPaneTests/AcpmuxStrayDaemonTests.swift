@@ -70,8 +70,8 @@ struct AcpmuxStrayDaemonTests {
         #expect(!AcpmuxStrayDaemon.isStray(runningPath: nil, executable: own))
     }
 
-    // A launchd job that runs the stray daemon (or a wrapper of it) would start it again after
-    // the hand-off: it is found by its pid in the user domain's services and booted out first.
+    // A launchd job that runs the stray daemon would start it again after the hand-off: it is
+    // found by its pid in the user domain's services and booted out first.
     @Test func theLaunchdJobThatRunsTheStrayDaemonIsFoundByItsPid() {
         let domain = """
         gui/501 = {
@@ -80,6 +80,7 @@ struct AcpmuxStrayDaemonTests {
         \t\t       0      0 \tcom.apple.idle
         \t\t    4242      - \tcom.acpmux.daemon
         \t\t    4300      0 \tcom.example.wrapper
+        \t\t    4400      0 \tapplication.com.github.wez.wezterm.1.2
         \t\t       -     78 \tcom.example.stopped
         \t}
         \tendpoints = {
@@ -90,6 +91,8 @@ struct AcpmuxStrayDaemonTests {
         #expect(AcpmuxStrayDaemon.labels(runningAnyOf: [4242], fromDomainPrint: domain) == ["com.acpmux.daemon"])
         #expect(AcpmuxStrayDaemon.labels(runningAnyOf: [4242, 4300], fromDomainPrint: domain) == ["com.acpmux.daemon", "com.example.wrapper"])
         #expect(AcpmuxStrayDaemon.labels(runningAnyOf: [9], fromDomainPrint: domain).isEmpty)
+        // An app that runs that pid (a terminal that started the daemon itself) is never booted out.
+        #expect(AcpmuxStrayDaemon.labels(runningAnyOf: [4400], fromDomainPrint: domain).isEmpty)
         let printed = "gui/501/com.acpmux.daemon = {\n\tactive count = 1\n\tstate = running\n\tpid = 4242\n}\n"
         #expect(AcpmuxStrayDaemon.pid(fromLaunchctlPrint: printed) == 4242)
         #expect(AcpmuxStrayDaemon.pid(fromLaunchctlPrint: "gui/501/x = {\n\tstate = not running\n}\n") == nil)

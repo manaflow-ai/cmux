@@ -28,8 +28,8 @@ nonisolated enum AcpmuxStrayDaemon {
     }
 
     /// Labels of the jobs in `launchctl print gui/<uid>`'s `services` list whose pid is one of
-    /// `pids` (the daemon, or a wrapper that runs it). Each row is `PID STATUS LABEL`; a job that
-    /// does not run shows pid 0 or `-`.
+    /// `pids`. Each row is `PID STATUS LABEL`; a job that does not run shows pid 0 or `-`. An app
+    /// (`application.*`) is never one: booting it out would quit it.
     static func labels(runningAnyOf pids: Set<Int32>, fromDomainPrint output: String) -> [String] {
         var inServices = false
         var labels: [String] = []
@@ -41,7 +41,9 @@ nonisolated enum AcpmuxStrayDaemon {
             }
             if text == "}" { break }
             let columns = text.split(whereSeparator: { $0 == " " || $0 == "\t" })
-            if columns.count >= 3, let pid = Int32(columns[0]), pid > 1, pids.contains(pid) { labels.append(String(columns[2])) }
+            if columns.count >= 3, let pid = Int32(columns[0]), pid > 1, pids.contains(pid), !columns[2].hasPrefix("application.") {
+                labels.append(String(columns[2]))
+            }
         }
         return labels
     }
@@ -69,9 +71,10 @@ nonisolated enum AcpmuxStrayDaemon {
         }
         guard handedOff.withLock({ $0.insert(pid).inserted }) else { return false }
         logger.info("acpmux \(pid) at \(path, privacy: .public) is not this app's; taking it over")
-        if await bootOutLaunchdJob(runningPID: pid) {
-            // launchd's SIGTERM detaches its agents like a shutdown.
-            return await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
+        // launchd's SIGTERM detaches its agents like a shutdown. A bootout that fails falls back
+        // to the shutdown request.
+        if await bootOutLaunchdJob(runningPID: pid), await AgentPaneProcessExit(pid: pid).event(within: .seconds(15)) {
+            return true
         }
         do {
             try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
@@ -83,13 +86,14 @@ nonisolated enum AcpmuxStrayDaemon {
         return await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
     }
 
-    /// Boots out this user's launchd job that runs daemon `runningPID` (or its parent, a wrapper),
-    /// so KeepAlive does not start the stray daemon again. It is not disabled: `acpmux host setup`
+    /// Boots out this user's launchd job whose own process is daemon `runningPID` (`acpmux host
+    /// setup`'s `com.acpmux.daemon` runs it directly), so KeepAlive does not start it again. Not
+    /// its parent: that may be a terminal or another job that only started it, and a bootout
+    /// would end it. It is not disabled: `acpmux host setup`
     /// and `update` bootstrap that same agent, and launchd refuses to bootstrap a disabled one. A
     /// later login may start it again; the app takes it over again then. True when it booted one out.
     static func bootOutLaunchdJob(runningPID: Int32) async -> Bool {
-        var pids: Set<Int32> = [runningPID]
-        if let parent = parentPID(runningPID), parent > 1 { pids.insert(parent) }
+        let pids: Set<Int32> = [runningPID]
         let domain = "gui/\(getuid())"
         for label in labels(runningAnyOf: pids, fromDomainPrint: await launchctl(["print", domain]).output) {
             // The job's own record must name the same process: the list is a snapshot.
@@ -99,14 +103,6 @@ nonisolated enum AcpmuxStrayDaemon {
             return await launchctl(["bootout", "\(domain)/\(label)"]).status == 0
         }
         return false
-    }
-
-    /// The parent of `pid` (`pbi_ppid`), nil when unknown.
-    static func parentPID(_ pid: Int32) -> Int32? {
-        var info = proc_bsdinfo()
-        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
-        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
-        return Int32(bitPattern: info.pbi_ppid)
     }
 
     private static func launchctl(_ arguments: [String]) async -> (status: Int32, output: String) {
