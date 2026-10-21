@@ -7,6 +7,8 @@
 // 6fe9ab414ee: the reply dropped 35px and slid back when the tool call came (the glide moved the
 // whole thread by what grew, also above the reply), and the view dropped 54px when the queue card
 // left the stack, then rose again as its prompt arrived.
+// A queued prompt deleted from the queue never comes in as a row: the view goes back to its end at
+// once, with no card-high gap held under the last row (held for a second after #22858).
 // A reader who scrolls up while it streams is left where they scrolled: in WebKit the wheel moves the
 // offset a frame before its scroll event, and a snapshot landing between them put the view back at
 // the latest row (on base, 3 runs in 6).
@@ -253,6 +255,23 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     });
   const scrollTop = (page: Page) =>
     page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
+  /// Where the view comes to rest: Linux WebKit animates a wheel step over several frames,
+  /// so a read at a fixed delay can land mid-glide. Resolves once scrollTop holds for 200ms.
+  const settledScrollTop = (page: Page) =>
+    page.evaluate(
+      () =>
+        new Promise<number>((resolve) => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          let last = scroller.scrollTop;
+          let since = performance.now();
+          const tick = (now: number) => {
+            if (scroller.scrollTop !== last) [last, since] = [scroller.scrollTop, now];
+            if (now - since >= 200) resolve(last);
+            else requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
 
   test.each(engines.map(([name]) => name))(
     "%s: the reply only moves up as a tool call, the working line and the queue card come and go",
@@ -309,8 +328,7 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
           wheeled = page.mouse
             .move(box.x + box.width / 2, box.y + 120)
             .then(() => page.mouse.wheel(0, -400))
-            .then(() => page.waitForTimeout(150))
-            .then(() => scrollTop(page));
+            .then(() => settledScrollTop(page));
       });
       const left = await wheeled!;
       endTurn();
@@ -318,6 +336,75 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       expect({ kept: Math.abs((await scrollTop(page)) - left) <= 1, behind: (await fromEnd(page)) > 200 }).toEqual({
         kept: true,
         behind: true,
+      });
+      await page.close();
+    },
+  );
+
+  /// How far the last row sits above the bottom stack's top.
+  const gapAbove = (page: Page) =>
+    page.evaluate(() => {
+      const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-scroll .acpmux-row")];
+      const last = rows.reduce((a, b) =>
+        Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a,
+      );
+      return Math.round(
+        document.querySelector(".acpmux-dock")!.getBoundingClientRect().top - last.getBoundingClientRect().bottom,
+      );
+    });
+
+  test.each(engines.map(([name]) => name))(
+    "%s: a queued prompt deleted while the turn runs a tool leaves no gap for long",
+    async (name) => {
+      const page = await open(name);
+      const turn = events.length;
+      await stream(`p-${turn}`, `Busy turn ${turn}`, `Busy marker ${turn}`, 30, (index) => {
+        if (index === 10) enqueue(`q-${turn}`, "never mind this one either");
+      });
+      // The turn runs a tool: nothing streams while the prompt is deleted.
+      toolCall(`t-${turn}`);
+      await page.waitForTimeout(400);
+      const resting = await gapAbove(page);
+      unqueue("queue_removed", `q-${turn}`);
+      await page.locator(".acpmux-queued").waitFor({ state: "detached" });
+      await page.waitForTimeout(600);
+      const gap = await gapAbove(page);
+      toolDone(`t-${turn}`);
+      endTurn();
+      // The last row rests on the stack's top again, a card's height lower, well before a second.
+      expect({ gap: Math.abs(gap - resting) <= 4, atEnd: (await fromEnd(page)) <= 4 }).toEqual({
+        gap: true,
+        atEnd: true,
+      });
+      await page.close();
+    },
+  );
+
+  test.each(engines.flatMap(([name]) => [`${name} event first`, `${name} queue first`]))(
+    "%s: a deleted queued prompt leaves no gap under the last row",
+    async (label) => {
+      const [name, order] = label.split(" ");
+      const page = await open(name!);
+      const turn = events.length;
+      await stream(`p-${turn}`, `Delete turn ${turn}`, `Delete marker ${turn}`, 30);
+      endTurn();
+      await page.waitForTimeout(400);
+      const resting = await gapAbove(page);
+      enqueue(`q-${turn}`, "never mind this one");
+      await page.locator(".acpmux-queued").waitFor();
+      await page.waitForTimeout(300);
+      if (order === "queue") {
+        // acpmux's queue update can come before its `queue_removed` record.
+        queue = [];
+        changed();
+        await page.waitForTimeout(30);
+        emit("mux", "queue_removed", { promptId: `q-${turn}` });
+      } else unqueue("queue_removed", `q-${turn}`);
+      await page.locator(".acpmux-queued").waitFor({ state: "detached" });
+      await page.waitForTimeout(300);
+      expect({ gap: Math.abs((await gapAbove(page)) - resting) <= 4, atEnd: (await fromEnd(page)) <= 4 }).toEqual({
+        gap: true,
+        atEnd: true,
       });
       await page.close();
     },

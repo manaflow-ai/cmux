@@ -63,7 +63,7 @@ struct SidebarScrollProfile {
     }
 
     /// Not a check: where a scroll spends its time when notifications move workspaces to the top
-    /// (`notifications.attention.moveToTop`, on by default) every few frames.
+    /// (`notifications.attention.moveToTop`, an opt-in) every few frames.
     @Test func profileOfASidebarScrollWithMovesToTop() async throws {
         let bench = SidebarScrollBench(count: 500, pointerOverList: true)
         defer { bench.close() }

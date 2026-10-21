@@ -77,10 +77,11 @@ import Testing
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let menu = NSMenu()
         let row = NSMenuItem()
-        row.view = WorkspaceColorSwatchView(title: "Color", choices: [])
+        let strip = MenuSwatchStrip(title: "Color", choices: [], colors: [], current: nil)
+        row.view = MenuIdentityHeaderView(field: nil, strip: strip)
         menu.addItem(row)
         menu.themeRows(in: scope)
-        let view = try #require(row.view)
+        let view: NSView = strip
         let hover = view.responds(to: NSSelectorFromString("hoverRingColor")) ? view.value(forKey: "hoverRingColor") as? NSColor : nil
         let ring = try #require(hover, "the row resolves its hover ring in the menu's scope")
         #expect(ThemedOverlayColorsTests.same(ring, scope.perform { Palette.accent }), "\(ring)")
