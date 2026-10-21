@@ -33,7 +33,7 @@ per tab: browser_footprint_mb 156, browser_rss_mb 408, browser_threads 46
 | setup.terminals | 10 |
 | stop.quit_ms | 734 |
 
-- note: wakeups_per_s relabelled after the run: the runner at 0ef3a1a15771 recorded ri_interrupt_wkups as interrupt_wakeups_per_s and ri_pkg_idle_wkups (0 on Apple silicon) as wakeups_per_s; this file moves interrupt wakeups to wakeups_per_s, as the runner does from 67ffdd0689bd on. No value was changed.
+- note: wakeups_per_s relabelled after the run: the runner at 0ef3a1a15771 recorded ri_interrupt_wkups as interrupt_wakeups_per_s and ri_pkg_idle_wkups (0 on Apple silicon) as wakeups_per_s; this file moves interrupt wakeups to wakeups_per_s, as the landed runner records it. No value was changed.
 
 ### S0 headless-tui (seed 1)
 
@@ -56,7 +56,7 @@ per terminal: cmux_footprint_mb 9.17, cmux_rss_mb 21.18, cmux_threads 15.77, tui
 | stop.leftover_terminal_hosts | 0 |
 | stop.shutdown_end_terminals_ms | 347 |
 
-- note: wakeups_per_s relabelled after the run: the runner at 0ef3a1a15771 recorded ri_interrupt_wkups as interrupt_wakeups_per_s and ri_pkg_idle_wkups (0 on Apple silicon) as wakeups_per_s; this file moves interrupt wakeups to wakeups_per_s, as the runner does from 67ffdd0689bd on. No value was changed.
+- note: wakeups_per_s relabelled after the run: the runner at 0ef3a1a15771 recorded ri_interrupt_wkups as interrupt_wakeups_per_s and ri_pkg_idle_wkups (0 on Apple silicon) as wakeups_per_s; this file moves interrupt wakeups to wakeups_per_s, as the landed runner records it. No value was changed.
 
 ### S1 app (seed 1)
 
@@ -115,7 +115,7 @@ after (30.11 s window)
 | stop.quit_ms | 2,588 |
 
 - note: S1: the terminals are tabs of one pane: one is visible, the others ingest output in the daemon only
-- note: wakeups_per_s relabelled after the run: the runner at 0ef3a1a15771 recorded ri_interrupt_wkups as interrupt_wakeups_per_s and ri_pkg_idle_wkups (0 on Apple silicon) as wakeups_per_s; this file moves interrupt wakeups to wakeups_per_s, as the runner does from 67ffdd0689bd on. No value was changed.
+- note: wakeups_per_s relabelled after the run: the runner at 0ef3a1a15771 recorded ri_interrupt_wkups as interrupt_wakeups_per_s and ri_pkg_idle_wkups (0 on Apple silicon) as wakeups_per_s; this file moves interrupt wakeups to wakeups_per_s, as the landed runner records it. No value was changed.
 
 ### S1 headless-tui (seed 1)
 
@@ -156,55 +156,56 @@ flood10 (1009.67 s window)
 | stop.leftover_terminal_hosts | 0 |
 | stop.shutdown_end_terminals_ms | 4,335 |
 
-- note: wakeups_per_s relabelled after the run: the runner at 0ef3a1a15771 recorded ri_interrupt_wkups as interrupt_wakeups_per_s and ri_pkg_idle_wkups (0 on Apple silicon) as wakeups_per_s; this file moves interrupt wakeups to wakeups_per_s, as the runner does from 67ffdd0689bd on. No value was changed.
+- note: wakeups_per_s relabelled after the run: the runner at 0ef3a1a15771 recorded ri_interrupt_wkups as interrupt_wakeups_per_s and ri_pkg_idle_wkups (0 on Apple silicon) as wakeups_per_s; this file moves interrupt wakeups to wakeups_per_s, as the landed runner records it. No value was changed.
 
 ### S2 app (seed 1)
 
-host `cmuxs-MacBook-Pro-2` (class `cmux-lawrence-2`, Apple M5 Pro, 15 cores, 48 GB, 27.0.1), load [27.78, 46.36, 41.72] -> [3.91, 23.33, 32.74]; build tag `p100base2` sha `0ef3a1a15771`; wall 255.2 s
+host `cmuxs-MacBook-Pro-2` (class `cmux-lawrence-2`, Apple M5 Pro, 15 cores, 48 GB, 27.0.1), load [5.55, 3.78, 6.17] -> [5.83, 4.69, 6.04]; build tag `p100base4` sha `5e67ec46d167`; wall 205.4 s
 
-idle (30.12 s window)
+idle (30.11 s window)
 
 | group | CPU s | CPU % | wakeups/s | RSS MB | footprint MB | peak MB | threads | written MB | written MB/min | procs |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| **cmux** | 0.069 | 0.228 | 8.36 | 1,487 | 753 | 843 | 447 | 0 | 0 | 37 |
-| app | 0.007 | 0.023 | 2.52 | 350 | 140 | 140 | 15 | 0 | 0 | 1 |
-| tui | 0.002 | 0.006 | 0.13 | 342 | 168 | 168 | 244 | 0 | 0 | 12 |
-| acpmux | 0 | 0 | 0 | 240 | 102 | 102 | 109 | 0 | 0 | 14 |
-| browser | 0.059 | 0.196 | 3.42 | 508 | 314 | 404 | 58 | 0 | 0 | 6 |
-| helpers | 0.001 | 0.003 | 2.29 | 46.8 | 29.5 | 29.5 | 21 | 0 | 0 | 4 |
-| agents | 0 | 0 | 0 | 110 | 73.9 | 73.9 | 10 | 0 | 0 | 10 |
+| **cmux** | 0.013 | 0.044 | 7.08 | 1,495 | 755 | 756 | 433 | 0 | 0 | 37 |
+| app | 0.007 | 0.022 | 1.83 | 353 | 141 | 141 | 17 | 0 | 0 | 1 |
+| tui | 0.001 | 0.005 | 0.13 | 342 | 168 | 168 | 245 | 0 | 0 | 12 |
+| acpmux | 0 | 0 | 0 | 241 | 103 | 103 | 109 | 0 | 0 | 14 |
+| browser | 0.004 | 0.014 | 2.86 | 513 | 314 | 315 | 41 | 0 | 0 | 6 |
+| helpers | 0.001 | 0.003 | 2.26 | 46.3 | 28.9 | 28.9 | 21 | 0 | 0 | 4 |
+| agents | 0 | 0 | 0 | 114 | 77.8 | 77.8 | 10 | 0 | 0 | 10 |
 | workload | 0 | 0 | 0 | 37 | 24.4 | 24.4 | 10 | 0 | 0 | 10 |
 
-per session: cmux_footprint_mb 75.34, cmux_rss_mb 149, cmux_threads 44.7, acpmux_footprint_mb 10.24, acpmux_rss_mb 24.05, acpmux_threads 10.9, browser_footprint_mb 31.42, browser_rss_mb 50.78, browser_threads 5.8, agents_footprint_mb 7.39, agents_rss_mb 10.97, agents_threads 1
+per session: cmux_footprint_mb 75.51, cmux_rss_mb 149, cmux_threads 43.3, acpmux_footprint_mb 10.27, acpmux_rss_mb 24.12, acpmux_threads 10.9, browser_footprint_mb 31.41, browser_rss_mb 51.27, browser_threads 4.1, agents_footprint_mb 7.78, agents_rss_mb 11.35, agents_threads 1
 
-stream (78.05 s window)
+stream (78.04 s window)
 
 | group | CPU s | CPU % | wakeups/s | RSS MB | footprint MB | peak MB | threads | written MB | written MB/min | procs |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| **cmux** | 24.86 | 31.86 | 410 | 1,760 | 989 | 1,312 | 450 | 15.78 | 12.13 | 37 |
-| app | 3.34 | 4.28 | 121 | 348 | 133 | 140 | 22 | 0.109 | 0.084 | 1 |
-| tui | 0.08 | 0.103 | 0.18 | 341 | 160 | 168 | 244 | 6.1 | 4.69 | 12 |
-| acpmux | 2.14 | 2.74 | 235 | 244 | 105 | 105 | 110 | 9.49 | 7.29 | 14 |
-| browser | 19.3 | 24.73 | 51.57 | 780 | 562 | 872 | 53 | 0.074 | 0.057 | 6 |
-| helpers | 0.002 | 0.003 | 2.31 | 46.8 | 29.5 | 29.5 | 21 | 0 | 0 | 4 |
-| agents | 0.584 | 0.748 | 115 | 115 | 78.9 | 80 | 10 | 0 | 0 | 10 |
-| workload | 0 | 0 | 0 | 36.9 | 24.5 | 24.5 | 10 | 0 | 0 | 10 |
+| **cmux** | 25.11 | 32.18 | 426 | 1,742 | 990 | 1,298 | 453 | 16.27 | 12.51 | 37 |
+| app | 3.45 | 4.42 | 128 | 351 | 130 | 142 | 21 | 0.117 | 0.09 | 1 |
+| tui | 0.091 | 0.116 | 0.18 | 342 | 158 | 168 | 245 | 6 | 4.61 | 12 |
+| acpmux | 2.25 | 2.89 | 242 | 245 | 104 | 104 | 110 | 10.1 | 7.77 | 14 |
+| browser | 19.31 | 24.75 | 53.07 | 758 | 568 | 866 | 56 | 0.055 | 0.042 | 6 |
+| helpers | 0.002 | 0.003 | 2.32 | 46.3 | 28.9 | 28.9 | 21 | 0 | 0 | 4 |
+| agents | 0.593 | 0.76 | 118 | 119 | 83.4 | 83.7 | 10 | 0 | 0 | 10 |
+| workload | 0 | 0 | 0 | 37 | 24.4 | 24.4 | 10 | 0 | 0 | 10 |
 
 | metric | value |
 |---|---:|
 | disk.stop.home_mb | 126 |
-| launch.socket_ms | 1,335 |
+| latency.token_to_page.max_ms | 21.6 |
+| latency.token_to_page.p50_ms | 12.41 |
+| latency.token_to_page.p95_ms | 21.6 |
+| launch.socket_ms | 3,535 |
 | setup.agents | 10 |
-| setup.seconds | 4.25 |
-| stop.quit_ms | 737 |
-| stream.cmux_cpu_s_per_session | 2.49 |
-| stream.cmux_disk_written_mb_per_session | 1.58 |
+| setup.seconds | 2.15 |
+| stop.quit_ms | 653 |
+| stream.cmux_cpu_s_per_session | 2.51 |
+| stream.cmux_disk_written_mb_per_session | 1.63 |
 | stream.sessions_ended | 10 |
-| stream.wall_s | 77.96 |
+| stream.wall_s | 77.95 |
 
-- note: token_to_screen: 0 of 20 markers seen on the agent page
-- note: wakeups_per_s relabelled after the run: the runner at 0ef3a1a15771 recorded ri_interrupt_wkups as interrupt_wakeups_per_s and ri_pkg_idle_wkups (0 on Apple silicon) as wakeups_per_s; this file moves interrupt wakeups to wakeups_per_s, as the runner does from 67ffdd0689bd on. No value was changed.
-- UNVERIFIED: token_to_screen reads the agent page text with debug.page state; a page whose text it cannot read leaves the metric empty
+- UNVERIFIED: token-to-screen pixels: S2 measures token-to-page (the agent pane's chat state); the paint after it is not measured
 
 ### S2 headless-acpmux-10 (seed 1)
 
@@ -255,7 +256,7 @@ stream (78.11 s window)
 | stream.text_mb | 0.293 |
 | stream.wall_s | 78 |
 
-- note: wakeups_per_s relabelled after the run: the runner at 0ef3a1a15771 recorded ri_interrupt_wkups as interrupt_wakeups_per_s and ri_pkg_idle_wkups (0 on Apple silicon) as wakeups_per_s; this file moves interrupt wakeups to wakeups_per_s, as the runner does from 67ffdd0689bd on. No value was changed.
+- note: wakeups_per_s relabelled after the run: the runner at 0ef3a1a15771 recorded ri_interrupt_wkups as interrupt_wakeups_per_s and ri_pkg_idle_wkups (0 on Apple silicon) as wakeups_per_s; this file moves interrupt wakeups to wakeups_per_s, as the landed runner records it. No value was changed.
 
 ### S2 headless-acpmux-100 (seed 1)
 
@@ -306,7 +307,7 @@ stream (78.73 s window)
 | stream.text_mb | 2.46 |
 | stream.wall_s | 78.64 |
 
-- note: wakeups_per_s relabelled after the run: the runner at 0ef3a1a15771 recorded ri_interrupt_wkups as interrupt_wakeups_per_s and ri_pkg_idle_wkups (0 on Apple silicon) as wakeups_per_s; this file moves interrupt wakeups to wakeups_per_s, as the runner does from 67ffdd0689bd on. No value was changed.
+- note: wakeups_per_s relabelled after the run: the runner at 0ef3a1a15771 recorded ri_interrupt_wkups as interrupt_wakeups_per_s and ri_pkg_idle_wkups (0 on Apple silicon) as wakeups_per_s; this file moves interrupt wakeups to wakeups_per_s, as the landed runner records it. No value was changed.
 
 ### S3 app (seed 1)
 
@@ -353,7 +354,7 @@ per workspace: cmux_footprint_mb 10.12, cmux_rss_mb 21.97, cmux_threads 14.62, a
 | stop.quit_ms | 4,535 |
 
 - note: S3: 200 x 5 terminals exceed the PTYs this job may take (300); ran 200 x 1
-- note: wakeups_per_s relabelled after the run: the runner at 0ef3a1a15771 recorded ri_interrupt_wkups as interrupt_wakeups_per_s and ri_pkg_idle_wkups (0 on Apple silicon) as wakeups_per_s; this file moves interrupt wakeups to wakeups_per_s, as the runner does from 67ffdd0689bd on. No value was changed.
+- note: wakeups_per_s relabelled after the run: the runner at 0ef3a1a15771 recorded ri_interrupt_wkups as interrupt_wakeups_per_s and ri_pkg_idle_wkups (0 on Apple silicon) as wakeups_per_s; this file moves interrupt wakeups to wakeups_per_s, as the landed runner records it. No value was changed.
 - UNVERIFIED: S3 at 1000 terminals in the app: PTY cap 300 on this host
 
 ### S3 headless-tui (seed 1)
@@ -392,101 +393,122 @@ per terminal: cmux_footprint_mb 5.22, cmux_rss_mb 14.71, cmux_threads 13.18, tui
 | stop.shutdown_end_terminals_ms | 3,650 |
 
 - note: S3: 1000 terminals exceed the free PTYs (300); ran 200 x 1
-- note: wakeups_per_s relabelled after the run: the runner at 0ef3a1a15771 recorded ri_interrupt_wkups as interrupt_wakeups_per_s and ri_pkg_idle_wkups (0 on Apple silicon) as wakeups_per_s; this file moves interrupt wakeups to wakeups_per_s, as the runner does from 67ffdd0689bd on. No value was changed.
+- note: wakeups_per_s relabelled after the run: the runner at 0ef3a1a15771 recorded ri_interrupt_wkups as interrupt_wakeups_per_s and ri_pkg_idle_wkups (0 on Apple silicon) as wakeups_per_s; this file moves interrupt wakeups to wakeups_per_s, as the landed runner records it. No value was changed.
 - UNVERIFIED: S3 at 1000 terminals: this host's PTY limit allows 300
 
 ### S4 app (seed 1)
 
-host `cmuxs-MacBook-Pro-2` (class `cmux-lawrence-2`, Apple M5 Pro, 15 cores, 48 GB, 27.0.1), load [2.12, 12.91, 26.24] -> [8.38, 7.21, 19.22]; build tag `p100base2` sha `0ef3a1a15771`; wall 313.9 s
+host `cmuxs-MacBook-Pro-2` (class `cmux-lawrence-2`, Apple M5 Pro, 15 cores, 48 GB, 27.0.1), load [5.83, 4.69, 6.04] -> [22.81, 8.0, 6.87]; build tag `p100base4` sha `5e67ec46d167`; wall 207.3 s
 
-create (43.91 s window)
-
-| group | CPU s | CPU % | wakeups/s | RSS MB | footprint MB | peak MB | threads | written MB | written MB/min | procs |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| **cmux** | 55.14 | 126 | 224 | 4,314 | 2,171 | 2,171 | 2931 | 1,945 | 2,658 | 213 |
-| app | 37.98 | 86.49 | 194 | 648 | 668 | 668 | 83 | 0 | 0 | 1 |
-| tui | 16.81 | 38.28 | 18.76 | 3,178 | 1,204 | 1,204 | 2760 | 1,945 | 2,658 | 201 |
-| acpmux | 0.133 | 0.302 | 0.05 | 52.8 | 23.6 | 23.6 | 40 | 0 | 0 | 2 |
-| browser | 0.005 | 0.011 | 1.89 | 409 | 258 | 258 | 39 | 0 | 0 | 6 |
-| helpers | 0.214 | 0.486 | 9.34 | 26.3 | 18.5 | 18.5 | 9 | 0 | 0 | 3 |
-| workload | 1.91 | 4.35 | 17.6 | 738 | 486 | 486 | 199 | 0 | 0 | 199 |
-
-idle (60.16 s window)
+create (44.17 s window)
 
 | group | CPU s | CPU % | wakeups/s | RSS MB | footprint MB | peak MB | threads | written MB | written MB/min | procs |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| **cmux** | 0.042 | 0.069 | 4.75 | 4,256 | 1,971 | 2,047 | 2927 | 0 | 0 | 213 |
-| app | 0.03 | 0.049 | 2.16 | 607 | 466 | 543 | 79 | 0 | 0 | 1 |
-| tui | 0.003 | 0.005 | 0.13 | 3,162 | 1,205 | 1,205 | 2760 | 0 | 0 | 201 |
-| acpmux | 0 | 0 | 0 | 52.6 | 23.6 | 23.6 | 40 | 0 | 0 | 2 |
-| browser | 0.009 | 0.015 | 2.46 | 408 | 257 | 258 | 39 | 0 | 0 | 6 |
-| helpers | 0 | 0 | 0 | 26.3 | 18.4 | 18.5 | 9 | 0 | 0 | 3 |
-| workload | 0 | 0 | 0 | 734 | 489 | 489 | 199 | 0 | 0 | 199 |
+| **cmux** | 55.8 | 126 | 242 | 4,324 | 2,178 | 2,178 | 2931 | 1,933 | 2,626 | 213 |
+| app | 38.26 | 86.61 | 210 | 658 | 679 | 679 | 82 | 0.305 | 0.414 | 1 |
+| tui | 17.15 | 38.82 | 18.81 | 3,176 | 1,202 | 1,202 | 2760 | 1,933 | 2,625 | 201 |
+| acpmux | 0.134 | 0.302 | 0.02 | 52.9 | 23.8 | 23.8 | 40 | 0 | 0 | 2 |
+| browser | 0.037 | 0.084 | 4.14 | 410 | 255 | 353 | 40 | 0 | 0 | 6 |
+| helpers | 0.222 | 0.502 | 9.15 | 27 | 18.7 | 18.8 | 9 | 0 | 0 | 3 |
+| workload | 1.96 | 4.43 | 14.92 | 738 | 486 | 486 | 199 | 0 | 0 | 199 |
 
-per terminal: cmux_footprint_mb 9.85, cmux_rss_mb 21.28, cmux_threads 14.63, tui_footprint_mb 6.03, tui_rss_mb 15.81, tui_threads 13.8, app_footprint_mb 2.33, app_rss_mb 3.04, app_threads 0.4
+idle (60.14 s window)
 
-per workspace: cmux_footprint_mb 9.85, cmux_rss_mb 21.28, cmux_threads 14.63, app_footprint_mb 2.33, app_rss_mb 3.04, app_threads 0.4
+| group | CPU s | CPU % | wakeups/s | RSS MB | footprint MB | peak MB | threads | written MB | written MB/min | procs |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| **cmux** | 0.024 | 0.039 | 2.99 | 4,324 | 1,977 | 1,977 | 2926 | 0 | 0 | 213 |
+| app | 0.012 | 0.019 | 1.21 | 657 | 477 | 477 | 79 | 0 | 0 | 1 |
+| tui | 0.004 | 0.007 | 0.13 | 3,176 | 1,202 | 1,202 | 2760 | 0 | 0 | 201 |
+| acpmux | 0 | 0 | 0 | 52.9 | 23.8 | 23.8 | 40 | 0 | 0 | 2 |
+| browser | 0.008 | 0.013 | 1.65 | 410 | 255 | 255 | 38 | 0 | 0 | 6 |
+| helpers | 0 | 0 | 0 | 27 | 18.7 | 18.7 | 9 | 0 | 0 | 3 |
+| workload | 0 | 0 | 0 | 738 | 486 | 486 | 199 | 0 | 0 | 199 |
+
+per terminal: cmux_footprint_mb 9.88, cmux_rss_mb 21.62, cmux_threads 14.63, tui_footprint_mb 6.01, tui_rss_mb 15.88, tui_threads 13.8, app_footprint_mb 2.39, app_rss_mb 3.29, app_threads 0.4
+
+per workspace: cmux_footprint_mb 9.88, cmux_rss_mb 21.62, cmux_threads 14.63, app_footprint_mb 2.39, app_rss_mb 3.29, app_threads 0.4
+
+restart (2.99 s window)
+
+| group | CPU s | CPU % | wakeups/s | RSS MB | footprint MB | peak MB | threads | written MB | written MB/min | procs |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| **cmux** | 2.65 | 88.37 | 204 | 4,001 | 2,074 | 2,075 | 2851 | 1.07 | 21.4 | 213 |
+| app | 1.67 | 55.7 | 156 | 342 | 280 | 477 | 33 | 0.32 | 6.42 | 1 |
+| tui | 0.102 | 3.41 | 0.67 | 3,158 | 1,201 | 1,202 | 2685 | 0.2 | 4.02 | 201 |
+| acpmux | 0.048 | 1.6 | 3.34 | 52.7 | 23.4 | 23.8 | 45 | 0.496 | 9.95 | 2 |
+| browser | 0.826 | 27.59 | 44.1 | 420 | 550 | 551 | 79 | 0.051 | 1.02 | 6 |
+| helpers | 0.002 | 0.082 | 0 | 28.4 | 20 | 20 | 9 | 0 | 0 | 3 |
+| workload | 0 | 0.004 | 0 | 735 | 489 | 489 | 199 | 0 | 0 | 199 |
 
 | metric | value |
 |---|---:|
-| cold.quit_end_sessions_ms | 94.3 |
-| cold.socket_ms | 1,240 |
-| create.seconds | 43.79 |
+| cold.launch_to_interactive_ms | 11,478 |
+| cold.quit_end_sessions_ms | 181 |
+| cold.socket_ms | 1,259 |
+| create.seconds | 44.04 |
 | create.terminals | 200 |
 | create.workspaces | 200 |
-| restart.quit_keep_sessions_ms | 178 |
+| disk.stop.home_mb | 237 |
+| latency.launch_to_interactive.cold_ms | 11,478 |
+| latency.launch_to_interactive.restart_ms | 2,330 |
+| restart.launch_to_all_workspaces_ms | 2,340 |
+| restart.launch_to_interactive_ms | 2,330 |
+| restart.quit_keep_sessions_ms | 506 |
+| restart.terminals | 200 |
+| stop.quit_ms | 0.2 |
 
+- note: S4 cold: the launch window had no terminal tab; launch-to-interactive includes a New Tab
 - note: S3: 200 x 5 terminals exceed the PTYs this job may take (300); ran 200 x 1
-- note: wakeups_per_s relabelled after the run: the runner at 0ef3a1a15771 recorded ri_interrupt_wkups as interrupt_wakeups_per_s and ri_pkg_idle_wkups (0 on Apple silicon) as wakeups_per_s; this file moves interrupt wakeups to wakeups_per_s, as the runner does from 67ffdd0689bd on. No value was changed.
 - UNVERIFIED: S3 at 1000 terminals in the app: PTY cap 300 on this host
+- UNVERIFIED: S4 restart-to-update: quit with sessions kept and launch of the same build; the Sparkle install and UpdateWindowHandoff path are not exercised
+- UNVERIFIED: cold.launch_to_interactive_ms 11478.5 includes a 10 s harness wait for a terminal the launch window never showed (fixed in db68ce4fa021); the true cold value is not in this baseline
 
 ### S4 headless-tui (seed 1)
 
-host `cmuxs-MacBook-Pro-2` (class `cmux-lawrence-2`, Apple M5 Pro, 15 cores, 48 GB, 27.0.1), load [6.92, 21.64, 23.67] -> [13.55, 17.94, 21.88]; build tag `p100base2` sha `0ef3a1a15771`; wall 108.3 s
+host `cmuxs-MacBook-Pro-2` (class `cmux-lawrence-2`, Apple M5 Pro, 15 cores, 48 GB, 27.0.1), load [22.81, 8.0, 6.87] -> [18.98, 9.02, 7.29]; build tag `p100base4` sha `5e67ec46d167`; wall 109.0 s
 
-create (15.66 s window)
+create (16.59 s window)
 
 | group | CPU s | CPU % | wakeups/s | RSS MB | footprint MB | peak MB | threads | written MB | written MB/min | procs |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| **cmux** | 7.9 | 50.44 | 72.23 | 2,938 | 1,040 | 1,040 | 2636 | 488 | 1,869 | 201 |
-| tui | 7.9 | 50.44 | 72.23 | 2,938 | 1,040 | 1,040 | 2636 | 488 | 1,869 | 201 |
-| workload | 3.19 | 20.37 | 63.16 | 749 | 493 | 493 | 202 | 0.051 | 0.195 | 201 |
+| **cmux** | 8.44 | 50.86 | 62.98 | 2,939 | 1,041 | 1,041 | 2636 | 477 | 1,725 | 201 |
+| tui | 8.44 | 50.86 | 62.98 | 2,939 | 1,041 | 1,041 | 2636 | 477 | 1,725 | 201 |
+| workload | 3.29 | 19.81 | 53.22 | 748 | 493 | 493 | 202 | 0.051 | 0.184 | 201 |
 
 idle (60.16 s window)
 
 | group | CPU s | CPU % | wakeups/s | RSS MB | footprint MB | peak MB | threads | written MB | written MB/min | procs |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| **cmux** | 0.001 | 0.002 | 0.17 | 2,919 | 1,040 | 1,040 | 2636 | 0 | 0 | 201 |
-| tui | 0.001 | 0.002 | 0.17 | 2,919 | 1,040 | 1,040 | 2636 | 0 | 0 | 201 |
-| workload | 0 | 0 | 0 | 746 | 496 | 496 | 202 | 0 | 0 | 201 |
+| **cmux** | 0.002 | 0.003 | 0.17 | 2,940 | 1,043 | 1,043 | 2636 | 0 | 0 | 201 |
+| tui | 0.002 | 0.003 | 0.17 | 2,940 | 1,043 | 1,043 | 2636 | 0 | 0 | 201 |
+| workload | 0 | 0 | 0 | 749 | 494 | 494 | 202 | 0 | 0 | 201 |
 
-per terminal: cmux_footprint_mb 5.2, cmux_rss_mb 14.6, cmux_threads 13.18, tui_footprint_mb 5.2, tui_rss_mb 14.6, tui_threads 13.18
+per terminal: cmux_footprint_mb 5.21, cmux_rss_mb 14.7, cmux_threads 13.18, tui_footprint_mb 5.21, tui_rss_mb 14.7, tui_threads 13.18
 
-restart (7.6 s window)
+restart (7.31 s window)
 
 | group | CPU s | CPU % | wakeups/s | RSS MB | footprint MB | peak MB | threads | written MB | written MB/min | procs |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| **cmux** | 3.44 | 45.34 | 29.62 | 249 | 214 | 1,041 | 632 | 160 | 1,261 | 1 |
-| tui | 3.44 | 45.34 | 29.62 | 249 | 214 | 1,041 | 632 | 160 | 1,261 | 1 |
-| workload | 0.022 | 0.284 | 0 | 9 | 6.4 | 496 | 2 | 0 | 0 | 1 |
+| **cmux** | 3.6 | 49.24 | 31.48 | 3,092 | 1,167 | 1,167 | 2625 | 145 | 1,191 | 201 |
+| tui | 3.6 | 49.24 | 31.48 | 3,092 | 1,167 | 1,167 | 2625 | 145 | 1,191 | 201 |
+| workload | 0.004 | 0.054 | 0 | 741 | 486 | 494 | 202 | 0 | 0 | 201 |
 
 | metric | value |
 |---|---:|
-| create.seconds | 15.56 |
+| create.seconds | 16.5 |
 | create.terminals | 200 |
-| create.terminals_per_s | 12.9 |
-| disk.state_mb | 14.84 |
-| latency.keystroke_to_echo_headless.max_ms | 0.26 |
-| latency.keystroke_to_echo_headless.p50_ms | 0.13 |
-| latency.keystroke_to_echo_headless.p95_ms | 0.19 |
-| restart.start_identify_ms | 6,833 |
-| restart.stop_keep_terminals_ms | 88.5 |
-| restart.to_topology_ms | 7,405 |
+| create.terminals_per_s | 12.1 |
+| disk.state_mb | 16.84 |
+| latency.keystroke_to_echo_headless.max_ms | 0.22 |
+| latency.keystroke_to_echo_headless.p50_ms | 0.12 |
+| latency.keystroke_to_echo_headless.p95_ms | 0.17 |
+| restart.start_identify_ms | 5,731 |
+| restart.stop_keep_terminals_ms | 89.2 |
+| restart.to_topology_ms | 7,100 |
 | restart.workspaces_after | 200 |
-| start.cold_identify_ms | 141 |
+| start.cold_identify_ms | 170 |
 | stop.leftover_terminal_hosts | 0 |
-| stop.shutdown_end_terminals_ms | 4,674 |
+| stop.shutdown_end_terminals_ms | 4,647 |
 
 - note: S3: 1000 terminals exceed the free PTYs (300); ran 200 x 1
-- note: wakeups_per_s relabelled after the run: the runner at 0ef3a1a15771 recorded ri_interrupt_wkups as interrupt_wakeups_per_s and ri_pkg_idle_wkups (0 on Apple silicon) as wakeups_per_s; this file moves interrupt wakeups to wakeups_per_s, as the runner does from 67ffdd0689bd on. No value was changed.
 - UNVERIFIED: S3 at 1000 terminals: this host's PTY limit allows 300
