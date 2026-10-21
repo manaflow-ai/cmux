@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextTabs
 import Foundation
 import Testing
 
@@ -80,6 +81,59 @@ struct AgentPaneRelaunchWakeTests {
         let third = Self.run(file: file, records: records)
         third.restoreWakeStates()
         #expect(third.wakeStates.isEmpty)
+    }
+
+    /// A restored New Tab page with chips from the last quit never adopts the prewarmed spare (its
+    /// handshake is long past): it gets a page of its own whose handshake carries them, and the
+    /// state is gone from the store, so no later page brings it back.
+    @Test func aRestoredNewTabPageGetsItsComposerInsteadOfTheSpare() async throws {
+        let store = DaemonStore()
+        var page = TabSnapshot(surface: 1, kind: .conversation, title: "about:blank", url: "about:blank")
+        page.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: Self.thisMac))
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [page])])
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(),
+                                 environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"], showcase: true)
+        tabs.localHost = Self.thisMac
+        tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }
+        let handler = NewTabPageHandler(open: { _, _ in }, jump: { _, _ in }, editShortcut: { _ in })
+        tabs.firstPageNewTab = { _, _ in (AgentPaneNewTab(kind: .agent), handler) }
+        tabs.blankChatHandler = { _ in handler }
+        let spare = try #require(tabs.makeSpare(AgentPaneNewTab(kind: .agent)))
+        tabs.takeSpare = { spare }
+        let key = try #require(store.tab(surface: 1)?.id)
+        tabs.wakeStates[key] = AgentPaneWakeState(shell: true, shellText: "npm run dev")
+
+        let view = try #require(tabs.view(for: key))
+        #expect(view !== spare, "the restored page adopted the spare and dropped its composer")
+        #expect(tabs.wakeStates[key] == nil, "the restored state stayed in the store")
+        let wake = try #require(try await Self.ready(view)["wake"] as? [String: Any], "the restored New Tab page lost its composer")
+        #expect(wake["shellText"] as? String == "npm run dev")
+    }
+
+    /// A live page that does not answer in time, or whose own ready has not come yet (only a
+    /// reconnect handshake), keeps the state it was built with instead of saving nothing.
+    @Test func aPageThatDoesNotAnswerKeepsItsState() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
+        let records = ["tab_slow": AgentSessionRef(host: Self.thisMac, hostName: "This Mac", session: "s-slow", harness: "claude")]
+        let tabs = Self.run(file: directory.appending(path: AgentPaneWakeStateFile.fileName), records: records)
+        let held = AgentPaneWakeState(shell: true, shellText: "cargo test")
+        tabs.wakeStates["tab_slow"] = held
+        let page = try #require(tabs.view(for: "tab_slow"))
+        _ = await page.model.respond(to: AgentPaneRequest(body: ["method": "reconnect"]))
+        var asked = 0
+        tabs.wakeStateReader = { _, _ in
+            asked += 1
+            return nil
+        }
+        #expect(await tabs.relaunchWakeStates()["tab_slow"] == held, "a page that had not taken its state dropped it")
+        #expect(asked == 0, "a page that had not taken its state was asked for one")
+
+        // After its ready, a page that does not answer in time keeps the tab's kept state.
+        _ = try await Self.ready(page)
+        tabs.wakeStates["tab_slow"] = held
+        #expect(await tabs.relaunchWakeStates()["tab_slow"] == held, "a page that did not answer in time saved nothing over it")
+        #expect(asked == 1)
     }
 
     /// A chat whose page holds nothing saves nothing, and with nothing held the file goes.
