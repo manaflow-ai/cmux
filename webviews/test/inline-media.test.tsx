@@ -178,6 +178,7 @@ describe("rendered replies", () => {
       paths: {
         "/tmp/shots/before.png": { place: "root", folder: false },
         "/tmp/shots/after.png": { place: "root", folder: false },
+        "/tmp/shots/slow.png": { place: "root", folder: false },
       },
       policy: { remoteImages: "click", outsideRoots: "confirm" },
     });
@@ -207,7 +208,7 @@ describe("rendered replies", () => {
   });
 
   test("an image still loading keeps its thumbnail frame, so nothing moves when it lands", async () => {
-    const { container, unmount } = await render("![Before](/tmp/shots/before.png)", "silent");
+    const { container, unmount } = await render("![Slow](/tmp/shots/slow.png)", "silent");
     expect(container.querySelector(".cv-thumb.is-waiting")).not.toBeNull();
     expect(container.querySelector("img")).toBeNull();
     await unmount();

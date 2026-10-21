@@ -303,7 +303,7 @@
     inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent);
   color: var(--cv-text-muted);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 button.cv-thumb {
   appearance: none;
@@ -361,7 +361,7 @@ button.cv-thumb:focus-visible {
 .cv-thumbs__caption {
   overflow: hidden;
   color: var(--cv-text-muted);
-  font-size: 12px;
+  font-size: var(--text-detail);
   line-height: 16px;
   text-align: center;
   text-overflow: ellipsis;
