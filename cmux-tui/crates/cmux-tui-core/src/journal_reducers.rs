@@ -338,7 +338,7 @@ pub(crate) struct HookFence {
     /// Whose approval, question or plan review the terminal waits on: the hook's
     /// `native_agent_id` (a subagent of the session), `""` for the session's own agent.
     /// Only a tool hook of that agent ends the wait (#22995); a parallel subagent's
-    /// tools do not. `None` while nothing waits, and in a fence written before it,
+    /// tools do not. One wait at a time: a second agent's wait replaces the first. `None` while nothing waits, and in a fence written before it,
     /// whose wait any tool hook of the session ends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) waiting_agent: Option<String>,
@@ -574,6 +574,17 @@ pub(crate) struct AgentRoster {
 }
 
 impl AgentRoster {
+    /// Whose wait the roster's fence of `terminal_id` holds for `session_id`
+    /// (`HookFence::waiting_agent`). The hook projector restores its fences from the durable
+    /// projection, which keeps no wait; it takes the wait from here at startup, so both
+    /// views end a wait on the same tool hook after a restart.
+    pub(crate) fn waiting_agent(&self, terminal_id: &str, session_id: &str) -> Option<&str> {
+        self.hook_fences
+            .get(terminal_id)
+            .filter(|fence| fence.session_id == session_id)
+            .and_then(|fence| fence.waiting_agent.as_deref())
+    }
+
     /// Fold one committed record. Deterministic: identical event sequences
     /// produce identical rosters, so a snapshot plus the journal tail always
     /// reproduces the live state.
