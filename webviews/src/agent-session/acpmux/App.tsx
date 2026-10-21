@@ -207,6 +207,7 @@ import {
   RENDER,
   THINKING,
   WORKED,
+  messageRevealTarget,
   turnFoldFor,
   turnFooterFrom,
   WORKING,
@@ -4362,19 +4363,18 @@ function AcpmuxPane() {
   counted.current = { runningAgents, runningCommands, runningSessions, sourceRows, transcriptRows, summaryCard };
   // A `?message=<id>` link's row (links.ts `revealMessageWhenShown`): the transcript scrolls it in
   // by its place in the chat, so a message far above the view works, where its element does not
-  // exist yet. One message can span several rows (a tool call splits it); the first drawn one wins.
-  // The reveal lets go after a moment, as a count's does: it stands in for Find's own target while
-  // it is set, and a target that never let go would scroll back to this row whenever its id is
-  // drawn again.
+  // exist yet. One message can span several rows (a tool call splits it); `messageRevealTarget`
+  // picks the one to scroll to. The reveal lets go after a moment, as a count's does: it stands in
+  // for Find's own target while it is set, and a target that never let go would scroll back to
+  // this row whenever its id is drawn again.
   showMessage.current = (messageId) => {
-    const rows = directClient.current?.rowsOfMessage(messageId) ?? [];
-    const { sourceRows: all } = counted.current;
-    const rowId = rows.find((id) => all.some((row) => row.id === id));
-    if (rowId === undefined) return undefined;
+    const { sourceRows: rows, transcriptRows: shown } = counted.current;
+    const target = messageRevealTarget(rows, shown, directClient.current?.rowsOfMessage(messageId) ?? []);
+    if (target === undefined) return undefined;
     const key = Date.now();
-    setRevealRow({ rowId, key, toolId: "" });
+    setRevealRow({ rowId: target.rowId, key, toolId: "" });
     setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
-    return rowId;
+    return target.rowId;
   };
   const workingCounts = useMemo<WorkingCounts>(() => {
     // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that

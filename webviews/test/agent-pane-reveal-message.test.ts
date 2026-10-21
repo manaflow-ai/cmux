@@ -14,6 +14,9 @@ import {
   revealedMessage,
   scrollToRow,
 } from "../src/agent-session/acpmux/links";
+import { findRowIndex } from "../src/agent-session/acpmux/conversation/chatFind";
+import { messageRevealTarget, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 
 function transcript(rowIds: string[]) {
   const window = new Window();
@@ -80,6 +83,74 @@ describe("revealing one message", () => {
     expect(scrollToRow("assistant-2", root)).toBe(true);
     expect(scrollToRow("assistant-3", root)).toBe(false);
     expect(scrolled).toEqual(["assistant-2"]);
+  });
+
+  test("scrolls to the copy an open fold draws of the row, which is the same row to a reader", () => {
+    const { root, scrolled } = transcript(["user-1", "assistant-2:fold"]);
+
+    expect(scrollToRow("assistant-2", root)).toBe(true);
+    expect(scrolled).toEqual(["assistant-2:fold"]);
+  });
+});
+
+/// A turn where the reply worked: the first half of the answer, a tool call, then the rest. Only
+/// the last row stays out of the turn's "Worked for" fold.
+function workedTurn(): AcpmuxRow[] {
+  let at = 0;
+  const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+    id,
+    kind,
+    version: 1,
+    at: (at += 1_000),
+    ...extra,
+  });
+  return [
+    row("user-1", "user", { text: "Are the tests green?" }),
+    row("assistant-2", "assistant", { text: "Let me check the tests." }),
+    row("activity-3", "activity", {
+      items: [{ kind: "tool", text: "", tool: { id: "bash-1", title: "bun test", status: "completed" } }],
+    }),
+    row("assistant-4", "assistant", { text: "All green." }),
+    row("turn-5", "turnSummary", { status: "completed", durationMs: 1_000 }),
+  ];
+}
+
+describe("where a revealed message's row is", () => {
+  const drawn = (rows: AcpmuxRow[], expanded: ReadonlySet<string> = new Set()) =>
+    turnView(rows, expanded, { now: 10_000 });
+
+  test("opens the turn's fold for a message whose every row the fold hides", () => {
+    // What a message that worked looks like: a tool call ends the reply it interrupts, so the
+    // message's first row is folded and the transcript cannot scroll to it as it stands.
+    const rows = workedTurn();
+    const shown = drawn(rows);
+    expect(findRowIndex(shown, "assistant-2")).toBe(-1);
+
+    expect(messageRevealTarget(rows, shown, ["assistant-2"])).toEqual({
+      rowId: "assistant-2",
+      fold: "worked-user-1",
+    });
+
+    // With that fold open the row is drawn, so there is nothing left to open.
+    const opened = drawn(rows, new Set(["worked-user-1"]));
+    expect(findRowIndex(opened, "assistant-2")).toBeGreaterThanOrEqual(0);
+    expect(messageRevealTarget(rows, opened, ["assistant-2"])).toEqual({ rowId: "assistant-2" });
+  });
+
+  test("takes the message's drawn row over a folded one, and opens nothing", () => {
+    // One message, two rows: the chunk before the tool call and the turn's answer after it.
+    const rows = workedTurn();
+
+    expect(messageRevealTarget(rows, drawn(rows), ["assistant-2", "assistant-4"])).toEqual({
+      rowId: "assistant-4",
+    });
+  });
+
+  test("leaves the view alone for a message none of the chat's rows carry", () => {
+    const rows = workedTurn();
+
+    expect(messageRevealTarget(rows, drawn(rows), [])).toBeUndefined();
+    expect(messageRevealTarget(rows, drawn(rows), ["assistant-9"])).toBeUndefined();
   });
 
   test("waits for the message the transcript has not replayed yet", async () => {

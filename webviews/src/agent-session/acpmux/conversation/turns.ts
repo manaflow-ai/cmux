@@ -605,6 +605,20 @@ export function turnFoldFor(rows: readonly AcpmuxRow[], index: number): string |
   return undefined;
 }
 
+/// Where to bring one message of the chat into view (a link's `message=<id>`, links.ts): the first
+/// of the message's rows this chat holds. Undefined when the chat's rows hold none of `messageRows`
+/// (another machine's transcript, or history not loaded yet).
+export function messageRevealTarget(
+  rows: readonly AcpmuxRow[],
+  drawn: readonly AcpmuxRow[],
+  messageRows: readonly string[],
+): { rowId: string; fold?: string } | undefined {
+  void drawn;
+  const places = messageRows.map((id) => rows.findIndex((row) => row.id === id)).filter((at) => at >= 0);
+  if (places.length === 0) return undefined;
+  return { rowId: rows[places[0]!]!.id };
+}
+
 /// The footer of the drawn turn that `rows[from]` is in (the turn's summary row), looking forward
 /// from it to the next turn's prompt; a steer drawn inside the turn does not end it.
 export function turnFooterFrom(rows: readonly AcpmuxRow[], from: number): string | undefined {
