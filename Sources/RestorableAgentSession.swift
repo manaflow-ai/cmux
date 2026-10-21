@@ -2350,6 +2350,16 @@ struct RestorableAgentSessionIndex: Sendable {
                     )
                 }
                 let liveProcessID = processObservation.processID
+                let savedSnapshot: SessionRestorableAgentSnapshot = {
+                    guard kind == .claude else { return snapshot }
+                    var savedSnapshot = snapshot
+                    savedSnapshot.launchCommand = claudeLaunchCommandNamingConfigDirectory(
+                        snapshot.launchCommand,
+                        liveProcessEnvironment: liveProcessID == nil ? nil : currentProcessArguments?.environment,
+                        transcriptPath: effectiveRecord.transcriptPath
+                    )
+                    return savedSnapshot
+                }()
                 let liveProcessIdentities: [Int: AgentPIDProcessIdentity]
                 if let liveProcessID,
                    let currentProcessIdentity,
@@ -2383,7 +2393,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 if let liveProcessID, let hookScope {
                     let processIDs = hookScope.processIDs.union([liveProcessID])
                     entry = Entry(
-                        snapshot: snapshot,
+                        snapshot: savedSnapshot,
                         stableSurfaceId: effectiveRecord.stableSurfaceId.flatMap(UUID.init(uuidString:)),
                         lifecycle: effectiveRecord.agentLifecycle,
                         updatedAt: effectiveRecord.updatedAt,
@@ -2406,7 +2416,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     )
                 } else {
                     entry = Entry(
-                        snapshot: snapshot,
+                        snapshot: savedSnapshot,
                         stableSurfaceId: effectiveRecord.stableSurfaceId.flatMap(UUID.init(uuidString:)),
                         lifecycle: effectiveRecord.agentLifecycle,
                         updatedAt: effectiveRecord.updatedAt,
@@ -2884,6 +2894,28 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
         normalizedNonEmptyValue(rawValue)
+    }
+
+    /// Names the `CLAUDE_CONFIG_DIR` a Claude session ran with when its launch
+    /// capture lost it (a sanitizer-rejected capture or an older record): the
+    /// verified live process's own environment, else the config directory that
+    /// holds its transcript. Never the app's environment, which restore would
+    /// otherwise fall back to and reopen the session under the wrong account.
+    private static func claudeLaunchCommandNamingConfigDirectory(
+        _ launchCommand: AgentLaunchCommandSnapshot?,
+        liveProcessEnvironment: [String: String]?,
+        transcriptPath: String?
+    ) -> AgentLaunchCommandSnapshot? {
+        guard var launchCommand,
+              normalizedNonEmptyValue(launchCommand.environment?["CLAUDE_CONFIG_DIR"]) == nil,
+              let configDirectory = normalizedNonEmptyValue(liveProcessEnvironment?["CLAUDE_CONFIG_DIR"])
+                ?? ClaudeConfigDirectoryPath.configDirectory(ofTranscriptPath: transcriptPath) else {
+            return launchCommand
+        }
+        var environment = launchCommand.environment ?? [:]
+        environment["CLAUDE_CONFIG_DIR"] = configDirectory
+        launchCommand.environment = environment
+        return launchCommand
     }
 
     /// Drops launch captures that cannot describe this agent kind: a capture
