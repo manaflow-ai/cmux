@@ -12,6 +12,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -229,9 +230,19 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
   // Increase Contrast keeps the shared ring at its offset.
   test("a footer chip under keyboard focus: hover wash, ring on its edge", async () => {
     const page = await open(2, "light");
+    await installPaintedFrames(page);
     await page.focus("#composer-field");
     await page.keyboard.press("Tab");
-    await page.waitForTimeout(400); // the wash's hover fade settles
+    // The wash's hover fade settles: a frame paints the focus, then its transitions run out.
+    await page.evaluate(async () => {
+      await window.cmuxPaintFrame();
+      await Promise.all(
+        document
+          .getElementById("composer-chip")!
+          .getAnimations()
+          .map((animation) => animation.finished.catch(() => undefined)),
+      );
+    });
     const chip = () =>
       page.evaluate(() => {
         const element = document.getElementById("composer-chip")!;
