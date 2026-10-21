@@ -343,6 +343,9 @@
          location = "group:CmuxTextActions">
       </FileRef>
       <FileRef
+         location = "group:CmuxTextMatching">
+      </FileRef>
+      <FileRef
          location = "group:CmuxUpdater">
       </FileRef>
       <FileRef

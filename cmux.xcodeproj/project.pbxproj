@@ -1699,6 +1699,8 @@
 		A5FB1A05 /* CmuxTextActionConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1A06 /* CmuxTextActionConfigTests.swift */; };
 		A5FB1A13 /* CmuxTextActions in Frameworks */ = {isa = PBXBuildFile; productRef = A5FB1A12 /* CmuxTextActions */; };
 		A5FB1A14 /* CmuxTextActions in Frameworks */ = {isa = PBXBuildFile; productRef = A5FB1A12 /* CmuxTextActions */; };
+		A5FB2B13 /* CmuxTextMatching in Frameworks */ = {isa = PBXBuildFile; productRef = A5FB2B12 /* CmuxTextMatching */; };
+		A5FB2B14 /* CmuxTextMatching in Frameworks */ = {isa = PBXBuildFile; productRef = A5FB2B12 /* CmuxTextMatching */; };
 		906900000000000000000002 /* CmuxTopMemoryAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906900000000000000000001 /* CmuxTopMemoryAttributionTests.swift */; };
 		906901000000000000000008 /* CmuxTopMemoryDiagnosticGroupAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906901000000000000000007 /* CmuxTopMemoryDiagnosticGroupAccumulator.swift */; };
 		C7A510000000000000000002 /* CmuxTopMemoryDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A510000000000000000001 /* CmuxTopMemoryDiagnostics.swift */; };
@@ -9534,6 +9536,7 @@
 				A1329A000000000000000102 /* CmuxTerminalSizing in Frameworks */,
 				CFF12E0000000000000000A3 /* CmuxTestSupport in Frameworks */,
 				A5FB1A13 /* CmuxTextActions in Frameworks */,
+				A5FB2B13 /* CmuxTextMatching in Frameworks */,
 				CDFEED0300000000CDFEED03 /* CmuxUpdater in Frameworks */,
 				CDFEED0600000000CDFEED06 /* CmuxUpdaterUI in Frameworks */,
 				5E55200000000000000000B3 /* CmuxWindowing in Frameworks */,
@@ -9639,6 +9642,7 @@
 				A1329B000000000000000103 /* CmuxTerminalSharing in Frameworks */,
 				A1329A000000000000000103 /* CmuxTerminalSizing in Frameworks */,
 				A5FB1A14 /* CmuxTextActions in Frameworks */,
+				A5FB2B14 /* CmuxTextMatching in Frameworks */,
 				730600040000000000000001 /* CmuxWindowing in Frameworks */,
 				A13296000000000000000103 /* CmuxWorkspacePresence in Frameworks */,
 				1A0B0C0D0E0F101112132214 /* IrohLib in Frameworks */,
@@ -14514,6 +14518,7 @@
 				D0F2A0000000000000000002 /* CmuxCloudBannerCore */,
 				CA9A10000000000000000002 /* CmuxProductAnalytics */,
 				A5FB1A12 /* CmuxTextActions */,
+				A5FB2B12 /* CmuxTextMatching */,
 				CE57E10000000000000000B2 /* CmuxSentryReporting */,
 				CE57E10000000000000000A2 /* CmuxSentryScrubbing */,
 				CC0DE00000000000000000A2 /* CmuxCore */,
@@ -14662,6 +14667,7 @@
 				CA9A10000000000000000002 /* CmuxProductAnalytics */,
 				D0F4A0000000000000000002 /* CmuxCloudTunnelCore */,
 				A5FB1A12 /* CmuxTextActions */,
+				A5FB2B12 /* CmuxTextMatching */,
 				A5001262 /* Bonsplit */,
 				D96973000000000000000001 /* CmuxSudoBroker */,
 				D96973000000000000000002 /* CmuxSudoBrokerUI */,
@@ -14810,6 +14816,7 @@
 				CA9A10000000000000000001 /* XCLocalSwiftPackageReference "CmuxProductAnalytics" */,
 				D0F4A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudTunnelCore" */,
 				A5FB1A11 /* XCLocalSwiftPackageReference "CmuxTextActions" */,
+				A5FB2B11 /* XCLocalSwiftPackageReference "CmuxTextMatching" */,
 				CE57E10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSentryTelemetry" */,
 				CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */,
 				D0F6A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxAgentDeliveryCore" */,
@@ -20535,6 +20542,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxTextActions;
 		};
+		A5FB2B11 /* XCLocalSwiftPackageReference "CmuxTextMatching" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxTextMatching;
+		};
 		CE57E10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSentryTelemetry" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CmuxSentryTelemetry;
@@ -20971,6 +20982,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A5FB1A11 /* XCLocalSwiftPackageReference "CmuxTextActions" */;
 			productName = CmuxTextActions;
+		};
+		A5FB2B12 /* CmuxTextMatching */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5FB2B11 /* XCLocalSwiftPackageReference "CmuxTextMatching" */;
+			productName = CmuxTextMatching;
 		};
 		CE57E10000000000000000A2 /* CmuxSentryScrubbing */ = {
 			isa = XCSwiftPackageProductDependency;
