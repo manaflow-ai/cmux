@@ -4,7 +4,7 @@ import Foundation
 /// A daemon's cloud proxy without a daemon: it answers the reads a Cloud
 /// source makes when it connects (an empty inbox, live subscriptions) and
 /// records every command the tests look at.
-actor FakeCloudDaemon: CloudConversationCommands {
+actor FakeCloudDaemon: CloudConversationCommands, CloudLeaseSessions {
     /// One `cloud-inbox-op` as the daemon received it.
     struct InboxOp: Equatable {
         var conversation: String
@@ -21,6 +21,13 @@ actor FakeCloudDaemon: CloudConversationCommands {
     }
 
     private(set) var inboxOps: [InboxOp] = []
+    /// `cloud-session-set` requests, in order, and how many `cloud-session-clear`.
+    private(set) var sessions: [CloudSessionSetRequest] = []
+    private(set) var clears = 0
+    /// What `cloud-selfhost-info` answers; nil refuses it as under a bearer lease.
+    private var selfHost: CloudSelfHostInfo?
+
+    func answerSelfHost(_ info: CloudSelfHostInfo?) { selfHost = info }
     private(set) var uploads: [Upload] = []
     /// `cloud-attachment-read` calls: conversation, hash and variant.
     private(set) var downloads: [String] = []
@@ -78,5 +85,22 @@ actor FakeCloudDaemon: CloudConversationCommands {
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         try blob.bytes.write(to: destination, options: .atomic)
         return blob.mimeType
+    }
+
+    func setSession(_ request: CloudSessionSetRequest) async throws -> CloudSessionState {
+        sessions.append(request)
+        return CloudSessionState(state: "active", apiBaseURL: request.apiBaseURL, expiresAt: request.expiresAt, auth: request.auth)
+    }
+
+    func clearSession() async throws -> CloudSessionState {
+        clears += 1
+        return CloudSessionState(state: "signed_out")
+    }
+
+    func selfHostInfo() async throws -> CloudSelfHostInfo {
+        guard let selfHost, sessions.last?.auth == "tailscale" else {
+            throw DaemonError.command(cmd: "cloud-selfhost-info", message: "not a self-hosted lease", code: "cloud_conversation_rejected")
+        }
+        return selfHost
     }
 }
