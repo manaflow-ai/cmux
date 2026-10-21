@@ -113,9 +113,10 @@ enum AgentBesidePlacement {
                     } else if moved, let pane = services.locateTab(chatID)?.1 {
                         // Not a view change of the run: the run moved the focused chat out of its
                         // pane, and focus follows the chat back to where the person had it (as
-                        // FocusCoordinator.followMovedTab does for a person's move).
+                        // FocusCoordinator.followMovedTab does for a person's move). Programmatic, so
+                        // it is not the person acting for another open in flight (`personActed`).
                         ActionRunScope.carrying(ActionRunScope(origin: .script, allowsViewChange: true)) {
-                            PaneHandlers.focus(LayoutPaneID(pane.id), in: content)
+                            content.focus.send(.focusPane(pane.id, source: .programmatic))
                         }
                     }
                 }
