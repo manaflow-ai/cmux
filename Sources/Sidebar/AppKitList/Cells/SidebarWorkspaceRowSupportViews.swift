@@ -339,7 +339,7 @@ final class SidebarRowIconTextLine: NSView {
         color: NSColor,
         onOpenURL: @escaping (URL) -> Void
     ) {
-        resetPrimaryContent()
+        resetPrimaryContent(keepingMarkdown: entry.format == .markdown)
         stacked = false
         secondTextView.isHidden = true
         iconLabel.isHidden = true
@@ -502,7 +502,10 @@ final class SidebarRowIconTextLine: NSView {
         return first + second
     }
 
-    private func resetPrimaryContent() {
+    /// `keepingMarkdown` keeps the Markdown view's rendered storage for a
+    /// Markdown entry, so reconfiguring the same entry is a no-op. Any other
+    /// content clears it: a hidden view must not keep stale text or links.
+    private func resetPrimaryContent(keepingMarkdown: Bool = false) {
         textView.isHidden = true
         textView.toolTip = nil
         textView.stringValue = ""
@@ -510,7 +513,11 @@ final class SidebarRowIconTextLine: NSView {
         metadataButton.isHidden = true
         metadataButton.reset()
         markdownTextView?.isHidden = true
-        markdownTextView?.deactivate()
+        if keepingMarkdown {
+            markdownTextView?.deactivate()
+        } else {
+            markdownTextView?.reset()
+        }
     }
 
     private func ensureMarkdownTextView() -> SidebarRowMarkdownTextView {
