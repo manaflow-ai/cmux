@@ -106,8 +106,8 @@ extension HomeMirror {
         return rows.orderedForInbox()
     }
 
-    /// The text of every part but attachments (the owner's preview rule).
+    /// The text of every part but attachments (the owner's preview rule) and done markers (a session name).
     static func previewText(_ parts: [MessagePart]) -> String {
-        parts.compactMap { if case .attachment = $0 { nil } else { $0.plainText } }.joined(separator: "\n")
+        parts.compactMap { if case .attachment = $0 { nil } else if $0.isDoneMarker { nil } else { $0.plainText } }.joined(separator: "\n")
     }
 }

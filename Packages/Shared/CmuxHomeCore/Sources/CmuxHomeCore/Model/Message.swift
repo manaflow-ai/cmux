@@ -40,6 +40,14 @@ public enum MessagePart: Hashable, Sendable, Codable {
         case .text, .work, .approval, .question, .location: []
         }
     }
+
+    /// A finished agent session with nothing to show: its only text is the session name
+    /// (`optchat-b902d10e-816`). A Chief turn that said nothing posts one to close the
+    /// messages it answered (optchat-chief brain/turns.rs, "a done marker"); a view does
+    /// not draw it, and the inbox preview skips it.
+    public var isDoneMarker: Bool {
+        if case .work(let work) = self { work.status == .done && work.preview == nil } else { false }
+    }
 }
 
 public struct Mention: Hashable, Sendable, Codable {

@@ -78,6 +78,9 @@ public struct TranscriptItem: Hashable, Sendable, Identifiable {
     public var id: IdempotencyKey { key }
 
     public var plainText: String { parts.map(\.plainText).joined(separator: "\n") }
+
+    /// A message of done markers only (``MessagePart/isDoneMarker``): the transcript does not show it.
+    public var isDoneMarker: Bool { !parts.isEmpty && parts.allSatisfy(\.isDoneMarker) }
 }
 
 extension TranscriptWindow {

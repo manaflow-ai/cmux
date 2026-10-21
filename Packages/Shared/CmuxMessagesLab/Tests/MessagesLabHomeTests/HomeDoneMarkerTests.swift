@@ -40,5 +40,6 @@ import Testing
         // A done card with a preview, or a running one, is real content and still shows.
         let withPreview = MessagePart.work(WorkRef(session: "s", title: "s", status: .done, preview: "Build 42 passed"))
         #expect(HomeMirror.previewText([withPreview]) == "Build 42 passed")
+        #expect(!MessagePart.work(WorkRef(session: "s", title: "s", status: .running)).isDoneMarker)
     }
 }
