@@ -290,7 +290,7 @@ import { chiefDock } from "./chiefDock.experiment";
 import { contextAttachment, floatingStatus, type QuickFloating } from "./FloatingChat";
 import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
-import { FailedPrompt } from "./FailedPrompt";
+import { DeliveryFailure } from "./conversation/PromptDelivery";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { useSideSessions } from "./aside/sideSessions";
@@ -368,7 +368,7 @@ declare global {
       /// Claude Code desktop's in-session status (the live plan card, the recap card) on or off: the
       /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
       applySessionStatus?(on: boolean): void;
-      /// Suggested tasks on or off (the Debug toggle `agent.suggestedTasks`, DEV and NIGHTLY, off by
+      /// Suggested tasks on or off (the Debug toggle `agent.suggestedTasks`, DEV and NIGHTLY, on by
       /// default): an agent's offers draw as the suggested tasks card (offer/offersShown.ts).
       applySuggestedTasks?(on: boolean): void;
       applyHeaderState?(state: unknown): void;
@@ -465,6 +465,12 @@ function refusedMachine(error: unknown): string | undefined {
   const details = (error as { details?: unknown } | null)?.details;
   const name = details && typeof details === "object" ? (details as { machineName?: unknown }).machineName : undefined;
   return typeof name === "string" && name ? name : undefined;
+}
+
+/// The failed prompt row a refused send left (direct.ts `send`), when it left one.
+function failedRowOf(error: unknown): string | undefined {
+  const row = (error as { failedRow?: unknown } | null)?.failedRow;
+  return typeof row === "string" ? row : undefined;
 }
 
 function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
@@ -651,7 +657,7 @@ const MessageRow = memo(
           ) : (
             <UserBubble row={row} text={row.text ?? ""} />
           )}
-          <FailedPrompt row={row} />
+          <DeliveryFailure row={row} />
           {row.steer && <SteerMark steer={row.steer} />}
           {row.status && (
             <div className="cv-user__status">
@@ -3914,7 +3920,7 @@ function AcpmuxPane() {
   const showAllChats = () => void callNative("action.run", { id: "agentPane.searchChats" }).catch(() => undefined);
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
   const [preview, setPreview] = useState(false);
-  // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
+  // SSH… opens Connect to Machine; New Cloud Machine opens the host's create flow (Lawrence 2026-10-06).
   const connectMachine = (kind: "ssh" | "cloud") =>
     void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(() => undefined);
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
@@ -4514,6 +4520,11 @@ function AcpmuxPane() {
       postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
     );
     holdPrompt.current = () => void heldPrompt.hold();
+    /// The gesture a failed prompt row kept for its Trust re-send, apart from `heldPrompt`, which
+    /// the next ordinary send takes: a prompt typed before Trust never goes under the row's id.
+    const heldRowPrompt = heldPrompts((intent) =>
+      postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
+    );
     const restorePrompt = (text: string, attachments: ComposerAttachment[]) => {
       if (composerHandle.current) composerHandle.current.restore(text, attachments);
       else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
@@ -4770,11 +4781,19 @@ function AcpmuxPane() {
           // the prompt the composer kept. `inComposer`: the composer still holds the prompt (or got it back); else it goes back.
           const refused = (error: unknown, inComposer: boolean): never => {
             if (isTrustRefusal(error)) {
+              // A prompt kept as its own failed row: Trust sends that row again (with the gesture its
+              // send kept, under its own prompt id), never what the composer holds by then.
+              const row = failedRowOf(error);
               // The send's own gesture is kept for this prompt now, before the Trust click, whose
               // gesture goes to the trust answer (heldPrompt.ts).
-              void heldPrompt.hold();
-              if (!inComposer) restorePrompt(text, attachments);
-              trustRefused.current?.(error, () => composerHandle.current?.send());
+              if (row) {
+                void heldRowPrompt.hold(client.promptDelivery(row)?.promptId);
+                trustRefused.current?.(error, () => void client.retryPrompt(row, heldRowPrompt.take()?.ticket));
+              } else {
+                void heldPrompt.hold();
+                if (!inComposer) restorePrompt(text, attachments);
+                trustRefused.current?.(error, () => composerHandle.current?.send());
+              }
             }
             throw error;
           };
@@ -4931,6 +4950,13 @@ function AcpmuxPane() {
             ),
           "chat.harness.cancelPrompt": async ({ promptId }) => harnessSwitch.cancelQueued(String(promptId)),
           "chat.retryPrompt": ({ rowId }) => client.retryPrompt(String(rowId)),
+          // Edit on a prompt that did not get there: its row goes and the prompt comes back to the
+          // composer, ahead of what is typed there now.
+          "chat.editFailedPrompt": async ({ rowId }) => {
+            const failed = client.takeFailedPrompt(String(rowId));
+            if (failed) composerHandle.current?.restore(failed.input, failed.attachments);
+          },
+          "chat.removeFailedPrompt": async ({ rowId }) => client.removeFailedPrompt(String(rowId)),
           // Retry with another model (cx-ncc.62): the chat moves to the model as the picker moves it,
           // then the prompt goes again with its attachments. A refused move sends nothing (its notice
           // says why), so the retry never runs on the old model.
@@ -6178,8 +6204,26 @@ function AcpmuxPane() {
             // Shell mode's chips carry their commands' output as it is now.
             const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
             if (!snapshot.sessionId) claimShellRuns.current = true;
-            // The composer keeps the prompt until acpmux takes it: a refusal (folder trust, the
-            // remote guard, the sandbox) leaves it there to send again.
+            // A started chat never holds the prompt (plans/cmux-next/composer-delivery-DESIGN.md):
+            // it leaves the composer at once and shows as its own row, which says how far it got,
+            // and a refusal stays on that row with Retry, Edit and Remove. One refused before any
+            // row showed (the chat could not take prompts) comes back to the composer.
+            if (snapshot.sessionId && surfaceRef.current !== "quick" && !projectDraft) {
+              const holder = composerHandle.current;
+              callNative("chat.send", { text, attachments, steer }).then(
+                () => promptLanded.current(),
+                (error: unknown) => {
+                  cancelOpenInWindow();
+                  if (failedRowOf(error) || isTrustRefusal(error)) return;
+                  // A prompt a harness switch handed back (harnessSwitch.ts) is in the composer already.
+                  if ((error as { handedBack?: unknown } | null)?.handedBack === true) return;
+                  (composerHandle.current ?? holder)?.restore(text, attachments);
+                },
+              );
+              return true;
+            }
+            // A new chat's composer keeps the prompt until acpmux takes it: a refusal (folder
+            // trust, the remote guard, the sandbox) leaves it there to send again.
             let accept: (taken: true) => void = () => undefined;
             const taken = new Promise<true>((resolve) => (accept = resolve));
             const send = async () => {

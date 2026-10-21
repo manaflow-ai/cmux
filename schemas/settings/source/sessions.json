@@ -57,6 +57,55 @@
             "power",
             "agents"
           ]
+        },
+        {
+          "key": "sessions.resumeAgents",
+          "name": "resumeAgents",
+          "note": "On: a terminal brought back after a crash or restart runs its agent's resume (claude --resume <id>, codex resume <id>) at the new shell's empty prompt. Off, or a settings file that does not parse: nothing runs, and the restored line shows the command. The daemon reads it at each respawn (cmux-tui-util user_settings::resume_agents). Commands other than agents never run again.",
+          "title": {
+            "key": "settings.sessions.resumeAgents",
+            "text": "Resume Agents After Restart"
+          },
+          "help": {
+            "key": "settings.sessions.resumeAgents.help",
+            "text": "Terminal agents reopen their session after a crash or restart."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "resume",
+            "restore",
+            "restart",
+            "reboot",
+            "crash",
+            "claude",
+            "codex",
+            "agents"
+          ]
+        },
+        {
+          "key": "sessions.allowFullAccess",
+          "name": "allowFullAccess",
+          "note": "Off: AgentPaneTransport refuses session/set_mode and the mode config option into a mode that skips approvals (AgentPaneModeConfirmation.isFullAccess, the picker's warning-color rule). On by default: today's behavior, and Lawrence 2026-10-07 (no sheet for full access).",
+          "title": {
+            "key": "settings.sessions.allowFullAccess",
+            "text": "Allow Full-Access Modes"
+          },
+          "help": {
+            "key": "settings.sessions.allowFullAccess.help",
+            "text": "Off, cmux won't switch an agent into a mode that skips approvals."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "bypass",
+            "permissions",
+            "yolo",
+            "full access",
+            "dangerous",
+            "approve",
+            "safety"
+          ]
         }
       ]
     },

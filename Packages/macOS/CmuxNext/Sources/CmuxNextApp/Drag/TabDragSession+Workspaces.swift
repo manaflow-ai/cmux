@@ -26,7 +26,7 @@ extension TabDragSession {
         let ids = handoff.workspaceIDs.map(\.rawValue)
         let group: String? = if case let .group(id) = handoff.payload { id.rawValue } else { nil }
         begin(item: .workspaces(ids, group: group), payload: nil, frame: handoff.rowScreenFrame, grabOffset: handoff.grabOffset,
-              point: handoff.screenPoint, image: handoff.image, previewTab: previewTab(of: ids.first, in: window),
+              point: handoff.screenPoint, image: handoff.image, onGlass: handoff.imageOnGlass, previewTab: previewTab(of: ids.first, in: window),
               draggedCount: ids.count, pane: nil, window: window)
         return true
     }
