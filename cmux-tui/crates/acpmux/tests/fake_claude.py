@@ -20,6 +20,10 @@ A prompt ending in "settings-probe" replies with the prompt text as Claude
 read it, every `apply_flag_settings` it got, and its argv.
 "slow-stop" runs until the interrupt, then echoes the next prompt line it
 reads before the stopped turn's result (a Stop Claude Code answers late).
+"long-step" is one step (a long tool call) that runs until the interrupt, as
+Claude Code 2.1 does it: user lines written during the step wait; at the
+interrupt the step's result comes first, then each waiting line is echoed and
+answered ("read: TEXT") as one more turn (cosmic-gray, 2026-10-20).
 A stop_task control request ends its task killed (task_updated);
 FAKE_CLAUDE_STOP_NOTIFY=1 sends the task's task_notification too.
 FAKE_CLAUDE_AUTH=1 looks for a sign-in the way Claude Code does (the
@@ -158,6 +162,39 @@ def slow_stop():
             break
     send({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": None,
           "num_turns": 1, "duration_api_ms": 5})
+
+
+def long_step(prompt):
+    """The "long-step" turn (module doc)."""
+    send({"type": "user", "isReplay": True, "uuid": prompt.get("uuid"), "message": prompt.get("message")})
+    send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                             "delta": {"type": "text_delta", "text": "stepping"}}})
+    waiting = []
+    while True:
+        try:
+            got = LINES.get(timeout=20)
+        except queue.Empty:
+            break
+        if got is None:
+            sys.exit(0)
+        msg = json.loads(got)
+        if msg.get("type") == "user":
+            waiting.append(msg)
+        elif msg.get("type") == "control_request":
+            send({"type": "control_response", "response": {"subtype": "success",
+                  "request_id": msg.get("request_id"), "response": {}}})
+            if (msg.get("request") or {}).get("subtype") == "interrupt":
+                break
+    send({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": None,
+          "num_turns": 1, "duration_api_ms": 5})
+    for msg in waiting:
+        said = "".join(b.get("text", "") for b in (msg.get("message") or {}).get("content") or []
+                       if isinstance(b, dict))
+        send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message")})
+        send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                 "delta": {"type": "text_delta", "text": "read: " + said}}})
+        send({"type": "result", "subtype": "success", "result": "read: " + said, "num_turns": 1,
+              "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
 
 
 while True:
@@ -330,6 +367,9 @@ while True:
             continue
         if said.strip() == "slow-stop":
             slow_stop()
+            continue
+        if said.strip() == "long-step":
+            long_step(msg)
             continue
         # "/compact" runs Claude Code 2.1.303's compaction: the compacting status, the
         # boundary, the summary as a synthetic user line, the command's stdout, a result.
