@@ -61,6 +61,11 @@ public final class ImportStepModel {
     /// card: the profile of the tab that showed it); nil makes one new
     /// profile per source.
     public private(set) var mergeTarget: String?
+    /// The cmux profiles a row can go into (each row's menu); empty hides the menu.
+    public private(set) var targetChoices: [ImportTargetChoice] = []
+    /// Rows going into an existing cmux profile (`BrowserSourceProfile.id`
+    /// to profile id); the rest get their own matching profile.
+    public private(set) var targets: [String: String] = [:]
     @ObservationIgnored private let services: any OnboardingServices
     @ObservationIgnored private var task: Task<Void, Never>?
     /// The plan being run, and each started row's count so far (progress
@@ -206,7 +211,12 @@ public final class ImportStepModel {
             let awaiting = await services.browsersAwaitingAccess()
             let chromiumPasswords = found.contains { $0.profiles.contains { $0.availability(of: .passwords).isImportable } }
             let store = chromiumPasswords ? await services.canImportPasswords() : false
+            let choices = await services.importTargets()
+            let earlier = await services.earlierImportTargets()
             guard let self, !Task.isCancelled else { return }
+            targetChoices = choices
+            // A source imported into another profile before goes there again, if that profile is still here.
+            targets = earlier.filter { _, id in choices.contains { $0.id == id } }
             sources = Self.edgeFirst(found)
             awaitingAccess = awaiting
             // Checked like the rest the first time it is offered; Import asks before anything is read.
@@ -269,6 +279,19 @@ public final class ImportStepModel {
         mergeTarget = target
     }
 
+    /// The cmux profile a row goes into: nil is the source's own matching profile.
+    public func target(_ profile: BrowserSourceProfile) -> String? { mergeTarget ?? targets[profile.id] }
+
+    /// Picks the cmux profile `profile` goes into; nil makes its own.
+    public func setTarget(_ target: String?, for profile: BrowserSourceProfile) {
+        guard canEditSelection, mergeTarget == nil, profiles.contains(profile) else { return }
+        guard let target, targetChoices.contains(where: { $0.id == target }) else {
+            targets[profile.id] = nil
+            return
+        }
+        targets[profile.id] = target
+    }
+
     /// Back to one new profile per source (the step opened from anywhere but the card).
     public func resetTarget() {
         guard !isImporting, !isConfirmingPasswords else { return }
@@ -294,7 +317,8 @@ public final class ImportStepModel {
     /// user agreed to on the consent screen.
     public var plan: ImportPlan {
         ImportPlan(items: profiles.filter { selectedProfiles.contains($0.id) }.map { profile in
-            ImportPlan.Item(profile: profile, kinds: passwordConsent.contains(profile.id) ? kinds : kinds.subtracting([.passwords]))
+            ImportPlan.Item(profile: profile, kinds: passwordConsent.contains(profile.id) ? kinds : kinds.subtracting([.passwords]),
+                            target: targets[profile.id])
         }, mergeTarget: mergeTarget)
     }
 

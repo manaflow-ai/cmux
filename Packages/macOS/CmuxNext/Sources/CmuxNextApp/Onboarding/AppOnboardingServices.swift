@@ -73,6 +73,15 @@ final class AppOnboardingServices: OnboardingServices {
 
     func canImportPasswords() async -> Bool { await services.cache.cef.canImportPasswords() }
 
+    func importTargets() async -> [ImportTargetChoice] {
+        services.browserProfiles.ordered.map { ImportTargetChoice(id: $0.id, name: $0.name) }
+    }
+
+    func earlierImportTargets() async -> [String: String] {
+        let records = await owner.importStore.sources().filter { $0.targetProfileID != $0.proposedProfileID }
+        return Dictionary(records.map { ($0.sourceKey, $0.targetProfileID) }, uniquingKeysWith: { first, _ in first })
+    }
+
     /// Touch ID, or the Mac's password where there is none. Only a Mac with
     /// no login password at all goes on without it; any other failure stops
     /// the import, since an "Always Allow" on the Keychain prompt means no

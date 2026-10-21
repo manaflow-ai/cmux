@@ -35,6 +35,10 @@ public actor ImportedDataStore {
         let file = batchFile(batch.source)
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try encoder.encode(batch).write(to: file, options: .atomic)
+        // A re-import into another profile moves the source: its old copy goes, so nothing shows twice.
+        for old in sources() where old.sourceKey == batch.source.sourceKey && old.targetProfileID != batch.source.targetProfileID {
+            try? FileManager.default.removeItem(at: batchFile(old))
+        }
         var records = sources().filter { $0.sourceKey != batch.source.sourceKey }
         records.append(batch.source)
         try encoder.encode(records).write(to: sourcesFile, options: .atomic)

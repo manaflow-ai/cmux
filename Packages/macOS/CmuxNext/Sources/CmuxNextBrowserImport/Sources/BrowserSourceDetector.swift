@@ -64,7 +64,8 @@ public struct BrowserSourceDetector: Sendable {
                     bookmarksFile = sidebar
                 }
                 return BrowserSourceProfile(browser: browser, directoryName: entry.directoryName, displayName: entry.displayName,
-                                            path: path, availability: availability, avatar: avatar, bookmarksFile: bookmarksFile)
+                                            path: path, availability: availability, avatar: avatar, color: entry.color,
+                                            bookmarksFile: bookmarksFile)
             }
             return profiles.isEmpty ? nil : BrowserSource(browser: browser, appURL: appURL, profiles: profiles)
         case .firefox:

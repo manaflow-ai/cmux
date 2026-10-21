@@ -5,10 +5,14 @@ public struct ImportPlan: Sendable, Equatable {
     public struct Item: Sendable, Equatable {
         public var profile: BrowserSourceProfile
         public var kinds: Set<ImportDataKind>
+        /// The existing cmux browser profile this source goes into; nil
+        /// makes (or reuses) the source's own matching profile.
+        public var target: String?
 
-        public init(profile: BrowserSourceProfile, kinds: Set<ImportDataKind>) {
+        public init(profile: BrowserSourceProfile, kinds: Set<ImportDataKind>, target: String? = nil) {
             self.profile = profile
             self.kinds = kinds.filter { profile.availability(of: $0).isImportable }
+            self.target = target
         }
     }
 

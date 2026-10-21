@@ -37,7 +37,7 @@ public actor BrowserImporter {
                                         kind: kind, fraction: Double(step) / Double(steps), counts: counts))
             }
             do {
-                var batch = ImportBatch(source: try await record(for: item.profile, mergeTarget: plan.mergeTarget), kinds: item.kinds)
+                var batch = ImportBatch(source: try await record(for: item.profile, target: plan.mergeTarget ?? item.target), kinds: item.kinds)
                 for kind in ImportDataKind.allCases where item.kinds.contains(kind) {
                     report(kind, running + batch.counts, done)
                     try Task.checkCancellation()
@@ -99,17 +99,19 @@ public actor BrowserImporter {
     }
 
     /// The mapping for a source: its proposed profile id (reused from an
-    /// earlier import), and the profile the data goes to now.
-    private func record(for profile: BrowserSourceProfile, mergeTarget: String?) async throws -> ImportSourceRecord {
+    /// earlier import), and the profile the data goes to now: `target`, or
+    /// the source's own profile, made with its name, color and picture.
+    private func record(for profile: BrowserSourceProfile, target: String?) async throws -> ImportSourceRecord {
         let proposed = await store?.proposedProfileID(for: profile.id) ?? UUID().uuidString.lowercased()
         let single = profile.browser.family == .safari || profile.browser.family.isPrivateStore || profile.directoryName.isEmpty
         let name = single ? profile.browser.displayName : "\(profile.browser.displayName) · \(profile.displayName)"
         var record = ImportSourceRecord(browser: profile.browser, profileDirectory: profile.directoryName, displayName: name,
                                         proposedProfileID: proposed, targetProfileID: "default", profileName: single ? nil : profile.displayName)
-        if let mergeTarget {
-            record.targetProfileID = mergeTarget
+        if let target {
+            record.targetProfileID = target
         } else {
-            record.targetProfileID = try await provisioning.createProfile(id: proposed, name: name, color: nil, source: record.sourceFields)
+            record.targetProfileID = try await provisioning.createProfile(id: proposed, name: name, look: SourceProfileLook(profile),
+                                                                          source: record.sourceFields)
         }
         return record
     }

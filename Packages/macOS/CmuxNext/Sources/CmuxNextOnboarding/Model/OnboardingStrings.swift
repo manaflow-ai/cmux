@@ -81,6 +81,12 @@ enum OnboardingStrings {
         String(localized: "onboarding.import.passwordsNotRead",
                defaultValue: "Some passwords weren’t imported: macOS didn’t allow the key, or the file couldn’t be read.", bundle: .module)
     }
+    /// The row menu's first item: the source's own new cmux profile, with its name, color and picture.
+    static var newMatchingProfile: String {
+        String(localized: "onboarding.import.target.new", defaultValue: "New Profile", bundle: .module)
+    }
+    /// The row menu's accessibility label.
+    static var importInto: String { String(localized: "onboarding.import.target.label", defaultValue: "Import Into", bundle: .module) }
     static func kind(_ kind: ImportDataKind) -> String {
         switch kind {
         case .bookmarks: String(localized: "onboarding.kind.bookmarks", defaultValue: "Bookmarks", bundle: .module)

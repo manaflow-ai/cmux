@@ -154,6 +154,8 @@ final class ImportStepView: NSView {
         }
         let editable = model.canEditSelection
         for profile in profiles {
+            let pick: ((String?) -> Void)? = model.mergeTarget == nil ? { [weak model] in model?.setTarget($0, for: profile) } : nil
+            rows[profile.id]?.configureTargets(model.targetChoices, selected: model.target(profile), onPick: pick)
             rows[profile.id]?.update(checked: model.isSelected(profile), editable: editable, state: model.rowState(profile))
         }
         if model.kindChoices != shownKinds {
