@@ -84,7 +84,8 @@ public final class DaemonSidebarDocRemote: SidebarDocRemote {
 public final class SidebarDocSections {
     private var groups: [String: WorkspaceGroupModel] = [:]
     /// Whether the daemon puts a new workspace first in its machine section (`workspaces.newPlacement`
-    /// `top`, the default) rather than last (`bottom`). A live workspace the document does not place
+    /// `top`, the default); false lists it last, as `bottom` does (`afterCurrent` keeps a pending row
+    /// at the window's slot meanwhile). A live workspace the document does not place
     /// yet lists at that slot, so its item's arrival moves nothing (plans/cmux-next/sidebar-ordering-DESIGN.md).
     public var placesNewRowsFirst: @MainActor () -> Bool = { true }
 

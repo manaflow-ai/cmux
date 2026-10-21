@@ -115,6 +115,6 @@ workspace.
   daemon, the real window): every frame the sidebar list draws during five quick Cmd-N has the new
   rows first, newest first, the old rows unmoved, and the app sends no sidebar move.
 
-Not changed: `afterCurrent` still lists an unplaced row at the top until its item comes (the
-document mirror does not know the window's current workspace); Cmd-N inside a group still sends
-one move into the group after the create.
+Not changed: under `afterCurrent` an unplaced row keeps the press-time row at the window's slot
+(#23014's hold) and the app sends one move after the create; Cmd-N inside a group still sends one
+move into the group. `top` is the default again in the app, as in the daemon.
