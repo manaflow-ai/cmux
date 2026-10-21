@@ -9,9 +9,10 @@
 
 /// The longest prompt that can still be a probe.
 const MAX_CHARS: usize = 80;
-/// The fixed replies a check asks for, and the one-word checks.
-const REPLIES: &[&str] =
-    &["ok", "pong", "ping", "yes", "done", "ack", "ready", "hi", "hello", "test"];
+/// The fixed replies a check asks for ("Reply with only: ready").
+const REPLIES: &[&str] = &["ok", "pong", "ping", "yes", "done", "ack", "ready", "hi"];
+/// The one-word checks. Not "yes" or "done": a person may open a chat with those.
+const ONE_WORD: &[&str] = &["ok", "ping", "pong", "hi", "hello", "test"];
 /// Openers of the "answer with this one word" checks.
 const OPENERS: &[&str] = &[
     "reply with",
@@ -40,7 +41,7 @@ pub fn is_probe(text: &str) -> bool {
     let words: Vec<&str> =
         lower.split(|c: char| !c.is_alphanumeric()).filter(|word| !word.is_empty()).collect();
     if let [word] = words.as_slice() {
-        return REPLIES.contains(word);
+        return ONE_WORD.contains(word);
     }
     let rest = OPENERS.iter().find_map(|opener| {
         let opener: Vec<&str> = opener.split(' ').collect();
@@ -89,6 +90,12 @@ mod tests {
             "Just reply to Bob's email",
             "Reply only in French",
             "Say hello to the new teammate in the channel",
+            "say hi to the team",
+            "Reply with a test",
+            "Print the test",
+            "reply yes or no: is the build green?",
+            "yes",
+            "done",
         ] {
             assert!(!is_probe(text), "{text:?}");
         }

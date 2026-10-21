@@ -319,11 +319,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // Checked before the session exists, so a bad value leaves none behind.
             let on_permission = OnPermission::parse(&args.on_permission)?;
             // A route check an agent runs from its shell ("Reply with only: OK",
-            // `probe_prompt.rs`) is a throwaway: its reply is printed, and the chat
-            // goes as an ephemeral one does, never kept as the agent's subagent.
+            // `probe_prompt.rs`) is a throwaway, never the agent's subagent: a one-shot
+            // one goes as an ephemeral chat does once its reply is printed. A named
+            // one is kept, since the agent may check a worker is up before giving it
+            // its task; only `--ephemeral` purges that.
             let probe = std::env::var("ACPMUX_SESSION_ID").is_ok_and(|id| !id.is_empty())
                 && crate::probe_prompt::is_probe(&args.prompt.join(" "));
-            let ephemeral = one_shot && (args.ephemeral || probe);
+            let ephemeral = one_shot && (args.ephemeral || (probe && args.name.is_none()));
             // The daemon purges an ephemeral session when this connection ends
             // (`server/ephemeral.rs`), however the CLI exits: killed during the
             // turn, by a caller's timeout, or a lost connection. The kill after
@@ -333,7 +335,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             p["cwd"] = json!(cwd);
-            let v = if ephemeral {
+            let v = if ephemeral || probe {
                 client.request_parentless(method::SESSION_NEW, p).await?
             } else {
                 client.request(method::SESSION_NEW, p).await?
