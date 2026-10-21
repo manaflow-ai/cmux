@@ -163,6 +163,7 @@ stop_started() {
     fi
     rm -f "$state/$name.pid"
   done
+  rm -f "$state/dev-server.tree"
 }
 
 # A field of web-dev.json's "slot" (host or port), empty when unset.
@@ -178,16 +179,25 @@ print("" if value is None else value)
 PY
 }
 
-# Runs checkout $1's webviews dev server on port $2, detached, unless one already answers there.
+# Runs checkout $1's webviews dev server on port $2, detached. Reuses a server on that port that
+# this script started from the same checkout, or one it did not start at all.
 start_local() {
-  local tree="$1" port="$2"
+  local tree="$1" port="$2" ours
   [[ -f "$tree/webviews/package.json" ]] || { echo "no webviews/ in $tree" >&2; exit 1; }
+  ours="$(live_pid dev-server)"
   if answers "$port"; then
-    echo "a dev server already answers on 127.0.0.1:$port; using it"
-    return
+    if [[ -z "$ours" ]]; then
+      echo "a dev server already answers on 127.0.0.1:$port; using it"
+      return
+    elif [[ "$(cat "$state/dev-server.tree" 2>/dev/null)" == "$tree:$port" ]]; then
+      echo "dev server: http://127.0.0.1:$port/ from $tree (already running)"
+      return
+    fi
   fi
-  # One dev server at a time: a new port or checkout replaces the one started before.
+  # One dev server at a time: a new port or checkout replaces the one started before (and frees
+  # the port when it is the same one).
   stop_started
+  answers "$port" && for _ in 1 2 3 4 5; do sleep 1; answers "$port" || break; done
   mkdir -p "$state"
   [[ -d "$tree/webviews/node_modules" ]] || (cd "$tree/webviews" && bun install --frozen-lockfile >/dev/null)
   # The generated string tables are gitignored; the dev server imports them.
@@ -197,6 +207,7 @@ start_local() {
   ( set -m
     ( cd "$tree/webviews" && CMUX_WEBVIEWS_DEV_PORT="$port" exec nohup bun run dev ) </dev/null >"$state/dev-server.log" 2>&1 &
     echo $! >"$state/dev-server.pid" )
+  echo "$tree:$port" >"$state/dev-server.tree"
   answers "$port" 60 || { echo "the dev server did not start; see $state/dev-server.log" >&2; exit 1; }
   echo "dev server: http://127.0.0.1:$port/ from $tree (log: $state/dev-server.log)"
 }
@@ -235,6 +246,7 @@ case "$cmd" in
           point_at "$port"; exit 0
         else
           # The same port on both ends: the Vite client opens its HMR socket on the server's port.
+          stop_started
           mkdir -p "$state"
           ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o ConnectTimeout=10 -L "$port:127.0.0.1:$port" "$host" </dev/null >"$state/tunnel.log" 2>&1 &
           echo $! >"$state/tunnel.pid"
