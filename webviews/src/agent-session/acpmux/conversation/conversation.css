@@ -3338,47 +3338,14 @@ button.cv-received__name:focus-visible {
 }
 
 /* ---------- Where a Claude Code session started (SessionStartNote.tsx) ---------- */
-/* Two quiet tool-height lines: the short facts, then how the chat compacts with Learn more and
-   its dismiss. What either opens (the full facts, the explanation) wraps under it, indented to
-   the lines' text. */
-.cv-session-start__compaction .cv-tool__text {
-  flex: 1;
-}
-.cv-session-start__more {
-  all: unset;
-  cursor: pointer;
-  color: var(--cv-text-dim);
-}
-.cv-session-start__more:hover {
-  color: var(--agent-text);
-}
-.cv-session-start__more:focus-visible {
-  outline: 2px solid var(--agent-accent, currentColor);
-  outline-offset: 1px;
-  border-radius: 3px;
-}
+/* One quiet tool-height line of short facts; the full facts wrap under it on a click, indented
+   to the line's text. */
 .cv-session-start__detail {
   padding: 0 0 4px 22.5px;
   line-height: 18px;
   font-size: var(--text-detail);
   color: var(--cv-text-dim);
   overflow-wrap: anywhere;
-}
-.cv-session-start__dismiss {
-  all: unset;
-  flex: none;
-  display: flex;
-  padding: 3px;
-  border-radius: 4px;
-  cursor: pointer;
-  color: var(--cv-text-dim);
-}
-.cv-session-start__dismiss:hover {
-  color: var(--agent-text);
-}
-.cv-session-start__dismiss:focus-visible {
-  outline: 2px solid var(--agent-accent, currentColor);
-  outline-offset: 1px;
 }
 
 /* ---------- A paused agent pair (AgentPairNote.tsx) ---------- */
