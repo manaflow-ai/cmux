@@ -97,17 +97,38 @@ public nonisolated enum SidebarTunables {
         help: "A workspace row says needs you, done, failed or lost at the right of its name, in the Priority view's words, for the most urgent agent chat in it on this Mac.",
         default: true, code: "SidebarTunables.rowStatus")
 
+    /// The workspace hover card says what its agents did since the person last looked at it
+    /// (`SidebarLookedStore`): turns done, questions, failures. On by default.
+    public static let sinceLooked = Tunable<Bool>.toggle(
+        "sidebar.sinceLooked", .sidebar, "Since you looked",
+        help: "A workspace's hover card counts the turns its agents finished, the questions they asked and the turns that failed since you last had it open.",
+        default: true, code: "SidebarTunables.sinceLooked")
+
+    /// A working row's second line says what its agent does right now (`SidebarLaneStatus`). On
+    /// by default; a row without a second line keeps its one line (the hover card says it).
+    public static let nowLine = Tunable<Bool>.toggle(
+        "sidebar.nowLine", .sidebar, "Rows say what their agent does now",
+        help: "While an agent chat in a workspace works, the row's second line reads \"Now:\" and what the agent is doing. A one-line row stays one line.",
+        default: true, code: "SidebarTunables.nowLine")
+
     /// Sample agent lanes on every row (`SidebarLaneFixture`), for captures on a slot with no agents.
     public static let laneFixture = Tunable<Bool>.toggle(
         "sidebar.laneFixture", .sidebar, "Sample agent states on rows",
         help: "Gives every workspace row a sample agent chat (needs you, working, done, failed or idle), to see the row states without real sessions.",
         default: false, code: "SidebarTunables.laneFixture")
 
+    /// Every row carries its pull requests' badge, with or without the session tree
+    /// (`SidebarSessionTreeFeed`). On by default; the tree's nesting and keycaps stay opt-in.
+    public static let pullRequestBadges = Tunable<Bool>.toggle(
+        "sidebar.pullRequestBadges", .sidebar, "Rows show their pull requests",
+        help: "A workspace row shows a badge for the pull requests its agent chats opened or its folder's branch has, colored by their state, even with the session tree off.",
+        default: true, code: "SidebarTunables.pullRequestBadges")
+
     /// The pull requests' hover card on a row's pull request badge (`SidebarPullRequestCard`,
     /// `sidebar.sessionTree`); on by default.
     public static let pullRequestCard = Tunable<Bool>.toggle(
         "sidebar.pullRequestCard", .sidebar, "Pull request hover card",
-        help: "Hovering a row's pull request badge (with the session tree on) lists each pull request with its state, repository and size; a click opens it.",
+        help: "Hovering a row's pull request badge lists each pull request with its state, repository and size; a click opens it.",
         default: true, code: "SidebarTunables.pullRequestCard")
 
     /// Leo 2026-10-21 (item D, multi-view): a press on a workspace row selects nothing; the click
@@ -168,7 +189,10 @@ public nonisolated enum SidebarTunables {
             groupExitFraction.descriptor,
             laneStatus.descriptor,
             rowStatus.descriptor,
+            pullRequestBadges.descriptor,
             laneFixture.descriptor,
+            sinceLooked.descriptor,
+            nowLine.descriptor,
             multiView.descriptor,
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,

@@ -6,6 +6,8 @@
 import { liftInlineImages } from "./inlineImages";
 import { pastedTextBlocks } from "./pastedText";
 
+import type { StringKey } from "./i18n";
+
 export type ComposerAttachment = {
   id: string;
   /** `pasted`: a large paste kept as a chip (pastedText.ts), its `text` sent as a text block of its own. */
@@ -400,6 +402,13 @@ export function audioAttachment(
     size,
     data: audio.data,
   };
+}
+
+/// The notice for a recording that goes no further than its transcript: the host left it out
+/// (`DictationUpdate.audioOmitted`), or `audioAttachment` refused it past `MAX_AUDIO_BYTES`
+/// (`tooLarge`). The byte cap only backs up the host's two-minute stop, so both read the same.
+export function recordingLeftOutNotice(reason: "tooLong" | "tooLarge" | "narrowband"): StringKey {
+  return reason === "narrowband" ? "dictation.recordingNarrowband" : "dictation.recordingTooLong";
 }
 
 /** Counts PDF page objects without parsing or rendering the document. */
