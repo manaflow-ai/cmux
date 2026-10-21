@@ -283,7 +283,15 @@ export type AcpmuxActivity = {
 /// A file change from an ACP tool call's `diff` content: `oldText` is absent for a new file.
 /// `line` is where the change starts, when the tool call's locations name it. `fragment`: the
 /// texts are part of the file, not all of it (`_meta.acpmux.fragment`, a reopened Codex hunk).
-export type AcpmuxFileDiff = { path: string; oldText?: string; newText: string; line?: number; fragment?: true };
+/// `fromInput`: the page read it from the call's input, not a `diff` item (direct.ts `inputDiffs`).
+export type AcpmuxFileDiff = {
+  path: string;
+  oldText?: string;
+  newText: string;
+  line?: number;
+  fragment?: true;
+  fromInput?: true;
+};
 
 /// An agent's ask for a secret (cx-ncc.42, acpmux `hub/secrets.rs`): the `secret_request` record
 /// holds only the name and reason, never a value. The card answers with `_acpmux/secret_submit`.
