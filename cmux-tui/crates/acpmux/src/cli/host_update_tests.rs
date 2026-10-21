@@ -181,6 +181,9 @@ esac
 #[cfg(unix)]
 struct FakePeer {
     home: PathBuf,
+    /// A file (relative path, text) written right after the next copy: what
+    /// changes on the peer while the binary is pushed.
+    after_copy: std::cell::RefCell<Option<(&'static str, &'static str)>>,
 }
 
 #[cfg(unix)]
@@ -190,7 +193,9 @@ impl Remote for FakePeer {
     }
 
     fn run(&self, script: &str) -> Result<Output> {
-        let script = script.replace("/proc/", &format!("{}/", self.home.join("proc").display()));
+        let script = script
+            .replace("/proc/", &format!("{}/", self.home.join("proc").display()))
+            .replace("/etc/cmux/", &format!("{}/", self.home.join("etc/cmux").display()));
         Ok(Command::new("sh")
             .args(["-c", &script])
             .current_dir(&self.home)
@@ -202,6 +207,9 @@ impl Remote for FakePeer {
 
     fn copy(&self, local: &Path, remote: &str) -> Result<()> {
         std::fs::copy(local, self.home.join(remote))?;
+        if let Some((rel, text)) = self.after_copy.borrow_mut().take() {
+            self.write(rel, text);
+        }
         Ok(())
     }
 }
@@ -220,7 +228,7 @@ impl FakePeer {
     fn new(tag: &str) -> FakePeer {
         let home = std::env::temp_dir().join(format!("acpmux-up-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
-        let peer = FakePeer { home };
+        let peer = FakePeer { home, after_copy: Default::default() };
         for dir in ["fakebin", ".local/bin", UNITS, "proc/4242", "run", "binaries", ".acpmux"] {
             std::fs::create_dir_all(peer.home.join(dir)).unwrap();
         }
@@ -368,6 +376,73 @@ fn an_update_pushes_the_targets_binary_and_restarts_the_unit() {
     assert_eq!(peer.read(".local/bin/acpmux.prev"), fake_acpmux(OLD, Some(OLD)));
     assert!(peer.take_calls().contains(&"systemctl --user restart acpmux.service".to_owned()));
     assert!(peer.exists("agents"));
+}
+
+#[test]
+#[cfg(unix)]
+fn a_turn_that_starts_during_the_push_keeps_its_daemon() {
+    let peer = FakePeer::new("turn-during-push");
+    peer.offer(NEW, Some(NEW));
+    *peer.after_copy.borrow_mut() = Some((
+        "sessions.json",
+        r#"{"sessions": [{"name": "late", "status": "running", "turn": {"startedAt": 1}}]}"#,
+    ));
+    let up = peer.update(true);
+    assert_eq!(up.outcome, Outcome::Busy, "{up:?}");
+    assert_eq!(up.reason.as_deref(), Some("busy"));
+    assert!(up.error.as_deref().unwrap_or_default().contains("late"), "{up:?}");
+    // The old binary is back and its daemon was never restarted.
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));
+    assert_eq!(peer.daemon(), OLD);
+    assert!(!peer.take_calls().iter().any(|c| c.contains("restart")));
+}
+
+#[test]
+#[cfg(unix)]
+fn a_login_banner_is_not_read_as_the_platform() {
+    use std::os::unix::process::ExitStatusExt;
+    let stdout = format!(
+        "Welcome to box\n{UNAME}Linux aarch64\n{CLOUD_VM}\n\n{PROBE_SPLIT}\n{{}}\n\n{PROBE_SPLIT}\n\n{PROBE_SPLIT}\n"
+    );
+    let out = Output {
+        status: std::process::ExitStatus::from_raw(0),
+        stdout: stdout.into_bytes(),
+        stderr: Vec::new(),
+    };
+    let probe = Probe::parse(&out).unwrap();
+    assert_eq!(probe.uname, "Linux aarch64");
+    assert!(probe.cloud_vm);
+}
+
+#[test]
+#[cfg(unix)]
+fn a_pushed_binary_that_does_not_run_is_never_installed() {
+    let peer = FakePeer::new("no-run");
+    peer.exe(
+        &format!("binaries/acpmux-{TARGET}"),
+        "#!/bin/sh\necho 'cannot execute binary file: Exec format error' >&2\nexit 126\n",
+    );
+    let up = peer.update(false);
+    assert_eq!(up.outcome, Outcome::Failed, "{up:?}");
+    assert_eq!(up.reason.as_deref(), Some("pushFailed"));
+    assert!(up.error.as_deref().unwrap_or_default().contains("does not run"), "{up:?}");
+    // The old binary stays installed, and no copy of the new one is left.
+    peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+}
+
+#[test]
+#[cfg(unix)]
+fn a_cloud_vm_is_left_to_cmux_link_machine_update() {
+    let peer = FakePeer::new("cloud-vm");
+    peer.write("etc/cmux/vm-kind", "cloud\n");
+    peer.offer(NEW, Some(NEW));
+    for if_idle in [false, true] {
+        let up = peer.update(if_idle);
+        assert_eq!(up.outcome, Outcome::Failed, "{up:?}");
+        assert_eq!(up.reason.as_deref(), Some("cloudMachine"));
+        assert!(up.error.as_deref().unwrap_or_default().contains("--to-bundled"), "{up:?}");
+        peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+    }
 }
 
 #[test]

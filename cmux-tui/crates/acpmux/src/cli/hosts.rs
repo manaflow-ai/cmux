@@ -138,9 +138,12 @@ fn push_binary(remote: &dyn Remote, local: &Path) -> Result<String> {
     remote_ok(remote, INSTALL_PUSHED)
 }
 
-/// Install the pushed `acpmux.new`, keeping the binary it replaces as
-/// `acpmux.prev` (a hard link, else a copy) for a rollback.
-const INSTALL_PUSHED: &str = "(cd ~/.local/bin && { [ ! -e acpmux ] || ln -f acpmux acpmux.prev 2>/dev/null || cp -p acpmux acpmux.prev; } && rm -f acpmux && mv acpmux.new acpmux && chmod +x acpmux) && ~/.local/bin/acpmux --version";
+/// Install the pushed `acpmux.new` once its `--version` runs (else delete
+/// it and leave the installed binary alone), keeping the binary it replaces
+/// as `acpmux.prev` (a hard link, else a copy; none when nothing was
+/// installed, so a rollback never brings back an older one) for a rollback. The rename
+/// swaps the two in one step; prints the new binary's version.
+const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x acpmux.new && { v=$(./acpmux.new --version) || { rm -f acpmux.new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { if [ -e acpmux ]; then ln -f acpmux acpmux.prev 2>/dev/null || cp -p acpmux acpmux.prev; else rm -f acpmux.prev; fi; } && mv -f acpmux.new acpmux && printf '%s\\n' \"$v\"";
 
 /// Put `acpmux.prev` back as `~/.local/bin/acpmux`; fails without one.
 const RESTORE_PREV: &str = "(cd ~/.local/bin && [ -f acpmux.prev ] && rm -f acpmux && { ln acpmux.prev acpmux 2>/dev/null || cp -p acpmux.prev acpmux; })";
