@@ -57,6 +57,8 @@ extension CaptureSceneRegistry {
             return .object(["error": .string("Home page did not open"), "chief": .string(chief)])
         }
         page.show(ConversationID(chief))
+        // An empty field: an earlier long-draft scene in this app leaves its draft there.
+        page.host.flatMap(HomePageTab.transcript(in:))?.debugSetDraft("")
         let statuses: Set<HomeAgentGlance.Status> = Set(agents.map(\.0.status)).union([.needsYou])
         let start = ContinuousClock.now
         frames.start()
@@ -86,7 +88,14 @@ extension CaptureSceneRegistry {
             clearShowcaseAgent(windowID: windowID)
             return .object(report)
         }
-        if longDraft, let transcript { return await growField(transcript, report: report, windowID: windowID) }
+        if longDraft {
+            guard let transcript else {
+                report["error"] = .string("no Home transcript to put the long draft in")
+                clearShowcaseAgent(windowID: windowID)
+                return .object(report)
+            }
+            return await growField(transcript, report: report, windowID: windowID)
+        }
         return .object(report)
     }
 
