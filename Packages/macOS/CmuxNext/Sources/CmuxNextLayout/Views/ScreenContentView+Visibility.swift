@@ -31,6 +31,7 @@ extension ScreenContentView {
                 border: PaneOverlayView.Border(shows: style.showsPaneBorder, width: style.paneBorderWidth, color: style.paneBorderColor),
                 attention: attention[pane],
                 attentionSettings: style.attention,
+                readByEntry: isFocused && context.model.attentionReadByEntry.contains(pane),
                 animated: animated
             )
         }
