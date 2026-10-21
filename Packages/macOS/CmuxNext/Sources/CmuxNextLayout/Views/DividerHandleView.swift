@@ -115,11 +115,16 @@ final class DividerHandleView: NSView {
         if newSize != old { needsLayout = true }
     }
 
+    /// Where the handle shows its resize cursor, in its own coordinates.
+    var cursorRectInBounds: CGRect { bounds }
+
     override func resetCursorRects() {
+        let rect = cursorRectInBounds
+        guard !rect.isEmpty else { return }
         if #available(macOS 15, *) {
-            addCursorRect(bounds, cursor: axis == .horizontal ? .columnResize : .rowResize)
+            addCursorRect(rect, cursor: axis == .horizontal ? .columnResize : .rowResize)
         } else {
-            addCursorRect(bounds, cursor: axis == .horizontal ? .resizeLeftRight : .resizeUpDown)
+            addCursorRect(rect, cursor: axis == .horizontal ? .resizeLeftRight : .resizeUpDown)
         }
     }
 
