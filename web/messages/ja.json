@@ -169,6 +169,21 @@
     "expiredBody": "{machine} とその中身は無事です。このリンクのセッションだけが終了しました。cmux でマシンを右クリックし、「デスクトップを開く」から新しく開き直してください。"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM リクエストが遅延しています",
+      "message": "Cloud VM の割り当てを一時的に利用できません。",
+      "action": "1 分待ってから、同じ冪等キーで再試行してください。"
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "スナップショットリクエストには再試行キーが必要です",
+      "message": "Cloud VM のスナップショットには冪等キーが必要です。",
+      "action": "128 文字以内の固定した Idempotency-Key を指定して再試行してください。"
+    },
+    "snapshotQuota": {
+      "title": "スナップショットの上限に達しました",
+      "message": "この Cloud VM はスナップショットの上限に達しています。",
+      "action": "既存のスナップショットを削除してから、同じ冪等キーで再試行してください。"
+    },
     "guestInstall": {
       "title": "Cloud VM のセットアップを完了できませんでした",
       "reason": "Cloud VM のゲストセットアップが完了しませんでした。",
