@@ -13,6 +13,9 @@ use crate::policy::{self, Action, Pressure, Session, Settings, Verdict};
 use crate::procs;
 use crate::store::Store;
 
+/// How long measuring one worktree may take.
+const MEASURE: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// What a pass looks at and may do.
 #[derive(Debug, Clone)]
 pub struct Options {
@@ -27,6 +30,8 @@ pub struct Options {
     pub pressure: Option<Pressure>,
     /// Only these worktrees (folders); all when empty.
     pub only: Vec<PathBuf>,
+    /// Measure the bytes each worktree a pass would act on takes.
+    pub measure: bool,
 }
 
 /// One worktree's line in a report.
@@ -40,6 +45,10 @@ pub struct Item {
     /// Facts the verdict came from, when readable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub facts: Option<inventory::Facts>,
+    /// With `measure`: the bytes acting on it would free (a lower bound
+    /// when the walk ran out of time).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<u64>,
     /// With `apply`: what happened.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outcome: Option<Outcome>,
@@ -65,6 +74,8 @@ pub struct Report {
     pub applied: bool,
     pub items: Vec<Item>,
     pub freed: u64,
+    /// With `measure`: the bytes all actions would free.
+    pub reclaimable: u64,
     /// Repositories that could not be read, with why.
     pub errors: Vec<String>,
 }
@@ -91,6 +102,7 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
         applied: options.apply,
         items: Vec::new(),
         freed: 0,
+        reclaimable: 0,
         errors: Vec::new(),
     };
     let now = now_ms();
@@ -127,6 +139,9 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
                 now,
             );
             let facts = worktree.facts.as_ref().ok();
+            let bytes = (options.measure && verdict.action != Action::Keep)
+                .then(|| measure(worktree, verdict.action, facts));
+            report.reclaimable += bytes.unwrap_or(0);
             let outcome = match (options.apply, verdict.action, facts) {
                 (true, Action::Trim, Some(facts)) => {
                     Some(outcome(archive::trim(worktree, facts).map(|f| (f, None))))
@@ -153,11 +168,30 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
                 branch: worktree.branch.clone(),
                 verdict,
                 facts: facts.cloned(),
+                bytes,
                 outcome,
             });
         }
     }
     Ok(report)
+}
+
+/// What acting on a worktree frees: its whole folder, or its build output
+/// for a trim.
+fn measure(
+    worktree: &inventory::Worktree,
+    action: Action,
+    facts: Option<&inventory::Facts>,
+) -> u64 {
+    let deadline = std::time::Instant::now() + MEASURE;
+    let parts: Vec<PathBuf> = facts
+        .map(|f| f.build_output.iter().map(|p| PathBuf::from(p.trim_end_matches('/'))).collect())
+        .unwrap_or_default();
+    let sizes = disk::sizes(&worktree.path, &parts, deadline);
+    match action {
+        Action::Trim => sizes.parts.values().sum(),
+        _ => sizes.total,
+    }
 }
 
 fn outcome(result: Result<(u64, Option<String>), String>) -> Outcome {

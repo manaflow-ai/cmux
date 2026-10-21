@@ -243,6 +243,7 @@ fn care_a_pass_reclaims_idle_work_and_keeps_an_open_session_s() {
         apply: true,
         pressure: Some(Pressure::Critical),
         only: Vec::new(),
+        measure: true,
     };
     let store = Store::open(base.join("store")).unwrap();
     let report = pass::run(&options, &store).unwrap();
@@ -251,4 +252,5 @@ fn care_a_pass_reclaims_idle_work_and_keeps_an_open_session_s() {
     assert_eq!(action(&open), Action::Keep);
     assert!(!idle.exists() && open.exists());
     assert!(store.find("feat/idle").is_some());
+    assert!(report.reclaimable > 0, "the idle worktree was measured before it went");
 }

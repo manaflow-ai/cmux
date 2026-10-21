@@ -10,22 +10,17 @@
 //!   archive id.
 //! - `archives`: the manifests of reclaimed worktrees.
 //!
-//! The sessions come from every acpmux state folder on this machine (the
-//! person's daemon, Chief's, a tagged build's), read from their session
-//! files, so a session of a daemon this command does not talk to still keeps
-//! its worktree. A session not closed keeps its worktree while its daemon
-//! runs; a stopped daemon's sessions count as use at their last change.
-//! A process working in a worktree keeps it too.
+//! The sessions come from every acpmux state folder on this machine
+//! (`worktree_sessions.rs`); a process working in a worktree keeps it too.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
 use clap::{Subcommand, ValueEnum};
 use cmux_worktree_care::Store;
 use cmux_worktree_care::pass::{self, Options, Report};
-use cmux_worktree_care::policy::{Action, Pressure, Session, Settings};
+use cmux_worktree_care::policy::{Action, Pressure, Settings};
 use cmux_worktree_care::restore::restore;
-use serde::Deserialize;
 use serde_json::json;
 
 use crate::cli::output::print_json;
@@ -129,10 +124,14 @@ pub fn run(cmd: WorktreeCmd, json_out: bool) -> Result<()> {
 
 fn sweep(scope: &Scope, apply: bool, store: &Store, json_out: bool) -> Result<()> {
     let home = dirs::home_dir().ok_or_else(|| anyhow!("no home folder"))?;
-    let roots = if scope.roots.is_empty() { default_roots(&home) } else { scope.roots.clone() };
+    let roots = if scope.roots.is_empty() {
+        crate::worktree_sessions::default_roots(&home)
+    } else {
+        scope.roots.clone()
+    };
     let options = Options {
         roots,
-        sessions: sessions(&home),
+        sessions: crate::worktree_sessions::on_disk(&home, None),
         settings: Settings::default(),
         apply,
         pressure: scope.pressure.map(|p| match p {
@@ -141,6 +140,7 @@ fn sweep(scope: &Scope, apply: bool, store: &Store, json_out: bool) -> Result<()
             PressureArg::Critical => Pressure::Critical,
         }),
         only: scope.only.clone(),
+        measure: !apply,
     };
     let report = pass::run(&options, store).map_err(|e| anyhow!(e))?;
     if json_out {
@@ -170,19 +170,18 @@ fn print_report(report: &Report, all: bool) {
             Action::Reclaim => "reclaim",
             Action::Archive => "archive",
         };
+        let size = item.bytes.map(|b| format!("  ({})", mib(b))).unwrap_or_default();
         let done = match &item.outcome {
             Some(o) if o.ok => format!("  [done, {}]", mib(o.freed)),
             Some(o) => format!("  [failed: {}]", o.error.as_deref().unwrap_or("?")),
             None => String::new(),
         };
-        println!("{word:8} {}  {}{done}", item.path.display(), item.verdict.reason);
+        println!("{word:8} {}  {}{size}{done}", item.path.display(), item.verdict.reason);
     }
     for error in &report.errors {
         println!("error    {error}");
     }
-    let verb = if report.applied { "freed" } else { "would act on" };
-    let acted =
-        report.count(Action::Reclaim) + report.count(Action::Archive) + report.count(Action::Trim);
+    let verb = if report.applied { "freed" } else { "would free" };
     println!(
         "{} worktrees: {} reclaim, {} archive, {} trim, {} keep; {verb} {}",
         report.items.len(),
@@ -190,7 +189,7 @@ fn print_report(report: &Report, all: bool) {
         report.count(Action::Archive),
         report.count(Action::Trim),
         report.count(Action::Keep),
-        if report.applied { mib(report.freed) } else { format!("{acted}") }
+        mib(if report.applied { report.freed } else { report.reclaimable })
     );
 }
 
@@ -200,102 +199,4 @@ fn mib(bytes: u64) -> String {
 
 fn gib(bytes: u64) -> String {
     format!("{:.1} GiB", bytes as f64 / f64::from(1u32 << 30))
-}
-
-/// The folders agents' worktrees live under by default.
-fn default_roots(home: &Path) -> Vec<PathBuf> {
-    let mut roots =
-        vec![home.join("Projects"), home.join("wt"), home.join("src"), home.join("code")];
-    for parent in [home.join("wt"), home.join(".cmux/worktrees")] {
-        if let Ok(entries) = std::fs::read_dir(&parent) {
-            roots.extend(entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()));
-        }
-    }
-    roots.retain(|root| root.is_dir());
-    roots
-}
-
-/// A session file's fields this command reads.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SessionFile {
-    name: String,
-    cwd: PathBuf,
-    status: String,
-    #[serde(default)]
-    updated_at: u64,
-}
-
-/// Every session of every acpmux state folder on this machine.
-fn sessions(home: &Path) -> Vec<Session> {
-    let mut homes = vec![crate::config::home(), crate::config::default_home()];
-    for parent in [home.to_path_buf(), home.join(".cmux/chief")] {
-        let Ok(entries) = std::fs::read_dir(&parent) else { continue };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if parent == home && name.starts_with(".acpmux") {
-                homes.push(path.clone());
-                // A supervised daemon keeps one folder per host.
-                if let Ok(children) = std::fs::read_dir(&path) {
-                    homes.extend(children.flatten().map(|c| c.path()));
-                }
-            } else if parent != home {
-                homes.push(path.join("acpmux"));
-            }
-        }
-    }
-    homes.sort();
-    homes.dedup();
-    let mut found = Vec::new();
-    for state in homes {
-        let Ok(entries) = std::fs::read_dir(state.join("sessions")) else { continue };
-        let running = daemon_runs(&state);
-        for entry in entries.flatten() {
-            let Ok(bytes) = std::fs::read(entry.path().join("session.json")) else { continue };
-            let Ok(file) = serde_json::from_slice::<SessionFile>(&bytes) else { continue };
-            found.push(Session {
-                name: file.name,
-                cwd: file.cwd,
-                open: running && file.status != "closed",
-                updated_ms: file.updated_at,
-            });
-        }
-    }
-    found
-}
-
-/// Whether a daemon answers on the state folder's socket.
-#[cfg(unix)]
-fn daemon_runs(state: &Path) -> bool {
-    std::os::unix::net::UnixStream::connect(state.join("acpmux.sock")).is_ok()
-}
-
-/// Windows: no socket to try, so every session not closed counts as open.
-#[cfg(not(unix))]
-fn daemon_runs(_state: &Path) -> bool {
-    true
-}
-
-#[cfg(test)]
-mod care_tests {
-    use super::*;
-
-    #[test]
-    fn care_a_stopped_daemon_s_sessions_are_use_not_open() {
-        let home = std::env::temp_dir()
-            .join(format!("care-sessions-{}", cmux_worktree_care::inventory::now_ms()));
-        let session = home.join(".acpmux-test/sessions/one");
-        std::fs::create_dir_all(&session).unwrap();
-        std::fs::write(
-            session.join("session.json"),
-            r#"{"name":"lane","cwd":"/w/a","status":"running","updatedAt":5}"#,
-        )
-        .unwrap();
-        let found: Vec<_> = sessions(&home).into_iter().filter(|s| s.name == "lane").collect();
-        assert_eq!(found.len(), 1);
-        assert!(!found[0].open, "no daemon answers there");
-        assert_eq!(found[0].updated_ms, 5);
-        let _ = std::fs::remove_dir_all(home);
-    }
 }
