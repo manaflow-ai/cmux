@@ -55,6 +55,16 @@ await requireBrowserLane("retry-model-menu.test.ts", async () => {
     await vite?.close();
   });
 
+  /** Resolves once nothing on the page is easing: no transition or animation left to run (a
+   *  looping one never ends). */
+  const eased = (page: Page) =>
+    page.waitForFunction(() =>
+      document
+        .getAnimations()
+        .every(
+          (animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity,
+        ),
+    );
   const open = async (engine: string, width: number, theme: string): Promise<Page> => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width, height: 600 } });
     await page.goto(stageURL(width, theme));
@@ -67,7 +77,8 @@ await requireBrowserLane("retry-model-menu.test.ts", async () => {
     await page.mouse.down();
     await page.mouse.up();
     await page.locator('[role="menu"] [role="menuitemradio"][aria-checked="true"]').waitFor();
-    await page.waitForTimeout(300);
+    // The menu has finished opening.
+    await eased(page);
     return page;
   };
 
