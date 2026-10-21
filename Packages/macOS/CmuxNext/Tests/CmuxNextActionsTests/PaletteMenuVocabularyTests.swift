@@ -71,12 +71,14 @@ struct PaletteMenuVocabularyTests {
                                   "openTeamPicker", "remote.openBrowserTab"]
         for id in asking {
             let descriptor = try #require(byID[id], "\(id)")
-            #expect(descriptor.arguments.contains(where: \.isRequired), "\(id) no longer asks for input")
+            let asks = descriptor.arguments.contains(where: \.isRequired)
+            #expect(asks, "\(id) no longer asks for input")
             #expect(descriptor.title.hasSuffix("…"), "\(id) \(descriptor.title): asks for input, so it ends in …")
         }
         for id: ActionID in ["cloudDiagnostics", "workspaceGroup.editConfig"] {
             let descriptor = try #require(byID[id], "\(id)")
-            #expect(!descriptor.arguments.contains(where: \.isRequired), "\(id) now asks for input")
+            let asks = descriptor.arguments.contains(where: \.isRequired)
+            #expect(!asks, "\(id) now asks for input")
             #expect(!descriptor.title.hasSuffix("…"), "\(id) \(descriptor.title): acts at once, so no …")
         }
     }

@@ -11,6 +11,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserContext, type BrowserType } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -92,6 +93,7 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
   /// (AgentPaneNavigation), and returns every distinct location text it painted, in order.
   async function newTab(context: BrowserContext, { cwd, handshakeDelay }: Host, settle: string) {
     const page = await context.newPage();
+    await installPaintedFrames(page);
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.addInitScript(
       ({ endpoint, cwd, home, handshakeDelay }) => {
@@ -151,11 +153,7 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
           characterData: true,
           attributes: true,
         });
-        const frame = () => {
-          read();
-          requestAnimationFrame(frame);
-        };
-        requestAnimationFrame(frame);
+        window.cmuxAfterPaint(read);
       },
       { endpoint, cwd, home: HOME, handshakeDelay },
     );
