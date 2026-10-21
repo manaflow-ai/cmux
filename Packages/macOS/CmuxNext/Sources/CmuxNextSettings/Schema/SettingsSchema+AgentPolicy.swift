@@ -267,6 +267,8 @@ extension SettingsSchema {
         "browser.urlsToAlwaysOpenExternally": .privacy,
         // Whether attached photos and videos send their location.
         "home.attachments.keepLocation": .privacy,
+        // Whether cmux reads the person's clipboard for the Chief's + menu.
+        "home.clipboardHistory": .privacy,
         // A reply's file link outside the project, and a reply's web image (D4, D5).
         "agentPane.links.outsideRoots": .privacy,
         "agentPane.images.remote": .network,

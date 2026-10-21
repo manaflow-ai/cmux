@@ -34,5 +34,13 @@ public nonisolated struct HomeTunables {
         help: "The empty Chief conversation shows the Chief's character and two lines about what it does above its rows. Off shows only the rows.",
         default: true, code: "HomeTunables.firstRunHero")
 
-    public static var all: [TunableDescriptor] { [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor] }
+    /// How many recent copies the composer's + menu lists (`home.clipboardHistory` keeps about 20).
+    public static let plusMenuClipboardRows = Tunable<Double>.number(
+        "home.plusMenu.clipboardRows", section, "Clipboard rows in the + menu",
+        help: "How many of your recent copies the Chief composer's + menu lists, newest first. 0 hides the Clipboard section.",
+        default: 6, range: 0...20, step: 1, unit: .count, code: "HomeTunables.plusMenuClipboardRows")
+
+    public static var all: [TunableDescriptor] {
+        [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, plusMenuClipboardRows.descriptor]
+    }
 }

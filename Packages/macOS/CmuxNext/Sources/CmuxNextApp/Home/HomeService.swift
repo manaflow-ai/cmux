@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextSettings
 import Foundation
 import Observation
 import os
@@ -129,6 +130,10 @@ final class HomeService {
         // MessagesLab's flight recorder (HomeTunables): DEV on, NIGHTLY opt-in, Release and RC never.
         HomeFlightRecording.install(available: DevTools.isEnabled,
                                     logFolder: Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "cmux")
+        // The Chief composer's + menu lists recent copies while `home.clipboardHistory` is on (read at activation).
+        HomeNativeTranscriptView.useClipboardHistory { [weak services] in
+            services?.settings?.snapshot.homeClipboardHistory ?? false // not loaded yet: read nothing
+        }
         wireHostedChief()
     }
 

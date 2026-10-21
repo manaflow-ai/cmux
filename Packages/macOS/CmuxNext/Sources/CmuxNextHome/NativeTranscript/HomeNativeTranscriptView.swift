@@ -130,6 +130,7 @@ public final class HomeNativeTranscriptView: NSView {
         noticeLabel.isSelectable = false
         addSubview(noticeLabel)
         connectAttachments()
+        connectPlusMenu()
         firstRun.isHidden = true
         firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
         firstRun.onAgent = { [weak self] id in self?.onFirstRunAgent(id) }
