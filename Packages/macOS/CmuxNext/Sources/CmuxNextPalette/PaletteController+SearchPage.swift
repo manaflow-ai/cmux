@@ -1,5 +1,3 @@
-public import AppKit
-
 extension PaletteController {
     /// Search (scope `search`, the sidebar's Search button;
     /// plans/cmux-next/sidebar-search.md): the providers Go to Workspace and
@@ -45,9 +43,8 @@ extension PaletteController {
         return previewingActions(page)
     }
 
-    /// Chats & agents (scope `chats`, Cmd-Shift-A): the contributed pages that list chats and agent
-    /// sessions, nothing else. It opens on top of Search (`search.chats`), so Backspace on the empty
-    /// field searches everything with the same query.
+    /// Chats & agents (scope `chats`): the contributed pages that list chats and agent sessions,
+    /// nothing else.
     func chatsPage() -> PalettePageSpec {
         PalettePageSpec(
             id: "chats",
@@ -58,14 +55,6 @@ extension PaletteController {
             showsRecent: true,
             scope: PaletteScopeID.chats
         )
-    }
-
-    /// Opens Search with the Chats & agents chip on top (`search.chats`, Cmd-Shift-A).
-    @discardableResult
-    public func showChats(query: String = "", relativeTo window: NSWindow? = nil) -> Bool {
-        guard show(scope: PaletteScopeID.search, relativeTo: window) else { return false }
-        model.send(.push(PaletteScopeID.chats, row: nil, query: query))
-        return true
     }
 
     /// Each contribution's providers, its rows under the contribution's section unless they carry one.
