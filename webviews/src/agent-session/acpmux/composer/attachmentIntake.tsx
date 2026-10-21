@@ -126,20 +126,27 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     reading.current += files.length;
     if (shown.length) setPending((chips) => [...chips, ...shown]);
     const paths = current.localPaths;
+    // Their placeholders go in the same render as what they became (or when the read fails).
+    const read = () => {
+      reading.current -= files.length;
+      if (shown.length) setPending((chips) => chips.filter((chip) => !shown.includes(chip)));
+    };
+    let taken: Awaited<ReturnType<typeof intakeFiles>>;
     try {
-      const taken = await intakeFiles(files, {
+      taken = await intakeFiles(files, {
         held: held + ahead,
         allowImages: current.allowImages,
         ...(kind && paths ? { localPaths: (batch: File[]) => paths(kind, batch) } : {}),
         ...(uploads && current.upload ? { upload: current.upload } : {}),
       });
-      setAttachments((staged) => appendAttachments(staged, taken.attachments));
-      const error = taken.error;
-      setAttachError(error && ("text" in error ? error.text : attachmentErrorText(error, translate)));
-    } finally {
-      reading.current -= files.length;
-      if (shown.length) setPending((chips) => chips.filter((chip) => !shown.includes(chip)));
+    } catch (error) {
+      read();
+      throw error;
     }
+    read();
+    setAttachments((staged) => appendAttachments(staged, taken.attachments));
+    const error = taken.error;
+    setAttachError(error && ("text" in error ? error.text : attachmentErrorText(error, translate)));
   });
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
@@ -410,6 +417,7 @@ function AttachmentChip({
           <button
             type="button"
             className="acpmux-attachment-pasted-open"
+            /* tooltip-allow: the chip shows the paste's first words; the tooltip says a click puts it back in the prompt */
             title={t(ATTACHMENT_LABELS.editPasted)}
             onClick={expand}
           >
