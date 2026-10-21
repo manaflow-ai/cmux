@@ -35,6 +35,12 @@ nonisolated struct CrashIssueReport: Equatable, Sendable {
     /// One line: the exception summary, else the signal name.
     static func cause(of previous: PreviousRun) -> String? {
         if let exception = previous.exception { return scrub(exception.summary) }
+        if let ending = previous.watchEnding {
+            switch ending.reason {
+            case .hang: return "not responding for \(ending.seconds) s; ended by the watcher"
+            case .crashStuck: return "a crash did not finish in \(ending.seconds) s; ended by the watcher"
+            }
+        }
         guard let signal = previous.signal else { return nil }
         return BrowserProcessExit(reason: .crashed, code: Int(signal)).codeDescription ?? "signal \(signal)"
     }

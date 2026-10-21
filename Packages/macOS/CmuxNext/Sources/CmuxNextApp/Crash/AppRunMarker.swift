@@ -23,7 +23,13 @@ nonisolated(unsafe) private var fatalSignalDescriptor: Int32 = -1
 /// fault that runs again must reach the system's handler) and starts the
 /// crash deadline (2026-10-20 freezes).
 private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__siginfo>?, UnsafeMutableRawPointer?) -> Void = { signal, info, context in
-    CrashReporter.fatalSignalBegan()
+    // A requested quit (TERM, INT, HUP before `QuitSignal` runs) is not a crash: the watcher must
+    // not relaunch it.
+    if signal == SIGTERM || signal == SIGINT || signal == SIGHUP {
+        CrashReporter.appWatchQuitBegan()
+    } else {
+        CrashReporter.fatalSignalBegan()
+    }
     var bytes: (UInt8, UInt8, UInt8) = (UInt8(48 + (signal / 10) % 10), UInt8(48 + signal % 10), 10)
     let descriptor = fatalSignalDescriptor
     if descriptor >= 0 {
@@ -86,6 +92,9 @@ final class AppRunMarker {
 
     private var signalFile: URL { directory.appending(path: "run.signal") }
     private var exceptionFile: URL { directory.appending(path: "run.exception") }
+    private var watchFile: URL { directory.appending(path: "run.watch") }
+    /// The folder of the marker files (`AppWatcher` writes `run.watch` here).
+    var folder: URL { directory }
 
     /// The app's marker folder for `bundleID`.
     static func standardDirectory(bundleID: String?) -> URL {
@@ -100,7 +109,7 @@ final class AppRunMarker {
         self.directory = root
         file = RunMarkerFile(url: root.appending(path: "run.json"), signalURL: root.appending(path: "run.signal"))
         let previous = Self.readPrevious(marker: root.appending(path: "run.json"), signal: root.appending(path: "run.signal"),
-                                         exception: root.appending(path: "run.exception"))
+                                         exception: root.appending(path: "run.exception"), watch: root.appending(path: "run.watch"))
         recovery = LaunchRecovery.decide(previous: previous)
         marker = PreviousRun(pid: getpid(), launched: now, recovery: LaunchRecovery.watchesForLoop(previous: previous),
                              survived: false, signal: nil)
@@ -116,8 +125,9 @@ final class AppRunMarker {
             return
         }
         writeMarker()
-        // The previous run's exception was read in init; this run records its own.
+        // The previous run's exception and watcher ending were read in init; this run records its own.
         unlink(exceptionFile.path)
+        unlink(watchFile.path)
         UncaughtExceptionRecorder.install(writingTo: exceptionFile)
         // concurrency-allow: once at launch; truncates a file of at most 3 bytes, no fsync.
         let descriptor = open(signalFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
@@ -172,6 +182,7 @@ final class AppRunMarker {
             marker.quitting = true
             writeMarker()
         }
+        CrashReporter.appWatchQuitBegan()
         let written = await file.written(lastTicket, timeout: timeout)
         if !written { logger.error("run marker quit write missed its \(timeout, privacy: .public) deadline") }
         return written
@@ -185,6 +196,7 @@ final class AppRunMarker {
 
     /// A normal quit: the next launch is clean.
     func markCleanExit() {
+        CrashReporter.appWatchQuitBegan()
         survivalTask?.cancel()
         let descriptor = fatalSignalDescriptor
         fatalSignalDescriptor = -1
@@ -204,7 +216,7 @@ final class AppRunMarker {
         }
     }
 
-    nonisolated static func readPrevious(marker: URL, signal: URL, exception: URL? = nil) -> PreviousRun? {
+    nonisolated static func readPrevious(marker: URL, signal: URL, exception: URL? = nil, watch: URL? = nil) -> PreviousRun? {
         // concurrency-allow: once at launch before the first window, a file of about 150 bytes in Application Support.
         guard let data = try? Data(contentsOf: marker) else { return nil }
         let decoder = JSONDecoder()
@@ -217,6 +229,7 @@ final class AppRunMarker {
             run.signal = number
         }
         if let exception { run.exception = UncaughtExceptionRecorder.read(exception) }
+        if let watch { run.watchEnding = WatchEnding.read(watch, pid: run.pid) }
         return run
     }
 }

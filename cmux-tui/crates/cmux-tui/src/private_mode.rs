@@ -30,6 +30,9 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         Some(crate::link::machine_update::apply::MODE) => {
             Some(crate::link::machine_update::apply::run(&args[1..]))
         }
+        // cmux NEXT's out-of-process watcher of one app run (app_watch.rs).
+        #[cfg(unix)]
+        Some(crate::app_watch::MODE) => Some(crate::app_watch::run(&args[1..])),
         _ => None,
     }
 }

@@ -1,5 +1,7 @@
 import CmuxNextBrowser
+import CmuxNextCrashReporting
 import CmuxNextSettings
+import Darwin
 import Foundation
 
 /// `debug.crashes`: recent Chromium process failures (renderer per tab from
@@ -23,6 +25,9 @@ enum DebugCrashes {
                 "was_restart": .bool(previous.recovery),
                 "survived": .bool(previous.survived),
                 "signal": previous.signal.map { .number(Double($0)) } ?? .null,
+                "watch_ending": previous.watchEnding.map {
+                    .object(["reason": .string($0.reason.rawValue), "seconds": .number(Double($0.seconds))])
+                } ?? .null,
             ])
         }
         launch["system_report"] = crash.previousCrashLog.map { .string($0.path) } ?? .null
@@ -67,17 +72,38 @@ enum DebugCrashes {
     /// EXC_BREAKPOINT port on a port nothing receives, so the main thread
     /// waits for an exception reply forever, as in the 2026-10-20 NIGHTLY
     /// freezes. Only the crash deadline can end it.
+    /// "suspended" starts the crash path, suspends every other thread (the
+    /// crash deadline's too, as a crash reporter does while it writes its
+    /// report) and blocks: only the out-of-process watcher can end it
+    /// (#22844). "hang" blocks the main thread without a crash: the watcher
+    /// ends it after its hang limit.
     /// `reporting` tags the Sentry event `deliberate_crash`, so it can be filtered out.
     static func crashApp(_ params: [String: JSONValue], _ reporting: AppCrashReporting? = nil) -> Never {
         reporting?.reporter.markDeliberateCrash("debug.crash.app")
         switch params["signal"]?.stringValue {
         case "abort": abort()
+        case "suspended":
+            CrashReporter.beginCrashDeadline()
+            CrashReporter.suspendOtherThreads()
+            blockForever()
+        case "hang":
+            blockForever()
         case let signal? where signal == "trap" || signal == "frozen":
             if signal == "frozen" { reporting?.reporter.freezeNextTrap() }
             fatalError("debug.crash.app")
         default:
             _ = raise(SIGSEGV)
             abort()
+        }
+    }
+
+    /// Blocks the calling thread with no wakeup (a Mach semaphore nothing signals).
+    private static func blockForever() -> Never {
+        var semaphore = semaphore_t(0)
+        _ = semaphore_create(mach_task_self_, &semaphore, SYNC_POLICY_FIFO, 0)
+        // wakeup-allow: debug.crash.app only (DEBUG): a deliberate hang of this thread that the watcher must end; each wait blocks with no wakeup.
+        while true {
+            _ = semaphore_wait(semaphore) // concurrency-allow: DEBUG crash verb; this thread must block forever
         }
     }
 

@@ -50,6 +50,9 @@ enum CrashDeadline {
     /// A crash has begun: the process ends within ``seconds``.
     /// Async-signal-safe; does nothing before ``install()``.
     static func arm() {
+        // The out-of-process watcher bounds the case this thread cannot (all
+        // threads suspended, see the limit above).
+        AppWatchChannel.crashBegan()
         let semaphore = deadlineSemaphore
         if semaphore != 0 { _ = semaphore_signal(semaphore) }
     }

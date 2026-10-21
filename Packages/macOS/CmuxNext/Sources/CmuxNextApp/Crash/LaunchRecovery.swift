@@ -20,6 +20,10 @@ nonisolated struct PreviousRun: Codable, Equatable, Sendable {
     /// (`UncaughtExceptionRecorder`). Read from `run.exception`, never
     /// encoded into `run.json`.
     var exception: RecordedException?
+    /// The out-of-process watcher ended the run (`run.watch`, cmux-tui
+    /// `app_watch.rs`): a crash that did not finish, or a main thread hung
+    /// past the limit. Never encoded into `run.json`.
+    var watchEnding: WatchEnding?
 
     private enum CodingKeys: String, CodingKey {
         case pid, launched, recovery, survived, signal, quitting
@@ -37,7 +41,30 @@ nonisolated struct PreviousRun: Codable, Equatable, Sendable {
     /// ended on an uncaught exception. A run that ended with no handler
     /// running (`kill -9`, jetsam, power loss) did not crash; its next
     /// launch restores the same way, without the restart notice.
-    var crashed: Bool { signal != nil || exception != nil }
+    var crashed: Bool { signal != nil || exception != nil || watchEnding != nil }
+}
+
+/// Why the app's watcher (`AppWatcher`) ended a run: `run.watch`.
+nonisolated struct WatchEnding: Codable, Equatable, Sendable {
+    enum Reason: String, Codable, Sendable {
+        /// A crash began and the process still ran after the crash grace.
+        case crashStuck = "crash_stuck"
+        /// The main thread stayed hung past the hang limit.
+        case hang
+    }
+
+    var pid: Int32
+    var reason: Reason
+    /// How long the crash or hang had lasted when the watcher acted.
+    var seconds: Int
+
+    /// The ending `file` records for the run with `pid`, if any.
+    static func read(_ file: URL, pid: Int32) -> WatchEnding? {
+        // concurrency-allow: once at launch before the first window, a file of about 80 bytes.
+        guard let data = try? Data(contentsOf: file),
+              let ending = try? JSONDecoder().decode(WatchEnding.self, from: data), ending.pid == pid else { return nil }
+        return ending
+    }
 }
 
 /// How this launch follows the previous one. Pure: `AppRunMarker` supplies

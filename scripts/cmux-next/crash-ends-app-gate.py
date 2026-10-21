@@ -14,6 +14,21 @@ nothing received. This guard launches a Debug `cmux DEV <tag>.app` twice, with S
   frozen     `debug.crash.app {"signal": "frozen"}`: a crash path that blocks on a trap whose Mach
              exception nothing receives; the crash deadline must end it within --frozen-seconds
              (default 30).
+  suspended  `debug.crash.app {"signal": "suspended"}`: a crash path that suspends every other thread
+             (the crash deadline's too, as Sentry does while it writes its report) and blocks. Only
+             the out-of-process watcher (`cmux __app-watch`, #22844) can end it: not before 14 s
+             (the deadline did not do it), within --watch-seconds (default 30). The watcher then
+             relaunches the app: its debug socket must answer within --relaunch-seconds (default
+             60) and its restart notice must say the watcher ended the run.
+  hang       `debug.crash.app {"signal": "hang"}`: the main thread blocks with no crash. With
+             CMUX_NEXT_APP_WATCH_HANG_SECONDS=5 the watcher ends the run about 7 s later (2 s
+             watchdog report + 5 s) and relaunches it, checked as for suspended.
+
+The exception and frozen runs start no watcher (CMUX_NEXT_APP_WATCH=0), so they prove the in-process
+paths alone; the watched runs turn its relaunch on (an agent launch is not relaunched by default).
+Each run prints `ended_s` (crash to process end) and, for suspended and hang, `relaunch_s`
+(process end to the relaunched app's socket) and `notice_s` (to its restart notice, the first
+window shown): the measured time to a usable window after a crash.
 
 Before each crash it checks with `sample` that Sentry's primary Mach handler thread runs, so the
 guard holds the failing setup. A process that does not end is sampled into --out and then stopped
@@ -21,7 +36,7 @@ by its exact PID. Exit 0 when every run ended in time.
 
 Usage: crash-ends-app-gate.py --app "<dir>/cmux DEV <tag>.app" --out <dir>
 """
-import argparse, json, os, re, signal, socket, subprocess, sys, tempfile, time
+import argparse, json, os, plistlib, re, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
@@ -34,7 +49,10 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--exception-seconds", type=float, default=8)
 parser.add_argument("--frozen-seconds", type=float, default=30)
-parser.add_argument("--runs", default="exception,frozen", help="comma list of exception, frozen")
+parser.add_argument("--watch-seconds", type=float, default=30)
+parser.add_argument("--relaunch-seconds", type=float, default=60)
+parser.add_argument("--runs", default="exception,frozen,suspended,hang",
+                    help="comma list of exception, frozen, suspended, hang")
 opts = parser.parse_args()
 
 bundle = os.path.realpath(opts.app).rstrip("/")
@@ -43,6 +61,12 @@ if not match:
     sys.exit(f"crash-ends-app-gate: expected a `cmux DEV <tag>.app` bundle, got {bundle}")
 tag = match.group(1)
 sock = f"/tmp/cmux-debug-{tag}.sock"
+with open(os.path.join(bundle, "Contents/Info.plist"), "rb") as plist:
+    bundle_id = plistlib.load(plist).get("CFBundleIdentifier", "")
+# The app's run-marker folder (AppRunMarker.standardDirectory): run.json, run.watch, watch.log.
+if not bundle_id:
+    sys.exit(f"crash-ends-app-gate: {bundle} has no CFBundleIdentifier")
+marker_dir = os.path.expanduser(f"~/Library/Application Support/cmux-next/{bundle_id}")
 os.makedirs(opts.out, exist_ok=True)
 
 
@@ -84,6 +108,14 @@ def sample(pid, path, seconds=1):
         return ""
 
 
+def read(path):
+    try:
+        with open(path, errors="replace") as file:
+            return file.read()
+    except OSError:
+        return ""
+
+
 def run(kind):
     scratch = tempfile.mkdtemp(prefix=f"crash-gate-{tag}-")
     ghostty = os.path.join(scratch, "ghostty")
@@ -93,11 +125,25 @@ def run(kind):
         json.dump({}, file)
     if os.path.exists(sock):
         os.unlink(sock)
+    # Each run starts as a first launch: the previous run's crash would make this launch a restart,
+    # and the watcher does not relaunch a restart that dies within 60 s (no restart loop).
+    for name in ("run.json", "run.signal", "run.exception", "run.watch", "watch.restarts", "watch.log"):
+        try:
+            os.unlink(os.path.join(marker_dir, name))
+        except FileNotFoundError:
+            pass
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_GHOSTTY_CONFIG": ghostty,
            "CMUX_NEXT_CHIEF_ISOLATED": "1", "CMUX_NEXT_CHIEF_HOME": os.path.join(scratch, "chief"),
            "CMUX_NEXT_DEV_SENTRY": "1"}
+    watched = kind in ("suspended", "hang")
+    # The exception and frozen runs prove the in-process paths alone: no watcher may end them.
+    env["CMUX_NEXT_APP_WATCH"] = "1" if watched else "0"
+    if watched:
+        env["CMUX_NEXT_APP_WATCH_RELAUNCH"] = "1"
+    if kind == "hang":
+        env["CMUX_NEXT_APP_WATCH_HANG_SECONDS"] = "5"
     teardown = TagTeardown(bundle)
     teardown.install()
     log = open(os.path.join(opts.out, f"app-{kind}.log"), "a")
@@ -108,6 +154,8 @@ def run(kind):
     try:
         if not wait(lambda: "error" not in (rpc("debug.crashes") or {"error": 1}), 180):
             return f"{kind}: the app's debug socket never answered (a Debug build is required)"
+        if watched:
+            return watched_run(kind, process, pid)
         before = sample(pid, os.path.join(opts.out, f"before-{kind}.txt"))
         if PRIMARY not in before:
             return f"{kind}: Sentry's primary Mach exception thread does not run before the crash (CMUX_NEXT_DEV_SENTRY=1 not honored?)"
@@ -141,6 +189,53 @@ def run(kind):
             os.kill(pid, signal.SIGKILL)  # this script's own child, by exact PID
             process.wait(30)
         teardown.end()
+
+
+def watched_run(kind, process, pid):
+    """suspended / hang: the watcher ends the run, records why and relaunches it."""
+    started = time.time()
+    # The call never returns: the main thread blocks inside it.
+    rpc("debug.crash.app", {"signal": kind}, timeout=3)
+    try:
+        process.wait(opts.watch_seconds)
+    except subprocess.TimeoutExpired:
+        pass
+    ended = time.time()
+    elapsed = ended - started
+    if process.poll() is None:
+        sample(pid, os.path.join(opts.out, f"frozen-{kind}.txt"), seconds=2)
+        return f"{kind}: the watcher did not end the app within {opts.watch_seconds:.0f} s"
+    if kind == "suspended" and elapsed < 14:
+        return f"suspended: the app ended after {elapsed:.1f} s, before the watcher's 15 s grace (not the watcher)"
+    # The old process is gone; only the relaunched app answers (the one whose previous run is `pid`).
+    def relaunched_app():
+        launch = (rpc("debug.crashes", timeout=3) or {}).get("launch") or {}
+        return (launch.get("previous") or {}).get("pid") == pid
+    if not wait(relaunched_app, opts.relaunch_seconds, 0.1):
+        log = read(os.path.join(marker_dir, "watch.log"))
+        print(f"crash-ends-app-gate: {kind}: watch.log:\n{log[-1200:]}", flush=True)
+        return f"{kind}: no relaunched app answered on its socket within {opts.relaunch_seconds:.0f} s"
+    relaunched = time.time()
+    noticed = {}
+
+    def notice():
+        launch = (rpc("debug.crashes", timeout=3) or {}).get("launch") or {}
+        noticed.update(launch)
+        return bool(launch.get("notice"))
+    has_notice = wait(notice, 30, 0.1)
+    shown = time.time()
+    ending = (noticed.get("previous") or {}).get("watch_ending") or {}
+    expected = "crash_stuck" if kind == "suspended" else "hang"
+    print(f"crash-ends-app-gate: {kind}: ended_s={elapsed:.1f} relaunch_s={relaunched - ended:.1f} "
+          f"notice_s={shown - ended:.1f} recovery={noticed.get('recovery')} watch_ending={ending} "
+          f"notice={noticed.get('notice')!r}", flush=True)
+    if noticed.get("recovery") not in ("restarted", "restartedSafely"):
+        return f"{kind}: the relaunched app did not restore as a restart: {noticed.get('recovery')!r}"
+    if ending.get("reason") != expected:
+        return f"{kind}: the relaunched app does not know the watcher ended the run ({expected}): {ending!r}"
+    if not has_notice or "watcher" not in (noticed.get("notice") or ""):
+        return f"{kind}: the restart notice does not say the watcher ended the run: {noticed.get('notice')!r}"
+    return None
 
 
 failures = [failure for failure in (run(kind.strip()) for kind in opts.runs.split(",") if kind.strip()) if failure]

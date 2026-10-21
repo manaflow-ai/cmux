@@ -68,6 +68,8 @@ reviewed `// crash-allow: <reason>` (Swift) or `// crash-allow: <reason>`
     expect            .expect(
     panic_macro       panic!, unreachable!, todo!, unimplemented!
     exit              process::exit / process::abort
+    ffi_unwind        an `extern "C" fn` body with no panic boundary (`catch_unwind` or a guard
+                      helper): a panic there aborts the calling process, the app for the app FFI
 
 BAN mode (crash-allowlist.json next to this script): a class named in "banned"
 ("swift.<class>", or "swift.<class>@<Module>" for one module; Rust classes are not bannable yet) is not in the baseline. Every hit fails, an inline
@@ -297,6 +299,13 @@ RUST = {
     "panic_macro": re.compile(r"\b(panic|unreachable|todo|unimplemented)!\s*[\(\{\[]"),
     "exit": re.compile(r"\bprocess::(exit|abort)\("),
 }
+# A Rust function C calls (`extern "C" fn` with a body): a panic that reaches its frame aborts the
+# whole process (Rust >= 1.81), and for the app FFI that process is the app. Each body must catch
+# panics (`catch_unwind`, or a guard helper or macro whose name says so).
+# `extern "C-unwind"` lets a panic unwind into the caller instead of aborting, so it is not counted.
+# A `// crash-allow:` must be on the `fn` line or the line above it (not above `#[no_mangle]`).
+FFI_FN = re.compile(r'\bextern\s+(?:"C"\s+)?fn\s+(\w+)')
+FFI_CATCH = re.compile(r"\bcatch_unwind\b|\bffi_guard!?\s*\(")
 ENV_WRITE = re.compile(r"\b(setenv|unsetenv|putenv)\s*\(|\benviron\s*(\[[^\]]*\]\s*)?=(?!=)")
 ENV_ALLOWLIST = os.path.join(HERE, "env-write-allowlist.json")
 # A test-only cfg: `cfg(test)`, or `cfg(all(...))` with `test` as one of its
@@ -645,6 +654,36 @@ def scan_env_writes(repo):
     return over
 
 
+def ffi_without_unwind(lines):
+    """`extern "C" fn` definitions in `lines` whose body never catches a panic (class ffi_unwind)."""
+    found = 0
+    for index, line in enumerate(lines):
+        if line.lstrip().startswith("//") or allowed(lines, index):
+            continue
+        if not FFI_FN.search(line.split("//", 1)[0]):
+            continue
+        # The body: from the first `{` after the signature to its matching `}`; a declaration
+        # (`;` first, in an `extern "C" { }` block or a type) has none.
+        depth, body, started = 0, [], False
+        for follow in lines[index:index + 4000]:
+            code = follow.split("//", 1)[0]
+            if not started:
+                brace, semi = code.find("{"), code.find(";")
+                if semi >= 0 and (brace < 0 or semi < brace):
+                    break
+                if brace < 0:
+                    continue
+                started = True
+                code = code[brace:]
+            body.append(code)
+            depth += code.count("{") - code.count("}")
+            if depth <= 0:
+                break
+        if started and not FFI_CATCH.search("\n".join(body)):
+            found += 1
+    return found
+
+
 def scan_rust(repo, counts):
     crates = os.path.join(repo, "cmux-tui/crates")
     skipped_dirs = {"target", "tests", "benches", "examples", "node_modules", "fixtures"}
@@ -661,6 +700,10 @@ def scan_rust(repo, counts):
         # `#[cfg(test)] mod x;` declaration is not code.
         inline = INLINE_TESTS.search(text)
         lines = (text if not inline else text[:inline.start()]).split("\n")
+        uncaught = ffi_without_unwind(lines)
+        if uncaught:
+            counts.setdefault("ffi_unwind", {}).setdefault(rel, 0)
+            counts["ffi_unwind"][rel] += uncaught
         for index, line in enumerate(lines):
             stripped = line.lstrip()
             if stripped.startswith("//") or allowed(lines, index):
