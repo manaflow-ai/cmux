@@ -12,7 +12,15 @@ struct TestConfig {
     static let portPrefix = ProcessInfo.processInfo.environment["NEXT_PUBLIC_STACK_PORT_PREFIX"] ?? "81"
     static let baseUrl = "http://localhost:\(portPrefix)02"
     static let skipE2E = ProcessInfo.processInfo.environment["STACK_SKIP_E2E_TESTS"] == "true"
-    
+
+    /// Whether tests that talk to the local backend run.
+    #if os(Linux)
+    // Linux runs them only against an explicitly configured backend.
+    static let runsBackendTests = !skipE2E && ProcessInfo.processInfo.environment["NEXT_PUBLIC_STACK_PORT_PREFIX"] != nil
+    #else
+    static let runsBackendTests = true
+    #endif
+
     // Test credentials - these should match the test project in the backend
     // See apps/e2e/.env.development for the source of truth
     static let projectId = "internal"

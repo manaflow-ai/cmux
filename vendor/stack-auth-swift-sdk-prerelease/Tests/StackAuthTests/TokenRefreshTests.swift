@@ -248,7 +248,7 @@ struct TokenRefreshAlgorithmTests {
     
     // MARK: - Integration Tests with Real Tokens
     
-    @Test("Should refresh token and return new access token")
+    @Test("Should refresh token and return new access token", .enabled(if: TestConfig.runsBackendTests))
     func refreshTokenIntegration() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -285,7 +285,7 @@ struct TokenRefreshAlgorithmTests {
         #expect(refreshToken == nil)
     }
     
-    @Test("Should handle concurrent getAccessToken calls")
+    @Test("Should handle concurrent getAccessToken calls", .enabled(if: TestConfig.runsBackendTests))
     func concurrentGetAccessToken() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()

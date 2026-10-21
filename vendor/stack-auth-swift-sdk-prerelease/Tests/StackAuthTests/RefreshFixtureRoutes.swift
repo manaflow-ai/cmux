@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 actor RefreshFixtureRoutes {
     private var routes: [String: RefreshTransportFixture] = [:]

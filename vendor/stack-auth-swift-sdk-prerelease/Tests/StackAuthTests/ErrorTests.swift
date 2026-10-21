@@ -7,7 +7,7 @@ struct ErrorHandlingTests {
     
     // MARK: - Authentication Errors
     
-    @Test("Should throw EmailPasswordMismatchError for wrong credentials")
+    @Test("Should throw EmailPasswordMismatchError for wrong credentials", .enabled(if: TestConfig.runsBackendTests))
     func emailPasswordMismatchError() async throws {
         let app = TestConfig.createClientApp()
         
@@ -21,7 +21,7 @@ struct ErrorHandlingTests {
         }
     }
     
-    @Test("Should throw UserWithEmailAlreadyExistsError for duplicate sign up")
+    @Test("Should throw UserWithEmailAlreadyExistsError for duplicate sign up", .enabled(if: TestConfig.runsBackendTests))
     func userAlreadyExistsError() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -39,7 +39,7 @@ struct ErrorHandlingTests {
         }
     }
     
-    @Test("Should throw UserNotSignedInError for unauthenticated access")
+    @Test("Should throw UserNotSignedInError for unauthenticated access", .enabled(if: TestConfig.runsBackendTests))
     func userNotSignedInError() async throws {
         let app = TestConfig.createClientApp()
         
@@ -50,7 +50,7 @@ struct ErrorHandlingTests {
     
     // MARK: - Error Properties
     
-    @Test("Should include error code in error")
+    @Test("Should include error code in error", .enabled(if: TestConfig.runsBackendTests))
     func errorIncludesCode() async throws {
         let app = TestConfig.createClientApp()
         
@@ -63,7 +63,7 @@ struct ErrorHandlingTests {
         }
     }
     
-    @Test("Should include error message in error")
+    @Test("Should include error message in error", .enabled(if: TestConfig.runsBackendTests))
     func errorIncludesMessage() async throws {
         let app = TestConfig.createClientApp()
         
@@ -75,7 +75,7 @@ struct ErrorHandlingTests {
         }
     }
     
-    @Test("Should have meaningful error description")
+    @Test("Should have meaningful error description", .enabled(if: TestConfig.runsBackendTests))
     func errorHasMeaningfulDescription() async throws {
         let app = TestConfig.createClientApp()
         
@@ -127,7 +127,7 @@ struct ErrorHandlingTests {
     
     // MARK: - Error Recovery
     
-    @Test("Should be able to retry after authentication error")
+    @Test("Should be able to retry after authentication error", .enabled(if: TestConfig.runsBackendTests))
     func retryAfterAuthError() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -152,7 +152,7 @@ struct ErrorHandlingTests {
     
     // MARK: - Server-Side Errors
     
-    @Test("Should handle user not found for server operations")
+    @Test("Should handle user not found for server operations", .enabled(if: TestConfig.runsBackendTests))
     func serverUserNotFound() async throws {
         let app = TestConfig.createServerApp()
         
@@ -163,7 +163,7 @@ struct ErrorHandlingTests {
         #expect(user == nil)
     }
     
-    @Test("Should handle team not found for server operations")
+    @Test("Should handle team not found for server operations", .enabled(if: TestConfig.runsBackendTests))
     func serverTeamNotFound() async throws {
         let app = TestConfig.createServerApp()
         
@@ -176,7 +176,7 @@ struct ErrorHandlingTests {
     
     // MARK: - Password Errors
     
-    @Test("Should throw for weak password")
+    @Test("Should throw for weak password", .enabled(if: TestConfig.runsBackendTests))
     func weakPasswordError() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -191,7 +191,7 @@ struct ErrorHandlingTests {
         }
     }
     
-    @Test("Should throw PasswordConfirmationMismatchError for wrong old password")
+    @Test("Should throw PasswordConfirmationMismatchError for wrong old password", .enabled(if: TestConfig.runsBackendTests))
     func wrongOldPasswordError() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -216,7 +216,7 @@ struct ProjectTests {
     
     // MARK: - Project Info Tests
     
-    @Test("Should get project info via client")
+    @Test("Should get project info via client", .enabled(if: TestConfig.runsBackendTests))
     func getProjectViaClient() async throws {
         let app = TestConfig.createClientApp()
         
@@ -225,7 +225,7 @@ struct ProjectTests {
         #expect(project.id == testProjectId)
     }
     
-    @Test("Should get project info via server")
+    @Test("Should get project info via server", .enabled(if: TestConfig.runsBackendTests))
     func getProjectViaServer() async throws {
         let app = TestConfig.createServerApp()
         
@@ -234,7 +234,7 @@ struct ProjectTests {
         #expect(project.id == testProjectId)
     }
     
-    @Test("Should access project config")
+    @Test("Should access project config", .enabled(if: TestConfig.runsBackendTests))
     func accessProjectConfig() async throws {
         let app = TestConfig.createClientApp()
         
@@ -252,7 +252,7 @@ struct ProjectTests {
         #expect(projectId == testProjectId)
     }
     
-    @Test("Should create server app with correct project ID")
+    @Test("Should create server app with correct project ID", .enabled(if: TestConfig.runsBackendTests))
     func createServerAppWithProjectId() async throws {
         let app = TestConfig.createServerApp()
         

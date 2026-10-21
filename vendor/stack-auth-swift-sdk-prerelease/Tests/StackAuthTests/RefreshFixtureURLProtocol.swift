@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// URL loading owns initialization; the fixture actor serializes response delivery.
 final class RefreshFixtureURLProtocol: URLProtocol, @unchecked Sendable {

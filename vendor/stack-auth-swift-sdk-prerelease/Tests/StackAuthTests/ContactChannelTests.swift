@@ -7,7 +7,7 @@ struct ContactChannelTests {
     
     // MARK: - List Contact Channels Tests
     
-    @Test("Should list contact channels after sign up")
+    @Test("Should list contact channels after sign up", .enabled(if: TestConfig.runsBackendTests))
     func listContactChannelsAfterSignUp() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -33,7 +33,7 @@ struct ContactChannelTests {
         #expect(primaryChannel != nil)
     }
     
-    @Test("Should have correct contact channel properties")
+    @Test("Should have correct contact channel properties", .enabled(if: TestConfig.runsBackendTests))
     func contactChannelProperties() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -57,7 +57,7 @@ struct ContactChannelTests {
         #expect(!channelValue.isEmpty)
     }
     
-    @Test("Should identify primary contact channel")
+    @Test("Should identify primary contact channel", .enabled(if: TestConfig.runsBackendTests))
     func identifyPrimaryContactChannel() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -84,7 +84,7 @@ struct ContactChannelTests {
     
     // MARK: - Contact Channel via Server
     
-    @Test("Should list contact channels via server")
+    @Test("Should list contact channels via server", .enabled(if: TestConfig.runsBackendTests))
     func listContactChannelsViaServer() async throws {
         let app = TestConfig.createServerApp()
         let email = TestConfig.uniqueEmail()
@@ -110,7 +110,7 @@ struct ContactChannelTests {
         try await user.delete()
     }
     
-    @Test("Should handle user with no contact channels")
+    @Test("Should handle user with no contact channels", .enabled(if: TestConfig.runsBackendTests))
     func userWithNoContactChannels() async throws {
         let app = TestConfig.createServerApp()
         
@@ -126,7 +126,7 @@ struct ContactChannelTests {
         try await user.delete()
     }
     
-    @Test("Should show verified status correctly")
+    @Test("Should show verified status correctly", .enabled(if: TestConfig.runsBackendTests))
     func verifiedStatusCorrect() async throws {
         let app = TestConfig.createServerApp()
         let email = TestConfig.uniqueEmail()
@@ -153,7 +153,7 @@ struct ContactChannelTests {
         try await user.delete()
     }
     
-    @Test("Should show unverified status correctly")
+    @Test("Should show unverified status correctly", .enabled(if: TestConfig.runsBackendTests))
     func unverifiedStatusCorrect() async throws {
         let app = TestConfig.createServerApp()
         let email = TestConfig.uniqueEmail()

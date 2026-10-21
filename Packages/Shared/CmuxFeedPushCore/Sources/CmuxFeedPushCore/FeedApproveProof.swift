@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 
 /// What the person saw on an agent's permission request (cx-aocz): the tool, the summary, the
@@ -29,7 +33,14 @@ public struct FeedApproveShownText: Hashable, Sendable {
     /// `prompt.action` of a feed item (`tool`, `summary`, `command`, `input`, `truncated`).
     /// `truncated` counts only as the JSON boolean true.
     public init(action: [String: Any]) {
+        #if canImport(Darwin)
         let truncated = (action["truncated"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue }
+        #else
+        // No CFBoolean type ID here: accept a native Bool or the shared boolean NSNumber instance.
+        let truncated = action["truncated"].map { value in
+            type(of: value) == Bool.self ? (value as? Bool) == true : (value as? NSNumber) === NSNumber(value: true)
+        }
+        #endif
         self.init(tool: action["tool"] as? String, summary: action["summary"] as? String,
                   command: action["command"] as? String,
                   input: (action["input"] as? [String: Any])?.compactMapValues { $0 as? String } ?? [:],

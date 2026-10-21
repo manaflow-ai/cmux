@@ -1,3 +1,4 @@
+#if canImport(QuartzCore)
 import QuartzCore
 import Testing
 @testable import CmuxAgentCursor
@@ -28,3 +29,4 @@ import Testing
         #expect(abs(animation.duration - plan.duration) < 1e-9)
     }
 }
+#endif
