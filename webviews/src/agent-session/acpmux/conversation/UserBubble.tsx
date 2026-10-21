@@ -7,6 +7,7 @@
 // "all" arm keeps it under the bubble. The images a prompt sent show above its bubble, each opening
 // the image viewer (Leo, 2026-10-13: they vanished once sent).
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { registerPromptEditor } from "./editPrompt";
 import type { AcpmuxRow, PromptImage } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
 import { hoverActions } from "../../../ui/hoverActions.experiment";
@@ -27,6 +28,23 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const mark = usePromptRowMark(row);
   const through = edit?.seqs.get(row.id);
   const copies = experimentArm(hoverActions) === "all";
+  // ↑ on an empty composer opens the last prompt's editor (editPrompt.ts); Esc gives the keyboard
+  // back to the composer.
+  const back = useRef<() => void>(undefined);
+  const editable = through !== undefined && Boolean(text) && !row.failed && !row.queued;
+  useEffect(() => {
+    if (!editable) return;
+    return registerPromptEditor(row.id, (opener) => {
+      back.current = opener;
+      setEditing(true);
+    });
+  }, [editable, row.id]);
+  const closeEditor = () => {
+    setEditing(false);
+    const opener = back.current;
+    back.current = undefined;
+    opener?.();
+  };
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
   // (the fork refused, the reader opened another chat) leaves the draft open too.
@@ -35,10 +53,12 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
       <PromptEditor
         initial={row.text ?? text}
         canSend={edit !== undefined && through !== undefined}
-        onCancel={() => setEditing(false)}
+        onCancel={closeEditor}
         onSend={async (value) => {
           if (!edit || through === undefined) return;
-          if (await edit.send(row.id, through, value)) setEditing(false);
+          if (!(await edit.send(row.id, through, value))) return;
+          back.current = undefined;
+          setEditing(false);
         }}
       />
     );
@@ -114,7 +134,10 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
               className="cv-iconbtn cv-iconbtn--compact"
               aria-label={t("message.edit")}
               title={t("message.edit")}
-              onClick={() => setEditing(true)}
+              onClick={() => {
+                back.current = undefined;
+                setEditing(true);
+              }}
             >
               <Pencil size={14} />
             </button>

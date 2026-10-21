@@ -80,3 +80,15 @@ struct AgentPaneEscapeStopTunableTests {
         #expect(value?["escapeDoublePress"]?.boolValue == AgentPaneTunables.escapeStopDoublePress.value)
     }
 }
+
+/// Debug Settings' "↑ edits the last prompt": on by default, so ↑ on an empty composer opens the
+/// chat's last prompt to edit, as in Claude's apps; it rides the `composer` event as `upEditsLastPrompt`.
+struct AgentPaneUpArrowEditTunableTests {
+    @Test func isOnByDefaultAndRidesTheComposerEvent() {
+        #expect(AgentPaneTunables.upArrowEditsLastPrompt.descriptor.key == "agent.upArrowEditsLastPrompt")
+        #expect(AgentPaneTunables.upArrowEditsLastPrompt.defaultValue == true)
+        #expect(AgentPaneTunables.all.contains { $0.key == "agent.upArrowEditsLastPrompt" })
+        let value = AgentPageEvent.composer(.fallback).value.objectValue
+        #expect(value?["upEditsLastPrompt"]?.boolValue == AgentPaneTunables.upArrowEditsLastPrompt.value)
+    }
+}

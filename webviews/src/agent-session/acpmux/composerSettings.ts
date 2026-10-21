@@ -17,6 +17,10 @@
 // `escapeDoublePress` is Debug Settings' "Esc stops a turn on a double press" (Swift
 // AgentPaneTunables.escapeStopDoublePress, on by default; no cmux.json key): on, Esc on an empty
 // composer stops a running turn only on the second press inside the window (escapeStop.ts).
+// `upEditsLastPrompt` is Debug Settings' "↑ edits the last prompt" (Swift
+// AgentPaneTunables.upArrowEditsLastPrompt, on by default; no cmux.json key): on, ↑ on an empty
+// composer opens the chat's last prompt in place to edit and resend, as in Claude's apps; off, ↑
+// brings back earlier prompts into the composer, as a shell does.
 import { useSyncExternalStore } from "react";
 
 export type ReasoningSliderStyle = "accent" | "minimal";
@@ -33,6 +37,7 @@ export type ComposerSettings = {
   plainFooter: boolean;
   harnessSwitch: boolean;
   escapeDoublePress: boolean;
+  upEditsLastPrompt: boolean;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
@@ -44,6 +49,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   plainFooter: true,
   harnessSwitch: false,
   escapeDoublePress: true,
+  upEditsLastPrompt: true,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
@@ -52,7 +58,8 @@ type ComposerFlag =
   | "reasoningSlider"
   | "plainFooter"
   | "harnessSwitch"
-  | "escapeDoublePress";
+  | "escapeDoublePress"
+  | "upEditsLastPrompt";
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
@@ -68,6 +75,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     plainFooter: flag("plainFooter"),
     harnessSwitch: flag("harnessSwitch"),
     escapeDoublePress: flag("escapeDoublePress"),
+    upEditsLastPrompt: flag("upEditsLastPrompt"),
   };
 }
 

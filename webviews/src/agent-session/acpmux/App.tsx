@@ -163,7 +163,13 @@ import {
 import { TurnActionsContext, chatLoginCommand, type TurnActions } from "./conversation/turnActions";
 import { UserBubble } from "./conversation/UserBubble";
 import { ChiefPromptBubble } from "./conversation/ChiefPromptBubble";
-import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
+import {
+  editableKey,
+  editableSeqs,
+  editableTurns,
+  lastEditablePrompt,
+  openPromptEditor,
+} from "./conversation/editPrompt";
 import {
   clearFindHighlights,
   FIND_ACTIVE_HIGHLIGHT,
@@ -6144,6 +6150,8 @@ function AcpmuxPane() {
           onQueueChange={editQueued}
           // A prompt that started while it was edited comes back to the prompt, so the edit is kept.
           onQueueLost={(text) => composerHandle.current?.restore(text, [])}
+          // ↑ on an empty composer edits the last prompt in place (Claude's apps), when it edits.
+          onEditLastPrompt={(back) => openPromptEditor(lastEditablePrompt(snapshot.rows, stableEditSeqs), back)}
           onProject={chooseProject}
           onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
           onConnect={connectMachine}

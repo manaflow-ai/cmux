@@ -218,6 +218,10 @@ type Props = {
   /// ⌘Return on an empty prompt while no turn runs (where it does nothing else): the recap card's
   /// yes (RecapCard.tsx). Set only while that card shows.
   onEmptyCommandReturn?(): void;
+  /// ↑ on an empty composer: opens the chat's last prompt in place to edit and resend (editPrompt.ts),
+  /// and gives the keyboard back to `back` when that edit is cancelled. False when it cannot (not a
+  /// Claude chat, its last prompt opened no turn before it), so ↑ brings back earlier prompts.
+  onEditLastPrompt?(back: () => void): boolean;
   /// Shell mode (`!` first) on or off: its ⌘Return answers no recap card, so the card drops its key.
   onShellChange?(shell: boolean): void;
   /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
@@ -266,6 +270,7 @@ export function Composer({
   onMode,
   onOpenInWindow,
   onEmptyCommandReturn,
+  onEditLastPrompt,
   onShellChange,
   handle,
   sessionId,
@@ -353,7 +358,7 @@ export function Composer({
   const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css), and
   // whether Esc stops a turn on a double press (escapeStop.ts).
-  const { plainFooter, showContextUsage, escapeDoublePress } = useComposerSettings();
+  const { plainFooter, showContextUsage, escapeDoublePress, upEditsLastPrompt } = useComposerSettings();
   useRowFit(bar, plainFooter);
   const usage = snapshot.summary?.usage;
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
@@ -863,6 +868,22 @@ export function Composer({
         last.focus();
         return;
       }
+    }
+    // ↑ on an empty prompt edits the chat's last prompt in place, as in Claude's apps (Debug
+    // Settings' "↑ edits the last prompt"); Esc in that edit comes back here.
+    if (
+      event.key === "ArrowUp" &&
+      plain &&
+      upEditsLastPrompt &&
+      !open &&
+      !shell &&
+      !recalling &&
+      !text.trim() &&
+      attachments.length === 0 &&
+      onEditLastPrompt?.(() => field.current?.focus())
+    ) {
+      event.preventDefault();
+      return;
     }
     // ↑ and ↓ on an empty prompt (or one they brought back) step through the chat's prompts. In a
     // recalled prompt of several lines they move the caret first, and recall from its first (↑)

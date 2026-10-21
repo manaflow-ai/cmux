@@ -30,3 +30,34 @@ export function editableSeqs(key: string): Map<string, number> {
   }
   return seqs;
 }
+
+// ↑ on an empty composer edits the chat's last prompt in place, as in Claude's apps (Leo, 2026-10-20;
+// Debug Settings' "↑ edits the last prompt", composerSettings.ts `upEditsLastPrompt`). Each drawn
+// prompt that edits registers how to open its editor; a prompt the transcript has not drawn has none.
+/// Opens a prompt's editor; `back` gives the keyboard back to whoever opened it when the edit is cancelled.
+type PromptEditorOpener = (back?: () => void) => void;
+const editors = new Map<string, PromptEditorOpener>();
+
+/// Registers how the prompt `rowId` opens its editor, until the returned function runs.
+export function registerPromptEditor(rowId: string, open: PromptEditorOpener): () => void {
+  editors.set(rowId, open);
+  return () => {
+    if (editors.get(rowId) === open) editors.delete(rowId);
+  };
+}
+
+/// The chat's last prompt, when it edits: an older prompt never opens in its place.
+export function lastEditablePrompt(rows: readonly AcpmuxRow[], seqs: ReadonlyMap<string, number>): string | undefined {
+  for (let index = rows.length - 1; index >= 0; index--) {
+    const row = rows[index]!;
+    if (row.kind === "user" && row.text && !row.queued && !row.pending) return seqs.has(row.id) ? row.id : undefined;
+  }
+  return undefined;
+}
+
+/// Opens the editor of the prompt `rowId`; false when it has none drawn.
+export function openPromptEditor(rowId: string | undefined, back?: () => void): boolean {
+  const open = rowId === undefined ? undefined : editors.get(rowId);
+  open?.(back);
+  return open !== undefined;
+}

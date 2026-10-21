@@ -330,6 +330,16 @@ public nonisolated struct AgentPaneTunables {
         help: "Esc on an empty composer stops a running turn only when pressed twice in a row. Off, one press stops it.",
         default: true, code: "AgentPaneTunables.escapeStopDoublePress")
 
+    /// Whether ↑ on an empty composer opens the chat's last prompt in place to edit and resend, as in
+    /// Claude's apps (Leo, 2026-10-20). On (the default), it does when that prompt can be edited (a
+    /// Claude chat, a turn before it); off, ↑ brings back earlier prompts into the composer, as a
+    /// shell does. It applies live, as the `composer` event's `upEditsLastPrompt`
+    /// (AgentPaneComposerSetting, webviews composerSettings.ts, conversation/editPrompt.ts).
+    public static let upArrowEditsLastPrompt = Tunable<Bool>.toggle(
+        "agent.upArrowEditsLastPrompt", PageTunables.section, "↑ edits the last prompt",
+        help: "↑ on an empty composer opens the chat's last prompt in place to edit and resend. Off, ↑ brings back earlier prompts.",
+        default: true, code: "AgentPaneTunables.upArrowEditsLastPrompt")
+
     /// The session sidebar's latest-reply hover preview treatment. User layout customization may
     /// still override this choice with `layout.sidebarPreviewVariant` for a prototype.
     public static let sidebarPreviewVariant = Tunable<AgentPaneSidebarPreviewVariant>.choice(
@@ -360,6 +370,7 @@ public nonisolated struct AgentPaneTunables {
             thoughtHeader.descriptor,
             topStripStyle.descriptor,
             turnActionsPlacement.descriptor,
+            upArrowEditsLastPrompt.descriptor,
         ]
     }
 }
