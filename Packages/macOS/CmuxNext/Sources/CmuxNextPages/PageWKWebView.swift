@@ -184,6 +184,11 @@ final class PageWKWebView: WKWebView {
         pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])?.first as? URL
     }
 
+    /// Reads every file URL of a drop's pasteboard, once, as the page takes the drop.
+    var readDroppedFileURLs: @MainActor (NSPasteboard) -> [URL] = { pasteboard in
+        pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+    }
+
     /// The answer for the current drag: its pasteboard does not change during the drag, and AppKit
     /// waits for every `draggingUpdated`, so the file is read once per drag, not on every move.
     private var dragAnswer: (sequence: Int, url: URL?)?
@@ -228,17 +233,32 @@ final class PageWKWebView: WKWebView {
         return WebKitDrag.updated ? super.draggingUpdated(sender) : []
     }
 
-    /// Files dropped on the page itself (not a ``fileDrop`` the host opens): a real gesture page script can't make.
-    var onFilesDropped: (@MainActor () -> Void)?
+    /// Files dropped on the page itself (not a ``fileDrop`` the host opens), with their URLs: a real
+    /// gesture page script can't make. It runs before WebKit hands the files to the page.
+    var onFilesDropped: (@MainActor ([URL]) -> Void)?
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let url = droppedFile(sender)
         dragAnswer = nil
         guard let url, let fileDrop else {
-            if sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) { onFilesDropped?() }
+            if let onFilesDropped {
+                let urls = readDroppedFileURLs(sender.draggingPasteboard)
+                if !urls.isEmpty { onFilesDropped(urls) }
+            }
             return WebKitDrag.perform ? super.performDragOperation(sender) : false
         }
         fileDrop.open(url)
         return true
+    }
+
+    // MARK: Paste
+
+    /// A paste (Cmd-V, Edit > Paste, a page's own Paste item) is about to reach the page; WebKit
+    /// pastes right after.
+    var onPaste: (@MainActor () -> Void)?
+
+    @objc func paste(_ sender: Any?) {
+        onPaste?()
+        webKitPaste(sender)
     }
 }

@@ -58,8 +58,7 @@ final class FilePageService: InternalPageProvider {
     private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock)
 
     /// The file pages draw at the display's full rate, as the diff and agent pages do.
-    /// File pages open dropped files themselves (`fileDrop`), a WebKit-only hook so far.
-    static let engineOptions = PageEngineOptions(fullFrameRate: true, requiresWebKit: .nativeHooks)
+    static let engineOptions = PageEngineOptions(fullFrameRate: true)
     /// How long a closed editor tab's page may take to save its pending edits.
     static let flushTimeout: Duration = .seconds(3)
 
@@ -361,8 +360,7 @@ final class FilePageService: InternalPageProvider {
         let actions = MarkdownOmnibarActions(
             open: { [weak self] url, disposition in self?.omnibarOpen(url, disposition: disposition, from: key) },
             returnFocus: { [weak page] in
-                guard let page, let window = page.window else { return }
-                window.makeFirstResponder(page.webKitView)
+                page?.focusPage()
             },
             liveLink: { [weak self] url in try? await self?.liveShare.link(for: url) },
             openInBrowser: { [weak self] url in self?.openExternal(url, from: key) },

@@ -36,6 +36,10 @@ pub(super) fn mark_stale(summary: &mut Value, last_seen: Option<u64>) -> bool {
 impl Hub {
     /// Save `peer`'s rows; unless `now`, at most once per `SAVE_EVERY_MS`.
     pub(super) fn save_peer_cache(&self, peer: &str, now: bool) {
+        // A leased peer leaves nothing on disk (`peer_lease.rs`).
+        if self.is_leased(peer) {
+            return;
+        }
         let (Some(dir), Some(p)) = (self.store.peer_cache_dir(), self.peer(peer)) else { return };
         let Some(path) = cache_path(&dir, peer) else { return };
         let at = now_ms();

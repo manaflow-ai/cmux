@@ -99,13 +99,14 @@ export function ChatHeaderTools({
   onMenuOpen,
   expand,
   onExpanded,
+  pullRequestChip,
   onMergePullRequest,
   folder,
   readStatus,
   statusKey,
   onApplyWorktree,
   onRemoveWorktree,
-  sessionRail,
+  inspector,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -140,6 +141,8 @@ export function ChatHeaderTools({
   /// A row with children to show open (the palette's Continue in…); `onExpanded` clears it.
   expand?: string;
   onExpanded?: () => void;
+  /// The pull request chip (default on); a subagent's own pane draws none: the pull request is the chat's.
+  pullRequestChip?: boolean;
   /// Merge on the PR chip (cx-ncc.77.4): merges that pull request; rejects with why not.
   onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<MergeResult>;
   /// The chat's folder on this Mac and its `git.status`: a worktree chat's branch shows (cx-lyqio.3b),
@@ -151,8 +154,9 @@ export function ChatHeaderTools({
   onApplyWorktree?: (key: string) => Promise<unknown>;
   /// Remove on the worktree pill (cx-lyqio.5): `git.worktree.remove` for the chat's session.
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
-  /// The session side rail's toggle (Debug Settings `agent.sessionRail`, summary/SessionRail.tsx), before the summary.
-  sessionRail?: ReactNode;
+  /// The Inspector's toggle (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx): the
+  /// header's last, top-right button, as Claude Code desktop's panel toggle is.
+  inspector?: ReactNode;
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
@@ -395,7 +399,9 @@ export function ChatHeaderTools({
   return (
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
-      {pullRequest && <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />}
+      {pullRequest && pullRequestChip !== false && (
+        <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
+      )}
       {buttons ? (
         <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
           {onCustomize ? (
@@ -425,7 +431,6 @@ export function ChatHeaderTools({
       ) : null}
       {buttons ? <hr className="acpmux-header-separator" aria-orientation="vertical" /> : null}
       <div className="acpmux-header-tool-group acpmux-header-tool-group-meta">
-        {sessionRail}
         {summary}
         <ChatMenu
           items={rows}
@@ -434,6 +439,7 @@ export function ChatHeaderTools({
           expand={expand}
           onExpanded={onExpanded}
         />
+        {inspector}
       </div>
     </div>
   );

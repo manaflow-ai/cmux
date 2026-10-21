@@ -54,3 +54,31 @@ The relay service account alone holds the Mac-gate token. The Chief account can
 connect to the group-owned socket but cannot read that token or widen the relay.
 
 Test: `python3 -I deploy/cloud-vm/tests/mac_app_relay_test.py`.
+
+# The user's own tailnet: `cmux-chief-tailnet`
+
+`tailnet/` is a small Go program (tsnet, tailscale.com v1.104.1) that puts the
+Chief VM on **the user's** tailnet as its own device, next to the VM's system
+tailscaled (cmux's infra tailnet). Like Rex's built-in Tailscale it embeds
+Tailscale, so the node answers only what it serves: Tailscale SSH as `chief`.
+No other VM port is reachable from the user's tailnet (a second userspace
+tailscaled would forward every port to the VM's loopback, where acpmux and
+optchat-chief listen). Design: cmux-prompts `logs/chief-vm-tailscale-DESIGN.md`.
+
+```
+cmux-chief-tailnet up [--name "Cloud Chief"] [--advertise-tag tag:x] [--json]
+    # prints auth_url: the user opens it, signs in, approves the device
+cmux-chief-tailnet status [--json]   # Off | NeedsLogin | Running (dns_name, ips, owner) | Failed
+cmux-chief-tailnet down              # logout: the device leaves the tailnet; state deleted
+```
+
+Off by default. State: `~chief/.cmux/brains/chief/tailnet/` (`enabled`, `state/`,
+`ctl.sock`). cmuxterm-hq `tools/cloud-chief/vm/boot.sh` installs it with
+`cloud-chief-tailnet.path` (starts the node when `enabled` exists) and
+`cloud-chief-tailnet.service` (user chief, `Restart=on-failure`), and adds a
+note to the Chief's `~/.claude/CLAUDE.md` so "add yourself to my tailnet" works
+from the chat. A VM copied from a snapshot (other `/etc/machine-id`) refuses to
+reuse the node and says to run `down`, then `up`.
+
+Build (linux, about 3 min): `cd tailnet && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /tmp/cmux-chief-tailnet .`
+Test: `cd tailnet && go test ./...`. Install on the VM: hq `tools/cloud-chief/deploy.sh tailnet install /tmp/cmux-chief-tailnet`.

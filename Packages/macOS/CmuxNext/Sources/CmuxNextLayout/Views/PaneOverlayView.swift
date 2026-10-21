@@ -35,6 +35,8 @@ final class PaneOverlayView: NSView {
     private let glowClip = CALayer()
     private let glow = CALayer()
     private let attention = CALayer()
+    /// The attention ring's layer (for the glow, `PaneOverlayView+Glow`).
+    var attentionLayer: CALayer { attention }
     private let dimLayer = CALayer()
     private var padding: CGFloat = 0
     private var cornerRadius: CGFloat = 0
@@ -44,6 +46,8 @@ final class PaneOverlayView: NSView {
     private var ringAlphaOverride: CGFloat?
     private var attentionSettings = AttentionSettings()
     private var attentionMark: AttentionMark?
+    /// The source color of the ring flashing out: the flash keeps it after its mark is gone.
+    private var dismissingColor: ThemeRGB?
     /// The ring's strength (`AttentionHighlightLook`, Debug Settings; cx-epgo).
     private var attentionLook = AttentionHighlightLook.tunable.defaultValue
     /// One observation of the look is registered at a time.
@@ -66,6 +70,7 @@ final class PaneOverlayView: NSView {
         }
         glow.opacity = 1
         ring.borderWidth = 1
+        applyRingGlow()
     }
 
     @available(*, unavailable)
@@ -162,6 +167,7 @@ final class PaneOverlayView: NSView {
         glow.borderWidth = focusRing.width
         glow.shadowRadius = max(2, focusRing.width * LayoutTunables.focusGlowRadiusFactor.value)
         attention.borderWidth = attentionSettings.width
+        attention.shadowPath = Self.ringOutline(size: rect.size, radius: radius, width: attentionSettings.width)
         CATransaction.commit()
     }
 
@@ -265,10 +271,12 @@ final class PaneOverlayView: NSView {
             attention.removeAnimation(forKey: "attention")
             if previous != nil, readByEntry, animated,
                let flash = Motion.indicators.attentionDismissAnimation(attentionSettings, look: attentionLook) {
+                dismissingColor = previous?.color
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
                 attention.opacity = 0
                 attention.add(flash, forKey: "attention-dismiss")
+                addFlashGlow(for: flash)
                 CATransaction.commit()
                 return
             }
@@ -276,6 +284,8 @@ final class PaneOverlayView: NSView {
             return
         }
         attention.removeAnimation(forKey: "attention-dismiss")
+        attention.removeAnimation(forKey: "attention-dismiss-glow")
+        dismissingColor = nil
         guard previous?.generation != mark.generation else { return }
         // A new notification: run the style's animation from the start and
         // rest at its final opacity (the steady ring swells from its rest when
@@ -296,8 +306,9 @@ final class PaneOverlayView: NSView {
             ring.borderColor = ringColor.cgColor
             glow.borderColor = ringColor.withAlphaComponent(ringColor.alphaComponent * LayoutTunables.focusGlowAlpha.value).cgColor
             glow.shadowColor = ringColor.cgColor
-            let attentionColor = attentionMark?.color?.nsColor ?? attentionSettings.color?.nsColor ?? attentionLook.defaultColor
+            let attentionColor = (attentionMark?.color ?? dismissingColor)?.nsColor ?? attentionSettings.color?.nsColor ?? attentionLook.defaultColor
             attention.borderColor = attentionColor.cgColor
+            attention.shadowColor = attentionColor.cgColor
             border.borderColor = (borderStyle.color?.nsColor ?? Palette.paneBorder).cgColor
             // In glass windows the root backdrop owns the ground. An opaque
             // inactive-pane veil would hide the painting and reintroduce the
