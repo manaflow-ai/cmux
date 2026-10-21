@@ -206,9 +206,11 @@ impl Mux {
         };
         // The space-delete close carries a write before its patch; a stash
         // uses it for its own group (no space is involved).
+        // The stashed tabs close as a tab close does: the pinned tab stays.
         let outcome = self.close_tabs_for_room_delete(
             surfaces,
             OPERATION,
+            crate::resource::ResourceOperation::TabClose,
             &fingerprint,
             mutation,
             RoomClose { before_patch: &before_patch, result, bare: Vec::new() },
