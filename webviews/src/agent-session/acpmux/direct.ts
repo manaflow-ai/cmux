@@ -734,10 +734,11 @@ export class AcpmuxDirectClient {
   /// still streams above it; a later message means the agent read them).
   private waitingSteers: { rowId: string; promptId?: string }[] = [];
   /// A prompt sent now to an agent that cannot steer while a turn ran (acpmux `queue_order`
-  /// `next`): acpmux cancels that turn and runs the prompt next. The cancel it causes is not a
-  /// Stop: its summary is `continued`, and the prompt then draws inside the turn it went into.
+  /// `next`): acpmux ends that turn (a cancel, or the agent's `end_turn`, acpmux #22808) and runs
+  /// the prompt next. That end is not a Stop: its summary is `continued`, and the prompt then
+  /// draws inside the turn it went into.
   private interrupting?: string;
-  /// The prompts sent now whose cancel ended the turn they went into: each reads as a steer.
+  /// The prompts sent now that ended the turn they went into: each `continues` it.
   private continuations = new Set<string>();
   /// Attachments sent with a prompt until its user-message event gives it a durable row id.
   private optimisticPromptAttachments = new Map<string, ComposerAttachment[]>();
@@ -2092,9 +2093,9 @@ export class AcpmuxDirectClient {
         // A newer prompt means any steer before it was read; a second steer can come in the same step.
         if (msg.steer !== true) this.landSteer();
         if (promptId !== undefined && promptId === this.interrupting) this.interrupting = undefined;
-        // A prompt sent now that stopped the turn it went into goes on with that turn: read.
-        const steer =
-          msg.steer === true ? "waiting" : promptId && this.continuations.has(promptId) ? "landed" : undefined;
+        // A prompt sent now that ended the turn it went into goes on with that turn.
+        const steer = msg.steer === true ? "waiting" : undefined;
+        const continues = promptId !== undefined && this.continuations.has(promptId);
         if (steer === "waiting") this.waitingSteers.push({ rowId: `user-${event.seq}`, promptId });
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,
@@ -2106,6 +2107,7 @@ export class AcpmuxDirectClient {
           ...(sentByChief(msg) ? { from: "chief" as const } : {}),
           ...(received ? { received } : {}),
           ...(steer ? { steer } : {}),
+          ...(continues ? { continues } : {}),
           ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
           ...(fallbackPromptId && this.optimisticPromptAttachments.get(fallbackPromptId)?.length
             ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
@@ -2151,7 +2153,8 @@ export class AcpmuxDirectClient {
         const checkpoint = event.kind === "turn_result" ? readSummaryCheckpoint(msg) : undefined;
         const status = String(msg.status ?? "completed");
         // A turn a prompt sent now cancelled goes on under that prompt; one that ended first did not.
-        const continued = event.kind === "turn_result" && status === "cancelled" && this.interrupting !== undefined;
+        // Whatever ended it (acpmux's cancel, or the agent's end_turn), but not a failure, which shows.
+        const continued = event.kind === "turn_result" && status !== "failed" && this.interrupting !== undefined;
         if (continued) this.continuations.add(this.interrupting!);
         if (event.kind === "turn_result") this.interrupting = undefined;
         if (event.kind === "turn_result")
@@ -3637,12 +3640,12 @@ export class AcpmuxDirectClient {
     // Older turns end on their own result; a row of the live turn it closed (its typing row) stays.
     for (const [id, row] of held) if (!this.rows.has(id)) this.rows.set(id, row);
     // A held page can start at a prompt sent now whose cancel only this page holds: its row,
-    // drawn before, goes on with that turn now (a steer), so the turn never reads as stopped.
+    // drawn before, goes on with that turn now, so the turn never reads as stopped.
     for (const event of this.events) {
       const promptId = event.kind === "user_message" ? event.msg?.promptId : undefined;
       if (typeof promptId !== "string" || !this.continuations.has(promptId)) continue;
       const row = this.rows.get(`user-${event.seq}`);
-      if (row && !row.steer) this.rows.set(row.id, { ...row, steer: "landed", version: row.version + 1 });
+      if (row && !row.continues) this.rows.set(row.id, { ...row, continues: true, version: row.version + 1 });
     }
   }
   /// The socket's own onclose ignores a socket close() already let go of, so settle requests here.

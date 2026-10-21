@@ -786,7 +786,7 @@ export default agentPaneEntry({
       ),
     },
     "steer-continuous": {
-      note: "A message sent now while the turn ran, to an agent that cannot steer: acpmux stopped that turn and ran the message next, yet it reads as one turn. The message draws inline under Steered, the line counts from the first prompt, and nothing says the turn was stopped.",
+      note: "A message sent now while the turn ran, to an agent that cannot steer: acpmux stopped that turn and ran the message next, yet it reads as one turn. The message draws inline with no mark of its own, the line counts from the first prompt, and nothing says the turn was stopped.",
       snapshot: chat(
         [
           user("Fix the flaky login test", 1.5),
@@ -799,7 +799,7 @@ export default agentPaneEntry({
           ),
           assistant("The retry races the session refresh: it reads the old token before the refresh lands.", 0.9),
           summary(0.58, { status: "cancelled", durationMs: 55_000, continued: true }),
-          user("Also check the logout path, it uses the same retry", 0.58, { steer: "landed" }),
+          user("Also check the logout path, it uses the same retry", 0.58, { continues: true }),
           activity(
             [
               tool("bun test src/auth/logout", "execute", "in_progress", {

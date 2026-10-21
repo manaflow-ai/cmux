@@ -8,7 +8,7 @@ import type { AcpmuxRow } from "./model";
 /// A prompt that goes on with the turn it was sent into, rather than opening one: the transcript
 /// draws it inline in that turn, and the turn's clock runs from its first prompt.
 export const continuesTurn = (row: AcpmuxRow): boolean =>
-  row.kind === "user" && row.steer !== undefined && !row.pending && !row.failed;
+  row.kind === "user" && (row.steer !== undefined || row.continues === true) && !row.pending && !row.failed;
 
 /// A row that opens a turn: a prompt that is not a steer.
 export const opensTurn = (row: AcpmuxRow): boolean => row.kind === "user" && !continuesTurn(row);
