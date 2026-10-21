@@ -10,7 +10,7 @@
 //! Each file is at most [`MAX_BYTES`]: the request crosses the peer link as one WebSocket frame,
 //! and an older peer's listener reads at most tungstenite's default 16 MiB frame (a larger one
 //! resets the link and every chat on it). 10 MiB is 13.4 MiB of base64, leaving room for the rest
-//! of the request. A session's uploads go when it is purged (`_acpmux/kill {purge}`).
+//! of the request. Like the app's own Chat Uploads folder, nothing deletes them yet.
 
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
@@ -108,13 +108,6 @@ pub fn put(id: &str, params: &Value) -> Result<Value, RpcError> {
     let path = dir.join(uuid::Uuid::now_v7().to_string()).join(name);
     crate::agent_tools::write_private(&path, &bytes).map_err(failed)?;
     Ok(json!({"path": path.to_string_lossy()}))
-}
-
-/// Deletes session `id`'s uploads (it was purged).
-pub(super) fn remove(id: &str) {
-    if let Some(dir) = session_dir(id) {
-        let _ = std::fs::remove_dir_all(dir);
-    }
 }
 
 /// The refusal for a peer that does not take `_acpmux/file_put`: the app answers that the chat

@@ -159,16 +159,14 @@ async fn a_bad_name_an_oversize_file_an_unknown_chat_and_the_web_are_refused() {
 }
 
 #[tokio::test]
-async fn a_purged_chats_uploads_go_with_it() {
+async fn a_purged_chat_takes_no_more_files() {
     let hub = hub();
     let mut c = client(&hub, Origin::Local);
     let session = c.new_session("purged").await;
     let reply = c.call(method::MUX_FILE_PUT, put(&session, "a.txt", b"x")).await;
-    let path = assert_saved(&reply, &session, "a.txt", b"x");
+    assert_saved(&reply, &session, "a.txt", b"x");
     let killed = c.call(method::MUX_KILL, json!({"sessionId": session, "purge": true})).await;
     assert!(killed.get("error").is_none(), "{killed}");
-    assert!(!path.exists());
-    assert!(!home().join("uploads").join(&session).exists());
     // A chat that is gone takes no more.
     let reply = c.call(method::MUX_FILE_PUT, put(&session, "b.txt", b"x")).await;
     assert!(reply.get("error").is_some(), "{reply}");
