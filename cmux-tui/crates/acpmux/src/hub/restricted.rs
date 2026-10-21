@@ -279,13 +279,13 @@ impl Hub {
             return false;
         }
         // No agent starts while the flag moves: the next start reads it.
-        let _spawning = session.spawn_lock.lock().await;
+        let spawning = session.spawn_lock.lock().await;
         if session.meta().restricted == restricted {
             return true;
         }
         // Held until the agent has ended: no turn starts on the old agent meanwhile (a turn
         // takes `turn_lock` before `spawn_lock`, so this only tries).
-        let Ok(_turn) = session.turn_lock.try_lock() else { return false };
+        let Ok(turn) = session.turn_lock.try_lock() else { return false };
         let busy = session.turn().is_some()
             || session.queued() > 0
             || !session.pending_permissions().is_empty();
@@ -316,6 +316,9 @@ impl Hub {
         }
         tracing::info!(session = %session.id, restricted, "restricted chat changed; the next prompt starts a fresh agent");
         self.append(session, "mux", "restricted", json!({"restricted": restricted}));
+        // `set_policy` moves a mode that does not ask under `spawn_lock` itself
+        // (`follow_policy`); a start after this reads the flag and asks anyway.
+        drop((turn, spawning));
         if restricted {
             self.set_policy(session, PermissionPolicy::Ask).await;
         } else {
