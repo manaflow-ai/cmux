@@ -136,14 +136,14 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
 
     /// Every surface's links go through ``LinkRouter`` (cx-ir3z4), wired here once: a Chief
     /// subagent's link runs `link.open`; a cmux link opens a browser tab on the default engine
-    /// where ``LinkOpener`` places it (the pane right of the clicked tab's pane, or a new split). With no window it waits for one, never the system, which may be cmux
+    /// where ``LinkOpener`` places it (a tab of the clicked view's pane; a terminal's Cmd-click by `layout.linkPlacement`). With no window it waits for one, never the system, which may be cmux
     /// itself as the default browser (a loop).
     private static func routeLinks(to services: AppServices) {
         let router = LinkRouter.shared
         router.routing = { [weak services] in services?.settings?.snapshot.linkRouting ?? .fallback }
         router.textEditor = { [weak services] in services?.settings?.snapshot.textEditor.application ?? "" }
         router.appLink = { [weak services] url in services.map { CmuxAppLinks.open(url, services: $0) } ?? false }
-        // A click in a chat or page view opens beside the pane showing it (not the focused pane).
+        // A click in a chat or page view opens in the pane showing it (not the focused pane).
         router.sourceTab = { [weak services] view in services?.linkOpener.source(containing: view)?.currentTabKey }
         router.openInCmux = { [weak services] url, background, source, cmdClick in
             guard let services else { return }
