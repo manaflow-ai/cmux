@@ -38,8 +38,16 @@ const COMMIT_MS = 1000 / 60;
 /// seven there, each a frame the reply did not grow while text waited.
 const FAST_FRAME_MS = COMMIT_MS * 0.75;
 
-/// A row's reveal loop: the frame it waits for (0 when idle), and the display's frame time.
-type Loop = { handle: number; lastFrame?: number; lastCommit?: number; frameMs: number };
+/// A row's reveal loop: the frame it waits for (0 when idle), the display's frame time, and the
+/// length of the text when it last grew, and when.
+type Loop = {
+  handle: number;
+  lastFrame?: number;
+  lastCommit?: number;
+  frameMs: number;
+  grownTo?: number;
+  grewAt?: number;
+};
 
 /// The part of `text` to show this frame, and the steps still fading in.
 export function useStreamReveal(text: string, streaming: boolean): { visible: string; fresh: Reveal[]; now: number } {
@@ -63,6 +71,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
     loop.current.lastFrame = undefined;
     const tick = (now: number) => {
       const state = loop.current;
+      state.handle = 0;
       // Every tick is a display frame; a gap (a hidden page, a long task) counts as two at most.
       if (state.lastFrame !== undefined)
         state.frameMs = state.frameMs * 0.8 + Math.min(now - state.lastFrame, 2 * COMMIT_MS) * 0.2;
@@ -83,13 +92,18 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
       }
       state.lastCommit = now;
       const before = latest.current.shown;
-      const raw = current.advance(latest.current.text, now, !latest.current.streaming);
+      const { text: target, streaming: live } = latest.current;
+      if (state.grownTo !== target.length) {
+        state.grownTo = target.length;
+        state.grewAt = now;
+      }
+      const raw = current.advance(target, now, !live);
       // A word shows once it is whole, never a letter at a time (#22339); the reveal's own count
-      // runs on, so a word that completes shows at once.
-      let length =
-        reduce.current || !streamWords()
-          ? raw
-          : wordEdge(latest.current.text, raw, !latest.current.streaming, before.length);
+      // runs on, so a word that completes shows at once. The last word counts as whole once text
+      // stops arriving: before a tool call it has no space after it, and the agent may work on the
+      // call for seconds.
+      const paused = now - state.grewAt! >= StreamReveal.stallMs;
+      let length = reduce.current || !streamWords() ? raw : wordEdge(target, raw, !live || paused, before.length);
       // After `advance`, which takes in the text received meanwhile: all of it shows.
       if (away) {
         current.flush();
@@ -99,14 +113,18 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
       const fresh = away ? [] : before.fresh.filter((step) => now - step.born < FADE_MS);
       if (length > before.length && !reduce.current && !away)
         fresh.push({ id: (nextId.current += 1), count: length - before.length, born: now });
-      const next = { length, fresh, now };
-      latest.current.shown = next;
-      // The backlog commits in this frame, before it paints: a state update from a frame callback
-      // renders in a later task, so the first frame back showed the reply as the user left it and
-      // the next one grew it and moved the transcript (Leo 2026-10-20, "no layout shifts").
-      if (away) flushSync(() => setShown(next));
-      else setShown(next);
-      state.handle = !current.settled || fresh.length ? revealFrames.request(tick) : 0;
+      // A frame that only waits out a held last word commits nothing.
+      if (length !== before.length || fresh.length || before.fresh.length) {
+        const next = { length, fresh, now };
+        latest.current.shown = next;
+        // The backlog commits in this frame, before it paints: a state update from a frame callback
+        // renders in a later task, so the first frame back showed the reply as the user left it and
+        // the next one grew it and moved the transcript (Leo 2026-10-20, "no layout shifts").
+        if (away) flushSync(() => setShown(next));
+        else setShown(next);
+      }
+      const held = length < target.length;
+      if (!current.settled || fresh.length || held) state.handle = revealFrames.request(tick);
     };
     loop.current.handle = revealFrames.request(tick);
     // `shown` is read only to skip a loop that has nothing to do.
@@ -154,8 +172,15 @@ function Revealed({
   githubRepository?: string;
 }) {
   const { visible, fresh, now } = useStreamReveal(text, streaming);
+  // Until all of it shows, the reply draws as streaming: the frame after the stream ends still
+  // lacks the last word, and parsed as finished, a span that word closes showed its raw Markdown.
   return (
-    <Markdown streaming={streaming} fresh={fresh} now={now} githubRepository={githubRepository}>
+    <Markdown
+      streaming={streaming || visible.length < text.length}
+      fresh={fresh}
+      now={now}
+      githubRepository={githubRepository}
+    >
       {visible}
     </Markdown>
   );

@@ -158,7 +158,10 @@ export function wordEdge(text: string, raw: number, done: boolean, shown: number
     (at < text.length && /\s/.test(text[at]!) && !/\s/.test(text[at - 1]!)) ||
     CJK.test(text[at - 1]!) ||
     (at < text.length && CJK.test(text[at]!));
-  while (end > shown && !whole(end)) end -= 1;
+  // Measured from the word's start, not from what shows: once part of a long word shows, the
+  // rest grows as it arrives. Past LONG_WORD_CHARS the answer is known, so a run with no space in
+  // it (a data URL, a minified line) costs at most that many steps a frame.
+  while (end > 0 && limit - end <= LONG_WORD_CHARS && !whole(end)) end -= 1;
   if (limit - end > LONG_WORD_CHARS) return limit;
   return Math.max(end, Math.min(shown, text.length));
 }

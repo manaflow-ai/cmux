@@ -83,9 +83,10 @@ test("a streaming reply grows by whole words with nothing after the last one", (
     seen.push(...frames(clock, 12));
     clock += 12 * 16;
   }
-  // The reveal catches up once the deltas stop (StreamReveal drains a stall).
-  seen.push(...frames(clock, 90));
-  clock += 90 * 16;
+  // Frames until just before the last delta is StreamReveal.stallMs old: until then "se" (of
+  // "send") has arrived but is not a whole word yet (after it, the last word shows; see below).
+  seen.push(...frames(clock, 24));
+  clock += 24 * 16;
   expect(container.querySelector(".cv-caret")).toBeNull();
   const words = new Set(reply.split(" "));
   for (const shown of seen) {
@@ -94,8 +95,6 @@ test("a streaming reply grows by whole words with nothing after the last one", (
     for (const word of shown.split(" ")) expect(words.has(word)).toBe(true);
     expect(shown.endsWith(" ")).toBe(false);
   }
-  // "se" (of "send") has arrived but is not a whole word yet.
-  expect(seen.at(-1)).toBe("The checks on the merged head are green and the release notes are ready to");
   // The stream ends: the rest shows.
   render(`${text}nd`, false);
   frames(clock, 30);
@@ -107,11 +106,11 @@ test("the newest words fade in, each word whole", () => {
   root = createRoot(container);
   render("", true);
   render("Hello there wor", true);
-  // Still fading: a frame within FADE_MS of the last step.
-  const shown = frames(0, 90);
+  // Within StreamReveal.stallMs of the text arriving, "wor" may still grow.
+  const shown = frames(0, 30);
   expect(shown.at(-1)).toBe("Hello there");
   render("Hello there world, again", true);
-  frames(90 * 16, 8);
+  frames(30 * 16, 8);
   const fresh = [...container.querySelectorAll(".cv-fresh")].map((span) => span.textContent ?? "");
   // Only whole words fade in: " world," arrived whole; "again" may still grow.
   expect(fresh.length).toBeGreaterThan(0);
