@@ -1277,13 +1277,33 @@ struct Read {
 
 /// A's `_acpmux/info`, `_acpmux/attach` and `_acpmux/events` for the lying
 /// peer `l`'s session `far-1`, whose detail carries one pending ask
-/// (`asked`) and whose log holds that ask's record and one agent message:
-/// `runs` gets A's daemon run and names the run the peer claims at its
-/// handshake (null: none) and the run the ask carries. Every read answers:
-/// the watch rule drops asks, never a session (`Hub::peer_ask_counts`).
+/// (`asked`) and whose log holds that ask's record, its answer and one agent
+/// message: `runs` gets A's daemon run and names the run the peer claims at
+/// its handshake (null: none) and the run the ask carries. Every read
+/// answers: the watch rule drops asks, never a session (`Hub::peer_ask_counts`).
 async fn detail_through_a_lying_peer(runs: impl FnOnce(&str) -> (Value, String)) -> Read {
+    detail_through_a_lying_peer_beside(None, runs).await
+}
+
+/// `detail_through_a_lying_peer`, with a second peer `m` connected first
+/// when `other` names the daemon run `m` claims at its handshake.
+async fn detail_through_a_lying_peer_beside(
+    other: Option<&str>,
+    runs: impl FnOnce(&str) -> (Value, String),
+) -> Read {
     let a = hub(config(PermissionPolicy::Ask)).await;
     let mut ca = client(a.clone()).await;
+    if let Some(other) = other {
+        let says = Lying {
+            instance: json!(other),
+            sessions: vec![json!({"sessionId": "near-1", "name": "near"})],
+            ..Lying::default()
+        };
+        let port = lying_peer(says).await;
+        a.add_peer("m", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+            .await
+            .unwrap();
+    }
     let (instance, asks_in) = runs(a.person.instance());
     let says = Lying {
         instance,
@@ -1293,6 +1313,9 @@ async fn detail_through_a_lying_peer(runs: impl FnOnce(&str) -> (Value, String))
         events: vec![
             ask_record("far-1", "asked", &asks_in, 1),
             json!({"sessionId": "far-1", "seq": 2, "at": 1, "dir": "mux",
+                   "kind": "permission_decision",
+                   "msg": {"permissionId": "asked", "outcome": {"outcome": "selected", "optionId": "yes"}}}),
+            json!({"sessionId": "far-1", "seq": 3, "at": 1, "dir": "mux",
                    "kind": "turn_result", "msg": {}}),
         ],
         ..Lying::default()
@@ -1315,23 +1338,46 @@ fn kinds(records: &Value) -> Vec<&str> {
 /// The session still reads, without its ask: no pending entry and no
 /// `permission_request` record, the agent's other records kept.
 fn assert_asks_stripped(read: &Read) {
-    let Read { info, attach, events } = read;
+    let Read { attach, events, .. } = read;
+    assert_pending_stripped(read);
+    assert_eq!(kinds(&attach["events"]), ["permission_decision", "turn_result"], "{attach}");
+    assert_eq!(kinds(&events["events"]), ["permission_decision", "turn_result"], "{events}");
+}
+
+/// The session reads with no pending entry: the strict rule.
+fn assert_pending_stripped(read: &Read) {
+    let Read { info, attach, .. } = read;
     assert_eq!(info["peer"], "l", "{info}");
     assert_eq!(info["sessionId"], "far-1", "{info}");
     assert_eq!(info["pending"], json!([]), "{info}");
     assert_eq!(attach["session"]["sessionId"], "far-1", "{attach}");
     assert_eq!(attach["session"]["pending"], json!([]), "{attach}");
-    assert_eq!(kinds(&attach["events"]), ["turn_result"], "{attach}");
-    assert_eq!(kinds(&events["events"]), ["turn_result"], "{events}");
 }
 
-/// A peer's session whose detail and log carry an ask from another daemon
-/// run (a stale run of the peer) reads without that ask: the rule the watch
-/// applies to the peer's `_acpmux/permission_pending` (`hub/peers.rs`).
+/// The ask stays in the log as history, in the run it names, with no nonce:
+/// it draws its receipt, and nothing can answer it or prove an allow for it.
+fn assert_ask_kept_as_history(read: &Read, run: &str) {
+    let Read { attach, events, .. } = read;
+    for page in [attach, events] {
+        let kept = ["permission_request", "permission_decision", "turn_result"];
+        assert_eq!(kinds(&page["events"]), kept, "{page}");
+        let ask = &page["events"][0]["msg"];
+        assert_eq!(ask["permissionId"], "asked", "{page}");
+        assert_eq!(ask["personInstance"], run, "{page}");
+        assert!(ask.get("decisionNonce").is_none(), "{page}");
+    }
+}
+
+/// A peer's session whose detail and log carry an ask from an older run of
+/// the peer (it restarted since): the pending ask is dropped, by the rule the
+/// watch applies to the peer's `_acpmux/permission_pending` (`hub/peers.rs`),
+/// while the log keeps the ask, without its nonce, so the chat still shows
+/// what was asked and answered.
 #[tokio::test]
-async fn peer_detail_strips_an_ask_from_another_run() {
+async fn peer_detail_keeps_an_older_runs_ask_as_history_without_its_nonce() {
     let read = detail_through_a_lying_peer(|_| (json!("l-run"), "old-run".into())).await;
-    assert_asks_stripped(&read);
+    assert_pending_stripped(&read);
+    assert_ask_kept_as_history(&read, "old-run");
 }
 
 /// A peer that names this daemon's run as its own asks nothing here: its
@@ -1342,12 +1388,33 @@ async fn peer_detail_from_a_peer_in_this_daemons_run_strips_its_asks() {
     assert_asks_stripped(&read);
 }
 
-/// A peer that names no run at its handshake (a build before 6f214158cf1)
-/// still opens its chats; only its asks are dropped.
+/// An ask in a peer's history that names this daemon's run is a forgery of
+/// one of this daemon's prompts: dropped, though the peer names a run of its
+/// own.
 #[tokio::test]
-async fn peer_detail_from_a_peer_with_no_run_strips_its_asks() {
-    let read = detail_through_a_lying_peer(|_| (Value::Null, "l-run".into())).await;
+async fn peer_history_ask_naming_this_daemons_run_is_dropped() {
+    let read = detail_through_a_lying_peer(|mine| (json!("l-run"), mine.to_owned())).await;
     assert_asks_stripped(&read);
+}
+
+/// An ask in a peer's history that names another connected peer's run is
+/// that peer's to show, never this one's: dropped.
+#[tokio::test]
+async fn peer_history_ask_naming_another_peers_run_is_dropped() {
+    let read =
+        detail_through_a_lying_peer_beside(Some("m-run"), |_| (json!("l-run"), "m-run".into()))
+            .await;
+    assert_asks_stripped(&read);
+}
+
+/// A peer that names no run at its handshake (a build before 6f214158cf1)
+/// still opens its chats; its pending asks are dropped, its history keeps
+/// them without their nonce.
+#[tokio::test]
+async fn peer_detail_from_a_peer_with_no_run_keeps_its_asks_only_as_history() {
+    let read = detail_through_a_lying_peer(|_| (Value::Null, "l-run".into())).await;
+    assert_pending_stripped(&read);
+    assert_ask_kept_as_history(&read, "l-run");
 }
 
 /// A peer's own session in its own run forwards whole, its ask included.
@@ -1359,9 +1426,11 @@ async fn peer_detail_in_the_peers_own_run_forwards() {
     assert_eq!(info["pending"][0]["permissionId"], "asked", "{info}");
     assert_eq!(info["pending"][0]["personInstance"], "l-run", "{info}");
     assert_eq!(attach["session"]["pending"][0]["permissionId"], "asked", "{attach}");
-    assert_eq!(kinds(&attach["events"]), ["permission_request", "turn_result"], "{attach}");
+    let whole = ["permission_request", "permission_decision", "turn_result"];
+    assert_eq!(kinds(&attach["events"]), whole, "{attach}");
     assert_eq!(attach["events"][0]["msg"]["personInstance"], "l-run", "{attach}");
-    assert_eq!(kinds(&events["events"]), ["permission_request", "turn_result"], "{events}");
+    assert_eq!(attach["events"][0]["msg"]["decisionNonce"], "n-1", "{attach}");
+    assert_eq!(kinds(&events["events"]), whole, "{events}");
 }
 
 /// A live ask a peer sends for its attached session in another daemon run
