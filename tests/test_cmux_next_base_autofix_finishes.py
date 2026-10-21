@@ -44,6 +44,17 @@ class BaseAutofixFinishes(unittest.TestCase):
             with self.subTest(job=job):
                 self.assertFalse(DOC["jobs"][job]["concurrency"]["cancel-in-progress"])
 
+    def test_the_autofix_that_carries_mac_exports_is_never_replaced_while_pending(self):
+        # 2026-10-21: runs whose own Mac job a newer push replaced still run autofix (about 1.5 minutes,
+        # every minute or two), so the run whose Mac job finished queued its autofix behind one of them,
+        # and the next push replaced it: half an hour of Mac exports lost. That autofix has a group of
+        # its own; the others still queue only the latest, one group per branch.
+        group = DOC["jobs"]["autofix"]["concurrency"]["group"]
+        self.assertIn("needs.action-exports.outputs.exports == 'true'", group)
+        self.assertIn("github.run_id", group)
+        self.assertIn("github.ref_name", group)
+        self.assertIn("github.ref_name", DOC["jobs"]["action-exports"]["concurrency"]["group"])
+
     def push(self, moved: dict[str, str] | None, *, repair: dict[str, str] | None = None,
              reject_without_moving=False, move_again: dict[str, str] | None = None):
         """Run the push loop: a repair (default: the settings export) made at HEAD_SHA, while feat-cmux-next
@@ -193,8 +204,10 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertNotIn("kept moving", out)
 
     def test_the_workflow_pushes_through_the_script(self):
+        # base-autofix-land.sh pushes with base-autofix-push.sh, and makes a held repair again on the tip.
         push = next(step for step in DOC["jobs"]["autofix"]["steps"] if step.get("name") == "Push the repairs")["run"]
-        self.assertIn("scripts/cmux-next/base-autofix-push.sh", push)
+        self.assertIn("scripts/cmux-next/base-autofix-land.sh", push)
+        self.assertIn("base-autofix-push.sh", (ROOT / "scripts/cmux-next/base-autofix-land.sh").read_text())
 
     def test_the_mac_job_regenerates_the_settings_exports_on_the_newest_tip(self):
         # 2026-10-21: a run takes ~28 minutes and feat-cmux-next takes a push a minute, so some push

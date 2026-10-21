@@ -74,6 +74,10 @@ pub struct Session {
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
     pub(super) steering: AtomicBool,
+    /// Ctrl-B moves its work: decided by the harness kind it last started as
+    /// (`processes.rs` `backgrounds_work`), or by what an adopted host runs
+    /// (`hosts.rs`), never by the config read later.
+    pub(super) backgrounds_work: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
     /// step for one that waits (`queue_edit.rs`).
     pub(super) steer_now: StdMutex<SteerNow>,
@@ -122,6 +126,8 @@ pub struct Session {
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    /// The places typing into it, and who sent its prompts (`composers.rs`).
+    pub(super) composers: StdMutex<super::composers::Composers>,
 }
 
 impl Session {

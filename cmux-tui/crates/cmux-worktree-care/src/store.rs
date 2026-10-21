@@ -94,7 +94,7 @@ impl Store {
             .filter_map(|path| std::fs::read(path).ok())
             .filter_map(|bytes| serde_json::from_slice(&bytes).ok())
             .collect();
-        manifests.sort_by(|a, b| b.created_ms.cmp(&a.created_ms));
+        manifests.sort_by_key(|manifest| std::cmp::Reverse(manifest.created_ms));
         manifests
     }
 

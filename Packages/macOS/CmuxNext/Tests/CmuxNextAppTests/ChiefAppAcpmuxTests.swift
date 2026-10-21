@@ -36,7 +36,7 @@ struct ChiefAppAcpmuxTests {
 
     @Test func nightlysChiefRunsOnTheAppsAcpmuxAndOnlyWaitsForIt() throws {
         let fixture = try fixture()
-        let host = try #require(host(fixture, buildID: ChiefHome.nightlyBundleID))
+        let host = try #require(self.host(fixture, buildID: ChiefHome.nightlyBundleID))
         #expect(host.acpmux?.home.standardizedFileURL == fixture.acpmuxRoot.standardizedFileURL)
         let environment = host.childEnvironment
         #expect(environment["ACPMUX_HOME"] == fixture.acpmuxRoot.path)
@@ -50,7 +50,7 @@ struct ChiefAppAcpmuxTests {
     @Test func theChiefResolvesTheDaemonOfTheAppsBuild() throws {
         let fixture = try fixture()
         let build = BuildIdentity(bundleID: "com.cmuxterm.app.debug.chiefbase", bundledTag: "chiefbase")
-        let host = try #require(host(fixture, buildID: ChiefHome.nightlyBundleID, appBuild: build))
+        let host = try #require(self.host(fixture, buildID: ChiefHome.nightlyBundleID, appBuild: build))
         let panes = AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: fixture.bin,
                                               environment: ["CMUX_NEXT_ACPMUX_ROOT": fixture.acpmuxRoot.path])
         #expect(host.acpmux?.home.standardizedFileURL == panes?.home.standardizedFileURL)
@@ -59,7 +59,7 @@ struct ChiefAppAcpmuxTests {
 
     @Test func anotherBuildsChiefKeepsItsOwnAcpmux() throws {
         let fixture = try fixture()
-        let host = try #require(host(fixture, buildID: "com.cmuxterm.app.debug.chiefbase"))
+        let host = try #require(self.host(fixture, buildID: "com.cmuxterm.app.debug.chiefbase"))
         let own = fixture.chiefRoot.appendingPathComponent("acpmux", isDirectory: true)
         #expect(host.acpmux?.home.standardizedFileURL == own.standardizedFileURL)
         #expect(host.childEnvironment["ACPMUX_HOME"] == own.path)
