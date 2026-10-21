@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -28,11 +29,26 @@ struct AcpmuxQuitKnownChiefTests {
         #expect(AcpmuxQuitProof.keptChief(home: oldChief, keep: .chief) == ["old-chief-turn"])
     }
 
-    @Test func aChiefHostStillRunningIsReportedWhenNothingIsKept() {
+    // The Retry after a shutdown in progress, with the daemon gone: a Chief subagent host still
+    // holds its lock. The end that keeps nothing reports it; one that keeps the Chief does not.
+    @Test func aRetryWithNoSocketReportsAChiefHostStillRunningWhenNothingIsKept() async throws {
         let app = home("app-acpmux")
-        let facts = AcpmuxQuitProof.Facts(daemon: .free, daemonPID: nil, liveHostSessions: ["chief-sub"], unknownHostSessions: [])
+        let hosts = app.appendingPathComponent("hosts", isDirectory: true)
+        try FileManager.default.createDirectory(at: hosts, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: app.deletingLastPathComponent()) }
+        let record = try JSONSerialization.data(withJSONObject: ["session_id": "chief-sub", "start_nonce": "n1"])
+        try record.write(to: hosts.appendingPathComponent("chief-sub.n1.json"))
+        let lock = hosts.appendingPathComponent("chief-sub.n1.live").path
+        #expect(FileManager.default.createFile(atPath: lock, contents: nil))
+        let fd = open(lock, O_RDWR | O_CLOEXEC)
+        #expect(fd >= 0)
+        defer { close(fd) }
+        #expect(flock(fd, LOCK_EX | LOCK_NB) == 0)
         AcpmuxQuitProof.remember(chief: ["chief-sub"], home: app)
-        let result = AcpmuxQuitProof.decide(facts, chief: AcpmuxQuitProof.keptChief(home: app, keep: .nothing), daemonExited: true)
-        #expect(result == .agentsStillRunning(["chief-sub"]))
+
+        let nothingKept = await AcpmuxQuit.withoutSocket(app, keep: .nothing, waitForShutdown: false, within: .zero)
+        #expect(nothingKept == .agentsStillRunning(["chief-sub"]))
+        let chiefKept = await AcpmuxQuit.withoutSocket(app, keep: .chief, waitForShutdown: false, within: .zero)
+        #expect(chiefKept == .noDaemon)
     }
 }
