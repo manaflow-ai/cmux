@@ -16,4 +16,15 @@ struct FileOpenLineTests {
             try FileOpenRequest(["path": "/repo/app.ts", "line": .string(text)], method: "file.open")
         }
     }
+    @Test(arguments: [JSONValue.bool(true), .number(42), .array([]), .string("0"), .string("10000001")])
+    func invalidLineUsesTheLocalizedLineMessage(value: JSONValue) throws {
+        do {
+            _ = try FileOpenRequest(["path": "/repo/app.ts", "line": value], method: "file.open")
+            Issue.record("invalid line was accepted")
+        } catch let error as ControlError {
+            #expect(error.code == "invalid_params")
+            #expect(error.message == ControlStrings.text("control.error.invalidLine", "Line must be a number from 1 to 10,000,000, optionally followed by :column or -endLine."))
+        }
+    }
+
 }

@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import type { editor } from "monaco-editor/editor/editor.api.js";
 import { EditorStore, type CodeView, type EditorDocument } from "../src/pages/editor/store";
 import { LineReveal } from "../src/pages/editor/lineReveal";
@@ -80,7 +80,11 @@ test("a reveal between config and Monaco mount replaces the pending position", a
   store.dispose();
 });
 
-function editorTarget() {
+afterEach(() => jest.useRealTimers());
+
+function editorTarget(height = 640) {
+  let layout: ((event: { height: number }) => void) | undefined;
+  const centers: unknown[] = [];
   let position: unknown;
   let centered: unknown;
   let decoration: unknown;
@@ -92,8 +96,17 @@ function editorTarget() {
     },
     revealLineInCenter: (...args: unknown[]) => {
       centered = args;
+      centers.push(args);
     },
-    getLayoutInfo: () => ({ height: 640 }),
+    getLayoutInfo: () => ({ height }),
+    onDidLayoutChange: (listener: typeof layout) => {
+      layout = listener;
+      return {
+        dispose: () => {
+          layout = undefined;
+        },
+      };
+    },
     createDecorationsCollection: (value: unknown) => {
       decoration = value;
       return {
@@ -105,6 +118,9 @@ function editorTarget() {
   } as unknown as editor.IStandaloneCodeEditor;
   return {
     target,
+    centers,
+    layout: (height: number) => layout?.({ height }),
+    listening: () => layout !== undefined,
     position: () => position,
     centered: () => centered,
     decoration: () => decoration,
@@ -112,7 +128,8 @@ function editorTarget() {
   };
 }
 
-test("Monaco clamps the cursor and range and removes the highlight after 1.5 seconds", async () => {
+test("Monaco clamps the cursor and range and removes the highlight after 1.5 seconds", () => {
+  jest.useFakeTimers();
   const target = editorTarget();
   const reveal = new LineReveal(target.target);
   reveal.reveal({ line: 42, column: 7, endLine: 100 });
@@ -124,7 +141,45 @@ test("Monaco clamps the cursor and range and removes the highlight after 1.5 sec
   reveal.reveal({ line: 10_000_000, column: 100 });
   expect(target.position()).toEqual({ lineNumber: 50, column: 8 });
   expect(target.clears()).toBe(1);
-  await new Promise((resolve) => setTimeout(resolve, 1600));
+  jest.advanceTimersByTime(1500);
   expect(target.clears()).toBe(2);
   reveal.clear();
+});
+
+test("a hidden editor centers when laid out after the highlight expires", () => {
+  jest.useFakeTimers();
+  const target = editorTarget(0);
+  const reveal = new LineReveal(target.target);
+  reveal.reveal({ line: 42 });
+  jest.advanceTimersByTime(1500);
+  expect(target.clears()).toBe(1);
+  expect(target.listening()).toBe(true);
+  target.layout(0);
+  expect(target.centers).toHaveLength(1);
+  target.layout(640);
+  expect(target.centers).toEqual([
+    [42, 1],
+    [42, 1],
+  ]);
+  expect(target.listening()).toBe(false);
+  reveal.clear();
+});
+
+test("a new reveal or load/disposal cancels the old layout listener", () => {
+  jest.useFakeTimers();
+  const target = editorTarget(0);
+  const reveal = new LineReveal(target.target);
+  reveal.reveal({ line: 42 });
+  reveal.reveal({ line: 3 });
+  target.layout(640);
+  expect(target.centers).toEqual([
+    [42, 1],
+    [3, 1],
+    [3, 1],
+  ]);
+  reveal.reveal({ line: 4 });
+  reveal.clear();
+  target.layout(640);
+  expect(target.centers).toHaveLength(4);
+  expect(target.listening()).toBe(false);
 });

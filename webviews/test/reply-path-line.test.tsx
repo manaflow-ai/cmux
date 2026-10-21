@@ -198,3 +198,45 @@ test("one click on a formatted path link label opens only its href", async () =>
     dom.window.close();
   }
 });
+
+for (const value of ["console.log", "user.name", "JSON.parse", "os.path", "1.5", "package.json"]) {
+  test(`dotted code stays code: ${value}`, () => {
+    expect(codeReplyPath(value)).toBeUndefined();
+    const html = renderToStaticMarkup(<>{renderInline(`\`${value}\``)}</>);
+    expect(html).toContain('<code class="cv-code">');
+    expect(html).not.toContain("cv-chip");
+  });
+}
+
+for (const value of [
+  "src/app.ts",
+  "app.ts:42",
+  "./x.ts",
+  "foo.test.ts:42",
+  "app.test.ts:42",
+  "index.d.ts:3",
+  "app.5a:42",
+]) {
+  test(`file references remain chips: ${value}`, () => {
+    expect(codeReplyPath(value)).toBeDefined();
+    for (const source of [value, `\`${value}\``, `[x](${value})`]) {
+      expect(renderToStaticMarkup(<>{renderInline(source)}</>)).toContain("cv-chip is-path");
+    }
+    expect(linkReplyPath(value)?.path).toBe(value.split(":")[0]!);
+    expect(textLinks(value)).toHaveLength(1);
+  });
+}
+
+for (const value of ["4.5:1", "example.com:8080", "localhost.local:3000", "example.org:443"]) {
+  test(`versions and host ports stay text: ${value}`, () => {
+    expect(textLinks(`WCAG ${value} contrast`)).toEqual([]);
+    expect(codeReplyPath(value)).toBeUndefined();
+    expect(linkReplyPath(value)).toBeUndefined();
+    expect(renderToStaticMarkup(<>{renderInline(`[dev](${value})`)}</>)).not.toContain("cv-chip");
+  });
+}
+
+test("a host-like extension inside a folder is still a file location", () => {
+  expect(codeReplyPath("src/example.com:42")).toMatchObject({ path: "src/example.com", location: { line: 42 } });
+  expect(textLinks("src/example.com:42")).toHaveLength(1);
+});
