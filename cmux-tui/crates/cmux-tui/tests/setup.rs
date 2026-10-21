@@ -272,6 +272,90 @@ done
     }
 }
 
+impl World {
+    /// Fake `claude` and `codex` CLIs whose `mcp add` and `mcp remove` write
+    /// the user-scope config the real ones write (`~/.claude.json`,
+    /// `$CODEX_HOME/config.toml`), holding only that one server. Every call
+    /// goes to `mcp.log` under the world.
+    fn with_fake_mcp_clients(self) -> Self {
+        let log = self.mcp_log();
+        let claude = format!(
+            r#"#!/bin/sh
+echo "claude $*" >>'{log}'
+f="${{CLAUDE_CONFIG_DIR:-$HOME}}/.claude.json"
+[ "$1" = mcp ] || exit 2
+op=$2; shift 2
+[ "$1" = --scope ] && [ "$2" = user ] || {{ echo "not user scope" >&2; exit 3; }}
+shift 2
+case $op in
+add)
+  name=$1; shift; [ "$1" = -- ] || exit 3; shift
+  cmd=$1; shift; args=""
+  for a in "$@"; do args="$args${{args:+,}}\"$a\""; done
+  printf '{{"mcpServers":{{"%s":{{"type":"stdio","command":"%s","args":[%s],"env":{{}}}}}}}}' "$name" "$cmd" "$args" >"$f" ;;
+remove) printf '{{"mcpServers":{{}}}}' >"$f" ;;
+*) exit 2 ;;
+esac
+"#,
+            log = log.display()
+        );
+        let codex = format!(
+            r#"#!/bin/sh
+echo "codex $*" >>'{log}'
+f="${{CODEX_HOME:-$HOME/.codex}}/config.toml"
+mkdir -p "$(dirname "$f")"
+[ "$1" = mcp ] || exit 2
+case $2 in
+add)
+  shift 2; name=$1; shift; [ "$1" = -- ] || exit 3; shift
+  cmd=$1; shift; args=""
+  for a in "$@"; do args="$args${{args:+, }}\"$a\""; done
+  printf '[mcp_servers.%s]\ncommand = "%s"\nargs = [%s]\n' "$name" "$cmd" "$args" >"$f" ;;
+remove) : >"$f" ;;
+*) exit 2 ;;
+esac
+"#,
+            log = log.display()
+        );
+        World::executable(&self.bin.join("claude"), &claude);
+        World::executable(&self.bin.join("codex"), &codex);
+        self
+    }
+
+    fn mcp_log(&self) -> PathBuf {
+        self.home.parent().unwrap().join("mcp.log")
+    }
+
+    /// The fake `claude` and `codex` calls since the last `take_mcp_calls`.
+    fn take_mcp_calls(&self) -> Vec<String> {
+        let text = std::fs::read_to_string(self.mcp_log()).unwrap_or_default();
+        let _ = std::fs::remove_file(self.mcp_log());
+        text.lines().map(str::to_owned).collect()
+    }
+
+    /// The settings file the app writes (`~/.config/cmux/cmux-next.json`).
+    fn settings(&self, document: &Value) {
+        let path = self.home.join(".config/cmux/cmux-next.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, document.to_string()).unwrap();
+    }
+
+    /// Runs a shell line a result named (an `undo` of `claude` and `codex`
+    /// calls), as an agent's shell would, with the world's PATH and HOME.
+    fn shell(&self, line: &str) {
+        let output = Command::new("/bin/sh")
+            .args(["-c", line])
+            .current_dir(&self.repo)
+            .env("HOME", &self.home)
+            .env("PATH", self.path())
+            .env_remove("CLAUDE_CONFIG_DIR")
+            .env_remove("CODEX_HOME")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{line}: {}", String::from_utf8_lossy(&output.stderr));
+    }
+}
+
 /// Splits a command the way sh does for the quoting `cmux setup` writes:
 /// bare words and single-quoted words.
 fn shell_words(command: &str) -> Vec<String> {
@@ -764,7 +848,11 @@ fn cmux_setup_harness_an_agent_hands_the_person_the_sign_in_and_checks_again() {
     assert_eq!(task["setup"], "cmux setup harness [ID ...] [--dry-run]", "{task}");
     let status = world.json(&["setup", "status"]);
     let tasks = status["checks"].as_array().unwrap().iter().map(|c| &c["task"]).collect::<Vec<_>>();
-    assert_eq!(tasks, [&json!("trust"), &json!("machine"), &json!("harness")], "{status}");
+    assert_eq!(
+        tasks,
+        [&json!("trust"), &json!("machine"), &json!("harness"), &json!("mcp")],
+        "{status}"
+    );
     let check = &status["checks"][2];
     assert_eq!(check["state"], "needs_user", "{status}");
     assert_eq!(check["user_action"]["command"], "cmux harness login gemini", "{status}");
@@ -921,4 +1009,149 @@ env_key = "CXS_UNSET_ROUTER_KEY"
         assert!(detail.contains("CXS_UNSET_ROUTER_KEY"), "{report}");
     }
     assert_eq!(World::harness_log(&codex), "", "the harness was asked");
+}
+
+/// The cmux MCP server for Claude Code and Codex started outside cmux: the
+/// agent reads `status`, hands the person the switch only they turn on,
+/// then adds the server through each harness's own CLI, runs it again
+/// (nothing to do), and runs the `undo` it named.
+#[test]
+fn cmux_setup_mcp_an_agent_gives_claude_code_and_codex_the_cmux_server_and_undoes_it() {
+    let world = World::new("mcp").with_fake_mcp_clients();
+    let cmux = env!("CARGO_BIN_EXE_cmux-tui");
+    let claude_json = world.home.join(".claude.json");
+    let codex_toml = world.home.join(".codex").join("config.toml");
+
+    let list = world.json(&["setup", "list"]);
+    let task = list["tasks"].as_array().unwrap().iter().find(|t| t["id"] == "mcp").unwrap();
+    assert_eq!(task["setup"], "cmux setup mcp [claude|codex ...] [--dry-run]", "{task}");
+    let status = world.json(&["setup", "status"]);
+    let check = &status["checks"][3];
+    assert_eq!(check["task"], "mcp", "{status}");
+    assert_eq!(check["state"], "needs_setup", "{check}");
+    assert_eq!(check["enabled"], false, "{check}");
+    assert_eq!(check["fix"], "cmux setup mcp", "{check}");
+
+    // The switch is the person's: setup names it and writes nothing.
+    let off = world.follow(check["fix"].as_str().unwrap());
+    assert_eq!(off["state"], "needs_user", "{off}");
+    assert_eq!(off["enabled"], false);
+    assert_eq!(off["user_action"]["kind"], "setting", "{off}");
+    let text = off["user_action"]["text"].as_str().unwrap();
+    assert!(text.contains("\"mcp\": {\"enabled\": true}"), "{text}");
+    assert!(text.contains("cmux-next.json"), "{text}");
+    let states = off["clients"].as_array().unwrap().iter().map(|c| &c["state"]).collect::<Vec<_>>();
+    assert_eq!(states, [&json!("planned"), &json!("planned")], "{off}");
+    assert_eq!(off["undo"], Value::Null);
+    assert!(world.take_mcp_calls().is_empty(), "setup wrote with the switch off");
+    assert!(!claude_json.exists() && !codex_toml.exists());
+
+    // The person turns it on. A dry run plans and runs no CLI.
+    world.settings(&json!({"mcp": {"enabled": true}}));
+    let planned = world.json(&["setup", "mcp", "--dry-run"]);
+    assert_eq!(planned["state"], "planned", "{planned}");
+    assert_eq!(planned["dry_run"], true);
+    assert!(world.take_mcp_calls().is_empty(), "a dry run ran a CLI");
+
+    // Each harness's own CLI adds the server, user scope.
+    let changed = world.json(&["setup", "mcp"]);
+    assert_eq!(changed["state"], "changed", "{changed}");
+    assert_eq!(
+        changed["server"],
+        json!({"name": "cmux", "command": cmux, "args": ["mcp", "serve"]})
+    );
+    assert_eq!(
+        world.take_mcp_calls(),
+        [
+            format!("claude mcp add --scope user cmux -- {cmux} mcp serve"),
+            format!("codex mcp add cmux -- {cmux} mcp serve"),
+        ]
+    );
+    let claude: Value =
+        serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
+    assert_eq!(claude["mcpServers"]["cmux"]["command"], cmux, "{claude}");
+    assert_eq!(claude["mcpServers"]["cmux"]["args"], json!(["mcp", "serve"]));
+    let codex: toml::Table = std::fs::read_to_string(&codex_toml).unwrap().parse().unwrap();
+    assert_eq!(codex["mcp_servers"]["cmux"]["command"].as_str(), Some(cmux), "{codex}");
+    let undo = changed["undo"].as_str().expect("a change names its undo").to_owned();
+    assert_eq!(undo, "claude mcp remove --scope user cmux && codex mcp remove cmux");
+
+    // Again: nothing to do, no CLI run; status agrees.
+    let again = world.json(&["setup", "mcp"]);
+    assert_eq!(again["state"], "ok", "{again}");
+    assert_eq!(again["clients"][0]["entry"]["command"], cmux, "{again}");
+    assert!(world.take_mcp_calls().is_empty(), "a second run ran a CLI");
+    assert_eq!(world.json(&["setup", "status"])["checks"][3]["state"], "ok");
+
+    // The undo puts both back.
+    world.shell(&undo);
+    world.take_mcp_calls();
+    assert_eq!(world.json(&["setup", "mcp", "--dry-run"])["state"], "planned");
+
+    // One harness by name; one not installed is the person's install.
+    std::fs::remove_file(world.bin.join("codex")).unwrap();
+    let named = world.json(&["setup", "mcp", "codex"]);
+    assert_eq!(named["state"], "needs_user", "{named}");
+    assert_eq!(named["clients"].as_array().unwrap().len(), 1, "{named}");
+    assert_eq!(named["user_action"]["kind"], "install", "{named}");
+    assert_eq!(named["user_action"]["command"], "cmux setup harness codex");
+    // Not named and not installed: left out of the work.
+    let default = world.json(&["setup", "mcp", "--dry-run"]);
+    assert_eq!(default["clients"][1]["state"], "not_applicable", "{default}");
+
+    for args in [&["setup", "mcp", "nope"][..], &["setup", "mcp", "--bogus"]] {
+        let output = world.run(args);
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+        assert_eq!(error["code"], "usage.invalid", "{args:?}");
+    }
+}
+
+/// A `cmux` server whose command is gone (an app that moved) is replaced,
+/// and its undo puts the old one back; a `cmux` server that runs something
+/// else is the person's, left as it is.
+#[test]
+fn cmux_setup_mcp_replaces_a_moved_cmux_and_leaves_another_server_named_cmux() {
+    let world = World::new("mcpold").with_fake_mcp_clients();
+    let cmux = env!("CARGO_BIN_EXE_cmux-tui");
+    world.settings(&json!({"mcp": {"enabled": true}}));
+    let gone = "/Applications/gone.app/Contents/Resources/bin/cmux";
+    let claude_json = world.home.join(".claude.json");
+    let old = json!({"mcpServers": {"cmux": {"type": "stdio", "command": gone, "args": ["mcp", "serve"]}}});
+    std::fs::write(&claude_json, old.to_string()).unwrap();
+    let codex_toml = world
+        .codex_home(".codex", "[mcp_servers.cmux]\ncommand = \"/bin/echo\"\nargs = [\"hi\"]\n");
+    let codex_toml = codex_toml.join("config.toml");
+    let codex_before = std::fs::read_to_string(&codex_toml).unwrap();
+
+    let result = world.json(&["setup", "mcp"]);
+    assert_eq!(result["state"], "needs_user", "{result}");
+    let claude = &result["clients"][0];
+    assert_eq!(claude["state"], "changed", "{claude}");
+    assert_eq!(claude["entry"]["command"], gone, "{claude}");
+    let codex = &result["clients"][1];
+    assert_eq!(codex["state"], "needs_user", "{codex}");
+    assert_eq!(codex["user_action"]["kind"], "conflict", "{codex}");
+    assert_eq!(codex["user_action"]["command"], "codex mcp remove cmux");
+    assert_eq!(result["user_action"], codex["user_action"]);
+    assert_eq!(
+        world.take_mcp_calls(),
+        [
+            "claude mcp remove --scope user cmux".to_owned(),
+            format!("claude mcp add --scope user cmux -- {cmux} mcp serve"),
+        ]
+    );
+    assert_eq!(std::fs::read_to_string(&codex_toml).unwrap(), codex_before, "setup touched Codex");
+
+    let undo = result["undo"].as_str().unwrap();
+    assert_eq!(
+        undo,
+        format!(
+            "claude mcp remove --scope user cmux && claude mcp add --scope user cmux -- {gone} mcp serve"
+        )
+    );
+    world.shell(undo);
+    let back: Value =
+        serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
+    assert_eq!(back["mcpServers"]["cmux"]["command"], gone, "{back}");
 }
