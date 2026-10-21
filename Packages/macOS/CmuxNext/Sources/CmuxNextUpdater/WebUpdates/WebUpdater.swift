@@ -68,6 +68,11 @@ public final class WebUpdater {
     /// The next scheduled check.
     @ObservationIgnored private let nextCheck: DemandTimer
     @ObservationIgnored private var etag: String?
+    /// The launch check of the kept update; every check and channel change waits for it, so none
+    /// sees the empty state before `state.json` is read.
+    @ObservationIgnored private var launch: Task<URL?, Never>?
+    /// Whether `updates.web` was read yet (before it, `channel` is only the off default).
+    @ObservationIgnored private var followed = false
 
     public static let defaultBase = URL(string: "https://files.cmux.com/cmux-next-web/") ?? URL(fileURLWithPath: "/dev/null") // a test parses it
 
@@ -86,21 +91,29 @@ public final class WebUpdater {
     }
 
     /// The launch check of the kept update, for ``WebBundleOverlay/load(_:)``: its folder when it
-    /// still verifies and suits this app, else nil (and the state forgets it).
-    public nonisolated func launchTree() async -> URL? {
-        let store = store, app = app
-        let (tree, state) = await Self.launchCheck(store: store, app: app)
-        await MainActor.run { self.state = state }
-        return tree
+    /// still verifies, suits this app and `updates.web` is not off, else nil (and the state
+    /// forgets it). It runs once; later calls get its result.
+    public func launchTree() async -> URL? {
+        if let launch { return await launch.value }
+        let store = store, app = app, off = followed && channel == .off
+        // task-owner: the one launch check, kept so later callers await the same result
+        let task = Task { @MainActor [weak self] () -> URL? in
+            let (tree, state) = await Self.launchCheck(store: store, app: app, off: off)
+            self?.state = state
+            return tree
+        }
+        launch = task
+        return await task.value
     }
 
-    @concurrent nonisolated static func launchCheck(store: WebUpdateStore, app: App) async -> (URL?, WebUpdateState) {
+    @concurrent nonisolated static func launchCheck(store: WebUpdateStore, app: App, off: Bool = false) async -> (URL?, WebUpdateState) {
         var state = store.readState()
         guard let active = state.active else { return (nil, state) }
-        if active.abi == app.abi, active.committedAt > app.webBuiltAt, let tree = store.verifiedTree(active) {
+        if !off, active.abi == app.abi, active.committedAt > app.webBuiltAt, let tree = store.verifiedTree(active) {
             return (tree, state)
         }
-        // A newer app shipped newer web, or the tree changed on disk: serve the bundle.
+        // Web updates are off, a newer app shipped newer web, or the tree changed on disk: serve
+        // the bundle.
         state.active = nil
         state.previous = nil
         try? store.write(state)
@@ -108,17 +121,22 @@ public final class WebUpdater {
         return (nil, state)
     }
 
-    /// Follows `channel`: off stops the checks and returns to the bundled web.
+    /// Follows `channel`: off stops the checks and returns to the bundled web; another channel
+    /// returns to the bundled web unless that channel published the update served now.
     public func follow(_ channel: Channel) {
-        guard channel != self.channel else { return }
+        guard !followed || channel != self.channel else { return }
+        followed = true
         self.channel = channel
         etag = nil
         nextCheck.cancel()
-        guard channel != .off else {
-            // task-owner: one state write; it ends by itself
-            if state.active != nil { Task { try? await serve(nil, refusingActive: false) } }
-            return
+        // task-owner: the launch check, then at most one state write; it ends by itself
+        Task { [weak self] in
+            _ = await self?.launchTree()
+            guard let self, self.channel == channel, let active = state.active,
+                  channel == .off || active.channel != channel.rawValue else { return }
+            try? await serve(nil, refusingActive: false)
         }
+        guard channel != .off else { return }
         nextCheck.schedule(after: .zero) { @MainActor [weak self] in await self?.check() }
     }
 
@@ -134,17 +152,26 @@ public final class WebUpdater {
     public func check() async {
         guard channel != .off, phase != .checking, phase != .downloading else { return }
         phase = .checking
+        _ = await launchTree()
+        let channel = channel
         lastCheck = Date()
         // Each check books the next one, so a check started by hand pushes the schedule back.
         defer {
             if channel != .off { nextCheck.schedule(after: interval) { @MainActor [weak self] in await self?.check() } }
         }
         do {
-            guard let pointer = try await newPointer() else {
+            guard let fresh = try await newPointer() else {
                 phase = .idle
                 return
             }
-            try take(pointer)
+            let (pointer, tag) = fresh
+            do {
+                try take(pointer)
+            } catch {
+                // A lasting refusal: read the pointer again only when it changes.
+                etag = tag
+                throw error
+            }
             phase = .downloading
             var request = URLRequest(url: pointer.archiveURL(base: base))
             request.allowsConstrainedNetworkAccess = allowsConstrained
@@ -157,12 +184,19 @@ public final class WebUpdater {
             }
             defer { try? FileManager.default.removeItem(at: file) }
             let tree = try await store.install(archive: file, pointer: pointer)
+            guard self.channel == channel else {
+                // The channel changed during the download: drop the tree.
+                try? await Self.save(state, store: store)
+                phase = .idle
+                return
+            }
             var next = state
             next.previous = state.active
             next.active = pointer
             next.floor = max(next.floor, pointer.committedAt)
             try await Self.save(next, store: store)
             state = next
+            etag = tag
             lastRefusal = nil
             phase = .idle
             onReady(tree)
@@ -174,8 +208,10 @@ public final class WebUpdater {
         }
     }
 
-    /// The channel's pointer when it changed since the last read, verified; nil when unchanged.
-    func newPointer() async throws -> WebUpdatePointer? {
+    /// The channel's pointer when it changed since the last taken or refused one, verified, and
+    /// its ETag (stored once the outcome lasts, so a failed download is tried again); nil when
+    /// unchanged.
+    func newPointer() async throws -> (WebUpdatePointer, String?)? {
         var request = URLRequest(url: base.appending(path: "ota/\(channel.rawValue).json"))
         request.cachePolicy = .reloadIgnoringLocalCacheData
         if let etag { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
@@ -190,9 +226,13 @@ public final class WebUpdater {
         // No pointer yet (the nightly channel before its first publish): nothing to take.
         if http?.statusCode == 404 { return nil }
         guard http?.statusCode == 200 else { throw WebUpdateRefusal.transfer("pointer status \(http?.statusCode ?? 0)") }
-        let pointer = try WebUpdatePointer.verified(data, keys: keys, channel: channel.rawValue)
-        etag = http?.value(forHTTPHeaderField: "ETag")
-        return pointer
+        let tag = http?.value(forHTTPHeaderField: "ETag")
+        do {
+            return (try WebUpdatePointer.verified(data, keys: keys, channel: channel.rawValue), tag)
+        } catch {
+            etag = tag
+            throw error
+        }
     }
 
     /// Throws unless `pointer` suits this app and is newer than what it serves.

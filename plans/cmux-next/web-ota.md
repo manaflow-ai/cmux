@@ -85,10 +85,13 @@ At launch, requests wait for the check of the kept tree, so the first page alrea
 ## Setting and controls
 
 `updates.web` in cmux.json (Settings > Updates, "Web UI Updates"): `every-merge` (default),
-`nightly` or `off`. Off returns to the bundled web at the next safe point. Only NIGHTLY bundles
+`nightly` or `off`. Off returns to the bundled web at the next safe point, and at launch it serves
+the bundled web before any page loads. Switching to the other channel returns to the bundled web
+until that channel has an update newer than the last one taken. Only NIGHTLY bundles
 (`com.cmuxterm.app.nightly[.<tag>]`) take web updates: a Debug build keeps the developer's own web,
 and Release and RC builds the web they were built with. Downloads follow `updates.meteredNetwork`
-(Low Data Mode and expensive links through `URLRequest`).
+(Low Data Mode and expensive links through `URLRequest`). A failed download is tried again at the
+next check: the pointer's ETag is kept only once it was taken or refused for good.
 
 - `updates.web.status`: channel, phase, the active and previous updates, what is served now and what
   is pending, the bundled `abi`, the last check and why the newest pointer was not taken.

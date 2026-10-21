@@ -14,6 +14,8 @@ import Testing
         var etag = "\"1\""
         var pointerReads = 0
         var downloads = 0
+        /// Downloads still to fail.
+        var failures = 0
     }
 
     static func pointerData(_ pointer: WebUpdatePointer) throws -> Data {
@@ -36,6 +38,10 @@ import Testing
             },
             download: { _ in
                 server.downloads += 1
+                if server.failures > 0 {
+                    server.failures -= 1
+                    throw URLError(.networkConnectionLost)
+                }
                 let source = try #require(server.archive)
                 let copy = FileManager.default.temporaryDirectory.appending(path: "WebUpdaterTests-\(UUID().uuidString).tar.gz")
                 try FileManager.default.copyItem(at: source, to: copy)
@@ -65,12 +71,51 @@ import Testing
         await updater.check()
         #expect(server.pointerReads == 2)
         #expect(server.downloads == 1)
-        // A restarted updater (no ETag) refuses the update it already serves.
+        // A restarted updater (no ETag) refuses the update it already serves, also when its
+        // first check starts before the launch check read the kept state.
         let again = Self.updater(server, store: store)
-        _ = await again.launchTree()
         await again.check()
         #expect(again.lastRefusal == .notNewer)
+        #expect(again.state.active == pointer)
         #expect(server.downloads == 1)
+        #expect(await again.launchTree() == store.tree(for: pointer.key).root)
+    }
+
+    @Test func offAtLaunchServesTheBundledWeb() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (archive, pointer) = try await WebUpdateStoreTests.makeArchive(in: root)
+        let server = Server()
+        server.archive = archive
+        server.pointer = try Self.pointerData(pointer)
+        let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
+        await Self.updater(server, store: store).check()
+        #expect(store.readState().active == pointer)
+        // Relaunched with `updates.web: off`: the kept update is not served.
+        let again = Self.updater(server, store: store)
+        again.follow(.off)
+        #expect(await again.launchTree() == nil)
+        #expect(again.state.active == nil)
+        #expect(store.readState().active == nil)
+    }
+
+    @Test func aFailedDownloadIsTriedAgain() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (archive, pointer) = try await WebUpdateStoreTests.makeArchive(in: root)
+        let server = Server()
+        server.archive = archive
+        server.pointer = try Self.pointerData(pointer)
+        server.failures = 1
+        let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
+        let updater = Self.updater(server, store: store)
+        await updater.check()
+        #expect(updater.state.active == nil)
+        #expect(updater.phase != .idle)
+        // The pointer did not change, but the update was never taken: the next check reads it in full.
+        await updater.check()
+        #expect(server.downloads == 2)
+        #expect(updater.state.active == pointer)
     }
 
     @Test func anUpdateForOtherNativeCodeIsNeverDownloaded() async throws {

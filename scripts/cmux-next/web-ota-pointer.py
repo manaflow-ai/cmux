@@ -36,6 +36,9 @@ SCHEMA = 1
 CHANNELS = ("every-merge", "nightly")
 # The SubjectPublicKeyInfo DER prefix of an ed25519 key; the raw 32 bytes follow.
 ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
+# The exit status of "nothing to publish" (`newer`: the published pointer is current; `payload`: the
+# manifest predates `outputs`), apart from 1 for an error.
+SKIP = 3
 
 
 def fail(message):
@@ -66,6 +69,9 @@ def make_payload(args):
     abi = json.load(open(args.abi_file))["abi"]
     if args.channel not in CHANNELS:
         fail(f"unknown channel {args.channel}")
+    if manifest.get("outputs") is None:
+        print(f"web-ota-pointer: {args.manifest} has no outputs digest (published before pointers)", file=sys.stderr)
+        sys.exit(SKIP)
     for field, pattern in (("key", r"[0-9a-f]{64}"), ("sha256", r"[0-9a-f]{64}"), ("outputs", r"[0-9a-f]{64}"),
                            ("archive", r"web-bundles-[0-9a-f]{64}\.tar\.gz")):
         if not re.fullmatch(pattern, str(manifest.get(field) or "")):
@@ -201,7 +207,7 @@ def run(args):
         # finish out of order).
         if new["key"] == current["key"] or new["committed_at"] <= current["committed_at"]:
             print(f"the published pointer ({current['commit'][:12]}) is current; keeping it", file=sys.stderr)
-            return 1
+            return SKIP
     return 0
 
 

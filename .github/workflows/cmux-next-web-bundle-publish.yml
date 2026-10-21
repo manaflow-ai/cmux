@@ -220,15 +220,22 @@ jobs:
           keys=Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json
           dir="$RUNNER_TEMP/web-ota"
           mkdir -p "$dir" && chmod 700 "$dir"
+          trap 'rm -f "$dir/key.pem"' EXIT
           (umask 077; printf '%s\n' "$SIGNING_KEY" > "$dir/key.pem")
           curl -fsS --retry 3 --max-time 60 -o "$dir/manifest.json" "https://files.cmux.com/cmux-next-web/$KEY/manifest.json?pointer=$GITHUB_RUN_ID"
+          # Exit 3 is "nothing to publish"; anything else nonzero fails the job.
+          rc=0
           python3 "$ptr" payload --manifest "$dir/manifest.json" --abi-file webviews/src/web-abi.json --channel every-merge \
-            --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" --out "$dir/payload.json"
+            --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" --out "$dir/payload.json" || rc=$?
+          if [[ $rc == 3 ]]; then echo "::warning::$KEY has no outputs digest; no web update pointer"; exit 0; fi
+          [[ $rc == 0 ]] || exit "$rc"
           python3 "$ptr" sign --payload "$dir/payload.json" --key "$dir/key.pem" --keys "$keys" --out "$dir/every-merge.json"
           rm -f "$dir/key.pem"
           code="$(curl -sS -o "$dir/current.json" -w '%{http_code}' --retry 3 --max-time 60 "https://files.cmux.com/cmux-next-web/ota/every-merge.json?pointer=$GITHUB_RUN_ID" || true)"
           [[ "$code" == 200 ]] || rm -f "$dir/current.json"
-          python3 "$ptr" newer --pointer "$dir/every-merge.json" --keys "$keys" --current "$dir/current.json" || exit 0
+          python3 "$ptr" newer --pointer "$dir/every-merge.json" --keys "$keys" --current "$dir/current.json" || rc=$?
+          [[ $rc == 3 ]] && exit 0
+          [[ $rc == 0 ]] || exit "$rc"
           python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
             --cache-control "public, max-age=60, must-revalidate" --file "$dir/every-merge.json" \
             --key cmux-next-web/ota/every-merge.json --content-type application/json
