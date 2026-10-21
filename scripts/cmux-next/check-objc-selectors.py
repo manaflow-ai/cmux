@@ -261,7 +261,7 @@ def resolve(call: SuperCall, types: dict[str, list[TypeInfo]]) -> tuple[str | No
         seen.add(current)
         if any(t.kind == "class" for t in pick(current)):
             names = members(current)
-            if call.member in names or (call.kind == "set" and call.member in names):
+            if call.member in names:
                 return None, f"declared in {current}"
             current = superclass(current)
             continue
@@ -440,16 +440,14 @@ def main() -> int:
     table_keys: dict[str, dict[str, bool | None]] = table["keys"]
 
     def answered(key: str) -> bool | None:
-        """True when every recorded macOS answers, False when one does not, None when unknown."""
+        """False when a recorded macOS does not answer, None when unprobed, else True.
+
+        A null answer is a class with no Objective-C name on that macOS (a Swift class): not probeable.
+        """
         rec = table_keys.get(key)
         if not rec:
             return None
-        values = list(rec.values())
-        if any(v is False for v in values):
-            return False
-        if all(v is None for v in values):
-            return True  # not an Objective-C class on any probed macOS (a Swift class): not probeable
-        return True
+        return not any(v is False for v in rec.values())
 
     texts: dict[str, str] = {}
     for call, key, how in resolved:
