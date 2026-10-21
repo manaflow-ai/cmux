@@ -385,7 +385,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
-    CursorRectHoldHosting, TrafficLightsResting {
+    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting {
+    /// The sidebar is sliding open or closed, which moves the content edge on
+    /// every display frame (`ContentAreaMotionHosting`).
+    var isContentAreaInMotion: Bool { (contentView as? WindowRootView)?.isContentAreaInMotion ?? false }
+
     /// The traffic lights' last windowed place: their left edge, their top's
     /// distance from the window's top, and their size (the window may come
     /// back from full screen at another height).

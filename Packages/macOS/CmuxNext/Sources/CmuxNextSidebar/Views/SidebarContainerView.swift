@@ -1,7 +1,9 @@
 public import AppKit
 public import CmuxNextDesign
 import CmuxNextCompat
+import CmuxNextWakeups
 import Observation
+import QuartzCore
 
 /// The sidebar: clear over the window's one backdrop (the solid surface
 /// token, or the root material and its tint), with no fill, panel, border
@@ -47,6 +49,25 @@ public final class SidebarContainerView: NSView {
     /// alongside the width target lets a Debug Settings change retarget a
     /// transition already in flight without changing the default geometry.
     private var targetCollapseMotion: SidebarCollapseMotionVariant
+    /// Whether the width is animating now: every frame of it moves the content
+    /// edge beside the sidebar, so content whose resize is costly (a terminal's
+    /// PTY grid) holds it until the landing
+    /// (`ContentAreaMotionHosting`, `onWidthMotionChange`).
+    public private(set) var isWidthAnimating = false {
+        didSet { if isWidthAnimating != oldValue { onWidthMotionChange?(isWidthAnimating) } }
+    }
+    /// Called when the width starts and stops animating. The window tells its
+    /// content when the motion lands (`NSView.notifyPaneMotionSettled`).
+    public var onWidthMotionChange: ((Bool) -> Void)?
+    /// The last frame of the width animation that refreshed hover, as
+    /// `CACurrentMediaTime`. Hover follows views sliding under a still pointer
+    /// (cx-3wu5), which needs no 120 Hz: a refresh is O(the window's hover
+    /// targets), so the animation refreshes at `hoverRefreshInterval` and once
+    /// more at its last frame.
+    private var lastHoverRefresh: CFTimeInterval = 0
+    private let hoverRefresh = DemandTimer(owner: "sidebar.hover-refresh")
+    /// At most 30 refreshes a second while the width animates.
+    private static let hoverRefreshInterval: CFTimeInterval = 1.0 / 30
 
     /// The window edge this sidebar sits on (`sidebar.side`, R109): the
     /// resize handle and the slide-out follow it.
@@ -258,9 +279,27 @@ public final class SidebarContainerView: NSView {
 
     /// The width animation lays the sidebar out each frame and a hide ends
     /// it: views slide or hide under a still pointer, and hover follows
-    /// (cx-3wu5).
+    /// (cx-3wu5). A refresh walks every hover target of the window, so while
+    /// the width animates it runs at `hoverRefreshInterval`, with a trailing
+    /// one so the settled geometry always decides.
     override public func layout() {
         super.layout()
+        guard isWidthAnimating else {
+            hoverRefresh.cancel()
+            refreshHover()
+            return
+        }
+        let now = CACurrentMediaTime()
+        if now - lastHoverRefresh >= Self.hoverRefreshInterval {
+            refreshHover()
+        } else {
+            hoverRefresh.schedule(after: .milliseconds(40)) { @MainActor [weak self] in self?.refreshHover() }
+        }
+    }
+
+    private func refreshHover() {
+        lastHoverRefresh = CACurrentMediaTime()
+        hoverRefresh.cancel()
         PointerHover.refresh(in: window)
     }
 
@@ -268,6 +307,7 @@ public final class SidebarContainerView: NSView {
     private func snap() {
         targetWidth = model.displayWidth
         targetCollapseMotion = SidebarTunables.collapseMotion.value
+        isWidthAnimating = false
         widthConstraint.constant = targetWidth
         panelWidth.constant = model.width
         panel.isHidden = model.isHidden
@@ -287,6 +327,8 @@ public final class SidebarContainerView: NSView {
         if handle.isDragging, !hidden {
             targetWidth = target
             targetCollapseMotion = collapseMotion
+            // A drag is the person's own frame-by-frame resize, not an animation.
+            isWidthAnimating = false
             widthConstraint.constant = target
             return
         }
@@ -301,6 +343,9 @@ public final class SidebarContainerView: NSView {
         if !hidden { panel.alphaValue = collapseMotion.fadesPanel ? 0 : 1 }
         animationGeneration += 1
         let generation = animationGeneration
+        // With no animation at all (Reduce Motion, the gate off) the width lands
+        // in this turn and the completion clears this again at once.
+        isWidthAnimating = true
         widthCompletedGeneration = nil
         fadeCompletedGeneration = collapseMotion.fadesPanel ? nil : generation
         // Animate only the constraint: descendants re-lay out each frame at
@@ -315,6 +360,8 @@ public final class SidebarContainerView: NSView {
         }, completion: { [weak self] in
             guard let self, generation == self.animationGeneration else { return }
             self.widthCompletedGeneration = generation
+            self.isWidthAnimating = false
+            self.refreshHover()
             self.finishCollapseIfReady(generation: generation, hidden: hidden, fadesPanel: collapseMotion.fadesPanel)
         })
 

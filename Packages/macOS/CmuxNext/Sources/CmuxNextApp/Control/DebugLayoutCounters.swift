@@ -15,6 +15,11 @@ import CmuxNextTerminal
 ///   parked workspace unhides it in place and adds none).
 /// - `layout_root_layouts`: `LayoutRootView.layout()` passes, all windows (a resize: shown roots only).
 /// - `terminal_window_updates`: window notifications terminals handled (shown terminals only).
+/// - `terminal_grid_reports`: grids terminals reported to their session (one PTY resize and shell
+///   redraw each). A motion that moves the content edge over frames (a pane's layout spring, the
+///   sidebar sliding) should add one per terminal, at the landing, not one per frame
+///   (`RestingPlacement`, scripts/ci/frame-pacing/golden.py `sidebar_*`). `reset` leaves this one
+///   alone: `debug.window_transition` holds a baseline of it and subtracts.
 /// - `pane_count_changes`: each workspace view's shown pane count, appended when an apply changes
 ///   it (the last 64). A split shows 1, 2; a split undone before its daemon pane lands shows
 ///   1, 2, 1, 2 (cx-ry0y, scripts/cmux-next/split-no-flicker-e2e.py).
@@ -46,6 +51,7 @@ enum DebugLayoutCounters {
             "workspace_window_entries": JSONValue(Int(truncatingIfNeeded: workspaceWindowEntries)),
             "layout_root_layouts": JSONValue(Int(truncatingIfNeeded: LayoutRootView.layoutPasses)),
             "terminal_window_updates": JSONValue(Int(truncatingIfNeeded: TerminalSurfaceView.windowStateUpdates)),
+            "terminal_grid_reports": JSONValue(Int(truncatingIfNeeded: TerminalSurfaceView.gridReports)),
             "pane_count_changes": .array(paneCountChanges.map { JSONValue($0) }),
             "sources": .object(sources.mapValues { JSONValue($0) }),
         ]
