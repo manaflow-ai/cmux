@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextBrowser
 import CmuxNextPages
 import Foundation
 import Testing
@@ -62,6 +63,22 @@ import Testing
                 #expect(decision == .chromium, "\(page.id) shows in WebKit: \(String(describing: decision.webKitReason))")
             }
         }
+    }
+
+    /// The viewer pages (Markdown, editor, diff) live in the app's resources, not the pages bundle:
+    /// their root is the one registered at launch, and Chromium serves each page's own entry file.
+    @Test func theViewerPagesAreServedFromTheirRegisteredRootWithTheirEntry() throws {
+        let resources = FileManager.default.temporaryDirectory.appending(path: "viewer-roots-\(UUID().uuidString)/Resources")
+        defer { try? FileManager.default.removeItem(at: resources.deletingLastPathComponent()) }
+        let shared = PageDescriptor.diffRoot(inAppResources: resources)
+        try FileManager.default.createDirectory(at: shared, withIntermediateDirectories: true)
+        let viewers: [PageDescriptor] = [.diff, .markdown, .editor]
+        let roots = FirstPartyPageSchemes.bundledRoots { id in viewers.contains { $0.id == id } ? shared : nil }
+        for page in viewers { #expect(roots[page.id] == shared, "\(page.id) has no root") }
+        let entries = FirstPartyPageSchemes.entries(roots: roots.filter { id, _ in viewers.contains { $0.id == id } }, bundleResources: resources)
+        #expect(entries[PageDescriptor.diff.id]?.entry == "diff-page.html")
+        #expect(entries[PageDescriptor.markdown.id]?.entry == "markdown-page.html")
+        #expect(entries[PageDescriptor.editor.id]?.entry == "editor-page.html")
     }
 
     @Test func aReservedIDTheAppDoesNotShipIsNeverServed() {
