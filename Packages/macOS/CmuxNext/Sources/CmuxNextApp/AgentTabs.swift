@@ -172,7 +172,7 @@ final class AgentTabStore {
     /// What the chat pages held at the last quit, handed to each tab's first page at launch (``AgentPaneWakeStateFile``).
     var wakeStateFile = AgentPaneWakeStateFile(file: nil)
     /// Asks a live page what it holds that acpmux does not, within the limit (``AgentPaneView/wakeState(limit:)``).
-    var wakeStateReader: (AgentPaneView, Duration) async -> AgentPaneWakeState? = { await $0.wakeState(limit: $1) }
+    var wakeStateReader: @MainActor (AgentPaneView, Duration) async -> AgentPaneWakeState? = { await $0.wakeState(limit: $1) }
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
     /// The upload for a chat tab's dropped or pasted files, nil when it takes none (``CloudUploads``).

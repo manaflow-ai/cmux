@@ -112,6 +112,9 @@ extension AgentTabStore {
                                  linkScheme: services.linkScheme, settings: services.settings)
         tabs.launchImages = AgentPaneLaunchImages(beside: services.environment.sidebarSnapshotFile)
         tabs.unsentDrafts = AgentUnsentDrafts(beside: services.environment.sidebarSnapshotFile)
+        // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
+        tabs.wakeStateFile = AgentPaneWakeStateFile(beside: services.environment.sidebarSnapshotFile)
+        tabs.restoreWakeStates()
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
         let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag)) { [weak services] in
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
