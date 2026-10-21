@@ -39,6 +39,8 @@ public final class MobileHostService {
     /// The signed-in account the listener registers under, while there is one.
     private var account: (auth: any MobileHostAuth, launch: LaunchIdentity, daemon: DaemonService)?
     private var follower: PhoneAccessFollower?
+    /// The question for new phones (`phone.newDevices`); set by `follow`.
+    private(set) var admission: PhoneAdmission?
     /// Phones can reach this Mac: signed in and allowed (the phone keep-awake reason).
     var isServing: Bool { allowed && account != nil }
 
@@ -50,6 +52,7 @@ public final class MobileHostService {
     /// listener starts now when phone access is on, else when it is turned on.
     public func start(auth: any MobileHostAuth, launch: LaunchIdentity, daemon: DaemonService) {
         account = (auth, launch, daemon)
+        admission?.setUser(auth.userID)
         allowed ? startHost(auth: auth, launch: launch, daemon: daemon) : stopHost()
         servingChanged()
     }
@@ -57,6 +60,7 @@ public final class MobileHostService {
     /// Signed out, or the app quits: no account, no listener.
     public func stop() {
         account = nil
+        admission?.setUser(nil)
         stopHost()
         servingChanged()
     }
@@ -74,10 +78,18 @@ public final class MobileHostService {
     }
 
     /// Follows Settings > Accounts > Phone Access from now on (once).
-    public func follow(_ settings: SettingsController, launch: LaunchIdentity) {
+    ///
+    /// - Parameter phones: The one allowed-phones list (the iPhone host's, Settings > Mobile), in
+    ///   this bundle's `cmux-mobile-host/paired-devices.json`; Iroh phones are its `.iroh` entries.
+    public func follow(_ settings: SettingsController, launch: LaunchIdentity, phones: MobileHostPairedStore) {
         guard follower == nil else { return }
-        follower = PhoneAccessFollower(mobile: self, settings: settings,
-                                       history: MobileHostHistory(stateDirectory: Self.stateDirectory(namespace: Self.namespace(launch))))
+        let directory = Self.stateDirectory(namespace: Self.namespace(launch))
+        phones.attach(directory: MobileHostStateDirectory(parent: directory).resolve())
+        let admission = PhoneAdmission(phones: phones) { @MainActor [weak self] id in await self?.host?.disconnect(phone: id) }
+        admission.setUser(account?.auth.userID)
+        self.admission = admission
+        access.setAdmission({ device in await admission.decide(device) }, stillAllowed: { phones.contains($0, transport: .iroh) })
+        follower = PhoneAccessFollower(mobile: self, settings: settings, history: MobileHostHistory(stateDirectory: directory))
         follower?.start()
     }
 

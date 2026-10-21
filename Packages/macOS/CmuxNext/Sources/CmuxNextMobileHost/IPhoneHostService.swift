@@ -98,16 +98,19 @@ public final class IPhoneHostService {
     }
 
     /// `mobile.allowIPhoneConnections`, as the settings file has it.
-    private(set) var allowed = false
+    internal(set) var allowed = false
     private(set) var account: Account?
     private(set) var state = MobileHostState()
     /// The account's phones on the mobile service (Settings > Mobile's list with Remove).
-    private(set) var knownPhones: [MobileHostKnownPhone] = []
+    internal(set) var knownPhones: [MobileHostKnownPhone] = []
     /// Why the last list read or removal failed, shown under the list; nil when it worked.
     private(set) var phonesError: String?
-    /// The phones the signed-in user allowed on this Mac (cmux-next-ios verify/phone-approvals.md).
-    /// Settings > Mobile marks them; Remove (or ``revokePhone(id:)``) forgets one.
+    /// The phones the signed-in user allowed on this Mac (cmux-next-ios verify/phone-approvals.md),
+    /// hostd's and the Iroh link's, as ``pairedStore`` has them. Settings > Mobile lists them;
+    /// Remove (or ``revokePhone(id:)``) forgets one.
     internal(set) var paired: MobileHostPairedDevices?
+    /// The one allowed-phones list, which the Iroh link (``MobileHostService``) checks and adds to too.
+    public let pairedStore = MobileHostPairedStore()
     /// The owner removed this Mac from the account's devices (from a phone or the API).
     /// hostd stays stopped until the person allows iPhone connections again: Allow Again,
     /// the setting off and on, or signing in again. Then it registers as a new device.
@@ -143,6 +146,10 @@ public final class IPhoneHostService {
 
     /// A host that runs nothing until it is wired and an account with the setting on arrives.
     public init() {
+        pairedStore.observe { [weak self] _ in
+            // task-owner: one main-actor hop per change of the shared list; ends at once
+            Task { @MainActor in self?.syncPaired() }
+        }
         let states = supervisor.states
         // task-owner: lives as long as the app; follows the supervisor's state stream
         watching = Task { [weak self] in
@@ -193,6 +200,8 @@ public final class IPhoneHostService {
     /// hostd, and re-reads the list. A phone still signed in to the account registers again
     /// when it next connects.
     public func removePhone(id: String) async {
+        // An Iroh entry (cmux next) is only on this Mac's list: forgetting it closes its sessions.
+        if pairedStore.contains(id, transport: .iroh) { return revokePhone(id: id) }
         guard let dependencies, let phone = knownPhones.first(where: { $0.id == id }) else { return }
         do {
             try await MobileHostDeviceDirectory(baseURL: dependencies.baseURL).remove(phone, token: dependencies.accessToken(false))
@@ -211,7 +220,8 @@ public final class IPhoneHostService {
     /// The account changed (sign-in, sign-out, team switch).
     public func accountChanged(_ account: Account?) {
         guard account != self.account else { return }
-        let signedOut = account == nil && self.account != nil
+        let previous = self.account?.userID
+        let signedOut = account == nil ? previous : nil
         // Signing out after a removal and signing in again allows connections again. (A
         // relaunch restores the session without a sign-out, so the removal holds.)
         if removed, account == nil { signedOutSinceRemoval = true }
@@ -220,7 +230,9 @@ public final class IPhoneHostService {
             clearRemoval()
         }
         self.account = account
-        loadPaired(signedOut: signedOut)
+        // The Iroh link may load the shared list first, so the previous account (not the list) says who changed.
+        if previous != account?.userID { resetPrompts() }
+        loadPaired(forgetting: signedOut)
         reconcile()
         refreshPhones()
     }
