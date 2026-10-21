@@ -128,9 +128,18 @@ const openSingleShell = async (ctx: PlayContext) => {
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
 };
 
+/// Opens a finished run's folded line ("Ran 2 commands", "Read files, ran commands").
+const openFoldedRun = async (ctx: PlayContext) => {
+  await ctx.click({ selector: ".cv-tools > .cv-tool.is-toggle" });
+  await ctx.waitFor(
+    () => ctx.find({ selector: ".cv-tools > .cv-tool.is-toggle" }).getAttribute("aria-expanded") === "true",
+  );
+};
+
 const openGroupedShells = async (ctx: PlayContext) => {
   await openWorked(ctx);
-  // A group of commands lists its calls without a click.
+  // A finished run that is one group folds to its line ("Ran 2 commands"); opened, it lists its calls.
+  await openFoldedRun(ctx);
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
   await ctx.click({ selector: ".cv-command" });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-shell__command").length === 1);
@@ -385,19 +394,56 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
 
 /// The running line ("Thinking", "Working for") holds still: no mark blinks before its words and
 /// nothing on it loops (Leo, 2026-10-20, "the blinking ascii").
-const runningLineStill = (label: RegExp) => async (ctx: PlayContext) => {
-  await ctx.waitFor(() => label.test(ctx.document.querySelector(".cv-worked")?.textContent ?? ""));
-  const line = ctx.document.querySelector<HTMLElement>(".cv-worked")!;
-  if (line.querySelector(".cv-working-mark, .cv-activity__dots")) throw new Error("a working mark draws on the line");
-  const first = line.firstElementChild?.textContent?.trim() ?? "";
-  if (!label.test(first)) throw new Error(`the line starts with ${JSON.stringify(first)}, not its words`);
-  const loops = line
-    .getAnimations({ subtree: true })
-    .filter((animation) => animation.effect?.getTiming().iterations === Infinity);
-  if (loops.length > 0) throw new Error(`${loops.length} animations loop on the running line`);
-};
+/// The running line starts with its words, with no mark before them. Only the word Thinking may
+/// loop (its shimmer, `shimmers`); nothing else on the line does.
+const runningLineStill =
+  (label: RegExp, shimmers = false) =>
+  async (ctx: PlayContext) => {
+    await ctx.waitFor(() => label.test(ctx.document.querySelector(".cv-worked")?.textContent ?? ""));
+    const line = ctx.document.querySelector<HTMLElement>(".cv-worked")!;
+    if (line.querySelector(".cv-working-mark, .cv-activity__dots")) throw new Error("a working mark draws on the line");
+    const first = line.firstElementChild?.textContent?.trim() ?? "";
+    if (!label.test(first)) throw new Error(`the line starts with ${JSON.stringify(first)}, not its words`);
+    const loops = line
+      .getAnimations({ subtree: true })
+      .filter((animation) => animation.effect?.getTiming().iterations === Infinity);
+    const shimmer = loops.filter((animation) => (animation as CSSAnimation).animationName === "cmux-shimmer");
+    if (loops.length > shimmer.length)
+      throw new Error(`${loops.length - shimmer.length} animations loop on the running line`);
+    // Motion allowed (the gallery stage), the word Thinking sweeps; Reduce Motion stills it (CSS).
+    if (shimmers && shimmer.length !== 1) throw new Error(`Thinking shimmers ${shimmer.length} times, not once`);
+    if (!shimmers && shimmer.length) throw new Error("a line other than Thinking shimmers");
+  };
 
 /// A run of commands longer than a group shows at once (ToolGroupRow.tsx GROUP_TAIL).
+/// A finished command that says what it does (Claude Code's Bash description), as its row reads it.
+const describedShell = (command: string, description: string, fields: Parameters<typeof tool>[3] = {}) =>
+  tool(description, "execute", "completed", {
+    command,
+    description,
+    exitCode: 0,
+    output: "",
+    startedAt: minutesAgo(3),
+    endedAt: minutesAgo(2.98),
+    ...fields,
+  });
+
+/// A finished command written the way agents write them, behind a PATH export, with no description.
+const envShell = (command: string) =>
+  tool(command, "execute", "completed", {
+    command: `export PATH="/Applications/cmux NIGHTLY.app/Contents/Resources/bin:$PATH"\n${command}`,
+    exitCode: 0,
+    output: "",
+    startedAt: minutesAgo(1.9),
+    endedAt: minutesAgo(1.88),
+  });
+
+/// Opens the turn's Worked for, then its one run's folded line.
+const openGroupedRun = async (ctx: PlayContext) => {
+  await openWorked(ctx);
+  await openFoldedRun(ctx);
+};
+
 const DENSE_COMMANDS = [
   "cd ~/Projects/cmux && git log --oneline -5 -- Sources/Sidebar",
   "rg -n 'onDrop' webviews/src/sidebar",
@@ -536,9 +582,9 @@ export default agentPaneEntry({
       snapshot: chat([user("Review the release checklist", 4), assistant(TASKS_REPLY, 3)]),
     },
     thinking: {
-      note: "A turn that started and has no output yet: Thinking alone, with no blinking dots before it. Play: the line holds still.",
+      note: "A turn that started and has no output yet: Thinking alone, with no blinking dots before it; the word itself shimmers in the theme accent, as in the Codex app (still under Reduce Motion). Play: the shimmer is the line's only loop.",
       snapshot: chat([user(prompt, 0.2)], { isWorking: true }),
-      play: runningLineStill(/^Thinking/),
+      play: runningLineStill(/^Thinking/, true),
     },
     streaming: {
       note: "A reply still streaming (its last block still open).",
@@ -819,6 +865,39 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "working-thinking": {
+      note: "A turn before its first output: the last row reads Thinking with the turn's time, ticking.",
+      snapshot: chat([user(prompt, 0.2)], { isWorking: true }),
+    },
+    "working-after-text": {
+      note: "Text after work while the turn goes on (the agent thinks, or writes a call's input): the line stays under it and its clock keeps going.",
+      snapshot: chat(
+        [
+          user(prompt, 1.5),
+          activity(
+            [
+              tool("Read client.ts", "read", "completed", {
+                locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+              }),
+            ],
+            1.4,
+          ),
+          assistant("The parser drops the status code. I'll write a typed error and a test for it.", 1.2),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "working-line-above": {
+      note: "Debug toggle agentPane.debug.liveLineBelow off: the older line over the turn's work.",
+      theme: { liveLineBelow: false },
+      snapshot: chat(
+        [
+          user(prompt, 2),
+          activity([tool("bun test src/net", "execute", "in_progress", { command: "bun test src/net" })], 1.5),
+        ],
+        { isWorking: true },
+      ),
+    },
     "steer-continuous": {
       note: "A message sent now while the turn ran, to an agent that cannot steer: acpmux stopped that turn and ran the message next, yet it reads as one turn. The message draws inline with no mark of its own, the line counts from the first prompt, and nothing says the turn was stopped.",
       snapshot: chat(
@@ -905,7 +984,7 @@ export default agentPaneEntry({
       ),
     },
     "dense-live-run": {
-      note: "A running turn lists each call on its own line: the latest five commands under Ran 7 commands with +2 more, then the read, and the running MCP call named by server and action.",
+      note: "A running turn folds its finished calls into one summary line (Read files, ran commands) and names the running MCP call on the live line, never a growing stack of rows.",
       snapshot: chat(
         [
           user("Find why the sidebar drag drops tabs, and hand the fix to a sub-session.", 3),
@@ -965,7 +1044,7 @@ export default agentPaneEntry({
       },
     },
     "dense-ended-run": {
-      note: "An ended turn folds under Worked for; opened, its commentary, each group and each call keep their own lines, with no Used tools summary to click through.",
+      note: "An ended turn folds under Worked for; opened, its commentary sits between the runs' summary lines, each opening to its calls, as in the Codex app.",
       snapshot: chat([
         user("Find why the sidebar drag drops tabs, and hand the fix to a sub-session.", 6),
         assistant("I'll look at the drag handlers and the recent changes first.", 5.9),
@@ -984,6 +1063,143 @@ export default agentPaneEntry({
         summary(3, { status: "completed", toolCount: 9, durationMs: 174_000 }),
       ]),
       play: openWorked,
+    },
+    "codex-turn-live": {
+      note: "A running turn as the Codex app draws it: Working for over the turn, each finished run one summary line between the paragraphs (Read files, ran commands; Ran 3 commands), commands named by what they do, and the call in flight named on the live line instead of a growing stack.",
+      snapshot: chat(
+        [
+          user("Check the retry regression and the macOS verification run.", 11.5),
+          assistant("I'll check the existing regression tests and the documented verification runs first.", 11.4),
+          activity(
+            [
+              tool("Read client.ts", "read", "completed", { locations: [{ path: "src/net/client.ts" }] }),
+              tool("Read retry.test.ts", "read", "completed", { locations: [{ path: "src/net/retry.test.ts" }] }),
+              describedShell("git log --oneline -5 -- src/net", "Show recent changes to the network code"),
+            ],
+            11.3,
+          ),
+          assistant("The repaired head has passed the fast checks; I'm reading the verification runs.", 9),
+          activity(
+            [
+              describedShell("gh run list --workflow verify.yml -L 5", "List the latest verification runs"),
+              describedShell("gh run view 1190 --log-failed", "Read the failed run's log"),
+              describedShell("bun test src/net --filter retry", "Run the retry tests"),
+            ],
+            8.9,
+          ),
+          assistant("The regression is confirmed on the 429 path; the rescue workflow is running now.", 2),
+          activity(
+            [
+              describedShell("git cat-file -t c94307c", "Check the pinned commit"),
+              tool("Run the rescue workflow", "execute", "in_progress", {
+                command:
+                  'export PATH="/Applications/cmux NIGHTLY.app/Contents/Resources/bin:$PATH"; gh workflow run rescue.yml',
+                description: "Run the rescue workflow",
+                startedAt: minutesAgo(0.2),
+              }),
+            ],
+            1.9,
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "codex-turn-raw-commands": {
+      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots.",
+      snapshot: chat(
+        [
+          user("What did the lanes decide? Relay it and answer.", 2),
+          assistant("I'll read the lanes' latest reports first.", 1.95),
+          activity(
+            [
+              envShell("acpmux ls 2>&1 | head -40"),
+              envShell("acpmux history huge-blue/activity-indicators | tail -c 4000"),
+              envShell("acpmux history transcript-density | tail -c 4000"),
+              tool("grep -l -i chief /tmp/l*.txt /tmp/r*.txt", "execute", "completed", {
+                command:
+                  "grep -l -i chief /tmp/l*.txt /tmp/r*.txt 2>/dev/null | head; for f in $(grep -l chief /tmp/*.txt); do wc -l $f; done",
+                exitCode: 0,
+                output: "",
+                startedAt: minutesAgo(1.9),
+                endedAt: minutesAgo(1.89),
+              }),
+              envShell("acpmux history chat-background | tail -c 4000"),
+            ],
+            1.9,
+          ),
+          assistant("Relay the decisions, then answer.", 1.5),
+          activity(
+            [
+              envShell("gh pr view 22363 --json state,mergeable"),
+              tool("acpmux send", "execute", "in_progress", {
+                command: `export PATH="/Applications/cmux NIGHTLY.app/Contents/Resources/bin:$PATH"\nacpmux send --no-wait coord-deputy "[lanes] decisions relayed"`,
+                startedAt: minutesAgo(0.22),
+              }),
+            ],
+            1.4,
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "codex-turn-run-open": {
+      note: "The same turn ended: opened, Worked for shows the commentary between the runs' summary lines; a click opens Ran 3 commands to its calls. Play: open the turn, then the second run.",
+      snapshot: chat([
+        user("Check the retry regression and the macOS verification run.", 11.5),
+        assistant("I'll check the existing regression tests first.", 11.4),
+        activity(
+          [
+            tool("Read client.ts", "read", "completed", { locations: [{ path: "src/net/client.ts" }] }),
+            describedShell("git log --oneline -5 -- src/net", "Show recent changes to the network code"),
+          ],
+          11.3,
+        ),
+        assistant("The fast checks passed; I'm reading the verification runs.", 9),
+        activity(
+          [
+            describedShell("gh run list --workflow verify.yml -L 5", "List the latest verification runs"),
+            describedShell("gh run view 1190 --log-failed", "Read the failed run's log"),
+            describedShell("bun test src/net --filter retry", "Run the retry tests", { status: "failed", exitCode: 1 }),
+          ],
+          8.9,
+        ),
+        assistant("The regression is on the 429 path; the fix is a two-line change in the backoff.", 2),
+        summary(2, { status: "completed", toolCount: 5, durationMs: 576_000 }),
+      ]),
+      play: async (ctx) => {
+        await openWorked(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-tools > .cv-tool.is-toggle").length === 2);
+        const runs = () => [...ctx.document.querySelectorAll<HTMLElement>(".cv-tools > .cv-tool.is-toggle")];
+        runs()[1]!.click();
+        await ctx.waitFor(() => runs()[1]!.getAttribute("aria-expanded") === "true");
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 3);
+      },
+    },
+    "tool-hover-meta": {
+      note: "A finished command's check and run time show only while it is pointed at; a failed one keeps its red exit mark at rest. Play: hover the first command.",
+      snapshot: chat([
+        user("Run the checks", 3),
+        activity(
+          [
+            describedShell("bun run check", "Run the web checks"),
+            describedShell("bun test src/net", "Run the network tests", { status: "failed", exitCode: 1 }),
+          ],
+          2.9,
+        ),
+        assistant("The web checks pass; one network test fails on the 429 path.", 2.5),
+        summary(2.5, { status: "completed", toolCount: 2, durationMs: 31_000 }),
+      ]),
+      play: async (ctx) => {
+        await openGroupedRun(ctx);
+        const ok = () => ctx.find({ selector: ".cv-command .cv-command__ok" });
+        const failed = ctx.find({ selector: ".cv-command .cv-command__failed" });
+        if (ctx.document.defaultView!.getComputedStyle(failed).opacity !== "1")
+          throw new Error("the failure mark hides at rest");
+        if (ctx.document.defaultView!.getComputedStyle(ok()).opacity !== "0")
+          throw new Error("the check shows at rest");
+        await ctx.hover({ selector: ".cv-command" });
+        await ctx.waitFor(() => ctx.document.defaultView!.getComputedStyle(ok()).opacity === "1");
+      },
     },
     "mcp-calls": {
       note: "MCP calls read as what they did: four sends to one chat are one line, the read names the chat.",
