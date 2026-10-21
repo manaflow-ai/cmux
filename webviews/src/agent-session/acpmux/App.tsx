@@ -4416,7 +4416,15 @@ function AcpmuxPane() {
     summaryCard,
     inspector,
   });
-  counted.current = { runningAgents, runningCommands, runningSessions, sourceRows, transcriptRows, summaryCard, inspector };
+  counted.current = {
+    runningAgents,
+    runningCommands,
+    runningSessions,
+    sourceRows,
+    transcriptRows,
+    summaryCard,
+    inspector,
+  };
   const workingCounts = useMemo<WorkingCounts>(() => {
     // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that
     // holds the call. The reveal lets go after a moment, so the run closes again like any other.
