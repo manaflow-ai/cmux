@@ -568,7 +568,12 @@ impl Hub {
         };
         let Some(child) = child.filter(|_| alive) else { return Ok(nothing) };
         let timeout = *self.background_timeout.lock().unwrap_or_else(|e| e.into_inner());
-        let params = json!({"sessionId": session.meta().agent_session_id, "toolCallId": tool});
+        // The translator drops the request's marks when this wait ends (`timeoutMs`).
+        let params = json!({
+            "sessionId": session.meta().agent_session_id,
+            "toolCallId": tool,
+            "timeoutMs": u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+        });
         let ask = child.request(crate::claude_stdio::BACKGROUND_TASKS, params);
         match tokio::time::timeout(timeout, ask).await {
             Ok(Ok(answer)) => {
