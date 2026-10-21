@@ -30,6 +30,7 @@ case "$PYTHON3_BIN" in
 esac
 install -m 0755 scripts/git-hooks/pre-commit "$TRUSTED_HOOK_DIR/pre-commit"
 install -m 0755 scripts/git-hooks/post-merge "$TRUSTED_HOOK_DIR/post-merge"
+install -m 0755 scripts/git-hooks/check-git-remotes.sh "$TRUSTED_HOOK_DIR/check-git-remotes.sh"
 install -m 0644 scripts/ci/validate_test_execution_registry.py "$TRUSTED_HOOK_DIR/validate_test_execution_registry.py"
 install -m 0644 scripts/ci/test_execution_registry.py "$TRUSTED_HOOK_DIR/test_execution_registry.py"
 install -m 0644 scripts/ci/workload_entrypoints.py "$TRUSTED_HOOK_DIR/workload_entrypoints.py"
@@ -123,3 +124,6 @@ git config merge.pbxproj-v1.driver "$PBXPROJ_DRIVER"
 git config merge.pbxproj.name "Xcode project file (trusted compatibility driver)"
 git config merge.pbxproj.driver "$PBXPROJ_DRIVER"
 echo "==> project.pbxproj merge driver installed (merge.pbxproj-v1.driver)."
+
+# Warn now, too, if a remote fetches from a local mirror but pushes to GitHub.
+bash scripts/git-hooks/check-git-remotes.sh || true

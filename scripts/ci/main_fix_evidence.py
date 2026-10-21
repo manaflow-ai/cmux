@@ -38,6 +38,19 @@ class Refused(RuntimeError):
     """Evidence is insufficient to merge."""
 
 
+def json_documents(text: str) -> list:
+    """Every JSON document in TEXT, in order (gh --paginate prints pages back to back)."""
+    decoder = json.JSONDecoder()
+    documents, index = [], 0
+    while True:
+        while index < len(text) and text[index].isspace():
+            index += 1
+        if index >= len(text):
+            return documents
+        document, index = decoder.raw_decode(text, index)
+        documents.append(document)
+
+
 class GitHub:
     def run(self, args: list[str]) -> str:
         # Disk and memory are bounded per command; neither logs nor receipts are
@@ -59,14 +72,21 @@ class GitHub:
             return output.read().decode(errors="replace")
 
     def json(self, route: str, *, paginate: bool = False):
-        args = ["api", route]
-        if paginate:
-            args.extend(["--paginate", "--slurp"])
-        return json.loads(self.run(args))
+        if not paginate:
+            return json.loads(self.run(["api", route]))
+        # No --slurp: gh before 2.48 (Ubuntu 24.04 ships 2.45) rejects it. --paginate alone
+        # prints one JSON document per page (array pages may arrive joined into one array).
+        return json_documents(self.run(["api", route, "--paginate"]))
 
     def log(self, repo: str, job: dict) -> str:
-        return self.run(["run", "view", str(job["run_id"]), "--repo", repo,
-                         "--job", str(job["id"]), "--log"])
+        log = self.run(["run", "view", str(job["run_id"]), "--repo", repo,
+                        "--job", str(job["id"]), "--log"])
+        if log.strip():
+            return log
+        # gh 2.45 prints nothing here for today's log archives. The job's raw log has no step
+        # names; base_red_excuse.step_lines splits a log under UNKNOWN STEP by its `Run` groups.
+        raw = self.run(["api", f"repos/{repo}/actions/jobs/{job['id']}/logs"])
+        return "".join(f"{job.get('name', '')}\tUNKNOWN STEP\t{line}\n" for line in raw.splitlines())
 
 
 def latest_checks(repo: str, sha: str, github: GitHub) -> dict:
