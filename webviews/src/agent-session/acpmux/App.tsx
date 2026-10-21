@@ -36,6 +36,7 @@ import {
   type QueueEdit,
   nextDrawnRow,
   isLastFooter,
+  TRANSCRIPT_RUNWAY,
 } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
@@ -468,6 +469,34 @@ function emptySnapshot(): AcpmuxSnapshot {
     catalog: [],
     canLoadOlder: false,
   };
+}
+
+/// The latest snapshot, kept for a reload of the page (`cachedSnapshot`). A streaming reply sends
+/// one a display frame, and serializing the whole transcript each frame took main-thread time that
+/// grew with the chat: it is written at most every SNAPSHOT_SAVE_MS, and at once as the page hides
+/// or unloads, so a reload still finds the latest one.
+const SNAPSHOT_SAVE_MS = 250;
+const snapshotSave: { next?: AcpmuxSnapshot; timer?: ReturnType<typeof setTimeout>; hooked?: boolean } = {};
+function writeSnapshot(): void {
+  clearTimeout(snapshotSave.timer);
+  snapshotSave.timer = undefined;
+  const next = snapshotSave.next;
+  snapshotSave.next = undefined;
+  if (!next) return;
+  try {
+    sessionStorage.setItem("cmux.acpmux.snapshot", JSON.stringify(next));
+  } catch {
+    // Painting remains live when storage is unavailable or full.
+  }
+}
+export function saveSnapshot(next: AcpmuxSnapshot): void {
+  snapshotSave.next = next;
+  if (!snapshotSave.hooked && typeof window !== "undefined") {
+    snapshotSave.hooked = true;
+    window.addEventListener("pagehide", writeSnapshot);
+    document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && writeSnapshot());
+  }
+  snapshotSave.timer ??= setTimeout(writeSnapshot, SNAPSHOT_SAVE_MS);
 }
 
 function cachedSnapshot(): AcpmuxSnapshot {
@@ -2142,7 +2171,7 @@ export function VirtualTranscript({
   // made the transcript's scrollbar jump). Back at the latest row, the room is the stack's again.
   const sessionSwitched = previousSession.current !== sessionId;
   const room = sessionSwitched || following ? dockSpace : heldRoom.current;
-  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + room;
+  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + TRANSCRIPT_RUNWAY + room;
   const layout = useMemo(
     () => ({ ...measured.layout, totalHeight: Math.max(floorHeight, rowsHeight) }),
     [measured, rowsHeight, floorHeight],
@@ -4955,11 +4984,7 @@ function AcpmuxPane() {
         harnessSwitch.reconcile(next);
         rowsRef.current = next.rows;
         snapshotRef.current = next;
-        try {
-          sessionStorage.setItem("cmux.acpmux.snapshot", JSON.stringify(next));
-        } catch {
-          // Painting remains live when storage is unavailable or full.
-        }
+        saveSnapshot(next);
         setSnapshot(next);
       },
       applyTheme(theme) {
