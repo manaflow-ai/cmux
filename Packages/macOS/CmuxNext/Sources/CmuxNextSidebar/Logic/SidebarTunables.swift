@@ -84,11 +84,24 @@ public nonisolated enum SidebarTunables {
         default: false, code: "SidebarTunables.presenceDots")
 
     /// Rows show their agent sessions' acpmux lane state (`SidebarLaneStatus`): working, waiting
-    /// on you, failed, idle, even when no turn state reached the row. Off by default.
+    /// on you, failed, idle, even when no turn state reached the row. On by default.
     public static let laneStatus = Tunable<Bool>.toggle(
         "sidebar.laneStatus", .sidebar, "Rows show acpmux lane status",
         help: "A workspace row's status mark also follows the acpmux lane of each agent chat in it on this Mac: waiting on you or failed wins, then working, then the row's own status.",
-        default: false, code: "SidebarTunables.laneStatus")
+        default: true, code: "SidebarTunables.laneStatus")
+
+    /// A row names the state of its most urgent agent chat with the Priority view's words (needs
+    /// you, done, failed, lost) at the right of its name (`SidebarLaneStatus`). On by default.
+    public static let rowStatus = Tunable<Bool>.toggle(
+        "sidebar.rowStatus", .sidebar, "Rows name their agent's state",
+        help: "A workspace row says needs you, done, failed or lost at the right of its name, in the Priority view's words, for the most urgent agent chat in it on this Mac.",
+        default: true, code: "SidebarTunables.rowStatus")
+
+    /// Sample agent lanes on every row (`SidebarLaneFixture`), for captures on a slot with no agents.
+    public static let laneFixture = Tunable<Bool>.toggle(
+        "sidebar.laneFixture", .sidebar, "Sample agent states on rows",
+        help: "Gives every workspace row a sample agent chat (needs you, working, done, failed or idle), to see the row states without real sessions.",
+        default: false, code: "SidebarTunables.laneFixture")
 
     /// The pull requests' hover card on a row's pull request badge (`SidebarPullRequestCard`,
     /// `sidebar.sessionTree`); on by default.
@@ -136,6 +149,8 @@ public nonisolated enum SidebarTunables {
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
             laneStatus.descriptor,
+            rowStatus.descriptor,
+            laneFixture.descriptor,
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,
             presenceDots.descriptor,

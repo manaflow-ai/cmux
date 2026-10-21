@@ -1610,6 +1610,10 @@ path = "tests/test_ci_target_graph.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_compile_test_plan.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_internal_builder.py"
 lane = "linux-guard"
 

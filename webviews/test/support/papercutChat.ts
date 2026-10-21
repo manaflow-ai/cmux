@@ -14,9 +14,22 @@ const update = (update: Record<string, unknown>) => ({
   params: { sessionId: "agent-1", update },
 });
 
-type Step = [dir: string, kind: string, msg: Record<string, unknown>, at?: number];
+export type PapercutStep = [dir: string, kind: string, msg: Record<string, unknown>, at?: number];
+type Step = PapercutStep;
 
-export function papercutEvents({ turns, running }: { turns: number; running: boolean }) {
+/// `extra` steps follow the chat's last turn (inside the running turn when `running`); `session`
+/// adds to or replaces the chat's summary fields (a queue, say).
+export function papercutEvents({
+  turns,
+  running,
+  extra = [],
+  session: fields = {},
+}: {
+  turns: number;
+  running: boolean;
+  extra?: Step[];
+  session?: Record<string, unknown>;
+}) {
   const steps: Step[] = [];
   let clock = START;
   for (let n = 1; n <= turns; n++) {
@@ -55,6 +68,7 @@ export function papercutEvents({ turns, running }: { turns: number; running: boo
       ]);
     }
   }
+  for (const [dir, kind, msg, at] of extra) steps.push([dir, kind, msg, at ?? clock]);
   const events = steps.map(([dir, kind, msg, at], index) => ({
     sessionId: PAPERCUT_CHAT,
     seq: index + 1,
@@ -74,12 +88,23 @@ export function papercutEvents({ turns, running }: { turns: number; running: boo
     turnCount: turns + (running ? 1 : 0),
     updatedAt: clock,
     lastSeq: events.length,
+    ...fields,
   };
   return { events, session };
 }
 
-/// Starts the stand-in daemon and the dev server; returns `open` and `close`.
-export async function papercutPane(browser: () => Browser, options: { turns: number; running: boolean }) {
+/// Starts the stand-in daemon and the dev server; returns `open` and `close`. `open` waits for the
+/// last answer, or for `ready` (a selector) when the chat's end shows something else.
+export async function papercutPane(
+  browser: () => Browser,
+  options: {
+    turns: number;
+    running: boolean;
+    extra?: PapercutStep[];
+    session?: Record<string, unknown>;
+    ready?: string;
+  },
+) {
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "../..");
   const { events, session } = papercutEvents(options);
@@ -125,7 +150,9 @@ export async function papercutPane(browser: () => Browser, options: { turns: num
     await page.goto(
       `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${PAPERCUT_CHAT}`,
     );
-    await page.getByText(`Answer ${options.turns}:`, { exact: false }).waitFor({ timeout: 120_000 });
+    await (
+      options.ready ? page.locator(options.ready).first() : page.getByText(`Answer ${options.turns}:`, { exact: false })
+    ).waitFor({ timeout: 120_000 });
     // Rows place by their drawn heights a frame after they mount.
     await page.waitForTimeout(500);
     return page;
