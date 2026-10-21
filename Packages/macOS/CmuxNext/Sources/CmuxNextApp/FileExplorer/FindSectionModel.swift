@@ -115,9 +115,10 @@ final class FindSectionModel {
         }
     }
 
-    /// Opens a result's file in cmux when cmux shows its kind, else in its default app.
+    /// Opens a result's file in cmux at the matching line and column when cmux shows its kind,
+    /// else in its default app.
     static func open(_ match: RipgrepMatch, effects: any FileExplorerEffects) {
         let file = URL(fileURLWithPath: match.path)
-        if !effects.openInCmux(file) { effects.openInDefaultApp(file) }
+        if !effects.openInCmux(file, at: FilePosition(line: match.line, column: match.column)) { effects.openInDefaultApp(file) }
     }
 }
