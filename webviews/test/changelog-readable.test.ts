@@ -80,6 +80,8 @@ test("readable change titles", () => {
   expect(readableChange("fix(cmux-tui-core): a local app under a symlinked folder reloads on macOS").internal).toBe(
     true,
   );
+  // An agent chat change people see stays news; only its plumbing and tests are internal.
+  expect(readableChange("fix(acpmux): the queue band is glass and one tone with its fold").internal).toBe(false);
   // A label that only names an app area stays news.
   expect(readableChange("Agent chat: new lines in the composer leave the transcript's scrollbar still").internal).toBe(
     false,

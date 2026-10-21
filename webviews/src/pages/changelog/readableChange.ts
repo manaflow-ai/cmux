@@ -51,7 +51,6 @@ const INTERNAL_SCOPES = new Set([
   "e2e",
   "harness",
   "deps",
-  "acpmux",
   "cmux-git",
   "cmux-tui-core",
 ]);
@@ -64,7 +63,7 @@ const INTERNAL_WORDS = new RegExp(
     String.raw`frame budget|osc \d+|terminal host|seed|record\w*|nightly|headless|ffi|rust|regenerate|decode|renderer|texture|` +
     String.raw`machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|` +
     String.raw`boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|` +
-    String.raw`consumers?|metrics|review fixes)\b`,
+    String.raw`consumers?|metrics|review fixes|byte limit)\b`,
   "i",
 );
 /** Product names whose casing is not code. */
