@@ -7,12 +7,15 @@ import Foundation
 nonisolated struct HomeChiefEngineTitles {
     var harnesses: [(value: String, title: String)]
     var models: [(value: String, title: String)]
+    var menu: HomeChiefModelMenu
+    var offersFast = false
     var efforts: [(value: String, title: String)]
     var defaultHarness: String
     var defaultModel: String
     var defaultEffort: String
 
-    init(_ snapshot: HomeChiefSnapshot) {
+    init(_ snapshot: HomeChiefSnapshot, recents: [String] = []) {
+        menu = HomeChiefModelMenu(models: snapshot.models, chosen: snapshot.model, recents: recents)
         harnesses = HomeChiefSettingsView.harnessItems(routeConfigured: snapshot.routeConfigured)
         // The models acpmux offers for the engine's harness and the efforts the brain takes
         // (cx-miuo); acpmux's own "default" is the picker's first item.
