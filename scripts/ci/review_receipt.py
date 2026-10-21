@@ -185,7 +185,9 @@ def window_cut_off(pr: dict, since: str) -> str:
     newer than `since` may have been cut off from it; "" when both lists reach past it."""
     for key, cap, stamp in (("reviews", REVIEWS_WINDOW, "submittedAt"), ("comments", COMMENTS_WINDOW, "createdAt")):
         nodes = [node for node in (pr.get(key) or {}).get("nodes") or [] if node]
-        if len(nodes) >= cap and min((node.get(stamp) or "") for node in nodes) >= since:
+        # A pending review has no timestamp; it says nothing about how far back the window reaches.
+        stamps = [node[stamp] for node in nodes if node.get(stamp)]
+        if len(nodes) >= cap and min(stamps, default=since) >= since:
             return key
     return ""
 
