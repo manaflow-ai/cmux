@@ -1136,6 +1136,8 @@ impl Brain {
             return;
         }
         self.cuts = 0;
+        // The turn answers its messages itself: no receipt after its end.
+        self.desk.take_if(|d| d.turn == key);
         let outcome_done = outcome.done_draft.take();
         self.keep_turn_session(key, &mut outcome);
         if self.state.turn.as_ref().is_some_and(|t| t.key == key) {
