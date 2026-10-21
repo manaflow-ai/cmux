@@ -42,39 +42,47 @@
   box-shadow: none;
 }
 
-/* The pinned list: the shared popup surface, as wide as a card. */
+/* The pinned list: a glass popover (Leo 2026-10-21: it drew solid), on the frosted material of a link's hover
+   card (styles.css .cv-link-preview: the tooltip tint and blur from desktop.css, opaque under Reduce
+   Transparency) with the popup's rim and drop. The title stays put and only the asks scroll, below
+   it, so no solid band has to cover them. */
 .acpmux-needs-you {
+  display: flex;
+  flex-direction: column;
   width: 380px;
   max-width: calc(100vw - 24px);
   max-height: min(560px, 75vh);
-  overflow: auto;
+  overflow: hidden;
   box-sizing: border-box;
   padding: 0;
   border: 0;
   border-radius: var(--ui-popup-radius);
-  background: var(--surface-popup);
+  background: var(--tooltip-tint, var(--surface-popup));
+  -webkit-backdrop-filter: var(--tooltip-blur, none);
+  backdrop-filter: var(--tooltip-blur, none);
   box-shadow: var(--acpmux-popup-elevation);
   transform-origin: var(--transform-origin);
   color: var(--agent-text);
   font-size: var(--text-control);
   line-height: 18px;
   outline: none;
-  overscroll-behavior: contain;
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-needs-you {
     animation: ui-popup-open var(--ui-popup-open) ease-out;
   }
 }
+.acpmux-needs-you-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
 .acpmux-needs-you-head {
-  position: sticky;
-  top: 0;
-  z-index: var(--layer-sticky);
+  flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 10px 12px 8px;
-  background: var(--surface-popup);
   border-bottom: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   color: var(--agent-muted);
 }
@@ -109,8 +117,11 @@
   color: var(--agent-muted);
 }
 .acpmux-needs-you-list {
+  min-height: 0;
   margin: 0;
   padding: 4px;
+  overflow: auto;
+  overscroll-behavior: contain;
   list-style: none;
 }
 .acpmux-needs-you-item {
