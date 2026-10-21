@@ -693,18 +693,46 @@
 }
 
 /* The table may be wider than the column; it scrolls instead of widening the row. */
-.cv-table-wrap {
+/* A reply's table (TableBlock.tsx): as wide as the table, with Open and Copy just right of its
+   header row, shown on hover or keyboard focus like the message rows'. The block leaves their 48px
+   free at the column's edge (a wider table scrolls), so they never cover text and never depend on
+   the margin above the table. */
+.cv-table-block {
+  position: relative;
+  width: fit-content;
+  max-width: calc(100% - 48px);
   margin: var(--cv-table-before, 6.5px) 0 14px;
+}
+.cv-table-tools {
+  position: absolute;
+  z-index: var(--layer-raised);
+  top: 6px;
+  left: 100%;
+  display: flex;
+  gap: 2px;
+  padding-left: 6px;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-table-tools {
+    transition: opacity 120ms ease-out;
+  }
+}
+.cv-table-block:hover .cv-table-tools,
+.cv-table-tools:focus-within {
+  opacity: 1;
+}
+.cv-table-wrap {
   overflow-x: auto;
 }
-/* Short columns are at least 128px and long-text columns 256px. */
+/* Columns fit their text (Leo, 2026-10-20: stretching the table to the column left a wide gap
+   between a label and its value); long-text columns are 256px at least (TableBlock.tsx). */
 .cv-table {
   border-collapse: collapse;
   font-size: var(--cv-table-size, 12.25px);
   letter-spacing: var(--cv-table-tracking, 0px);
   line-height: var(--cv-table-line-height, 23px);
   width: max-content;
-  min-width: 100%;
 }
 .cv-table th,
 .cv-table td {
@@ -721,6 +749,10 @@
 }
 .cv-table td {
   border-bottom: 1px solid var(--cv-faint-rule);
+}
+/* A table with an empty top-left corner labels its rows with its first column. */
+.cv-table--labeled td:first-child {
+  font-weight: 500;
 }
 .cv-table th:last-child,
 .cv-table td:last-child {
@@ -921,6 +953,14 @@ pre.cv-math-source {
   top: 0;
   right: 0;
   opacity: 0;
+}
+/* A prompt's bubble sits at the right, at most 70% wide: its floating Copy (a selected range's,
+   or keyboard focus's) goes in the empty left corner, never over the bubble's text (layout pass,
+   2026-10-20). Only a row drawn as the bubble: another agent's message or a task's result is a
+   line from the left edge, whose Copy stays at the right. */
+.acpmux-row.acpmux-user:has(> .cv-user) .acpmux-row__copy {
+  right: auto;
+  left: 0;
 }
 /* Not on hover: a prompt has Copy under its bubble and an answer in its turn's footer, so a hover
    showed two or three Copy buttons per turn. Keyboard focus and a selected range still show it. */
@@ -1594,11 +1634,14 @@ pre.cv-math-source {
   min-width: 0;
   margin: 2px 0;
 }
+/* Clear of the row's Copy button (28 px at its top right, which takes the pointer even while
+   hidden), so a long sender name ends in an ellipsis before › instead of under it. */
 .cv-received__line {
   display: flex;
   align-items: center;
   min-width: 0;
   height: 26px;
+  padding-right: 28px;
   color: var(--cv-text-dim);
   font-size: var(--text-control);
   white-space: pre;
@@ -2600,6 +2643,10 @@ button.cv-received__name:focus-visible {
 .acpmux-scroll[data-fade-bottom] {
   --acpmux-fade-bottom: 18px;
 }
+/* Jump to latest (12px up, 32px tall) stands in the bottom band: the fade runs a gap past its top. */
+.acpmux-scroll[data-fade-bottom][data-jump-shown] {
+  --acpmux-fade-bottom: 56px;
+}
 /* Find in Chat's bar sits in the top band: it keeps full ink, and rows pass under it. */
 .acpmux-scroll[data-fade-top]:has(> .acpmux-find) {
   --acpmux-fade-top: 0px;
@@ -2976,6 +3023,40 @@ button.cv-received__name:focus-visible {
 }
 .cv-user__steer[data-steer="waiting"] .cv-user__steer-label {
   color: var(--agent-accent);
+}
+/* A steer the agent has not read yet (PendingSteer.tsx): a faint clock, then Send now. */
+.cv-user__pending {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+  padding-right: 4px;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--cv-text-muted);
+}
+.cv-user__pending-clock {
+  display: inline-flex;
+  color: var(--agent-accent);
+  opacity: 0.6;
+}
+.cv-user__send-now {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: default;
+}
+.cv-user__send-now:hover:not(:disabled) {
+  color: var(--cv-text);
+}
+.cv-user__send-now:disabled {
+  opacity: 0.5;
 }
 /* A steer's read state under another agent's message, in line with its text (App.tsx). */
 .cv-incoming > .cv-user__steer {
