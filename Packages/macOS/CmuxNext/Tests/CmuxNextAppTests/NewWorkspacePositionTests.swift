@@ -201,6 +201,39 @@ struct NewWorkspacePositionTests {
         #expect(Self.after(middle, in: frames.last ?? [], count: 1) == [made], "final: \(frames.last ?? [])")
     }
 
+    @Test func beforeCurrentDrawsCmdNRightAboveTheSelectedWorkspaceInEveryFrame() async throws {
+        let launched = try await Self.launch("beforeCurrent")
+        let middle = try await Self.selectMiddle(in: launched)
+        let (frames, new) = await Self.frames(in: launched, count: 1) {
+            _ = launched.services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string("new")]))
+        }
+        await launched.stop()
+
+        let made = try #require(new.first, "no new row")
+        func above(_ frame: [String]) -> String? { frame.firstIndex(of: middle).flatMap { $0 > 0 ? frame[$0 - 1] : nil } }
+        let wrong = frames.filter { frame in frame.contains(made) && above(frame) != made }
+        #expect(wrong.isEmpty, "frames with the new row not right above the selected one: \(wrong.count) of \(frames.count), first \(wrong.first ?? [])")
+        #expect(above(frames.last ?? []) == made, "final: \(frames.last ?? [])")
+    }
+
+    /// A window showing a top page selects the page's row, not the workspace it parked: Cmd-N there
+    /// has no current workspace, so `afterCurrent` puts it at the top, not below the parked one.
+    @Test func afterCurrentFromATopPageGoesToTheTopNotBelowTheParkedWorkspace() async throws {
+        let launched = try await Self.launch("afterCurrent")
+        let middle = try await Self.selectMiddle(in: launched)
+        try #require(TopPages.show(.home, services: launched.services, in: launched.window) != nil, "Home did not show")
+        try #require(launched.window.page == .home && launched.window.workspaceID == middle)
+        let home = NewWorkspacePlacements.home(launched.services.machines)
+        let (frames, new) = await Self.frames(in: launched, count: 1) {
+            _ = launched.services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string("new")]))
+        }
+        await launched.stop()
+
+        let made = try #require(new.first, "no new row")
+        #expect(frames.last?.first { $0 != home } == made, "final: \(frames.last ?? [])")
+        #expect(Self.after(middle, in: frames.last ?? [], count: 1) != [made], "placed below the parked workspace")
+    }
+
     /// The default: first in the list, above the selected workspace, in every frame.
     @Test func topDrawsCmdNFirstInEveryFrame() async throws {
         let launched = try await Self.launch("top")

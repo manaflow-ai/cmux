@@ -66,8 +66,8 @@ pub(crate) fn document_order(connection: &Connection) -> anyhow::Result<Option<D
 /// Sort `workspaces` (reply objects whose `id_field` is the workspace's
 /// public id) into `order`. Unplaced ones keep their relative order and go
 /// to the `placement` slot: `Top` at the start of this machine's section,
-/// `Bottom` last, `AfterCurrent` right after the active (`active` or
-/// `focused`) workspace, else as `Top`.
+/// `Bottom` last, `BeforeCurrent` / `AfterCurrent` right before / after the
+/// active (`active` or `focused`) workspace, else as `Top`.
 pub(crate) fn sort_workspaces(
     workspaces: &mut Vec<Value>,
     id_field: &str,
@@ -91,6 +91,7 @@ pub(crate) fn sort_workspaces(
     let slot = match placement {
         NewWorkspacePlacement::Bottom => placed.len(),
         NewWorkspacePlacement::Top => top,
+        NewWorkspacePlacement::BeforeCurrent => placed.iter().position(is_active).unwrap_or(top),
         NewWorkspacePlacement::AfterCurrent => {
             placed.iter().position(is_active).map_or(top, |index| index + 1)
         }
