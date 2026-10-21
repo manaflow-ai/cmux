@@ -20,6 +20,7 @@ import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { Close, FileDoc, ImageIcon } from "../conversation/icons";
 import { type StringKey, type Translate, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
+import { lineCount, pastedLabel } from "../pastedText";
 import { intakeFiles } from "./intakeFiles";
 
 const ATTACHMENT_LABELS = {
@@ -33,6 +34,9 @@ const ATTACHMENT_LABELS = {
   unsupported: "composer.unsupported",
   imagesUnsupported: "composer.imagesUnsupported",
   tooMany: "composer.tooMany",
+  pastedText: "composer.pastedText",
+  pastedLines: "composer.pastedText.lines",
+  editPasted: "composer.pastedText.edit",
 } as const satisfies Record<string, StringKey>;
 
 export function attachmentErrorText(error: AttachmentError, t: Translate): string {
@@ -150,19 +154,29 @@ export function AttachmentStrip({
   dropping,
   codex = false,
   onRemove,
+  onExpand,
 }: {
   attachments: readonly ComposerAttachment[];
   error?: string;
   dropping: boolean;
   codex?: boolean;
   onRemove(id: string): void;
+  /// A pasted text chip's click: its text goes back into the prompt (pastedText.ts). Unset, the chip
+  /// only shows.
+  onExpand?(id: string): void;
 }) {
   const t = useT();
   if (attachments.length === 0 && !error && !dropping) return null;
   return (
     <fieldset className="acpmux-attachments" aria-label={t(ATTACHMENT_LABELS.attachments)}>
       {attachments.map((attachment) => (
-        <AttachmentChip key={attachment.id} attachment={attachment} codex={codex} onRemove={onRemove} />
+        <AttachmentChip
+          key={attachment.id}
+          attachment={attachment}
+          codex={codex}
+          onRemove={onRemove}
+          {...(onExpand ? { onExpand } : {})}
+        />
       ))}
       {dropping ? (
         <span className="acpmux-attachment-note">{t(ATTACHMENT_LABELS.dropFiles)}</span>
@@ -177,10 +191,12 @@ function AttachmentChip({
   attachment,
   codex = false,
   onRemove,
+  onExpand,
 }: {
   attachment: ComposerAttachment;
   codex?: boolean;
   onRemove(id: string): void;
+  onExpand?(id: string): void;
 }) {
   const t = useT();
   const openImage = useContext(ImageViewerContext);
@@ -192,7 +208,12 @@ function AttachmentChip({
   const image = isImage && !broken;
   const source = image ? `data:${attachment.mimeType};base64,${attachment.data}` : undefined;
   // A pasted image's name is WebKit's "image.png": show what it is instead (imageLabel.ts).
-  const name = isImage ? imageLabel(t, { name: attachment.name, ...(thumb ?? size) }) : attachment.name;
+  const pasted = attachment.kind === "pasted";
+  const name = isImage
+    ? imageLabel(t, { name: attachment.name, ...(thumb ?? size) })
+    : pasted
+      ? t(ATTACHMENT_LABELS.pastedText)
+      : attachment.name;
   useEffect(() => {
     if (!image || !attachment.data) return;
     let live = true;
@@ -215,12 +236,12 @@ function AttachmentChip({
       </svg>
     </button>
   );
-  // Its right-click menu: Open where a click opens it, and Remove (cx-2lm4).
-  const menu = (open: (() => void) | undefined, chip: React.ReactNode) => (
+  // Its right-click menu: Open (or what a click does) where a click opens it, and Remove (cx-2lm4).
+  const menu = (open: (() => void) | undefined, chip: React.ReactNode, openLabel = t("image.open")) => (
     <ContextMenu
       className="acpmux-attachment-menu"
       items={[
-        ...(open ? [{ id: "open", label: t("image.open"), onSelect: open }] : []),
+        ...(open ? [{ id: "open", label: openLabel, onSelect: open }] : []),
         {
           id: "remove",
           label: t(ATTACHMENT_LABELS.removeAttachment, { name }),
@@ -279,6 +300,38 @@ function AttachmentChip({
         {remove}
       </div>,
     );
+  // A huge paste (pastedText.ts): its first words and line count; a click puts it back in the prompt.
+  if (pasted) {
+    const text = attachment.text ?? "";
+    const expand = onExpand ? () => onExpand(attachment.id) : undefined;
+    const body = (
+      <>
+        <span className="acpmux-attachment-pasted-name">{attachment.name || pastedLabel(text)}</span>
+        <span className="acpmux-attachment-pasted-lines">
+          {`${name} · ${t(ATTACHMENT_LABELS.pastedLines, { n: lineCount(text) })}`}
+        </span>
+      </>
+    );
+    return menu(
+      expand,
+      <div className="acpmux-attachment acpmux-attachment-pasted">
+        {expand ? (
+          <button
+            type="button"
+            className="acpmux-attachment-pasted-open"
+            title={t(ATTACHMENT_LABELS.editPasted)}
+            onClick={expand}
+          >
+            {body}
+          </button>
+        ) : (
+          <span className="acpmux-attachment-pasted-open">{body}</span>
+        )}
+        {remove}
+      </div>,
+      t(ATTACHMENT_LABELS.editPasted),
+    );
+  }
   if (attachment.kind === "document" && attachment.data) {
     return menu(
       undefined,

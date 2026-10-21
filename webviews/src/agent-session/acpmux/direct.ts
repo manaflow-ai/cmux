@@ -23,6 +23,7 @@ import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
 import { liftInlineImages } from "./inlineImages";
+import { resentAttachments, shownPromptText } from "./pastedText";
 import { peerConnectedFromStatus, peerKindsFromStatus } from "./environments";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
@@ -3064,7 +3065,8 @@ export class AcpmuxDirectClient {
     const sessionId = shown ?? (await this.ensureSession());
     // No chat took it: the sender gets the prompt back (a started chat's composer let go of it).
     if (!sessionId) throw new Error(translate("error.notOpen"));
-    const text = promptText(input, attachments);
+    // A paste sent as its own block shows in the bubble as acpmux's echo will have it (pastedText.ts).
+    const text = shownPromptText(promptText(input, attachments), attachments);
     const rowId = `local-${promptId}`;
     const at = Date.now();
     this.optimisticPromptRows.set(promptId, rowId);
@@ -3404,8 +3406,9 @@ export class AcpmuxDirectClient {
   /// What to send again with prompt row `rowId` (Retry, Edit): the attachments this page sent, else
   /// its images read back from acpmux (a prompt sent before a reload, or from another window).
   async promptAttachments(rowId: string): Promise<ComposerAttachment[]> {
+    // The text sent again is the echo, which holds each paste: the pasted chips stay out.
     const kept = this.retryAttachments.get(rowId);
-    if (kept?.length) return kept;
+    if (kept?.length) return resentAttachments(kept);
     const images = this.rows.get(rowId)?.images ?? [];
     const read = await Promise.all(
       images.map(async (image, index): Promise<ComposerAttachment | undefined> => {
