@@ -77,6 +77,11 @@ extension TabDragSession {
         var revealTabs: [String] = []
         /// The workspace the tabs landed in, for a reveal that shows it.
         var landedWorkspaceID: String?
+        /// The landing was shown at the drop, from the store's intent, before the daemon's echo
+        /// (tab-move-tearing); `revealedFrom` is the workspace the window showed then, shown again
+        /// when the daemon refuses the move.
+        var revealedEarly = false
+        var revealedFrom: String?
         weak var workspaceSidebar: SidebarTabDropTarget?
         /// The layout previewing a merge of the dragged workspace.
         weak var workspaceLayout: LayoutTabDropTarget?

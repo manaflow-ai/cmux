@@ -524,6 +524,10 @@ while True:
                     for b in documents
                 ]
             }, sort_keys=True)
+        # "resource-probe": the text blocks this prompt arrived as, as JSON.
+        if said.startswith("resource-probe"):
+            text = json.dumps({"texts": [b.get("text") for b in content
+                                         if isinstance(b, dict) and b.get("type") == "text"]})
         # "sandbox-probe OUTSIDE PORT": what this process may do, as JSON:
         # write a file at OUTSIDE, connect to 127.0.0.1:PORT, write in its cwd.
         # "keychain-probe": whether this process can retrieve a synthetic

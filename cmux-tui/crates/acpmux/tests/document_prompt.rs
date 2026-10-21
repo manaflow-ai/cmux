@@ -1,5 +1,6 @@
 //! Document prompts at the daemon boundary. A PDF becomes a workspace resource
-//! link for strict ACP harnesses and an Anthropic document block for Claude Code.
+//! link for strict ACP harnesses and an Anthropic document block for Claude Code;
+//! a file link reaches Claude Code with the path it names.
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -113,4 +114,32 @@ async fn pdf_reaches_codex_as_a_workspace_resource_link_and_claude_as_a_document
     assert_eq!(document["documents"][0]["title"], "report.pdf");
     assert_eq!(document["documents"][0]["media_type"], "application/pdf");
     assert_eq!(document["documents"][0]["data"], PDF_DATA);
+}
+
+#[tokio::test]
+async fn a_file_link_reaches_claude_with_its_decoded_path() {
+    let hub = hub();
+    let mut claude = client(&hub);
+    let session = claude.new_session("fakeclaude").await;
+    let uri = "file:///Users/me/Library/Application%20Support/cmux/Chat%20Uploads/a%20b.zip";
+    let (reply, echoed) = claude
+        .call_text(
+            "session/prompt",
+            json!({
+                "sessionId": session,
+                "prompt": [
+                    {"type": "text", "text": "resource-probe"},
+                    {"type": "resource_link", "uri": uri, "name": "a b.zip"}
+                ]
+            }),
+        )
+        .await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    let probe: Value = serde_json::from_str(&echoed).expect("Claude resource echo");
+    let link = probe["texts"][1].as_str().unwrap_or_default();
+    assert!(link.contains(&format!("uri=\"{uri}\"")), "{link}");
+    assert!(
+        link.contains("path=\"/Users/me/Library/Application Support/cmux/Chat Uploads/a b.zip\""),
+        "{link}"
+    );
 }
