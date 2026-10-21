@@ -178,15 +178,15 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
         context.fillStyle = layer;
         context.fillRect(0, 0, 1, 1);
       }
-      return [...context.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+      return Array.from(context.getImageData(0, 0, 1, 1).data.slice(0, 3));
     }, id);
   }
   const distance = (a: number[], b: number[]) => Math.max(...a.map((value, index) => Math.abs(value - b[index])));
 
   test("a button reached from the keyboard draws no ring; the soft pill marks it", async () => {
     const page = await open(2);
-    // No hover or press transition mid-read.
-    await page.emulateMedia({ reducedMotion: "reduce" });
+    // Read end states, never a hover or focus transition's first frame.
+    await page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; }" });
     const rest = {
       "composer-chip": await paint(page, "composer-chip"),
       "composer-send": await paint(page, "composer-send"),
@@ -216,16 +216,21 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
 
   test("keyboard focus changes what a solid Send, Stop and a plain button paint; solid ones take the hover step", async () => {
     const page = await open(2);
-    await page.emulateMedia({ reducedMotion: "reduce" });
+    // Read end states, never a hover or focus transition's first frame.
+    await page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; }" });
     const ids = ["send-ready", "stop", "plain"];
     const rest: Record<string, number[]> = {};
-    const hover: Record<string, number[]> = {};
-    for (const id of ids) {
-      rest[id] = await paint(page, id);
-      await page.hover(`#${id}`);
-      hover[id] = await paint(page, id);
-    }
+    for (const id of ids) rest[id] = await paint(page, id);
+    await page.hover("#stop");
+    const hover = { stop: await paint(page, "stop") };
     await page.mouse.move(0, 0);
+    // The base color, Stop's ink.
+    const base = await page.evaluate(() => {
+      const context = Object.assign(document.createElement("canvas"), { width: 1, height: 1 }).getContext("2d")!;
+      context.fillStyle = getComputedStyle(document.getElementById("stop")!).color;
+      context.fillRect(0, 0, 1, 1);
+      return Array.from(context.getImageData(0, 0, 1, 1).data.slice(0, 3));
+    });
     // Tab from the checkbox: each control in turn under keyboard focus.
     await page.focus("#check");
     for (const id of ids) {
@@ -236,12 +241,21 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
       const focused = await paint(page, id);
       expect(
         distance(focused, rest[id]),
-        `${id} focused paints visibly different (rest ${rest[id]}, focused ${focused})`,
+        `${id} focused paints visibly different (rest ${rest[id].join(",")}, focused ${focused.join(",")})`,
       ).toBeGreaterThanOrEqual(8);
-      if (id !== "plain")
+      if (id === "plain") continue;
+      // The solid ones take the hover step: the base 12% over the fill.
+      const step = rest[id].map((value, index) => value * 0.88 + base[index] * 0.12);
+      expect(
+        distance(focused, step),
+        `${id} focused takes the hover step (step ${step.join(",")}, focused ${focused.join(",")})`,
+      ).toBeLessThanOrEqual(3);
+      // Stop's hover paints that step too. (A ready Send's hover in the composer bar does not:
+      // composerLocation.css's fill rule outranks composerStates.css's hover rule.)
+      if (id === "stop")
         expect(
-          distance(focused, hover[id]),
-          `${id} focused takes its hover step (hover ${hover[id]}, focused ${focused})`,
+          distance(focused, hover.stop),
+          `${id} focused matches its hover (${hover.stop.join(",")})`,
         ).toBeLessThanOrEqual(3);
     }
     await page.close();
