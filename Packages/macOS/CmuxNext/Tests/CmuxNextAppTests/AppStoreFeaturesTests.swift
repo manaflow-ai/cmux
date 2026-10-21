@@ -65,6 +65,27 @@ import Testing
         }
     }
 
+    /// The Appearance, Editor and Mac & Phone cards (and the off-by-default toggles beside them)
+    /// are landed keys, so the tab lists them, each under its own category chip.
+    @Test func theOffByDefaultSettingsHaveCardsInTheirCategories() throws {
+        let expected: [String: AppFeature.Category] = [
+            "appearance.ultraCompact": .appearance, "appearance.calm": .appearance,
+            "appearance.brailleStatus": .appearance, "appearance.runningCommands": .appearance,
+            "chief.suggestedTasks": .chief, "chief.githubFeed": .chief,
+            "editor.splitDiff": .editor, "editor.minimap": .editor,
+            "devices.phoneAccess": .devices, "devices.globalHotKey": .devices,
+            "browser.homeButton": .browser,
+        ]
+        let bridge = SettingsAppFeatures(settings: { nil })
+        for (id, category) in expected {
+            let feature = try Self.feature(id)
+            #expect(feature.category == category, "\(id) is under \(feature.category)")
+            #expect(bridge.isAvailable(feature), "\(feature.setting) is not in the schema")
+            #expect(!Self.pendingKeys.contains(feature.setting))
+        }
+        #expect(AppFeature.Category.allCases.allSatisfy { !AppsStrings.featureCategory($0).isEmpty })
+    }
+
     /// The Chief Pet card's Settings… link opens Settings > Chief Pet (Settings on its key's rows);
     /// a card whose feature names no rows, or an app that cannot show Settings, has no link.
     @Test func theChiefPetCardLinksToItsSettings() throws {
