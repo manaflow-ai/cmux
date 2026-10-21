@@ -21,8 +21,8 @@ Superseded means, for a push event only:
     ("Merge <head> into <base>", made by cmux-next-pr-merge-tree.yml) whose
     pull request is open with a different head now, and no pull request has
     that head any more;
-  - such a pin whose pull request merged at that head, and no open pull request
-    has it: feat-cmux-next's push of the merge tests its own tree, and the pin's
+  - such a pin whose pull request merged into feat-cmux-next at that head, and
+    no open pull request has it: feat-cmux-next's push of the merge tests its own tree, and the pin's
     daemon tests held the side lane for hours after the merge (2026-10-21).
 main, feat-cmux-next and next-batch/* runs gate latest/ and nightly-next
 promotion and are never superseded here, nor is a dispatch, a pull request run,
@@ -108,7 +108,8 @@ def pin_verdict(sha: str) -> tuple[bool, str]:
     owners = [pr for pr in data if pr.get("head", {}).get("sha") == head]
     if any(pr.get("state") == "open" for pr in owners):
         return False, f"{head[:12]} is still a pull request head"
-    merged = [pr for pr in owners if pr.get("merged_at") and (pr.get("head", {}).get("repo") or {}).get("full_name") == repo]
+    merged = [pr for pr in owners if pr.get("merged_at") and (pr.get("base") or {}).get("ref") == "feat-cmux-next"
+              and (pr.get("head", {}).get("repo") or {}).get("full_name") == repo]
     if merged:
         return True, f"#{merged[0].get('number')} merged at {head[:12]}; feat-cmux-next's push of it tests its own tree"
     if owners:

@@ -495,8 +495,9 @@ jobs:
           # in some run of this key (only publish-tree-tested writes the marker).
           # A pin push that is not a full duplicate still builds its commit's
           # binaries (takeover), but it does not test that tree again (2026-10-21).
+          # Only a pin push: main and a dispatch test what they build.
           daemon_marker=false
-          if [[ "$tree_ready" == true ]] &&
+          if [[ "$tree_ready" == true && "$EVENT_NAME" == push && "$REF" == refs/heads/cmux-tui-pin-* ]] &&
               curl --head --fail --silent --connect-timeout 5 --max-time 15 -o /dev/null \
                 "https://files.cmux.com/cmux-tui/tree/$published_key/daemon-tests.json?preflight=$RUN_ID-marker" 2>/dev/null; then
             daemon_marker=true

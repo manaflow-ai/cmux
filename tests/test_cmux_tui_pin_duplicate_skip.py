@@ -146,6 +146,13 @@ def main():
     result, out = preflight(pin)
     _check(result.returncode == 0 and out.get("daemon_marker") == "false" and daemon_tests_run(out),
            f"a pin build of a new tree tests it ({out.get('daemon_marker')})")
+    # Only a pin push: main and a dispatch still test a tree they build, marker or not.
+    result, out = preflight("refs/heads/main", FAKE_PUBLISHED="1", FAKE_WINDOWS="1", FAKE_MARKER="1")
+    _check(result.returncode == 0 and out.get("daemon_marker") == "false" and daemon_tests_run(out, ref="refs/heads/main"),
+           f"a main build of a tested tree still tests it ({out.get('daemon_marker')})")
+    result, out = preflight(pin, event="workflow_dispatch", FAKE_PUBLISHED="1", FAKE_WINDOWS="1", FAKE_MARKER="1")
+    _check(result.returncode == 0 and out.get("daemon_marker") == "false" and daemon_tests_run(out),
+           f"a dispatch on a pin ref of a tested tree still tests it ({out.get('daemon_marker')})")
 
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")

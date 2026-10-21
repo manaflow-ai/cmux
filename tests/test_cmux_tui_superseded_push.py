@@ -126,9 +126,9 @@ def shallow_clone(source, branch, into):
     return into
 
 
-def pull(number, head, state="open", repo=REPO, merged=False):
+def pull(number, head, state="open", repo=REPO, merged=False, base="feat-cmux-next"):
     return {"number": number, "state": state, "head": {"sha": head, "repo": {"full_name": repo}},
-            "merged_at": "2026-10-21T18:00:00Z" if merged else None}
+            "base": {"ref": base}, "merged_at": "2026-10-21T18:00:00Z" if merged else None}
 
 
 def check_verdicts():
@@ -162,6 +162,12 @@ def check_verdicts():
             # daemon tests of merged pull requests held the side lane for hours).
             ("a pin of a merged pull request's final head is superseded", "push", pin, merge,
              dict(merge_commit, **{pulls_path: (200, [pull(7, head, state="closed", merged=True)])}), "true"),
+            ("a pin of a pull request merged into another branch runs", "push", pin, merge,
+             dict(merge_commit, **{pulls_path: (200, [pull(7, head, state="closed", merged=True, base="some-lane")])}),
+             "false"),
+            ("a pin of a merged fork pull request runs", "push", pin, merge,
+             dict(merge_commit, **{pulls_path: (200, [pull(7, head, state="closed", merged=True, repo="someone/cmux")])}),
+             "false"),
             ("a pin of a pull request closed without merging runs", "push", pin, merge,
              dict(merge_commit, **{pulls_path: (200, [pull(7, head, state="closed")])}), "false"),
             ("a pin whose head is still open in another pull request runs", "push", pin, merge,
