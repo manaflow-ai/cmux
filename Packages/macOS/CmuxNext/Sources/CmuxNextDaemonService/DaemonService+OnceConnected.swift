@@ -1,4 +1,5 @@
 public import CmuxNextActions
+public import CmuxNextDaemon
 import CmuxNextCompat
 
 extension DaemonService {
