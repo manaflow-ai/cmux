@@ -123,9 +123,12 @@ final class LinkOpener {
             let here = pane === from && placed == nil
             let opener = here ? from?.selectedTab?.surface : nil
             let back = background || here ? nil : from
-            let then: (@MainActor (SurfaceID) -> Void)? = back == nil ? placed : { [weak self, weak back] surface in
-                if let back, let content = back.workspace { self?.returnFocus(of: surface, to: back.layoutPaneID, in: content) }
-                placed?(surface)
+            var then = placed
+            if back != nil {
+                then = { @MainActor [weak self, weak back] surface in
+                    if let back, let content = back.workspace { self?.returnFocus(of: surface, to: back.layoutPaneID, in: content) }
+                    placed?(surface)
+                }
             }
             return pane.newBrowserTab(url: url, background: background || placed != nil, opener: opener, then: then)
         }
