@@ -131,6 +131,10 @@ test("a bare #N in a reply links to the pull request and opens its card", async 
 
 test("a reference in a code span or a code block is not a link", async () => {
   const view = await render("Prose #634, code `#635` and `a/b#636`.\n\n```\n#637 a/b#638\n```\n", REPO);
+  // The code block's highlighted card loads after the first frame (CodeBlock.tsx): load it here, so
+  // it always lands inside this test, not whenever the import settles (on a slow runner, mid-test).
+  const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/CodeBlock");
+  await loadHighlightedCode();
   const chips = [...view.element.querySelectorAll<HTMLAnchorElement>("a.cv-chip")];
   expect(chips.map((chip) => chip.getAttribute("href"))).toEqual([URL]);
   expect(view.element.textContent).toContain("#635");
