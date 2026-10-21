@@ -8,7 +8,7 @@ import CmuxNextRemote
 import CmuxNextSidebar
 import Foundation
 
-/// "Move Chief to…" (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): lists This Mac, the
+/// "Move Chief To…" (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): lists This Mac, the
 /// SSH and server remote groups and cmux Cloud (`ChiefMoveTargets`), then runs the bundled
 /// `cmux chief move` (one implementation with the CLI and MCP): a dry run whose report the person reads,
 /// the move, then `move reach` on the target. The Cloud session token goes through a 0600 file that is

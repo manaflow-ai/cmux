@@ -428,7 +428,7 @@ impl Hub {
         blocks.push(json!({
             "type": "text",
             "text": format!(
-                "<{CONTEXT_TAG}>\nCurrent cmux rules (forum announcements). Ack each with the forum ack tool once read.\n\n{}\n</{CONTEXT_TAG}>",
+                "<{CONTEXT_TAG}>\nCurrent cmux rules (forum announcements). Once read, ack each by its postId: the `ack` tool of the `cmux-forum` MCP server, or `acpmux forum ack <postId>`.\n\n{}\n</{CONTEXT_TAG}>",
                 lines.join("\n\n")
             ),
         }));

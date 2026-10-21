@@ -29,7 +29,7 @@ final class WindowTargetSource: PaletteTargetSource {
     }
 
     /// Every workspace in the active window's sidebar order, the shown one
-    /// last (Merge Workspace into…).
+    /// last (Merge Workspace Into…).
     private func workspaces() -> [PaletteTargetOption] {
         let shown = services.windows.active?.state.workspaceID
         let order = services.windows.active?.sidebar.model.allWorkspaces.map(\.id.rawValue) ?? []
