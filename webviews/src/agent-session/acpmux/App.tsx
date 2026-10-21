@@ -1340,6 +1340,9 @@ const READER_SCROLL_MS = 1000;
 const STRAY_SCROLL_PX = 24;
 /// How long a followed view keeps the room a queued prompt's card left, for the prompt to arrive.
 const FLOOR_HOLD_MS = 1000;
+/// How long it keeps the room a withdrawn prompt's card left after the reply last grew: a reply
+/// streaming fills it, and a turn in a tool call or thinking brings nothing to fill it with.
+const WITHDRAWN_HOLD_MS = 250;
 /// How long a reopened chat stays unseen while older pages bring back the row the reader left it on
 /// (cx-odzaz): each page must land within OPEN_AT_PAGE_MS and the whole walk within OPEN_AT_SEEK_MS,
 /// else the chat opens at its latest message.
@@ -1555,8 +1558,9 @@ export function VirtualTranscript({
   const queuedIds = useRef(new Set<string>());
   /// The prompts whose cards left, which the room under the last row is kept for (`floor`).
   const heldFor = useRef(new Set<string>());
-  const withdrawn = useRef(new Set(queueWithdrawn));
-  withdrawn.current = new Set(queueWithdrawn);
+  const withdrawnSet = useMemo(() => new Set(queueWithdrawn), [queueWithdrawn]);
+  const withdrawn = useRef(withdrawnSet);
+  withdrawn.current = withdrawnSet;
   const dockRef = useRef(dock);
   dockRef.current = dock;
   /// Notes the stack's queued prompts; called first by each size observer (the stack's, and the
@@ -2323,12 +2327,18 @@ export function VirtualTranscript({
     previousViewport.current = { height, width, dockSpace };
     // The room a followed view keeps (`floor` above), until the rows fill it or it stops following.
     const holding = didOpenAtLatest.current && followingRef.current && floorHeight > rowsHeight;
-    if (holding && !floor.current.height) {
+    // Held for a sent prompt: once, for the prompt to arrive. Held only for a withdrawn one (the
+    // reply was working): again at each pass, so it lasts while the reply grows and goes soon after.
+    const forSent = [...heldFor.current].some((id) => !withdrawn.current.has(id));
+    if (holding && (!floor.current.height || !forSent)) {
       clearTimeout(floorTimer.current);
-      floorTimer.current = setTimeout(() => {
-        floor.current = { ...floor.current, height: 0 };
-        releaseFloor();
-      }, FLOOR_HOLD_MS);
+      floorTimer.current = setTimeout(
+        () => {
+          floor.current = { ...floor.current, height: 0 };
+          releaseFloor();
+        },
+        forSent ? FLOOR_HOLD_MS : WITHDRAWN_HOLD_MS,
+      );
     } else if (!holding) clearTimeout(floorTimer.current);
     floor.current = { height: holding ? floorHeight : 0, width, sessionId };
     if (!holding && !queueLeft.current) heldFor.current.clear();
