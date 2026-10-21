@@ -2,7 +2,7 @@
    pageBase.css, which read WebTheme.swift's `--cmux-*`), sizes only from the type scale
    (`--text-*`, desktop.css). One background (html); blocks are separated by space and hairlines.
    No gradients, no colored chips. The accent marks only the update's span. Glass, never opaque
-   (Leo 2026-10-21): a picture's frame is the theme's text at a low alpha over a blur. */
+   (Leo 2026-10-21): a picture's frame is the hover tint over a blur, with a lit top rim. */
 /* The document scrolls (Space, Page Down and the arrows work with nothing focused); only the
    rail design keeps two scrolling columns. */
 html[data-cmux-page="changelog"] { scroll-padding-top: 24px; }
@@ -273,10 +273,10 @@ html[data-cmux-page="changelog"] body {
 /* The lead change's picture stays a picture, not a wall: it stops growing at a large card. */
 .cll-body > .cl-media { max-width: 880px; }
 .cll .cl-row-summary { margin: 2px 0 0; text-wrap: pretty; }
-.cll .cl-row-actions { margin: 4px 0 0; }
+.cll .cl-row-actions { display: inline-flex; margin-left: 8px; }
 @container (min-width: 720px) {
   .cll .cl-group li.cl-has-media { grid-template-columns: minmax(0, 1fr) minmax(260px, 44%); align-items: start; }
-  .cll .cl-group li.cl-has-media .cl-row-media { margin: 2px 0 0; }
+  .cll .cl-group li.cl-has-media .cl-row-media { margin: 2px 0 0; max-width: none; }
 }
 .cll-body .cl-builds { margin-top: 14px; }
 /* The release title (its curated headline) and, when it already names the lead change, that

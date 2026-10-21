@@ -172,22 +172,23 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
   );
 }
 
-/** A change in the Ledger, which uses the pane's width: its title, then its whole description and
-    its actions, and its picture beside them when the pane has room (under them when it does not). */
+/** A change in the Ledger, which uses the pane's width: its title, then its whole description, and
+    its picture beside them when the pane has room (under them when it does not). Its actions end
+    the last line (#21185: a box of their own would leave an empty line under every row). */
 function WideRow({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
+  const paragraphs = item.summary.split(/\n{2,}/).filter(Boolean);
+  const actions = <RowActions item={item} ctx={ctx} />;
   return (
     <li className={item.media ? "cl-wide-row cl-has-media" : "cl-wide-row"}>
       <div className="cl-row-text">
         <span className="cl-row-title">{item.title}</span>
-        {item.summary
-          .split(/\n{2,}/)
-          .filter(Boolean)
-          .map((p, i) => (
-            <p key={i} className="cl-row-summary">
-              {p}
-            </p>
-          ))}
-        <RowActions item={item} ctx={ctx} />
+        {paragraphs.length === 0 && actions}
+        {paragraphs.map((p, i) => (
+          <p key={i} className="cl-row-summary">
+            {p}
+            {i === paragraphs.length - 1 && actions}
+          </p>
+        ))}
       </div>
       {item.media && <Media media={item.media} className="cl-row-media" />}
     </li>
