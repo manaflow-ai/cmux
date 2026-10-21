@@ -1774,9 +1774,11 @@ export class AcpmuxDirectClient {
   }
 
   /// Stops background process `processId` (Claude's stop_task, Codex's terminate). A harness
-  /// that never answers fails it after 10 s.
+  /// that never answers fails it after 10 s. It names its chat (`<sessionId>/<taskId>`'s): the host
+  /// lets only a chat in the pane's scope stop one, and acpmux stops only that chat's process.
   killProcess(processId: string): Promise<unknown> {
-    return this.request("_acpmux/process/kill", { processId }, 10_000);
+    const sessionId = processId.split("/")[0] ?? "";
+    return this.request("_acpmux/process/kill", { sessionId, processId }, 10_000);
   }
 
   /// Ctrl-B: moves the selected Claude Code chat's foreground work to the background, only the
