@@ -28,6 +28,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     // Receipts can outlive the acpmux configuration that prepared them.
     #[cfg(unix)]
     capabilities.push(agent_cli_job::CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(agent_cli_job::RESOLVE_CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(agent_cli_intents::CAPABILITY);
     capabilities.push(activity::CAPABILITY);
     capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
     capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);
@@ -54,6 +58,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     capabilities.push(tab_restart::CAPABILITY);
     #[cfg(unix)]
     capabilities.push(tab_restart::KEPT_LAYOUT_CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(tab_park::CAPABILITY);
     #[cfg(unix)]
     capabilities.push(AGENT_CLI_APP_PROVIDER_CAPABILITY);
     #[cfg(unix)]

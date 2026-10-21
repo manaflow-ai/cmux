@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Bakes the Cloud Chief VM snapshot (chief-brain-cc/; backend/chief-cc/bake.sh): a Freestyle VM from BASE (a hand
 # snapshot with Claude Code and node), plus tailscale, the `chief` and `ccproxy` users, run.mjs,
-# start.sh, boot.sh, proxy.mjs and its unit, then a snapshot named SLUG. The tailscale state is
-# empty in the snapshot (each VM joins with its own one-use key at boot.sh). The bake VM is deleted.
+# start.sh, boot.sh, proxy.mjs and its unit, chief-net (the Chief's network tool, net.ts), then a
+# snapshot named SLUG. The tailscale state is empty in the snapshot (each VM joins with its own one-use key at boot.sh). The bake VM is deleted.
 #
 #   FREESTYLE_KEY_FILE=~/.secrets/freestyle-...key backend/chief-cc/bake.sh SLUG [BASE] [UPSTREAM]
 set -euo pipefail
@@ -29,8 +29,9 @@ trap 'call DELETE "/v5/vms/$vm" >/dev/null || true' EXIT
 echo "bake vm $vm" >&2
 exec_root 'command -v tailscale >/dev/null || (curl -fsSL https://tailscale.com/install.sh | sh) >/tmp/ts.log 2>&1; tailscale version | head -1'
 exec_root 'id chief >/dev/null 2>&1 || useradd -m -s /bin/bash chief; id ccproxy >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin ccproxy; install -d -o chief -g chief -m 755 /home/chief/work; install -d -m 755 /opt/chief-cc /etc/chief-cc'
-for f in run.mjs proxy.mjs; do exec_root "cat > /opt/chief-cc/$f && chmod 644 /opt/chief-cc/$f" "$here/image/$f"; done
+for f in run.mjs proxy.mjs chief-net.mjs; do exec_root "cat > /opt/chief-cc/$f && chmod 644 /opt/chief-cc/$f" "$here/image/$f"; done
 for f in start.sh boot.sh; do exec_root "cat > /opt/chief-cc/$f && chmod 755 /opt/chief-cc/$f" "$here/image/$f"; done
+exec_root 'printf "#!/bin/sh\nexec /opt/node/bin/node /opt/chief-cc/chief-net.mjs \"\$@\"\n" > /usr/local/bin/chief-net && chmod 755 /usr/local/bin/chief-net'
 printf '%s\n' "$upstream" > /tmp/chief-cc-upstream.$$
 exec_root 'cat > /etc/chief-cc/upstream && chmod 644 /etc/chief-cc/upstream' /tmp/chief-cc-upstream.$$
 rm -f /tmp/chief-cc-upstream.$$

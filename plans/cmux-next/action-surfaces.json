@@ -763,7 +763,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Search Chats & Agents…",
+      "title" : "Search Everything…",
       "title_key" : "action.search.chats",
       "title_table" : "ActionCatalog"
     },
@@ -9505,6 +9505,97 @@
       "palette_suggested" : null,
       "title" : "Disable Channels",
       "title_key" : "action.home.disableChannels",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action home-toggle-chief-pet",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.toggleChiefPet",
+      "main_menu" : "view",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Chief Pet",
+      "title_key" : "action.home.toggleChiefPet",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action home-message-chief-pet",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.messageChiefPet",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Message the Chief",
+      "title_key" : "action.home.messageChiefPet",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "familyMember",
+      "cli_name" : "action home-message-chief-from-any-app",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "c",
+        "modifiers" : [
+          "ctrl",
+          "opt",
+          "cmd"
+        ]
+      },
+      "id" : "home.messageChiefFromAnyApp",
+      "main_menu" : null,
+      "mcp" : "familyMember",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Message the Chief from Any App",
+      "title_key" : "action.home.messageChiefFromAnyApp",
       "title_table" : "HomeActions"
     },
     {
@@ -25137,6 +25228,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "settings rollback-update",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "updates.rollback",
+      "main_menu" : "app",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Roll Back to Previous Version…",
+      "title_key" : "action.updates.rollback",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "settings upgrade-to-pro",
       "context_menu" : "noObject",
@@ -35913,7 +36032,7 @@
                         "value" : "none"
                       },
                       {
-                        "title" : "Shuffle Daily",
+                        "title" : "Shuffle Paintings",
                         "title_key" : null,
                         "title_table" : null,
                         "value" : "daily"

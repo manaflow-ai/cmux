@@ -79,9 +79,9 @@ extension ScreenContentView {
         return moving
     }
 
-    /// Recomputes what hit testing reads from the presented row offsets.
+    /// Recomputes what hit testing reads from the presented row and scroll area offsets.
     func refreshRowShift() {
-        geometry = baseGeometry.shiftingRows(rowOffsets)
+        geometry = baseGeometry.shiftingAreas(areaOffsets).shiftingRows(rowOffsets)
     }
 
     // MARK: Input (V5)

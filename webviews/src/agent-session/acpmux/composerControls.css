@@ -1,8 +1,9 @@
 /* Reasoning menu: one row per level the model offers, the chosen one marked by a check at the
    row's trailing edge as Claude's model list marks it, so every label starts at the row's own
    inset with no empty leading gutter (Leo 2026-10-18); one row height; section headers and
-   separators on the label column's rhythm. Theme tokens only. */
-.acpmux-effort-menu {
+   separators on the label column's rhythm. Theme tokens only. Retry's model menu (TurnRows.tsx)
+   wears the same look. */
+:is(.acpmux-effort-menu, .acpmux-retry-menu) {
   --acpmux-menu-gutter: 16px;
   --acpmux-menu-gutter-gap: 8px;
   width: max-content;
@@ -15,7 +16,7 @@
   box-shadow: var(--acpmux-popup-elevation);
   color: var(--agent-text);
 }
-.ui-menu-item.acpmux-effort-item {
+.ui-menu-item:is(.acpmux-effort-item, .acpmux-retry-item) {
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--acpmux-menu-gutter);
   align-items: center;
@@ -28,8 +29,8 @@
   font-size: var(--text-control);
   color: var(--agent-text);
 }
-.ui-menu-item.acpmux-effort-item[data-highlighted] { background: var(--acpmux-menu-hover); }
-.acpmux-effort-item .ui-menu-check {
+.ui-menu-item:is(.acpmux-effort-item, .acpmux-retry-item)[data-highlighted] { background: var(--acpmux-menu-hover); }
+:is(.acpmux-effort-item, .acpmux-retry-item) .ui-menu-check {
   grid-row: 1;
   grid-column: 2;
   display: inline-flex;
@@ -39,7 +40,7 @@
   color: var(--agent-text);
   font-weight: 600;
 }
-.acpmux-effort-text {
+:is(.acpmux-effort-text, .acpmux-retry-text) {
   grid-row: 1;
   grid-column: 1;
   display: flex;
@@ -48,7 +49,7 @@
   min-width: 0;
   white-space: nowrap;
 }
-.acpmux-effort-text .acpmux-menu-label { flex: none; }
+:is(.acpmux-effort-text, .acpmux-retry-text) .acpmux-menu-label { flex: none; }
 .acpmux-effort-hint { flex: none; align-self: center; }
 /* A level's note is one quiet line beside its name, never a second line that makes its row taller. */
 .acpmux-effort-detail {
@@ -59,7 +60,7 @@
   font-size: var(--text-detail);
 }
 /* Section headers sit on the label column, in the system's small secondary caption. */
-.acpmux-effort-menu .ui-menu-group-label {
+:is(.acpmux-effort-menu, .acpmux-retry-menu) .ui-menu-group-label {
   display: flex;
   align-items: center;
   height: 24px;
@@ -71,7 +72,7 @@
   font-weight: 600;
 }
 /* A hairline between sections, inset to the rows' edges, with even space above and below. */
-.acpmux-effort-menu .ui-separator {
+:is(.acpmux-effort-menu, .acpmux-retry-menu) .ui-separator {
   height: 1px;
   margin: 5px var(--ui-row-padding-inline);
   border: 0;
@@ -248,3 +249,20 @@
    chip's face, inert until the session's own replaces it in place (ComposerPickers PendingChip). */
 .acpmux-chip-pending { pointer-events: none; }
 .acpmux-chip-pending .acpmux-picker-button:hover { background: none; }
+/* The Options chip (AgentOptionsMenu): the harness's other settings, a quiet pill like the access
+   chip, its face one option's name and choice or "Options". */
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-options .acpmux-picker-button {
+  height: 28px;
+  gap: 4px;
+  padding: 0 6px 0 8px;
+  border-radius: 999px;
+  color: var(--agent-muted);
+}
+.acpmux-options .acpmux-picker-button[aria-expanded="true"],
+.acpmux-options .acpmux-picker-button:hover { color: var(--agent-text); }
+.acpmux-options-text {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

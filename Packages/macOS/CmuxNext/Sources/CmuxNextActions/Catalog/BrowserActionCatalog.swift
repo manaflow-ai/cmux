@@ -138,13 +138,19 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 symbol: "eye", surfaces: [.palette, .keyboard, .menu, .contextMenu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser toggle-focus-mode", mainMenu: .view
             ),
-            ActionDescriptor(
-                id: "toggleBrowserDesignMode",
-                title: String(localized: "action.toggleBrowserDesignMode", defaultValue: "Toggle Browser Design Mode", bundle: .module),
-                keywords: ["browser", "edit"], defaultShortcut: Shortcut("d", modifiers: [.control, .option, .command]),
-                category: .browser, symbol: "paintbrush.pointed", surfaces: [.keyboard, .menu],
-                requires: [.browserFocused], targets: [.pane], cliName: "browser toggle-design-mode", mainMenu: .view
-            ),
+            {
+                var designMode = ActionDescriptor(
+                    id: "toggleBrowserDesignMode",
+                    title: String(localized: "action.toggleBrowserDesignMode", defaultValue: "Toggle Browser Design Mode", bundle: .module),
+                    keywords: ["browser", "edit"], defaultShortcut: Shortcut("d", modifiers: [.control, .option, .command]),
+                    category: .browser, symbol: "paintbrush.pointed", surfaces: [.keyboard, .menu],
+                    requires: [.browserFocused], targets: [.pane], cliName: "browser toggle-design-mode", mainMenu: .view
+                )
+                // Design mode snapshots selected page pixels into a composer. Keep that raw capture
+                // on the in-app person path until it shares the browser host's secret masker.
+                designMode.isPersonOnly = true
+                return designMode
+            }(),
             ActionDescriptor(
                 id: "toggleReactGrab",
                 title: String(localized: "action.toggleReactGrab", defaultValue: "Toggle React Grab", bundle: .module),
@@ -270,19 +276,27 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 keywords: ["browser", "print", "page", "pdf"], category: .browser, symbol: "printer",
                 surfaces: [.palette, .menu, .contextMenu], requires: [.browserFocused], targets: [.pane], mainMenu: .file
             ),
-            ActionDescriptor(
-                id: "browserScreenshotPage",
-                title: String(localized: "action.browserScreenshotPage", defaultValue: "Screenshot Page", bundle: .module),
-                keywords: ["browser", "capture"], category: .browser, symbol: "camera", surfaces: [.contextMenu],
-                requires: [.browserFocused], targets: [.pane], cliName: "browser screenshot-page"
-            ),
-            ActionDescriptor(
-                id: "browserScreenshotSection",
-                title: String(localized: "action.browserScreenshotSection", defaultValue: "Screenshot Section", bundle: .module),
-                keywords: ["browser", "capture"], category: .browser, symbol: "camera.viewfinder",
-                surfaces: [.contextMenu], requires: [.browserFocused], targets: [.pane],
-                cliName: "browser screenshot-section"
-            ),
+            {
+                var screenshot = ActionDescriptor(
+                    id: "browserScreenshotPage",
+                    title: String(localized: "action.browserScreenshotPage", defaultValue: "Screenshot Page", bundle: .module),
+                    keywords: ["browser", "capture"], category: .browser, symbol: "camera", surfaces: [.contextMenu],
+                    requires: [.browserFocused], targets: [.pane], cliName: "browser screenshot-page"
+                )
+                screenshot.isPersonOnly = true
+                return screenshot
+            }(),
+            {
+                var screenshot = ActionDescriptor(
+                    id: "browserScreenshotSection",
+                    title: String(localized: "action.browserScreenshotSection", defaultValue: "Screenshot Section", bundle: .module),
+                    keywords: ["browser", "capture"], category: .browser, symbol: "camera.viewfinder",
+                    surfaces: [.contextMenu], requires: [.browserFocused], targets: [.pane],
+                    cliName: "browser screenshot-section"
+                )
+                screenshot.isPersonOnly = true
+                return screenshot
+            }(),
             ActionDescriptor(
                 id: "browserTheme",
                 title: String(localized: "action.browserTheme", defaultValue: "Browser Theme…", bundle: .module),

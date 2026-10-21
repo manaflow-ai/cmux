@@ -1,6 +1,7 @@
 // The chat header's top right: the quick actions (quickActions.ts: which show, in which order, and
-// whether each toggles or opens; by default Changes and Preview, each while it applies, then Terminal
-// and Browser, which split the pane in the chat's folder and toggle, as in T3 Chat and ChatGPT); the
+// whether each toggles or opens; by default Changes, while it applies, then Terminal and Browser, which
+// split the pane in the chat's folder and toggle, as in T3 Chat and ChatGPT; Browser opens the chat's
+// local page when there is one, the job of the Preview button a person can still show); the
 // summary (Sources) button, whose popover also opens the last turn's changes; and the "..." chat menu,
 // which starts with the quick actions not shown as buttons ([+] New tab, which reads Hide tabs in place,
 // Files and Split Down; each while it applies). Before them, the chat branch's pull request with its
@@ -158,8 +159,13 @@ export function ChatHeaderTools({
   const splitDownKey = useShortcut(HEADER_ACTIONS.splitDown);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const changesKey = useShortcut(HEADER_ACTIONS.changes);
-  const actions = useQuickActions();
-  const { lit, pullRequest } = useHeaderState();
+  const { lit, pullRequest, browserOpensPreview } = useHeaderState();
+  // With the Debug toggle off, the default buttons are the old ones: Preview beside Browser.
+  const quick = useQuickActions();
+  const actions =
+    !browserOpensPreview && JSON.stringify(quick) === JSON.stringify(QUICK_ACTION_DEFAULTS)
+      ? withShown(quick, "preview", true)
+      : quick;
   const worktree = useWorktree(folder, readStatus, statusKey);
   // A toggle is on while the split it opened is open; in open mode each click makes another, so none is.
   const on = (action: string, mode: QuickActionMode) => (mode === "toggle" ? lit.includes(action) : undefined);
@@ -167,6 +173,7 @@ export function ChatHeaderTools({
   const target = useRef<QuickActionId>(undefined);
   const [menuTarget, setMenuTarget] = useState<QuickActionId>();
   // The quick actions without a button, at the top of "...": each while it would show as a button.
+  // Changes is listed there with its button too.
   // Built when "..." reads its rows, after the App's tab state refresh (onMenuOpen): the props of this
   // render, and the lit splits as the App last pushed them.
   const live = useRef({
@@ -210,7 +217,8 @@ export function ChatHeaderTools({
     const { lit } = headerState();
     const shownIds = new Set(actions.map((action) => action.id));
     const folded: ChatMenuItem[] = [];
-    if (onChanges && !shownIds.has("changes") && (hasChanges || lit.includes(HEADER_ACTIONS.changes)))
+    // Changes stays in "..." beside its button, as in the Codex and Claude apps' chat menus (hq#2569 item 4).
+    if (onChanges && (hasChanges || lit.includes(HEADER_ACTIONS.changes)))
       folded.push({
         key: "quick-changes",
         label: t("header.changes"),
@@ -218,7 +226,14 @@ export function ChatHeaderTools({
         shortcutAction: HEADER_ACTIONS.changes,
         onSelect: () => onChanges("toggle"),
       });
-    if (onPreview && !shownIds.has("preview") && (previewUrl || lit.includes(HEADER_ACTIONS.preview)))
+    // Browser opens the chat's page itself (Debug `agentChat.browserOpensPreview`), so then Preview
+    // folds only without a Browser button.
+    if (
+      onPreview &&
+      !shownIds.has("preview") &&
+      !(shownIds.has("browser") && headerState().browserOpensPreview) &&
+      (previewUrl || lit.includes(HEADER_ACTIONS.preview))
+    )
       folded.push({
         key: "quick-preview",
         label: t("header.preview"),
@@ -250,6 +265,20 @@ export function ChatHeaderTools({
     return folded;
   };
   const rows = () => menuGroups(foldedRows(), menu());
+  // Browser without its own Preview button (the default): the chat's local page when it has one, so the
+  // globe opens what the chat is about, not a blank tab (Leo 2026-10-20). A toggle click closes whichever
+  // browser it opened: the page's preview or the plain split.
+  const previewInBrowser =
+    browserOpensPreview && onPreview !== undefined && !actions.some((action) => action.id === "preview");
+  const browserRun = (mode: QuickActionMode) => {
+    // The page goes along, as the Preview button sent it: a preview the person closed since the last
+    // state push opens again instead of the click doing nothing.
+    if (previewInBrowser && on(HEADER_ACTIONS.preview, mode)) return onPreview(previewUrl, mode);
+    if (previewInBrowser && previewUrl && !on(HEADER_ACTIONS.browser, mode)) return onPreview(previewUrl, mode);
+    onBrowser(mode);
+  };
+  const browserPressed = (mode: QuickActionMode) =>
+    previewInBrowser && on(HEADER_ACTIONS.preview, mode) ? true : on(HEADER_ACTIONS.browser, mode);
   const buttons = tabTools && actions.length > 0 && (
     <>
       {actions.map(({ id, mode }) =>
@@ -351,9 +380,11 @@ export function ChatHeaderTools({
             type="button"
             className="acpmux-header-tool"
             aria-label={t("header.browser")}
-            aria-pressed={on(HEADER_ACTIONS.browser, mode)}
-            {...tooltipProps(t("header.browser"), browserKey)}
-            onClick={() => onBrowser(mode)}
+            aria-pressed={browserPressed(mode)}
+            {...(previewInBrowser && previewUrl
+              ? tooltipProps(t("header.previewAddress", { address: previewAddress(previewUrl) }), undefined)
+              : tooltipProps(t("header.browser"), browserKey))}
+            onClick={() => browserRun(mode)}
           >
             <Icon name="browser" size={15} />
           </button>
@@ -548,7 +579,7 @@ function ChatMenu({
   const children = focused && focused !== "separator" ? focused.children : undefined;
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
-      <MenuButton className="acpmux-header-tool" label={label} title={label} disabled={disabled}>
+      <MenuButton className="acpmux-header-tool" label={label} disabled={disabled}>
         <Icon name="action.more" size={15} />
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover" align="end">

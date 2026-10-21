@@ -32,6 +32,7 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 pub use open_guard::RegistryQuarantined;
 use open_guard::preflight_unsupported_schema;
 
+pub(crate) mod agent_cli_intents;
 mod compact;
 mod detached_terminals;
 pub(crate) use detached_terminals::DETACHED_TERMINAL_WORKSPACE_KEY;
