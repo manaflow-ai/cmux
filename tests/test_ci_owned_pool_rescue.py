@@ -1307,6 +1307,66 @@ class SideLanes(unittest.TestCase):
         self.assertNotIn("cancel", api.calls)
         self.assertIn("watch limit reached", summary)
 
+    def test_a_run_a_code_failure_already_decided_is_not_re_run(self):
+        # feat-cmux-next, 2026-10-20: the Linux `checks` job failed on the base's own red checks,
+        # the Release compile waited on the side minis, and the rescue cancelled and re-ran the
+        # run twice; each attempt failed `checks` the same way (run 39382369248, attempts 1 to 3).
+        def checks_failed():
+            failed = job("cmux-next checks (god files, concurrency, string tables)", status="completed",
+                         labels=["blacksmith-16vcpu-ubuntu-2404"], runner="blacksmith-1")
+            failed.update(conclusion="failure", started_at=stamp(1), completed_at=stamp(120), steps=[
+                {"name": "Set up job", "conclusion": "success"},
+                {"name": "God files and types (Swift)", "conclusion": "success"},
+                {"name": "Fail on any red check", "conclusion": "failure"}])
+            return failed
+
+        def cmux_next(seconds):
+            return [checks_failed(), job("cmux-next Release compile (Xcode 26)", labels=[SIDE], created=0)]
+
+        clock = Clock()
+        api = FakeAPI(clock, cmux_next)
+        code, summary = run_main(api, clock, payload=side_event(path=".github/workflows/cmux-next.yml"),
+                                 env_extra={"SIDE_RESCUE_SECONDS": "30"})
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn("already failed", summary)
+
+        # The same holds for a CI pull request run on the minis: a stuck shard is left queued when a guard
+        # already failed.
+        stuck = job("macos / shard 2", labels=[MINI], created=0)
+        late = START + dt.timedelta(seconds=600)
+        look = rescue.assess([checks_failed(), stuck], now=late, budget_seconds=90, leave_decided=True)
+        self.assertEqual((look.action, look.waiting), ("watch", True))
+        self.assertIn("already failed", look.reason)
+        # Runs that are not pull requests (main, nightly, push) keep the rescue.
+        self.assertEqual(rescue.assess([checks_failed(), stuck], now=late, budget_seconds=90).action, "rescue")
+        # A refusal is still re-run: it is the fleet's failure, not the change's.
+        look = rescue.assess([checks_failed(), stuck, refused_job("macos / shard 3")], now=late, budget_seconds=90,
+                             leave_decided=True)
+        self.assertEqual(look.action, "refused")
+        # Neither a refusal nor a lost runner (no step ran) nor a job carried from an earlier attempt
+        # decides the run: the stuck job is still moved.
+        lost = {**checks_failed(), "steps": []}
+        carried = {**checks_failed(), "created_at": stamp(200), "started_at": stamp(100)}
+        for sibling in (refused_job("macos / shard 3"), lost, carried):
+            look = rescue.assess([sibling, stuck], now=late, budget_seconds=90, leave_decided=True)
+            self.assertEqual(look.action, "rescue", sibling)
+
+    def test_a_main_run_a_guard_failed_is_still_cancelled_once_main_moves(self):
+        # Main's stuck run holds its concurrency group, so a red one is still cancelled.
+        failed = job("guards / workflow-guard-tests", status="completed", labels=["blacksmith-4vcpu-ubuntu-2404"],
+                     runner="blacksmith-2")
+        failed.update(conclusion="failure", started_at=stamp(1), completed_at=stamp(20),
+                      steps=[{"name": "Run the guard tests", "conclusion": "failure"}])
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: persistent_run()(seconds) + [failed], marker=True, head="b" * 40)
+        _, summary = run_main(api, clock, payload=main_event())
+        self.assertIn("cancel", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn("not re-run", summary)
+
     def test_a_sibling_on_a_mini_does_not_hide_a_refusal_or_a_held_job(self):
         running = job("macos / shard 1", status="in_progress", labels=[MINI], runner="mini-2")
         running["started_at"] = stamp(5)
@@ -1419,20 +1479,29 @@ def nightly_event(**overrides):
                     "pull_requests": [], **overrides})
 
 
-def nightly_run(*, queued_at=15, started_at=None, refused_at=None):
-    """nightly.yml: decide, then the app build on the trusted pool beside a Blacksmith helper build."""
+def nightly_run(*, queued_at=15, started_at=None, refused_at=None, runner_label=None, setup_until=None):
+    """nightly.yml: decide, then the app build on the trusted pool beside a Blacksmith helper build.
+
+    `runner_label` adds the reserved runner's own label, as nightly.yml's runs-on does; `setup_until`
+    keeps a started build in its runner's setup until then (glaeda's hook waiting for capacity)."""
+    labels = [TRUSTED, *([runner_label] if runner_label else [])]
+
     def jobs(seconds):
         found = [job("decide", status="completed", labels=[BLACKSMITH])]
         if seconds < queued_at:
             return found
         if refused_at is not None and seconds >= refused_at:
-            app = refused_job("build-nightly-app", labels=(TRUSTED,))
+            app = refused_job("build-nightly-app", labels=tuple(labels))
         else:
             started = started_at is not None and seconds >= started_at
-            app = job("build-nightly-app", labels=[TRUSTED], created=queued_at,
+            app = job("build-nightly-app", labels=labels, created=queued_at,
                       status="in_progress" if started else "queued", runner="cmux15-glaeda" if started else "")
             if started:
                 app["started_at"] = stamp(started_at)
+                if setup_until is not None:
+                    app["steps"] = [{"name": "Set up runner", "started_at": stamp(started_at),
+                                     "status": "in_progress" if seconds < setup_until else "completed",
+                                     "conclusion": None if seconds < setup_until else "success"}]
         return found + [app, job("build-nightly-ghostty-cli-helper", labels=["blacksmith-6vcpu-macos-15"],
                                  status="in_progress", runner="bs")]
     return jobs
@@ -1449,13 +1518,17 @@ class SupersedingAPI(FakeAPI):
 
 
 class NightlyAPI(FakeAPI):
-    def __init__(self, *args, newer=(), **kwargs):
+    def __init__(self, *args, newer=(), pushes=(), **kwargs):
         super().__init__(*args, **kwargs)
-        self.newer = list(newer)
+        self.newer, self.pushes = list(newer), list(pushes)
 
     def newer_unfinished_runs(self, path, run_id, branch):
         self.calls.append(f"newer:{branch}")
         return self.newer
+
+    def newer_push_runs(self, path, run_id, branch):
+        self.calls.append(f"pushes:{branch}")
+        return self.pushes
 
 
 class Nightly(unittest.TestCase):
@@ -1604,13 +1677,84 @@ class Nightly(unittest.TestCase):
         self.assertIn("the fleet accepted", summary)
         self.assertNotIn("cancel", api.calls)
 
-    def test_the_build_may_wait_one_round_behind_a_seed(self):
+    def test_the_budget_is_the_configured_one_with_no_copied_allowance(self):
+        # CI_OWNED_POOL_RESCUE_SECONDS alone: no nightly-only round on top (it was 930 s at 30).
+        for seconds in ("30", "120"):
+            clock = Clock()
+            api = NightlyAPI(clock, nightly_run(started_at=30))
+            _, summary = run_main(api, clock, payload=nightly_event(), env_extra={"RESCUE_SECONDS": seconds})
+            self.assertIn(f"budget {seconds}s)", summary)
+
+    def test_a_build_waiting_for_its_reserved_runner_is_never_cancelled(self):
+        # Runs 39318999424, 39320477722, 39329116254, 39350597131: a wait past 930 s
+        # behind a seed or an earlier build was cancelled and moved to Blacksmith.
+        for branch, label in (("main", "glaeda-runner-cmux15-glaeda"),
+                              ("nightly-next", "glaeda-runner-cmux22-nightly-next")):
+            clock = Clock()
+            api = NightlyAPI(clock, nightly_run(runner_label=label), newer=[RUN_ID + 7], pushes=[RUN_ID + 8])
+            code, summary = run_main(api, clock, payload=nightly_event(head_branch=branch),
+                                     env_extra={"RESCUE_SECONDS": "30"})
+            self.assertEqual(code, 0)
+            self.assertNotIn("cancel", api.calls, branch)
+            self.assertNotIn("rerun-failed", api.calls, branch)
+            self.assertIn(f"waiting for the runner reserved for it", summary)
+            self.assertIn("watch limit reached", summary)
+            self.assertIn(f"::warning::build-nightly-app was still waiting for its reserved runner {label}", summary)
+
+    def test_a_build_held_in_its_reserved_runner_s_setup_is_never_cancelled(self):
         clock = Clock()
-        api = NightlyAPI(clock, nightly_run(started_at=15 + 600))
-        code, summary = run_main(api, clock, payload=nightly_event(), env_extra={"RESCUE_SECONDS": "30"})
-        self.assertEqual(code, 0)
-        self.assertIn(f"budget {30 + rescue.QUEUE_ROUND_SECONDS}s", summary)
+        api = NightlyAPI(clock, nightly_run(runner_label="glaeda-runner-cmux15-glaeda", started_at=20,
+                                            setup_until=90 * 60))
+        _, summary = run_main(api, clock, payload=nightly_event(), env_extra={"RESCUE_SECONDS": "30"})
+        # Past SETUP_WAIT_SECONDS and into the watch's closing margin, where an unreserved job is moved.
         self.assertNotIn("cancel", api.calls)
+        self.assertIn("watch limit reached", summary)
+
+    def test_a_refused_reserved_build_is_still_moved(self):
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(refused_at=60, runner_label="glaeda-runner-cmux22-nightly-next"),
+                         finished=lambda s: s >= 200)
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertEqual(api.calls[-1], "rerun-failed")
+
+    def test_only_a_nightly_honours_a_runner_label(self):
+        # A pull request's compile admission names a warm runner as a preference: still rescued.
+        stuck = job("macos / macOS compile admission", labels=[MINI, "glaeda-runner-cmux1-glaeda"], created=0)
+        now = START + dt.timedelta(seconds=600)
+        self.assertEqual(rescue.assess([stuck], now=now, budget_seconds=90).action, "rescue")
+        self.assertEqual(rescue.assess([stuck], now=now, budget_seconds=90, reserved=True).action, "watch")
+        # With no runner label the nightly's job is judged on the configured budget.
+        plain = job("build-nightly-app", labels=[TRUSTED], created=0)
+        self.assertEqual(rescue.assess([plain], now=now, budget_seconds=90, reserved=True).action, "rescue")
+        self.assertEqual(rescue.reserved_runner({"labels": [TRUSTED, "glaeda-runner-x"]}), "glaeda-runner-x")
+        self.assertIsNone(rescue.reserved_runner({"labels": [TRUSTED]}))
+
+    def test_a_superseded_commit_is_never_rerun(self):
+        # nightly-next is never pending at the workflow level; the branch moved and a newer push run builds it.
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200,
+                         head="b" * 40, pushes=[RUN_ID + 3])
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("nightly-next has moved on to bbbbbbbbbbbb", summary)
+        # The same on main: a newer push run that is already running or done, not pending.
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200,
+                         head="c" * 40, pushes=[RUN_ID + 4])
+        _, summary = run_main(api, clock, payload=nightly_event())
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("main has moved on to cccccccccccc", summary)
+        # A newer push run on the same head (a re-push) does not supersede it.
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200, pushes=[RUN_ID + 3])
+        run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        # A moved head with no newer push run (outside the workflow's paths) does not either.
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200, head="b" * 40)
+        run_main(api, clock, payload=nightly_event())
+        self.assertEqual(api.calls[-1], "rerun-failed")
 
     def test_a_stuck_build_moves_to_blacksmith_keeping_what_passed(self):
         clock = Clock()

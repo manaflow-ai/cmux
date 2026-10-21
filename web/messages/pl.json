@@ -2266,6 +2266,13 @@
               "enabled": "Gdy wybrano zdalny obszar roboczy tmux, „Nowy obszar roboczy” uruchamia sesję tmux na hoście tego obszaru."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, agent ekranu głównego: czy jest widoczny oraz jakiej uprzęży, modelu i wysiłku używa.",
+          "enabled": "Pokazuje wiersz Strona główna i punkty wejścia do Chief. Gdy false, ukryte są wiersz Strona główna, skrót Otwórz Chief, pozycja menu i wpisy palety poleceń.",
+          "harness": "Uprząż agenta, na której działa Chief: claude (Claude Code) lub codex (Codex).",
+          "model": "Model przekazywany do uprzęży. Pozostaw puste, aby użyć domyślnego.",
+          "effort": "Wysiłek rozumowania przekazywany do uprzęży, np. low, medium lub high. Pozostaw puste, aby użyć domyślnego."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3444,6 +3451,7 @@
     "unsupportedParams": "Ten link zawiera nieobsługiwane parametry, które cmux odrzuci: {params}",
     "conflictingParams": "Ten link zawiera parametry, których nie można używać razem: {params}",
     "invalidParams": "Ten link zawiera nieprawidłowe wartości parametrów: {params}",
+    "ignoredParams": "cmux ignoruje parametry, których nie używa: {params}. Sesja i tak zostanie otwarta.",
     "fixParams": "Popraw parametry adresu URL, a następnie załaduj ponownie tę stronę.",
     "examplePrefix": "Zobacz",
     "exampleLink": "przykładowy link",
