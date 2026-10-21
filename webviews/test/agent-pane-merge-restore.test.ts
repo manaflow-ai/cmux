@@ -24,10 +24,10 @@ const styleRules = (css: string) => {
 const conversation = styleRules(read("conversation/conversation.css"));
 const rule = (selector: string) => conversation.find((r) => r.selectorText === selector);
 
-test("a sent image keeps its 72px slot while it loads (#21383)", () => {
+test("a sent image keeps its 120px slot while it loads (#21383)", () => {
   const slot = rule(".cv-user__image-placeholder");
-  expect(slot?.style.width).toBe("72px");
-  expect(slot?.style.height).toBe("72px");
+  expect(slot?.style.width).toBe("120px");
+  expect(slot?.style.height).toBe("120px");
 });
 
 test("a loaded reply image fades in instead of popping (#21383)", () => {
