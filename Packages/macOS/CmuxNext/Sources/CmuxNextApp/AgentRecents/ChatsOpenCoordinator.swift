@@ -110,12 +110,10 @@ final class ChatsOpenCoordinator {
         guard let services else { return false }
         let chat = services.chatsFeed?.chat(id: key)
         let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
-        guard let harness = (chat?.harness ?? parts.first)?.lowercased(),
+        // The index names Claude Code `claude-code`; tabs and terminals name it `claude`.
+        guard let harness = TerminalChatRoute.harness(of: chat?.harness ?? parts.first),
               let session = chat?.sessionID ?? (parts.count == 2 ? parts[1] : nil) else { return false }
-        let adopted = services.agentTabs.tab(resuming: AgentPaneAdopt(harness: harness, agentSessionId: session))
-        let tabs = DeepLink.agentTabs(harness: harness, session: session, adopted: adopted,
-                                      harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions))
-        return tabs.contains { services.revealTab($0) }
+        return services.revealAgentSession(harness: harness, session: session)
     }
 
     private func dispatch(_ plan: AcpmuxChatOpenPlan, key: String, environment: AcpmuxEnvironment, inTerminal: Bool = false,
