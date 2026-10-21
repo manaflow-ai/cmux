@@ -30,6 +30,8 @@ public final class BackdropImageStore {
     private var images: [Key: NSImage] = [:]
     private var loads: [Key: Task<Decoded?, Never>] = [:]
     private var warming: [Task<Void, Never>] = []
+    /// The desktop's ``DesktopWallpaperWatch/generation`` the cached Desktop Wallpaper shows.
+    private var desktopGeneration = 0
 
     private struct Key: Hashable {
         let id: String
@@ -90,6 +92,16 @@ public final class BackdropImageStore {
     private static func thumbnail(of selection: BackdropSelection) -> URL? {
         guard case .art = selection else { return nil }
         return selection.thumbnailURL
+    }
+
+    /// Drops the decoded Desktop Wallpaper once the desktop has moved on to `generation`, so the
+    /// next window to ask decodes the new picture; every later call for the same generation keeps
+    /// what that first reload decoded.
+    func forgetDesktopPicture(olderThan generation: Int) {
+        guard generation > desktopGeneration else { return }
+        desktopGeneration = generation
+        images = images.filter { $0.key.id != BackdropSelection.desktopID }
+        loads = loads.filter { $0.key.id != BackdropSelection.desktopID }
     }
 
     /// Starts loading `selection` so the first window that shows it finds it decoded.
