@@ -187,7 +187,7 @@ public final class SidebarDocSections {
 
     /// Lists `workspace` right before or after the workspace `anchor` names, in that one's section (its
     /// group, or its loose run). False when `sections` does not list that workspace.
-    static func insert(_ workspace: WorkspaceModel, beside anchor: UnplacedAnchor, into sections: inout [CmuxNextDaemon.SidebarSection]) -> Bool {
+    public static func insert(_ workspace: WorkspaceModel, beside anchor: UnplacedAnchor, into sections: inout [CmuxNextDaemon.SidebarSection]) -> Bool {
         let (id, after) = switch anchor {
         case .before(let id): (id, false)
         case .after(let id): (id, true)
