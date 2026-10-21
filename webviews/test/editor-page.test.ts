@@ -516,6 +516,20 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         });
       });
 
+      test("opening a file does not show the scroller; scrolling the editor does", async () => {
+        await fresh();
+        const lines = Array.from({ length: 200 }, (_, index) => `const line${index} = ${index};`).join("\n");
+        await openEditor(page, file("long.ts", `${lines}\n`), { highlighted: true });
+        const scrolling = () =>
+          page.evaluate(() =>
+            window.__cmuxEditor!.view()!.monacoEditor.getDomNode()!.hasAttribute("data-cmux-scrolling"),
+          );
+        // The file's height arriving is not a scroll: the overlay scroller stays hidden.
+        expect(await scrolling()).toBe(false);
+        await page.evaluate(() => window.__cmuxEditor!.view()!.monacoEditor.setScrollTop(400));
+        expect(await scrolling()).toBe(true);
+      });
+
       test("a large file opens with highlighting and the minimap off, and takes typing", async () => {
         await fresh();
         const line = "const value = compute(alpha, beta, gamma); // a line of a large file\n";
