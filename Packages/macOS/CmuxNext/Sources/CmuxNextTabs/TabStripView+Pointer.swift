@@ -84,6 +84,8 @@ extension TabStripView {
             if let id { cells[id]?.isAudioHovered = true }
         }
         let tip = id.flatMap { cells[$0]?.item.audio }.map { $0 == .muted ? Strings.unmuteTab : Strings.muteTab }
+        // tooltip-native-allow: the strip's speakers are layers, not views; a themed tracker added while the
+        // pointer is already inside gets no mouseEntered, and one anchors below the whole strip.
         if toolTip != tip { toolTip = tip }
     }
 

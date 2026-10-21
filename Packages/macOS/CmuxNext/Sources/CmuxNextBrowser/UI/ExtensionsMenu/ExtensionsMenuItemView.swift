@@ -40,7 +40,6 @@ final class ExtensionsMenuItemView: NSView {
         primary.onPress = { [weak self] in self?.onRun?() }
         pinButton.onPress = { [weak self] in self?.togglePin() }
         moreButton.onPress = { [weak self] in self?.onMore?() }
-        moreButton.themedToolTip = Strings.extensionMenuMoreTooltip
         setAccessibilityElement(false)
         apply(info, icon: icon, canPin: canPin)
     }
