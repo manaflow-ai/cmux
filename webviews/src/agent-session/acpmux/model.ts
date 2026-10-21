@@ -549,8 +549,15 @@ const messageBelow = (beforeFooter: boolean) => (beforeFooter ? META_GAP : MESSA
 /// A reply right over its turn's footer: App.tsx marks the same rows `acpmux-row--before-footer`.
 const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "assistant" && next?.kind === "turnSummary";
+/// A row that draws nothing (a turn's bookkeeping, conversation/turns.ts).
+const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden";
+/// The row after `index` that draws something.
+export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxRow | undefined {
+  for (let next = index + 1; next < rows.length; next += 1) if (!drawsNothing(rows[next]!)) return rows[next];
+  return undefined;
+}
 /// The chat's last footer ends at the message gap, not the turn gap: no band over the composer
-/// (App.tsx marks it `acpmux-row--last-footer`).
+/// (App.tsx marks it `acpmux-row--last-footer`). `next` is the next row that draws.
 const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) => row.kind === "turnSummary" && !next;
 /// What the row after a row changes about its height (`beforeFooter`, `lastFooter`), as one key.
 const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
@@ -747,6 +754,8 @@ function measuredRowHeight(
 ): number {
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
   if (row.received) return 26 + MESSAGE_GAP;
+  // A turn's footer carries its answer's text for Copy (conversation/turns.ts); it draws one line.
+  if (row.kind === "turnSummary") return fallbackRowHeight(row, width, beforeFooter, lastFooter);
   // Another agent's message: its route line over two lines of the message; a notice is a tool
   // row's line (conversation/IncomingMessageCard.tsx).
   // Its images' 120px row with 6px below (UserBubble.tsx SENT_IMAGE_HEIGHT), and a steer's status line, as under a bubble.
@@ -806,10 +815,15 @@ export function layoutConversation(
   if (previous) {
     const limit = Math.min(rows.length, previous.rows.length);
     while (start < limit && rows[start] === previous.rows[start]) start += 1;
-    // A row after the last kept one can change its height (a footer after a reply, a prompt after
-    // the last footer): place that one again.
-    if (start > 0 && rowEdge(rows[start - 1]!, rows[start]) !== rowEdge(rows[start - 1]!, previous.rows[start]))
-      start -= 1;
+    // A row after the kept ones can change the height of the last kept row that draws (a footer
+    // after a reply, a prompt after the last footer, past rows that draw nothing): place it again.
+    let drawn = start - 1;
+    while (drawn >= 0 && drawsNothing(rows[drawn]!)) drawn -= 1;
+    if (
+      drawn >= 0 &&
+      rowEdge(rows[drawn]!, nextDrawnRow(rows, drawn)) !== rowEdge(rows[drawn]!, nextDrawnRow(previous.rows, drawn))
+    )
+      start = drawn;
     tops.set(previous.layout.tops.subarray(0, start));
     heights.set(previous.layout.heights.subarray(0, start));
   }
@@ -817,7 +831,7 @@ export function layoutConversation(
   for (let index = start; index < rows.length; index += 1) {
     tops[index] = top;
     const row = rows[index]!;
-    const edge = rowEdge(row, rows[index + 1]);
+    const edge = rowEdge(row, nextDrawnRow(rows, index));
     const kept = known?.get(row);
     let height: number;
     if (kept && kept.width === width && kept.edge === edge) height = kept.height;
