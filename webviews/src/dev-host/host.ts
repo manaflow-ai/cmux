@@ -163,11 +163,11 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
           linkScheme: "cmux-dev",
         },
       };
-    case "session.persist":
     case "pane.painted":
       // When the app would fade the page in over its loading state (frame tests read it).
       (window as { cmuxDevPaintedAt?: number }).cmuxDevPaintedAt ??= performance.now();
       return { ok: true, value: null };
+    case "session.persist":
     case "chat.persistSession":
     case "pane.checkpointAvailability":
     case "pane.renderRate":
