@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// `run.attach`: a redeemed durable Run attach ticket, passed to the App so it opens the attempt's
 /// terminal on the enrolled worker daemon as a remote-terminal tab in this pane.
