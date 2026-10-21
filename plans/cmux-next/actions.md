@@ -36,7 +36,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 ## Catalog counts
 
 - `window`: 102
-- `workspace`: 159
+- `workspace`: 160
 - `pane`: 86
 - `screen`: 65
 - `tab`: 98
@@ -49,9 +49,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `remote`: 16
 - `settings`: 119
 
-## Counts (1148 actions)
+## Counts (1149 actions)
 
-Palette 1099, CLI verbs 654, right-click 547, MCP tools 572.
+Palette 1100, CLI verbs 655, right-click 547, MCP tools 573.
 
 ## Menus
 
@@ -153,7 +153,7 @@ Palette 1099, CLI verbs 654, right-click 547, MCP tools 572.
 
 **duplicateOfDefault** (4): `newTab.default`, `newTab.afterCurrent`, `newTab.horizontal`, `newTab.submit`
 
-**minimalMenu** (2): `space.setDefaults`, `browserProfile.clearSpaceDefault`
+**minimalMenu** (3): `space.setDefaults`, `space.clearDefaults`, `browserProfile.clearSpaceDefault`
 
 ## Exemptions: mcp
 
