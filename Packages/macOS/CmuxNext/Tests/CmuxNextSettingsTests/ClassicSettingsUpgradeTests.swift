@@ -132,6 +132,25 @@ import Testing
         #expect(try await settings.file.value(at: ["sidebar", "workspaceRow", "directory"]) == .bool(true))
     }
 
+    @Test func newerClassicWorkspaceGroupPlacementComesOver() async throws {
+        let home = FileManager.default.temporaryDirectory.appending(path: "cn-classic-group-placement-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let config = home.appending(path: ".config/cmux")
+        try FileManager.default.createDirectory(at: config, withIntermediateDirectories: true)
+        try Data(#"{ "workspaceGroups": { "newWorkspacePlacement": "end" } }"#.utf8)
+            .write(to: config.appending(path: "cmux.json"))
+
+        let url = try CmuxConfigFile.prepareDefaultURL(home: home, environment: [:])
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
+                                          managedWatchFiles: [])
+        await settings.reload()
+        try await settings.migrateClassicSettings()
+
+        #expect(try await settings.file.value(at: ["workspaces", "newPlacement"]) == .string("bottom"))
+        #expect(try await settings.file.value(at: ["workspaceGroups", "newWorkspacePlacement"]) == nil)
+    }
+
     /// A dotfiles setup: classic's `cmux.json` is a symlink into a dotfiles
     /// repo. Next starts from a copy of its text, and its own settings
     /// migration (which moves keys) never writes classic's file, so classic

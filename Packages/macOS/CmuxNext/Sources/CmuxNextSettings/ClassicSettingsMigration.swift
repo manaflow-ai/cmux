@@ -39,6 +39,9 @@ enum ClassicSettingRename {
               transform: map(["false": .bool(false)])),
         Entry(classic: ["app", "newWorkspacePlacement"], next: ["workspaces", "newPlacement"],
               transform: map(["top": .string("top"), "afterCurrent": .string("afterCurrent"), "end": .string("bottom")])),
+        // Newer classic releases stored the same preference under the workspace-groups section.
+        Entry(classic: ["workspaceGroups", "newWorkspacePlacement"], next: ["workspaces", "newPlacement"],
+              transform: map(["top": .string("top"), "afterCurrent": .string("afterCurrent"), "end": .string("bottom")])),
         Entry(classic: ["app", "equalizeSplitsOnCreate"], next: ["layout", "splitSizing"],
               transform: map(["true": .string("even"), "false": .string("halve")])),
         Entry(classic: ["app", "minimalMode"], next: ["window", "titlebar"],
