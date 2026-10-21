@@ -1,6 +1,7 @@
 // Runs a variant's play steps in the stage frame and measures each one (play.ts has the rules).
 import {
   describeTarget,
+  isSubpixelLayoutShift,
   judgePopups,
   judgeStep,
   overall,
@@ -361,16 +362,27 @@ async function measured(
       for (const entry of list.getEntries() as (PerformanceEntry & {
         value: number;
         hadRecentInput: boolean;
-        sources?: { node?: Node }[];
-      })[])
+        sources?: {
+          node?: Node;
+          previousRect?: DOMRectReadOnly;
+          currentRect?: DOMRectReadOnly;
+        }[];
+      })[]) {
+        const sources = entry.sources ?? [];
+        // Chromium reports a layout-shift entry when a fractional layout position rounds to a
+        // different device pixel. It has no perceptible movement and is not a layout regression:
+        // ignore it only when every reported source moved by less than half a CSS pixel. Real
+        // shifts (including the composer's one-slot Send change) retain their normal CLS value.
+        if (isSubpixelLayoutShift(sources)) continue;
         shifts.push({
           value: entry.value,
-          sources: (entry.sources ?? []).map((source) =>
+          sources: sources.map((source) =>
             source.node instanceof Element
               ? `${source.node.tagName.toLowerCase()}${source.node.className ? `.${String(source.node.className).split(" ")[0]}` : ""}`
               : "#text",
           ),
         });
+      }
     });
     observer.observe({ type: "layout-shift", buffered: false });
     observers.push(observer);

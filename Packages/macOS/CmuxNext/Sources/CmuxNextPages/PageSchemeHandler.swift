@@ -122,13 +122,28 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
             guard let data = await Self.read(file) else { return nil }
             return Self.reply(url: url, page: served.page, status: 200, mimeType: Self.mimeType(forExtension: file.pathExtension), body: data)
         case .dynamic(let request):
-            guard let resource = await served.dynamicSource?.resource(for: request) else {
-                return Self.reply(url: url, page: served.page, status: 404, mimeType: "text/plain", body: Data())
-            }
-            let fallback = Self.mimeType(forExtension: request.path.last.map { ($0 as NSString).pathExtension } ?? "")
-            let type = resource.mimeType.flatMap(Self.validMIMEType) ?? fallback
-            return Self.reply(url: url, page: served.page, status: 200, mimeType: type, body: resource.data)
+            let answer = await Self.dynamicResponse(to: request, source: served.dynamicSource)
+            return Self.reply(url: url, page: served.page, status: answer.status, mimeType: answer.mimeType, body: answer.body)
         }
+    }
+
+    /// The answer to a request under a dynamic prefix, in either engine: the source's resource with
+    /// its type (a malformed or missing type falls back to the name's extension), else a 404.
+    static func dynamicResponse(to request: PageResourceRequest,
+                                source: (any PageDynamicResourceSource)?) async -> PageChromiumResponse {
+        guard let resource = await source?.resource(for: request) else { return .notFound }
+        let fallback = mimeType(forExtension: request.path.last.map { ($0 as NSString).pathExtension } ?? "")
+        let type = resource.mimeType.flatMap(validMIMEType) ?? fallback
+        return PageChromiumResponse(status: 200, mimeType: type, body: resource.data)
+    }
+
+    /// The dynamic request `url` makes of `page`, nil when it is not under one of the page's dynamic
+    /// prefixes (another origin, a static file, a `.` or `..` component).
+    nonisolated static func dynamicRequest(for url: URL, page: PageDescriptor) -> PageResourceRequest? {
+        guard case .dynamic(let request)? = route(for: url, page: page, root: URL(fileURLWithPath: "/", isDirectory: true)) else {
+            return nil
+        }
+        return request
     }
 
     /// A response with the headers every page response carries.

@@ -241,6 +241,7 @@ pub use notification_types::{
     NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILITY, NotificationEvent,
     NotificationSource, ResourceNotification, SurfaceNotification,
 };
+pub(crate) use notifications::NotificationClearScope;
 mod notification_level;
 pub use notification_level::NotificationLevel;
 mod pairing_requests;

@@ -10,7 +10,6 @@ nonisolated enum RoomStrings {
     static func defaultName(_ number: Int) -> String {
         String(format: text("rooms.defaultName", "Space %lld"), locale: Locale.current, number)
     }
-    static var renameTitle: String { text("rooms.renameTitle", "Rename Space") }
     static func deleteTitle(_ name: String) -> String { String(format: text("rooms.deleteTitle", "Delete space “%@”?"), name) }
     /// The count line of the Delete Space question (none for no workspace).
     static func deleteClosesBody(_ count: Int) -> String {

@@ -36,6 +36,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onNewTabInputReady: ((String) -> Void)?
     /// The new tab page chose a terminal or browser (`tab.open`).
     @ObservationIgnored public var onOpenTab: ((AgentPaneOpenTab) -> Void)?
+    /// A redeemed Run attempt asks the App to open its enrolled worker's terminal (`run.attach`).
+    @ObservationIgnored public var onRunAttach: (@MainActor (AgentPaneRunAttach) async throws -> Void)?
     /// What the user typed after `!` so far (`tab.typeAhead`).
     @ObservationIgnored public var onTypeAhead: ((String) -> Void)?
     /// The agent picked on the new tab screen, to remember (`newTab.remember`).
@@ -144,6 +146,11 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onChooseFiles: (@MainActor () async -> [URL])?
     /// Attach files or folders' open panel: what the user picked, none when they cancelled.
     @ObservationIgnored public var onChooseAttachments: (@MainActor () async -> [URL])?
+    /// Whether this chat's folder is on this Mac and the chat was not moved to Cloud: files the
+    /// person drops or pastes then go as their own paths (``AgentPaneDroppedPaths``). Nil: never.
+    @ObservationIgnored public var onLocalPaths: (@MainActor () -> Bool)?
+    /// The file URLs of the person's last native drop or paste on the page.
+    @ObservationIgnored var droppedPaths = AgentPaneDroppedPaths()
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
     /// The native Debug Settings baseline for the sidebar's latest-reply preview. A user's
     /// `layout.sidebarPreviewVariant` can temporarily override it in the page.
@@ -259,6 +266,8 @@ public final class AgentPaneModel {
             markPainted()
             return AgentPaneReply.success()
         case .openTab(let request): return request.open(in: self)
+        case .runAttach(let request): return await request.attach(in: self)
+        case .invalidRunAttach: return AgentPaneRunAttach.invalidReply
         case .typeAhead(let text): return AgentPaneOpenTab.typeAhead(text, in: self)
         case .touched: return AgentPaneReply.success()
         // The shell box runs on this Mac: never for a chat on another machine (cx-k21v).
@@ -288,6 +297,9 @@ public final class AgentPaneModel {
         // The panel picks this Mac's files: never for a chat on another machine (cx-k21v).
         case .chooseAttachments where remoteChat: return Self.unsupported("chat.attach.choose")
         case .chooseAttachments: return await chooseAttachments()
+        // Nor the paths of files dropped or pasted from this Mac.
+        case .attachDropped where remoteChat: return Self.unsupported("chat.attach.dropped")
+        case .attachDropped(let kind, let names): return await attachDropped(kind, names: names)
         case .useFolder(let cwd, let confirm) where remoteChat:
             // A folder of that machine: its store answers as this Mac's does (cx-1bhjj), its acpmux
             // checks the folder and its trust at the start; this Mac's disk is never read (cx-k21v).

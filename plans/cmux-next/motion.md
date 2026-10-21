@@ -203,6 +203,7 @@ nxmot (MacBook Pro, 120 Hz).
 | `hoverOut` | 0 s | a hover or pressed fill clearing: instant, as in Edge, so a fast sweep leaves no trail (about 0.12 s in Debug Settings leaves a short one). A press shows at once. Sidebar rows are the exception: their fill and hover buttons fade out with `hover` too, in place (Leo 2026-10-13: moving between workspace rows snapped). Instant under Reduce Motion |
 | `focus` | 0.10 s | pane focus ring |
 | `paneDim` | 0.15 s | the veil over an unfocused pane easing in and out when focus moves (Leo 2026-10-21: a short ease, not a jump) |
+| `focusFlash` | 0.50 s | the focus ring shown at once on a pane focus moved to without a click (a link open, the pane after a close, an agent handoff), fading out; Debug toggle `focus.flashOnMove`, off by default |
 | `fadeIn` | 0.12 s | palette, find bar, notices, hover card, group editor, sidebar pill appear |
 | `fadeOut` | 0.08 s | palette close (with a shrink to `Motion.panelCloseScale` 0.98 about the center), find bar, notices, hover card, sidebar pill hide |
 | `crossfade` | 0.10 s | hover card thumbnail swap; the Reduce Motion ceiling |
