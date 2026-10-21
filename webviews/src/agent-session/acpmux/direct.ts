@@ -24,6 +24,7 @@ import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
 import { liftInlineImages } from "./inlineImages";
+import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
 import { peerConnectedFromStatus, peerKindsFromStatus } from "./environments";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
@@ -665,9 +666,11 @@ export function appendThought(items: AcpmuxActivity[], text: string, at?: number
 let notices = 0;
 const noticeId = (kind: string) => `${kind}-${(notices += 1)}`;
 
-/// The images a `user_message` names (`images: [{id, mimeType, name?}]`), malformed entries left out.
+/// The images a `user_message` names (`images: [{id, mimeType, name?, width?, height?}]`),
+/// malformed entries left out.
 function promptImages(value: unknown): PromptImage[] {
   if (!Array.isArray(value)) return [];
+  const dimension = (n: unknown) => typeof n === "number" && Number.isInteger(n) && n > 0;
   return value.flatMap((image) =>
     image && typeof image.id === "string" && typeof image.mimeType === "string"
       ? [
@@ -675,6 +678,7 @@ function promptImages(value: unknown): PromptImage[] {
             id: image.id,
             mimeType: image.mimeType,
             ...(typeof image.name === "string" && { name: image.name }),
+            ...(dimension(image.width) && dimension(image.height) && { width: image.width, height: image.height }),
           },
         ]
       : [],
@@ -3303,7 +3307,12 @@ export class AcpmuxDirectClient {
     const at = Date.now();
     this.optimisticPromptRows.set(promptId, rowId);
     this.optimisticPromptTexts.set(promptId, text);
-    if (attachments.length) this.optimisticPromptAttachments.set(promptId, attachments);
+    if (attachments.length) {
+      this.optimisticPromptAttachments.set(promptId, attachments);
+      // The sent bubble draws these images from the pane's own bytes, at their shape, the moment
+      // acpmux's echo names them (conversation/imageEntries.ts).
+      void primeSentImages(attachments);
+    }
     // A prompt behind the shown chat's running turn waits in the queue: it shows there from the
     // send on, never first as a transcript bubble that acpmux's `queued` record then moves.
     const waits = !steer && shown === sessionId && this.turnOpen;
