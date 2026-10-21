@@ -16,10 +16,8 @@ import { toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
-import { ChevronDown, ChevronRight } from "./icons";
-import { CopyButton, ForkButton, MessageTime, PinButton, ReadAloudButton } from "./MessageActions";
-import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
-import type { TurnActions } from "./turnActions";
+import { ChevronRight, Retry } from "./icons";
+import { CopyButton, ForkButton, MessageTime, PinButton, ReadAloudButton, RetryModelMenu } from "./MessageActions";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
@@ -136,12 +134,15 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 
 /// The quiet row under an answer, as Claude Code desktop's: Copy, Fork from here (when acpmux
 /// serves forks), Pin, Read aloud, then the answer's age, and why the turn ended when it did not
-/// complete. Retry is the prompt's (UserBubble.tsx). A turn without a "Worked for" line (history
-/// paged in mid-turn) says its time and count here first.
+/// complete. Retry is the prompt's (UserBubble.tsx), and also here when the turn failed, whose row
+/// always shows. A turn without a "Worked for" line (history paged in mid-turn) says its time and
+/// count here first.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const { fork, forkSeq, forkAny, reauthenticate, route, switchModel } = useContext(TurnActionsContext);
+  const { fork, forkSeq, forkAny, retry, retryWith, reauthenticate, route, switchModel } =
+    useContext(TurnActionsContext);
   const text = row.text;
+  const prompt = row.prompt;
   const seq = row.seq;
   const failed = row.status === "failed" || row.status === "error";
   const kind = failed ? failureKind(row.error, route) : undefined;
@@ -158,6 +159,23 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         {!row.folded && <span className="cv-turn-summary">{workedLabel(t, row)}</span>}
         <span className="cv-turn-action-group">
           {text && <CopyButton text={text} />}
+          {failed && retry && prompt && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={t("turn.retry")}
+              title={t("turn.retryLabel")}
+              onClick={() => retry(row.retryRowId ?? "", prompt)}
+            >
+              <Retry size={14} />
+            </button>
+          )}
+          {failed && retry && prompt && retryWith && retryWith.models.length > 1 && (
+            <RetryModelMenu
+              retryWith={retryWith}
+              onPick={(model) => retryWith.retry(row.retryRowId ?? "", prompt, model)}
+            />
+          )}
           {fork && seq !== undefined && (forkAny || seq === forkSeq) && <ForkButton onFork={() => fork(seq)} />}
           <PinButton rowId={row.id} />
           {text && <ReadAloudButton id={row.id} text={text} />}
@@ -170,37 +188,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         <MessageTime at={row.at} className="cv-turn-time" />
       </div>
     </>
-  );
-}
-
-/// Retry with another model (cx-ncc.62): the chat harness's models, the current one checked.
-export function RetryModelMenu({
-  retryWith,
-  onPick,
-}: {
-  retryWith: NonNullable<TurnActions["retryWith"]>;
-  onPick(model: string): void;
-}) {
-  const t = useT();
-  return (
-    <Menu>
-      <MenuButton
-        className="cv-iconbtn cv-iconbtn--compact cv-turn-retry-menu"
-        label={t("turn.retryWith")}
-        title={t("turn.retryWith")}
-      >
-        <ChevronDown size={12} />
-      </MenuButton>
-      <MenuPopup label={t("turn.retryWith")} align="start">
-        <MenuRadioGroup value={retryWith.current ?? ""} onValueChange={onPick}>
-          {retryWith.models.map((model) => (
-            <MenuRadioItem key={model.id} value={model.id} closeOnClick>
-              {model.name}
-            </MenuRadioItem>
-          ))}
-        </MenuRadioGroup>
-      </MenuPopup>
-    </Menu>
   );
 }
 

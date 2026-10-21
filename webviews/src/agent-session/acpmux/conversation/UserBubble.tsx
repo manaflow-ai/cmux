@@ -6,7 +6,7 @@
 // prompt in place; Send forks the chat through the turn before it and sends the edited text there
 // (the App's `edit.send`), Escape or Cancel puts the bubble back. Edit shows only on a prompt the
 // chat can fork before (`editableTurns`), so it is never dead. Retry sends the prompt again; it shows
-// on the prompt of the last ended turn only (VirtualTranscript marks it `data-retryable`). A prompt
+// on the prompt of the last ended turn only (MessageActions.tsx PromptRetry). A prompt
 // with versions (an edit made it, or replaced it) shows < n/m > before them, always (branches.ts,
 // cx-ncc.61). Fork forks the chat through the prompt's own turn, as its right-click Fork does. The
 // images a prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they
@@ -15,16 +15,14 @@ import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react"
 import type { AcpmuxRow, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
-import { Check, ChevronLeft, ChevronRight, DoubleCheck, ImageIcon, Pencil, Retry } from "./icons";
+import { ChevronLeft, ChevronRight, ImageIcon, Pencil } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
-import { CopyButton, ForkButton, MessageTime, PinButton } from "./MessageActions";
-import { RetryModelMenu } from "./TurnRows";
+import { CopyButton, ForkButton, MessageTime, PinButton, PromptRetry, ReadReceipt } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 
 export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const t = useT();
-  const { edit, branches, fork, forkSeq, forkAny, promptTurns, retry, retryWith, route } =
-    useContext(TurnActionsContext);
+  const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
   const through = edit?.seqs.get(row.id);
@@ -85,7 +83,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
             </span>
           )}
           <MessageTime at={row.at} className="cv-user__time" />
-          <ReadReceipt row={row} agent={route?.name} />
+          <ReadReceipt row={row} />
           <CopyButton text={row.text ?? text} />
           {through !== undefined && (
             <button
@@ -98,52 +96,12 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
               <Pencil size={14} />
             </button>
           )}
-          {retry && resend && (
-            <span className="cv-user__retry">
-              <button
-                type="button"
-                className="cv-iconbtn cv-iconbtn--compact"
-                aria-label={t("turn.retry")}
-                title={t("turn.retryLabel")}
-                onClick={() => retry(row.id, resend)}
-              >
-                <Retry size={14} />
-              </button>
-              {retryWith && retryWith.models.length > 1 && (
-                <RetryModelMenu retryWith={retryWith} onPick={(model) => retryWith.retry(row.id, resend, model)} />
-              )}
-            </span>
-          )}
+          <PromptRetry rowId={row.id} prompt={resend} />
           {forkThrough !== undefined && <ForkButton onFork={() => fork!(forkThrough)} />}
           <PinButton rowId={row.id} />
         </div>
       )}
     </>
-  );
-}
-
-/// A prompt's read receipt, as Claude Code desktop's: nothing while it is being sent, one check
-/// once acpmux holds it (a steer waiting for the agent's step to end), two once the agent read it.
-function ReadReceipt({ row, agent }: { row: AcpmuxRow; agent?: string }) {
-  const t = useT();
-  if (row.pending) return null;
-  const read = row.steer !== "waiting";
-  const label = read
-    ? agent
-      ? t("message.readBy", { agent })
-      : t("message.readByAgent")
-    : t("message.delivered");
-  return (
-    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon with a spoken state, not an image file.
-    <span
-      className={`cv-user__read${read ? "" : " is-unread"}`}
-      role="img"
-      aria-label={label}
-      title={label}
-      data-read={read ? "true" : "false"}
-    >
-      {read ? <DoubleCheck size={14} /> : <Check size={14} />}
-    </span>
   );
 }
 

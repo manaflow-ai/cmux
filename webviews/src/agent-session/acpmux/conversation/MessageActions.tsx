@@ -1,15 +1,19 @@
-// The buttons of a message's action row, shared by a prompt's (UserBubble.tsx) and an answer's
-// (TurnRows.tsx TurnFooter), as Claude Code desktop draws them: the message's age ("8 minutes
-// ago", its date and time on hover), Copy, Fork from here (its title and what it does), Pin and
-// Read aloud. The rows show on hover or keyboard focus only (conversation.css).
-import { useState } from "react";
+// The buttons of a message's action row, shared by a prompt's (UserBubble.tsx), another agent's
+// message's (ReceivedActions) and an answer's (TurnRows.tsx TurnFooter), as Claude Code desktop
+// draws them: the message's age ("8 minutes ago", its date and time on hover), a prompt's read
+// receipt, Copy, Retry, Fork from here (its title and what it does), Pin and Read aloud. The rows
+// show on hover or keyboard focus only (conversation.css).
+import { useContext, useState } from "react";
+import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
 import { useMinuteClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
+import type { AcpmuxRow } from "../model";
 import { useRowMark } from "../threadMinimap/promptMarks";
 import { copyText } from "./clipboard";
-import { Copy, Pin, Speaker, TurnFork } from "./icons";
+import { Check, ChevronDown, Copy, DoubleCheck, Pin, Retry, Speaker, TurnFork } from "./icons";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
 import { relativeTime } from "./relativeTime";
+import { TurnActionsContext, type TurnActions } from "./turnActions";
 
 /// The message's age, relative and live; the exact date and time on hover.
 export function MessageTime({ at, className }: { at: number; className: string }) {
@@ -101,5 +105,103 @@ export function ReadAloudButton({ id, text }: { id: string; text: string }) {
     >
       <Speaker size={14} />
     </button>
+  );
+}
+
+/// A prompt's read receipt, as Claude Code desktop's: nothing while it is being sent, one check
+/// once acpmux holds it (a steer waiting for the agent's step to end), two once the agent read it,
+/// "Read by Claude Code" on hover (the chat harness's name).
+export function ReadReceipt({ row }: { row: AcpmuxRow }) {
+  const t = useT();
+  const { route } = useContext(TurnActionsContext);
+  if (row.pending) return null;
+  const read = row.steer !== "waiting";
+  const agent = route?.name;
+  const label = read
+    ? agent
+      ? t("message.readBy", { agent })
+      : t("message.readByAgent")
+    : t("message.delivered");
+  return (
+    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon with a spoken state, not an image file.
+    <span
+      className={`cv-user__read${read ? "" : " is-unread"}`}
+      role="img"
+      aria-label={label}
+      title={label}
+      data-read={read ? "true" : "false"}
+    >
+      {read ? <DoubleCheck size={14} /> : <Check size={14} />}
+    </span>
+  );
+}
+
+/// Retry, and Retry with another model when the harness has several: sends prompt row `rowId`
+/// (`prompt`, as the agent got it) again. It shows on the last ended turn's prompt only
+/// (VirtualTranscript marks that row `data-retryable`; conversation.css).
+export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }) {
+  const t = useT();
+  const { retry, retryWith } = useContext(TurnActionsContext);
+  if (!retry || !prompt) return null;
+  return (
+    <span className="cv-message-retry">
+      <button
+        type="button"
+        className="cv-iconbtn cv-iconbtn--compact"
+        aria-label={t("turn.retry")}
+        title={t("turn.retryLabel")}
+        onClick={() => retry(rowId, prompt)}
+      >
+        <Retry size={14} />
+      </button>
+      {retryWith && retryWith.models.length > 1 && (
+        <RetryModelMenu retryWith={retryWith} onPick={(model) => retryWith.retry(rowId, prompt, model)} />
+      )}
+    </span>
+  );
+}
+
+/// The row under another agent's message (IncomingMessageCard), at its text's left edge: its age,
+/// its read receipt, Copy, Retry and Pin.
+export function ReceivedActions({ row, text }: { row: AcpmuxRow; text: string }) {
+  return (
+    <div className="cv-received-actions">
+      <MessageTime at={row.at} className="cv-user__time" />
+      <ReadReceipt row={row} />
+      <CopyButton text={text} />
+      <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
+      <PinButton rowId={row.id} />
+    </div>
+  );
+}
+
+/// Retry with another model (cx-ncc.62): the chat harness's models, the current one checked.
+export function RetryModelMenu({
+  retryWith,
+  onPick,
+}: {
+  retryWith: NonNullable<TurnActions["retryWith"]>;
+  onPick(model: string): void;
+}) {
+  const t = useT();
+  return (
+    <Menu>
+      <MenuButton
+        className="cv-iconbtn cv-iconbtn--compact cv-turn-retry-menu"
+        label={t("turn.retryWith")}
+        title={t("turn.retryWith")}
+      >
+        <ChevronDown size={12} />
+      </MenuButton>
+      <MenuPopup label={t("turn.retryWith")} align="start">
+        <MenuRadioGroup value={retryWith.current ?? ""} onValueChange={onPick}>
+          {retryWith.models.map((model) => (
+            <MenuRadioItem key={model.id} value={model.id} closeOnClick>
+              {model.name}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuPopup>
+    </Menu>
   );
 }

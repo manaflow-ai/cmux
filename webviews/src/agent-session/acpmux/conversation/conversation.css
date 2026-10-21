@@ -389,11 +389,30 @@
 .cv-user__actions--versions {
   opacity: 1;
 }
-/* Retry sends the last ended turn's prompt again (VirtualTranscript marks its row). */
-.cv-user__retry {
+/* Under another agent's message (MessageActions.tsx ReceivedActions): the same row, at the card
+   text's left edge, on hover or focus only. */
+.cv-received-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+  padding-left: 32.5px;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-received-actions {
+    transition: opacity 120ms ease-out;
+  }
+}
+.cv-incoming:hover .cv-received-actions,
+.cv-received-actions:focus-within {
+  opacity: 1;
+}
+/* Retry sends the last ended turn's prompt again (VirtualTranscript marks its row; MessageActions.tsx). */
+.cv-message-retry {
   display: none;
 }
-.acpmux-row[data-retryable] .cv-user__retry {
+.acpmux-row[data-retryable] .cv-message-retry {
   display: inline-flex;
   align-items: center;
 }

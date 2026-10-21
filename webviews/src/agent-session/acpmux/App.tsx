@@ -143,6 +143,7 @@ import type { ChangesSource } from "./changes/model";
 import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
+import { ReceivedActions } from "./conversation/MessageActions";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
@@ -621,12 +622,14 @@ const MessageRow = memo(
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
     // Another agent's message as a card from it; a task notification as one quiet line
     // (conversation/incomingMessage.ts).
-    // Its images and a steer's read state show with it, as under a bubble.
+    // Its images show with it, and its action row (age, read receipt, Copy, Retry, Pin) on hover, as
+    // under a bubble.
     if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
     if (row.kind === "user" && row.incoming?.kind === "message")
       return (
         <div className="cv-incoming">
           <IncomingMessageCard message={row.incoming.message} images={row.images} onOpen={openOfferChat} />
+          <ReceivedActions row={row} text={row.incoming.message.text} />
         </div>
       );
     if (row.kind === "user" && row.incoming?.kind === "hidden") return null;
