@@ -91,7 +91,7 @@ public nonisolated struct AcpmuxChiefHandoff: Sendable {
     /// took that, so its running turn ends on this daemon first.
     static func replacedAction(replaced: Bool, agentHosts: Bool, hostWaits: () async -> Bool) async -> ReplacedAction {
         guard replaced, agentHosts else { return .keep }
-        return .handOff
+        return await hostWaits() ? .waitForHost : .handOff
     }
 
     /// Stops the running Chief-home daemon when it runs from a replaced bundle and has agent
