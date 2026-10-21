@@ -5311,6 +5311,9 @@ mod host_scrollback;
 #[path = "terminal_host_recovery/output_coalescing.rs"]
 mod output_coalescing;
 
+#[path = "terminal_host_recovery/answers_before_adoption.rs"]
+mod answers_before_adoption;
+
 #[cfg(target_os = "macos")]
 #[path = "terminal_host_recovery/slim_host.rs"]
 mod slim_host;
@@ -5322,9 +5325,8 @@ mod slim_host;
 /// Prints `service-start: {...}` for plans/cmux-next/service-start-PERF.md;
 /// `CMUX_TUI_STARTUP_BENCH_TERMINALS` sets the terminal count (default 60)
 /// and `CMUX_TUI_STARTUP_BUDGET_MS` the budget for the first answer. The budget
-/// guards today's level (951 ms for 60 terminals on a Mac mini, 2026-10-20: hosts
-/// re-attach one at a time before the first answer, plans/cmux-next/service-start-PERF.md);
-/// lower it when that becomes parallel.
+/// is 250 ms: hosts adopt after the first answer (plans/cmux-next/service-start-PERF.md 5b;
+/// 951 ms for 60 terminals on a Mac mini while they re-attached one at a time first).
 #[test]
 fn restart_with_many_live_terminals_answers_within_budget() {
     let count: usize = std::env::var("CMUX_TUI_STARTUP_BENCH_TERMINALS")
@@ -5334,7 +5336,7 @@ fn restart_with_many_live_terminals_answers_within_budget() {
     let budget_ms: u128 = std::env::var("CMUX_TUI_STARTUP_BUDGET_MS")
         .ok()
         .and_then(|value| value.parse().ok())
-        .unwrap_or(2_000);
+        .unwrap_or(250);
     let mut harness = RecoveryHarness::start("startup-many-terminals");
     let mut terminals = Vec::with_capacity(count);
     for index in 0..count {
