@@ -153,9 +153,15 @@ PATH_OWNERS = {
     # test_ci_xcodebuild_noninteractive_helper.py loads it by path.
     "scripts/ci/xcodebuild_noninteractive.py": frozenset(("app-host-watchdog",)),
     # lint-ios-conventions-diff.sh runs lint-ios-package-conventions.sh, which
-    # runs the namespace linter, which imports the source mask.
-    "scripts/lint_swift_namespaces.py": frozenset(("release-ios",)),
-    "scripts/swift_source_mask.py": frozenset(("release-ios",)),
+    # runs the namespace linter, which imports the source mask, against the
+    # shrink-only lists. The step is in preflight: test-ios.yml and cmux-next.yml
+    # run the same lint for feat-cmux-next, so it is not a release-ios guard.
+    "scripts/lint-ios-package-conventions.sh": frozenset(("preflight",)),
+    "scripts/lint-ios-package-conventions-baseline.txt": frozenset(("preflight",)),
+    "scripts/lint-namespace-types-baseline.txt": frozenset(("preflight",)),
+    "scripts/lint-namespace-types-ratchet.txt": frozenset(("preflight",)),
+    "scripts/lint_swift_namespaces.py": frozenset(("preflight",)),
+    "scripts/swift_source_mask.py": frozenset(("preflight",)),
     # test_ci_reusable_workflow_permissions.py loads it; cmux.ci.guard runs that.
     "scripts/ci/check_reusable_workflow_permissions.py": frozenset(("ci",)),
     "scripts/ci/require_swift_test_execution.py": frozenset(("app-host-execution",)),
