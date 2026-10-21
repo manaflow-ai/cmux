@@ -35,11 +35,12 @@ export function RailTasks({
           {visible.map((process) => (
             <li key={process.id} className="acpmux-rail-task">
               <Icon name="terminal" size={ROW_ICON} row />
+              {/* tooltip-allow: a long command is cut with an ellipsis; the tooltip is its whole text */}
               <span className="acpmux-rail-task__command" title={process.command}>
                 {process.command}
               </span>
               <span className="acpmux-rail-task__time">{formatDuration(Math.max(0, now - process.startedAt))}</span>
-              {onStop && <StopButton process={process} stop={onStop} />}
+              {onStop && <StopButton id={process.id} name={process.command} stop={onStop} />}
             </li>
           ))}
         </ul>
@@ -59,12 +60,13 @@ export function RailTasks({
   );
 }
 
-/// Stop: off once sent, until the registry's update ends the row; when acpmux or the harness
-/// refuses, it says so and can be tried again (as a subagent's Stop, SubagentGroup.tsx).
-function StopButton({ process, stop }: { process: RailProcess; stop: (id: string) => Promise<unknown> }) {
+/// Stop process `id` (named `name`): off once sent, until the registry's update ends the row; when
+/// acpmux or the harness refuses, it says so and can be tried again (as a subagent's Stop,
+/// SubagentGroup.tsx). The summary card's Background tasks rows use it too (SummaryTasks.tsx).
+export function StopButton({ id, name, stop }: { id: string; name: string; stop: (id: string) => Promise<unknown> }) {
   const t = useT();
   const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
-  const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name: process.command });
+  const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name });
   return (
     <button
       type="button"
@@ -75,7 +77,7 @@ function StopButton({ process, stop }: { process: RailProcess; stop: (id: string
       title={label}
       onClick={() => {
         setState("stopping");
-        stop(process.id).catch(() => setState("failed"));
+        stop(id).catch(() => setState("failed"));
       }}
     >
       <Icon name="action.stop" size={12} />
