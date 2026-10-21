@@ -2845,6 +2845,7 @@ export class AcpmuxDirectClient {
             steering: summary.steering === true,
             backgroundsWork: summary.backgroundsWork === true,
             queuePaused: summary.queuePaused === true,
+            ...(summary.restricted === true ? { restricted: true } : {}),
             ...(Array.isArray(summary.mcpServers) ? { mcpServers: summary.mcpServers } : {}),
             status: summary.status,
             enforcement: sessionEnforcement(summary.enforcement),

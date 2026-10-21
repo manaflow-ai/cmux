@@ -840,6 +840,13 @@ impl Hub {
         session: &Arc<Session>,
         mode_id: &str,
     ) -> Result<Value, RpcError> {
+        // A restricted chat runs in an asking mode only (`restricted.rs`), whoever asks.
+        if session.meta().restricted && !super::restricted::MODES.contains(&mode_id) {
+            return Err(RpcError::invalid_params(format!(
+                "restricted.widening: a restricted chat runs in Normal or Plan, not {mode_id}; trust the folder first"
+            ))
+            .with_data(json!({"reason": "restricted.widening"})));
+        }
         let r = self.forward(session, method::SESSION_SET_MODE, json!({"modeId": mode_id})).await?;
         self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode_id))]);
         self.append(session, "mux", "mode", json!({"modeId": mode_id}));
