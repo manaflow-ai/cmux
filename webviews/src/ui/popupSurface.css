@@ -20,10 +20,11 @@
   --ui-row-height: calc(28px * var(--cmux-interface-scale, 1));
   --ui-row-radius: 5px;
   --ui-row-padding-inline: calc(8px * var(--cmux-interface-scale, 1));
-  /* The open fades and scales in; under Reduce Motion it only fades (ui-popup-fade). */
-  --ui-popup-open: 120ms;
+  /* The open fades and scales in; under Reduce Motion it only fades (ui-popup-fade). The motion
+     scale's steps (pages/shared/desktop.css); the literal is the same step, for a page without it. */
+  --ui-popup-open: var(--cmux-motion-micro, 120ms);
   /* The close: a fade, in every motion setting (the native fadeOut token). */
-  --ui-popup-close: 80ms;
+  --ui-popup-close: var(--cmux-motion-quick, 80ms);
 }
 
 /* appearance.borders none (data-borders on the root, applyAgentTheme) clears the rim in place, as it

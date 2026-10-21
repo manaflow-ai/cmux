@@ -60,6 +60,7 @@ import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, startModeChanged } from "./startMode";
 import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
+import { pasteRanges } from "./conversation/promptCollapse";
 import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks";
 
 export type AcpmuxHostConfig = {
@@ -2616,6 +2617,10 @@ export class AcpmuxDirectClient {
           ...(continues ? { continues } : {}),
           ...(steer === "waiting" && promptId ? { steerPromptId: promptId } : {}),
           ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
+          // The blocks the composer sent as pastes, by where they sit in the text acpmux recorded;
+          // only while the row shows that text as recorded (a harness note it hides moves them).
+          ...(shown.text === raw &&
+            pasteRanges(msg.pasted, raw).length > 0 && { pasted: pasteRanges(msg.pasted, raw) }),
           ...(fallbackPromptId && this.optimisticPromptAttachments.get(fallbackPromptId)?.length
             ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
             : {}),

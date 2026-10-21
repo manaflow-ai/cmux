@@ -64,7 +64,8 @@ enum PaletteSourcesBridge {
         let screens = ScreenTargetSource(services: services, next: profiles)
         let spaces = SpaceAndPaneTargetSource(services: services, next: screens)
         let sections = SidebarSectionTargetSource(services: services, next: spaces)
-        return TabAndGroupTargetSource(services: services, next: sections)
+        let chats = PriorityChatTargetSource(chats: .app, next: sections)
+        return TabAndGroupTargetSource(services: services, next: chats)
     }
 
     /// The active window's focused objects when the palette opens: the

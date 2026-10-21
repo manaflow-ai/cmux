@@ -7,6 +7,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
 import { MessageCard } from "./MessageCard";
 import { McpCallRows } from "./McpCallRows";
+import { SubsessionCallCard } from "./SubsessionCallCard";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
@@ -54,7 +55,7 @@ export function WorkedFor({
   );
 }
 
-/// One entry of a run: a group, a message card, a lone call or a thought. `live`: the entry is the
+/// One entry of a run: a group, a message or sub-session card, a lone call or a thought. `live`: the entry is the
 /// last of the live turn's latest row, so a thought there may still stream. `folded`: the run is
 /// finished and draws no summary line of its own, so a group starts closed.
 function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean, folded = false): ReactNode {
@@ -79,6 +80,8 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
       );
     case "message":
       return <MessageCard key={group.item.tool!.id || index} item={group.item} message={group.message} />;
+    case "subsession":
+      return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} />;
     case "item":
       // A short interim note folded into the run (turns.ts mergeShortNotes).
       if (group.item.kind === "note")
@@ -106,10 +109,14 @@ export function shouldFoldToolRun(
   groups: readonly ToolGroup[],
   items: readonly AcpmuxActivity[],
 ): boolean {
-  // Coordination cards stay visible beside tool calls so a settled run never hides the
-  // agent-to-agent receipt inside the generic tool summary.
+  // Coordination cards (a message, a sub-session started, messaged or waited on) stay visible
+  // beside tool calls so a settled run never hides the agent-to-agent receipt inside the generic
+  // tool summary.
   return (
-    row.foldRun === true && groups.length > 1 && !groups.some((group) => group.type === "message") && isFoldedRun(items)
+    row.foldRun === true &&
+    groups.length > 1 &&
+    !groups.some((group) => group.type === "message" || group.type === "subsession") &&
+    isFoldedRun(items)
   );
 }
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {

@@ -253,9 +253,29 @@ impl Session {
     /// When the current TURN allocation's stream to its server dies, take a
     /// new allocation (retrying with backoff while the session lives).
     fn monitor_turn(self: &Arc<Self>, mut dead: watch::Receiver<bool>) {
+        self.retry_turn("TURN stream lost; taking a new allocation", async move {
+            dead.wait_for(|dead| *dead).await.is_ok()
+        });
+    }
+
+    /// The dial asked for a TURN allocation and its server did not answer in
+    /// time: take one now, with the same backoff. Until then the peer may have
+    /// no route to this side at all (its plain UDP lost), and the tunnel's
+    /// handshake retries would only run out the dial's timeout.
+    pub(super) fn retry_missing_turn(self: &Arc<Self>) {
+        self.retry_turn("no TURN allocation at dial; taking one", async { true });
+    }
+
+    /// Once `start` says so, take a new TURN allocation, retrying with backoff
+    /// while the session lives.
+    fn retry_turn(
+        self: &Arc<Self>,
+        why: &'static str,
+        start: impl std::future::Future<Output = bool> + Send + 'static,
+    ) {
         let weak = Arc::downgrade(self);
         let task = tokio::spawn(async move {
-            if dead.wait_for(|dead| *dead).await.is_err() {
+            if !start.await {
                 return;
             }
             for wait in TURN_RETRIES {
@@ -264,7 +284,7 @@ impl Session {
                 if session.closed.load(Ordering::Relaxed) {
                     return;
                 }
-                tracing::info!(session = session.session_id, "TURN stream lost; taking a new allocation");
+                tracing::info!(session = session.session_id, "{why}");
                 if session.replace_turn().await {
                     return;
                 }

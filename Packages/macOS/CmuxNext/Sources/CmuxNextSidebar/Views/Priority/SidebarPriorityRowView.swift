@@ -4,6 +4,7 @@ import CmuxNextDesign
 /// One chat in the Priority view: the title and its project or machine tag on the first line with
 /// the state chip at the right, then up to two lines of its latest message. The pointer over the
 /// row swaps the chip for its actions (mark read, pin, snooze, archive); a click opens the chat.
+/// The buttons and the right-click menu run the same registered actions (the App maps them).
 final class SidebarPriorityRowView: NSView {
     private(set) var entry: SidebarPriorityEntry
     var onAction: ((SidebarPriorityAction) -> Void)?
@@ -58,9 +59,8 @@ final class SidebarPriorityRowView: NSView {
         preview.isHidden = entry.preview == nil
         chip.stringValue = Self.chipText(entry.state, now: Date())
         indicator.configure(Self.indicatorState(entry.state))
-        pin.label = entry.pinned ? Strings.priorityUnpin : Strings.priorityPin
-        // A question is answered, not read: only a result or a failure can be marked read.
-        markRead.isEnabled = entry.needsAttention && entry.state != .needsYou
+        pin.label = entry.pinTitle
+        markRead.isEnabled = entry.canMarkRead
         setAccessibilityLabel([entry.title, chip.stringValue, entry.preview].compactMap(\.self).joined(separator: ", "))
         needsLayout = true
         needsDisplay = true
@@ -187,6 +187,13 @@ final class SidebarPriorityRowView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {}
+
+    /// The App's menu for the row's chat (`SidebarContextTarget.priorityChat`): the same actions as
+    /// the hover buttons.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let sidebar = sequence(first: superview, next: { $0?.superview }).lazy.compactMap { $0 as? SidebarView }.first
+        return sidebar?.contextMenuProvider?(.priorityChat(entry.id))
+    }
 
     override func mouseUp(with event: NSEvent) {
         guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }

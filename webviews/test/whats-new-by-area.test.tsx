@@ -73,10 +73,26 @@ test("What's New lists the update's changes by area with their pull requests, in
   const { mountChangelogPage } = await import("../src/pages/changelog/main");
   const root = dom.window.document.createElement("div");
   dom.window.document.body.append(root);
+  // The span's notes load after the list: yield until the section is drawn and every call is answered.
+  let open = 0;
+  class Counted extends MockChangelogProvider {
+    override async call<R>(op: string, params: unknown): Promise<R> {
+      open += 1;
+      try {
+        return await super.call<R>(op, params);
+      } finally {
+        open -= 1;
+      }
+    }
+  }
   await act(async () => {
-    mountChangelogPage(root, new MockChangelogProvider(span, "3940000000003") as never);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    mountChangelogPage(root, new Counted(span, "3940000000003") as never);
   });
+  const deadline = performance.now() + 2_000;
+  do {
+    if (performance.now() > deadline) throw new Error("timed out waiting for the update's notes");
+    await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  } while (open > 0 || !root.querySelector('[data-testid="changelog.sinceLastUpdate"] .cl-area'));
   const section = root.querySelector('[data-testid="changelog.sinceLastUpdate"]');
   expect(section).not.toBeNull();
   // The span has user-visible changes: never "Maintenance and fixes" over them.
