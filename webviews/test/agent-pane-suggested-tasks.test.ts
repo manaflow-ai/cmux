@@ -749,12 +749,14 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
               provenance: { kind: "agent_message", from: "acp:child-3", fromName: "Grid fix", to: `acp:${SESSION}` },
             },
           }),
+          // The agent's answer: it read the steer.
+          say("Looking at the grid now."),
         ],
       });
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
       expect(await card.locator(".cv-message__images").count()).toBe(1);
-      expect(await page.locator(".cv-incoming .cv-user__steer").count()).toBe(1);
+      await page.locator(".cv-incoming .cv-user__steer", { hasText: "Steered" }).waitFor({ timeout: 10_000 });
       await page.close();
     });
   });
