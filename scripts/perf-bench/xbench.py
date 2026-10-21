@@ -54,6 +54,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import platform
 import plistlib
 import random
@@ -65,6 +66,7 @@ import subprocess
 import sys
 import time
 import urllib.parse
+import urllib.error
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -332,6 +334,23 @@ class ChromiumBrowser(Browser):
     def activate(self, handle: str):
         self.cdp(f"/json/activate/{handle}")
 
+    def probe_cdp(self):
+        """Turns off switching and closing when this browser's CDP lacks /json/activate or
+        /json/close, so the session goes on to its other rows instead of ending."""
+        if not self.tabs:
+            return
+        for path, attr in ((f"/json/activate/{self.tabs[-1]}", "can_switch"), ("/json/close/xbench-missing-target", "can_close")):
+            try:
+                self.cdp(path)
+            except urllib.error.HTTPError as error:
+                # Chrome answers a missing target with 404 "No such target id"; a 404 without
+                # that text means the endpoint itself does not exist.
+                if error.code == 404 and "no such target" not in error.read().decode(errors="replace").lower():
+                    setattr(self, attr, False)
+                    log(f"{self.name}: CDP {path.split('/')[2]} unsupported (404), its rows are skipped")
+            except OSError:
+                pass
+
     def close(self, handle: str):
         self.cdp(f"/json/close/{handle}")
         if handle in self.tabs:
@@ -372,17 +391,24 @@ class CmuxBrowser(Browser):
                 json.dump({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, handle)
         env = {"HOME": home, "CFFIXED_USER_HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": tmp + "/",
                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
-               "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": config}
+               "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": config,
+               # As the Chromium browsers' --use-mock-keychain: a locked login keychain on a bench
+               # host otherwise holds CEF at a keychain prompt and no Chromium tab loads.
+               "CMUX_MOCK_KEYCHAIN": "1"}
         argv = ["open", "-n", "-g"] + [x for k, v in env.items() for x in ("--env", f"{k}={v}")] + ["-a", self.bundle]
         subprocess.run(argv, check=True, timeout=60)
         self.instance = procs.Instance(self.bundle, self.wait_main())
         self._tmp = tmp
+        self._state = os.path.join(home, ".local/state/cmux")
 
     def ready(self, timeout: float = 90):
         import bench_memory as bm
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            path = bm.control_socket(self.bundle, self.instance.pid, ["/tmp", self._tmp])
+            # The app binds in its HOME's state folder; /tmp holds only a symlink, which a later
+            # instance may leave pointing at the previous session's socket.
+            dirs = [d for d in (self._state, self._tmp, "/tmp") if os.path.isdir(d)]
+            path = bm.control_socket(self.bundle, self.instance.pid, dirs)
             if path:
                 self.socket = path
                 self.app = bm.App(self.bundle, path)
@@ -391,14 +417,16 @@ class CmuxBrowser(Browser):
         raise RuntimeError("cmux: no control socket within 90 s")
 
     def act(self, action: str, **args) -> dict:
-        reply = self.app.action(action, **args)
+        # focus: a user's Cmd-T / Cmd-1..9 shows the tab (Chrome's /json/new opens a foreground tab);
+        # a background cmux tab does not load at all, so no paint or visibility row would exist.
+        reply = self.app.action(action, focus=True, **args)
         if reply.get("error"):
             raise RuntimeError(f"cmux {action}: {reply['error']}")
         return reply
 
     def start_workspace(self):
         self.act("workspace.newAtBottom")
-        self.app.action("workspace.selectLast")
+        self.app.action("workspace.selectLast", focus=True)
 
     def new_tab(self, url: str, tab_id: str) -> str:
         if self.engine == "terminal":
@@ -630,6 +658,8 @@ class Run:
             sleep(a.settle)
             self.window(browser, round_no, {"power-idle-visible": "mw", "idle-cpu-20": "cpu_pct",
                                             "idle-wakeups-20": "wakeups_per_s"}, a.idle)
+            if isinstance(browser, ChromiumBrowser):
+                browser.probe_cdp()  # Ardia's CDP has no /json/activate or /json/close
             if browser.can_switch or browser.name == "cmux-terminal":
                 latencies = []
 
@@ -783,11 +813,91 @@ def ratio(cmux_value, other) -> str:
     return f"{r:.1f}x less" if r >= 1 else f"{1 / r:.1f}x MORE"
 
 
-def report(out: str, md_path: str | None, json_path: str | None):
+TAB_SWITCH_KINDS = {"chromium": "Browser (Chromium)", "webkit": "Browser (WebKit)", "markdown": "Markdown",
+                    "chat": "Chat", "terminal": "Terminal", "file": "Code file"}
+TAB_SWITCH_BROWSER = "cmux-debug"  # the matrix needs a tagged Debug build (debug.key, debug.tab_switch)
+
+
+def tab_switch_rows(path: str | None) -> tuple[dict, list[str]]:
+    """Rows and BENCH.md lines from tab-switch-matrix.py's report: end-to-end ms (OS input event to
+    the Core Animation commit that shows the tab) per kind, tab count and input, in a real window."""
+    if not path or not os.path.exists(path):
+        return {}, []
+    data = json.load(open(path))
+    rows, lines = {}, []
+    lines += ["## Tab switch in a real window (cmux NEXT, tagged Debug build)", "",
+              "**Debug only:** these rows come from a tagged Debug build (the timing hooks exist only in "
+              "Debug), not the Release or nightly build in the table above. Compare them only with other "
+              "Debug runs.", "",
+              "tab-switch-matrix.py: one pane holding N tabs of a kind, warm; end-to-end = OS input event to "
+              "the Core Animation commit that shows the tab (p50 / p90 ms); late = switches past their first frame.", "",
+              "| Kind | Tabs | Ctrl-Tab | Cmd-Shift-] | Click | late | per hidden tab |", "|---|---|---|---|---|---|---|"]
+    for scenario in data.get("scenarios", []):
+        kind, count = scenario["kind"], scenario["count"]
+        cells, late = [], []
+        for input_kind in ("ctrl_tab", "cmd_shift_bracket", "click"):
+            table = (scenario.get(input_kind) or {}).get("table") or {}
+            # Keyed by the switched-to surface's kind: Markdown and chat tabs are both `page`.
+            line = table.get(kind) or table.get("page") or next(
+                (v for k, v in table.items() if k != "terminal"), {})
+            e2e = line.get("e2e") or line.get("commit") or {}
+            if e2e.get("p50") is None:
+                cells.append("–")
+                continue
+            cells.append(f"{e2e['p50']:.1f} / {e2e['p90']:.1f}")
+            late.append(f"{line.get('late_switches')}/{line.get('n')}")
+            rows.setdefault(f"tab-switch-{kind}-{count}-{input_kind}", {})[TAB_SWITCH_BROWSER] = {
+                "median": e2e["p50"], "p90": e2e["p90"], "n": line.get("n")}
+        per_tab = scenario.get("per_tab") or {}
+        lines.append(f"| {TAB_SWITCH_KINDS.get(kind, kind)} | {count} | " + " | ".join(cells) +
+                     f" | {', '.join(late) or '–'} | {per_tab.get('footprint_mb', '–')} MB |")
+    lines.append("")
+    return rows, lines
+
+
+def palette_rows(path: str | None) -> tuple[dict, list[str]]:
+    """Rows and BENCH.md lines from palette-open-stages.py's report (a182): key-down to the palette's
+    committed first frame, per focused surface, for Cmd-Shift-P (Command Palette) and Cmd-P."""
+    if not path or not os.path.exists(path):
+        return {}, []
+    data = json.load(open(path))
+    rows, lines = {}, []
+    lines += ["## Palette open (cmux NEXT, tagged Debug build)", "",
+              "**Debug only**, like the tab switch rows. palette-open-stages.py: key-down (`debug.key`, the key "
+              "router's real path) to the Core Animation commit of the palette's first frame, warm, p50 / p90 ms; "
+              "the budget is one 60 Hz frame (p90 <= 16 ms).", "",
+              "| Focused surface | Cmd-Shift-P | Cmd-P | missed |", "|---|---|---|---|"]
+    surfaces = {}
+    for name, entry in (data.get("surfaces") or {}).items():
+        label, _, key = name.rpartition(" ")
+        key_stage = (entry.get("table") or {}).get("key") or {}
+        surfaces.setdefault(label, {})[key] = (key_stage, entry.get("missed", 0), len(entry.get("samples") or []))
+        if key_stage.get("p50") is not None:
+            slug = re.sub(r"[^a-z0-9]+", "-", f"{label} {key}".lower()).strip("-")
+            rows.setdefault(f"palette-open-{slug}", {})[TAB_SWITCH_BROWSER] = {
+                "median": key_stage["p50"], "p90": key_stage["p90"], "n": len(entry.get("samples") or [])}
+    for label, keys in surfaces.items():
+        cells, missed = [], []
+        for key in ("Cmd-Shift-P", "Cmd-P"):
+            stage, miss, n = keys.get(key, ({}, 0, 0))
+            cells.append(f"{stage['p50']:.1f} / {stage['p90']:.1f}" if stage.get("p50") is not None else "–")
+            if miss + n:
+                missed.append(f"{miss}/{miss + n}")
+        lines.append(f"| {label} | " + " | ".join(cells) + f" | {', '.join(missed) or '–'} |")
+    lines.append("")
+    return rows, lines
+
+
+def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str | None = None,
+           palette: str | None = None):
     path = os.path.join(out, "samples.jsonl")
     samples = [json.loads(line) for line in open(path) if line.strip()] if os.path.exists(path) else []
     meta = json.load(open(os.path.join(out, "meta.json")))
     rows = aggregate(samples)
+    switch_rows, switch_lines = tab_switch_rows(tabswitch)
+    rows.update(switch_rows)
+    palette_found, palette_lines = palette_rows(palette)
+    rows.update(palette_found)
     errors = [s for s in samples if s["row"] == "session-error" or (s.get("value") is None and s.get("note"))]
     result = {"date": time.strftime("%Y-%m-%d"), "machine": meta["machine"], "cmux_ref": meta.get("cmux_ref"),
               "browsers": meta["browsers"], "rows": rows, "published": PUBLISHED,
@@ -823,6 +933,8 @@ def report(out: str, md_path: str | None, json_path: str | None):
     lines += ["", "\\* not in Ardia's tweet. \"cmux vs best other\" uses the best cmux variant of the row. "
               "Power is CPU energy (ri_energy_nj) over every process of the browser; GPU and display are not in it. "
               "The 10x goal: every cmux cell at a tenth of the best other.", ""]
+    lines += switch_lines
+    lines += palette_lines
     if errors:
         lines += ["## Rows that could not be measured", ""]
         seen = set()
@@ -852,10 +964,10 @@ def gate(results_path: str, baseline_path: str, tolerance: float) -> int:
     baseline = json.load(open(baseline_path))["rows"]
     failed = 0
     for row, per in baseline.items():
-        if row not in ROW_INFO:
+        if row not in ROW_INFO and not row.startswith(("tab-switch-", "palette-open-")):
             continue
-        unit = ROW_INFO[row][1]
-        for browser in CMUX:
+        unit = ROW_INFO[row][1] if row in ROW_INFO else "ms"
+        for browser in (*CMUX, TAB_SWITCH_BROWSER):
             base = per.get(browser, {}).get("median")
             now = results.get(row, {}).get(browser, {}).get("median")
             if base is None or now is None:
@@ -891,6 +1003,8 @@ def main():
     rep.add_argument("--out", required=True)
     rep.add_argument("--md")
     rep.add_argument("--json")
+    rep.add_argument("--tabswitch", help="tab-switch-matrix.py's --json report")
+    rep.add_argument("--palette", help="palette-open-stages.py's --json report")
     gat = sub.add_parser("gate")
     gat.add_argument("--results", required=True)
     gat.add_argument("--baseline", required=True)
@@ -901,7 +1015,7 @@ def main():
         random.seed(0)
         Run(args).main()
     elif args.command == "report":
-        report(args.out, args.md, args.json)
+        report(args.out, args.md, args.json, args.tabswitch, args.palette)
     else:
         sys.exit(gate(args.results, args.baseline, args.tolerance))
 

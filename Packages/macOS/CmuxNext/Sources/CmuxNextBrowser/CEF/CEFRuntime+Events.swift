@@ -167,6 +167,7 @@ extension CEFRuntime {
     func register(_ tab: CEFTab, browser: Int32) {
         windowRequests.linkClicks.onGesture = { [weak self] browser in self?.tabsByBrowser[browser]?.automaticDownloads.userGesture() }
         windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
+        swipeNavigation.start()
         tabsByBrowser[browser] = tab
         tab.attach(browser: browser)
         CEFSignInCallbacks.shared.attached(tab)

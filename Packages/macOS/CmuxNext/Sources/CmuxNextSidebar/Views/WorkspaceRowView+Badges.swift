@@ -6,8 +6,8 @@ import Foundation
 /// It always draws in the trailing slot, with or without an icon: nothing but the favicon or the
 /// user's icon draws in the leading slot (Lawrence 2026-10-19, "There should only ever be a single
 /// unread indicator for the right side"), so a row with a favicon and a text-only row
-/// (WORKSPACE-ROWS-NO-DEFAULT-ICON) put it in the same place. The right side shows the dim time
-/// since the last change.
+/// (WORKSPACE-ROWS-NO-DEFAULT-ICON) put it in the same place. With `sidebar.showTimestamps`
+/// on (off by default), the right side shows the dim time since the last change.
 extension WorkspaceRowView {
     /// Applies `style` after the rest of `configure`: the row badge and the trailing time. `trailing` leaves the row as it was.
     func configureBadges(_ ws: SidebarWorkspace, shown: WorkspaceRowContent, style: SidebarRowBadgeStyle,
@@ -46,12 +46,18 @@ extension WorkspaceRowView {
 
     /// Places the badge (one glyph or the stack) left of `trailing`, centered on `cy`; returns the
     /// new trailing edge. Never on the leading icon.
-    func layoutRowBadge(trailing: CGFloat, cy: CGFloat) -> CGFloat {
+    ///
+    /// With `columnCenterX` (nothing else sits at the row's end), the last glyph centers on the
+    /// trailing column instead, the x the group header's chevron centers on, so every row's dot
+    /// and spinner share one line (Lawrence 2026-10-20); the whole column slot stays reserved.
+    func layoutRowBadge(trailing: CGFloat, cy: CGFloat, columnCenterX: CGFloat? = nil) -> CGFloat {
         guard !rowBadge.isHidden else { return trailing }
         // Whole points, so each glyph in its cell lands on the pixel grid at 1x and 2x.
         let side = rowBadge.cellSide, width = rowBadge.preferredWidth
-        rowBadge.frame = NSRect(x: (trailing - width).rounded(.down), y: (cy - side / 2).rounded(), width: width, height: side)
-        return rowBadge.frame.minX - Metrics.space2
+        let x = columnCenterX.map { $0 - width + side / 2 } ?? trailing - width
+        rowBadge.frame = NSRect(x: x.rounded(.down), y: (cy - side / 2).rounded(), width: width, height: side)
+        let slotStart = columnCenterX.map { $0 - SidebarStyle.trailingSlotSide / 2 } ?? rowBadge.frame.minX
+        return min(rowBadge.frame.minX, slotStart) - Metrics.space2
     }
 
     /// The row's backdrop for the badges' cutout rings: `fill` over the sidebar's background.

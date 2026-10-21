@@ -1,0 +1,108 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Home agent references · gallery</title>
+<style>
+/* Home bubble metrics (Fixture.swift): body 13 pt system, line 16 pt, pad 7/12, radius 15. */
+:root{--font:13px/16px -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif}
+*{box-sizing:border-box}
+body{margin:0;padding:24px 28px 80px;font:var(--font);background:#f5f5f7;color:#1d1d1f}
+h1{font-size:18px;line-height:24px;margin:0 0 4px}
+.sub{color:#6e6e73;margin:0 0 20px;max-width:900px}
+.v{margin:0 0 26px}
+.v h2{font-size:14px;line-height:20px;margin:0 0 2px;display:flex;gap:8px;align-items:center}
+.v .why{color:#6e6e73;margin:0 0 8px;max-width:900px}
+.rec{font-size:11px;line-height:16px;background:#0a84ff;color:#fff;border-radius:6px;padding:0 7px;font-weight:600}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:0;border-radius:12px;overflow:visible}
+.pane{padding:14px 16px}
+.light{background:#fff;border-radius:12px 0 0 12px;border:1px solid #e5e5ea;border-right:0}
+.dark{background:#1e1e1e;border-radius:0 12px 12px 0;border:1px solid #2c2c2e;border-left:0}
+.bubble{max-width:430px;border-radius:15px;padding:7px 12px;font:var(--font);margin:0}
+.light .bubble{background:#e9e9eb;color:#000}
+.dark .bubble{background:#3a3a3c;color:#fff}
+.bubble p{margin:0}.bubble p+p,.bubble ul{margin-top:6px}
+.bubble ul{padding-left:16px;margin-bottom:0}.bubble li+li{margin-top:2px}
+.ref{cursor:pointer;position:relative;font:inherit}
+
+/* 1 Plain link */
+.v1 .light .ref{color:#0a6cdf}.v1 .dark .ref{color:#4aa8ff}
+/* 2 Underline, text color */
+.v2 .ref{color:inherit;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px}
+.v2 .light .ref{text-decoration-color:rgba(0,0,0,.35)}.v2 .dark .ref{text-decoration-color:rgba(255,255,255,.4)}
+.v2 .ref:hover{text-decoration-color:currentColor}
+/* 3 Dotted underline */
+.v3 .ref{color:inherit;text-decoration:underline dotted;text-decoration-thickness:1.5px;text-underline-offset:3px}
+.v3 .light .ref{text-decoration-color:rgba(0,0,0,.45)}.v3 .dark .ref{text-decoration-color:rgba(255,255,255,.5)}
+/* 4 Tinted, medium weight (Recommended) */
+.v4 .ref{font-weight:500}
+.v4 .light .ref{color:#0a6cdf}.v4 .dark .ref{color:#5cb2ff}
+.v4 .ref:hover{text-decoration:underline;text-underline-offset:2px}
+/* 5 Status dot */
+.v5 .ref{color:inherit;font-weight:500}
+.v5 .ref::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;margin:0 4px 1px 1px;vertical-align:middle;background:var(--st)}
+.v5 .ref:hover{text-decoration:underline;text-underline-offset:2px}
+/* 6 Per-agent hue */
+.v6 .ref{font-weight:500;color:var(--hl)}.v6 .dark .ref{color:var(--hd)}
+.v6 .ref:hover{text-decoration:underline;text-underline-offset:2px}
+/* 7 Mention highlight (no layout change: tint drawn with box-shadow, no padding) */
+.v7 .ref{border-radius:3px}
+.v7 .light .ref{color:#0a6cdf;background:rgba(10,108,223,.10);box-shadow:0 0 0 1.5px rgba(10,108,223,.10)}
+.v7 .dark .ref{color:#6bbaff;background:rgba(74,168,255,.16);box-shadow:0 0 0 1.5px rgba(74,168,255,.16)}
+/* 8 Semibold, text color */
+.v8 .ref{color:inherit;font-weight:600}
+.v8 .ref:hover{text-decoration:underline;text-underline-offset:2px}
+/* 9 Id plus task title */
+.v9 .ref{font-weight:500}.v9 .light .ref{color:#0a6cdf}.v9 .dark .ref{color:#5cb2ff}
+.v9 .ref .t{font-weight:400;opacity:.62;color:inherit}
+.v9 .light .ref .t{color:#3c3c43}.v9 .dark .ref .t{color:#ebebf5}
+/* 10 Small caps monospace-free: tinted id with trailing arrow */
+.v10 .light .ref{color:#0a6cdf}.v10 .dark .ref{color:#4aa8ff}
+.v10 .ref::after{content:"\2197";font-size:.85em;margin-left:1px;opacity:.7}
+
+/* The shared hover card (any variant): opaque, legible, WCAG AA. */
+.card{display:none;position:absolute;left:0;top:20px;z-index:10;width:280px;border-radius:10px;padding:9px 11px;font:12px/16px -apple-system,sans-serif;font-weight:400;text-decoration:none;white-space:normal;cursor:default}
+.light .card{background:#fff;color:#1d1d1f;border:1px solid #d2d2d7;box-shadow:0 8px 24px rgba(0,0,0,.14)}
+.dark .card{background:#2c2c2e;color:#f2f2f7;border:1px solid #48484a;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.ref:hover .card{display:block}
+.card b{font-weight:600}.card .m{opacity:.7;margin-top:2px}.card .s{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;background:var(--st)}
+.pin .card{display:block;position:static;margin-top:10px}
+</style></head><body>
+<h1>Inline agent references in Home bubbles</h1>
+<p class="sub">Every design keeps the body font (13 pt, same weight or one step heavier) and no icon over the text. Hover any agent id to see the shared hover card (title, state, last report). Left: light. Right: dark. The shipped build now uses design 1 (plain link) until you pick. Reply with a number, for example <b>"ship 4"</b>.</p>
+<div id="out"></div>
+<script>
+const agents = {
+  a340: {title:"Drag links to split", state:"Running · 12 min", st:"#30d158", hl:"#0a6cdf", hd:"#5cb2ff", last:"Writing the failing drop-zone test."},
+  a341: {title:"Check for updates 100x", state:"Running · 9 min", st:"#30d158", hl:"#b4237a", hd:"#ff6fb5", last:"Timing each step of the check."},
+  a298: {title:"Acpmux overhead and interrupts", state:"Waiting on Mac minis", st:"#ff9f0a", hl:"#1f8a4c", hd:"#4cd47f", last:"Runs queued at ca9c540."},
+  a224: {title:"Tell interrupts", state:"Stopped", st:"#8e8e93", hl:"#8a5a00", hd:"#ffc35a", last:"Merged into a298's branch."},
+};
+function ref(id, withTitle){
+  const a = agents[id];
+  const t = withTitle ? `<span class="t"> · ${a.title}</span>` : "";
+  return `<a class="ref" style="--st:${a.st};--hl:${a.hl};--hd:${a.hd}">${id}${t}<span class="card" style="--st:${a.st}"><b>${id} · ${a.title}</b><div class="m"><span class="s"></span>${a.state}</div><div class="m">${a.last}</div></span></a>`;
+}
+function bubble(withTitle){
+  const r = id => ref(id, withTitle);
+  return `<div class="bubble"><p>I started two subagents. Both are listed under me in the app.</p><ul>
+<li><b>${r("a340")}: dragging links into splits.</b> Drop a PR URL on the right side or the edge of any pane and it opens there as a new split.</li>
+<li><b>${r("a341")}: making Check for Updates 100x faster.</b> It is timing each step of the check to find where the time goes.</li>
+<li>${r("a298")} merged ${r("a224")}'s work into its own branch.</li></ul></div>`;
+}
+const variants = [
+  [1,"Plain link","System link blue, no underline. What the build shows now."],
+  [2,"Subtle underline","Text keeps the bubble color; a faint 1 px underline marks it. Quietest clickable form."],
+  [3,"Dotted underline","Text color with a dotted underline, the usual hint that a word has a hover card."],
+  [4,"Tinted, medium weight","Accent color, one weight step up, underline on hover. Clear at a glance, no box, no layout change.",true],
+  [5,"Status dot","Small dot before the id shows its state (green running, orange waiting, gray stopped). Text keeps the bubble color."],
+  [6,"Per-agent color","Each agent keeps a stable color (like names in a group chat), so the same agent is easy to follow down a long reply."],
+  [7,"Mention highlight","A soft tint behind the id with no padding, like an @mention. Closest to the old pill but text and size are unchanged."],
+  [8,"Semibold","Text color, semibold. Reads like a name; underline on hover."],
+  [9,"Id plus title","The task title follows the id in secondary text, so no lookup is needed. Longer lines."],
+  [10,"Link arrow","Plain link with a small ↗ after it, saying it opens somewhere else."],
+];
+document.getElementById("out").innerHTML = variants.map(([n,name,why,rec]) => `
+<section class="v v${n}"><h2>${n}. ${name}${rec?'<span class="rec">Recommended</span>':''}</h2><p class="why">${why}</p>
+<div class="pair"><div class="pane light">${bubble(n===9)}</div><div class="pane dark">${bubble(n===9)}</div></div></section>`).join("") + `
+<section class="v v4 pin"><h2>Hover card (shared by every design)</h2><p class="why">Opaque card, no glass, shown under the id on hover.</p>
+<div class="pair"><div class="pane light">${ref("a340")}</div><div class="pane dark">${ref("a340")}</div></div></section>`;
+</script>
+</body></html>

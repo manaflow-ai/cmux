@@ -70,6 +70,19 @@ import Testing
         #expect(panel.pet.acceptsFirstMouse(for: nil))
     }
 
+    /// ⌃⌥⌘C (Message the Chief from Any App) orders the pet in without unhiding cmux. With cmux
+    /// hidden (⌘H, Hide Others), a window that hides with its app would stay hidden; the pet, its
+    /// notices and its reply box don't hide with the app, so they show without bringing back
+    /// every main window.
+    @Test func petNoticesAndReplyBoxStayOutWhileCmuxIsHidden() {
+        let panel = ChiefPetPanel(defaults: Self.defaults())
+        #expect(!panel.canHide)
+        #expect(!ChiefPetBubblePanel().canHide)
+        let reply = ChiefPetReplyPanel()
+        #expect(!reply.canHide)
+        #expect(!reply.hidesOnDeactivate)
+    }
+
     /// One press through the view: down at `from`, dragged through `path`, up.
     /// `onCharacter` false presses the rail's background instead.
     private func press(_ pet: ChiefPetView, from: CGPoint, path: [CGPoint], onCharacter: Bool = true) {
@@ -145,6 +158,99 @@ import Testing
         let tool = try #require(panel.pet.rail.subviews.flatMap(\.subviews).compactMap { $0 as? ChiefPetTool }.first)
         tool.performClick(nil)
         #expect(clicks == 1)
+    }
+
+    /// The notices lay out toward the side of the screen with room (Leo 2026-10-20): from the pet's
+    /// trailing edge leftward on the right half, from its leading edge rightward on the left half;
+    /// above it on the lower half, below it on the upper half.
+    @Test func noticesOpenTowardTheQuadrantWithRoom() {
+        let size = Self.size
+        let height = ChiefPetBubblePanel.height(count: 2, expanded: true)
+        let gap = ChiefPetBubblePanel.gap
+        let v = Self.visible
+        let bottomRight = CGRect(origin: CGPoint(x: v.maxX - 24 - size.width, y: v.minY + 24), size: size)
+        let bottomLeft = CGRect(origin: CGPoint(x: v.minX + 24, y: v.minY + 24), size: size)
+        let topLeft = CGRect(origin: CGPoint(x: v.minX + 24, y: v.maxY - 24 - size.height), size: size)
+        let topRight = CGRect(origin: CGPoint(x: v.maxX - 24 - size.width, y: v.maxY - 24 - size.height), size: size)
+
+        let br = ChiefPetBubblePanel.frame(height: height, over: bottomRight, in: v)
+        #expect(br.maxX == bottomRight.maxX, "right half: the trailing edges line up and the cards extend left")
+        #expect(br.minY == bottomRight.maxY + gap, "lower half: above the pet")
+
+        let bl = ChiefPetBubblePanel.frame(height: height, over: bottomLeft, in: v)
+        #expect(bl.minX == bottomLeft.minX, "left half: the leading edges line up and the cards extend right")
+        #expect(bl.minY == bottomLeft.maxY + gap)
+
+        let tl = ChiefPetBubblePanel.frame(height: height, over: topLeft, in: v)
+        #expect(tl.minX == topLeft.minX)
+        #expect(tl.maxY == topLeft.minY - gap, "upper half: below the pet")
+
+        let tr = ChiefPetBubblePanel.frame(height: height, over: topRight, in: v)
+        #expect(tr.maxX == topRight.maxX)
+        #expect(tr.maxY == topRight.minY - gap)
+
+        for frame in [br, bl, tl, tr] {
+            #expect(frame.width == ChiefPetBubblePanel.width)
+            #expect(v.contains(frame), "\(frame) stays on screen")
+        }
+    }
+
+    /// The reply box sits in the notices' place, so it takes their side.
+    @Test func replyBoxTakesTheNoticesSide() {
+        let v = Self.visible
+        let topLeft = CGRect(origin: CGPoint(x: v.minX + 24, y: v.maxY - 24 - Self.size.height), size: Self.size)
+        let reply = ChiefPetBubblePanel.frame(height: ChiefPetReplyPanel.size.height, over: topLeft, in: v,
+                                              width: ChiefPetReplyPanel.size.width, gap: ChiefPetReplyPanel.gap)
+        #expect(reply.minX == topLeft.minX)
+        #expect(reply.maxY == topLeft.minY - ChiefPetReplyPanel.gap)
+    }
+
+    @Test func dragReportsEveryMoveBeforeItEnds() {
+        let panel = ChiefPetPanel(defaults: Self.defaults())
+        panel.setFrameOrigin(CGPoint(x: 200, y: 200))
+        var moves: [CGPoint] = []
+        var ended = 0
+        panel.pet.onDragMoved = { moves.append(panel.frame.origin) }
+        panel.pet.onDragEnded = { ended += 1 }
+        press(panel.pet, from: CGPoint(x: 220, y: 230), path: [CGPoint(x: 221, y: 230), CGPoint(x: 240, y: 230), CGPoint(x: 320, y: 180)])
+        #expect(moves == [CGPoint(x: 220, y: 200), CGPoint(x: 300, y: 150)], "a move under the slop is no drag yet")
+        #expect(ended == 1)
+    }
+
+    /// Dragged across the screen's middle, the notices turn to the other side while the pet moves,
+    /// so the drop moves nothing and nothing fades in again.
+    @Test func noticesFollowTheDragLiveAndTheDropMovesNothing() throws {
+        let defaults = Self.defaults()
+        let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
+                                            actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }))
+        controller.sync(true)
+        defer { controller.sync(false) }
+        controller.arrive(ChiefPetNotice(id: 1, tab: "t", surface: nil, title: "Done", detail: "Build finished", kind: .done))
+        let panel = try #require(controller.panel)
+        let bubble = try #require(controller.bubble)
+        let visible = Self.visible
+        panel.visibleFrame = { visible }
+        // Start on the lower right, then drag to the lower left.
+        let start = CGPoint(x: visible.maxX - 40 - panel.frame.width, y: visible.minY + 40)
+        panel.setFrameOrigin(start)
+        controller.render(animated: false)
+        #expect(bubble.frame.maxX == panel.frame.maxX)
+        var pointer = CGPoint(x: start.x + 10, y: start.y + 10)
+        panel.pet.pointer = { pointer }
+        panel.pet.layoutSubtreeIfNeeded()
+        let spot = CGPoint(x: panel.pet.characterFrame.midX, y: panel.pet.characterFrame.midY)
+        let event = NSEvent.mouseEvent(with: .leftMouseDown, location: panel.pet.convert(spot, to: nil), modifierFlags: [], timestamp: 0,
+                                       windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        panel.pet.mouseDown(with: event)
+        pointer.x -= visible.width / 2 + 200
+        panel.pet.mouseDragged(with: event)
+        #expect(panel.frame.midX < visible.midX)
+        #expect(bubble.frame.minX == panel.frame.minX, "mid-drag the notices already open to the right")
+        #expect(bubble.isVisible, "the notices stay up through the drag")
+        let beforeDrop = bubble.frame
+        panel.pet.mouseUp(with: event)
+        #expect(bubble.frame == beforeDrop, "the drop does not move the notices")
+        #expect(bubble.isVisible)
     }
 
     @Test func controllerShowsThePetOnlyWhileItIsOn() async {

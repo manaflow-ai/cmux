@@ -4,12 +4,13 @@ import AppKit
 import Testing
 
 /// The Home conversation list draws no system blue (the user, 2026-10-18: "dont use blue here"):
-/// a selected pinned tile or row takes the neutral unemphasized grey in every window state, as
-/// Messages' pinned grid, and the compose and filter buttons are the same round button.
+/// a selected pinned tile or row takes the theme's translucent selection tint in every window
+/// state (Leo 2026-10-19: not an opaque grey slab), and in the compact list the selection is a
+/// disc behind the avatar.
 @MainActor
 struct HomeSidebarNeutralSelectionTests {
     @Test(arguments: [NSAppearance.Name.darkAqua, .aqua])
-    func theSelectionIsNeutralGreyNotBlue(_ name: NSAppearance.Name) throws {
+    func theSelectionIsTheThemeTintNotBlueOrGrey(_ name: NSAppearance.Name) throws {
         let appearance = try #require(NSAppearance(named: name))
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         home.appearance = appearance
@@ -23,26 +24,35 @@ struct HomeSidebarNeutralSelectionTests {
         }
         let p = controller.palette
         #expect(!Self.same(p.selectionActive, blue), "the key-window selection is the system blue")
-        #expect(Self.same(p.selectionActive, grey), "the key-window selection is not the neutral grey")
+        #expect(!Self.same(p.selectionActive, grey), "the selection is still the opaque grey slab")
+        #expect(p.selectionActive.alpha < 0.5, "the selection is not a translucent tint")
         #expect(Self.same(p.selectedText, label), "the selected text is not the label colour")
-        // Home focused or not (the window not key): the same grey, never blue.
+        // Home focused or not (the window not key): the same tint, never blue.
         controller.setWindowActive(false)
-        #expect(Self.same(controller.palette.selectionInactive, grey))
         #expect(!Self.same(controller.palette.selectionInactive, blue))
         #expect(Self.same(controller.palette.selectionActive, controller.palette.selectionInactive))
     }
 
-    @Test func composeAndFilterAreTheSameRoundButton() throws {
-        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
-        home.layoutSubtreeIfNeeded()
-        let filter = home.list.controller.filterButton
-        #expect(home.compose.frame.width == home.compose.frame.height)
-        #expect(filter.frame.size == home.compose.frame.size)
-        for button in [home.compose, filter] {
-            let layer = try #require(button.layer)
-            #expect(layer.cornerRadius == button.frame.height / 2)
-            #expect(layer.backgroundColor != nil)
-        }
+    /// The compact list (avatars only) selects with a disc behind the avatar, not a row-wide slab.
+    @Test func theCompactSelectionIsADiscBehindTheAvatar() throws {
+        let list = CmuxSidebarView(frame: NSRect(x: 0, y: 0, width: 100, height: 600))
+        list.neutralSelection = true
+        let now = Date()
+        list.show([
+            CmuxSidebarEntry(id: "a", title: "Austin", people: [.init(id: "p1", name: "Austin", initials: "A")],
+                             preview: "hi", previewSender: nil, lastAt: now, unreadCount: 0, pinned: true),
+            CmuxSidebarEntry(id: "b", title: "Mia", people: [.init(id: "p2", name: "Mia", initials: "M")],
+                             preview: "hey", previewSender: nil, lastAt: now, unreadCount: 1, pinned: false),
+        ], pinned: ["a"])
+        list.layoutSubtreeIfNeeded()
+        list.select("a")
+        let tile = try #require(list.controller.tileLayers.first { $0.conversationID == "a" })
+        #expect(!tile.selection.isHidden)
+        let disc = tile.selection.frame
+        #expect(abs(disc.width - disc.height) < 0.5, "the compact tile's selection is not round")
+        #expect(abs(tile.selection.cornerRadius - disc.width / 2) < 0.5)
+        #expect(disc.contains(CGPoint(x: tile.avatar.frame.midX, y: tile.avatar.frame.midY)), "the disc is not behind the avatar")
+        #expect(disc.width < tile.bounds.width, "the disc is the row-wide slab")
     }
 
     /// Equal after conversion to sRGB (system colours resolve in different colour spaces).

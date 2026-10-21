@@ -22,6 +22,19 @@ public nonisolated struct SidebarNowPlaying: Hashable, Sendable {
     public var canPrevious: Bool
     public var canNext: Bool
     public var labels: Labels
+    /// The app that plays, for the New Tab player's Open in; nil for cmux's own player and tabs.
+    public var app: App?
+
+    /// Another app that plays (Spotify, Music): its bundle identifier and its name as Finder shows it.
+    public struct App: Hashable, Sendable {
+        public var bundleIdentifier: String
+        public var name: String
+
+        public init(bundleIdentifier: String, name: String) {
+            self.bundleIdentifier = bundleIdentifier
+            self.name = name
+        }
+    }
 
     /// The controls' titles and VoiceOver labels.
     public struct Labels: Hashable, Sendable {
@@ -40,7 +53,7 @@ public nonisolated struct SidebarNowPlaying: Hashable, Sendable {
 
     public init(title: String, artist: String = "", artwork: Data? = nil, isPlaying: Bool, position: TimeInterval? = nil,
                 duration: TimeInterval? = nil, rate: Double = 1, positionDate: Date = Date(), canPrevious: Bool = false,
-                canNext: Bool = false, labels: Labels) {
+                canNext: Bool = false, labels: Labels, app: App? = nil) {
         self.title = title
         self.artist = artist
         self.artwork = artwork
@@ -52,7 +65,12 @@ public nonisolated struct SidebarNowPlaying: Hashable, Sendable {
         self.canPrevious = canPrevious
         self.canNext = canNext
         self.labels = labels
+        self.app = app
     }
+
+    /// What makes this the same media to the card's Hide (``SidebarIntent/hideNowPlayingCard``):
+    /// its title and artist. A pause or a seek keeps it; another track or source changes it.
+    public var mediaKey: String { title + "\u{1F}" + artist }
 
     /// Seeking needs a position inside a known length.
     public var canSeek: Bool { position != nil && (duration ?? 0) > 0 }

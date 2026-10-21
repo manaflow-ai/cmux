@@ -435,6 +435,56 @@ mark {
   padding-right: 24px;
 }
 
+.row-control .select .ui-select-button {
+  /* One width per row style: a popup never resizes with its selected label (which ellipsizes),
+     so the controls around it stay put. */
+  width: var(--row-popup-width);
+  max-width: 100%;
+}
+
+/* An unset row's effective value: the thumb and field sit on it, dimmed, and a badge under the
+   control names where it comes from. The badge is out of flow, so setting a value moves nothing. */
+.number-editor,
+.color-editor {
+  position: relative;
+}
+
+.inherit-badge {
+  position: absolute;
+  top: calc(100% + 1px);
+  right: 0;
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+  line-height: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.field.number[data-inherited] {
+  color: var(--muted-text);
+}
+
+.number-editor[data-inherited] .slider {
+  opacity: 0.65;
+}
+
+.color-editor[data-inherited] .swatch {
+  opacity: 0;
+}
+
+.swatch-inherited {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 26px;
+  height: 22px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 5px;
+  opacity: 0.7;
+  translate: 0 -50%;
+  pointer-events: none;
+}
+
 .select .ui-select-chevron {
   position: absolute;
   right: 6px;
@@ -813,10 +863,6 @@ mark {
   margin-bottom: 8px;
 }
 
-.accounts-sign-in {
-  margin-right: auto;
-}
-
 /* Part of its row (indented under the title), not a second outlined card inside the row's card. */
 .accounts-form {
   display: flex;
@@ -856,6 +902,17 @@ mark {
 
 .accounts-status[data-status="quiet"] .accounts-dot {
   opacity: 0.4;
+}
+
+/* A sign-in in progress: the dot pulses until it ends (Reduce Motion stops it, layout.css). */
+@keyframes accounts-busy {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.accounts-status[data-busy] .accounts-dot {
+  animation: accounts-busy calc(var(--motion-in) * 8) var(--motion-ease) infinite;
 }
 
 .accounts-body {
@@ -1077,4 +1134,274 @@ mark {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+/* Settings > Appearance's floating Undo, Redo and Reset: pinned to the bottom right of the content
+   while the page scrolls, on the solid popup surface so it reads over any background. */
+.appearance-bar {
+  position: sticky;
+  bottom: 16px;
+  z-index: var(--layer-sticky);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  margin: 16px 0 0 auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-popup);
+  box-shadow: var(--ui-popup-drop);
+}
+
+.appearance-bar-button {
+  width: 28px;
+  height: 26px;
+}
+
+.appearance-bar-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.appearance-bar-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 6px;
+}
+
+.appearance-bar-question {
+  font-size: var(--text-detail);
+  white-space: nowrap;
+}
+
+/* Agents > Chiefs (ChiefsCard.tsx): one row per Chief, a button that opens its editor. */
+.chiefs-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.chiefs-row:hover {
+  background: var(--input-bg);
+}
+.chiefs-row .row-main {
+  flex: 1;
+  min-width: 0;
+}
+.chiefs-row .row-label {
+  display: flex;
+  flex-direction: column;
+}
+.chiefs-picture {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--input-bg);
+}
+.chiefs-picture img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.chiefs-initial {
+  font-weight: 600;
+}
+.chiefs-backend {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chiefs-card.editing .chief-editor {
+  min-height: 0;
+}
+.chiefs-card.editing .ce-head {
+  padding-left: 0;
+}
+.chiefs-card.editing .ce-body {
+  overflow: visible;
+  padding-left: 36px;
+}
+
+/* Settings > Appearance > Density (DensityCard): tiles that draw each density at its own sizes.
+   The --density-* sizes come from the density's tokens (density.ts), set inline per preview. */
+.density-help {
+  margin: 0 0 10px;
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
+.density-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.density-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.density-tile[data-on] {
+  border-color: var(--text);
+}
+
+.density-name {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.density-name small {
+  color: var(--muted-text);
+  font-weight: 400;
+}
+
+.density-preview {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+.density-strip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--density-strip);
+  padding: 0 var(--density-inset);
+  border-bottom: 1px solid var(--border);
+}
+
+.density-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--density-tab);
+  padding: 0 var(--density-inset);
+  border-radius: var(--density-radius);
+  background: var(--accent-soft);
+  font-size: var(--density-body);
+  white-space: nowrap;
+}
+
+.density-tab:not([data-on]) {
+  background: transparent;
+}
+
+.density-list {
+  padding: 4px var(--density-inset);
+}
+
+.density-item {
+  display: flex;
+  align-items: center;
+  gap: var(--density-inset);
+  height: var(--density-row);
+  padding: 0 var(--density-inset);
+  overflow: hidden;
+  border-radius: var(--density-radius);
+  font-size: var(--density-body);
+  white-space: nowrap;
+}
+
+.density-item[data-selected] {
+  background: var(--accent-soft);
+}
+
+.density-group {
+  color: var(--muted-text);
+  font-weight: 600;
+}
+
+.density-icon {
+  flex: none;
+  width: var(--density-icon);
+  height: var(--density-icon);
+  border: 1.5px solid var(--border-strong);
+  border-radius: 3px;
+}
+
+.density-caption {
+  padding: 2px var(--density-inset) 6px;
+  color: var(--muted-text);
+  font-size: var(--density-caption);
+}
+
+.density-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.density-notice {
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
+.density-import {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.density-import textarea {
+  flex: 1;
+  min-height: 72px;
+  font-family: ui-monospace, monospace;
+}
+
+.density-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 300px);
+  gap: 16px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.density-field {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.density-field > span {
+  color: var(--muted-text);
+}
+
+.density-field output {
+  color: var(--muted-text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }

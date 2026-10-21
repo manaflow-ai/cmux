@@ -43,6 +43,7 @@ mod private_mode;
 mod signal_sender;
 mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
+mod feature_flags;
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
 mod host_colors;
@@ -101,6 +102,8 @@ mod test_exec;
 #[cfg(test)]
 mod test_wait;
 mod ui;
+mod update_notice;
+mod version_report;
 
 use headless::run_headless;
 pub(crate) use headless::wake_headless;
@@ -945,7 +948,11 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                 client_log::exit(0);
             }
             "-V" | "--version" => {
-                println!("cmux {}", version_string());
+                if args.peek().is_some_and(|next| next == "--json") {
+                    println!("{}", version_report_json());
+                } else {
+                    println!("cmux {}", version_string());
+                }
                 client_log::exit(0);
             }
             other => return Err(format!("unknown argument {other:?}")),
@@ -979,14 +986,45 @@ pub(crate) fn version_string() -> String {
     // Packaged builds stamp both source identities so artifact validation can
     // reject a cmux binary built against a different Ghostty checkout before
     // it enters an app bundle. Local builds report the crate version alone.
+    // The version is the npm/PyPI release (version_report.rs), not the crate's.
     let stamp = build_stamp();
-    match (stamp.build_commit(), stamp.ghostty_commit()) {
-        (Some(commit), Some(ghostty)) => {
-            format!("{} ({commit}; ghostty {ghostty})", env!("CARGO_PKG_VERSION"))
-        }
-        (Some(commit), None) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
-        (None, _) => env!("CARGO_PKG_VERSION").to_string(),
-    }
+    version_report::version_text(
+        version_report::release_version(
+            version_report::DISTRIBUTION_VERSION,
+            env!("CARGO_PKG_VERSION"),
+        ),
+        stamp.build_commit(),
+        stamp.ghostty_commit(),
+    )
+}
+
+/// `cmux --version --json`: the facts a tester's bug report needs.
+fn version_report_json() -> serde_json::Value {
+    let stamp = build_stamp();
+    #[cfg(unix)]
+    let (build_identity, build_time, remote_protocol) = (
+        Some(cmux_build_identity::BUILD_IDENTITY),
+        cmux_build_identity::BUILD_TIME,
+        Some(u64::from(cmux_remote_protocol::REMOTE_PROTOCOL_VERSION)),
+    );
+    #[cfg(not(unix))]
+    let (build_identity, build_time, remote_protocol) = (None, 0, None);
+    let executable = std::env::current_exe().ok().and_then(|path| std::fs::canonicalize(path).ok());
+    let mut report = version_report::version_json(
+        &version_report::BuildFacts {
+            build_identity,
+            build_time,
+            build_commit: stamp.build_commit(),
+            ghostty_commit: stamp.ghostty_commit(),
+            remote_protocol,
+        },
+        executable.as_deref(),
+    );
+    // The invite wave this tester is in and what its signed flags turn off (#10).
+    let (cohort, disabled_features) = feature_flags::report();
+    report["cohort"] = serde_json::json!(cohort);
+    report["disabled_features"] = serde_json::json!(disabled_features);
+    report
 }
 
 #[cfg(unix)]
@@ -1833,6 +1871,7 @@ fn run_main() {
         // SAFETY: still single-threaded startup, as for the captures above.
         unsafe { startup_env::take_agent_caller_env() };
     }
+    let headless = args.headless;
     let config = config::StartupConfigSnapshot::load();
     let provider = resolve_provider_launch(&args, &config)
         .unwrap_or_else(|error| usage_exit(&error.to_string()));
@@ -1877,6 +1916,10 @@ fn run_main() {
         None if args.attach => run_attach(args, config),
         None => run_server(args, provider_workspace_authority, config),
     };
+    if result.is_ok() && !headless {
+        // After the TUI restored the terminal: the one update line (#8).
+        update_notice::print_on_exit();
+    }
     if let Err(e) = result {
         if session::is_expected_remote_shutdown(&e) {
             return;

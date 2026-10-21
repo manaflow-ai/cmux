@@ -200,6 +200,8 @@ pub(crate) enum Prefilled {
     Harness,
     /// The terminal's earlier command line.
     Command,
+    /// The resume command a person set for the terminal (`resume-command`).
+    Resume,
     None,
 }
 
@@ -208,6 +210,7 @@ impl Prefilled {
         match self {
             Self::Harness => "harness",
             Self::Command => "command",
+            Self::Resume => "resume",
             Self::None => "none",
         }
     }

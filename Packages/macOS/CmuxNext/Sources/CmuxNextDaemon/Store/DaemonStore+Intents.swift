@@ -94,8 +94,12 @@ extension DaemonStore {
 
     /// Reported after the overlay is back (`withOverlayLifted`).
     private func settleIntent(_ transaction: ClientTransactionID, _ settlement: IntentSettlement) {
-        guard intentLog.remove(transaction) != nil else { return }
+        guard let removed = intentLog.remove(transaction) else { return }
         intentSettlements.append((transaction, settlement))
+        // A refused create held a guessed tab that was another create's: guess it again.
+        if settlement == .rejected, !removed.createdConfirmed, let surface = removed.createdSurface {
+            ProvisionalTab.reguess(surface, in: self)
+        }
     }
 
     /// Runs `body` (event or snapshot apply, a settlement) on the confirmed

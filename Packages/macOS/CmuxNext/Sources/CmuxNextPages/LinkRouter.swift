@@ -18,8 +18,12 @@ public final class LinkRouter {
     /// A link this app opens itself whatever the setting (a Chief subagent's link); true when it did.
     public var appLink: (URL) -> Bool = { _ in false }
     /// Opens a web link in a cmux browser tab of the current window, in the background (not
-    /// selected) when asked.
-    public var openInCmux: (_ url: URL, _ background: Bool) -> Void = { url, _ in NSWorkspace.shared.openInBackground(url) }
+    /// selected) when asked. `source` is the tab the link was clicked in (a tab id), nil for the
+    /// focused pane: the App places the tab beside it (`layout.linkPlacement`).
+    public var openInCmux: (_ url: URL, _ background: Bool, _ source: String?) -> Void = { url, _, _ in NSWorkspace.shared.openInBackground(url) }
+    /// The tab (a tab id) of the pane showing a clicked view, nil when no pane shows it: the App
+    /// finds the pane holding the view (``open(_:otherTarget:from:)``).
+    public var sourceTab: (_ view: NSView) -> String? = { _ in nil }
 
     #if DEBUG
     /// `CMUX_NEXT_TEST_RECORD_EXTERNAL_OPENS=1` (live scripts): what would go to another app is
@@ -42,23 +46,33 @@ public final class LinkRouter {
         routing().target(for: url, otherTarget: otherTarget, explicit: explicit)
     }
 
-    /// Opens a clicked link where the rule sends it; `otherTarget` is Shift-Command on the click.
-    /// Returns where it went, nil for an app link.
+    /// Opens a clicked link where the rule sends it; `otherTarget` is Shift-Command on the click,
+    /// `source` the tab it was clicked in (nil: the focused pane). Returns where it went, nil for
+    /// an app link.
     @discardableResult
-    public func open(_ url: URL, otherTarget: Bool = false, explicit: Bool = false) -> LinkRouting.Target? {
+    public func open(_ url: URL, otherTarget: Bool = false, explicit: Bool = false, source: String? = nil) -> LinkRouting.Target? {
         if appLink(url) { return nil }
         let target = target(for: url, otherTarget: otherTarget, explicit: explicit)
-        open(url, in: target)
+        open(url, in: target, source: source)
         return target
     }
 
-    /// Opens `url` in `target` whatever the setting (a menu's Open in cmux Browser, Open in
-    /// Default Browser). A non-web URL never opens in cmux.
-    public func open(_ url: URL, in target: LinkRouting.Target, background: Bool = false) {
+    /// Opens a link clicked in `view` (a chat transcript, a cmux page) where the rule sends it,
+    /// beside the pane that shows `view` (``sourceTab``), not the focused pane: Cmd-click always
+    /// lands right of what was clicked.
+    @discardableResult
+    public func open(_ url: URL, otherTarget: Bool = false, from view: NSView) -> LinkRouting.Target? {
+        open(url, otherTarget: otherTarget, source: sourceTab(view))
+    }
+
+    /// Opens `url` in `target` whatever the link setting (a menu's Open in cmux Browser, Open in
+    /// Default Browser). A non-web URL never opens in cmux, nor any URL while the cmux browser is
+    /// off (`browser.enabled`). `source` is the tab it was clicked in (nil: the focused pane).
+    public func open(_ url: URL, in target: LinkRouting.Target, background: Bool = false, source: String? = nil) {
         let web = url.scheme?.lowercased() == "http" || url.scheme?.lowercased() == "https"
-        if target == .cmuxBrowser, web {
+        if target == .cmuxBrowser, web, routing().browserEnabled {
             record((background ? "browser-background:" : "browser:") + url.absoluteString)
-            openInCmux(url, background)
+            openInCmux(url, background, source)
             return
         }
         if recordsInstead("system:" + url.absoluteString) { return }

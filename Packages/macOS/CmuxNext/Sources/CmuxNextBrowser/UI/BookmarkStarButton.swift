@@ -27,7 +27,7 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
     var state: BookmarkStarState = .hidden {
         didSet {
             guard state != oldValue else { return }
-            image.image = NSImage.icon(state == .on ? .bookmarkActive : .bookmark, size: .iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize))
+            image.image = NSImage.icon(state == .on ? .browserOmniboxStarActive : .browserOmniboxStar, size: OmnibarStyle.trailingIconSize)
             let label = state == .on ? Strings.bookmarkEdit : Strings.bookmarkAdd
             themedToolTip = label
             setAccessibilityLabel(label)

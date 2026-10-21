@@ -40,6 +40,7 @@ final class PageGoneView: NSView {
             messageLabel.font = BrowserMetrics.bodyFont
             codeLabel.font = BrowserMetrics.captionFont
             messageLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth
+            // chrome-icons: allow a page body, not toolbar chrome
             symbol.image = NSImage.icon(.statusWarning, size: .iconRowSize(forLabelPointSize: BrowserMetrics.errorTitleFont.pointSize * 1.6))
             stack.spacing = BrowserMetrics.overlayPadding
         }

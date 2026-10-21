@@ -1,17 +1,21 @@
-//! The remote-origin turn policy (README "Remote-origin messages"): a turn
-//! that a paired device's message started runs with acpmux policy `ask`, so
-//! every local effect waits for an approval shown in the Chief chat; the
-//! memory tools and plain replies need none. Approvals record the approving
-//! device in the trace. `remote.autoApprove` (default false) can be turned on
-//! only outside a remote-origin turn. A turn keeps the strictest policy of
-//! its origins until it ends.
+//! The remote-origin turn policy (README "Remote-origin messages") with the
+//! gate turned on (`remote.ask`, "Ask before acting on requests from other
+//! devices"; default off, tests/approval_gates.rs): a turn that a paired
+//! device's message started runs with acpmux policy `ask`, so every local
+//! effect waits for an approval card in the Chief chat; the memory tools,
+//! the Chief's own tools and plain replies need none. Approvals record the
+//! approving device in the trace. `remote.autoApprove` can be turned on only
+//! outside a remote-origin turn. A turn keeps the strictest policy of its
+//! origins until it ends.
 
 mod common;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use cmux_conversation::{Change, Message, Origin, Participant, ParticipantKind, Summary};
+use cmux_conversation::{
+    Change, Message, Origin, Part, Participant, ParticipantKind, Summary, TextRun,
+};
 use common::*;
 use optchat_chief::acpmux::AgentEvent;
 use optchat_chief::brain::Input;
@@ -33,13 +37,14 @@ fn paired() -> Summary {
     s
 }
 
-/// A Chief with approvals turned on from the Mac (`remote.autoApprove`
-/// false): remote-origin turns ask, and the spawn floor applies.
+/// A Chief with approvals turned on from the Mac (`remote.ask` true,
+/// `remote.autoApprove` false): remote-origin turns ask, and the spawn
+/// floor applies.
 fn harness(script: Script) -> Harness {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("settings.json"),
-        r#"{"remote": {"autoApprove": false}}"#,
+        r#"{"remote": {"autoApprove": false, "ask": true}}"#,
     )
     .unwrap();
     harness_in(dir, script)
@@ -51,13 +56,40 @@ fn harness_default(script: Script) -> Harness {
 }
 
 fn harness_in(dir: tempfile::TempDir, script: Script) -> Harness {
+    harness_with_summary(dir, script, paired())
+}
+
+fn harness_with_summary(dir: tempfile::TempDir, script: Script, summary: Summary) -> Harness {
     let owner = Arc::new(std::sync::Mutex::new(Owner {
-        summary: Some(paired()),
+        summary: Some(summary),
         ..Owner::default()
     }));
     let mut h = Harness::in_dir(dir, script, owner);
     h.connect();
     h
+}
+
+fn deliver_mention(h: &mut Harness, author: &str, text: &str) {
+    let m = {
+        let mut owner = h.owner.lock().unwrap();
+        let seq = owner.messages.len() as u64 + 1;
+        let mut m = message(seq, author, text);
+        m.parts = vec![Part::Text {
+            text: text.into(),
+            runs: Some(vec![TextRun {
+                start: 0,
+                length: text.encode_utf16().count() as u32,
+                mention: Some("agent_mux".into()),
+                link: None,
+            }]),
+        }];
+        owner.messages.push(m.clone());
+        m
+    };
+    h.brain.step(Input::from(DaemonEvent::Changed {
+        conversation: CONV.into(),
+        change: Change::Message { message: m },
+    }));
 }
 
 /// A message as the subscription delivers it; `remote` stamps the relay's
@@ -134,13 +166,37 @@ fn permission_of(session: &str, id: &str, tool: &str, input: Value) -> Input {
     })
 }
 
+/// What the Chief posted, as text: a reply's text, an approval card's
+/// line, reason and buttons.
 fn sends(h: &Harness) -> Vec<String> {
     h.owner
         .lock()
         .unwrap()
-        .sends()
-        .into_iter()
-        .map(|(_, text)| text)
+        .ops
+        .iter()
+        .filter_map(|(_, op)| match op {
+            cmux_conversation::Op::MessageSend { parts, .. } => match &parts[0] {
+                Part::Text { text, .. } => Some(text.clone()),
+                Part::Question(q) => Some(
+                    q.items
+                        .iter()
+                        .map(|i| {
+                            let options: Vec<String> = i
+                                .options
+                                .iter()
+                                .map(|o| {
+                                    format!("{} {}", o.label, o.detail.clone().unwrap_or_default())
+                                })
+                                .collect();
+                            format!("{} {}", i.prompt, options.join(" "))
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                ),
+                _ => None,
+            },
+            _ => None,
+        })
         .collect()
 }
 
@@ -164,6 +220,114 @@ fn a_local_turn_keeps_its_policy() {
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
     assert_eq!(inner.specs[0].policy, "approve-all");
+}
+
+#[test]
+fn a_non_owner_turn_asks_and_only_the_owner_may_approve_it() {
+    let mut s = paired();
+    s.participants.push(Participant {
+        id: "user_teammate".into(),
+        kind: ParticipantKind::Human,
+        display_name: "Teammate".into(),
+        agent_class: None,
+        acp_session: None,
+        person: None,
+    });
+    let mut h = harness_with_summary(tempfile::tempdir().unwrap(), started(), s);
+    h.agents.hold(true);
+    deliver_mention(&mut h, "user_teammate", "@Chief clean the build directory");
+    h.step();
+    h.agents.wait_prompts(1);
+    wait_session(&mut h);
+    assert_eq!(h.agents.inner.lock().unwrap().specs[0].policy, "ask");
+
+    h.brain.step(permission(
+        "p-owner",
+        "Bash",
+        json!({"command": "rm -rf target"}),
+    ));
+    deliver_mention(&mut h, "user_teammate", "allow");
+    assert!(
+        !h.agents
+            .inner
+            .lock()
+            .unwrap()
+            .responses
+            .iter()
+            .any(|r| r.1 == "p-owner"),
+        "a teammate cannot approve effects on the owner's Mac"
+    );
+    deliver_mention(&mut h, "user_local", "allow");
+    assert!(h.agents.inner.lock().unwrap().responses.contains(&(
+        "s1".into(),
+        "p-owner".into(),
+        Some("allow".into())
+    )));
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle();
+}
+
+#[test]
+fn with_home_ask_on_ambient_home_text_makes_the_turn_ask() {
+    use std::collections::BTreeMap;
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let cli = dir.path().join("cmux-home-fixture");
+    let snapshot = dir.path().join("snapshot.json");
+    std::fs::write(
+        &snapshot,
+        json!({
+            "workspaces": [{"id": "ws_home", "extra": {"kind": "home"}}],
+            "screens": [{"id": "screen_home", "workspace_id": "ws_home", "focused": true,
+                         "layout": {"root": {"pane_ids": ["pane_right"]}}}],
+            "panes": [{"id": "pane_right", "screen_id": "screen_home", "focused": true}],
+            "tabs": [{"id": "tab_term", "pane_id": "pane_right", "index": 0, "focused": true,
+                      "content_kind": "terminal", "content_id": "term_untrusted"}],
+            "terminals": [{"id": "term_untrusted", "title": "build", "running": true}],
+            "browsers": [], "agents": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        &cli,
+        format!(
+            "#!/bin/sh\ncase \"$*\" in\n  '--json session current snapshot') cat '{}' ;;\n  *) printf '%s\\n' '{{\"text\":\"untrusted terminal text\"}}' ;;\nesac\n",
+            snapshot.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // The Home gate is on ("Ask before acting on what Home shows").
+    std::fs::write(
+        dir.path().join("settings.json"),
+        r#"{"home": {"ask": true}}"#,
+    )
+    .unwrap();
+    let owner = Arc::new(std::sync::Mutex::new(Owner {
+        summary: Some(paired()),
+        ..Owner::default()
+    }));
+    let configured = optchat_chief::brain::Settings {
+        home_view: Some(optchat_chief::home_view::HomeView {
+            cli,
+            env: BTreeMap::new(),
+        }),
+        ..settings(dir.path())
+    };
+    let mut h = Harness::configured(
+        dir,
+        default_script(),
+        owner,
+        configured,
+        Arc::new(|_: &str| {}),
+    );
+    h.connect();
+    deliver(&mut h, false, "hello");
+    h.settle();
+    assert_eq!(h.agents.inner.lock().unwrap().specs[0].policy, "ask");
 }
 
 #[test]
@@ -197,13 +361,9 @@ fn a_remote_turn_cannot_run_a_shell_without_an_approval() {
     }
     let asked = sends(&h);
     assert_eq!(asked.len(), 1, "{asked:?}");
+    assert!(asked[0].contains("rm -rf target"), "{}", asked[0]);
     assert!(
-        asked[0].contains("Bash") && asked[0].contains("rm -rf target"),
-        "{}",
-        asked[0]
-    );
-    assert!(
-        asked[0].contains("allow") && asked[0].contains("deny"),
+        asked[0].contains("Allow once") && asked[0].contains("Deny"),
         "{}",
         asked[0]
     );
@@ -480,12 +640,8 @@ fn a_subagent_spawned_during_a_remote_turn_asks_too() {
     assert_eq!(h.brain.spawn_policy(), Some("ask"));
 }
 
-/// Lawrence, 2026-10-06: "i dont want stuff to require my approval". By
-/// default (`remote.autoApprove` true) a turn from the owner's own paired
-/// device runs with the configured policy, and nothing it spawns gets the
-/// ask floor.
 #[test]
-fn by_default_a_remote_turn_needs_no_approval_and_spawns_without_a_floor() {
+fn by_default_a_remote_turn_runs_like_a_local_one_without_the_spawn_floor() {
     let mut h = harness_default(started());
     h.agents.hold(true);
     deliver(&mut h, true, "clean up the build directory");
@@ -496,7 +652,7 @@ fn by_default_a_remote_turn_needs_no_approval_and_spawns_without_a_floor() {
         h.agents.inner.lock().unwrap().specs[0].policy,
         "approve-all"
     );
-    assert_eq!(h.brain.spawn_policy(), None, "no ask floor by default");
+    assert_eq!(h.brain.spawn_policy(), None);
     h.agents.hold(false);
     h.agents.release();
     h.settle();

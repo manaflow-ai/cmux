@@ -3,7 +3,9 @@ import CmuxNextDesign
 
 /// UPDATE-CARD + BOTTOM-LEFT-CARDS K1 + cx-7py7: one card slot directly
 /// above the footer (the spaces dots and the account row below it), under
-/// the R114 card stack: the staged update card first, else the Now Playing
+/// the R114 card stack: the staged update card first, else the answer to
+/// something the person just asked for (an update check's notice,
+/// ``SidebarNoticeCard/userAsked``), else the Now Playing
 /// card (cx-ouoxo), else the "cmux Updated!" card, else the shared notice card (the update status or the
 /// "Did you know" tip; the App picks one), never two. They are
 /// the sidebar's own views, not band items, so minimal mode's band fade
@@ -22,9 +24,13 @@ struct SidebarBottomCardSlot {
         update.onAutomaticUpdates = { [weak sidebar] on in sidebar?.model.send(.setAutomaticUpdates(on)) }
         update.onOpenChanges = { [weak sidebar] in sidebar?.model.send(.openUpdateChanges) }
         update.onCloseAction = { [weak sidebar] card, action in sidebar?.model.send(.noticeAction(card: card, action: action)) }
+        // The highlights show in the app's one hover card window (one card at a time).
+        update.hoverCards = { [weak sidebar] in sidebar?.list.hoverCards }
         notice.onAction = { [weak sidebar] card, action in sidebar?.model.send(.noticeAction(card: card, action: action)) }
         notice.onDismiss = { [weak sidebar] card in sidebar?.model.send(.dismissNotice(card)) }
         nowPlaying.onCommand = { [weak sidebar] command in sidebar?.model.send(.nowPlaying(command)) }
+        nowPlaying.onClose = { [weak sidebar] in sidebar?.model.send(.hideNowPlayingCard) }
+        nowPlaying.menuProvider = { [weak sidebar] in sidebar?.contextMenuProvider?(.nowPlaying) }
         updated.onDismiss = { [weak sidebar] in sidebar?.model.send(.dismissUpdated) }
         sidebar.addSubview(update)
         sidebar.addSubview(nowPlaying)
@@ -42,9 +48,12 @@ struct SidebarBottomCardSlot {
 
     private enum Shown { case update, nowPlaying, updated, notice }
 
-    /// The card that has the slot: update, then Now Playing, then updated, then the notice.
+    /// The card that has the slot: update, then an asked-for notice, then Now Playing, then updated,
+    /// then any other notice.
     private var shown: Shown? {
         if update.card != nil { return .update }
+        // "Is it checking?" must never hide behind a song (Lawrence 2026-10-19).
+        if notice.notice?.userAsked == true { return .notice }
         if nowPlaying.nowPlaying != nil { return .nowPlaying }
         // The React card's actions go to the App through its page; it shows once it has drawn.
         if updated.card != nil, updated.height > 0 { return .updated }

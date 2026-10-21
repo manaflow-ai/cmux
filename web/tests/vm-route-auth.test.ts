@@ -410,6 +410,72 @@ describe("VM REST auth", () => {
     expect(getUser).toHaveBeenCalledTimes(2);
   });
 
+  test("VM routes stop authorizing a removed team member even when native auth was cached", async () => {
+    const team = { id: "team-revoked", displayName: "Revoked Team", clientReadOnlyMetadata: { cmuxPlan: "pro" } };
+    let isMember = true;
+    getUser.mockResolvedValue({
+      id: "user-revoked",
+      displayName: null,
+      primaryEmail: "revoked@example.com",
+      clientReadOnlyMetadata: {},
+      selectedTeam: null,
+      listTeams: async () => isMember ? [team] : [],
+    });
+    runVmWorkflow.mockResolvedValue([]);
+    const request = () => new Request("https://cmux.test/api/vm?teamId=team-revoked", {
+      headers: {
+        authorization: "Bearer access-revoked",
+        "x-stack-refresh-token": "refresh-revoked",
+      },
+    });
+
+    expect((await GET(request())).status).toBe(200);
+    isMember = false;
+    runVmWorkflow.mockClear();
+
+    const removed = await GET(request());
+    expect(removed.status).toBe(403);
+    expect(await removed.json()).toMatchObject({ error: "vm_billing_team_not_found" });
+    expect(getUser).toHaveBeenCalledTimes(2);
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("a body-supplied team cannot reuse membership cached before removal", async () => {
+    const team = { id: "team-body-revoked", displayName: "Body Revoked", clientReadOnlyMetadata: { cmuxPlan: "pro" } };
+    let isMember = true;
+    getUser.mockResolvedValue({
+      id: "user-body-revoked",
+      displayName: null,
+      primaryEmail: "body-revoked@example.com",
+      clientReadOnlyMetadata: {},
+      selectedTeam: null,
+      listTeams: async () => isMember ? [team] : [],
+    });
+    runVmWorkflow.mockResolvedValue([]);
+    const headers = {
+      authorization: "Bearer access-body-revoked",
+      "x-stack-refresh-token": "refresh-body-revoked",
+    };
+
+    const seeded = await GET(new Request("https://cmux.test/api/vm?teamId=team-body-revoked", { headers }));
+    expect(seeded.status).toBe(200);
+    isMember = false;
+    runVmWorkflow.mockClear();
+
+    const removed = await POST(new Request("https://cmux.test/api/vm", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        provider: "freestyle",
+        image: "snapshot-test",
+        teamId: "team-body-revoked",
+      }),
+    }));
+    expect(removed.status).toBe(403);
+    expect(await removed.json()).toMatchObject({ error: "vm_billing_team_not_found" });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
   test("allows stale account-deleting metadata after tombstone lease expires", async () => {
     authTombstoneRows = [accountDeletionAuthTombstone("user-1", "pending", new Date(0))];
     getUser.mockResolvedValue({
@@ -1655,6 +1721,9 @@ describe("VM REST auth", () => {
       amount: 1,
       details: { amount: 1 },
       message: "This team has no Cloud VM create credits left.",
+      upgradeRequired: true,
+      upgradePlanId: "max",
+      upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max&cmux_source=vm_create_credits",
     });
   });
 
@@ -1716,6 +1785,9 @@ describe("VM REST auth", () => {
       error: "vm_create_credits_insufficient",
       amount: 1,
       message: "Your account has no Cloud VM create credits left.",
+      upgradeRequired: true,
+      upgradePlanId: "max",
+      upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max&cmux_source=vm_create_credits",
     });
     expect(payload.message).not.toContain("team");
     expect(payload.action).not.toContain("team");

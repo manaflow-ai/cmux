@@ -560,6 +560,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/computer_use_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/person_prove",
       "params": true,
       "result": true
@@ -757,6 +763,12 @@
     {
       "kind": "request",
       "name": "_acpmux/harness/doctor",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/harness/secret/set",
       "params": true,
       "result": true
     },

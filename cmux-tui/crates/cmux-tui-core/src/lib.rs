@@ -33,6 +33,7 @@ mod conversation_store;
 pub mod daemon_env;
 use cmux_tui_util::debug_spans;
 mod browser_profile_ops;
+mod browser_site_engines;
 pub mod diagnostics;
 mod event_bus;
 #[cfg(unix)]
@@ -61,8 +62,10 @@ mod prompt_mode_reset;
 pub mod provider_management;
 #[cfg(unix)]
 mod pty_write;
+mod terminal_title;
 use cmux_tui_remote_access::remote_relay_state;
 mod login_shell;
+pub mod release;
 mod request_origin;
 pub mod resource;
 mod resource_api;

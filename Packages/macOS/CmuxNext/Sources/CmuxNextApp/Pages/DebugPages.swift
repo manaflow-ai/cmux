@@ -28,7 +28,7 @@ import Foundation
 // - `type` (`text`, `selector`?): inserts text as typed input in the matching (else the focused) element;
 // - `call` (`op`, `params`): one call message through the page's router, exactly as the page's
 //   bridge sends it (the host sets the calling page's id). With `page: "cmux.cloud"` and no live
-//   Cloud page, a hidden one is made first (the app has no Cloud page entry yet).
+//   Cloud page, a hidden one is made first (so a probe needs no open Cloud tab).
 // The control router's deadline bounds every action.
 extension AppControl {
     func registerPageDebugMethods(_ services: AppServices) {

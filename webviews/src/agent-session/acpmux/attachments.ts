@@ -1,6 +1,7 @@
 /// Files the composer attaches to a prompt. Images, PDFs and dictation's voice recordings go to
 /// the agent as ACP content blocks. A text file is written into the prompt's text because
-/// the web view never learns a dropped file's path; other files are refused.
+/// the web view never learns a dropped file's path; any other file (a binary, a large text file)
+/// goes to the chat's host (`chat.upload`), which saves it and puts its path in the prompt.
 
 export type ComposerAttachment = {
   id: string;

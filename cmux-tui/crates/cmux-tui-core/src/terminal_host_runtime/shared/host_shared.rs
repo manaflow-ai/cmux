@@ -12,7 +12,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use cmux_pty::{ChildKiller, MasterPty};
+use cmux_pty::{ChildKiller, MasterPty, PtySize};
 use ghostty_vt::Terminal;
 
 use super::super::sys::{self, GroupSignal, HostStream};

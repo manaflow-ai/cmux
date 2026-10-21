@@ -1,6 +1,8 @@
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
 import CmuxNextDaemon
+import CmuxNextDaemonService
+import CmuxNextSettings
 import Foundation
 
 /// The daemon's engine tag (the browser module has an engine protocol of the same name).
@@ -35,6 +37,8 @@ final class BrowserTabService {
     /// installs and finds hosts). None is yet, so a new tab in a machine's
     /// workspace opens on this Mac (`BrowserPlacement`).
     var browserHostAvailable: @MainActor (String) -> Bool = { _ in false }
+    /// `browser.enabled` (the App: the settings snapshot): off, only cmux's own pages open as tabs.
+    var browserEnabled: @MainActor () -> Bool = { true }
     /// A machine's name for the user (`MachineRegistry.machineName`).
     var machineName: @MainActor (DaemonService) -> String = { $0.machineID }
     /// Shows `text` on the page of `daemon`'s tab on `surface` when that page
@@ -99,6 +103,10 @@ final class BrowserTabService {
     /// Surfaces created in this process (`open`): pages the user asked for
     /// now, as opposed to tabs restored from the daemon.
     private var openedSurfaces: Set<SurfaceKey> = []
+    /// Surfaces whose engine someone asked for (`BrowserEngineChoice.pinned`), in memory only.
+    private var pinnedEngines: Set<SurfaceKey> = []
+    /// Tabs that reopened in WebKit for protected media (`BrowserProtectedMedia`).
+    private var protectedMediaReopens: Set<String> = []
 
     /// A surface on one machine (handles are per daemon).
     struct SurfaceKey: Hashable {
@@ -154,11 +162,11 @@ final class BrowserTabService {
             return cef.unavailableReason
         }
         keepsState = { [weak self] tab in self?.daemonForTab(tab).store.servesStateResources ?? false }
+        // Each store's tab index: called per tab and per sidebar row (favicons, profiles), so a scan of
+        // every tab here made those passes quadratic in the tabs (space-switch-fast).
         tabModel = { [weak self] id in
             for daemon in self?.daemons() ?? [] {
-                if let tab = daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == id }) {
-                    return tab
-                }
+                if let tab = daemon.store.tab(id: id) { return tab }
             }
             return nil
         }
@@ -187,6 +195,11 @@ final class BrowserTabService {
         let daemon = daemonForPane(pane)
         guard !daemon.isLocal, daemon.connection == nil else { return nil }
         return RemoteStrings.browserMachineNotConnected(machineName(daemon))
+    }
+
+    /// Why no browser tab may open for `url` now (`browser.enabled` off and not a cmux page), or nil.
+    func refusal(for url: URL?) -> String? {
+        BrowserAvailability(enabled: browserEnabled()).allows(url?.absoluteString) ? nil : MiscHandlerStrings.browserOff
     }
 
     /// The notice for the page of session-local tab `key` (no daemon record).
@@ -221,16 +234,26 @@ final class BrowserTabService {
     }
 
     static func message(_ reason: CEFUnavailableReason) -> String {
-        reason.detail ?? RefusalStrings.chromiumUnavailable
+        ChromiumFallbackLog.refusal(for: reason) ?? reason.detail ?? RefusalStrings.chromiumUnavailable
     }
 
     /// The engine for a new tab (`BrowserEngineResolver`): an explicit
     /// engine, else an inherited one, else `browser.defaultEngine`, with the
     /// WebKit fallback for the last two.
-    func resolve(requested: String?, inherited: String? = nil) -> BrowserEngineResolver.Outcome {
-        BrowserEngineResolver.resolve(requested: requested, inherited: inherited,
+    /// `url` is the page the tab opens, for its `browser.siteEngines` rule.
+    func resolve(requested: String?, inherited: String? = nil, url: URL? = nil) -> BrowserEngineResolver.Outcome {
+        BrowserEngineResolver.resolve(requested: requested, inherited: inherited, siteEngine: preference.siteEngines.engine(for: url),
                                       defaultEngine: preference.defaultEngine, cefUnavailable: cefUnavailable())
     }
+
+    /// Whether someone asked for the engine of `tab` (`BrowserEngineChoice.pinned`).
+    func isEnginePinned(_ tab: TabModel) -> Bool { pinnedEngines.contains(key(daemonForTab(tab), tab.surface)) }
+
+    /// Whether `tab` already reopened in WebKit for protected media (once per tab).
+    func reopenedForProtectedMedia(_ tab: TabModel) -> Bool { protectedMediaReopens.contains(tab.id) }
+
+    /// Records that `tab` reopened in WebKit for protected media.
+    func noteProtectedMediaReopen(_ tab: TabModel) { protectedMediaReopens.insert(tab.id) }
 
     /// Creates the daemon record for `choice` in `pane` and records a
     /// fallback against the new surface (its page shows the notice). A tab
@@ -268,6 +291,7 @@ final class BrowserTabService {
 
     private func open(_ choice: BrowserEngineChoice, in pane: PaneID, on daemon: DaemonService, url: String, offTheRecord: Bool,
                       profile: String?, notice: String?, activate: Bool, after: SurfaceID?) async throws -> SurfaceID {
+        guard BrowserAvailability(enabled: browserEnabled()).allows(url) else { throw ActionFailure(message: MiscHandlerStrings.browserOff) }
         let surface = try await create(daemon, pane, offTheRecord ? Self.incognitoPlaceholderURL : url, choice.engine, profile, activate, after)
         let key = key(daemon, surface)
         if offTheRecord { incognitoURLs[key] = url }
@@ -279,6 +303,7 @@ final class BrowserTabService {
             if let tab = daemon.store.tab(surface: surface) { pendingTabNotices[tab.id] = notice } else { pendingNotices[key] = notice }
         }
         openedSurfaces.insert(key)
+        if choice.pinned { pinnedEngines.insert(key) }
         if let reason = choice.fallback {
             fallbacks.record(reason, source: choice.inherited ? .recordedTab : .newTab, machine: daemon.machineID, surface: surface)
         }

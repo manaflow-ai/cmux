@@ -34,6 +34,9 @@ pub struct SessionSpec {
     /// The fast service tier (codex-acp's `fast-mode` config option, set
     /// right after session/new); false: the harness's default speed.
     pub fast: bool,
+    /// The acpmux peer (`acpmux host ls`) the session is created on
+    /// (`_meta.acpmux.peer`; a cloud subagent); None: this machine.
+    pub peer: Option<String>,
 }
 
 /// The tag on every session the Chief itself runs (its turns and its
@@ -190,6 +193,12 @@ pub trait AgentPort: Send + Sync {
     /// interrupt). The turn then ends with stop reason `cancelled`.
     fn cancel(&self, _session: &str) -> Result<(), String> {
         Err("cancel is not supported".into())
+    }
+    /// Takes a prompt that still waits in `session`'s queue out of it
+    /// (`_acpmux/queue_remove`): true when it was removed, false when it no
+    /// longer waits (it ran or was removed).
+    fn remove_queued(&self, _session: &str, _prompt_id: &str) -> Result<bool, String> {
+        Err("removing queued prompts is not supported".into())
     }
     /// Sets `session`'s harness mode (`session/set_mode`).
     fn set_mode(&self, _session: &str, _mode: &str) -> Result<(), String> {
@@ -796,13 +805,15 @@ pub fn events(client: &RpcClient, session: &str, after: u64) -> Result<Vec<Acpmu
 /// codex-acp's config option for the fast (priority) service tier.
 pub const FAST_MODE_OPTION: &str = "fast-mode";
 
-/// `session/new` with acpmux's name, harness, policy, model and preset.
-pub fn new_session(
-    client: &RpcClient,
-    spec: &SessionSpec,
-    preset: Option<&str>,
-) -> Result<String, String> {
-    let mut meta = json!({"name": spec.name, "harness": spec.harness, "policy": spec.policy});
+/// `session/new`'s `_meta.acpmux`: name, harness, policy, model, effort,
+/// preset, env and peer. On a peer (a cloud VM) a policy that does not ask is
+/// left out: a peer refuses one from a remote connection, and the VM's own
+/// default (its config.json) applies; `ask` (the spawn floor) is still sent.
+pub fn session_meta(spec: &SessionSpec, preset: Option<&str>) -> Value {
+    let mut meta = json!({"name": spec.name, "harness": spec.harness});
+    if spec.peer.is_none() || matches!(spec.policy.as_str(), "ask" | "deny-all") {
+        meta["policy"] = json!(spec.policy);
+    }
     if let Some(model) = &spec.model {
         meta["model"] = json!(model);
     }
@@ -815,6 +826,19 @@ pub fn new_session(
     if !spec.env.is_empty() {
         meta["env"] = json!(spec.env);
     }
+    if let Some(peer) = &spec.peer {
+        meta["peer"] = json!(peer);
+    }
+    meta
+}
+
+/// `session/new` with acpmux's name, harness, policy, model and preset.
+pub fn new_session(
+    client: &RpcClient,
+    spec: &SessionSpec,
+    preset: Option<&str>,
+) -> Result<String, String> {
+    let mut meta = session_meta(spec, preset);
     let request = |meta: &Value| {
         client.request(
             "session/new",
@@ -887,6 +911,8 @@ impl AgentPort for Acpmux {
                     "the acpmux preset {name} is not installed, and this session never starts without it"
                 ));
             }
+            // A peer session: this daemon's presets do not exist there.
+            None if spec.peer.is_some() => None,
             None => self
                 .preset
                 .as_ref()
@@ -965,6 +991,16 @@ impl AgentPort for Acpmux {
             .request("session/cancel", json!({"sessionId": session}))
             .map(|_| ())
             .map_err(|e| format!("cancel: {e}"))
+    }
+
+    fn remove_queued(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
+        self.client()?
+            .request(
+                "_acpmux/queue_remove",
+                json!({"sessionId": session, "promptId": prompt_id}),
+            )
+            .map(|v| v["removed"].as_bool().unwrap_or(false))
+            .map_err(|e| format!("queue_remove: {e}"))
     }
 
     fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {

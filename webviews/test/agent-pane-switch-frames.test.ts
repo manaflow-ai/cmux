@@ -27,7 +27,7 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
 
   const START = Date.UTC(2026, 9, 19, 9, 0, 0);
   /// How long acpmux takes to answer an attach (a busy daemon, a large chat).
-  const ATTACH_MS = 150;
+  const ATTACH_MS = 80;
   const modes = (current: string) => ({
     currentModeId: current,
     availableModes: [
@@ -82,6 +82,7 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
   const B = chat("0190a000-0000-7000-8000-0000000000f2", "Docs pass", "Docs updated.", "default");
   const chats = new Map([A, B].map((entry) => [entry.listed.sessionId, entry]));
 
+  let attaches = 0;
   function answer(method: string, params: Record<string, any>): unknown {
     switch (method) {
       case "initialize":
@@ -93,6 +94,7 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
         // acpmux's list names each chat's mode, not the modes it offers (protocol/session.rs).
         return { sessions: [...chats.values()].map((entry) => entry.listed) };
       case "_acpmux/attach": {
+        attaches += 1;
         const entry = chats.get(String(params.sessionId))!;
         return { session: entry.attached, lastSeq: entry.events.length, events: entry.events };
       }
@@ -253,6 +255,7 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
       requestAnimationFrame(sample);
     }, CHIP);
     // acpmux restarts: the pane's socket drops and it connects again.
+    const before = attaches;
     for (const socket of sockets) socket.close(1012, "restart");
     await page.waitForFunction(() => {
       const frames = (window as unknown as { reconnectFrames: { at: number }[] }).reconnectFrames;
@@ -272,5 +275,7 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
           : ""),
     );
     expect(lost).toEqual([]);
+    // It did connect again and read the chat (not just stay on the dropped connection's frame).
+    expect(attaches).toBeGreaterThan(before);
   });
 });

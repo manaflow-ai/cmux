@@ -96,8 +96,8 @@ final class CookieImportConsentPanel {
                                          target: self, action: #selector(showRequester))
         showChat.isEnabled = onShowRequester != nil
         showChat.setAccessibilityIdentifier(Self.accessibilityID + ".showChat")
-        let deny = NSButton(title: CookieImportStrings.deny, target: self, action: #selector(deny))
-        deny.keyEquivalent = "\u{1b}"
+        let deny = ThemedBezelButton(title: CookieImportStrings.deny, target: self, action: #selector(deny))
+        deny.keyHint = .escape
         deny.setAccessibilityIdentifier(Self.accessibilityID + ".deny")
         let allow = NSButton(title: CookieImportStrings.allow, target: self, action: #selector(allow))
         allow.setAccessibilityIdentifier(Self.accessibilityID + ".allow")

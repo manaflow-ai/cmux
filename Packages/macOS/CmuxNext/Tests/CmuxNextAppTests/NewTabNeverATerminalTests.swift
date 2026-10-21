@@ -26,7 +26,7 @@ struct NewTabNeverATerminalTests {
         try await PasswordManagerRouteTests.withApp { services, connection in
             try Self.hostsPages(services)
             let window = try #require(services.windows.active)
-            let created = try await connection.state.createWorkspace(name: "empty-hvc57", ephemeral: false, terminal: false)
+            let created = try await connection.state.createWorkspace(name: "empty-hvc57", ephemeral: false, terminal: false, focus: true)
             try await PasswordManagerRouteTests.until { services.daemon.store.workspaces.contains { $0.resourceID == created.workspaceID } }
             let workspace = try #require(services.daemon.store.workspaces.first { $0.resourceID == created.workspaceID })
             services.windows.show(workspaceID: workspace.id, in: window.state)

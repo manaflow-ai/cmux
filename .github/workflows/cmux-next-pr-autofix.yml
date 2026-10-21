@@ -13,8 +13,10 @@ name: cmux-next PR autofix
 # changes their inputs (autofix-areas.sh: actions, settings), action-exports
 # regenerates them on a Mac (scripts/cmux-next/regenerate-action-exports.sh,
 # regenerate-settings-exports.sh) and repair copies them in before it rewrites
-# the docs shortcuts and the defaults snapshot from them. Rust and the docs read the
-# committed copy, so they stay checked in, but no person regenerates them.
+# the defaults snapshot from them, and the docs shortcuts and app-host files
+# from regenerated action exports (never from a settings-only artifact). Rust
+# and the docs read the committed copy, so they stay checked in, but no person
+# regenerates them.
 #
 # Two jobs hold the token boundary, so the pull request's own code never runs next to a write token:
 #   repair: runs the repairs the pull request's changed paths need
@@ -65,8 +67,11 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.sha }}
-          # The freshness guard needs the true merge base, not a depth-1 head.
+          # The freshness guard needs the true merge base, not a depth-1 head:
+          # the whole commit graph, but no historical blobs (a full clone took
+          # about 280 s here and ran into this job's 5-minute timeout).
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - name: Autofix scripts from the base
@@ -111,7 +116,8 @@ jobs:
   # Regenerates the action and settings exports on a Mac with a read-only token
   # and hands them to repair as the action-exports artifact (files at their
   # repository paths). A pull request whose catalog or settings do not build
-  # gets none of those exports; its other repairs still run.
+  # gets none of those exports; its other repairs still run, but push holds
+  # them back (an Autofix-Run head would skip the exports on every later run).
   action-exports:
     name: action exports (Mac)
     needs: action-areas
@@ -266,6 +272,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+          filter: blob:none # the commit graph without historical blobs, as action-areas
           persist-credentials: false
 
       # The autofix's own scripts come from the immutable base snapshot, and
@@ -392,10 +399,14 @@ jobs:
         run: |
           set -euo pipefail
           args=()
-          # Regenerated action exports: the docs shortcuts and app-host files follow them.
+          # Regenerated exports are copied in. The docs shortcuts and app-host
+          # files follow the action exports only when this run regenerated them:
+          # a settings-only artifact would rewrite them from the committed
+          # action-surfaces.json, which can be older than their committed copies
+          # (#21814 lost paletteKey.toggleActions that way).
           if [[ -d "$RUNNER_TEMP/action-exports" ]]; then
             args+=(--generated "$RUNNER_TEMP/action-exports")
-            SHORTCUTS=true APPHOST=true
+            [[ -d "$RUNNER_TEMP/action-exports/plans/cmux-next" ]] && SHORTCUTS=true APPHOST=true
           fi
           [[ "$GRAPH" == true ]] && args+=(--package-dump "$RUNNER_TEMP/package-dump.json")
           [[ "$STRINGS" == true ]] && args+=(--strings)
@@ -529,10 +540,18 @@ jobs:
 
   push:
     name: push the repairs
-    needs: repair
-    # An explicit status check: the implicit success() would also require the
-    # action-exports job above repair, which most pull requests skip.
-    if: ${{ !cancelled() && needs.repair.result == 'success' && needs.repair.outputs.patch == 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
+    # The contents-write App key is never exposed to PR-controlled workflow
+    # code. A main-only environment intentionally leaves PR repairs as an
+    # artifact until this push is moved behind a trusted workflow_run broker.
+    environment: cmux-pr-autofix
+    needs: [action-areas, action-exports, repair]
+    # Explicit status checks: the implicit success() would fail on the
+    # action-exports job, which most pull requests skip. The areas must have
+    # been read and the exports made (or not needed): a pushed head carries an
+    # Autofix-Run trailer, action-areas skips the exports for such a head, so a
+    # push after a cancelled areas job (its fetch timing out) or failed exports
+    # would leave the exports stale for every later run (#21814, run 39315375602).
+    if: ${{ github.event_name != 'pull_request' && !cancelled() && needs.action-areas.result == 'success' && (needs.action-exports.result == 'success' || needs.action-exports.result == 'skipped') && needs.repair.result == 'success' && needs.repair.outputs.patch == 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for a pull request branch; ephemeral Blacksmith VM
     timeout-minutes: 10
     permissions:

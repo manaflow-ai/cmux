@@ -244,6 +244,7 @@ impl Editor<'_, '_> {
                             self.skip_value()?;
                         }
                     }
+                    None if node.drops(key) => self.skip_value()?,
                     None => {
                         if !first {
                             self.out.push(b',');

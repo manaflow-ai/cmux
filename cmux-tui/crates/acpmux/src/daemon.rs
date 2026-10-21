@@ -35,6 +35,58 @@ pub struct DaemonOptions {
     pub dev: bool,
 }
 
+/// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log):
+/// a panic in a request task ends only that task and used to leave just
+/// two lines in `daemon.log` (the 2026-10-14 sort panic). The cmux-next
+/// app sends new lines to Sentry.
+pub fn panic_log_path() -> std::path::PathBuf {
+    home().join("panics.jsonl")
+}
+
+/// Debug builds only: `thread` makes a worker thread panic once the hook
+/// is installed (tests/panic_log.rs). Its line carries `"test": true`.
+#[cfg(debug_assertions)]
+const TEST_PANIC_ENV: &str = "ACPMUX_TEST_PANIC";
+#[cfg(debug_assertions)]
+const TEST_PANIC_THREAD: &str = "acpmux-panic-test";
+
+/// Install the panic log hook; the previous hook (stderr, so `daemon.log`) still runs.
+fn install_panic_log() {
+    let mut fields = cmux_panic_log::Fields::new();
+    fields.insert("process".into(), "acpmux".into());
+    fields.insert("pid".into(), std::process::id().into());
+    fields.insert("version".into(), env!("CARGO_PKG_VERSION").into());
+    let path = panic_log_path();
+    cmux_panic_log::install_with_opener(
+        move || {
+            crate::config::private_state_append(&path)
+                .map_err(|error| std::io::Error::other(error.to_string()))
+        },
+        fields,
+        is_test_panic_thread,
+    );
+    #[cfg(debug_assertions)]
+    if std::env::var(TEST_PANIC_ENV).as_deref() == Ok("thread") {
+        let _ = std::thread::Builder::new()
+            .name(TEST_PANIC_THREAD.into())
+            // crash-allow: debug-only test trigger for the acpmux panic log
+            .spawn(|| panic!("acpmux test panic"));
+    }
+}
+
+/// The debug test trigger's thread; its line carries `"test": true`.
+fn is_test_panic_thread(thread: &str) -> bool {
+    #[cfg(debug_assertions)]
+    {
+        thread == TEST_PANIC_THREAD
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = thread;
+        false
+    }
+}
+
 /// How long SIGTERM or `_acpmux/shutdown` may take before the daemon exits
 /// anyway.
 pub const SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
@@ -72,6 +124,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // State holds tokens, prompts and tool output. Older builds created the
     // home with the process umask; narrow it before reading any of them.
     crate::config::private_state_dir(&home())?;
+    install_panic_log();
     let mut config = Config::load()?;
     // config.json holds the dashboard token: owner-only, also when another
     // tool wrote it with the umask's mode and the daemon never saves it.
@@ -220,7 +273,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
     let memory_store = config.store.mode == crate::config::StoreMode::Memory;
-    let hub = Hub::new_with_mailbox(config, store, mailbox);
+    // Only the session list before the ready line; the chat logs load right after it.
+    let hub = Hub::new_deferred(config, store, mailbox);
     // The forum log (`forum.rs`): on disk unless the store is in memory; a
     // log that cannot open leaves the posts in memory.
     if !memory_store && let Err(e) = hub.open_forum(&home().join("forum")) {
@@ -277,7 +331,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.begin_startup(login_env);
     // The ACP Registry and agent CLI health, off the startup path (`hub/health_view.rs`).
     hub.start_harness_checks();
-    std::fs::write(home().join("daemon.pid"), std::process::id().to_string())?;
+    crate::config::write_atomic(
+        &home().join("daemon.pid"),
+        std::process::id().to_string().as_bytes(),
+    )?;
     // The listener's token is on the hub before the unix socket serves, so a
     // `_acpmux/web_token_rotate` can never be overwritten by the launch token.
     let ws_listener = ws_listener.map(|(l, token)| {
@@ -368,6 +425,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     {
         let hub = hub.clone();
         tokio::spawn(async move {
+            // The chat logs (tails, cut-off turns, queues), before adoption as before.
+            hub.load_logs_async().await;
             // Agents that outlived the previous daemon come back first.
             hub.adopt_agent_hosts().await;
             hub.finish_startup().await;
@@ -784,18 +843,30 @@ fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyh
 /// with wider bits is narrowed to 0600.
 #[cfg(unix)]
 fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-    let log = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .open(path)
-        .with_context(|| format!("open {}", path.display()))?;
-    if log.metadata()?.permissions().mode() & 0o077 != 0 {
-        log.set_permissions(std::fs::Permissions::from_mode(0o600))
-            .with_context(|| format!("chmod 0600 {}", path.display()))?;
+    crate::config::private_state_append(path)
+}
+
+#[cfg(all(test, unix))]
+mod state_file_tests {
+    use super::*;
+
+    #[test]
+    fn daemon_log_refuses_a_symlink() {
+        let dir = std::env::temp_dir().join(format!(
+            "acpmux-log-link-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("outside");
+        let log = dir.join("daemon.log");
+        std::fs::write(&target, "outside").unwrap();
+        std::os::unix::fs::symlink(&target, &log).unwrap();
+
+        assert!(open_daemon_log(&log).is_err(), "the daemon opened a linked log");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "outside");
+        let _ = std::fs::remove_dir_all(&dir);
     }
-    Ok(log)
 }
 
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and

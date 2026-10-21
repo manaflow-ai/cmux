@@ -2,7 +2,6 @@ public import CmuxNextRemoteView
 public import Foundation
 import Security
 
-#if DEBUG
 /// A remote browser host this app starts on loopback for one remote tab
 /// (remote-tab-r2.md, local host): `cmux-remote-browser-host --serve --listen
 /// 127.0.0.1:0 --lifeline`. The host binds a free port and writes one
@@ -191,5 +190,3 @@ public final class LocalRemoteBrowserHost {
 private final class StartDeadline {
     var fired = false
 }
-
-#endif

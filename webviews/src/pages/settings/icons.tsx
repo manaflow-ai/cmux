@@ -86,6 +86,8 @@ const paths: Record<string, ReactNode> = {
   update: <path d="M8 11.2V4.8M5.4 7.4 8 4.8l2.6 2.6M8 14.2A6.2 6.2 0 1 0 8 1.8a6.2 6.2 0 0 0 0 12.4Z" />,
   reset: <path d="M3.2 6.2A5 5 0 1 1 3 9.4M3 2.8v3.6h3.6" />,
   play: <path d="M5 3.2v9.6L12.6 8 5 3.2Z" />,
+  undo: <path d="M5.8 3.6 2.6 6.8l3.2 3.2M2.8 6.8h6.8a3.4 3.4 0 0 1 0 6.8H7.6" />,
+  redo: <path d="m10.2 3.6 3.2 3.2-3.2 3.2M13.2 6.8H6.4a3.4 3.4 0 0 0 0 6.8h2" />,
   search: (
     <>
       <circle cx="7" cy="7" r="4.4" />

@@ -36,6 +36,7 @@ struct Api {
     health: AtomicUsize,
     waits: Mutex<VecDeque<Result<Waited>>>,
     lose_begin: bool,
+    unsent_begin: bool,
     reject_begin: bool,
     wrong_thumbprint: bool,
     verification_uri: Option<String>,
@@ -48,6 +49,7 @@ impl Api {
             health: AtomicUsize::new(0),
             waits: Mutex::new(waits.into()),
             lose_begin: false,
+            unsent_begin: false,
             reject_begin: false,
             wrong_thumbprint: false,
             verification_uri: Some("https://dashboard.example.test/pair?c=7KQ4M2XD".into()),
@@ -81,6 +83,9 @@ impl Transport for Api {
         );
         if self.lose_begin {
             return Err(Error::unreachable("fixture.lost_begin_reply"));
+        }
+        if self.unsent_begin {
+            return Err(Error::unreachable("server.pair.unsent"));
         }
         if self.reject_begin {
             return Err(Error::rejected("fixture.rejected"));
@@ -294,13 +299,68 @@ fn server_pairing_expired_pending_attempt_can_start_a_new_explicit_intent_with_t
     assert!(run(&path, &api, Some("old"), &mut vec![]).is_err());
     let before: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(
-        pairing::enroll(&path, API, info(), Some("new"), &api, NOW + 600_001, |_| Ok(())).unwrap()
+        pairing::enroll(&path, API, info(), Some("new"), &api, NOW + 900_001, |_| Ok(())).unwrap()
             ["state"],
         "paired"
     );
     let after: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(before["public_jwk"], after["public_jwk"]);
     assert_eq!(before["protected_keys"], after["protected_keys"]);
+    assert_eq!(api.begins.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn server_pairing_resumes_a_code_the_server_may_still_accept_after_the_local_clock_expires_it() {
+    // The backend accepts begins up to five minutes of clock skew apart, so a
+    // code past its expiry on this clock may still be approved. Replacing it
+    // would orphan that approval: the key is then registered without its IDs.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pairing/identity.json");
+    let api =
+        Api::new(vec![Err(Error::unreachable("fixture.lost_wait")), Ok(Waited::Paired(paired()))]);
+    assert!(run(&path, &api, Some("intent"), &mut vec![]).is_err());
+    assert_eq!(
+        pairing::enroll(&path, API, info(), Some("intent"), &api, NOW + 600_001, |_| Ok(()))
+            .unwrap()["state"],
+        "paired"
+    );
+    assert_eq!(api.begins.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn server_pairing_a_resumed_code_the_backend_expired_is_cleared_and_begun_anew() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pairing/identity.json");
+    let api = Api::new(vec![
+        Err(Error::unreachable("fixture.lost_wait")),
+        Ok(Waited::Expired),
+        Ok(Waited::Paired(paired())),
+    ]);
+    assert!(run(&path, &api, Some("intent"), &mut vec![]).is_err());
+    assert_eq!(
+        pairing::enroll(&path, API, info(), Some("intent"), &api, NOW + 600_001, |_| Ok(()))
+            .unwrap_err()
+            .message,
+        "server.pair.expired"
+    );
+    assert_eq!(pairing::status(&path).unwrap()["state"], "unpaired");
+    assert_eq!(
+        pairing::enroll(&path, API, info(), Some("intent"), &api, NOW + 600_002, |_| Ok(()))
+            .unwrap()["state"],
+        "paired"
+    );
+    assert_eq!(api.begins.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn server_pairing_begin_that_never_reached_the_api_can_be_retried_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pairing/identity.json");
+    let api = Api { unsent_begin: true, ..Api::new(vec![]) };
+    for _ in 0..2 {
+        assert_eq!(run(&path, &api, None, &mut vec![]).unwrap_err().message, "server.pair.unsent");
+        assert_eq!(pairing::status(&path).unwrap()["state"], "unpaired");
+    }
     assert_eq!(api.begins.load(Ordering::SeqCst), 2);
 }
 

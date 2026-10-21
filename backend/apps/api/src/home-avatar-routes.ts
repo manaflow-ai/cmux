@@ -16,7 +16,7 @@ interface AvatarMuxStub {
 }
 const userStub = (env: Env, user: string) => env.USER_DO.get(env.USER_DO.idFromName(user)) as unknown as AvatarUserStub
 interface AvatarConversationStub {
-  readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<{ ok: boolean; value?: unknown }>
+  sharesWith(entity: string, principal: Principal, participant: string): Promise<boolean>
 }
 const PARTICIPANT = /^(user|agent)_[A-Za-z0-9_.-]{1,64}$/
 const CONVERSATION = /^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$/
@@ -62,7 +62,6 @@ export const avatarGetRoute = async (env: Env, principal: Principal, params: unk
 /** Whether `principal` may read `conversation` and `participant` is in it (not left). */
 const shared = async (env: Env, principal: Principal, conversation: string, participant: string): Promise<boolean> => {
   const stub = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(conversation)) as unknown as AvatarConversationStub
-  const r = await stub.readOp(conversation, principal, "conversation.snapshot", { tail: 0 })
-  const people = r.ok ? (r.value as { state?: { participants?: ReadonlyArray<{ id: string; left_at?: string }> } } | undefined)?.state?.participants : undefined
-  return !!people?.some((x) => x.id === participant && x.left_at === undefined)
+  // A large group's head is a roster: the conversation checks its member rows (home-core large.ts).
+  return stub.sharesWith(conversation, principal, participant)
 }

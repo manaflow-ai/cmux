@@ -50,6 +50,17 @@ pub(super) fn identify_fields() -> (u32, u32) {
     (API_COMPAT.current(), API_COMPAT.schema().base)
 }
 
+/// The refusal a too-old client reads: why, its release, and the exact
+/// command for how it was installed (plans/cmux-next/tui-tester-rollout.md #4).
+pub(super) fn too_old_text(why: &str, version: Option<&str>, install: Option<&str>) -> String {
+    let release = version.map_or_else(String::new, |version| format!(" (cmux {version})"));
+    format!(
+        "this client{release} is too old for this cmux-tui daemon (cmux {}): {why}. To fix it, {}",
+        crate::release::DISTRIBUTION_VERSION,
+        crate::release::update_hint_for(install)
+    )
+}
+
 /// What one connection negotiated.
 pub(super) struct NegotiatedRevision {
     /// The revision history used to translate (the compiled-in one outside tests).

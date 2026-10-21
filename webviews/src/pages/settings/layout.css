@@ -17,6 +17,9 @@
   --on-accent: var(--cmux-on-accent, var(--cmux-app-window, var(--cmux-surface-solid, Canvas)));
   --accent-text: var(--text);
   --column: 720px;
+  /* The one width of a row's popup (menus, the theme pickers, the accent), so a popup's left edge
+     lines up with the rows around it and its selected label never resizes it. */
+  --row-popup-width: 200px;
   --row-pad-y: calc(3px * var(--settings-scale));
   --row-pad-x: calc(12px * var(--settings-scale));
   --row-min: calc(28px * var(--settings-scale));
@@ -179,6 +182,20 @@
 }
 
 .rows > .row:last-child {
+  border-bottom-left-radius: var(--card-radius);
+  border-bottom-right-radius: var(--card-radius);
+}
+
+/* Search wraps each row in `.collapse > .collapse-body` (SearchResults), so the first and last
+   shown rows take the card's edges here. The last one's divider drew a second line under the
+   card's rounded edge. */
+.rows > .collapse[data-open]:not(.collapse[data-open] ~ .collapse) .row {
+  border-top-left-radius: var(--card-radius);
+  border-top-right-radius: var(--card-radius);
+}
+
+.rows > .collapse[data-open]:not(:has(~ .collapse[data-open])) .row {
+  box-shadow: none;
   border-bottom-left-radius: var(--card-radius);
   border-bottom-right-radius: var(--card-radius);
 }
@@ -534,15 +551,22 @@
   color: var(--accent-text);
 }
 
+/* Every theme and accent popup on the Theme page has one width, so neither the chosen name nor a
+   row's Reset moves it; a long name ellipsizes. */
 .theme-button {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  max-width: 280px;
+  box-sizing: border-box;
+  width: var(--row-popup-width);
+  max-width: 100%;
   padding: 2px 6px 2px 3px;
 }
 
 .theme-button-name {
+  flex: 1;
+  min-width: 0;
+  text-align: start;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -756,4 +780,29 @@
     padding: 14px var(--page-edge) 40px;
     --content-fade-top: 12px;
   }
+}
+
+/* An accent's swatch: the color it gives the app theme (AccentPicker draws it, and Art Color's hue
+   wheel, inline). */
+.accent-swatch {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  margin: 1px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.accent-popover .theme-list {
+  outline: none;
+}
+
+.accent-popover .theme-option {
+  cursor: default;
+}
+
+.accent-popover .theme-option[aria-selected="true"] {
+  background: var(--row-focus);
+  box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
 }

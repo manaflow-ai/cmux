@@ -83,6 +83,7 @@ export interface AcpmuxRequests {
   "_acpmux/set_default_policy": { params: unknown; result: unknown };
   "_acpmux/set_rules": { params: unknown; result: unknown };
   "_acpmux/person_enroll": { params: unknown; result: unknown };
+  "_acpmux/computer_use_enroll": { params: unknown; result: unknown };
   "_acpmux/person_prove": { params: unknown; result: unknown };
   "_acpmux/person_holds": { params: unknown; result: unknown };
   "_acpmux/secret_request": { params: unknown; result: unknown };
@@ -115,6 +116,7 @@ export interface AcpmuxRequests {
   "_acpmux/harness/remove": { params: unknown; result: unknown };
   "_acpmux/harness/restore": { params: unknown; result: unknown };
   "_acpmux/harness/doctor": { params: unknown; result: unknown };
+  "_acpmux/harness/secret/set": { params: unknown; result: unknown };
   "_acpmux/harness/health": { params: unknown; result: unknown };
   "_acpmux/harness/inventory/watch": { params: InventoryWatchParams; result: unknown };
   "_acpmux/harness/inventory/refresh": { params: InventoryRefreshParams; result: unknown };
@@ -269,6 +271,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/set_default_policy", kind: "request", acp: false, typed: false },
   { name: "_acpmux/set_rules", kind: "request", acp: false, typed: false },
   { name: "_acpmux/person_enroll", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/computer_use_enroll", kind: "request", acp: false, typed: false },
   { name: "_acpmux/person_prove", kind: "request", acp: false, typed: false },
   { name: "_acpmux/person_holds", kind: "request", acp: false, typed: false },
   { name: "_acpmux/secret_request", kind: "request", acp: false, typed: false },
@@ -303,6 +306,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/harness/remove", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/restore", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/doctor", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/harness/secret/set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/health", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/inventory/watch", kind: "request", acp: false, typed: true },
   { name: "_acpmux/harness/inventory/refresh", kind: "request", acp: false, typed: true },

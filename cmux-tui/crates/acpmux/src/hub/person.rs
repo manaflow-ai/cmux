@@ -324,6 +324,8 @@ pub const SPENT_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 6
 pub struct Answerer<'a> {
     pub person: bool,
     pub decision: Option<(&'a str, &'a str)>,
+    /// A phone's signed decision (`approvers.rs`), with its `decisionNonce`.
+    pub approver: Option<(&'a str, &'a Value)>,
 }
 
 impl<'a> Answerer<'a> {
@@ -335,7 +337,14 @@ impl<'a> Answerer<'a> {
             (Some(nonce), Some(proof)) => Some((nonce, proof)),
             _ => None,
         };
-        Self { person, decision }
+        let approver = match (
+            field(DECISION_NONCE_FIELD),
+            meta.and_then(|m| m.get(super::approvers::DECISION_FIELD)).filter(|v| v.is_object()),
+        ) {
+            (Some(nonce), Some(signed)) => Some((nonce, signed)),
+            _ => None,
+        };
+        Self { person, decision, approver }
     }
 }
 
@@ -359,9 +368,111 @@ pub struct PersonGate {
     instance: std::sync::OnceLock<String>,
     /// Decision nonces that counted once, with when.
     spent: StdMutex<std::collections::VecDeque<(String, std::time::Instant)>>,
+    /// The person's phones that may allow with a signature (`approvers.rs`).
+    pub approvers: super::approvers::ApproverSet,
+    /// The folders of the workspaces the person's app lists now
+    /// (`_acpmux/workspace_roots_set`, memory only): a Web session may start
+    /// there too (`remote_guard::web_roots`, which drops `/`, home and its
+    /// ancestors and resolves symlinks).
+    pub workspace_roots: StdMutex<Vec<String>>,
+    /// The agent and model the person's app picked last for a new chat
+    /// (`_acpmux/new_chat_picks_set`, memory only), shown in
+    /// `_acpmux/harnesses` as `lastPicks`.
+    pub new_chat_picks: StdMutex<Option<Value>>,
 }
 
+/// At most this many folders in the new-chat picks (the app keeps 50).
+pub const MAX_PICK_FOLDERS: usize = 64;
+
+/// At most this many workspace roots.
+pub const MAX_WORKSPACE_ROOTS: usize = 256;
+
 impl PersonGate {
+    /// `_acpmux/workspace_roots_set {roots}` (the person only): replaces the
+    /// workspace folders. Absolute paths without control characters.
+    pub fn set_workspace_roots(&self, params: &Value) -> Result<Value, RpcError> {
+        let list = params
+            .get("roots")
+            .and_then(Value::as_array)
+            .ok_or_else(|| RpcError::invalid_params("roots must be a list of absolute folders"))?;
+        if list.len() > MAX_WORKSPACE_ROOTS {
+            return Err(RpcError::invalid_params(format!("at most {MAX_WORKSPACE_ROOTS} roots")));
+        }
+        let mut roots = Vec::with_capacity(list.len());
+        for root in list {
+            let root = root
+                .as_str()
+                .filter(|r| {
+                    r.starts_with('/') && !r.chars().any(char::is_control) && r.len() <= 4096
+                })
+                .ok_or_else(|| RpcError::invalid_params("each root is an absolute folder"))?;
+            if !roots.iter().any(|r: &String| r == root) {
+                roots.push(root.to_owned());
+            }
+        }
+        let count = roots.len();
+        *self.workspace_roots.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = roots;
+        Ok(serde_json::json!({"count": count}))
+    }
+
+    /// `_acpmux/new_chat_picks_set {lastAgent?, global?: {harness, model},
+    /// folders?: [{folder, harness, model}]}` (the person only): replaces the
+    /// app's last picks. Short identifiers and absolute folders only; a
+    /// malformed entry refuses the whole set.
+    pub fn set_new_chat_picks(&self, params: &Value) -> Result<Value, RpcError> {
+        let bad = |what: &str| RpcError::invalid_params(format!("new chat picks: {what}"));
+        let ident = |v: Option<&Value>, max: usize| {
+            v.and_then(Value::as_str)
+                .filter(|s| !s.is_empty() && s.len() <= max && !s.chars().any(char::is_control))
+                .map(str::to_owned)
+        };
+        let pick = |v: &Value| -> Option<Value> {
+            Some(serde_json::json!({
+                "harness": ident(v.get("harness"), 128)?,
+                "model": ident(v.get("model"), 256)?,
+            }))
+        };
+        let mut out = serde_json::Map::new();
+        if let Some(agent) = params.get("lastAgent").filter(|v| !v.is_null()) {
+            out.insert(
+                "lastAgent".into(),
+                ident(Some(agent), 128).ok_or_else(|| bad("lastAgent"))?.into(),
+            );
+        }
+        if let Some(global) = params.get("global").filter(|v| !v.is_null()) {
+            out.insert("global".into(), pick(global).ok_or_else(|| bad("global"))?);
+        }
+        let folders = params.get("folders").and_then(Value::as_array).cloned().unwrap_or_default();
+        if folders.len() > MAX_PICK_FOLDERS {
+            return Err(bad(&format!("at most {MAX_PICK_FOLDERS} folders")));
+        }
+        let mut kept = Vec::with_capacity(folders.len());
+        for f in &folders {
+            let folder = ident(f.get("folder"), 4096)
+                .filter(|p| p.starts_with('/'))
+                .ok_or_else(|| bad("each folder is absolute"))?;
+            let mut row =
+                pick(f).ok_or_else(|| bad("each folder pick names a harness and a model"))?;
+            row["folder"] = folder.into();
+            kept.push(row);
+        }
+        out.insert("folders".into(), Value::Array(kept));
+        let count = out.get("folders").and_then(Value::as_array).map_or(0, Vec::len);
+        *self.new_chat_picks.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(Value::Object(out));
+        Ok(serde_json::json!({"count": count}))
+    }
+
+    /// The new-chat picks the person's app last set.
+    pub fn new_chat_picks(&self) -> Option<Value> {
+        self.new_chat_picks.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    /// The workspace folders the person's app last set.
+    pub fn workspace_roots(&self) -> Vec<String> {
+        self.workspace_roots.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
     /// `_acpmux/person_holds`: proof that this run holds the key the app
     /// gave it, over the app's fresh `nonce`: lowercase hex HMAC-SHA256(key,
     /// "acpmux-person-holds-v1" 0 instance 0 nonce). None without a key. An
@@ -411,6 +522,30 @@ impl PersonGate {
             return false;
         };
         cmux_local_auth::tokens_match(proof, &expected) && !self.spent(nonce)
+    }
+
+    /// Whether `signed` is an enrolled approver's signature for this exact
+    /// prompt, option, nonce and answers on this daemon run, unexpired, with
+    /// a nonce that has not counted yet. It spends nothing.
+    pub fn approver_proves(
+        &self,
+        session: &str,
+        permission: &str,
+        option: &str,
+        nonce: &str,
+        answers: Option<&Value>,
+        signed: &Value,
+    ) -> bool {
+        self.approvers.verifies(
+            self.instance(),
+            session,
+            permission,
+            option,
+            nonce,
+            answers,
+            signed,
+            super::approvers::unix_now(),
+        ) && !self.spent(nonce)
     }
 
     fn spent(&self, nonce: &str) -> bool {
@@ -688,8 +823,26 @@ impl Hub {
     ) -> Result<(), RpcError> {
         match m {
             method::SESSION_NEW if starts_modes => self.session_new_check(caller, params).await,
+            // Who may sign an allow is the person's own choice (`approvers.rs`).
+            method::MUX_APPROVERS_SET | method::MUX_APPROVERS => {
+                Err(person_required("changing or reading trusted approvers"))
+            }
+            // Which folders a remote connection may start sessions in.
+            method::MUX_WORKSPACE_ROOTS_SET => {
+                Err(person_required("changing the workspace folders"))
+            }
+            method::MUX_NEW_CHAT_PICKS_SET => Err(person_required("changing the new chat picks")),
             method::MUX_PERMISSION_RESPOND => {
                 let option = params.get("optionId").filter(|v| !v.is_null());
+                // A phone's signed allow or answer (`approvers.rs`). Never
+                // with `answeredBy`: that stays the person's own claim.
+                if option.is_some_and(|o| self.approver_decided(params, o))
+                    && params
+                        .pointer(&format!("/_meta/acpmux/{ANSWERED_BY_FIELD}"))
+                        .is_none_or(Value::is_null)
+                {
+                    return Ok(());
+                }
                 let proved = option.is_some_and(|o| self.person_decided(params, o));
                 // Who answered for the person is the person's own claim, or
                 // comes with the person's decision proof (cx-0q7o).
@@ -837,6 +990,26 @@ impl Hub {
         crate::server::session_key(params)
             .ok()
             .is_some_and(|k| self.resolve(k).is_err() && self.resolve_remote(k).is_some())
+    }
+
+    /// Whether a phone's allow (or answer) carries an enrolled approver's
+    /// signature for the pending prompt it answers (`approvers.rs`). The
+    /// answer checks it again under the prompt's lock and spends the nonce.
+    fn approver_decided(&self, params: &Value, option: &Value) -> bool {
+        let Some(option) = option.as_str() else { return false };
+        let Some((nonce, signed)) = Answerer::of(false, params).approver else { return false };
+        let Some(s) = crate::server::session_key(params).ok().and_then(|k| self.resolve(k).ok())
+        else {
+            return false;
+        };
+        let Some(pid) = params.get("permissionId").and_then(Value::as_str) else { return false };
+        let pending_nonce = {
+            let state = s.permissions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let Some(p) = state.pending.get(pid) else { return false };
+            p.decision_nonce.clone()
+        };
+        cmux_local_auth::tokens_match(nonce, &pending_nonce)
+            && self.person.approver_proves(&s.id, pid, option, nonce, params.get("answers"), signed)
     }
 
     /// Whether a relayed allow carries the person's decision proof for the

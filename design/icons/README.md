@@ -6,6 +6,8 @@ One set of semantic icon names for the native app and the agent pane, drawn once
 - `source/*.json`: the drawings. Each entry has a dotted `name` (`agent.chat`, `pane.split.right`,
   `status.running`), its `meaning`, Line, Solid and optional Cat SVG, design alternates (`alts`), and
   the SF Symbols it `replaces`. Drawing rules are in [SPEC.md](SPEC.md).
+- `chromium/`: Chrome's own vector icons for the browser chrome (BSD-3-Clause), vendored unchanged and
+  converted into `source/chromium.json` by `scripts/icons/chromium_icons.py` ([chromium/README.md](chromium/README.md)).
 - `tools/`: the measurement scripts behind the size rules (ink bounding box, coverage, row metrics,
   optical centering and coverage trim). They run headless Chrome and only matter when drawings change.
 - `scripts/icons/build_pack.py`: flattens the sources into the pack both renderers draw. Run it after

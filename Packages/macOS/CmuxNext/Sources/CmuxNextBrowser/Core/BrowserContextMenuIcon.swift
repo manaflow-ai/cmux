@@ -17,5 +17,5 @@ public nonisolated enum BrowserContextMenuIcon: Hashable, Sendable {
     case defaultExtension
 
     /// The SF Symbol for ``defaultExtension``.
-    public static let defaultExtensionSymbol = "puzzlepiece.extension"
+    public static let defaultExtensionSymbol = "browser.toolbar.extensions"
 }

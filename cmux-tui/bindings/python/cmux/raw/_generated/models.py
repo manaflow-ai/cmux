@@ -79,6 +79,10 @@ class ClientTransport(str, Enum):
 class CloseReason(str, Enum):
     SESSION_END = 'session_end'
 
+class ColumnMoveDirection(str, Enum):
+    LEFT = 'left'
+    RIGHT = 'right'
+
 class ConversationThreadStatus(str, Enum):
     OPEN = 'open'
     RESOLVED = 'resolved'
@@ -945,7 +949,9 @@ class IdentifyResult:
     build_id: Union[str, None, MissingType] = field(default=MISSING)
     capabilities: Union[List[str], MissingType] = field(default=MISSING)
     cli_path: Union[str, None, MissingType] = field(default=MISSING)
+    crate_version: Union[str, None, MissingType] = field(default=MISSING)
     ghostty_commit: Union[str, None, MissingType] = field(default=MISSING)
+    install: Union[str, None, MissingType] = field(default=MISSING)
     launch_snapshot_path: Union[str, None, MissingType] = field(default=MISSING)
     lifecycle_ready: Union[bool, MissingType] = field(default=MISSING)
     machine_capabilities: Union[List[str], MissingType] = field(default=MISSING)
@@ -954,6 +960,7 @@ class IdentifyResult:
     machine_platform: Union[MachinePlatform, MissingType] = field(default=MISSING)
     min_api_revision: Union[int, None, MissingType] = field(default=MISSING)
     session_id: Union[str, MissingType] = field(default=MISSING)
+    update_command: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2009,6 +2016,13 @@ class TerminalResourcesResult:
     missing: List[Id]
     sampled_at_ns: int
     terminals: List[TerminalResources]
+
+
+@dataclass(frozen=True)
+class TerminalResumeCommandResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalResumeCommandResult'
+    terminal_id: str
+    command: Union[str, None]
 
 
 @dataclass(frozen=True)
@@ -3395,6 +3409,7 @@ class HomeInboxResult:
 class IdentifyRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/identify/request'
     machine_metadata: Union[bool, MissingType] = field(default=MISSING)
+    revisions: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3588,6 +3603,13 @@ class MoveBrowserProfileRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/move-browser-profile/request'
     browser_profile: str
     index: int
+
+
+@dataclass(frozen=True)
+class MoveColumnRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-column/request'
+    pane: Id
+    direction: ColumnMoveDirection
 
 
 @dataclass(frozen=True)
@@ -3947,6 +3969,12 @@ class PaneNeighborRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/pane-neighbor/request'
     pane: Id
     dir: PaneDirection
+
+
+@dataclass(frozen=True)
+class ParkTabsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/park-tabs/request'
+    surfaces: List[TabRef]
 
 
 @dataclass(frozen=True)
@@ -4327,7 +4355,9 @@ class SetClientInfoRequest:
     device_kind: Union[str, None, MissingType] = field(default=MISSING)
     device_name: Union[str, None, MissingType] = field(default=MISSING)
     display_name: Union[str, None, MissingType] = field(default=MISSING)
+    install: Union[str, None, MissingType] = field(default=MISSING)
     user_id: Union[str, None, MissingType] = field(default=MISSING)
+    version: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4636,6 +4666,14 @@ class TerminalReadRangeRequest:
 class TerminalResourcesRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/terminal-resources/request'
     surfaces: Union[List[Id], None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TerminalResumeCommandRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-resume-command/request'
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    command: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -5832,6 +5870,7 @@ __all__ = [
     'BrowserProviderHosting',
     'ClientTransport',
     'CloseReason',
+    'ColumnMoveDirection',
     'ConversationThreadStatus',
     'CursorStyle',
     'DetachReason',
@@ -6025,6 +6064,7 @@ __all__ = [
     'TerminalResourceProcess',
     'TerminalResources',
     'TerminalResourcesResult',
+    'TerminalResumeCommandResult',
     'Tree',
     'ViewportPaneWidthResult',
     'VtStateResult',
@@ -6219,6 +6259,7 @@ __all__ = [
     'MintTerminalRendererByTerminalRequest',
     'MoveBookmarkRequest',
     'MoveBrowserProfileRequest',
+    'MoveColumnRequest',
     'MovePersonalGroupRequest',
     'MoveProfileRequest',
     'MoveScreenRequest',
@@ -6252,6 +6293,7 @@ __all__ = [
     'PageCredentialRequest',
     'PairingResponseRequest',
     'PaneNeighborRequest',
+    'ParkTabsRequest',
     'PasteImageRequest',
     'PasteImageResult',
     'PinWorkspaceRequest',
@@ -6334,6 +6376,7 @@ __all__ = [
     'TerminalHistoryRequest',
     'TerminalReadRangeRequest',
     'TerminalResourcesRequest',
+    'TerminalResumeCommandRequest',
     'UndoLayoutRequest',
     'UngroupScreenGroupRequest',
     'UngroupTabGroupRequest',

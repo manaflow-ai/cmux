@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextIcons
 
 /// The 16 pt images of page menu rows (``BrowserContextMenuIcon``), made
 /// once per icon. Main thread, like the menus that show them.
@@ -37,8 +38,14 @@ final class BrowserContextMenuImages {
         }
     }
 
-    /// `name` drawn in a 16 pt square; a template, so the menu tints it.
+    /// `name` drawn in a 16 pt square; a template, so the menu tints it. A pack name (Chrome's
+    /// `browser.menu.*` icons) draws from the pack; an SF Symbol name an extension or page gives
+    /// draws that symbol.
     private static func symbol(_ name: String) -> NSImage? {
+        if IconCatalog.bundled.name(forSymbol: name).map({ IconPack.bundled.drawing(for: $0) != nil }) == true {
+            return NSImage.icon(symbol: name, size: side)
+        }
+        // chrome-icons: allow an SF Symbol name a page or extension supplies
         guard let base = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 13, weight: .regular)) else { return nil }
         let size = NSSize(width: side, height: side)
