@@ -11,6 +11,11 @@ extension LayoutModel {
         contentHandoff = (pane, ProcessInfo.processInfo.systemUptime + Self.contentHandoffWindow)
     }
 
+    /// Drops a hint whose change never came (the move failed), so a later split plays as a split.
+    public func cancelContentHandoff() {
+        contentHandoff = nil
+    }
+
     /// The pane a pending hand-off names, if it has not lapsed. The change that plays it clears it
     /// (`ScreenContentView.reconcile`).
     var pendingContentHandoff: PaneID? {

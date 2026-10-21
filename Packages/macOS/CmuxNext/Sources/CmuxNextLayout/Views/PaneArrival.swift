@@ -128,13 +128,15 @@ struct PaneArrival: Equatable {
                         offset: CGFloat) -> (arrivals: [PaneID: PaneArrival], slide: CGRect)? {
         guard arrivals.count == 1, let (added, _) = arrivals.first, added != giver, old.panes[giver] != nil,
               let target = new.panes[added], let kept = new.panes[giver] else { return nil }
-        let shown = Self.shown([giver: kept], in: new, offset: offset)[giver] ?? kept
-        let horizontal = abs(kept.midX - target.midX) >= abs(kept.midY - target.midY)
+        // Both where they show (a docked pane is in view points, a strip pane in the strip's).
+        let both = Self.shown([giver: kept, added: target], in: new, offset: offset)
+        let shown = both[giver] ?? kept, beside = both[added] ?? target
+        let horizontal = abs(shown.midX - beside.midX) >= abs(shown.midY - beside.midY)
         let slide: CGRect
         if horizontal {
-            slide = shown.offsetBy(dx: kept.midX >= target.midX ? new.clipMaxX - shown.minX : new.clipMinX - shown.maxX, dy: 0)
+            slide = shown.offsetBy(dx: shown.midX >= beside.midX ? new.clipMaxX - shown.minX : new.clipMinX - shown.maxX, dy: 0)
         } else {
-            slide = shown.offsetBy(dx: 0, dy: kept.midY >= target.midY ? new.clipMaxY - shown.minY : new.clipMinY - shown.maxY)
+            slide = shown.offsetBy(dx: 0, dy: shown.midY >= beside.midY ? new.clipMaxY - shown.minY : new.clipMinY - shown.maxY)
         }
         return ([added: PaneArrival(seed: target, edgeOffset: .zero)], slide)
     }

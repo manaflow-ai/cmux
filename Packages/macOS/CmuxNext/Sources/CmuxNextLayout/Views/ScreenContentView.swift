@@ -167,9 +167,11 @@ final class ScreenContentView: NSView {
         var arrivals = splits && structural && !unzooming
             ? PaneArrival.split(paneFrames.mapValues(\.targetRect), from: before, to: baseGeometry, offset: scroll.value) : [:]
         // A pane that hands what it shows to the pane this change adds (`LayoutModel.handOffContent`): the
-        // added pane shows in place and the giver slides in (`PaneArrival.handoff`). Any added pane spends it.
+        // added pane shows in place and the giver slides in (`PaneArrival.handoff`). A pane added on the
+        // giver's screen spends it.
         var handoff: (pane: PaneID, slide: CGRect)?
-        if structural, let giver = context.model.pendingContentHandoff, baseGeometry.panes.keys.contains(where: { before.panes[$0] == nil }) {
+        if structural, let giver = context.model.pendingContentHandoff, before.panes[giver] != nil,
+           baseGeometry.panes.keys.contains(where: { before.panes[$0] == nil }) {
             context.model.contentHandoff = nil
             if let played = PaneArrival.handoff(arrivals, giver: giver, from: before, to: baseGeometry, offset: scroll.value) {
                 (arrivals, handoff) = (played.arrivals, (giver, played.slide))
@@ -274,7 +276,9 @@ final class ScreenContentView: NSView {
                 // A split's new divider starts on the edge of the pane beside it, where that edge shows now
                 // (an even split may put it past the new pane, on the next pane's edge); an unzoom's are
                 // there at once, under the zoomed pane springing back (it ranks above them).
-                let edge = arrivals.isEmpty ? .zero : SplitMotion.startShift(of: target.rect, axis: target.axis, panes: paneFrames,
+                // A handoff's added pane is in place already and its giver comes from the screen edge: its
+                // dividers are in place too.
+                let edge = arrivals.isEmpty || handoff != nil ? .zero : SplitMotion.startShift(of: target.rect, axis: target.axis, panes: paneFrames,
                                                                               skipping: Set(arrivals.keys)) ?? arrivals.values.first?.edgeOffset ?? .zero
                 var frame = AnimatedFrame(target.rect.offsetBy(dx: edge.dx, dy: edge.dy), alpha: 1)
                 frame.setTarget(target.rect, alpha: 1)

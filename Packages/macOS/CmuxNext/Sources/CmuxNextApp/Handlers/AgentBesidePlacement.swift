@@ -75,7 +75,10 @@ enum AgentBesidePlacement {
                         done.resume(returning: $0)
                     }
                 }
-                guard docked else { return "beside-caller: the chat did not dock (see the app log)" }
+                guard docked else {
+                    content.layoutModel.cancelContentHandoff()
+                    return "beside-caller: the chat did not dock (see the app log)"
+                }
                 // Keyboard focus stays in the chat, now in its dock.
                 if chatHadFocus || content.focusedPane?.pane === anchor {
                     let chatID = chat.id
