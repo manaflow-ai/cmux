@@ -59,14 +59,21 @@ enum SidebarLaneStatus {
     }
 
     /// The Priority view's chip for the most urgent of `lanes` (`AgentPriorityRanking`, with the
-    /// same read marks and Red CI), nil when each one works or is idle: the working mark already says working.
-    /// `failingChecks` is the Red CI answer, by default the session tree feed's.
+    /// same read marks and Red CI), nil when each one works, is idle or finished: the working mark
+    /// already says working, and a row never says Done (Leo 2026-10-21; its unread dot does). A
+    /// finished chat drops out before the ranking, so it never hides a failed one, and its failing
+    /// checks still read as Red CI. `failingChecks` is the Red CI answer, by default the session tree feed's.
     static func chip(_ lanes: [AgentActivityLane], marks: AgentPriorityMarks.State,
                      failingChecks: ((AgentActivityLane) -> Bool)? = nil) -> SidebarPriorityEntry.State? {
-        lanes.map { AgentPriorityRanking.state($0, read: marks.read[$0.id] == AgentPriorityMarks.stamp($0),
-                                               failingChecks: failingChecks?($0) ?? SidebarSessionTreeFeed.shared.checksFailing($0)) }
-            .filter { if case .working = $0 { false } else { $0 != .idle } }
-            .min { AgentPriorityRanking.tier($0) < AgentPriorityRanking.tier($1) }
+        lanes.compactMap { lane -> SidebarPriorityEntry.State? in
+            let failing = failingChecks?(lane) ?? SidebarSessionTreeFeed.shared.checksFailing(lane)
+            switch AgentPriorityRanking.state(lane, read: marks.read[lane.id] == AgentPriorityMarks.stamp(lane), failingChecks: failing) {
+            case .done: return failing ? .ciFailing : nil
+            case .working, .idle: return nil
+            case let state: return state
+            }
+        }
+        .min { AgentPriorityRanking.tier($0) < AgentPriorityRanking.tier($1) }
     }
 
     /// The first line of the step of the working lane that started last, nil when none works or
