@@ -169,7 +169,10 @@ const modelPressDragRelease: Play = async (ctx) => {
 async function openEffortMenu(ctx: Parameters<Play>[0]): Promise<HTMLElement> {
   await ctx.click(MODEL);
   await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
-  await ctx.click({ role: "menuitem", name: /^Effort/ });
+  // A submenu row opens on hover or from the keyboard: Base UI's submenu trigger ignores a mouse
+  // press while it opens on hover. Enter on the focused row opens it, as a keyboard user does.
+  await ctx.focus({ role: "menuitem", name: /^Effort/ });
+  await ctx.press("Enter");
   let levels: HTMLElement | undefined;
   await ctx.waitFor(() => {
     // The submenu is the quick menu with no submenu rows of its own.

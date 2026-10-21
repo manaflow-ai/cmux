@@ -114,12 +114,18 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
     },
   ];
   const withQuery = (query: string, more: string) => `${query ? `${query}&` : "?"}${more}`;
-  // Default (the harness's unset template) is the stage layout: the composer at the foot, where all
-  // the menus reach over its suggestions (CI on #22119 measured 2 to 3 rows each). Threads keeps
-  // the composer at the top of the page: the model menu reaches over the suggestions there; the
-  // access menu opens clear of them (0 rows), so only its presses are checked.
+  // Default (the harness's unset template) is the stage layout: the composer at the foot, where the
+  // access menu reaches over its suggestions (CI on #22119 measured 2 to 3 rows). The model button's
+  // compact menu (Leo 2026-10-20) opens above the box there, clear of the suggestions under it (CI
+  // on #22800 measured 0 rows), so only its presses are checked. Threads keeps the composer at the
+  // top of the page: the model menu reaches over the suggestions there; the access menu opens clear
+  // of them (0 rows), so only its presses are checked.
   const MENUS_ON: ((typeof MENUS)[number] & { mustOverlap: boolean })[] = [
-    ...MENUS.map((entry) => ({ ...entry, name: `${entry.name} (Default, stage)`, mustOverlap: true })),
+    ...MENUS.map((entry) => ({
+      ...entry,
+      name: `${entry.name} (Default, stage)`,
+      mustOverlap: entry.name !== "model",
+    })),
     ...MENUS.map((entry) => ({
       ...entry,
       name: `${entry.name} (Threads)`,

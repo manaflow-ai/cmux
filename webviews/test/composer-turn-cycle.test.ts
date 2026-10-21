@@ -132,7 +132,7 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width, height: 520 } });
     await page.goto(stageURL(variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    await page.locator(".acpmux-model .acpmux-model-detail").first().waitFor();
+    await page.locator(".acpmux-model .acpmux-model-detail:visible").first().waitFor();
     await page.evaluate(() => document.fonts.ready);
     return page;
   };

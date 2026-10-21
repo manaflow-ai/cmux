@@ -225,7 +225,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width, height: 300 } });
     await page.goto(stageURL(variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    await page.locator(".acpmux-model .acpmux-model-detail").first().waitFor();
+    await page.locator(".acpmux-model .acpmux-model-detail:visible").first().waitFor();
     await page.evaluate(() => document.fonts.ready);
     if (draft) {
       await page.locator(".acpmux-composer-prompt [contenteditable]").click();
@@ -302,7 +302,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       const page = await browser!.newPage({ viewport: { width: 720, height } });
       await page.goto(stageURL("queued"));
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-      await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-model-detail").first().waitFor();
+      await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-model-detail:visible").first().waitFor();
       const drawn = await page.evaluate(() => {
         const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
         const main = rect(".acpmux-main")!;

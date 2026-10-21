@@ -176,7 +176,7 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width, height: 300 }, reducedMotion: "reduce" });
     await page.goto(stageURL(scheme));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    await page.locator(".acpmux-model .acpmux-model-detail").first().waitFor();
+    await page.locator(".acpmux-model .acpmux-model-detail:visible").first().waitFor();
     await page.evaluate(() => document.fonts.ready);
     await settle(page);
     return page;
@@ -248,7 +248,8 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
         expect(row.look).toBe("");
         const model = chip(row, "model")!;
         expect(model.leadingIcon).toBe(true);
-        expect(model.nameColor).not.toBe(chip(row, "mode")!.color);
+        // Off, the name keeps the text ink, apart from the button's muted effort.
+        expect(model.nameColor).not.toBe(model.color);
         expect(chip(row, "mode")!.leadingIcon).toBe(true);
         // No pill at rest in the default look either: the label, and the mode's chevron.
         for (const each of row.chips) {
@@ -293,8 +294,9 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
           if (was && Math.abs(was.height - each.height) > 0.5) problems.push(`${each.name}'s height changed`);
           if (each.name !== "model" && !each.chevron) problems.push(`${each.name} lost its chevron`);
         }
+        // Muted like its effort: the name takes the button's own quiet ink, which the effort detail draws in.
         const model = chip(row, "model");
-        const muted = chip(row, "mode")?.color;
+        const muted = model?.color;
         if (model?.nameColor !== muted) problems.push(`the model name ${model?.nameColor} is not muted (${muted})`);
         if (row.modelLabel && model?.leadingIcon) problems.push("the model's brand mark still draws beside its name");
         if (!row.modelLabel && !model?.leadingIcon) problems.push("the stepped-down model chip has no mark");

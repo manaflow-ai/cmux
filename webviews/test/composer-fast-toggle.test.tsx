@@ -30,8 +30,6 @@ const keys = [
   "ShadowRoot",
   "MouseEvent",
   "KeyboardEvent",
-  "Event",
-  "CustomEvent",
   "InputEvent",
   "customElements",
   "MutationObserver",

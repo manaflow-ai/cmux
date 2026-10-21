@@ -109,6 +109,9 @@
   border-radius: 12px;
   background-color: var(--surface-popup);
   box-shadow: var(--acpmux-popup-elevation);
+  /* Never past the room on its side (Base UI's --available-height, cx-m6jn0): the list scrolls. */
+  max-height: var(--available-height, none);
+  overflow-y: auto;
 }
 .acpmux-quick-menu .ui-menu-group-label {
   display: block;
@@ -122,7 +125,11 @@
   margin: 4px var(--ui-row-padding-inline);
   border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
 }
+/* The agent pane does not load src/ui/ui.css, so its rows carry their own flex line: the check and
+   the number key can only trail the label in one. */
 .ui-menu-item.acpmux-quick-item {
+  display: flex;
+  align-items: center;
   gap: 8px;
   height: var(--ui-row-height);
   min-height: 0;
@@ -168,8 +175,11 @@
 
 /* The harness rail beside the compact list (Leo 2026-10-18): Starred, then each harness, as round
    icon tabs on a hairline; the chosen tab keeps the row wash. The list keeps Claude Code's rows. */
-.acpmux-quick-railed { max-width: min(360px, calc(100vw - 24px)); padding: 0; }
-.acpmux-quick-layout { display: flex; align-items: stretch; }
+.acpmux-quick-railed { max-width: min(360px, calc(100vw - 24px)); padding: 0; overflow: hidden; }
+/* A rail or list taller than the room scrolls on its own; the other stays put. */
+.acpmux-quick-layout { display: flex; align-items: stretch; max-height: var(--available-height, none); }
+.acpmux-quick-rail,
+.acpmux-quick-body { overflow-y: auto; }
 .acpmux-quick-rail {
   flex: none;
   min-inline-size: 0;

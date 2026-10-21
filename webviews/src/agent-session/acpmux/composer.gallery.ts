@@ -22,7 +22,10 @@ async function openModelMenu(ctx: PlayContext) {
 /// Opens the model menu, then its Effort submenu; resolves with the submenu's popup.
 async function openEffortMenu(ctx: PlayContext): Promise<HTMLElement> {
   await openModelMenu(ctx);
-  await ctx.click({ role: "menuitem", name: /^Effort/ });
+  // A submenu row opens on hover or from the keyboard: Base UI's submenu trigger ignores a mouse
+  // press while it opens on hover. Enter on the focused row opens it, as a keyboard user does.
+  await ctx.focus({ role: "menuitem", name: /^Effort/ });
+  await ctx.press("Enter");
   let levels: HTMLElement | undefined;
   await ctx.waitFor(() => {
     levels = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu")].find(
