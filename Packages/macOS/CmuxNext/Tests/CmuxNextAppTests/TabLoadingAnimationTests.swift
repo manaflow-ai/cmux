@@ -45,7 +45,7 @@ import Testing
         defer { DesignSettings.shared.animationSpeed = speed }
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
-        guard Motion.duration(.fadeOut) > 0 else { return }
+        guard Motion.indicators.duration(.fadeOut) > 0 else { return }
 
         let cell = TabCell(item: TabItem(id: TabID("loading"), title: "Loading"))
         cell.update(item: TabItem(id: TabID("loading"), title: "Loading", isBusy: true))

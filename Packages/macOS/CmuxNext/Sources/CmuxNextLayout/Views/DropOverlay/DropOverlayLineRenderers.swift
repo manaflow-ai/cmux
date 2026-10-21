@@ -22,7 +22,7 @@ final class InsertionLineRenderer: DropOverlayRenderer {
         let region = frame.zone == .column ? frame.target : frame.region
         let caret = DropOverlayGeometry.insertionLine(region: region, zone: frame.zone, width: width,
                                                       length: CGFloat(DropOverlayTunables.lineLength.value))
-        Motion.transaction(nil) {
+        Motion.panes.transaction(nil) {
             tint.path = DropOverlayGeometry.roundedRect(frame.target, frame.cornerRadius)
             tint.opacity = Float(DropOverlayTunables.lineRegionOpacity.value)
             line.path = DropOverlayGeometry.roundedRect(caret, width / 2)
@@ -75,7 +75,7 @@ final class StrokeRenderer: DropOverlayRenderer {
             width = tuned > 0 ? tuned : devicePixel
             path = DropOverlayGeometry.roundedRect(frame.target.insetBy(dx: width / 2, dy: width / 2), frame.cornerRadius)
         }
-        Motion.transaction(nil) {
+        Motion.panes.transaction(nil) {
             stroke.lineWidth = width
             stroke.path = path
             stroke.lineDashPattern = style == .dashed

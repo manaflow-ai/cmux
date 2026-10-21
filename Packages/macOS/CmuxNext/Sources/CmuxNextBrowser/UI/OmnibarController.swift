@@ -128,7 +128,7 @@ import Foundation
         case .cancelQuery:
             queryTask?.cancel()
             queryTask = nil
-        case .beep, .began, .ended, .deleteSuggestion, .typedNavigation, .hostTypoFixed, .copyAnswer, .keywordStarted, .keywordEnded:
+        case .beep, .began, .ended, .deleteSuggestion, .typedNavigation, .typedHTTPSUpgrade, .hostTypoFixed, .copyAnswer, .keywordStarted, .keywordEnded:
             onEffect?(effect)
         }
     }

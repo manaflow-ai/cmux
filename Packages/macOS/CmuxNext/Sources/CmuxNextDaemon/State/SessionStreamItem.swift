@@ -15,6 +15,9 @@ public enum SessionStateChange: Sendable, Hashable {
     case closedRemoved(String)
     case status(WorkspaceStatus)
     case statusRemoved(ResourceID)
+    /// A workspace's whole checklist (`workspace-checklist-v1`).
+    case checklist(WorkspaceChecklist)
+    case checklistRemoved(ResourceID)
     case screenGroup(StateScreenGroup)
     case screenGroupRemoved(String)
     /// The `sidebar_item` / `sidebar_section` changes of one batch, raw
@@ -180,11 +183,13 @@ enum SessionWire {
     struct StateLists: Decodable {
         var closed: [Lossy<ClosedItem>]?
         var workspaceStatus: [Lossy<WorkspaceStatus>]?
+        var workspaceChecklists: [Lossy<WorkspaceChecklist>]?
         var screenGroups: [Lossy<StateScreenGroup>]?
 
         enum CodingKeys: String, CodingKey {
             case closed
             case workspaceStatus = "workspace_status"
+            case workspaceChecklists = "workspace_checklist"
             case screenGroups = "screen_groups"
         }
     }
@@ -215,6 +220,9 @@ enum SessionWire {
             }
             mirror.closed = Array((state.closed?.compactMap(\.value) ?? []).prefix(SessionStateMirror.closedLimit))
             for status in state.workspaceStatus?.compactMap(\.value) ?? [] { mirror.workspaceStatus.updateValue(status, forKey: status.workspaceID) }
+            for checklist in state.workspaceChecklists?.compactMap(\.value) ?? [] where !checklist.items.isEmpty {
+                mirror.workspaceChecklists.updateValue(checklist, forKey: checklist.workspaceID)
+            }
             for group in state.screenGroups?.compactMap(\.value) ?? [] { mirror.screenGroups.updateValue(group, forKey: group.id) }
             return mirror
         }
@@ -249,6 +257,8 @@ enum SessionWire {
             case ("state_delete", "closed"): change = .closedRemoved(id)
             case ("state_upsert", "workspace_status"): change = .status(try c.decode(WorkspaceStatus.self, forKey: .value))
             case ("state_delete", "workspace_status"): change = .statusRemoved(rid)
+            case ("state_upsert", "workspace_checklist"): change = .checklist(try c.decode(WorkspaceChecklist.self, forKey: .value))
+            case ("state_delete", "workspace_checklist"): change = .checklistRemoved(rid)
             case ("state_upsert", "screen_group"): change = .screenGroup(try c.decode(StateScreenGroup.self, forKey: .value))
             case ("state_delete", "screen_group"): change = .screenGroupRemoved(id)
             default: change = nil

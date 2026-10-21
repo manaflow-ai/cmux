@@ -915,4 +915,6 @@ mod closed_content_tests;
 #[cfg(test)]
 mod partial_create_tests;
 #[cfg(test)]
+mod split_focus_tests;
+#[cfg(test)]
 mod tests;

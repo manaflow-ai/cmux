@@ -36,6 +36,12 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
     /// The kind the owner declared (`group`, `dm`, `chief`), when it says. A group stays a group
     /// when it shrinks to one other person; nil derives the kind from the participants.
     public var declaredKind: Kind?
+    /// A large Cloud group's member count (`member_count`): its `participants` are then only a
+    /// roster. Nil when `participants` lists everyone.
+    public var memberCount: Int?
+    /// When the group's Chiefs answer (the owner's `settings.wake_policy`); nil when the owner
+    /// names none (a local conversation, or an owner before settings), which means ``ChiefReplyPolicy/default``.
+    public var chiefReplies: ChiefReplyPolicy?
 
     public init(
         id: ConversationID,
@@ -53,7 +59,9 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
         muted: Bool = false,
         previewAttachments: AttachmentPreview? = nil,
         mentionCount: Int = 0,
-        declaredKind: Kind? = nil
+        declaredKind: Kind? = nil,
+        memberCount: Int? = nil,
+        chiefReplies: ChiefReplyPolicy? = nil
     ) {
         self.id = id
         self.owner = owner
@@ -71,6 +79,8 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
         self.previewAttachments = previewAttachments
         self.mentionCount = mentionCount
         self.declaredKind = declaredKind
+        self.memberCount = memberCount
+        self.chiefReplies = chiefReplies
     }
 
     public enum Kind: String, Hashable, Sendable, Codable {

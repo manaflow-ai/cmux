@@ -24,6 +24,30 @@ before installation. Its `state` is one of:
 These states describe enrollment. Transport reachability and serving roles have
 their own health. An enrollment record is not an execution grant.
 
+## Use the enrolled transport identity
+
+After enrollment, initialize a separate link state directory with the private
+record's absolute path, then start that link explicitly:
+
+```sh
+cmux link init --state-dir /path/to/server-link --server-identity /path/to/pairing/identity.json
+cmux link ensure --state-dir /path/to/server-link --session-socket /path/to/cmux.sock
+```
+
+The link uses the enrolled install ID and WireGuard key directly from the
+private record. It creates no second key file and refuses an existing link
+identity or a conflicting `--install`. Both processes must run under the OS
+account that owns the record. `link status` reports the public key actually
+loaded by the running mesh. A changed record cannot silently retarget a live
+link; choose a separate state directory or stop it explicitly.
+
+Peer admission and the receiving daemon's remote-entry policy still apply.
+The current carrier needs explicitly configured peers and direct reachability;
+automatic server peer-map/relay integration remains separate. Paired daemon
+installs retain their narrow backend grants and cannot mint Cloud dial tokens.
+
+## Progress output
+
 For `pair --json`, public progress objects go to stderr and the final result
 goes to stdout. A validated HTTPS `verification_uri` from the selected API is
 included when available and preserved on resume. Machine fields, IDs and diagnostic codes are invariant; human

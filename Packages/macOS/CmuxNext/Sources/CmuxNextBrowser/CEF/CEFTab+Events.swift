@@ -42,9 +42,11 @@ extension CEFTab {
             clearTitleBeforeCommit()
             committedURL = URL(string: url)
             pageInfoDocumentCommitted(URL(string: url))
+            resetPageBackdrop()
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
+            samplePageBackdrop()
             restored.documentLoaded()
             // Mixed content shows up while the page loads subresources.
             syncSecurityFromChromium()
@@ -101,6 +103,7 @@ extension CEFTab {
         case .renderUnresponsive: machine.apply(.unresponsiveChanged(true))
         case .renderResponsive: machine.apply(.unresponsiveChanged(false))
         case .permissionPrompt, .permissionDismissed, .passwordPrompt: CEFPermissionPrompts(tab: self).handle(event)
+        case .beforeUnloadDismissed: beforeUnloadDismissed()
         case .devToolsMessage(_, let json):
             agentRelay.deliver(json)
         default:

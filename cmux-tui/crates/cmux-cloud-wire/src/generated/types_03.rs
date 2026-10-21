@@ -5,6 +5,44 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TargetPolicyHost {
+    pub kind: LitHost,
+    pub host: HostId,
+    pub fallback: TargetPolicyHostFallback,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAiLimitMember {
+    pub user: UserId,
+    pub display_name: String,
+    pub role: String,
+    pub limit_usd: WireNumber,
+    pub source: TeamAiLimitMemberSource,
+    pub spent_usd: WireNumber,
+}
+
+wire_enum! {
+    TeamAiLimitMemberSource {
+        Personal = "personal",
+        Team = "team",
+        Default = "default",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAiUsageLine {
+    pub billed: bool,
+    pub included_usd: Option<WireNumber>,
+    pub per_seat: bool,
+    pub seats: i64,
+    pub spent_usd: WireNumber,
+    pub period_start: Option<i64>,
+    pub period_end: i64,
+    pub stop_applies: bool,
+    pub stopped: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamAuditEntry {
     pub n: i64,
     pub op: String,

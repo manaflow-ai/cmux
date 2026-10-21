@@ -7,7 +7,8 @@
 ///   "hibernation": "moderate",        // "off" | "moderate" | "aggressive" | minutes (number)
 ///   "hibernationExclusions": ["mail.google.com", "*.example.com"],
 ///   "hibernatePinnedTabs": false,
-///   "freezeHiddenTabs": 30           // "off" | seconds (number)
+///   "freezeHiddenTabs": 30,          // "off" | seconds (number)
+///   "keepNeighborTabsAwake": 1       // 0...3 tabs on each side of the shown tab
 /// }
 /// ```
 ///
@@ -15,6 +16,9 @@
 /// `freezeHiddenTabs` is separate: a hidden Chromium page freezes (its timers,
 /// tasks and rendering stop; it keeps its memory and state) after that many
 /// seconds, and thaws when shown. It saves power, not memory.
+/// `keepNeighborTabsAwake` keeps that many tabs on each side of each pane's
+/// shown tab (wrapping, as Ctrl-Tab does) unfrozen and loaded, so a switch to
+/// a nearby tab is instant; memory pressure and Low Power Mode reduce it to 0.
 public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
     public enum Mode: Sendable, Hashable {
         case off
@@ -39,17 +43,26 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
     /// Seconds hidden before a page freezes by default: long enough for a
     /// quick switch back, short against the ~1 Hz wakeups of each hidden renderer.
     public static let defaultFreezeSeconds: Double = 30
+    /// Tabs on each side of each pane's shown tab that stay awake (0 turns it off).
+    public var neighborRadius: Int
+    /// One tab on each side by default: Ctrl-Tab, Cmd-Shift-[ ] and the next click are warm.
+    public static let defaultNeighborRadius = 1
+    /// The values `browser.keepNeighborTabsAwake` accepts.
+    public static let neighborRadiusRange = 0...3
 
     public init(mode: Mode, exclusions: [String] = [], includesPinnedTabs: Bool = false,
-                freezeSeconds: Double? = BrowserHibernationSetting.defaultFreezeSeconds) {
+                freezeSeconds: Double? = BrowserHibernationSetting.defaultFreezeSeconds,
+                neighborRadius: Int = BrowserHibernationSetting.defaultNeighborRadius) {
         self.mode = mode
         self.exclusions = exclusions
         self.includesPinnedTabs = includesPinnedTabs
         self.freezeSeconds = freezeSeconds
+        self.neighborRadius = neighborRadius
     }
 
     public static let configPath = ["browser", "hibernation"]
     public static let fallback = BrowserHibernationSetting(mode: .moderate)
+    public static let neighborRadiusPath = ["browser", "keepNeighborTabsAwake"]
 
     public var isEnabled: Bool { mode != .off }
 
@@ -122,6 +135,14 @@ public nonisolated struct BrowserHibernationSetting: Sendable, Hashable {
             } else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "browser.freezeHiddenTabs",
                                                       message: "expected \"off\" or a number of seconds > 0"))
+            }
+        }
+        if let value = browser["keepNeighborTabsAwake"] {
+            if let number = value.doubleValue, number == number.rounded(), neighborRadiusRange.contains(Int(exactly: number) ?? -1) {
+                setting.neighborRadius = Int(exactly: number) ?? defaultNeighborRadius
+            } else {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "browser.keepNeighborTabsAwake",
+                                                      message: "expected a whole number from 0 to 3"))
             }
         }
         return (setting, diagnostics)

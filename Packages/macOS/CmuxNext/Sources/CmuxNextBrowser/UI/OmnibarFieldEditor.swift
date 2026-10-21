@@ -9,6 +9,8 @@ import AppKit
     func fieldEditorKey(_ key: OmnibarInput.Key) -> Bool
     /// `word`: the word under the press in the text shown now.
     func fieldEditorMouseDown(clickCount: Int, button: OmnibarInput.MouseButton, word: NSRange?)
+    /// The press moved past the drag threshold before its release.
+    func fieldEditorMouseDragged()
     func fieldEditorMouseUp()
     /// Copy and Cut text for the selection, with the omnibox copy adjustments.
     var copyContent: OmnibarCopy? { get }
@@ -132,6 +134,7 @@ final class OmnibarFieldEditor: NSTextView {
         // Tracks the click or drag until mouse-up.
         super.mouseDown(with: event)
         probe?("editor.tracked")
+        if event.omnibarDragged(to: NSApp.currentEvent) { sink?.fieldEditorMouseDragged() }
         sink?.fieldEditorMouseUp()
     }
 

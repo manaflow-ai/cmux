@@ -32,6 +32,7 @@ extension ControlRouter {
         let caller = try ControlCaller(call.params)
         given.callerAgentSession = caller?.agentSession
         given.callerTerminal = caller?.terminalID
+        given.callerHomeChat = caller?.homeChat ?? false
         let key = try Self.idempotencyKey(call.params)
         guard let key else { return try await execute(action, given, key: nil, call: call) }
         switch idempotency.claim(key, fingerprint: given) {

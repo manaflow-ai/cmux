@@ -222,11 +222,12 @@ final class Tour {
     }
 
     /// The outcome of one AXPress: `missing` when no element has the identifier (the step fails at
-    /// once), else the AX error code when it was not success. A step is judged by its effect in
-    /// the tree, so a press that acts but reports an error still passes, with the code in its detail.
+    /// once), else the AX error code when it was not success. A press that acts but reports an
+    /// error fails its step: an agent that sees the error presses again and acts twice.
     struct Press {
         var missing: String?
         var note = ""
+        var succeeded: Bool { missing == nil && note.isEmpty }
     }
 
     func pressMenu(_ action: String) -> Press {
@@ -239,6 +240,19 @@ final class Tour {
         guard let target = element(identifier) else { return Press(missing: "no element \(identifier)") }
         let error = ax.press(target)
         return Press(note: error == .success ? "" : "; AXPress \(identifier) returned \(error.rawValue)")
+    }
+
+    /// `count` once a second passes with no change (at most `options.settle`): a late second
+    /// workspace or tab from a repeated press shows up here.
+    func settled(_ count: () -> Int) -> Int {
+        var last = count(), stableSince = Date()
+        let deadline = Date().addingTimeInterval(options.settle)
+        while Date() < deadline, Date().timeIntervalSince(stableSince) < 1 {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            let now = count()
+            if now != last { last = now; stableSince = Date() }
+        }
+        return last
     }
 
     func record(_ step: String, _ ok: Bool, _ detail: String) {
@@ -257,17 +271,22 @@ final class Tour {
             let before = workspaces
             let press = pressID("cmux.sidebar.newWorkspace")
             if let missing = press.missing { return record(step, false, missing) }
-            let ok = waitFor(settle) { workspaces.subtracting(before).count == 1 }
-            newWorkspaceID = ok ? workspaces.subtracting(before).first : nil
-            record(step, ok, (ok ? "new row \(newWorkspaceID ?? "")" : "no new cmux.sidebar.workspace.* row") + press.note)
+            let made = waitFor(settle) { workspaces.subtracting(before).count == 1 }
+            newWorkspaceID = made ? workspaces.subtracting(before).first : nil
+            // One press makes one workspace: a second row after a short wait is a double press.
+            let added = settled { workspaces.subtracting(before).count }
+            let ok = made && added == 1 && press.succeeded
+            record(step, ok, (made ? "new row \(newWorkspaceID ?? ""), \(added) added" : "no new cmux.sidebar.workspace.* row") + press.note)
         case "new-tab":
             let before = tabs
             let press = pressID("cmux.tabs.newTab")
             if let missing = press.missing { return record(step, false, missing) }
             // A new tab first shows a pending id (`pending_tab_...`) and then its model id: wait for that.
-            let ok = waitFor(settle) { tabs.subtracting(before).count == 1 && !tabs.subtracting(before).contains { $0.contains("pending_") } }
-            newTabID = ok ? tabs.subtracting(before).first : nil
-            record(step, ok, (ok ? "new tab \(newTabID ?? "")" : "no new cmux.tabs.tab.* element") + press.note)
+            let made = waitFor(settle) { tabs.subtracting(before).count == 1 && !tabs.subtracting(before).contains { $0.contains("pending_") } }
+            newTabID = made ? tabs.subtracting(before).first : nil
+            let added = settled { tabs.subtracting(before).count }
+            let ok = made && added == 1 && press.succeeded
+            record(step, ok, (made ? "new tab \(newTabID ?? ""), \(added) added" : "no new cmux.tabs.tab.* element") + press.note)
         case "split-pane":
             let before = dividers, beforeTabs = tabs
             let press = pressMenu("splitRight")

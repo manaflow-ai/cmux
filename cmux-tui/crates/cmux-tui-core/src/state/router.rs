@@ -27,6 +27,7 @@ use crate::workspace_registry::{ResourcePatchCommit, WorkspacePresentationUpdate
 use crate::{Mux, ResourceSelectors, WorkspaceMutation};
 
 mod agent_message_router;
+mod checklist_router;
 
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     use ResourceOperation as Op;
@@ -130,6 +131,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::WorkspaceLogList
             | Op::WorkspaceLogClear
     ) || agent_message_router::handles(operation)
+        || checklist_router::handles(operation)
 }
 
 /// Map a state failure to its typed protocol error. Registry validation
@@ -639,6 +641,8 @@ pub(crate) fn dispatch(
                         .filter_map(|member| member.as_u64().and_then(|m| usize::try_from(m).ok()))
                         .collect()
                 }),
+                tab: string(fields, "tab"),
+                fallback_pane: string(fields, "fallback_pane"),
             };
             let commit = mux
                 .state_reopen_closed(&mutation(&request)?, expected_revision(fields)?, &reopen)
@@ -926,6 +930,10 @@ pub(crate) fn dispatch(
         // Agent messages (plans/feat-agent-rooms/DESIGN.md)
         operation if agent_message_router::handles(operation) => {
             agent_message_router::dispatch(mux, &request)
+        }
+        // workspace-checklist-v1
+        operation if checklist_router::handles(operation) => {
+            checklist_router::dispatch(mux, &request)
         }
         operation => Err(ResourceError::operation_failed(
             operation_name(operation),

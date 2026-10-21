@@ -6,7 +6,10 @@ import CmuxNextIcons
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
     static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
-    static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }
+    /// How much shorter than the list's inset a row ends on the right: the row's pill stops
+    /// before the sidebar's edge (Leo 2026-10-20: "trim the pill's right side").
+    static var rowTrailingTrim: CGFloat { Metrics.space4 }
+    static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
     /// Height of a placeholder row's bar (about a caption's x-height).
@@ -42,9 +45,19 @@ enum SidebarStyle {
     /// the display density.
     static var avatarDiameter: CGFloat { iconBox }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
+    /// The margin under everything the sidebar draws (Leo 2026-10-20: the account row, the last
+    /// rows and the scroller sat on the window's bottom edge): space4, as the agent composer's.
+    static var bottomInset: CGFloat { Metrics.space4 }
     static var autoscrollZone: CGFloat { Metrics.sidebarRowHeight }
-    static var dragThreshold: CGFloat { Metrics.space2 }
-    static var overscan: CGFloat { Metrics.sidebarRowHeightWithSubtitle * 10 }
+    /// Rows realized past each edge of the visible list. A scroll draws rows as they come in
+    /// (one or two a frame), so a deep overscan bought nothing and cost every frame: each realized
+    /// or parked row view is a subtree AppKit walks per scroll frame (tracking areas, layout,
+    /// display), 10 rows a side made a scroll cost grow with the workspace count
+    /// (sidebar-scroll-perf-DESIGN.md).
+    static var overscan: CGFloat { Metrics.sidebarRowHeightWithSubtitle * 3 }
+    /// Extra distance past the realization rect before a row view is parked, so a row at the
+    /// edge does not park and come back on every small scroll.
+    static var pruneMargin: CGFloat { Metrics.sidebarRowHeightWithSubtitle }
 
     /// Workspace titles: regular weight, read or unread, selected or not
     /// (Lawrence 2026-10-14: "sidebar text should not be bold by default"),
@@ -54,6 +67,16 @@ enum SidebarStyle {
     /// Length of the fade that ends a clipped row title (no ellipsis).
     static var titleFadeWidth: CGFloat { Metrics.space6 }
     static var subtitleFont: NSFont { Typography.caption }
+    /// One detail line under a row's title (the folder, branch or agent line), as its label lays it out.
+    static var detailLineHeight: CGFloat {
+        let font = subtitleFont
+        if let detailLine, detailLine.font == font { return detailLine.height }
+        let height = ceil(NSLayoutManager().defaultLineHeight(for: font))
+        detailLine = (font, height)
+        return height
+    }
+    /// `detailLineHeight` for the last caption font: every row layout and render state reads it.
+    private static var detailLine: (font: NSFont, height: CGFloat)?
     /// Where a workspace title without a custom icon starts: rows draw no
     /// default icon (WORKSPACE-ROWS-NO-DEFAULT-ICON). Group headers start
     /// their name here too.
@@ -71,6 +94,13 @@ enum SidebarStyle {
     static func groupHeaderFont(barHeight: CGFloat) -> NSFont {
         NSFont.systemFont(ofSize: min(15, max(11, (barHeight * 0.54).rounded())), weight: .medium)
     }
+    /// The opt-in member count after a group's name (Lawrence 2026-10-20): a detail, not a title,
+    /// so smaller than `name`, at the regular weight, in ``groupHeaderCountInkAlpha`` of the ink.
+    static func groupHeaderCountFont(name: NSFont) -> NSFont {
+        NSFont.systemFont(ofSize: max(TypeScale.caption, name.pointSize - 2), weight: TypeScale.regular)
+    }
+    /// How much of the header's ink the member count takes: lighter than the name.
+    static let groupHeaderCountInkAlpha: CGFloat = 0.7
     /// The members' bar: 3 pt at the 32 pt row, scaled; at the members' leading edge.
     static var groupBarWidth: CGFloat { max(2, (Metrics.sidebarRowHeight * 0.1).rounded()) }
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
