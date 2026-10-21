@@ -805,6 +805,28 @@ export function Composer({
   const stopTurn = () => {
     if (Date.now() - sentAt.current > STOP_GUARD_MS) onStop();
   };
+  // Enter sends unless it picks a command: with the menu closed, with nothing to pick (an unknown
+  // command or a pasted path), or on a command already typed in full that takes no arguments.
+  const returnSends = () => {
+    const typedInFull =
+      matches[selected]?.command.name === query &&
+      (!matches[selected]?.command.hint || matches[selected]?.command.source === "cmux");
+    return !open || matches.length === 0 || typedInFull;
+  };
+  const sendOnReturn = (event: { preventDefault(): void }) => {
+    if (!returnSteers) return submit(event);
+    event.preventDefault();
+    return send(false, true);
+  };
+  // The Return an input method or Dictation passed on (keyCode 229) reaches no key handler, and
+  // the browser inserts its paragraph instead (Leo's dictated prompt, d5829ff). Return never adds
+  // a line here (Shift-Return does): it sends, or picks the menu's command, as a Return key would.
+  const returnInput = () => {
+    if (shell) return;
+    if (mentionAt && mentions[mentionSelected]) return pickMention(mentions[mentionSelected]);
+    if (returnSends()) return void sendOnReturn({ preventDefault() {} });
+    if (matches.length > 0) pick(matches[selected].command);
+  };
   const keyDown = (event: KeyboardEvent) => {
     // Every key belongs to the input method while it composes, not only Enter.
     if (event.isComposing || event.keyCode === 229) return;
@@ -922,17 +944,8 @@ export function Composer({
       onOpenInWindow(sent);
       return;
     }
-    // Enter sends unless it picks a command: with the menu closed, with nothing
-    // to pick (an unknown command or a pasted path), or on a command already
-    // typed in full that takes no arguments.
-    const typedInFull =
-      matches[selected]?.command.name === query &&
-      (!matches[selected]?.command.hint || matches[selected]?.command.source === "cmux");
-    if (event.key === "Enter" && plain && (!open || matches.length === 0 || typedInFull)) {
-      if (returnSteers) {
-        event.preventDefault();
-        send(false, true);
-      } else submit(event);
+    if (event.key === "Enter" && plain && returnSends()) {
+      sendOnReturn(event);
       return;
     }
     if (!open) return;
@@ -1278,6 +1291,7 @@ export function Composer({
             onChange={(markdown, at) => edit(markdown, at)}
             onCaret={setCaret}
             onKeyDown={keyDown}
+            onReturnInput={returnInput}
             onCompositionChange={(value) => {
               composing.current = value;
             }}
