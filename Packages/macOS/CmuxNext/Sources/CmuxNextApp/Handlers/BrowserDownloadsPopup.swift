@@ -88,6 +88,7 @@ final class BrowserDownloadsPopup {
         self.anchor = anchor
         self.buttons = buttons
         model.list = list
+        if !popup.isShown { model.shows += 1 }
         model.colors = anchor.performWithTheme { BrowserDownloadsPopupColors.resolve() }
         model.onShowFolder = { [weak self] in
             self?.close()
@@ -133,7 +134,9 @@ final class BrowserDownloadsPopup {
     private func followRows() {
         guard popup.isShown, let list = model.list else { return }
         let current = generation
-        _ = withObservationTracking { list.items.count } onChange: { [weak self] in
+        let model = model
+        // The Clear row comes and goes with the finished rows, without a row count change.
+        _ = withObservationTracking { (list.items.count, model.canClear) } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self, self.generation == current else { return }
                 self.resize()
@@ -172,6 +175,9 @@ final class BrowserDownloadsPopupModel {
     var colors = BrowserDownloadsPopupColors()
     /// The pointer went into the popup: it no longer closes by itself.
     var entered = false
+    /// Bumped by every show: the rows are built again, so no row keeps the
+    /// hover of the last show (the pointer left it while the popup was closed).
+    var shows = 0
     @ObservationIgnored var onEnter: () -> Void = {}
     @ObservationIgnored var onOpen: (URL) -> Void = { _ in }
     @ObservationIgnored var onShowFolder: () -> Void = {}
@@ -237,6 +243,7 @@ struct BrowserDownloadsPopupView: View {
                                 .frame(height: Self.rowHeight)
                         }
                     }
+                    .id(model.shows)
                     .padding(.vertical, 4)
                 }
                 .frame(height: CGFloat(min(rows.count, Self.visibleRows)) * Self.rowHeight + 8)
@@ -282,6 +289,7 @@ private struct BrowserDownloadPopupRow: View {
             HStack(spacing: 10) {
                 Image(nsImage: BrowserDownloadsMenu.icon(for: download, size: 24))
                     .frame(width: 24, height: 24)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(download.filename)
                         .font(Font(Typography.body))
@@ -306,19 +314,23 @@ private struct BrowserDownloadPopupRow: View {
                     if inside { model.pointerEntered() }
                 }
             ))
-            // Show in Finder on the hovered row (Chrome's folder button).
-            if hovered, download.status == .finished, let file = download.destination {
-                Button { model.onReveal(file) } label: {
-                    Image(systemName: "folder")
-                        .font(Font(Typography.body))
-                        .foregroundStyle(model.colors.secondary)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
+            // Show in Finder on the hovered row (Chrome's folder button). Its
+            // slot is always there, so the name does not shift on hover.
+            ZStack {
+                if hovered, let file = BrowserDownloadsMenu.draggableFile(download) {
+                    Button { model.onReveal(file) } label: {
+                        Image(systemName: "folder")
+                            .font(Font(Typography.body))
+                            .foregroundStyle(model.colors.secondary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(BrowserHitStrings.downloadShowInFinder)
+                    .accessibilityLabel(BrowserHitStrings.downloadShowInFinder)
                 }
-                .buttonStyle(.plain)
-                .help(BrowserHitStrings.downloadShowInFinder)
-                .accessibilityLabel(BrowserHitStrings.downloadShowInFinder)
             }
+            .frame(width: 24, height: 24)
         }
         .padding(.horizontal, 8)
         .frame(maxHeight: .infinity)
@@ -350,6 +362,7 @@ private struct BrowserDownloadsFooterRow: View {
                     .font(Font(Typography.body))
                     .foregroundStyle(colors.secondary)
                     .frame(width: 24)
+                    .accessibilityHidden(true)
                 Text(title)
                     .font(Font(Typography.body))
                     .foregroundStyle(colors.primary)
