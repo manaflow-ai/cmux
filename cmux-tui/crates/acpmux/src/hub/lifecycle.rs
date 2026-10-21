@@ -388,7 +388,7 @@ impl Hub {
         let moves = super::processes::backgrounds_work(profile.kind);
         session.backgrounds_work.store(moves, Ordering::SeqCst);
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
-        self.fresh_agent(session, profile.preset_digest.clone());
+        self.fresh_agent(session, profile);
         session.closing.store(false, Ordering::SeqCst);
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
