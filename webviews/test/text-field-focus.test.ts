@@ -110,9 +110,10 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
     // The named surfaces only: the others may fail to mount, which their tests tolerate (below).
     await warmGalleryFrame(base, [...new Set(cases.filter(({ named }) => named).map(({ entry }) => entry))], {
       browser,
-      timeoutMs: 240_000,
+      // Under the file's 240 s limit, so a stalled warm-up fails here, naming its entry.
+      timeoutMs: 150_000,
     });
-  }, 300_000);
+  }, 200_000);
 
   afterAll(async () => {
     await browser?.close();
