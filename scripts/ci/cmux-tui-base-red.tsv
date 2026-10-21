@@ -6,7 +6,6 @@
 #   OS       any, macos or linux: where the skip applies
 # Remove the line in the same push as the fix. Never extend an expiry without the bead owner.
 protocol::tests::protocol_registry_names_every_served_method	cx-mvd3t	2026-10-18	any	_acpmux/complete (a242167877bc) not in protocol::registry()
-a_remote_chain_cannot_query_the_keychain	cx-3czkh	2026-10-18	macos	the Web chain's agent reads the System keychain on the AWS Mac
 the_requests_are_the_macos_hosts	cx-c0wvp	2026-10-18	any	policy.json lacks _acpmux/attachment (a9e1681643a6, #20411) and _acpmux/btw, keeps _acpmux/ask (ed2adf3d5591, #20826; web side #20812 open)
 the_known_params_are_the_macos_hosts	cx-c0wvp	2026-10-18	any	policy.json lacks _acpmux/attachment (a9e1681643a6, #20411) and _acpmux/btw, keeps _acpmux/ask (ed2adf3d5591, #20826; web side #20812 open)
 the_allowlist_is_what_the_page_sends	cx-c0wvp	2026-10-18	any	policy.json lacks _acpmux/attachment (a9e1681643a6, #20411) and _acpmux/btw, keeps _acpmux/ask (ed2adf3d5591, #20826; web side #20812 open)

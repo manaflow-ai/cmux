@@ -138,6 +138,6 @@ nonisolated struct MarkdownHTMLRenderer: Sendable {
     code{font:0.875em ui-monospace,"SF Mono",monospace}p code,li code{padding:1px 4px;border-radius:4px;background:rgba(127,127,127,.12)}
     blockquote{margin:0;padding-left:14px;border-left:3px solid rgba(127,127,127,.4);color:rgba(127,127,127,1)}
     table{border-collapse:collapse}th,td{border:1px solid rgba(127,127,127,.35);padding:4px 10px;text-align:left}
-    a{color:#0a84ff}hr{border:0;border-top:1px solid rgba(127,127,127,.35)}
+    a{color:inherit;text-decoration:underline}hr{border:0;border-top:1px solid rgba(127,127,127,.35)}
     """
 }

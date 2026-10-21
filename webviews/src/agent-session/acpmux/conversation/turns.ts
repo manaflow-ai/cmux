@@ -12,6 +12,7 @@ import { turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
 import { isSubagentGroup } from "../subagents/subagentRows";
+import { STARTED_SESSIONS } from "../started/startedSessions";
 import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { editedPaths, toolLabel } from "../toolPaths";
@@ -261,7 +262,8 @@ function shapedTurn(
   } else
     shaped = [
       ...date,
-      user,
+      // Bookkeeping alone starts a turn but draws nothing (incomingMessage.ts).
+      ...(user.incoming?.kind === "hidden" ? [] : [user]),
       ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset, liveRuns, sessionStatus),
       ...held,
     ];
@@ -356,7 +358,15 @@ function shapeTurn(
     ...summary,
     folded: work.length > 0,
     text: answer?.text ?? summary.text,
-    ...(retryable && user.text && { prompt: user.text, retryRowId: user.id, retryAttachments: user.retryAttachments }),
+    // Retry sends the prompt as the agent got it: an incoming message with its sender. A
+    // notification is the harness's, not a prompt to send again (incomingMessage.ts).
+    ...(retryable &&
+      user.incoming?.kind !== "notice" &&
+      (user.resend ?? user.text) && {
+        prompt: user.resend ?? user.text,
+        retryRowId: user.id,
+        retryAttachments: user.retryAttachments,
+      }),
     version: version * 2 + (retryable ? 1 : 0),
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
@@ -424,6 +434,8 @@ const staysOut = (row: AcpmuxRow) =>
   row.kind === "sessionStart" ||
   // A session offer waits for the person's Start or Dismiss.
   row.kind === "sessionOffer" ||
+  // A chat the turn started keeps its card in sight (started/startedSessions.ts).
+  row.kind === STARTED_SESSIONS ||
   // What the person answered an agent's question, which shaped the rest of the turn.
   row.kind === QUESTION_RECORD;
 
@@ -471,8 +483,12 @@ function liveTurn(
 ): AcpmuxRow[] {
   const drawn = turn.filter((row) => row.kind !== "typing");
   const rows = liveRuns ? codexRuns(drawn) : drawn;
-  const last = rows.at(-1);
-  if (!last) return [{ id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING }];
+  // A started chat's card that no row follows yet is not the turn's latest step.
+  let last: AcpmuxRow | undefined;
+  for (let index = rows.length - 1; index >= 0 && !last; index -= 1)
+    if (rows[index]!.kind !== STARTED_SESSIONS) last = rows[index];
+  // A turn with only its started chats' card so far keeps the card under its thinking line.
+  if (!last) return [{ id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING }, ...rows];
   const answering = last.kind === "assistant";
   if (answering && rows.length === 1) return rows;
   // The status ticks on this computer's clock, from the prompt moved onto it.
@@ -484,14 +500,17 @@ function liveTurn(
     if (doing) status.doing = doing;
   }
   // The latest step row may still stream its last thought (ThoughtRow.tsx). Its version moves off
-  // the stored one, so the row draws again, done, once another row follows it.
+  // the stored one, so the row draws again, done, once another row follows it. A started chats'
+  // card may follow it (`last` is the latest row that is not one).
   const shown =
-    last.kind === "activity" ? [...rows.slice(0, -1), { ...last, live: true, version: last.version * 2 + 1 }] : rows;
+    last.kind === "activity"
+      ? rows.map((row) => (row === last ? { ...last, live: true, version: last.version * 2 + 1 } : row))
+      : rows;
   const plan = sessionStatus ? [...shown].reverse().find((row) => row.kind === "plan" && row.plan?.length) : undefined;
   if (!plan) return [status, ...shown];
   const work = shown.filter((row) => row !== plan);
   // The answer streams under the list; the line has nothing left to say.
-  if (answering) return [...work.slice(0, -1), plan, last];
+  if (answering) return [...work.filter((row) => row !== last), plan, last];
   return [...work, plan, activityLine(user, work, plan, clockOffset)];
 }
 
@@ -538,9 +557,12 @@ function inFlightTitle(row: AcpmuxRow): string | undefined {
 /// (`inFlight`) shows only its newest call, so its line replaces itself instead of growing into a
 /// list. Each derived row's version moves with its drawn state.
 function codexRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
+  // A started chats' card after the run is not a step: the run before it is still in flight.
+  let latest = rows.length - 1;
+  while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
   return rows.map((row, index) => {
     if (row.kind !== "activity" || isEdit(row)) return row;
-    return index === rows.length - 1
+    return index === latest
       ? { ...row, inFlight: true, version: row.version * 4 + 1 }
       : { ...row, settled: true, version: row.version * 4 + 2 };
   });

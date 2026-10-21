@@ -19,13 +19,13 @@ extension SidebarListViewComponents {
         hoverCards.pin(target, from: hoverCard)
         return hoverCards.isShowing(target.id)
     }
-    /// The workspace row under `point` (this view's coordinates) that may
-    /// have a card now: none during a drag or rename, or off the visible rows.
+    /// The workspace row `point` (this view's coordinates) hovers, by the
+    /// list's own hover rule, that may have a card now: none during a drag or rename, or off the visible rows.
     func hoverCardWorkspace(at point: CGPoint) -> WorkspaceID? {
         guard drag == nil, !inlineRename.isActive, visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
               // The list's own rows (a dictionary): `model.isPlaceholder` walks every section, and this
               // runs on each scroll frame (hover geometry), O(workspaces) per frame at 1,000 rows.
-              case .workspace(let id)? = displayed.row(at: point.y)?.key, let row = workspaces[id],
+              case .workspace(let id)? = hoverHit(at: point)?.key, let row = workspaces[id],
               !row.rowState.isPending else { return nil }
         return id
     }

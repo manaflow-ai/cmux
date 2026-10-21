@@ -70,6 +70,19 @@ import Testing
         #expect(panel.pet.acceptsFirstMouse(for: nil))
     }
 
+    /// ⌃⌥⌘C (Message the Chief from Any App) orders the pet in without unhiding cmux. With cmux
+    /// hidden (⌘H, Hide Others), a window that hides with its app would stay hidden; the pet, its
+    /// notices and its reply box don't hide with the app, so they show without bringing back
+    /// every main window.
+    @Test func petNoticesAndReplyBoxStayOutWhileCmuxIsHidden() {
+        let panel = ChiefPetPanel(defaults: Self.defaults())
+        #expect(!panel.canHide)
+        #expect(!ChiefPetBubblePanel().canHide)
+        let reply = ChiefPetReplyPanel()
+        #expect(!reply.canHide)
+        #expect(!reply.hidesOnDeactivate)
+    }
+
     /// One press through the view: down at `from`, dragged through `path`, up.
     /// `onCharacter` false presses the rail's background instead.
     private func press(_ pet: ChiefPetView, from: CGPoint, path: [CGPoint], onCharacter: Bool = true) {

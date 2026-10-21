@@ -191,7 +191,6 @@ public final class GhosttyRuntime {
     static func loadConfig(diagnostics: inout [String], opacity: inout Double, theme: String? = nil) -> ghostty_config_t? {
         guard let config = ghostty_config_new() else { return nil }
         // cmux's defaults, before the user's files so theirs win.
-        loadImageStorageDefault(into: config)
         loadPaddingDefault(into: config)
         loadThemeDefault(into: config)
         loadKeybindDefaults(into: config)
@@ -231,6 +230,8 @@ public final class GhosttyRuntime {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
         }
         ghostty_config_finalize(config)
+        loadImageStorageDefaultIfUnset(into: config)
+        enforceClipboardWriteConsent(into: config)
         let count = ghostty_config_diagnostics_count(config)
         for index in 0..<count {
             let diagnostic = ghostty_config_get_diagnostic(config, index)

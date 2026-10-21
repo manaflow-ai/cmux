@@ -9,8 +9,13 @@ name: cmux-next terminal suites
 #   scripts/ci/cmux-tui-rust-check.sh terminal, which a fleet step runs by hand).
 # - the shared Swift terminal packages (CmuxTerminalSizing, CmuxTerminalStream,
 #   CmuxTerminalClient), which ci-macos.yml tests on pull requests only.
-# Both jobs run on the owned Mac minis (CI_SIDE_LANE_RUNNER, as cmux-tui.yml's
-# macOS job), never on Blacksmith: without that variable they skip.
+# The Linux jobs run on Blacksmith 16 vCPU: the crates except cmux-pty (OS-specific
+# code) and one test whose golden digests were recorded on macOS, and the three
+# pure-Swift packages' tests. The two Mac jobs keep what Linux cannot stand in for:
+# cmux-pty, that corpus test, and the
+# CmuxTerminalClientKit FFI target, which needs the xcframework. They run on the
+# owned Mac minis (CI_SIDE_LANE_RUNNER, as cmux-tui.yml's macOS job); without that
+# variable they skip.
 
 on:
   push:
@@ -38,8 +43,67 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+
+  rust-terminal-linux:
+    name: terminal crates (Linux)
+    if: github.repository_owner == 'manaflow-ai'
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 40
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Init ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch the ghostty-next Zig packages (retried)
+        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      # terminal_corpus_snapshots_encode_ready_and_complete compares digests recorded on
+      # macOS and fails on Linux; the Mac job below runs it.
+      - name: cargo test (terminal crates)
+        working-directory: cmux-tui
+        run: |
+          cargo test --locked --no-fail-fast \
+            -p ghostty-vt -p ghostty-vt-sys -p cmux-terminal-sizing \
+            -p cmux-terminal-client -p cmux-encode \
+            -- --skip terminal_corpus_snapshots_encode_ready_and_complete
+
+  swift-terminal-linux:
+    name: Swift terminal packages (Linux)
+    if: github.repository_owner == 'manaflow-ai'
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 30
+    container: swift:6.2-noble
+    env:
+      # CmuxTerminalClient without the FFI xcframework: its pure Swift model target.
+      CMUX_TERMINAL_CLIENT_MODEL_ONLY: "1"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: swift test (terminal packages)
+        run: |
+          status=0
+          for package in CmuxTerminalSizing CmuxTerminalStream CmuxTerminalClient; do
+            echo "::group::$package"
+            swift test --package-path "Packages/Shared/$package" || { echo "::error::$package failed"; status=1; }
+            echo "::endgroup::"
+          done
+          exit "$status"
+
   rust-terminal:
-    name: terminal crates (ghostty-vt, tmux regress, PTY)
+    name: terminal crates (cmux-pty and corpus snapshot, macOS)
     if: github.repository_owner == 'manaflow-ai' && vars.CI_SIDE_LANE_RUNNER != ''
     runs-on: ${{ vars.CI_SIDE_LANE_RUNNER }}
     timeout-minutes: 40
@@ -69,15 +133,14 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
-      - name: cargo test (terminal crates)
+      - name: cargo test (cmux-pty, corpus snapshot with macOS digests)
         working-directory: cmux-tui
         run: |
-          cargo test --locked --no-fail-fast \
-            -p ghostty-vt -p ghostty-vt-sys -p cmux-pty -p cmux-terminal-sizing \
-            -p cmux-terminal-client -p cmux-encode
+          cargo test --locked --no-fail-fast -p cmux-pty
+          cargo test --locked -p ghostty-vt --test terminal_corpus
 
   swift-terminal:
-    name: Swift terminal packages
+    name: Swift terminal packages (CmuxTerminalClient FFI, macOS)
     if: github.repository_owner == 'manaflow-ai' && vars.CI_SIDE_LANE_RUNNER != ''
     runs-on: ${{ vars.CI_SIDE_LANE_RUNNER }}
     timeout-minutes: 30
@@ -92,12 +155,7 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      - name: swift test (terminal packages)
-        run: |
-          status=0
-          for package in CmuxTerminalSizing CmuxTerminalStream CmuxTerminalClient; do
-            echo "::group::$package"
-            swift test --package-path "Packages/Shared/$package" || { echo "::error::$package failed"; status=1; }
-            echo "::endgroup::"
-          done
-          exit "$status"
+      # The Linux job runs Sizing, Stream and the Client model target; the Client package's
+      # FFI target (CmuxTerminalClientKit, over the xcframework) only builds here.
+      - name: swift test (CmuxTerminalClient with the FFI target)
+        run: swift test --package-path Packages/Shared/CmuxTerminalClient

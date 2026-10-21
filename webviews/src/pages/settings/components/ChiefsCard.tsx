@@ -139,9 +139,7 @@ export function ChiefsCard() {
                   {chief.role && <span className="row-help">{chief.role}</span>}
                 </span>
               </span>
-              <span className="row-help chiefs-backend">
-                {backendLine(chief)}
-              </span>
+              <span className="row-help chiefs-backend">{backendLine(chief)}</span>
               {chief.locked && <span className="badge">{t("chief.settings.locked")}</span>}
             </button>
           ))}

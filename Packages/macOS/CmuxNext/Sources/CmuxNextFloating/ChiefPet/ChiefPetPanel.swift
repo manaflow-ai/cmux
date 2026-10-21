@@ -47,6 +47,8 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         isFloatingPanel = true
         level = .floating
         hidesOnDeactivate = false
+        // Not hidden with cmux (⌘H, Hide Others): Message the Chief from Any App orders it in without unhiding the app.
+        canHide = false
         // Agent output and replies stay out of screen shares and recordings.
         sharingType = .none
         becomesKeyOnlyIfNeeded = true

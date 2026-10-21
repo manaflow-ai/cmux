@@ -250,6 +250,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             // the reconnected pane's allows keep working.
             guard startsDaemon else {
                 _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
+                await AcpmuxComputerUse.enroll(environment)
                 do {
                     return try await Self.verifiedEndpoint(environment)
                 } catch let refusal as AcpmuxServerPeer.Refusal {
@@ -270,7 +271,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             // that cannot take the key is handed off and ours starts with it.
             let stale = await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment)
             let stopped = stale ? true : await AcpmuxPersonKey.enroll(status, environment: environment)
-            guard stopped else { return try await Self.verifiedEndpoint(environment) }
+            guard stopped else {
+                await AcpmuxComputerUse.enroll(environment)
+                return try await Self.verifiedEndpoint(environment)
+            }
         } catch AcpmuxStatusClient.Failure.unreachable {
             logger.info("acpmux status unreachable socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
             // Nothing listens on the socket: start a daemon below, unless
@@ -298,6 +302,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             // A signed daemon ignores the spawn key: it takes the key by this app's signature.
             if let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath) {
                 _ = await AcpmuxPersonKey.enroll(status, environment: environment)
+                await AcpmuxComputerUse.enroll(environment)
             }
             return endpoint
         } catch AcpmuxDaemonLauncher.Failure.exited {
@@ -305,6 +310,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             // Another client may have started the daemon first; the loser
             // exits because the socket is taken. Ask the winner.
             do {
+                await AcpmuxComputerUse.enroll(environment)
                 return try await Self.verifiedEndpoint(environment)
             } catch let refusal as AcpmuxServerPeer.Refusal {
                 throw Self.refused(refusal, environment)

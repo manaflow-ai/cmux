@@ -9,7 +9,7 @@
 # Policy line. `@require_non_lander_approver on` makes the guard refuse an
 # approval by anyone who landed a surface-changing commit of the range or
 # started the run. Off: any approval in release-surface-ack counts.
-@require_non_lander_approver off
+@require_non_lander_approver on
 
 .github/release-surface.txt
 .github/workflows/nightly.yml

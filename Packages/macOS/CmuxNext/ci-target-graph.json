@@ -573,7 +573,8 @@
       "targets": [
         "CmuxNextAgentActivity",
         "CmuxNextCompat",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },

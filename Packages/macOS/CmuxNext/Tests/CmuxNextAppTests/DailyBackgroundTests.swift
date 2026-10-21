@@ -89,7 +89,7 @@ import Testing
         await settle { harness.scope.backdropSelection == .art(.daily(on: today, calendar: calendar)) }
         let tomorrow = BackdropArt.nextDay(after: today, calendar: calendar).addingTimeInterval(60)
         harness.terminal.now = { tomorrow }
-        harness.terminal.showDailyArt()
+        harness.terminal.showShuffledArt()
         #expect(harness.scope.backdropSelection == .art(.daily(on: tomorrow, calendar: calendar)))
         #expect(harness.scope.backdropSelection != .art(.daily(on: today, calendar: calendar)))
     }
@@ -136,7 +136,7 @@ import Testing
         for _ in 0..<(2 * BackdropArt.allCases.count) {
             let now = day
             harness.terminal.now = { now }
-            harness.terminal.showDailyArt()
+            harness.terminal.showShuffledArt()
             if case let .art(art) = harness.scope.backdropSelection { shown.append(art) }
             day = BackdropArt.nextDay(after: now, calendar: calendar).addingTimeInterval(60)
         }
