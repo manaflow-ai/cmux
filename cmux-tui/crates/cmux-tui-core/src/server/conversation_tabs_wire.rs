@@ -179,13 +179,16 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
     error.downcast_ref::<MachineMismatch>().map(|_| MachineMismatch::CODE.to_string())
 }
 
-/// True when `session` is a chat this daemon landed through a guarded
-/// `agent-transfer-finish` (the id acpmux's finish answered) and `host` is
-/// this store's own: Move to Cloud opens the moved chat that way.
+/// True when `host` is this store's own and `session` is this machine's chat
+/// by acpmux's own answer, never a client's word: a chat this daemon landed
+/// through a guarded `agent-transfer-finish` (Move to Cloud opens the moved
+/// chat that way), or a chat an attached tab's session started here, as
+/// `agent-session-children` listed or followed it (the app opens a Cloud
+/// VM chat's child chat that way).
 fn landed_here(mux: &Mux, host: &str, session: &str) -> bool {
     // This store's host, as agent-session-start names it.
     let own = format!("{MACHINE_HOST_PREFIX}{}", mux.registry_identity().0);
-    host == own && landed_agent_session(mux, session)
+    host == own && (landed_agent_session(mux, session) || started_here(mux, session))
 }
 
 #[cfg(unix)]
@@ -196,6 +199,17 @@ fn landed_agent_session(mux: &Mux, session: &str) -> bool {
 /// agent-transfer is unix-only (server.rs), so no chat lands here.
 #[cfg(not(unix))]
 fn landed_agent_session(_mux: &Mux, _session: &str) -> bool {
+    false
+}
+
+#[cfg(unix)]
+fn started_here(mux: &Mux, session: &str) -> bool {
+    mux.control_clients.agent_sessions.known_children.contains(session)
+}
+
+/// Agent session attach is unix-only (server.rs).
+#[cfg(not(unix))]
+fn started_here(_mux: &Mux, _session: &str) -> bool {
     false
 }
 
