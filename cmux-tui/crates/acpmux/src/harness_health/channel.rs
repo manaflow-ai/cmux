@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+pub(super) mod bun;
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum Channel {
@@ -86,10 +88,8 @@ pub fn detect(program: &str, path: Option<&Path>, home: &Path) -> Install {
     }
     // Only npm's and bun's global folders; pnpm, yarn and a project's own
     // `node_modules` update some other way.
-    let bun = home.join(".bun/install/global/node_modules");
-    if let Ok(after) = path.strip_prefix(&bun) {
-        let package = package_name(&after.to_string_lossy());
-        return Install { channel: Channel::Bun, package, writes: None };
+    if let Some(install) = bun::detect(path, home) {
+        return install;
     }
     if let Some((before, after)) = text.split_once("/lib/node_modules/")
         && let Some(package) = package_name(after)
@@ -153,9 +153,7 @@ pub fn update_plan(
                 format!("{p}@latest"),
             ]
         }
-        (Channel::Bun, Some(p)) => {
-            vec!["bun".into(), "add".into(), "-g".into(), format!("{p}@latest")]
-        }
+        (Channel::Bun, Some(_)) => bun::argv(install, path?, real?, home)?,
         (Channel::Brew, Some(f)) => vec!["brew".into(), "upgrade".into(), f.into()],
         (Channel::BrewCask, Some(c)) => {
             vec!["brew".into(), "upgrade".into(), "--cask".into(), c.into()]
@@ -167,7 +165,8 @@ pub fn update_plan(
         }
         _ => return None,
     };
-    let elevated = install.writes.as_deref().is_some_and(|dir| !writable(dir));
+    let elevated = install.writes.as_deref().is_some_and(|dir| !writable(dir))
+        || (install.channel == Channel::Bun && !writable(bun::bin_dir(&argv)?));
     let line = argv.iter().map(|w| quote(w)).collect::<Vec<_>>().join(" ");
     let command = if elevated { format!("sudo {line}") } else { line };
     Some(UpdatePlan { argv, command, elevated })

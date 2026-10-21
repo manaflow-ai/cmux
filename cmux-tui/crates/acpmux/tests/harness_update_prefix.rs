@@ -120,10 +120,9 @@ async fn cmux_next_harness_health_npm_update_keeps_distinct_installations_in_a_b
 }
 
 #[test]
-fn cmux_next_harness_health_npm_update_leaves_non_npm_plans_unchanged() {
+fn cmux_next_harness_health_npm_update_leaves_brew_plans_unchanged() {
     let home = Path::new("/home/user");
     for (channel, package, expected) in [
-        (Channel::Bun, "@manaflow-ai/codex", vec!["bun", "add", "-g", "@manaflow-ai/codex@latest"]),
         (Channel::Brew, "codex", vec!["brew", "upgrade", "codex"]),
         (Channel::BrewCask, "codex", vec!["brew", "upgrade", "--cask", "codex"]),
     ] {
