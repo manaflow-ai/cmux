@@ -2,6 +2,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextFocus
+import CmuxNextSettings
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
@@ -12,51 +13,75 @@ import Testing
 /// order, wrapping, across groups, like switching tabs." Off, nothing changes: Cmd-Shift-[ / ]
 /// cycle the focused pane's tabs (Lawrence 2026-10-15), and Home keeps its keys either way.
 @MainActor @Suite struct WorkspacesAsTabsTests {
-    static let registry: ActionRegistry = {
+    /// The app's catalog and default bindings with the tunable `on` or off (`includesWorkspaceTabKeys`).
+    static func registry(on: Bool) -> ActionRegistry {
         let registry = ActionRegistry.standard()
         for id: ActionID in ["nextSurface", "prevSurface", "nextSidebarTab", "prevSidebarTab"] {
             registry.bind(id, invoke: { _ in })
         }
+        registry.includesWorkspaceTabKeys = { on }
         return registry
-    }()
-
-    static func winner(_ keys: String, in surface: String, tabs: Bool) -> String? {
-        var context = KeyContext([KeyContext.surfaceKind: .string(surface)])
-        if tabs { context[KeyContext.workspacesAsTabs] = .bool(true) }
-        guard case .object(let report)? = KeybindingReports.resolve(keys, context: context, registry: registry, window: nil),
-              report["outcome"]?.stringValue == "run", case .object(let winner)? = report["winner"] else { return nil }
-        return winner["command"]?.stringValue
     }
 
-    /// On, Cmd-Shift-] / [ go to the next and previous workspace from a terminal, a page or a chat.
+    static let on = registry(on: true), off = registry(on: false)
+
+    /// The command `keys` run in `surface`, with the toggle's context key when `tabs`, and its `scope` argument.
+    static func winner(_ keys: String, in surface: String, tabs: Bool) -> (command: String?, scope: String?) {
+        var context = KeyContext([KeyContext.surfaceKind: .string(surface)])
+        if tabs { context[KeyContext.workspacesAsTabs] = .bool(true) }
+        guard case .object(let report)? = KeybindingReports.resolve(keys, context: context, registry: tabs ? on : off, window: nil),
+              report["outcome"]?.stringValue == "run", case .object(let winner)? = report["winner"] else { return (nil, nil) }
+        guard case .object(let arguments)? = winner["args"] else { return (winner["command"]?.stringValue, nil) }
+        return (winner["command"]?.stringValue, arguments["scope"]?.stringValue)
+    }
+
+    /// On, Cmd-Shift-] / [ go to the next and previous workspace (workspaces only) from a terminal, a page or a chat.
     @Test(arguments: ["terminal", "page", "agent"])
     func cmdShiftBracketsStepWorkspaces(_ surface: String) {
-        #expect(Self.winner("cmd+shift+rightbracket", in: surface, tabs: true) == "nextSidebarTab")
-        #expect(Self.winner("cmd+shift+leftbracket", in: surface, tabs: true) == "prevSidebarTab")
+        let next = Self.winner("cmd+shift+rightbracket", in: surface, tabs: true)
+        let previous = Self.winner("cmd+shift+leftbracket", in: surface, tabs: true)
+        #expect(next.command == "nextSidebarTab")
+        #expect(previous.command == "prevSidebarTab")
+        #expect(next.scope == SidebarNavigation.workspacesScope)
+        #expect(previous.scope == SidebarNavigation.workspacesScope)
     }
 
     /// Off (the default), the keys cycle the focused pane's tabs, as they ship.
     @Test(arguments: ["terminal", "page", "agent"])
     func offTheKeysStillCycleTabs(_ surface: String) {
-        #expect(Self.winner("cmd+shift+rightbracket", in: surface, tabs: false) == "nextSurface")
-        #expect(Self.winner("cmd+shift+leftbracket", in: surface, tabs: false) == "prevSurface")
+        #expect(Self.winner("cmd+shift+rightbracket", in: surface, tabs: false).command == "nextSurface")
+        #expect(Self.winner("cmd+shift+leftbracket", in: surface, tabs: false).command == "prevSurface")
     }
 
     /// Home (its top page and the docked Home) keeps whatever its Cmd-Shift-[ / ] run without the toggle.
     @Test(arguments: ["home", "home-dock"])
     func homeKeepsItsKeys(_ surface: String) {
         for keys in ["cmd+shift+rightbracket", "cmd+shift+leftbracket"] {
-            #expect(Self.winner(keys, in: surface, tabs: true) == Self.winner(keys, in: surface, tabs: false))
+            #expect(Self.winner(keys, in: surface, tabs: true).command == Self.winner(keys, in: surface, tabs: false).command)
         }
     }
 
-    /// The default keymap is the same with the prototype off: no default Cmd-Shift-[ / ] entry is unscoped.
-    @Test func theShippedKeymapDoesNotChange() {
-        let workspaceKeys = KeyBindingDefaults.tabSwitching.filter { $0.command.rawValue.hasSuffix("SidebarTab") && $0.keys.first?.modifiers == [.command, .shift] }
-        #expect(workspaceKeys.isEmpty)
-        for binding in KeyBindingDefaults.workspacesAsTabs {
-            #expect(binding.when?.evaluate(KeyContext([KeyContext.surfaceKind: .string("terminal")])) == false)
-        }
+    static let bracketKeys = ["]", "["].map { KeybindingReports.text([Shortcut($0, modifiers: [.command, .shift])]) }
+
+    /// The rows of the shortcut list, as Settings > Keyboard Shortcuts and `keybinding.list` show them.
+    static func rows(_ registry: ActionRegistry) -> [[String: JSONValue]] {
+        guard case .object(let page) = KeybindingReports.pageList([:], registry: registry),
+              case .array(let rows)? = page["bindings"] else { return [] }
+        return rows.compactMap { if case .object(let entry) = $0 { entry } else { nil } }
+    }
+
+    /// Off (the default, Release builds too), the shortcut list is the shipped one: no workspaces-as-tabs
+    /// row, so no new conflict badge on Cmd-Shift-[ / ], whose rows list only the pane tab actions.
+    /// On, the two rows appear.
+    @Test func offTheShortcutListIsTheShippedOne() {
+        let off = Self.rows(Self.off), on = Self.rows(Self.on)
+        // Closures stay outside #expect: the fleet toolchain refuses a rethrows call inside it.
+        let scoped = off.filter { $0["when"]?.stringValue?.contains(KeyContext.workspacesAsTabs) == true }
+        let brackets = off.filter { Self.bracketKeys.contains($0["key"]?.stringValue ?? "") }
+        let bracketCommands = Set(brackets.compactMap { $0["command"]?.stringValue })
+        #expect(scoped.isEmpty, "\(scoped)")
+        #expect(bracketCommands == ["nextSurface", "prevSurface"], "\(bracketCommands)")
+        #expect(on.count == off.count + 2)
     }
 
     /// The window's key context carries the toggle while it is on.
@@ -67,14 +92,35 @@ import Testing
         #expect(KeyRouter.keyContext(for: focus, appContext: [], facts: KeyFacts())[KeyContext.workspacesAsTabs] == nil)
     }
 
-    /// Stepping walks the rows in sidebar order across groups and wraps at both ends.
-    @Test func steppingWrapsAcrossGroups() {
-        let (a, b, c) = (CmuxNextSidebar.WorkspaceID("ws-a"), CmuxNextSidebar.WorkspaceID("ws-b"), CmuxNextSidebar.WorkspaceID("ws-c"))
-        let order = SidebarItemOrder(topItems: [], rows: [.workspace(a), .workspace(b), .workspace(c)])
-        let settings = SidebarNavigationSettings(stepping: .workspacesOnly)
-        #expect(order.step(from: .workspace(c), by: 1, settings) == .workspace(a))
-        #expect(order.step(from: .workspace(a), by: -1, settings) == .workspace(c))
-        #expect(order.step(from: .workspace(a), by: 1, settings) == .workspace(b))
+    /// The default sidebar: the document's top block (Home, the App Store) as list rows, a loose
+    /// workspace, a group holding one, and another loose one.
+    static func order() -> (SidebarItemOrder, [CmuxNextSidebar.WorkspaceID]) {
+        let ids = ["ws-1", "ws-2", "ws-3"].map { CmuxNextSidebar.WorkspaceID($0) }
+        let ws = ids.enumerated().map { SidebarWorkspace(id: $1, title: "w\($0 + 1)") }
+        let block = CmuxNextSidebar.SidebarSection(
+            kind: .custom(SidebarCustomSection(id: SidebarLayoutDocument.topSectionID.rawValue, title: "", showsTitle: false)), nodes: [])
+        let group = SidebarGroup(id: GroupID("grp-mid"), name: "Middle", workspaces: [ws[1]])
+        let list = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
+                                  nodes: [.workspace(ws[0]), .group(group), .workspace(ws[2])])
+        return (SidebarModel(sections: [block, list]).itemOrder, ids)
+    }
+
+    /// With the default settings (every item, Home included), the toggle's keys walk only the
+    /// workspaces: past the last one they wrap to the first, never to Home or the App Store, and they
+    /// go through a group's workspace.
+    @Test func theToggleKeysSkipTheTopItemsAndWrap() throws {
+        let (order, ids) = Self.order()
+        try #require(order.items.contains(.topItem(LayoutItemID("itm_home"))), "no Home in \(order.items)")
+        let walk = SidebarNavigation.stepping(.defaults, scope: SidebarNavigation.workspacesScope)
+        #expect(order.step(from: .workspace(ids[2]), by: 1, walk) == .workspace(ids[0]))
+        #expect(order.step(from: .workspace(ids[0]), by: -1, walk) == .workspace(ids[2]))
+        #expect(order.step(from: .workspace(ids[0]), by: 1, walk) == .workspace(ids[1]))
+        // From Home (shown by a click), the next workspace key goes to the first workspace.
+        #expect(order.step(from: .topItem(LayoutItemID("itm_home")), by: 1, walk) == .workspace(ids[0]))
+        // It wraps even with `sidebar.steppingWraps` off; Ctrl-Cmd-] / [ keep the settings as they are.
+        let noWrap = SidebarNavigationSettings(steppingWraps: false)
+        #expect(order.step(from: .workspace(ids[2]), by: 1, SidebarNavigation.stepping(noWrap, scope: SidebarNavigation.workspacesScope)) == .workspace(ids[0]))
+        #expect(SidebarNavigation.stepping(.defaults, scope: nil) == .defaults)
     }
 
     /// A workspace that reports a folder, a branch, two status entries and a pull request.

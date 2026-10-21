@@ -87,6 +87,14 @@ enum SidebarNavigation {
         return true
     }
 
+    /// The `scope` argument of workspaces as tabs' Cmd-Shift-] / [ (`KeyBindingDefaults.workspacesAsTabs`).
+    static let workspacesScope = "workspaces"
+
+    /// The walk of a step whose binding names `scope`.
+    static func stepping(_ settings: SidebarNavigationSettings, scope: String?) -> SidebarNavigationSettings {
+        settings
+    }
+
     /// The four `sidebar.*` navigation settings from cmux.json.
     static func settings(_ services: AppServices) -> SidebarNavigationSettings {
         services.settings?.snapshot.sidebarSections.navigation ?? .defaults
