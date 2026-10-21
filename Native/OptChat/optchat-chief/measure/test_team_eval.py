@@ -140,16 +140,20 @@ class SpendTests(unittest.TestCase):
         import tempfile
         path = os.path.join(tempfile.mkdtemp(), "ledger.json")
         led = team_eval.Ledger(path, 60)
-        self.assertEqual(led.reserve("r1", 25, 3), 25)          # committed 28
-        self.assertEqual(led.reserve("r2", 25, 3), 25)          # 56
-        self.assertIsNone(led.reserve("r3", 25, 3))             # 60 - 56 - 3 = 1 < 5
-        led.settle("r1", 7.5)                                   # 7.5 + 28 = 35.5
-        self.assertEqual(led.reserve("r3", 25, 3), 21)          # cut to fit: 60 - 35.5 - 3
-        led.settle("r2", None)                                  # unknown keeps its 28
-        self.assertAlmostEqual(team_eval.Ledger(path, 60).committed(), 7.5 + 28 + 24)
-        self.assertIsNone(led.reserve("r1", 25, 3))             # done runs never rerun
+        self.assertEqual(led.reserve("r1", 25, 3), ("r1-a1", 25))   # committed 28
+        other = team_eval.Ledger(path, 60)                          # a second campaign process
+        self.assertEqual(other.reserve("r2", 25, 3), ("r2-a1", 25))  # 56: it sees r1
+        self.assertIsNone(led.reserve("r3", 25, 3))                 # 60 - 56 - 3 = 1 < 5: it sees r2
+        led.settle("r1-a1", 7.5)                                    # 7.5 + 28 = 35.5
+        self.assertEqual(other.reserve("r3", 25, 3), ("r3-a1", 21))  # cut to fit: 60 - 35.5 - 3
+        other.settle("r2-a1", None)                                 # unknown keeps its 28
+        self.assertIsNone(led.reserve("r2", 25, 3))                 # a retry fits no more: 60 - 59.5 - 3
+        led.settle("r3-a1", 4.0)                                    # 7.5 + 28 + 4 = 39.5
+        self.assertEqual(led.reserve("r2", 25, 3), ("r2-a2", 17))   # a new attempt; a1 keeps its 28
+        self.assertAlmostEqual(team_eval.Ledger(path, 60).committed(), 39.5 + 20)
+        self.assertIsNone(led.reserve("r1", 25, 3))                 # a finished run never reruns
         with self.assertRaises(SystemExit):
-            team_eval.Ledger(path, 800)                         # one cap per eval
+            team_eval.Ledger(path, 800)                             # one cap per eval
 
     def test_step_spend_reads_the_higher_of_trace_and_live(self):
         out = 'x\nTEAM-EVAL {"cost_usd": {"all": 4.0, "live": 4.5}}\n'

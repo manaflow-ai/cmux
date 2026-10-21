@@ -62,11 +62,13 @@ PY
 )
 work="$root/.build/team-eval"
 rm -rf "$work"
-mkdir -p "$work/bin" "$work/home/.local/bin" "$work/out"
-# The agents' checkout lives outside this one: under the fleet checkout its
-# parents would hold the merged answer and this repo's CLAUDE.md.
-repo="$(mktemp -d /tmp/te-repo.XXXXXX)"
-rmdir "$repo"
+mkdir -p "$work/bin" "$work/out"
+# The agents' checkout and HOME live outside this checkout: from inside it
+# (or its parents) they could read the merged answer and this repo's CLAUDE.md.
+scratch="$(mktemp -d /tmp/te-step.XXXXXX)"
+repo="$scratch/repo"
+home="$scratch/home"
+mkdir -p "$home/.local/bin"
 # Fleet steps run with a short PATH; look where bun installs too, and give the
 # agents bun and node on theirs (~/.local/bin under the run's HOME).
 BUN="$(command -v bun || true)"
@@ -83,8 +85,8 @@ done
 [[ -n "$NODE" ]] || { echo "TEAM-EVAL node not found (PATH, /opt/homebrew/bin, /usr/local/bin)" >&2; exit 1; }
 # npm (for Claude Code) sits beside node.
 export PATH="$(dirname "$NODE"):$PATH"
-ln -s "$BUN" "$work/home/.local/bin/bun"
-ln -s "$NODE" "$work/home/.local/bin/node"
+ln -s "$BUN" "$home/.local/bin/bun"
+ln -s "$NODE" "$home/.local/bin/node"
 echo "TEAM-EVAL-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) cores=$(sysctl -n hw.ncpu) rev=$(git rev-parse HEAD) task=$task arm=$arm model=$model effort=$effort"
 curl -fsS -m 10 -o /dev/null "$base_url/_subrouter/ready" || { echo "TEAM-EVAL the route $base_url is not reachable from this worker" >&2; exit 1; }
 # The task's base and reference must be in this checkout (a shallow one fetches them).
@@ -123,8 +125,8 @@ fi
 git rev-parse HEAD > "$work/bin/REV"
 
 npm install --prefix "$work/cc" --no-fund --no-audit "@anthropic-ai/claude-code@$claude_version" >/dev/null
-ln -s "$work/cc/node_modules/.bin/claude" "$work/home/.local/bin/claude"
-echo "TEAM-EVAL-BIN claude $(HOME="$work/home" "$work/home/.local/bin/claude" --version)"
+ln -s "$work/cc/node_modules/.bin/claude" "$home/.local/bin/claude"
+echo "TEAM-EVAL-BIN claude $(HOME="$home" "$home/.local/bin/claude" --version)"
 
 driver_pid=""
 stop_driver() {
@@ -132,18 +134,18 @@ stop_driver() {
     kill -TERM "$driver_pid" 2>/dev/null || true
     wait "$driver_pid" 2>/dev/null || true
   fi
-  rm -rf "$repo"
+  rm -rf "$scratch"
 }
 trap stop_driver EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
 trap 'exit 129' HUP
 status=0
-TEAM_EVAL_UNII_SRC="$work/unii-src" HOME="$work/home" python3 Native/OptChat/optchat-chief/measure/team_eval.py run --task "$task" --arm "$arm" \
+TEAM_EVAL_UNII_SRC="$work/unii-src" HOME="$home" python3 Native/OptChat/optchat-chief/measure/team_eval.py run --task "$task" --arm "$arm" \
   --bins "$work/bin" --repo "$root" --out "$work/out" --keep-repo "$repo" \
   --budget-usd "$budget" --max-minutes "$minutes" \
   --env "ANTHROPIC_BASE_URL=$base_url" --env "ANTHROPIC_API_KEY=sk-ant-placeholder-the-route-signs" \
-  --env "CLAUDE_CONFIG_DIR=$work/home/.claude" --env "DISABLE_AUTOUPDATER=1" \
+  --env "CLAUDE_CONFIG_DIR=$home/.claude" --env "DISABLE_AUTOUPDATER=1" \
   --env "OPTCHAT_CHIEF_MODEL=$model" --env "OPTCHAT_CHIEF_EFFORT=$effort" \
   --env "OPTCHAT_SUBAGENT_MODEL=$model" --env "OPTCHAT_SUBAGENT_EFFORT=$effort" \
   --env "OPTCHAT_SUBAGENT_HARNESS=claude" > "$work/out/driver.log" 2>&1 &
@@ -173,10 +175,12 @@ if [[ -d "$repo/webviews" ]]; then
     names=()
     for f in "${files[@]}"; do
       name="${f%.test.ts}.hidden.test.ts"
-      git show "$reference:$f" > "$repo/$name"
+      git show "$reference:$f" > "$repo/$name" || hidden_rc="missing $f"
       names+=("${name#webviews/}")
     done
-    (cd "$repo/webviews" && CMUX_BROWSER_TESTS=1 "$BUN" test "${names[@]}" > "$work/out/hidden-tests.log" 2>&1) || hidden_rc=$?
+    if [[ "$hidden_rc" == 0 ]]; then
+      (cd "$repo/webviews" && CMUX_BROWSER_TESTS=1 "$BUN" test "${names[@]}" > "$work/out/hidden-tests.log" 2>&1) || hidden_rc=$?
+    fi
   fi
   checks="$(python3 -I - "$check_rc" "$hidden_rc" "$work/out/hidden-tests.log" <<'PY'
 import json, os, re, sys

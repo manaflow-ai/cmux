@@ -125,7 +125,11 @@ def trace_cost(events):
     subagent.answer's cost_usd is its process's running total (acpmux passes
     Claude Code's total_cost_usd), so each counts only its rise: the Chief's
     turns as one session, each subagent (by id) as its own, the way
-    usage.rs folds the ledger. A compactor node is its own process."""
+    usage.rs folds the ledger. A compactor node is its own process.
+    turn.end does not name its session, so when the Chief's kept session is
+    replaced by one whose total starts at or above the old one's, only the
+    rise counts and this reads low; LiveMeter (per message) is the
+    authority for the budget and the ledger, this the cross-check."""
     turns, subs, nodes = [], {}, 0.0
     for e in events:
         c = e.get("cost_usd")
@@ -382,6 +386,30 @@ def run_lossy(opts):
         print(f"[team-eval {time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
     proc = None
+
+    def stop_claude():
+        """Ends claude and everything it started (its own process group): TERM, then KILL."""
+        if not proc:
+            return
+        for sig, wait in ((signal.SIGTERM, 20), (signal.SIGKILL, 5)):
+            try:
+                os.killpg(proc.pid, sig)
+            except ProcessLookupError:
+                return
+            try:
+                proc.wait(timeout=wait)
+            except subprocess.TimeoutExpired:
+                continue
+            # The leader is gone; give its group the same signal once more.
+            try:
+                os.killpg(proc.pid, sig)
+            except ProcessLookupError:
+                pass
+            return
+
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+    signal.signal(signal.SIGINT, lambda *_: sys.exit(130))
+    signal.signal(signal.SIGHUP, lambda *_: sys.exit(129))
     try:
         base_commit = checkout(opts.repo, task["base"], repo_dir)
         path = f"{shims}:{os.environ['HOME']}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -399,7 +427,8 @@ def run_lossy(opts):
         if extra.get("OPTCHAT_CHIEF_MODEL"):
             args += ["--model", extra["OPTCHAT_CHIEF_MODEL"]]
         proc = subprocess.Popen(args, cwd=repo_dir, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                stderr=open(os.path.join(out, "claude.stderr"), "w"), text=True, bufsize=1)
+                                stderr=open(os.path.join(out, "claude.stderr"), "w"), text=True, bufsize=1,
+                                start_new_session=True)
         events = []
         lock = threading.Lock()
 
@@ -458,6 +487,8 @@ def run_lossy(opts):
             time.sleep(0.5)
         info["end"] = end
         info["minutes"] = round((now_ms() - t0) / 60000, 1)
+        # Stopped before the diff, so the diff is the tree the checks see.
+        stop_claude()
         with lock:
             snap = list(events)
         msgs, arrivals = lossy_messages(snap)
@@ -491,14 +522,16 @@ def run_lossy(opts):
         log(f"done: {end} after {info['minutes']} min, ${max(info['cost_usd']['all'], info['cost_usd'].get('live') or 0)}, {info['turns']} turns, "
             f"diff {info['diff_lines']} lines, flags {info['flags']}")
     finally:
-        if proc and proc.poll() is None:
-            proc.terminate()
+        stop_claude()
+        left = []
+        if proc:
             try:
-                proc.wait(timeout=20)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-        alive = bool(proc and proc.poll() is None)
-        info["acpmux_left"] = [proc.pid] if alive else []
+                os.killpg(proc.pid, 0)
+                left = [proc.pid]
+            except (ProcessLookupError, PermissionError):
+                pass
+        alive = bool(left)
+        info["acpmux_left"] = left
         print(f"[team-eval] acpmux cleanup: {'STILL HELD by claude ' + str(proc.pid) if alive else 'no process holds its locks'}"
               " (arm L runs no acpmux; this is its claude process)", flush=True)
         json.dump(info, open(os.path.join(out, "run.json"), "w"), indent=1)
@@ -511,63 +544,90 @@ MIN_RUN_BUDGET = 5
 
 class Ledger:
     """The eval's spend ledger: one JSON file, the cap fixed when it is made.
-    `committed` is what finished runs spent plus what running (or crashed,
-    unknown) ones were allowed to spend, so the cap holds even when runs
-    overlap or this process dies."""
+    `committed` is what finished attempts spent plus what running, crashed
+    or unknown ones were allowed to spend. Every change re-reads the file
+    under an exclusive file lock, so several campaign processes (a pilot and
+    a full run, or a re-run while the first still lives) share one cap. A
+    run that did not finish gets a new attempt (its own step key); the old
+    attempt keeps its reservation, so a re-run never forgets money spent."""
 
     def __init__(self, path, cap):
         import threading
         self.path = os.path.expanduser(path)
-        self.lock = threading.Lock()
-        if os.path.exists(self.path):
-            with open(self.path) as f:
-                self.data = json.load(f)
-            if cap is not None and abs(self.data["cap_usd"] - cap) > 1e-9:
-                raise SystemExit(f"ledger {self.path} has cap ${self.data['cap_usd']}, not ${cap}; one cap per eval")
-        else:
-            if cap is None:
-                raise SystemExit("a new ledger needs --cap-usd")
-            self.data = {"cap_usd": cap, "runs": {}}
-            self._save()
-
-    def _save(self):
+        self.thread_lock = threading.Lock()
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        tmp = self.path + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(self.data, f, indent=1)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, self.path)
+        with self._locked() as data:
+            if data is None:
+                if cap is None:
+                    raise SystemExit("a new ledger needs --cap-usd")
+                self.data = {"cap_usd": cap, "attempts": {}}
+            elif cap is not None and abs(data["cap_usd"] - cap) > 1e-9:
+                raise SystemExit(f"ledger {self.path} has cap ${data['cap_usd']}, not ${cap}; one cap per eval")
+
+    def _locked(self):
+        import contextlib
+        import fcntl
+
+        @contextlib.contextmanager
+        def held():
+            with self.thread_lock, open(self.path + ".lock", "a") as lk:
+                fcntl.flock(lk, fcntl.LOCK_EX)
+                try:
+                    if os.path.exists(self.path):
+                        with open(self.path) as f:
+                            self.data = json.load(f)
+                        yield self.data
+                    else:
+                        self.data = None
+                        yield None
+                    if self.data is not None:
+                        tmp = self.path + ".tmp"
+                        with open(tmp, "w") as f:
+                            json.dump(self.data, f, indent=1)
+                            f.flush()
+                            os.fsync(f.fileno())
+                        os.replace(tmp, self.path)
+                finally:
+                    fcntl.flock(lk, fcntl.LOCK_UN)
+        return held()
+
+    @staticmethod
+    def _committed(data):
+        return sum(a["spent"] if a["state"] == "done" else a["reserved"] for a in data["attempts"].values())
 
     def committed(self):
-        return sum(r["spent"] if r["state"] == "done" else r["reserved"] for r in self.data["runs"].values())
+        with self._locked() as data:
+            return self._committed(data)
 
-    def reserve(self, key, want, margin):
-        """The budget `key` may spend (whole dollars), reserved with its
-        margin, or None when the cap leaves less than MIN_RUN_BUDGET."""
-        with self.lock:
-            old = self.data["runs"].get(key)
-            if old and old["state"] == "done":
+    def cap(self):
+        with self._locked() as data:
+            return data["cap_usd"]
+
+    def reserve(self, run, want, margin):
+        """(attempt key, whole-dollar budget) for a new attempt of `run`,
+        reserved with its margin; None when `run` already finished or the cap
+        leaves less than MIN_RUN_BUDGET."""
+        with self._locked() as data:
+            mine = [k for k, a in data["attempts"].items() if a["run"] == run]
+            if any(data["attempts"][k]["state"] == "done" for k in mine):
                 return None
-            room = self.data["cap_usd"] - (self.committed() - (old["reserved"] if old else 0)) - margin
-            budget = int(min(want, room))
+            budget = int(min(want, data["cap_usd"] - self._committed(data) - margin))
             if budget < MIN_RUN_BUDGET:
                 return None
-            self.data["runs"][key] = {"state": "running", "budget": budget, "reserved": budget + margin,
-                                      "spent": None, "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
-            self._save()
-            return budget
+            key = f"{run}-a{len(mine) + 1}"
+            data["attempts"][key] = {"run": run, "state": "running", "budget": budget, "reserved": budget + margin,
+                                     "spent": None, "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+            return key, budget
 
     def settle(self, key, spent, step=None):
-        """A finished run: its spend, or (None) unknown, which keeps the whole reservation."""
-        with self.lock:
-            r = self.data["runs"][key]
-            r["step"] = step
+        """A finished attempt: its spend, or (None) unknown, which keeps the whole reservation."""
+        with self._locked() as data:
+            a = data["attempts"][key]
+            a["step"] = step
             if spent is None:
-                r["state"] = "unknown"
+                a["state"] = "unknown"
             else:
-                r.update(state="done", spent=round(spent, 4))
-            self._save()
+                a.update(state="done", spent=round(spent, 4))
 
 
 def step_spend(stdout):
@@ -590,12 +650,10 @@ def campaign(opts):
 
     def one(run):
         task, arm, n = run
-        key = f"team-eval-{opts.name}-{task}-{arm}-{n}"
-        if os.path.exists(os.path.join(out, key, "out", "run.json")):
-            return key, "kept"
-        budget = ledger.reserve(key, opts.run_budget, opts.margin)
-        if budget is None:
-            return key, f"not started: the ${ledger.data['cap_usd']:.0f} cap is reached or it already ran"
+        got = ledger.reserve(f"team-eval-{opts.name}-{task}-{arm}-{n}", opts.run_budget, opts.margin)
+        if got is None:
+            return f"team-eval-{opts.name}-{task}-{arm}-{n}", f"not started: it already ran, or the ${ledger.cap():.0f} cap is reached"
+        key, budget = got
         cmd = ["cmux-ci", "run", "--class", "exclusive", "--script", "scripts/measure/team-eval.sh", "--ref", opts.ref,
                f"--arg=base_url={opts.base_url}", f"--arg=task={task}", f"--arg=arm={arm}", f"--arg=budget={budget}",
                f"--arg=model={opts.model}", f"--arg=effort={opts.effort}", f"--arg=minutes={opts.minutes}",
@@ -622,7 +680,7 @@ def campaign(opts):
 
     with ThreadPoolExecutor(max_workers=opts.parallel) as pool:
         for key, what in pool.map(one, runs):
-            print(f"[team-eval campaign] {key}: {what}; committed ${ledger.committed():.2f} of ${ledger.data['cap_usd']:.0f}",
+            print(f"[team-eval campaign] {key}: {what}; committed ${ledger.committed():.2f} of ${ledger.cap():.0f}",
                   flush=True)
 
 
@@ -724,7 +782,12 @@ def run(opts):
                         pass
         return evs
 
+    stopped = []
+
     def stop_all():
+        if stopped:
+            return
+        stopped.append(True)
         for p in reversed(pids):
             try:
                 os.kill(p, signal.SIGTERM)
@@ -858,8 +921,10 @@ def run(opts):
         info["end"] = end
         info["minutes"] = round((now_ms() - t0) / 60000, 1)
         msgs = poll()
-        ev = trace_events()
         json.dump({"messages": msgs, "arrivals": arrivals}, open(os.path.join(out, "conversation.json"), "w"), indent=1)
+        # Stopped before the diff, so the diff is the tree the checks see.
+        stop_all()
+        ev = trace_events()
         shutil.copytree(traces, os.path.join(out, "traces"), dirs_exist_ok=True)
         diff = final_diff(repo_dir, base_commit)
         open(os.path.join(out, "diff.patch"), "w").write(diff)
