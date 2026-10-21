@@ -259,11 +259,13 @@ async fn native_receiver_runtime_drains_active_and_partial_hellos_before_peer_re
 #[tokio::test]
 async fn native_receiver_runtime_unchanged_policy_renews_a_live_encrypted_service() {
     let sshd = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let (mut receiver, client, owner, _) = setup(sshd.local_addr().unwrap(), false).await;
+    let (mut receiver, client, owner, original) = setup(sshd.local_addr().unwrap(), false).await;
     let (mut stream, mut backend) = active(&mut receiver, &client, &sshd).await;
     let route = receiver.mesh.peer_route(public(CLIENT)).await.unwrap();
     let renewed = publish(&owner, 1);
     receiver.reconcile(Some(&renewed)).await.unwrap();
+    // A queued older publication cannot park the current topology or its copy.
+    receiver.reconcile(Some(&original)).await.unwrap();
     assert_eq!(receiver.mesh.peer_route(public(CLIENT)).await.unwrap(), route);
     backend.write_all(b"renewed\n").await.unwrap();
     let mut bytes = [0; 8];

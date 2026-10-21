@@ -98,14 +98,22 @@ impl AgentReceiver {
         refresh: Refresh,
     ) -> Result<ReceiverSnapshot, String> {
         let started = refresh.started();
-        let deadline = started + budget.min(REQUEST_BUDGET);
+        let budget = budget.min(REQUEST_BUDGET);
+        let deadline = started + budget;
+        if refresh.elapsed(Instant::now()).ok_or(UNAVAILABLE)? >= budget {
+            return Err(UNAVAILABLE.into());
+        }
         check_path(path, uid, system).map_err(|_| UNAVAILABLE)?;
         let mut stream = connect(path, deadline).map_err(|_| UNAVAILABLE)?;
         check_peer(&stream, uid).map_err(|_| UNAVAILABLE)?;
         let bytes = exchange(&mut stream, deadline).map_err(|_| UNAVAILABLE)?;
-        let snapshot =
-            ReceiverSnapshot::from_public_reply(&bytes, &self.binding, started, Instant::now())?;
-        if Instant::now() >= deadline {
+        let snapshot = ReceiverSnapshot::from_public_reply_for_refresh(
+            &bytes,
+            &self.binding,
+            &refresh,
+            Instant::now(),
+        )?;
+        if refresh.elapsed(Instant::now()).ok_or(UNAVAILABLE)? >= budget {
             return Err(UNAVAILABLE.into());
         }
         if self.generation.as_ref().is_some_and(|generation| {

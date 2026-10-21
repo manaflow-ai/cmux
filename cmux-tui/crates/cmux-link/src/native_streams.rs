@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use super::{NativePeer, NativePolicy, ReceiverTime, State};
 use crate::dial::Service;
+use crate::elapsed::Deadline;
 use crate::stream_lease::LeaseControl;
 use std::collections::BTreeMap;
 
@@ -40,12 +41,23 @@ pub(super) fn stream_deadline(policy: &NativePolicy, now: ReceiverTime) -> Optio
     )
 }
 
+pub(super) fn elapsed_deadline(state: &State, policy: &NativePolicy) -> Option<Option<Deadline>> {
+    match &state.receiver {
+        Some(receiver) => receiver.budget(policy),
+        None => Some(None),
+    }
+}
+
 pub(super) fn reconcile_streams(state: &mut State, now: Option<ReceiverTime>) -> Vec<Waker> {
     let policy =
         now.and_then(|now| state.policy.as_ref().filter(|p| p.valid(now)).map(|p| (p, now)));
+    let elapsed = policy.and_then(|(p, _)| elapsed_deadline(state, p));
     let mut wake = Vec::new();
     state.streams.retain(|stream| {
-        let Some(previous) = stream.lease.deadline() else { return false };
+        let Some(previous) = stream.lease.deadline() else {
+            wake.extend(stream.lease.set(None, None));
+            return false;
+        };
         let next = policy.and_then(|(p, now)| {
             if now.monotonic >= previous
                 || p.issuer != stream.issuer
@@ -83,7 +95,17 @@ pub(super) fn reconcile_streams(state: &mut State, now: Option<ReceiverTime>) ->
                 next
             })
         });
-        wake.extend(stream.lease.set(next));
+        let budget = if matches!(stream.proof, StreamProof::Handshake { .. }) {
+            match (stream.lease.elapsed_deadline(), elapsed.clone()) {
+                (Some(previous), Some(Some(next))) => previous.bounded_by(next).map(Some),
+                (None, Some(None)) => Some(None),
+                _ => None,
+            }
+        } else {
+            elapsed.clone()
+        };
+        let next = next.filter(|_| budget.is_some());
+        wake.extend(stream.lease.set(next, next.and(budget).flatten()));
         next.is_some()
     });
     wake

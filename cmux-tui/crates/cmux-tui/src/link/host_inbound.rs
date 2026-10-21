@@ -129,14 +129,14 @@ where
 async fn authority_ended(lease: &mut StreamLease) {
     loop {
         let Some(deadline) = lease.deadline() else { return };
-        let deadline = tokio::time::Instant::from_std(deadline);
-        if deadline <= tokio::time::Instant::now() {
+        let elapsed = lease.elapsed_deadline();
+        if deadline <= std::time::Instant::now() {
             return;
         }
         tokio::select! {
             biased;
             ()=lease.changed()=>{},
-            ()=tokio::time::sleep_until(deadline)=>return,
+            ()=super::receiver_deadline::expired(deadline, elapsed)=>return,
         }
     }
 }
@@ -156,3 +156,7 @@ mod stream_lifetime_tests;
 #[cfg(test)]
 #[path = "host_handshake_lifetime_tests.rs"]
 mod handshake_lifetime_tests;
+
+#[cfg(test)]
+#[path = "host_elapsed_transport_tests.rs"]
+mod elapsed_transport_tests;

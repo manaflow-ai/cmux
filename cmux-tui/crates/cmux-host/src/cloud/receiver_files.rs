@@ -168,13 +168,15 @@ fn checked_snapshot<H: Http>(
     client: &mut CloudClient<H>,
     now_wall_ms: u64,
 ) -> Result<(ReceiverIdentity, super::receiver::ReceiverSnapshot), String> {
+    let elapsed = cmux_link::elapsed::Elapsed::system().ok_or(UNAVAILABLE)?;
     let started = std::time::Instant::now();
     let before = load(paths, instance)?;
     if &before.bound != client.bound() || before.install_public_jwk != client.install_public_jwk() {
         client.clear_token();
         return Err(UNAVAILABLE.into());
     }
-    let snapshot = client.receiving_policy_at(&before.wg_public, now_wall_ms, started)?;
+    let snapshot =
+        client.receiving_policy_with_elapsed(&before.wg_public, now_wall_ms, started, elapsed)?;
     if before != load(paths, instance)? {
         client.clear_token();
         return Err(UNAVAILABLE.into());

@@ -1,7 +1,7 @@
 //! Pre-hello connections share bounded policy authority, without spending JWTs.
 use super::{
     MAX_STREAMS, NativeTokenVerifier, StreamAuthority, StreamLease, StreamProof, TokenRefused,
-    reconcile_streams, stream_deadline, wake_streams,
+    elapsed_deadline, reconcile_streams, stream_deadline, wake_streams,
 };
 
 pub(super) fn begin(
@@ -28,7 +28,8 @@ pub(super) fn begin(
         .find(|peer| peer.binding.key().as_ref() == Some(peer_key))
         .ok_or(TokenRefused::Invalid)?;
     let deadline = stream_deadline(policy, now).ok_or(TokenRefused::Expired)?;
-    let (lease, control) = StreamLease::controlled(deadline);
+    let elapsed = elapsed_deadline(&state, policy).ok_or(TokenRefused::Expired)?;
+    let (lease, control) = StreamLease::with_budget(deadline, elapsed);
     let authority = StreamAuthority {
         issuer: policy.issuer.clone(),
         host: policy.host.clone(),

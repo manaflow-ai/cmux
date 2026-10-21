@@ -26,6 +26,64 @@ const USER: &str = "user_00000000000000000004";
 const TEAM: &str = "team_00000000000000000001";
 const GRANT: &str = "grant_00000000000000000004";
 type Deadlines = Rc<RefCell<Vec<Instant>>>;
+type ElapsedValue = std::sync::Arc<std::sync::Mutex<Option<Duration>>>;
+
+fn elapsed_clock() -> (cmux_link::elapsed::Elapsed, ElapsedValue) {
+    let value = std::sync::Arc::new(std::sync::Mutex::new(Some(Duration::from_secs(10))));
+    let source = value.clone();
+    let elapsed = cmux_link::elapsed::Elapsed::capture(move || *source.lock().unwrap()).unwrap();
+    (elapsed, value)
+}
+
+#[test]
+fn vm_receiver_snapshot_expires_when_elapsed_time_advances_and_active_time_is_frozen() {
+    let (mut client, wg, _) = setup(|_, _| {});
+    let (elapsed, clock) = elapsed_clock();
+    let snapshot = client.receiving_policy_with_elapsed(&wg, NOW, Instant::now(), elapsed).unwrap();
+    let active = Instant::now();
+    assert!(snapshot.time(active).is_some(), "the original authenticated read must be live first");
+    *clock.lock().unwrap() = Some(Duration::from_secs(40));
+    assert_eq!(snapshot.elapsed(active), Some(Duration::from_secs(30)));
+    assert!(snapshot.time(active).is_none(), "a frozen active clock retained expired authority");
+    assert!(snapshot.public_reply(active).is_err());
+}
+
+#[test]
+fn vm_receiver_snapshot_debits_suspended_time_from_issuer_time_and_public_remaining_budget() {
+    let (mut client, wg, _) = setup(|_, _| {});
+    let (elapsed, clock) = elapsed_clock();
+    let snapshot = client.receiving_policy_with_elapsed(&wg, NOW, Instant::now(), elapsed).unwrap();
+    let active = Instant::now();
+    *clock.lock().unwrap() = Some(Duration::from_secs(11));
+    let time = snapshot.time(active).unwrap();
+    assert!((NOW + 1_000..NOW + 2_000).contains(&time.unix_ms), "suspend extended issuer time");
+    let public = snapshot.public_reply(active).unwrap();
+    assert!(public["value"]["remaining_ms"].as_u64().unwrap() <= 29_000);
+}
+
+#[test]
+fn vm_receiver_client_request_budget_includes_suspend_before_the_next_http_call() {
+    let (elapsed, clock) = elapsed_clock();
+    let after = Rc::new(move || *clock.lock().unwrap() = Some(Duration::from_secs(31)));
+    let (mut client, wg, calls) = setup_recorded(|_, _| {}, |_, _, _| {}, Some(after));
+    assert!(
+        client.receiving_policy_with_elapsed(&wg, NOW, Instant::now(), elapsed).is_err(),
+        "a request older than its total budget reached keyset lookup and publication"
+    );
+    assert_eq!(calls.borrow().len(), 3, "the expired request sent another HTTP call");
+}
+
+#[test]
+fn vm_receiver_snapshot_clock_loss_cannot_reopen_when_elapsed_clock_recovers() {
+    let (mut client, wg, _) = setup(|_, _| {});
+    let (elapsed, clock) = elapsed_clock();
+    let snapshot = client.receiving_policy_with_elapsed(&wg, NOW, Instant::now(), elapsed).unwrap();
+    let active = Instant::now();
+    *clock.lock().unwrap() = None;
+    assert!(snapshot.time(active).is_none(), "an unavailable clock retained policy");
+    *clock.lock().unwrap() = Some(Duration::from_secs(11));
+    assert!(snapshot.time(active).is_none(), "the old request recovered after losing its clock");
+}
 
 fn fixture() -> Value {
     serde_json::from_str(include_str!("../../../../../schemas/link-token/native.json")).unwrap()

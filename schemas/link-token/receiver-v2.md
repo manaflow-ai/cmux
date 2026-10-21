@@ -66,6 +66,28 @@ root retires its attempt and supplies a fresh private generation to its replacem
 A late or superseded read cannot retire newer authority. Ordinary source failures
 invalidate policy while retaining the existing bounded retry behavior.
 
+The original credential reader captures elapsed time before protected file
+verification, authentication and keyset lookup. Time spent suspended counts
+toward both the request budget and the policy lifetime. Public issuer time and
+remaining lifetime use the same observation; receiving a reply never restarts
+that budget. Clock failure or regression permanently invalidates that captured
+read. The child's prepared socket read captures the same kind of observation
+before executor queuing. Public remaining-time caps shorten both local clocks.
+
+The authority owner advances issuer time using the larger of active uptime and
+suspend-inclusive elapsed time. Each stream retains an elapsed deadline on that
+same clock. An expired stream cannot be revived by a fresh policy; a partial
+hello keeps its original deadline even when an authenticated stream can renew.
+Transport guards recheck elapsed expiry whenever they are polled. On Linux,
+absolute BOOTTIME descriptors wake idle streams, the child's pending bootstrap
+and policy waits, renewal/backoff and peer-policy expiry. Deadline changes cancel
+their old owned descriptor; no periodic polling is needed. A superseded topology
+update cannot borrow a newer publication's budget or drain its peers.
+
+The original blocking HTTP transport still needs matching cancellation, and
+macOS needs a matching idle-wake driver. Kernel timer expiry and clock models do
+not establish actual provider suspend or clone safety by themselves.
+
 The frame and public policy contain no original VM grant ID, install private key
 or account credential. The original keys remain unchanged across attempts.
 Suspend, clone and provider-instance fencing require their own verification;

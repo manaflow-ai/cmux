@@ -4,6 +4,36 @@ use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
 #[test]
+fn receiver_owner_reply_cap_keeps_counting_elapsed_time_after_publication() {
+    use cmux_link::elapsed::Elapsed;
+    use cmux_link::native_token::receiver::Owner;
+    use std::sync::{Arc, Mutex};
+    let (binding, keys, bytes) = public_fixture();
+    let mut body: Value = serde_json::from_slice(&bytes).unwrap();
+    let checked = body["value"]["policy"]["checked_at"].as_u64().unwrap();
+    body["value"]["issuer_time_ms"] = (checked + 7_000).into();
+    body["value"]["remaining_ms"] = 23_000.into();
+    let active = Instant::now();
+    let value = Arc::new(Mutex::new(Some(Duration::from_secs(10))));
+    let source = value.clone();
+    let elapsed = Elapsed::capture(move || *source.lock().unwrap()).unwrap();
+    let owner = Owner::with_elapsed_clock(keys, move || Some(active), elapsed).unwrap();
+    let read = owner.begin().unwrap();
+    *value.lock().unwrap() = Some(Duration::from_secs(11));
+    let snapshot = ReceiverSnapshot::from_public_reply_for_refresh(
+        &serde_json::to_vec(&body).unwrap(),
+        &binding,
+        &read,
+        active,
+    )
+    .unwrap();
+    assert_eq!(snapshot.time(active).unwrap().unix_ms, checked + 7_000);
+    *value.lock().unwrap() = Some(Duration::from_secs(12));
+    assert_eq!(snapshot.time(active).unwrap().unix_ms, checked + 8_000);
+    assert_eq!(snapshot.public_reply(active).unwrap()["value"]["remaining_ms"], 22_000);
+}
+
+#[test]
 fn receiver_owner_reply_debits_root_work_once_and_bounds_socket_delay() {
     let (binding, _, bytes) = public_fixture();
     let mut body: Value = serde_json::from_slice(&bytes).unwrap();
