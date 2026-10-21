@@ -24,6 +24,10 @@ import Observation
 @MainActor
 enum ChiefInspectorHandlers {
     static let actionID: ActionID = "chief.openMemoryInspector"
+    /// The Home header's Memory toggle (``HomeHeaderPanels``) and the palette's Toggle Memory
+    /// Inspector: closes the active window's Memory Inspector tabs when its workspace shows one,
+    /// else opens one exactly as ``actionID`` (same arguments, same fallback).
+    static let toggleActionID: ActionID = "chief.toggleMemoryInspector"
     /// The old web page instead of the native view (the fallback).
     static var opensWebPage: Bool { ProcessInfo.processInfo.environment["CMUX_MEMORY_INSPECTOR_WEB"] == "1" }
 
@@ -41,6 +45,11 @@ enum ChiefInspectorHandlers {
                   memory.open(route(invocation), in: window, focus: invocation.allowsViewChange) != nil else {
                 throw ActionWorkFailure(RefusalStrings.noWindowOpen)
             }
+        })
+        registry.bind(toggleActionID, run: { invocation in
+            guard let window = context.services.windows.active else { throw ActionWorkFailure(RefusalStrings.noWindowOpen) }
+            if memory.closeShown(in: window) { return }
+            _ = context.registry.perform(actionID, invocation: invocation)
         })
     }
 
