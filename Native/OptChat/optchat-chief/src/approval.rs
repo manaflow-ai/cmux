@@ -36,6 +36,21 @@ pub const CHIEF_TOOLS: [&str; 9] = [
     "mcp__optchat__profile",
 ];
 
+/// The Claude Code `permissions.allow` of a Chief turn session: the memory
+/// tools and the Chief's own tools. Claude Code then never raises a
+/// permission request for them, so none reaches acpmux, which takes an allow
+/// only from the person (acpmux `hub/person.rs`) and refused the host's own
+/// answer: a gated turn waited on its own `send` forever (2026-10-20). What a
+/// gated turn may not do with them the host refuses at the tools socket
+/// (`Brain::own_tool_gate`).
+pub fn own_tools() -> Vec<&'static str> {
+    MEMORY_TOOLS
+        .iter()
+        .chain(CHIEF_TOOLS.iter())
+        .copied()
+        .collect()
+}
+
 /// Why a turn asks before its local effects.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Why {

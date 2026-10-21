@@ -1355,6 +1355,18 @@ impl Orchestrator for Spawner {
             .map_err(|_| "the Chief host is stopping".to_owned())?
     }
 
+    fn own_tool_gate(&self, tool: &str, input: &serde_json::Value) -> Result<(), String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::OwnToolGate {
+            tool: tool.to_owned(),
+            input: input.clone(),
+            reply,
+        })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
     fn send(&self, call: crate::tools::SendCall) -> Result<String, String> {
         let (reply, answer) = channel();
         self.to_brain(Input::Send { call, reply })?;

@@ -127,6 +127,15 @@ pub trait Orchestrator: Send + Sync {
         let _ = (agent, request);
         Err("this Chief host takes no sign-in escalations".into())
     }
+    /// Whether the running turn may run one of the Chief's own tools
+    /// (`mcp__optchat__send`, ...) with `input`, its arguments: Err says why
+    /// not. The tools socket asks before every `send`, `profile`, `tell` and
+    /// `control` call (brain/own_tools.rs). None of them asks a person
+    /// through acpmux any more (approval.rs `own_tools`).
+    fn own_tool_gate(&self, tool: &str, input: &Value) -> Result<(), String> {
+        let _ = (tool, input);
+        Ok(())
+    }
     /// `peers` for subagent `caller`: every other subagent with its title
     /// and state (acp-chief-issues.md #11).
     fn peers(&self, caller: &str) -> Result<String, String> {
@@ -1185,7 +1194,13 @@ fn connection(conn: UnixStream, served: &Served) {
                     || role() == crate::turn_caller::Role::Subagent;
                 let grant = served.chief.as_ref().map(|c| c.grant());
                 let grant = grant.as_ref();
-                let answer = match Call::parse(tool, &req) {
+                // The Chief's own tools run without a permission request; a
+                // turn that asks may still not make some calls of them.
+                let parsed = Call::parse(tool, &req).and_then(|call| match &served.orchestrator {
+                    Some(o) if !subagent => own_tool_gate(o.as_ref(), &call).map(|()| call),
+                    _ => Ok(call),
+                });
+                let answer = match parsed {
                     // A subagent tells another subagent (acp-chief-issues.md
                     // #11), as the one its session is; never as the Chief.
                     Ok(Call::Tell {
@@ -1326,6 +1341,26 @@ fn connection(conn: UnixStream, served: &Served) {
             return;
         }
     }
+}
+
+/// Asks `orchestrator` whether the running turn may make `call` when it is
+/// one of the gated own tools (send, profile, tell, control); Ok for any
+/// other call.
+fn own_tool_gate(orchestrator: &dyn Orchestrator, call: &Call) -> Result<(), String> {
+    let name = match call {
+        Call::Send(_) => "send",
+        Call::Profile { .. } => "profile",
+        Call::Tell { .. } => "tell",
+        Call::Control(_) => "control",
+        _ => return Ok(()),
+    };
+    // The tool's arguments, without the socket request's own keys.
+    let mut input = call.to_json();
+    if let Some(fields) = input.as_object_mut() {
+        fields.remove("tool");
+        fields.remove("from");
+    }
+    orchestrator.own_tool_gate(&format!("mcp__optchat__{name}"), &input)
 }
 
 /// The answer to a `chiefs` call without this host's turn key.

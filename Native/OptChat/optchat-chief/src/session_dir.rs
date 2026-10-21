@@ -593,6 +593,9 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         .chain(denied.iter().map(String::as_str))
         .collect();
     let mut settings = settings_json(setup, paths, &deny);
+    // The Chief's own tools run without a permission request (approval.rs
+    // `own_tools`); a gated turn's limits on them are the host's.
+    settings["permissions"]["allow"] = json!(crate::approval::own_tools());
     for (key, value) in TURN_SETTINGS_ENV {
         settings["env"][key] = json!(value);
     }

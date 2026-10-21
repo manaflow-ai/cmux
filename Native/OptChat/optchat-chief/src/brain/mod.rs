@@ -33,6 +33,7 @@ mod inbox;
 pub mod media;
 mod mux_ack;
 mod outbox;
+mod own_tools;
 mod previews;
 mod prewarm;
 mod recover;
@@ -216,6 +217,14 @@ pub enum Input {
     Send {
         call: crate::tools::SendCall,
         reply: Sender<Result<String, String>>,
+    },
+    /// Whether the running turn may run one of the Chief's own tools
+    /// (`tool`, e.g. `mcp__optchat__send`) with `input`, asked by the tools
+    /// socket before it runs the call (own_tools.rs).
+    OwnToolGate {
+        tool: String,
+        input: serde_json::Value,
+        reply: Sender<Result<(), String>>,
     },
     /// `stop()` (wakes.rs): ends the running turn.
     StopTurn {
@@ -1139,6 +1148,9 @@ impl Brain {
             } => self.tell_unsteered(&id, &session, &message),
             Input::Send { call, reply } => {
                 let _ = reply.send(self.send(call));
+            }
+            Input::OwnToolGate { tool, input, reply } => {
+                let _ = reply.send(self.own_tool_gate(&tool, &input));
             }
             Input::StopTurn { reply } => {
                 let _ = reply.send(self.stop_turn());
