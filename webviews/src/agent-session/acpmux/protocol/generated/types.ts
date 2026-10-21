@@ -390,6 +390,12 @@ export type SessionSummary = {
   agentSessionId?: (string | null);
   /** Attached clients. */
   attached: number;
+  /**
+   * `_acpmux/process/background` (Ctrl-B) moves its foreground work: its
+   * harness is Claude Code (claude-stdio), whatever the harness's name.
+   * Clients offer Ctrl-B from this, not from `harness`.
+   */
+  backgroundsWork: boolean;
   /** Its sub-sessions that are not closed. */
   children: number;
   createdAt: number;

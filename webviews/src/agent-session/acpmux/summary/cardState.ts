@@ -76,7 +76,7 @@ export function useSummaryColumn(shell: HTMLElement | null, blocked: boolean): b
     }
     const measure = () => {
       const sidebar = shell.querySelector<HTMLElement>(":scope>.acpmux-sidebar");
-      const rail = shell.querySelector<HTMLElement>(":scope>.acpmux-rail");
+      const rail = shell.querySelector<HTMLElement>(":scope>.acpmux-chat-inspector");
       const reserved = (sidebar?.offsetWidth ?? 0) + (rail?.offsetWidth ?? 0);
       const available = shell.clientWidth - reserved;
       // The summary takes 300px from the same flex row as the transcript. At a width where that
@@ -88,7 +88,7 @@ export function useSummaryColumn(shell: HTMLElement | null, blocked: boolean): b
     const frame = requestAnimationFrame(measure);
     const observer = new ResizeObserver(measure);
     observer.observe(shell);
-    const rail = shell.querySelector<HTMLElement>(":scope>.acpmux-rail");
+    const rail = shell.querySelector<HTMLElement>(":scope>.acpmux-chat-inspector");
     if (rail) observer.observe(rail);
     const children = new MutationObserver(measure);
     children.observe(shell, { childList: true });

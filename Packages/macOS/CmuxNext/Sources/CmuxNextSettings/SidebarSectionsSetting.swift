@@ -125,8 +125,8 @@ public nonisolated enum SidebarSectionsSetting {
                           keywords: ["sidebar", "workspace", "tabs"])
     }
 
-    /// Projects, which its header's menu hides (Leo 2026-10-06). Chats has
-    /// Show Chats (`showChatsDescriptor`).
+    /// Projects, which its header's menu hides (Leo 2026-10-06). All chats has
+    /// Show All Chats on New Tab (`showChatsDescriptor`).
     static func sectionDescriptors(group: SettingText) -> [SettingDescriptor] {
         [
             SettingDescriptor(showProjectsPath, section: .appearance, group: group,
@@ -171,11 +171,11 @@ public nonisolated enum SidebarSectionsSetting {
 
     static func showChatsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(showChatsPath, section: .appearance, group: group,
-                          title: SettingsText.keyed("settings.sidebar.showChats", "Show All Chats"),
+                          title: SettingsText.keyed("settings.sidebar.showChats", "Show All Chats on New Tab"),
                           help: SettingsText.keyed("settings.sidebar.showChats.help",
-                                                   "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar."),
+                                                   "On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showChats),
-                          keywords: ["sidebar", "chats", "all chats", "agents", "conversations", "history"])
+                          keywords: ["new tab", "chats", "all chats", "agents", "conversations", "history", "threads", "console"])
     }
 
     /// The looks the setting accepts (CmuxNextSidebar.SectionsLookVariant).
