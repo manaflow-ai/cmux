@@ -289,6 +289,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/agent_pair_resume",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/process/list",
       "params": true,
       "result": true
@@ -302,6 +308,34 @@
     {
       "kind": "request",
       "name": "_acpmux/process/kill",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/process/background",
+      "params": {
+        "$ref": "#/types/ProcessBackgroundParams"
+      },
+      "result": {
+        "$ref": "#/types/ProcessBackgroundResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/worktree/report",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/worktree/clean",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/worktree/restore",
       "params": true,
       "result": true
     },
@@ -537,6 +571,12 @@
     {
       "kind": "request",
       "name": "_acpmux/person_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/computer_use_enroll",
       "params": true,
       "result": true
     },
@@ -921,6 +961,12 @@
     {
       "kind": "request",
       "name": "_acpmux/peer_add",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/peer_lease",
       "params": true,
       "result": true
     },
@@ -1973,6 +2019,39 @@
     "PermissionRespondResult": {
       "type": "object"
     },
+    "ProcessBackgroundParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/process/background` (Ctrl-B): the chat whose running work goes\nto the background, and the one tool call to move (none: every\nforeground task, as Claude Code's own Ctrl-B does).",
+      "properties": {
+        "sessionId": {
+          "description": "The chat's id, name or unique prefix.",
+          "type": "string"
+        },
+        "toolCallId": {
+          "description": "Only the task this tool call started.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "ProcessBackgroundResult": {
+      "properties": {
+        "backgrounded": {
+          "description": "Claude Code moved something: the tasks arrive as `process_update`s\nwith origin `user_backgrounded`. False when nothing ran in the\nforeground (or no turn ran).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "backgrounded"
+      ],
+      "type": "object"
+    },
     "PurgedSession": {
       "description": "A purged session: only its id is left.",
       "properties": {
@@ -1985,6 +2064,31 @@
       ],
       "type": "object"
     },
+    "QueuedImage": {
+      "description": "An image a queued prompt sends.",
+      "properties": {
+        "id": {
+          "description": "The SHA-256 of its bytes (64 lowercase hex digits): `_acpmux/attachment {sessionId, id}`\nreads it, and `_acpmux/queue_edit` `update` `images` keeps it.",
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "name": {
+          "description": "Its file name, when the client gave one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "mimeType",
+        "name"
+      ],
+      "type": "object"
+    },
     "QueuedPromptSummary": {
       "description": "A prompt waiting for the running turn to end.",
       "properties": {
@@ -1994,6 +2098,14 @@
         "held": {
           "description": "Waits behind a failed turn until the queue is resumed.",
           "type": "boolean"
+        },
+        "images": {
+          "default": [],
+          "description": "The images it sends, in its order; `_acpmux/attachment` reads each by its id.",
+          "items": {
+            "$ref": "#/types/QueuedImage"
+          },
+          "type": "array"
         },
         "prompt": {
           "type": "string"
@@ -2013,6 +2125,7 @@
       "required": [
         "client",
         "held",
+        "images",
         "prompt",
         "promptId",
         "queuedAt",
@@ -2095,6 +2208,10 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "backgroundsWork": {
+          "description": "`_acpmux/process/background` (Ctrl-B) moves its foreground work: its\nharness is Claude Code (claude-stdio), whatever the harness's name.\nClients offer Ctrl-B from this, not from `harness`.",
+          "type": "boolean"
         },
         "children": {
           "description": "Its sub-sessions that are not closed.",
@@ -2409,6 +2526,7 @@
         "queuePaused",
         "moving",
         "steering",
+        "backgroundsWork",
         "queue",
         "pendingPermissions",
         "enforcement",
@@ -2425,12 +2543,38 @@
     },
     "SessionsParams": {
       "additionalProperties": false,
+      "description": "Also the page fields of `_acpmux/watch` (`hub::session_pages`).",
+      "properties": {
+        "cursor": {
+          "description": "A previous reply's `nextCursor`: the page starts after that session.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "description": "Page size, at least 1. Without it the reply is the whole list.",
+          "format": "uint64",
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "SessionsResult": {
       "properties": {
+        "nextCursor": {
+          "description": "With `limit`: the cursor for the next page, null when the list is\ndone. Absent without `limit`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "sessions": {
-          "description": "Local and peer sessions, newest first.",
+          "description": "Local and peer sessions, newest first, then by `sessionId`.",
           "items": {
             "$ref": "#/types/SessionSummary"
           },

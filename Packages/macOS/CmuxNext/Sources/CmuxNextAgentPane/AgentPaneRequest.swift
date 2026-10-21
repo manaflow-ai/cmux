@@ -1,4 +1,5 @@
 import CmuxNextDictation
+public import CmuxNextSettings
 public import Foundation
 
 /// A request the page posts to `window.webkit.messageHandlers.agentSession`:
@@ -28,6 +29,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The command typed after `!` so far, whole each time, while the
     /// terminal that replaces the page is being made (`tab.typeAhead`).
     case typeAhead(String)
+    /// Opens a redeemed durable Run attempt's terminal on its enrolled worker (`run.attach`).
+    case runAttach(AgentPaneRunAttach)
+    /// `run.attach` whose params break its contract or whose endpoint expired; nothing opens.
+    case invalidRunAttach
     /// Shell mode (`!` first in the composer or the new tab field): run
     /// `command` in `cwd` (``AgentPaneShell``); answers `{id}`. Only with a
     /// real gesture in the pane.
@@ -83,6 +88,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case useFolder(String, confirm: Bool)
     /// Choose Folder… for a chat whose folder is missing (`chat.folder.choose`, cx-nn3e.1).
     case chooseChatFolder
+    /// The summary panel's Attach files or folders (`chat.attach.choose`): the native open panel,
+    /// after a real gesture, for a chat on this Mac.
+    case chooseAttachments
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
     /// `project.icon {cwd}`: the project's own favicon for its picker badge, as a small data URL.
@@ -94,6 +102,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case openChatInTerminal(String)
     /// `chats.page {query?, cursor?, limit?}`: one page of the New Tab page's All chats list.
     case chatsPage(AgentPaneChatsQuery)
+    /// `environment.list|save|remove`: the New Tab page's saved environments (``AgentPaneEnvironmentRequest``).
+    case environment(AgentPaneEnvironmentRequest)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of
@@ -122,6 +132,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
     /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
     case subagentPane(String, focus: Bool)
+    /// `chat.processTerminal {toolCallId}`: the background process this chat's tool call started,
+    /// in a read-only terminal tab beside the chat (``AgentPaneProcessViewer``).
+    case processTerminal(toolCall: String)
     /// A started chat's New Chat Here: a new chat in that folder, in a tab of its own.
     case newChatHere(String)
     /// The page reports whether repository checkpoint actions are available so
@@ -212,6 +225,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// Context Usage, or the mic's Hide dictation button, which the host writes to cmux.json at `path`
     /// (`agentPane.showContextUsage`, `agentPane.showDictation`).
     case composerSetting(path: [String], show: Bool)
+    /// `pane.setDisplay {key, value}`: the ··· menu's Text & Width popover writes one `agentPane.display.*`
+    /// key (``AgentPaneDisplaySetting/writablePath(_:)``); a null value removes it.
+    case displaySetting(path: [String], value: JSONValue?)
     /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
     /// with what the person typed in its field.
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)

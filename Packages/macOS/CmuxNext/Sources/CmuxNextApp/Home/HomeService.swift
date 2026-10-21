@@ -21,6 +21,9 @@ final class HomeService {
     private(set) var conversations: [CmuxNextDaemon.ConversationSummary] = []
     /// Set while older builds' Chiefs block the move into the Chief home.
     var migrationNotice: String?
+    /// The Chief conversation whose settings open once its Home view shows it: Toggle Chief
+    /// Settings with no Home in front brings Home forward there (`HomeChiefActions`).
+    @ObservationIgnored var pendingChiefSettings: ConversationID?
     /// While a Chief turn waits for the compactor (ChiefSettleWatch).
     var settleNotice: String?
     @ObservationIgnored var settleWatch: ChiefSettleWatch?
@@ -52,7 +55,7 @@ final class HomeService {
     var homeWorkspaceID: ResourceID?
     /// An `ensure_home` is in flight. A tree snapshot taken meanwhile can
     /// show the new home workspace before its kind row, so launch waits for
-    /// the answer before it decides on a first workspace (`FirstWorkspace`).
+    /// the answer before it decides on a first workspace (`needsFirstWorkspace`).
     var homeEnsureInFlight = false
     /// The latest `ensure_home`; only it clears `homeEnsureInFlight`.
     @ObservationIgnored var homeEnsureGeneration = 0
@@ -110,6 +113,9 @@ final class HomeService {
             guard let auth = self?.services.cloud.auth, let id = auth.user?.id else { return nil }
             return CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: id)
         })
+    /// Hide Alerts for the group actions (`groupActions`): a sidebar source over the same owners
+    /// as every Home list, so a mute from the palette or the CLI reaches the row's owner.
+    @ObservationIgnored private(set) lazy var groupMuting = makeSidebarSource()
     /// A conversation the Home page selects once the inbox lists it (a new
     /// Chief's main conversation, a DM opened from the CLI).
     var pendingSelection: ConversationID?

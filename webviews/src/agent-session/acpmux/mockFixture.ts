@@ -95,6 +95,23 @@ const codexModes = {
   ],
   currentModeId: "auto",
 };
+/// Codex's config options past the effort level (codex-acp): plan or default collaboration, the
+/// Options chip's choices (AgentOptionsMenu).
+const codexCollaboration = {
+  id: "collaboration_mode",
+  name: "Collaboration mode",
+  category: "collaboration_mode",
+  currentValue: "default",
+  options: [
+    { value: "default", name: "Default" },
+    { value: "plan", name: "Plan", description: "Write a plan before editing." },
+  ],
+};
+/// A session's config options: its effort level, and Codex's collaboration mode.
+const sessionOptions = (codex: boolean) => [
+  ...effort(codex ? "high" : "medium"),
+  ...(codex ? [codexCollaboration] : []),
+];
 const effort = (currentValue: string) => [
   {
     id: "effort",
@@ -417,7 +434,7 @@ export function sessionSummary(session: MockSession, now: number, turnCount: num
     turnCount,
     indicator: fixtureIndicator(session),
     modes: session.harness === "codex" ? codexModes : claudeModes,
-    configOptions: effort(session.harness === "codex" ? "high" : "medium"),
+    configOptions: sessionOptions(session.harness === "codex"),
   };
 }
 
@@ -452,7 +469,7 @@ export function newSessionSummary(
     updatedAt: now,
     turnCount: 0,
     modes: codex ? codexModes : claudeModes,
-    configOptions: effort(codex ? "high" : "medium"),
+    configOptions: sessionOptions(codex),
   };
 }
 

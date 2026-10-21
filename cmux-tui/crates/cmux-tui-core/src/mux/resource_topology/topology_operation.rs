@@ -36,6 +36,7 @@ impl Mux {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn resource_create_empty_workspace_selected(
         self: &Arc<Self>,
         selectors: ResourceSelectors,
@@ -44,6 +45,7 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
         mark: crate::state::home_store::EmptyWorkspaceMark,
+        focus: bool,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let mut fingerprint = json!({
             "operation":"workspace.create",
@@ -55,6 +57,9 @@ impl Mux {
         });
         if let Some((field, value)) = mark.fingerprint_field() {
             fingerprint["fields"][field] = value;
+        }
+        if focus {
+            fingerprint["fields"][WORKSPACE_CREATE_FOCUS_FIELD] = Value::Bool(true);
         }
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
@@ -145,7 +150,16 @@ impl Mux {
         state.resource_indexes.workspaces.reserve(1);
         state.resource_indexes.workspace_ids.reserve(1);
         let mut deltas = Vec::with_capacity(2);
-        if let Some(previous) = state.workspaces.get(state.active_workspace) {
+        // Without focus the focused workspace stays; the first one is
+        // focused either way.
+        let focus = focus || state.workspaces.get(state.active_workspace).is_none();
+        let active_index = if focus { index } else { state.active_workspace };
+        let active_public_id = if focus {
+            public_id.clone()
+        } else {
+            state.workspaces[state.active_workspace].public_id.clone()
+        };
+        if let Some(previous) = state.workspaces.get(state.active_workspace).filter(|_| focus) {
             deltas.push(workspace_resource_upsert(
                 0,
                 registry.session_id().as_str(),
@@ -163,7 +177,7 @@ impl Mux {
             &name,
             (name_source, 0),
             index,
-            true,
+            focus,
         ));
         let created_path = json!({"kind":"workspace","workspace_id":public_id});
         let durable = RegistryWorkspace {
@@ -186,7 +200,7 @@ impl Mux {
                         active_screen: None,
                     },
                     ResourceChange::SetWorkspaceOrder { workspace_ids: order },
-                    ResourceChange::SetActiveWorkspace { workspace_id: Some(public_id.clone()) },
+                    ResourceChange::SetActiveWorkspace { workspace_id: Some(active_public_id) },
                 ],
             },
             json!({
@@ -197,7 +211,7 @@ impl Mux {
             Value::Array(deltas),
             move |state| {
                 state.push_workspace(workspace);
-                state.active_workspace = index;
+                state.active_workspace = active_index;
             },
         )
         .with_workspace_ledger(ResourceWorkspaceLedger {

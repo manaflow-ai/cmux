@@ -48,29 +48,31 @@ def main() -> None:
         assert cache_value(step, "key") == WEB_CACHE_KEY
         assert cache_value(step, "enableCrossOsArchive") == "true"
 
+    # Consumers read R2 first (feat-cmux-next's published bundles, #22576),
+    # then this run's GitHub cache entry, and build only when both miss. Bun
+    # and Node are set up on every path, before the bundles are installed.
+    r2_hit = "steps.web-bundle-r2.outputs.cache-hit == 'true'"
+    r2_miss = "steps.web-bundle-r2.outputs.cache-hit != 'true'"
+    gh_hit = "steps.web-bundle-cache.outputs.cache-hit == 'true'"
+    gh_miss = "steps.web-bundle-cache.outputs.cache-hit != 'true'"
     for job_name in CONSUMERS:
         job = job_block(workflow, job_name)
         source_key = step_block(job, "Source key of the web bundles")
+        r2 = step_block(job, "Restore the web bundles from R2")
         restore = step_block(job, "Restore the web bundles built for this source key")
         install = step_block(job, "Install the restored web bundles")
         build = step_block(job, "Build the web bundles")
-        setup_bun = step_block(job, "Setup Bun")
-        private_bun = step_block(job, "Give this job its own bun")
         setup_node = step_block(job, "Setup Node")
 
-        assert cache_value(restore, "key") == WEB_CACHE_KEY
-        assert cache_value(restore, "enableCrossOsArchive") == "true"
-        assert step_if(install) == "steps.web-bundle-cache.outputs.cache-hit == 'true'"
-        assert step_if(build) == "steps.web-bundle-cache.outputs.cache-hit != 'true'"
-        for setup in (setup_bun, private_bun, setup_node):
-            assert step_if(setup) == "steps.web-bundle-cache.outputs.cache-hit != 'true'"
+        assert cache_value(r2, "key") == WEB_CACHE_KEY, job_name
+        assert cache_value(restore, "key") == WEB_CACHE_KEY, job_name
+        assert cache_value(restore, "enableCrossOsArchive") == "true", job_name
+        assert step_if(restore) == r2_miss, job_name
+        assert step_if(install) == f"{r2_hit} || {gh_hit}", job_name
+        assert step_if(build) == f"{r2_miss} && {gh_miss}", job_name
 
-        positions = {id(step): job.index(step) for step in (source_key, restore, install, build, setup_bun, private_bun, setup_node)}
-        assert positions[id(source_key)] < positions[id(restore)]
-        assert positions[id(restore)] < positions[id(install)]
-        assert positions[id(install)] < positions[id(build)]
-        assert positions[id(restore)] < positions[id(setup_bun)]
-        assert positions[id(setup_node)] < positions[id(install)]
+        order = [job.index(step) for step in (setup_node, source_key, r2, restore, install, build)]
+        assert order == sorted(order), f"{job_name}: web-bundle steps out of order"
 
     print("cmux-next web-bundle cache workflow contract passed")
 

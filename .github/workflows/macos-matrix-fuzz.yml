@@ -6,7 +6,9 @@ name: macOS matrix fuzz (cmux-next)
 # major: scripts/cmux-next/os-smoke/run.sh launches the build, runs the launch
 # probe and then scripts/fuzz/macos-matrix/fuzz.py (feature tour, seeded
 # random actions, palette commands, shortcuts, clicks and drags) in the same
-# VM. A crash or a dead app marks the major FUZZ-FAIL and fails this job. The app reports its own crashes
+# VM. Between the two, scripts/cmux-next/os-smoke/stress-probe.py is the lag guard: a 20x
+# Cmd-T burst whose main-thread stalls exceed its budget marks the major STRESS-FAIL and fails
+# this job (plans/cmux-next/sequoia-lag.md). A crash or a dead app marks the major FUZZ-FAIL and fails this job. The app reports its own crashes
 # and main-thread stalls of 250 ms or more to Sentry, tagged with the OS
 # version, so Sentry splits these runs by OS. The PASS/FAIL table, each major's
 # fuzz counts (steps/crashes/hangs/deaths) and the probe log are in the step
@@ -37,7 +39,7 @@ jobs:
     # An owned mini (CI_PR_POOL_OWNED): its tailnet tag lets it submit to the
     # build fleet. The job only submits and waits; the build and the VMs run on
     # fleet workers.
-    runs-on: ${{ vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -112,6 +114,10 @@ jobs:
             grep -E "^(major|$major ) " "$log" >> "$GITHUB_STEP_SUMMARY" || true
             # The smoke's PASS is the launch gate; a fuzz crash, death or lost guest shows as FUZZ-FAIL.
             if grep -q "FUZZ-FAIL" "$log"; then status=1; fi
+            # The lag guard (plans/cmux-next/sequoia-lag.md): the 20x Cmd-T burst's main-thread
+            # stalls over budget, or the app dead during the stress, show as STRESS-FAIL.
+            grep -E "^STRESS (budget|burst) " "$log" >> "$GITHUB_STEP_SUMMARY" || true
+            if grep -q "STRESS-FAIL" "$log"; then status=1; fi
           done
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           exit "$status"

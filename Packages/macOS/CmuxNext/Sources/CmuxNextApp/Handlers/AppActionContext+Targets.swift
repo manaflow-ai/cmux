@@ -129,9 +129,10 @@ extension AppActionContext {
     }
 
     /// The tabs a tab action on `id` acts on: every selected tab of `pane`'s strip from a menu opened
-    /// on one of them (`actsOnTabSelection`), else `id`.
+    /// on one of them (`actsOnTabSelection`) or from the palette or a shortcut on the focused tab (no
+    /// tab target), else `id`. So the tab menu and Cmd-Shift-P act on the same tabs.
     func actingTabs(_ invocation: ActionInvocation, _ pane: PaneController, _ id: StripTabID) -> [StripTabID] {
-        invocation.actsOnTabSelection ? pane.stripModel.actingTabs(for: id) : [id]
+        invocation.actsOnTabSelection || explicitTarget(invocation, kinds: [.tab]) == nil ? pane.stripModel.actingTabs(for: id) : [id]
     }
 
     /// The daemon tabs Move Tab to New Workspace or Window takes for `tab`: on one of several

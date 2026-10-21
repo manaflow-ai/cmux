@@ -10,54 +10,58 @@ import CmuxNextWakeups
 /// browser tab of the focused pane. It scrolls past ``SidebarPullRequestCardView/visibleRows``.
 /// `sidebar.pullRequestCard` (Debug Settings, on by default) turns it off.
 ///
-/// It is the clickable popup the update card's highlights use (`SidebarUpdateNotesPanel`), not the
-/// shared hover card window, which never takes the pointer. Its only hook into a row is the badge
-/// view, which calls ``badgeEntered(_:items:open:)`` and ``badgeExited()``; the workspace hover
-/// card leaves the badge to it (`WorkspaceHoverCardController.hoverCardHit`).
+/// It shows in the app's one hover card window as an owned card (`HoverCardCoordinator.presentOwned`),
+/// as the update card's highlights do: it takes clicks and scrolls, a workspace card that shows
+/// morphs into it, and a row the pointer reaches next takes the card back. Its only hook into a
+/// row is the badge view, which calls ``badgeEntered(_:items:cards:open:)`` and ``badgeExited()``;
+/// the workspace hover card leaves the badge to it (`WorkspaceHoverCardController.hoverCardHit`).
 @MainActor
 final class SidebarPullRequestCardController {
     static let shared = SidebarPullRequestCardController()
+
+    /// The card in the app's one hover card window.
+    static let cardID = HoverTargetID("sidebar:pull-requests")
 
     /// How long the card stays after the pointer leaves the badge or the card, so it can cross
     /// the gap between them.
     static let grace: Duration = .milliseconds(250)
 
-    /// Made on the first hover, so a sidebar that never shows the card makes no window.
-    private var made: SidebarUpdateNotesPanel?
-    private var panel: SidebarUpdateNotesPanel {
-        if let made { return made }
-        let panel = SidebarUpdateNotesPanel(width: SidebarPullRequestCardView.width)
-        content.frame = panel.host.bounds
-        content.autoresizingMask = [.width, .height]
-        panel.host.addSubview(content)
-        panel.host.onPointerExit = { [weak self] in self?.scheduleClose() }
-        made = panel
-        return panel
-    }
+    private let host = SidebarPopoverIslandHost(width: SidebarPullRequestCardView.width)
     private let content = SidebarPullRequestCardView()
     private let closer = DemandTimer(owner: "sidebar.pull-request-card.close")
     private weak var badge: SidebarPullRequestBadgeView?
+    private weak var cards: HoverCardCoordinator?
     private var open: ((URL) -> Void)?
 
     init() {
         content.onOpen = { [weak self] item in self?.activate(item) }
+        content.frame = host.bounds
+        content.autoresizingMask = [.width, .height]
+        host.addSubview(content)
+        host.onPointerExit = { [weak self] in self?.scheduleClose() }
+        host.onPointerEnter = { [weak self] in self?.closer.cancel() }
     }
 
     /// The card is on screen (or opening).
-    var isPresented: Bool { made?.isPresented ?? false }
+    var isPresented: Bool { cards?.isShowingOwned(Self.cardID) ?? false }
 
     /// The card shows `badge`'s pull requests now.
     func isShowing(for badge: SidebarPullRequestBadgeView) -> Bool { isPresented && self.badge === badge }
 
-    /// The pointer reached `badge`: shows `items` beside it; `open` opens a clicked one.
-    func badgeEntered(_ badge: SidebarPullRequestBadgeView, items: [SidebarPullRequestItem], open: @escaping (URL) -> Void) {
+    /// The pointer reached `badge`: shows `items` beside it in `cards`' window; `open` opens a
+    /// clicked one.
+    func badgeEntered(_ badge: SidebarPullRequestBadgeView, items: [SidebarPullRequestItem], cards: HoverCardCoordinator,
+                      open: @escaping (URL) -> Void) {
         guard Self.isEnabled, !items.isEmpty, let window = badge.window else { return }
         closer.cancel()
         self.badge = badge
+        self.cards = cards
         self.open = open
         content.configure(items)
-        panel.present(beside: Self.screenFrame(of: badge, in: window), height: content.preferredHeight, parent: window,
-                      themeAnchor: badge)
+        host.fit(height: content.preferredHeight)
+        let body = HoverCardBody(view: host, placement: .beside, themeAnchor: badge) { [weak self] in self?.content.applyColors() }
+        cards.presentOwned(Self.cardID, body: body, anchor: Self.screenFrame(of: badge, in: window), parent: window,
+                           interactive: true) { [weak self] in self?.ended() }
         content.applyColors()
     }
 
@@ -69,11 +73,17 @@ final class SidebarPullRequestCardController {
     func dismiss() {
         closer.cancel()
         open = nil
-        made?.dismiss()
+        cards?.endOwned(Self.cardID)
     }
 
     /// `sidebar.pullRequestCard`.
     static var isEnabled: Bool { SidebarTunables.pullRequestCard.value }
+
+    /// The card left the window: closed by ``dismiss()``, or taken by a workspace or tab card.
+    private func ended() {
+        closer.cancel()
+        open = nil
+    }
 
     private func scheduleClose() {
         closer.schedule(after: Self.grace) { @MainActor [weak self] in self?.closeUnlessPointed() }
@@ -81,7 +91,7 @@ final class SidebarPullRequestCardController {
 
     private func closeUnlessPointed() {
         let pointer = NSEvent.mouseLocation
-        if let made, made.isPresented, made.cardFrame.contains(pointer) { return }
+        if let frame = cards?.ownedCardFrame(Self.cardID), frame.contains(pointer) { return }
         if let badge, let window = badge.window, !badge.isHidden, Self.screenFrame(of: badge, in: window).contains(pointer) { return }
         dismiss()
     }

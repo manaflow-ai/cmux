@@ -2,8 +2,10 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-// This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// This process runs stand-in agents (the fake agents under tests/). `ACPMUX_UPDATE_FIXTURES=1`
+// rewrites the pane fixtures the tests check (`adopt.rs`).
+const HERMETIC: daemon_env::Process =
+    daemon_env::Process::stand_in().keep(&["ACPMUX_UPDATE_FIXTURES"]);
 
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
@@ -15,6 +17,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+#[path = "hub_integration/agent_pairs.rs"]
+mod agent_pairs;
 #[path = "hub_integration/auto_resume.rs"]
 mod auto_resume;
 #[path = "hub_integration/cursor_requests.rs"]
@@ -31,6 +35,8 @@ mod prompt_context;
 mod prompt_provenance;
 #[path = "hub_integration/prompt_withdraw.rs"]
 mod prompt_withdraw;
+#[path = "hub_integration/purged_stays_purged.rs"]
+mod purged_stays_purged;
 #[path = "hub_integration/questions.rs"]
 mod questions;
 #[path = "hub_integration/restart.rs"]
@@ -43,6 +49,8 @@ mod seen;
 mod session_offers;
 #[path = "hub_integration/status_indicator.rs"]
 mod status_indicator;
+#[path = "hub_integration/steer_now.rs"]
+mod steer_now;
 #[path = "hub_integration/steer_only.rs"]
 mod steer_only;
 #[path = "hub_integration/stop.rs"]

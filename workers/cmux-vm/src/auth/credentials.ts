@@ -38,7 +38,8 @@ export interface SessionVerifierService {
 export class SessionVerifier extends Context.Tag("cmux-vm/SessionVerifier")<SessionVerifier, SessionVerifierService>() {}
 
 export interface TeamMembershipService {
-  readonly isMember: (tenantId: TenantId, userId: UserId) => Effect.Effect<boolean, IdentityUnavailable>;
+  /** A policy publisher requests fresh directory evidence instead of the positive credential cache. */
+  readonly isMember: (tenantId: TenantId, userId: UserId, options?: { readonly fresh: boolean }) => Effect.Effect<boolean, IdentityUnavailable>;
 }
 export class TeamMembership extends Context.Tag("cmux-vm/TeamMembership")<TeamMembership, TeamMembershipService>() {}
 
@@ -203,15 +204,16 @@ export function makeStackTeamMembership(
   const send = config.fetch ?? ((request: Request) => fetch(request));
   const clock = config.now ?? (() => Date.now());
   const decode = Schema.decodeUnknown(TeamsResponse);
-  const lookup = (tenantId: TenantId, userId: UserId): Effect.Effect<boolean, IdentityUnavailable> =>
+  const lookup = (tenantId: TenantId, userId: UserId, options?: { readonly fresh: boolean }): Effect.Effect<boolean, IdentityUnavailable> =>
     Effect.gen(function* () {
       const askedAt = new Date(clock());
-      const hit = yield* config.cache
+      const hit = options?.fresh === true ? false : yield* config.cache
         .fresh(tenantId, userId, new Date(askedAt.getTime() - MEMBERSHIP_POSITIVE_TTL_MS))
         .pipe(Effect.orElseSucceed(() => false));
       if (hit) return true;
       const member = yield* fetchMembership(tenantId, userId);
       if (member) yield* config.cache.rememberMember(tenantId, userId, askedAt).pipe(Effect.ignore);
+      else if (options?.fresh === true) yield* config.cache.revoke(tenantId, userId, askedAt).pipe(Effect.ignore);
       return member;
     });
   const fetchMembership = (tenantId: TenantId, userId: UserId): Effect.Effect<boolean, IdentityUnavailable> =>

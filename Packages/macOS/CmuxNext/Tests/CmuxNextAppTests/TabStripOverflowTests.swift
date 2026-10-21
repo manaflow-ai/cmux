@@ -37,8 +37,9 @@ import Testing
         let harness = Harness(count: 60)
         defer { harness.window.orderOut(nil) }
         let metrics = harness.strip.metrics
-        // Chrome's minimums (Lawrence 2026-10-16: "chrome 32"): 32 inactive, 56 selected.
-        #expect(metrics.minInactiveTabWidth == 32 && metrics.minActiveTabWidth == 56, "\(metrics.minInactiveTabWidth) / \(metrics.minActiveTabWidth)")
+        // Room for the favicon and the x (Lawrence 2026-10-20, was Chrome's 32) inactive, Chrome's 56 selected.
+        #expect(metrics.minInactiveTabWidth == metrics.faviconCloseWidth && metrics.minActiveTabWidth == 56,
+                "\(metrics.minInactiveTabWidth) / \(metrics.minActiveTabWidth)")
         #expect(metrics.minActiveTabWidth >= metrics.minInactiveTabWidth)
         #expect(harness.unselectedWidths.allSatisfy { $0 == metrics.minInactiveTabWidth }, "\(Set(harness.unselectedWidths))")
         // The selected tab is as wide as the others: a selection never moves a tab (2026-10-19).

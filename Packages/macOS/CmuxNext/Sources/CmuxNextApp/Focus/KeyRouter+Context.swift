@@ -12,7 +12,7 @@ extension KeyRouter {
     typealias Facts = KeyFacts
 
     /// The markdown page's id (`PageDescriptor.markdown`), for the
-    /// `markdownFocused` bit.
+    /// `markdownFocused` bit (with `markdownReadOnlyFocused` or `markdownEditorFocused`).
     nonisolated static let markdownPageID = "cmux.markdown"
     /// The diff viewer page: `diffViewerFocused`, which owns bare keys.
     nonisolated static let diffPageID = "cmux.diff"
@@ -34,9 +34,10 @@ extension KeyRouter {
         if implied.browser { bits.insert(.browserFocused) }
         if implied.agent { bits.insert(.agentPaneFocused) }
         if case .addressBar = focus.resolved { bits.insert(.omnibarFocused) }
-        if facts.pageID == Self.markdownPageID { bits.insert(.markdownFocused) }
+        if facts.pageID == Self.markdownPageID { bits.formUnion(.markdown(readOnly: facts.markdownReadOnly)) }
         if facts.pageID == Self.diffPageID { bits.insert(.diffViewerFocused) }
         if facts.pageID == Self.codeEditorPageID { bits.insert(.codeEditorFocused) }
+        if facts.textBoxFocused { bits.insert(.textBoxFocused) }
         var context = KeyContext(bits: bits)
         if let page = facts.pageID { context[KeyContext.pageID] = .string(page) }
         context[KeyContext.windowKind] = .string(KeyContext.WindowKindValue.main)
@@ -52,6 +53,7 @@ extension KeyRouter {
         if facts.terminalCopyMode, case .terminal = resolved { context[KeyContext.terminalCopyMode] = .bool(true) }
         let omnibarList = facts.omnibarListOpen && { if case .addressBar = resolved { true } else { false } }()
         if facts.listFocus || omnibarList || Self.isNativeList(resolved) { context[KeyContext.listFocus] = .bool(true) }
+        if facts.sidebarMultiSelection, case .sidebar = resolved { context[KeyContext.sidebarMultiSelection] = .bool(true) }
         return context
     }
 
@@ -103,13 +105,16 @@ extension KeyRouter {
         let editor = page?.descriptor.id == Self.codeEditorPageID ? page : nil
         return Facts(hasMarkedText: (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true,
                      terminalCopyMode: terminalCopyMode(in: controller), pageID: page?.descriptor.id,
+                     markdownReadOnly: services?.viewers.markdownPages.showsReadOnly(focusedIn: controller) == true,
                      listFocus: focusedReadiness(in: controller)?.isListFocused == true,
                      pageEditableFocused: focusedReadiness(in: controller)?.isEditableFocused == true,
                      omnibarListOpen: focusedAddressBar(in: controller)?.isShowingSuggestions == true,
                      internalPage: focusedInternalPage(in: controller),
                      showsPageHistory: services?.locationTrail.pageHistory(in: controller) != nil,
                      topPage: controller.shownTopPage == .home ? "home" : nil,
-                     pageKeySequencePending: editor.map { services?.viewers.editorPages.keySequencePending(on: $0) ?? false } ?? false)
+                     pageKeySequencePending: editor.map { services?.viewers.editorPages.keySequencePending(on: $0) ?? false } ?? false,
+                     textBoxFocused: window.firstResponder is TextBoxTextView,
+                     sidebarMultiSelection: controller.sidebar.model.selection.count > 1)
     }
 
     /// The page id of the focused internal page tab.
@@ -148,14 +153,23 @@ extension KeyRouter {
            let responder = controller.window?.firstResponder as? NSView, responder.isDescendant(of: view) {
             return view.content as? PageWebView
         }
+        var modelPage: PageWebView?
         if case .page(_, _) = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
            case .page(let view)? = controller.content?.paneController(key: pane)?.currentContent {
-            return view.content as? PageWebView
+            modelPage = view.content as? PageWebView
         }
-        return Self.codeEditorHoldingKeys(in: controller.window)
+        return Self.keyPage(modelPage: modelPage, in: controller.window)
     }
 
-    /// The code editor page whose web view is the window's first responder while the focus
+    /// The page that gets the window's keys: the code editor page holding the keys
+    /// (``codeEditorHoldingKeys(in:)``), else the page the focus model names (`modelPage`). AppKit
+    /// sends the keys to the first responder, so the editor wins even while the model still names
+    /// another pane's page (Shift-Cmd-L opened a browser tab from a Markdown tab's context).
+    @MainActor static func keyPage(modelPage: PageWebView?, in window: NSWindow?) -> PageWebView? {
+        codeEditorHoldingKeys(in: window) ?? modelPage
+    }
+
+    /// The code editor page whose web view is the window's first responder, also while the focus
     /// model names something else (a file opened by a script or an agent, or a click the model
     /// has not settled yet). AppKit sends the keys to the first responder, so the editor's context
     /// (`codeEditorFocused`) follows it: without it Shift-Cmd-L opened a browser tab instead of

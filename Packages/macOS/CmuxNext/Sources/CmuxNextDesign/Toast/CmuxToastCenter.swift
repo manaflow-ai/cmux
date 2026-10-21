@@ -192,8 +192,12 @@ public final class CmuxToastCenter {
 
     private func relayout(_ key: ObjectIdentifier) {
         let serials = stacks[key]?.serials ?? []
+        let newestUndo = stacks[key]?.newestUndo
         for (index, serial) in serials.reversed().enumerated() {
-            if let view = entries[serial]?.view { host.move(view, to: index) }
+            guard let view = entries[serial]?.view else { continue }
+            host.move(view, to: index)
+            // Cmd-Z runs the newest undo toast only: only its Undo shows the key.
+            view.showsUndoKey = serial == newestUndo
         }
         // The toasts moved under a possibly still pointer: a hovered toast
         // that moved away loses its hold and its timer starts again (cx-3wu5).
@@ -202,7 +206,7 @@ public final class CmuxToastCenter {
     }
 
     private func startTimer(_ serial: Int) {
-        guard let entry = entries[serial] else { return }
+        guard let entry = entries[serial], entry.handle.toast.duration != CmuxToast.untilClosed else { return }
         entry.timer.schedule(after: entry.handle.toast.duration) { @MainActor [weak self] in
             self?.end(serial, .timeout)
         }
