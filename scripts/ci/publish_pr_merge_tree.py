@@ -31,8 +31,9 @@ cmux-tui-pin-<sha12> push run whose commit is GitHub's merge commit ("Merge
 under this pull request and no other (a stacked pull request may share it),
 and whose cmux-tui tree or ghostty-next gitlink differs from the new merge
 commit's (so its tree key differs: a same-key run may own the publication the
-new pin waits for). Anything it cannot tell, and every API failure, keeps the
-run; the cancel never changes the exit status.
+new pin waits for), and none of whose publish jobs has started and whose tree
+preflight is not running (PUBLISH_JOBS). Anything it cannot tell, and every API
+failure, keeps the run; the cancel never changes the exit status.
 
 Usage: publish_pr_merge_tree.py PR_NUMBER HEAD_SHA
 Environment: GH_TOKEN (actions: write), CMUX_PR_TREE_PIN_TOKEN (the App's
@@ -67,6 +68,12 @@ TREE_INPUTS = "scripts/cmux-next/cmux-tui-tree-inputs.txt"
 # Inputs of the v1 key only (cmux_tui_tree_key.py V1_ONLY_INPUTS): the v2 key a
 # run claims leaves them out, so a difference there does not tell keys apart.
 V1_ONLY_INPUTS = frozenset({("gitlink", "ghostty")})
+# cmux-tui-artifacts.yml never cancels a started run, so no write-once upload stops halfway: a run is
+# kept once one of these jobs started (a cancel mid-publish leaves a prefix without its manifest or
+# completion, and the next run of that key or commit fails on it), and while its tree preflight runs
+# (it may hold the tree claim another run deferred to).
+PUBLISH_JOBS = ("publish", "mark the published tree")
+PREFLIGHT_JOB = "cmux-tui tree preflight"
 
 
 class Api:
@@ -204,7 +211,25 @@ def _superseded_verdict(api: Api, pr: str, head: str, run: dict, new_entries: di
     differing = [name for name in whole if old_entries.get(name) != new_entries.get(name)]
     if not differing:
         return False, "its cmux-tui tree key may be the new merge's own"
+    busy = _publishing(api, run["id"])
+    if busy:
+        return False, busy
     return True, f"#{pr}'s older head {parents[1][:12]} ({', '.join(differing)} differ)"
+
+
+def _publishing(api: Api, run_id: object) -> str:
+    """Why the run must finish instead of being cancelled, or "" when nothing it started can stop halfway."""
+    data = _get(api, f"actions/runs/{run_id}/jobs?per_page=100")
+    if not isinstance(data, dict) or not isinstance(data.get("jobs"), list):
+        raise RuntimeError(f"GET actions/runs/{run_id}/jobs: not a job list")
+    for job in data["jobs"]:
+        name, status = str(job.get("name", "")), job.get("status")
+        if name == PREFLIGHT_JOB and status == "in_progress":
+            return "its tree preflight is running (it may hold the tree claim)"
+        if name.startswith(PUBLISH_JOBS) and (status == "in_progress" or
+                                              (status == "completed" and job.get("conclusion") != "skipped")):
+            return f"its {name!r} job started (write-once uploads)"
+    return ""
 
 
 def cancel_superseded_pins(api: Api, pr: str, head: str, merge: str) -> list[str]:

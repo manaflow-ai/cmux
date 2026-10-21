@@ -71,6 +71,10 @@ def pin_run(run_id, sha, status="queued", head=OLD_HEAD, branch=None, tree=OLD_T
             "head_commit": {"id": sha, "tree_id": tree, "message": merge_message(head)}}
 
 
+def job(name, status, conclusion=None):
+    return {"name": name, "status": status, "conclusion": conclusion}
+
+
 def merge_commit(head, tree, base=BASE):
     return {"parents": [base, head], "message": merge_message(head, base), "tree": tree}
 
@@ -136,6 +140,13 @@ class FakeGitHub(http.server.BaseHTTPRequestHandler):
             self.reply(200, {"truncated": False, "tree": [
                 {"path": name, "type": "commit" if name.startswith("ghostty") else "tree", "sha": sha}
                 for name, sha in entries.items()]})
+        elif self.path.startswith("/repos/o/r/actions/runs/") and "/jobs?" in self.path:
+            run_id = int(self.path.split("/")[6])
+            if state.get("jobs_status"):
+                self.reply(state["jobs_status"], {"message": "Server Error"})
+            else:
+                jobs = state.get("jobs_of", {}).get(run_id, [job("cmux-tui tree preflight", "completed", "success")])
+                self.reply(200, {"total_count": len(jobs), "jobs": jobs})
         elif self.path == f"/repos/o/r/git/ref/heads/{PIN}":
             existing = state.get("existing_pin")
             self.reply(200, {"object": {"sha": existing}}) if existing else self.reply(404, {"message": "Not Found"})
@@ -269,6 +280,41 @@ class SupersededPinTests(unittest.TestCase):
         # #8 is stacked under #7: its head is in both, so the pin may be #8's own.
         result, posts = self.publish(active_runs=[pin_run(115, OLD_MERGE, "queued")],
                                      pulls_of={OLD_HEAD: [8, 7], HEAD: [7]})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(cancelled(posts), [], result.stdout)
+
+    def test_a_pin_run_that_started_publishing_is_kept(self):
+        # cmux-tui-artifacts.yml never cancels a started run so no write-once upload stops halfway: a
+        # cancel mid-publish leaves a prefix without its manifest or completion, and the next run of
+        # that key or commit fails on it. Nor one whose preflight runs (it may hold the tree claim
+        # a deferred run waits on).
+        preflight_done = job("cmux-tui tree preflight", "completed", "success")
+        for jobs in (
+            [preflight_done, job("publish to R2", "in_progress")],
+            [preflight_done, job("publish to R2", "completed", "success"), job("publish tree-addressed cmux-tui", "queued")],
+            [preflight_done, job("publish tree-addressed cmux-tui", "in_progress")],
+            [preflight_done, job("mark the published tree as daemon-tested", "in_progress")],
+            [job("cmux-tui tree preflight", "in_progress")],
+        ):
+            result, posts = self.publish(active_runs=[pin_run(116, OLD_MERGE, "in_progress")], jobs_of={116: jobs})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(cancelled(posts), [], jobs)
+
+    def test_a_pin_run_before_its_publish_is_cancelled(self):
+        preflight_done = job("cmux-tui tree preflight", "completed", "success")
+        for jobs in (
+            [],  # queued: no job has started
+            [job("cmux-tui tree preflight", "queued")],
+            [preflight_done, job("build / build aarch64-apple-darwin", "in_progress"),
+             job("cmux_next_ daemon tests (macOS)", "queued"), job("publish to R2", "queued")],
+            [preflight_done, job("publish skipped (branch not allowed)", "completed", "skipped")],
+        ):
+            result, posts = self.publish(active_runs=[pin_run(117, OLD_MERGE, "in_progress")], jobs_of={117: jobs})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(cancelled(posts), ["117"], jobs)
+
+    def test_a_failed_jobs_lookup_keeps_the_run(self):
+        result, posts = self.publish(active_runs=[pin_run(118, OLD_MERGE, "in_progress")], jobs_status=500)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(cancelled(posts), [], result.stdout)
 
