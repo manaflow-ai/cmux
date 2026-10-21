@@ -96,8 +96,11 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextAgentActivity",
+        "CmuxNextAgentPane",
+        "CmuxNextApps",
         "CmuxNextBridge",
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
@@ -711,6 +714,7 @@
       "targets": [
         "CCmuxAppFFI",
         "CmuxNextCompat",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": [

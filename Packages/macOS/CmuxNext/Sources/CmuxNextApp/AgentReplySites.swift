@@ -6,7 +6,8 @@ import CmuxNextSettings
 /// The App's side of an agent pane's reply links (D4, D6): the settings, and the favicon and
 /// title of a linked page from what cmux already holds. A favicon comes only from an open browser
 /// tab of the same site whose icon the favicon loader has cached for that tab's profile; nothing
-/// is fetched, and a tab of an incognito workspace is never read.
+/// is fetched, and a tab of an incognito workspace is never read. A pull request link's hover card
+/// reads that pull request with the user's GitHub CLI (``AgentReplyPullRequests``).
 @MainActor
 struct AgentReplySites {
     let services: AppServices
@@ -20,6 +21,7 @@ struct AgentReplySites {
         links.findByName = { wanted, roots in await AgentReplyNames.shared.find(wanted, in: roots) }
         // A chip that did not open says why, as other refused actions do.
         links.notice = { [weak services] message in services?.registry.refuse(message) }
+        links.pullRequest = { url in await AgentReplyPullRequests.shared.read(url) }
     }
 
     func sites(for urls: [URL]) -> [URL: AgentPaneReplySite] {

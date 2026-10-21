@@ -182,7 +182,7 @@ enum AgentPaneContextMenu {
         let submenu = NSMenu(title: parent.title)
         for link in links {
             let item = AgentPaneMenuAction.item(linkTitle(link)) { open(link) }
-            item.toolTip = link.absoluteString
+            item.toolTip = link.absoluteString // tooltip-native-allow: NSMenuItem (AgentPaneMenuAction.item)
             submenu.addItem(item)
         }
         parent.submenu = submenu
