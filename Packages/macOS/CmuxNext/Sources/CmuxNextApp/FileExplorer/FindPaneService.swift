@@ -64,7 +64,7 @@ final class FindPaneService: InternalPageProvider {
 /// Effects for a Find tab made after the App's services went away (never shown).
 @MainActor
 private final class NullEffects: FileExplorerEffects {
-    func openInCmux(_ file: URL) -> Bool { false }
+    func openInCmux(_ file: URL, at position: FilePosition?) -> Bool { false }
     func openInDefaultApp(_ item: URL) {}
     func revealInFinder(_ item: URL) {}
     func copy(_ text: String) {}
