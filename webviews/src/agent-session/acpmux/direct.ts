@@ -3032,7 +3032,7 @@ export class AcpmuxDirectClient {
       resolveOrder();
     };
     // Prompts go to acpmux in the order they were sent, however long one's puts take.
-    const before = this.unwrittenPrompts > 0 ? this.promptOrder : undefined;
+    const earlier = this.unwrittenPrompts > 0 ? this.promptOrder : undefined;
     this.promptOrder = order;
     this.unwrittenPrompts += 1;
     try {
@@ -3042,7 +3042,7 @@ export class AcpmuxDirectClient {
         ? attachments
         : attachments.filter((attachment) => attachment.kind !== "audio");
       const kept = this.putsAny(carried) ? await this.putAttachments(sessionId, carried) : new Map<string, string>();
-      if (before) await before;
+      if (earlier) await earlier;
       const request = this.request("session/prompt", {
         sessionId,
         prompt: promptBlocks(input, carried, kept),
