@@ -68,14 +68,19 @@ final class PendingWorkspaceRows {
 
     /// `listed` without the workspaces Cmd-N shows before the daemon has them: their pending rows list instead, at their
     /// slot, until the daemon's workspace takes the model over (read in the sidebar's tracked pass, so that re-runs it).
+    /// Also while the sidebar document does not place the daemon's workspace yet: the document lists it last until its
+    /// next projection (a hop later) places it, so its own row drew at the end and sprang to its slot.
     func listing(_ listed: [SidebarRowSection], in window: String, machines: MachineRegistry) -> [SidebarRowSection] {
-        Self.removing(ids(in: window) { machines.workspace(id: $0)?.0.isProvisional == true }, from: listed)
+        Self.removing(ids(in: window) { id in
+            guard let (workspace, daemon) = machines.workspace(id: id) else { return false }
+            return workspace.isProvisional || SidebarDocWiring.awaitsPlacement(workspace, session: daemon.store.registryID)
+        }, from: listed)
     }
 
-    /// The pending rows of `window` whose workspace the store shows only as a stand-in
-    /// (`provisional`: Cmd-N's optimistic workspace): the sidebar lists the pending row for them.
-    func ids(in window: String, provisional: (String) -> Bool) -> Set<String> {
-        Set(rows.filter { $0.window == window && provisional($0.id) }.map(\.id))
+    /// The pending rows of `window` whose workspace the sidebar cannot draw at its slot yet (`unplaced`: Cmd-N's
+    /// stand-in, or a workspace the sidebar document does not place yet): the sidebar lists the pending row for them.
+    func ids(in window: String, unplaced: (String) -> Bool) -> Set<String> {
+        Set(rows.filter { $0.window == window && unplaced($0.id) }.map(\.id))
     }
 
     /// `sections` without the workspace rows `ids` (their pending rows list instead, at their slot).

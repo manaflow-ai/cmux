@@ -19,6 +19,14 @@ enum SidebarDocWiring {
                                     unplacedOrder: { PersonalSidebar.personalOrder($0, of: daemon, machines: machines) })
     }
 
+    /// The document is shown but does not place `workspace` (of `session`) yet: `sections` lists it after every placed
+    /// row until a later projection places it (its adopt, or Cmd-N's move, is on the way).
+    static func awaitsPlacement(_ workspace: WorkspaceModel, session: String?) -> Bool {
+        // No ref: the document can never place it, so its own row lists (last) rather than a pending row for good.
+        guard let shown = SidebarDocStore.current?.shown, let ref = SidebarDocSections.ref(of: workspace, session: session) else { return false }
+        return shown.items[ref] == nil
+    }
+
     static func start(_ services: AppServices, layout: SidebarLayoutService) {
         let local = services.machines.local, machines = services.machines
         let serves: @MainActor () -> Bool = { local.supports(DaemonCapabilities.shared.sidebarDoc) }
