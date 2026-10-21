@@ -932,8 +932,10 @@ struct SessionSnapshotImportTrustTests {
         )
         // A skewed tree is the shape that defeats a depth guard implemented
         // with recursive descent: it reaches the guard only after consuming
-        // one native stack frame per level.
-        for _ in 0..<10_000 {
+        // one native stack frame per level. Keep this above the restore depth
+        // cap while below Swift's recursive enum-destruction limit; production
+        // file imports also reject deeper JSON before Codable materialization.
+        for _ in 0..<600 {
             layout = .split(SessionSplitLayoutSnapshot(
                 orientation: .horizontal,
                 dividerPosition: 0.5,

@@ -231,65 +231,76 @@ enum SessionSnapshotImportTrust {
             }
             return result
         }
-        guard remainingNodes > 0,
-              depth < SessionPersistencePolicy.maxLayoutDepth else {
+        func fallbackLayout() -> SessionWorkspaceLayoutSnapshot {
             let fallback = unusedFallbackPanelIDs()
             return .pane(SessionPaneLayoutSnapshot(
                 panelIds: fallback,
                 selectedPanelId: fallback.first
             ))
         }
-        remainingNodes -= 1
-        switch layout {
-        case .pane(let pane):
-            let panelIDs = pane.panelIds.filter {
-                allowedPanelIDs.contains($0) && usedPanelIDs.insert($0).inserted
-            }
-            let selected = pane.selectedPanelId.flatMap {
-                panelIDs.contains($0) ? $0 : nil
-            } ?? panelIDs.first
-            return .pane(SessionPaneLayoutSnapshot(
-                panelIds: panelIDs,
-                selectedPanelId: selected,
-                isFullWidthTabMode: pane.isFullWidthTabMode
-            ))
-        case .split(let split):
-            let first = boundedLayout(
-                split.first,
-                allowedPanelIDs: allowedPanelIDs,
-                fallbackPanelIDs: fallbackPanelIDs,
-                depth: depth + 1,
-                remainingNodes: &remainingNodes,
-                usedPanelIDs: &usedPanelIDs
-            )
-            let second = boundedLayout(
-                split.second,
-                allowedPanelIDs: allowedPanelIDs,
-                fallbackPanelIDs: fallbackPanelIDs,
-                depth: depth + 1,
-                remainingNodes: &remainingNodes,
-                usedPanelIDs: &usedPanelIDs
-            )
-            let firstEmpty = first.isEmptyLayout
-            let secondEmpty = second.isEmptyLayout
-            switch (firstEmpty, secondEmpty) {
-            case (true, true):
-                let fallback = unusedFallbackPanelIDs()
-                return .pane(SessionPaneLayoutSnapshot(
-                    panelIds: fallback,
-                    selectedPanelId: fallback.first
-                ))
-            case (true, false): return second
-            case (false, true): return first
-            case (false, false):
-                return .split(SessionSplitLayoutSnapshot(
-                    orientation: split.orientation,
-                    dividerPosition: split.dividerPosition,
-                    first: first,
-                    second: second
-                ))
+
+        // Walk the input graph with an explicit work stack. A depth check in
+        // recursive code is insufficient: a hostile or corrupt snapshot can
+        // consume the native stack before reaching that check.
+        enum WorkItem {
+            case visit(SessionWorkspaceLayoutSnapshot, depth: Int)
+            case assemble(SessionSplitLayoutSnapshot)
+        }
+        var work: [WorkItem] = [.visit(layout, depth: depth)]
+        var results: [SessionWorkspaceLayoutSnapshot] = []
+        results.reserveCapacity(min(remainingNodes, SessionPersistencePolicy.maxLayoutDepth) + 1)
+
+        while let item = work.popLast() {
+            switch item {
+            case let .visit(node, nodeDepth):
+                guard remainingNodes > 0,
+                      nodeDepth < SessionPersistencePolicy.maxLayoutDepth else {
+                    results.append(fallbackLayout())
+                    continue
+                }
+                remainingNodes -= 1
+                switch node {
+                case .pane(let pane):
+                    let panelIDs = pane.panelIds.filter {
+                        allowedPanelIDs.contains($0) && usedPanelIDs.insert($0).inserted
+                    }
+                    let selected = pane.selectedPanelId.flatMap {
+                        panelIDs.contains($0) ? $0 : nil
+                    } ?? panelIDs.first
+                    results.append(.pane(SessionPaneLayoutSnapshot(
+                        panelIds: panelIDs,
+                        selectedPanelId: selected,
+                        isFullWidthTabMode: pane.isFullWidthTabMode
+                    )))
+                case .split(let split):
+                    work.append(.assemble(split))
+                    work.append(.visit(split.second, depth: nodeDepth + 1))
+                    work.append(.visit(split.first, depth: nodeDepth + 1))
+                }
+            case let .assemble(split):
+                guard results.count >= 2 else {
+                    results.append(fallbackLayout())
+                    continue
+                }
+                let second = results.removeLast()
+                let first = results.removeLast()
+                let firstEmpty = first.isEmptyLayout
+                let secondEmpty = second.isEmptyLayout
+                switch (firstEmpty, secondEmpty) {
+                case (true, true): results.append(fallbackLayout())
+                case (true, false): results.append(second)
+                case (false, true): results.append(first)
+                case (false, false):
+                    results.append(.split(SessionSplitLayoutSnapshot(
+                        orientation: split.orientation,
+                        dividerPosition: split.dividerPosition,
+                        first: first,
+                        second: second
+                    )))
+                }
             }
         }
+        return results.last ?? fallbackLayout()
     }
 
     static func sanitizingUntrustedImport(
