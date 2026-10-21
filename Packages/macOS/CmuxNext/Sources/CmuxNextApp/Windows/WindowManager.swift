@@ -257,7 +257,9 @@ final class WindowManager {
         registry.isLaunching = false
         fullScreenRestoreReady = true
         enterRestoredFullScreens()
-        FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
+        // Its New Tab page or Home; not after the person closed a window meanwhile: revealing it
+        // opens a window again (the Home workspace shows before the restore finished).
+        if closedDuringRestore.isEmpty { FirstWorkspaceLaunch(manager: self).land(firstWorkspace) }
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
