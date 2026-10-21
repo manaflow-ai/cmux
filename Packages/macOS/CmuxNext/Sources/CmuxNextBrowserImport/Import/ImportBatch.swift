@@ -76,6 +76,9 @@ public struct ImportSourceRecord: Sendable, Codable, Equatable, Hashable {
     /// The source profile's own name ("Work"); nil for one-store browsers
     /// (Safari, Opera) and records saved by older builds.
     public var profileName: String?
+    /// Keep in Sync: the source's history database, read again whenever it
+    /// changes (``ImportHistorySync``); nil when the history was imported once.
+    public var syncedHistoryFile: URL?
 
     public init(browser: ImportBrowser, profileDirectory: String, displayName: String, proposedProfileID: String, targetProfileID: String,
                 profileName: String? = nil) {

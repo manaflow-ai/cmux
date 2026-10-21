@@ -85,6 +85,14 @@ enum OnboardingStrings {
     static var newMatchingProfile: String {
         String(localized: "onboarding.import.target.new", defaultValue: "New Profile", bundle: .module)
     }
+    /// The checkbox under the kinds: imported history keeps following the other browser.
+    static var keepHistoryInSync: String {
+        String(localized: "onboarding.import.keepInSync", defaultValue: "Keep history in sync", bundle: .module)
+    }
+    static var keepHistoryInSyncHelp: String {
+        String(localized: "onboarding.import.keepInSync.help",
+               defaultValue: "New pages you visit in these browsers show up in cmux too. Everything stays on this Mac.", bundle: .module)
+    }
     /// The row menu's accessibility label.
     static var importInto: String { String(localized: "onboarding.import.target.label", defaultValue: "Import Into", bundle: .module) }
     static func kind(_ kind: ImportDataKind) -> String {

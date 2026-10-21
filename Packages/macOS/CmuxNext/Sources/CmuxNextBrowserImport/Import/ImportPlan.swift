@@ -22,13 +22,17 @@ public struct ImportPlan: Sendable, Equatable {
     /// Set: every source goes into this one cmux profile instead of a new
     /// profile per source ("merge into one").
     public var mergeTarget: String?
+    /// Keep in Sync: each source's history is read again whenever its
+    /// browser writes it (``ImportHistorySync``).
+    public var keepsHistoryInSync: Bool
 
     public static let defaultHistoryLimit = 5_000
 
-    public init(items: [Item], historyLimit: Int = ImportPlan.defaultHistoryLimit, mergeTarget: String? = nil) {
+    public init(items: [Item], historyLimit: Int = ImportPlan.defaultHistoryLimit, mergeTarget: String? = nil, keepsHistoryInSync: Bool = false) {
         self.items = items.filter { !$0.kinds.isEmpty }
         self.historyLimit = historyLimit
         self.mergeTarget = mergeTarget
+        self.keepsHistoryInSync = keepsHistoryInSync
     }
 }
 

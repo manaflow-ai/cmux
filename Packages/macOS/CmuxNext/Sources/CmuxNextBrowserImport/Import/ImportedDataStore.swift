@@ -87,6 +87,56 @@ public actor ImportedDataStore {
         try encoder.encode(records).write(to: sourcesFile, options: .atomic)
     }
 
+    /// Keep in Sync's sources: those whose history is read again on change.
+    public func syncedSources() -> [ImportSourceRecord] {
+        sources().filter { $0.syncedHistoryFile != nil }
+    }
+
+    /// Keep in Sync: replaces one source's saved pages with a fresh read and
+    /// returns its record; nil when the source is unknown, no longer synced
+    /// or its data was removed (nothing is written then).
+    public func replaceHistory(_ sourceKey: String, with pages: [ImportedHistoryEntry]) throws -> ImportSourceRecord? {
+        guard let record = sources().first(where: { $0.sourceKey == sourceKey && $0.syncedHistoryFile != nil }),
+              let data = try? Data(contentsOf: batchFile(record)), var batch = try? decoder.decode(ImportBatch.self, from: data) else { return nil }
+        batch.history = pages
+        batch.importedAt = Date()
+        try encoder.encode(batch).write(to: batchFile(record), options: .atomic)
+        return record
+    }
+
+    /// Turns Keep in Sync off for every source in `profile`, or for one source.
+    public func stopSync(profile: String? = nil, sourceKey: String? = nil) throws {
+        var records = sources()
+        for index in records.indices where (profile == nil || records[index].targetProfileID == profile)
+            && (sourceKey == nil || records[index].sourceKey == sourceKey) {
+            records[index].syncedHistoryFile = nil
+        }
+        try encoder.encode(records).write(to: sourcesFile, options: .atomic)
+    }
+
+    /// Remove Imported Data: deletes every batch saved into `profile` and
+    /// stops its sync; returns them so the caller takes their pages and
+    /// bookmarks out of the live browser. The mapping stays, so importing
+    /// again reuses the same profile.
+    public func removeImported(profile: String) throws -> [ImportBatch] {
+        let removed = batches(profile: profile)
+        try? FileManager.default.removeItem(at: directory.appending(path: profile, directoryHint: .isDirectory))
+        try stopSync(profile: profile)
+        return removed
+    }
+
+    /// Clear History: drops the saved imported pages of `profile` visited at
+    /// or after `since` (nil: all), so a cleared page does not come back at
+    /// the next launch.
+    public func forgetHistory(profile: String, since: Date?) throws {
+        for var batch in batches(profile: profile) {
+            let kept = batch.history.filter { page in since.map { page.lastVisit < $0 } ?? false }
+            guard kept.count != batch.history.count else { continue }
+            batch.history = kept
+            try encoder.encode(batch).write(to: batchFile(batch.source), options: .atomic)
+        }
+    }
+
     /// Every batch imported into `profile`.
     public func batches(profile: String) -> [ImportBatch] {
         let folder = directory.appending(path: profile, directoryHint: .isDirectory)

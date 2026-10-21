@@ -525,6 +525,124 @@
         }
       }
     },
+    "onboarding.import.keepInSync": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep history in sync"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verlauf synchron halten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder l’historique synchronisé"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إبقاء السجل متزامنًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener el historial sincronizado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持瀏覽記錄同步"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持历史记录同步"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "방문 기록 동기화 유지"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "履歴を同期し続ける"
+          }
+        }
+      }
+    },
+    "onboarding.import.keepInSync.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New pages you visit in these browsers show up in cmux too. Everything stays on this Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Seiten, die du in diesen Browsern besuchst, erscheinen auch in cmux. Alles bleibt auf diesem Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les nouvelles pages que vous visitez dans ces navigateurs apparaissent aussi dans cmux. Tout reste sur ce Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تظهر الصفحات الجديدة التي تزورها في هذه المتصفحات في cmux أيضًا. يبقى كل شيء على جهاز Mac هذا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las páginas nuevas que visites en estos navegadores también aparecen en cmux. Todo se queda en este Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你在這些瀏覽器中造訪的新網頁也會出現在 cmux 中。所有資料都留在這台 Mac 上。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你在这些浏览器中访问的新网页也会出现在 cmux 中。所有数据都保留在这台 Mac 上。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 브라우저에서 방문한 새 페이지가 cmux에도 표시됩니다. 모든 데이터는 이 Mac에 남습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらのブラウザで新しく開いたページも cmux に表示されます。データはすべてこの Mac に残ります。"
+          }
+        }
+      }
+    },
     "onboarding.import.none": {
       "extractionState": "manual",
       "localizations": {

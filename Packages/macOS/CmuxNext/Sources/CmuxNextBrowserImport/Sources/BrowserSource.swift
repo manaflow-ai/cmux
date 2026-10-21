@@ -65,6 +65,16 @@ public struct BrowserSourceProfile: Sendable, Identifiable, Hashable, Codable {
         availability.values.contains(.needsFullDiskAccess)
     }
 
+    /// The database the history reader opens; nil for browsers cmux reads no history from.
+    public var historyFile: URL? {
+        switch browser.family {
+        case .chromium: path.appending(path: "History")
+        case .firefox: path.appending(path: "places.sqlite")
+        case .safari: path.appending(path: "History.db")
+        case .webkit, .other: nil
+        }
+    }
+
     /// Kinds this profile can import now.
     public var importableKinds: [ImportDataKind] {
         ImportDataKind.allCases.filter { availability(of: $0).isImportable }

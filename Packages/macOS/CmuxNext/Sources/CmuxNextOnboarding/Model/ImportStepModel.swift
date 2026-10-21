@@ -63,6 +63,9 @@ public final class ImportStepModel {
     public private(set) var mergeTarget: String?
     /// The cmux profiles a row can go into (each row's menu); empty hides the menu.
     public private(set) var targetChoices: [ImportTargetChoice] = []
+    /// Keep in Sync: each imported profile's history is read again whenever
+    /// its browser writes it (off until the person checks it).
+    public private(set) var keepsHistoryInSync = false
     /// Rows going into an existing cmux profile (`BrowserSourceProfile.id`
     /// to profile id); the rest get their own matching profile.
     public private(set) var targets: [String: String] = [:]
@@ -279,6 +282,11 @@ public final class ImportStepModel {
         mergeTarget = target
     }
 
+    public func toggleKeepInSync() {
+        guard canEditSelection else { return }
+        keepsHistoryInSync.toggle()
+    }
+
     /// The cmux profile a row goes into: nil is the source's own matching profile.
     public func target(_ profile: BrowserSourceProfile) -> String? { mergeTarget ?? targets[profile.id] }
 
@@ -319,7 +327,7 @@ public final class ImportStepModel {
         ImportPlan(items: profiles.filter { selectedProfiles.contains($0.id) }.map { profile in
             ImportPlan.Item(profile: profile, kinds: passwordConsent.contains(profile.id) ? kinds : kinds.subtracting([.passwords]),
                             target: targets[profile.id])
-        }, mergeTarget: mergeTarget)
+        }, mergeTarget: mergeTarget, keepsHistoryInSync: keepsHistoryInSync && kinds.contains(.history))
     }
 
     /// Checked profiles with passwords to bring: the consent screen's list.

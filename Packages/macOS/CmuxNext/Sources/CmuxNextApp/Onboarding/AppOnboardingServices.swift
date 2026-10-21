@@ -62,6 +62,7 @@ final class AppOnboardingServices: OnboardingServices {
             throw error
         }
         owner.browserImportOffer.importFinished(summary)
+        await owner.historySync.reconcile()
         // The app window, not the tool window: closing that with Done would take the offer with it.
         let windows = services.windows
         if let hold { BrowserImportConflictOffer.offer(hold) { windows.active?.window ?? NSApp.mainWindow } }

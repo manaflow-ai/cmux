@@ -57,6 +57,9 @@ final class OnboardingService {
     /// The migration run in flight or last finished: a new run waits for it.
     var classicMigrationRun: Task<ClassicMigrationOutcome, any Error>?
 
+    /// Keep in Sync's watches; `start` also seeds each profile's omnibar with its imported pages.
+    private(set) lazy var historySync = BrowserFolderAccess().historySync(store: importStore, deliver: SavingImportDestination.omnibar(services.cache))
+
     /// Computer Use Setup: the helper's grants for the palette action, Settings and the tool window.
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
 
@@ -117,33 +120,17 @@ final class OnboardingService {
             }
         }
     }
-
-    /// Imported history and bookmarks go into each browser profile's
-    /// omnibar history at launch (after `BrowserProfileService` moved
-    /// pre-profile imports into their own profiles).
-    static func seedHistory(profiles: [String], store: ImportedDataStore, cache: TabContentCache) {
-        // task-owner: one-shot launch load of the import store
-        Task {
-            for id in profiles {
-                guard let profile = BrowserProfileRecord.engineProfile(for: id) else { continue }
-                let batches = await store.batches(profile: id)
-                if !batches.isEmpty { cache.history(for: profile).merge(batches.flatMap(Self.historyEntries)) }
-            }
-        }
-    }
-
-    /// A batch's pages as omnibar history. Bookmarks reach the omnibar as
-    /// bookmark rows (`BookmarkSuggestionFeed`), not as visits.
-    nonisolated static func historyEntries(_ batch: ImportBatch) -> [BrowserHistoryEntry] {
-        batch.history.map { BrowserHistoryEntry(url: $0.url, title: $0.title, visitCount: $0.visitCount, lastVisit: $0.lastVisit) }
-    }
 }
 
 extension SavingImportDestination {
     /// Into this app: each batch's pages join its browser profile's omnibar history.
     @MainActor static func app(_ services: AppServices, bookmarks: (any ImportedBookmarkSink)? = nil) -> SavingImportDestination {
-        let cache = services.cache
-        return SavingImportDestination(store: services.onboarding.importStore, bookmarks: bookmarks) { id, pages in
+        SavingImportDestination(store: services.onboarding.importStore, bookmarks: bookmarks, history: omnibar(services.cache))
+    }
+
+    /// Imported pages join their browser profile's omnibar history (bookmarks reach it as bookmark rows).
+    static func omnibar(_ cache: TabContentCache) -> ImportHistorySync.Deliver {
+        { id, pages in
             let entries = pages.map { BrowserHistoryEntry(url: $0.url, title: $0.title, visitCount: $0.visitCount, lastVisit: $0.lastVisit) }
             await MainActor.run { cache.history(for: BrowserProfileRecord.engineProfile(for: id) ?? .default).merge(entries) }
         }

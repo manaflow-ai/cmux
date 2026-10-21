@@ -101,9 +101,11 @@ extension BrowserProfileService {
         }
     }
 
-    /// Each profile's imported history and bookmarks go into its omnibar.
+    /// Each profile's imported history goes into its omnibar; Keep in Sync starts watching.
     private func seedImportedHistory() {
-        guard let store = importStore else { return }
-        OnboardingService.seedHistory(profiles: ordered.map(\.id), store: store, cache: services.cache)
+        guard importStore != nil else { return }
+        let sync = services.onboarding.historySync, profiles = ordered.map(\.id)
+        // task-owner: one-shot launch load of the import store; the sync owns its watches
+        Task { await sync.start(profiles: profiles) }
     }
 }

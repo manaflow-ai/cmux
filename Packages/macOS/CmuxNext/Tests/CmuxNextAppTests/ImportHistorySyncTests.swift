@@ -1,0 +1,102 @@
+import CmuxNextBrowserImport
+import Foundation
+import SQLite3
+import Testing
+
+/// Keep in Sync: a synced Chrome profile's history is read again when Chrome
+/// writes its `History` database (a kqueue event, no polling), merged into the
+/// same saved batch, and handed to the profile's live history; turning sync
+/// off stops the watch.
+@Suite(.serialized) struct ImportHistorySyncTests {
+    private actor Delivered {
+        private(set) var pages: [String: [ImportedHistoryEntry]] = [:]
+        func add(_ profile: String, _ list: [ImportedHistoryEntry]) { pages[profile] = list }
+    }
+
+    private static func until(_ condition: () async -> Bool, within timeout: Duration = .seconds(10)) async {
+        let deadline = ContinuousClock.now + timeout
+        while await !condition(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
+    }
+
+    /// A Chromium `History` database with the `urls` columns the reader asks for.
+    private static func history(_ file: URL, pages: [String]) throws {
+        var db: OpaquePointer?
+        guard sqlite3_open(file.path, &db) == SQLITE_OK else { throw CocoaError(.fileWriteUnknown) }
+        defer { sqlite3_close(db) }
+        let microseconds = Int64((Date().timeIntervalSince1970 + 11_644_473_600) * 1_000_000)
+        var sql = "CREATE TABLE IF NOT EXISTS urls (id INTEGER PRIMARY KEY, url TEXT, title TEXT, visit_count INTEGER, "
+            + "typed_count INTEGER, last_visit_time INTEGER, hidden INTEGER DEFAULT 0);"
+        for (index, page) in pages.enumerated() {
+            sql += "INSERT INTO urls (url, title, visit_count, typed_count, last_visit_time) VALUES ('\(page)', 'Page', 1, 0, \(microseconds + Int64(index)));"
+        }
+        guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else { throw CocoaError(.fileWriteUnknown) }
+    }
+
+    @Test func aSyncedProfileFollowsItsBrowsersWrites() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "history-sync-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profile = root.appending(path: "Chrome/Default", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        let file = profile.appending(path: "History")
+        try Self.history(file, pages: ["https://one.example/"])
+
+        let store = ImportedDataStore(directory: root.appending(path: "store", directoryHint: .isDirectory))
+        var record = ImportSourceRecord(browser: .chrome, profileDirectory: "Default", displayName: "Google Chrome",
+                                        proposedProfileID: "p1", targetProfileID: "p1")
+        record.syncedHistoryFile = file
+        try await store.save(ImportBatch(source: record, kinds: [.history]))
+
+        let delivered = Delivered()
+        let sync = ImportHistorySync(store: store, grants: nil, delay: .milliseconds(50)) { id, pages in await delivered.add(id, pages) }
+        await sync.reconcile()
+        #expect(await sync.watched == [record.sourceKey])
+        // The catch-up read after the watch starts.
+        await Self.until { await delivered.pages["p1"]?.count == 1 }
+        #expect(await delivered.pages["p1"]?.map(\.url.host) == ["one.example"])
+
+        // Chrome writes a visit: read again, once, into the same batch.
+        try Self.history(file, pages: ["https://two.example/"])
+        await Self.until { await delivered.pages["p1"]?.count == 2 }
+        #expect(await delivered.pages["p1"]?.count == 2)
+        #expect(await store.batches(profile: "p1").map(\.history.count) == [2])
+
+        try await store.stopSync(profile: "p1")
+        await sync.reconcile()
+        #expect(await sync.watched.isEmpty)
+    }
+
+    @Test func removingAProfilesImportsKeepsItsMappingAndStopsSync() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "import-remove-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ImportedDataStore(directory: root)
+        var record = ImportSourceRecord(browser: .chrome, profileDirectory: "Default", displayName: "Google Chrome",
+                                        proposedProfileID: "p1", targetProfileID: "p1")
+        record.syncedHistoryFile = root.appending(path: "History")
+        var batch = ImportBatch(source: record, kinds: [.history])
+        batch.history = [ImportedHistoryEntry(url: URL(fileURLWithPath: "/"), title: nil, visitCount: 1, lastVisit: Date())]
+        try await store.save(batch)
+
+        let removed = try await store.removeImported(profile: "p1")
+        #expect(removed.map(\.history.count) == [1])
+        #expect(await store.batches(profile: "p1").isEmpty)
+        #expect(await store.syncedSources().isEmpty)
+        #expect(await store.proposedProfileID(for: record.sourceKey) == "p1")
+    }
+
+    @Test func clearingHistoryDropsTheImportedPagesInItsRange() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "import-forget-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ImportedDataStore(directory: root)
+        var batch = ImportBatch(source: ImportSourceRecord(browser: .chrome, profileDirectory: "Default", displayName: "Google Chrome",
+                                                           proposedProfileID: "p1", targetProfileID: "p1"), kinds: [.history])
+        let now = Date()
+        batch.history = [ImportedHistoryEntry(url: URL(fileURLWithPath: "/old"), title: nil, visitCount: 1, lastVisit: now.addingTimeInterval(-7200)),
+                         ImportedHistoryEntry(url: URL(fileURLWithPath: "/new"), title: nil, visitCount: 1, lastVisit: now)]
+        try await store.save(batch)
+
+        try await store.forgetHistory(profile: "p1", since: now.addingTimeInterval(-3600))
+        #expect(await store.batches(profile: "p1").first?.history.map(\.url.path) == ["/old"])
+        try await store.forgetHistory(profile: "p1", since: nil)
+        #expect(await store.batches(profile: "p1").first?.history.isEmpty == true)
+    }
+}
