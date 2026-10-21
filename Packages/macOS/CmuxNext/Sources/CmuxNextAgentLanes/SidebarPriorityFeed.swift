@@ -6,8 +6,8 @@ import Foundation
 import Observation
 
 /// The sidebar's Priority view (`sidebar.priorityView.enabled`, an App Store item, off by default):
-/// every acpmux chat on this Mac, its peers and the Chief home, ranked by what needs the person
-/// (`AgentPriorityRanking`), at the top of each window's sidebar while the titlebar bell is on
+/// every acpmux chat on this Mac, its peers and the Chief home, and every agent chat on the other
+/// machines the app shows, ranked by what needs the person (`AgentPriorityRanking`), at the top of each window's sidebar while the titlebar bell is on
 /// (`sidebar.priorityView.shown`). Event-driven: it redraws when a lane, a mark or the setting
 /// changes, and at the next snooze end, never on a poll. The App passes the settings, the
 /// shortcut, the chat jump and the row actions' runner (its own target keeps them out of
@@ -49,7 +49,6 @@ public final class SidebarPriorityFeed {
     private let hooks: Hooks
     private let chats: AgentPriorityChats
     private var marks: AgentPriorityMarks { chats.marks }
-    private var stores: [AgentLaneStore] { chats.stores }
     private let ranking = AgentPriorityRanking()
     /// Bumped when a snooze ends or an idle chat ages out, so the rows redraw with no other change.
     private let clock = PriorityClock()
@@ -70,9 +69,10 @@ public final class SidebarPriorityFeed {
             for await panel in ObservationStream({ self.panel() }) {
                 view?.showPriority(panel)
                 scheduleNextChange()
-                // A store is empty while its watch is down or not up yet: pruning then would drop
-                // the marks of every chat it reports, so prune only while every watched store is live.
-                if stores.allSatisfy({ $0.live || $0.socketPath == nil }) { marks.prune(keeping: Set(lanes.map(\.id))) }
+                // A store is empty while its watch is down or not up yet (a machine's tree while it
+                // is not connected): pruning then would drop the marks of every chat it reports, so
+                // prune only while every one is live.
+                if chats.complete { marks.prune(keeping: Set(lanes.map(\.id))) }
             }
         }
     }
@@ -86,7 +86,7 @@ public final class SidebarPriorityFeed {
         guard settings.enabled() else { return nil }
         let shown = settings.shown(), state = marks.state
         _ = clock.ticks
-        let entries = ranking.entries(lanes, marks: state, now: Date())
+        let entries = chats.entries(now: Date())
         return SidebarPriorityPanel(entries: shown ? entries : entries.filter(\.needsAttention), shown: shown,
                                     collapsed: state.collapsed, shortcut: hooks.shortcut())
     }
@@ -106,7 +106,9 @@ public final class SidebarPriorityFeed {
     /// again after it: a wake that leaves the rows as they were (the bell off) emits nothing.
     private func scheduleNextChange() {
         let now = Date()
-        guard let next = ranking.nextChange(lanes, marks: marks.state, now: now) else { return nextChange.cancel() }
+        guard let next = ranking.nextChange(lanes, marks: marks.state, now: now, failingChecks: failingChecks) else {
+            return nextChange.cancel()
+        }
         // Rounded up and a little late, so the wake never lands just before the change.
         let milliseconds = Int64((max(1, next.timeIntervalSince(now)) * 1000).rounded(.up)) + 50
         nextChange.schedule(after: .milliseconds(milliseconds)) { @MainActor [weak self] in
@@ -114,6 +116,10 @@ public final class SidebarPriorityFeed {
             self?.scheduleNextChange()
         }
     }
+
+    /// The chats with a pull request whose checks fail (Red CI), as the session tree's pull request
+    /// reads last answered (`AgentPriorityChats.failingChecks`): no GitHub read of its own.
+    private var failingChecks: Set<String> { chats.failingChecks }
 }
 
 /// Bumped at each time-only change of the Priority rows; observed, so a bump redraws.
