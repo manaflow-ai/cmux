@@ -18,6 +18,8 @@ extension KeyRouter {
     nonisolated static let diffPageID = "cmux.diff"
     /// The code editor page (Monaco): `codeEditorFocused`.
     nonisolated static let codeEditorPageID = "cmux.editor"
+    /// The phone tab's page kind (`InternalPageID.phone`): `simulatorFocused`.
+    nonisolated static let phonePageKind = "phone"
 
     /// The context keys for a key in a window with `focus`.
     func keyContext(for focus: FocusState, facts: Facts) -> KeyContext {
@@ -38,6 +40,7 @@ extension KeyRouter {
         if facts.pageID == Self.diffPageID { bits.insert(.diffViewerFocused) }
         if facts.pageID == Self.codeEditorPageID { bits.insert(.codeEditorFocused) }
         if facts.textBoxFocused { bits.insert(.textBoxFocused) }
+        if isPhone(focus.resolved, internalPage: facts.internalPage) { bits.insert(.simulatorFocused) }
         var context = KeyContext(bits: bits)
         if let page = facts.pageID { context[KeyContext.pageID] = .string(page) }
         context[KeyContext.windowKind] = .string(KeyContext.WindowKindValue.main)
@@ -55,6 +58,17 @@ extension KeyRouter {
         if facts.listFocus || omnibarList || Self.isNativeList(resolved) { context[KeyContext.listFocus] = .bool(true) }
         if facts.sidebarMultiSelection, case .sidebar = resolved { context[KeyContext.sidebarMultiSelection] = .bool(true) }
         return context
+    }
+
+    /// Whether a phone tab has the keyboard (`simulatorFocused`: the Simulator shortcuts).
+    nonisolated static func isPhone(_ resolved: FocusState.Resolved, internalPage: String?) -> Bool {
+        guard case .page(_, let tab) = resolved else { return false }
+        return internalPageKind(tab, page: internalPage) == phonePageKind
+    }
+
+    /// Whether `controller`'s focused tab is a phone tab (``isPhone(_:internalPage:)`` for the registry context).
+    func focusesPhone(in controller: WindowController) -> Bool {
+        Self.isPhone(controller.focus.state.resolved, internalPage: focusedInternalPage(in: controller))
     }
 
     /// `surfaceKind`: what has the keyboard; nil outside a pane.

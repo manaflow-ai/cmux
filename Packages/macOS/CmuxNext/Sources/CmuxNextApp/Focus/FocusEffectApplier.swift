@@ -407,6 +407,8 @@ final class FocusEffectApplier: FocusEffectApplying {
         if WebInspectorTargets().target(in: controller) != nil { next.insert(.webViewFocused) }
         // The same rule as `KeyRouter.keyContext`: a terminal's TextBox has the keyboard.
         if controller.window?.firstResponder is TextBoxTextView { next.insert(.textBoxFocused) }
+        // The same rule as `KeyRouter.keyContext`: a phone tab has the keyboard (the Simulator shortcuts).
+        if services.keyRouter.focusesPhone(in: controller) { next.insert(.simulatorFocused) }
         if registry.context != next { registry.context = next }
     }
 
