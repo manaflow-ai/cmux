@@ -74,10 +74,29 @@ describe("agent deeplink schema", () => {
   const webVectors = schema.vectors.filter((vector) => vector.web !== undefined);
 
   // A renamed or dropped key in the schema would otherwise leave `test.each` with no cases, which
-  // bun reports as a green file.
+  // bun reports as a green file. Counts alone allow a case to be deleted, so the cases the page
+  // answers for are named: adding a vector is free, dropping one of these is not.
   test("the schema carries the page's own vectors", () => {
-    expect(webVectors.length).toBeGreaterThanOrEqual(9);
-    expect(webVectors.filter((vector) => vector.fields === null).length).toBeGreaterThanOrEqual(3);
+    const names = webVectors.map((vector) => vector.name);
+    expect(new Set(names).size).toBe(names.length);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "session only",
+        "every parameter",
+        "a message link, as Leo opened it",
+        "an unknown parameter is ignored, the session still opens",
+        "an unusable optional value is ignored, the session still opens",
+        "a repeated optional parameter is ignored",
+        "a machine hint rides along",
+        "an unusable machine is ignored, the session still opens",
+        "a parameter with nothing in it names nothing, and is said",
+        "a repeated required parameter is a repeat, not a session",
+        "no session",
+        "an unusable session",
+        "an unusable harness",
+      ]),
+    );
+    expect(webVectors.filter((vector) => vector.fields === null).length).toBeGreaterThanOrEqual(4);
   });
 
   test.each(webVectors.map((vector) => [vector.name, vector] as [string, Vector]))(
@@ -278,5 +297,33 @@ describe("agent deeplink fallback", () => {
     const params: SearchParams = { harness: "claude", session: "abc" };
     for (let index = 0; index < 20; index += 1) params[`extra-${index}`] = "x";
     expect(agentLink(params).ignored).toHaveLength(8);
+  });
+
+  test("a printed name is cut to the length a name can have", () => {
+    // The cut is what bounds how much of the URL's own text a warning can carry.
+    const result = agentLink({ harness: "claude", session: "abc", [`x${"y".repeat(39)}`]: "LEAK" });
+    expect(result.ignored).toEqual([`x${"y".repeat(31)}`]);
+    expect(result.ignored[0]).toHaveLength(32);
+  });
+
+  test("a name with nothing printable left prints as a question mark", () => {
+    const result = agentLink({ harness: "claude", session: "abc", "✓": "LEAK" });
+    expect(result.ignored).toEqual(["?"]);
+    expect(JSON.stringify(result)).not.toContain("LEAK");
+  });
+
+  test("a link the page refuses always says which parameter refused it", () => {
+    // The page's own fallback wording ("missing required parameters: ") has no names to print, so
+    // no refusal may reach it: every refusal names at least one parameter.
+    const values: SearchParams[string][] = [undefined, "", "   ", "claude", "s1", "..", ["a", "b"]];
+    for (const harness of values) {
+      for (const session of values) {
+        for (const message of values) {
+          const result = agentLink({ harness, session, message });
+          if (result.model !== null) continue;
+          expect([...result.missing, ...result.invalid, ...result.duplicates].length).toBeGreaterThan(0);
+        }
+      }
+    }
   });
 });
