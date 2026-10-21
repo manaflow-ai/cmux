@@ -5,8 +5,9 @@
 // now keys it to its `selectionKey` (the composer passes the chat's session id).
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { act } from "react";
+import { act, createRef } from "react";
 import type { Root } from "react-dom/client";
+import type { MarkdownFieldHandle } from "../src/agent-session/acpmux/MarkdownField";
 import { promptField, proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const scope = globalThis as Record<string, unknown>;
@@ -74,6 +75,7 @@ afterAll(() => {
 });
 
 const DRAFT = "fix the flaky retry test";
+const handle = createRef<MarkdownFieldHandle>();
 
 /// The field as the composer renders it for the chat `session`, holding `DRAFT`.
 async function render(session: string) {
@@ -81,7 +83,8 @@ async function render(session: string) {
   const { MarkdownField } = await import("../src/agent-session/acpmux/MarkdownField");
   root ??= createRoot(host);
   const props = { value: DRAFT, onChange: () => {}, selectionKey: session };
-  await act(async () => root!.render(<MarkdownField {...props} />));
+  // The composer holds the field's handle; the handle exists only for a field given a ref.
+  await act(async () => root!.render(<MarkdownField ref={handle} {...props} />));
   // The editor is made asynchronously: wait until its handle drives a view (a selection reads back).
   for (let turn = 0; turn < 200; turn++) {
     const field = document.querySelector(".acpmux-md-field .acpmux-md");
