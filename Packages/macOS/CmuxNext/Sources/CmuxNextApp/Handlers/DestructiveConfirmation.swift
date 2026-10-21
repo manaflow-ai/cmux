@@ -77,6 +77,8 @@ enum DestructiveConfirmation {
             return AgentExtensionHandlers.prompt(invocation, context)
         case "space.delete":
             return await RoomConfirmation.prompt(invocation, context)
+        case "space.clearDefaults":
+            return RoomConfirmation.clearDefaultsPrompt(invocation, context)
         case "remote.install":
             return await RemoteConfirmation.prompt(for: id, invocation, context)
         case "tabGroup.close":
