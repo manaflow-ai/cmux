@@ -8,6 +8,10 @@
 use super::*;
 use std::sync::atomic::Ordering;
 
+// A prompt dequeued for a turn that never started goes back at the head (`restore_queue`).
+#[path = "lost_start.rs"]
+mod lost_start;
+
 /// A prompt waiting for the running turn to end.
 #[derive(Debug, Clone)]
 pub struct QueuedPrompt {
@@ -154,7 +158,13 @@ impl Hub {
             Wait::Withdrawn => return Err(Ok(withdrawn_reply(p.prompt_id, &turn_id))),
             Wait::Steer => {
                 let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
-                return Err(self.steer_queued(session, run, p.client, p.prompt_id).await);
+                let answer = self.steer_queued(session, run, p.client, p.prompt_id).await;
+                // Refused: logged, so a restart does not queue it again (`lost_start.rs`).
+                if let Err(e) = &answer {
+                    let msg = json!({"promptId": p.prompt_id, "turnId": turn_id, "client": p.client, "error": e.message, "data": e.data});
+                    self.append(session, "mux", "prompt_refused", msg);
+                }
+                return Err(answer);
             }
         };
         let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
@@ -468,8 +478,9 @@ impl Hub {
     }
 
     /// At load: puts back every prompt the log shows queued but never dequeued, started or
-    /// removed, in queue order. They run once `resume_queues` starts them; a client that resends
-    /// one meanwhile waits for that run (the ledger entry made here).
+    /// removed, in queue order, after any dequeued whose turn never started (`lost_start.rs`).
+    /// They run once `resume_queues` starts them; a client that resends one meanwhile waits for
+    /// that run (the ledger entry made here).
     pub(super) fn restore_queues(&self) {
         // Sessions restore apart (each reads only its own log), so they run on every core.
         let sessions = self.sessions();
@@ -490,6 +501,9 @@ impl Hub {
         "queue_paused",
         "queue_resumed",
         "queue_order",
+        // What settles a dequeued prompt (`lost_start.rs`).
+        "turn_result",
+        "prompt_refused",
         // A paused agent pair's records (`agent_pairs.rs`).
         "agent_pair_held",
         "agent_pair_released",
@@ -513,8 +527,10 @@ impl Hub {
         // and the prompt ids that reached the session (`agent_pairs.rs`).
         let mut pair_records: Vec<EventRecord> = Vec::new();
         let mut recorded: std::collections::HashSet<String> = Default::default();
+        let mut unstarted = lost_start::Unstarted::default();
         let scanned =
             self.store.scan_kinds(&session.id, Self::QUEUE_KINDS, &mut |e: EventRecord| {
+                unstarted.read(&e, &waiting);
                 if matches!(e.kind.as_str(), "queued" | "user_message")
                     && let Some(id) = e.msg.get("promptId").and_then(Value::as_str)
                 {
@@ -571,13 +587,17 @@ impl Hub {
             });
         self.restore_agent_pairs(&session.id, pair_records, &recorded);
         session.moving.lock().unwrap_or_else(|e| e.into_inner()).clone_from(&moving);
-        if scanned.is_err() || waiting.is_empty() {
+        let unstarted = unstarted.prompts();
+        if scanned.is_err() || (waiting.is_empty() && unstarted.is_empty()) {
             return;
         }
         // The last reorder holds; a prompt queued after it keeps its place at the end.
         waiting.sort_by_key(|q| {
             order.iter().position(|id| Some(id) == q.msg.get("promptId")).unwrap_or(order.len())
         });
+        // A prompt that left the queue for its turn runs first, as it would have.
+        held.retain(|id| unstarted.iter().all(|q| q.msg.get("promptId") != Some(id)));
+        let waiting: Vec<EventRecord> = unstarted.into_iter().chain(waiting).collect();
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
         let mut restored = session.restored.lock().unwrap_or_else(|e| e.into_inner());
