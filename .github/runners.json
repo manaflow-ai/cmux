@@ -207,10 +207,6 @@
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
     "macos-cross-parity.yml#runtime-x86_64": "macos-runtime-tests",
-    "macos-matrix-fuzz.yml#fuzz": {
-      "class": "apple-gui",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
-    },
     "main-compile-probe.yml#compile": "apple-app-build",
     "nightly-next-canary.yml#canary": "macos-runtime-tests",
     "nightly-next-train.yml#build": "apple-app-build",
