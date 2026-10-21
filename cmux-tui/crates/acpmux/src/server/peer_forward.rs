@@ -132,6 +132,7 @@ async fn forward_inner(
                             e
                         }
                     })?;
+        strip_asks(hub, &peer.name, &id, m, &mut result);
         if m == method::SESSION_FORK
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
         {
@@ -156,6 +157,37 @@ async fn forward_inner(
         return Err(e);
     }
     Ok(None)
+}
+
+/// Drop from a peer's reply for its session `id` every ask the peer may
+/// not put before this daemon's clients: the `pending` entries of an
+/// `_acpmux/info` detail or an `_acpmux/attach` `session` that fail
+/// `Hub::peer_ask_counts`, and the ask records in `events`
+/// (`_acpmux/attach`, `_acpmux/events`), which the app reads a nonce and run
+/// from too, that `Hub::peer_history_ask_counts` drops (its own asks from an
+/// older run stay there without their nonce). The rest of the reply, and the
+/// session, stay.
+fn strip_asks(hub: &Hub, peer: &str, id: &str, m: &str, result: &mut Value) {
+    let pending = match m {
+        method::MUX_INFO => Some("/pending"),
+        method::MUX_ATTACH => Some("/session/pending"),
+        _ => None,
+    };
+    if let Some(Value::Array(asks)) = pending.and_then(|p| result.pointer_mut(p)) {
+        asks.retain(|ask| hub.peer_ask_counts(peer, id, ask));
+    }
+    if let Some(Value::Array(records)) = result.get_mut("events") {
+        records.retain_mut(|r| {
+            let kind = r.get("kind").and_then(Value::as_str).unwrap_or("");
+            if !crate::hub::is_permission_ask(kind) {
+                return true;
+            }
+            match r.get_mut("msg") {
+                Some(msg) => hub.peer_history_ask_counts(peer, id, msg),
+                None => false,
+            }
+        });
+    }
 }
 
 /// `_meta.acpmux` field of a forwarded `permission_respond`: how many

@@ -63,6 +63,8 @@ mod scope_help;
 mod screen_help;
 #[cfg(unix)]
 mod script;
+#[cfg(unix)]
+mod setup;
 mod shorthand;
 #[cfg(unix)]
 mod skew;
@@ -286,6 +288,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
+        .or_else(|| setup::run_if_requested(args))
         .or_else(|| status::run_args(args))
     {
         return code;
@@ -859,6 +862,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   closed        List and reopen closed tabs, screens, workspaces
   git           Read a repository's status and changes; capture checkpoints
   status        Show loading indicators for scripts and agents
+  setup         Set up cmux from an agent: list tasks, trust a folder (JSON)
   sidebar       Manage sidebar views and local plugins
   pairing       Resolve pairing requests
   projection    Read and update frontend projections
