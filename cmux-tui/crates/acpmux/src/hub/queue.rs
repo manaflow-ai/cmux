@@ -124,6 +124,10 @@ impl Hub {
             Some((turn_id, None)) => return Err(Ok(withdrawn_reply(p.prompt_id, &turn_id))),
             // A chat being moved takes no prompt: its new daemon does (`transfer_out.rs`).
             None if session.moving().is_some() => return Err(Err(moving_error())),
+            // A watched chat takes no prompt until it is taken over (`watch.rs`).
+            None if session.meta().watching.is_some() => {
+                return Err(Err(super::watch::read_only()));
+            }
             None => {
                 let turn_id = uuid::Uuid::now_v7().to_string();
                 // Another agent's message never overtakes the ones a failed turn held: they run
@@ -298,6 +302,7 @@ impl Hub {
         if !images.is_empty() {
             queued["images"] = Value::Array(images);
         }
+        super::session::mark_pasted(&mut queued, p.blocks);
         self.append(
             session,
             "mux",

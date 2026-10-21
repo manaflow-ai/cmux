@@ -112,9 +112,22 @@ export type PromptDelivery = {
   connection?: string;
 };
 
-export type QueuedPrompt = { id: string; prompt: string; next?: boolean; sending?: boolean };
+/// A prompt waiting for the running turn, with the images it sends, in its order (Leo,
+/// 2026-10-21: a queued row showed only its text).
+export type QueuedPrompt = {
+  id: string;
+  prompt: string;
+  next?: boolean;
+  sending?: boolean;
+  images?: QueuedPromptImage[];
+};
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 export type PromptImage = { id: string; mimeType: string; name?: string };
+/// A queued prompt's image: `src` is its data URL when the pane has its bytes (it sent them, or
+/// the `queued` record carries them), else the row reads it by `id`. acpmux names an image by the
+/// SHA-256 of its bytes; one the pane only sent so far has the composer's id (`local`) until
+/// acpmux names it, so an edit cannot keep or drop it by id yet.
+export type QueuedPromptImage = PromptImage & { src?: string; local?: boolean };
 
 export type AcpmuxRow = {
   id: string;
@@ -293,6 +306,15 @@ export type AcpmuxFileDiff = {
   fromInput?: true;
 };
 
+/// A Write whose old contents are unknown: its whole new text with no old text, still a fragment
+/// because its result neither confirmed a create nor carried the old text (acpmux claude_stdio
+/// `settle_write`: an overwrite without `originalFile`, an oversized one, no result yet, a cut-off
+/// adopted Write). Its lines are not added lines, so the turn's files leave its file out (diff.ts
+/// `turnFiles`) and the edited-files card lists its path without counts (`plainEditLabels`). A Write
+/// read from its input is known: direct.ts `inputDiffs` builds one only when the result said created.
+export const contentsUnknown = (diff: AcpmuxFileDiff) =>
+  diff.oldText == null && diff.fragment === true && diff.fromInput !== true;
+
 /// An agent's ask for a secret (cx-ncc.42, acpmux `hub/secrets.rs`): the `secret_request` record
 /// holds only the name and reason, never a value. The card answers with `_acpmux/secret_submit`.
 export type AcpmuxSecretAsk = { secretId: string; name: string; reason: string };
@@ -368,7 +390,8 @@ export type AcpmuxCatalogModel = {
 /// now (steered into the running turn, whose step stops, when its agent steers), or `interrupt`:
 /// stop the running turn and run it next.
 export type QueueEdit =
-  | { op: "update"; text: string }
+  /** New text; the prompt keeps its images, or with `images` (acpmux ids) only those. */
+  | { op: "update"; text: string; images?: string[] }
   | { op: "move"; index: number }
   | { op: "send_now" }
   | { op: "interrupt" }
@@ -421,6 +444,9 @@ export type AcpmuxSnapshot = {
     backgroundsWork?: boolean;
     /// A turn failed: the queued prompts wait until the user resumes the queue (acpmux `queuePaused`).
     queuePaused?: boolean;
+    /// The family (`claude`, `codex`) of a conversation another app runs that this chat only shows
+    /// (acpmux `watching`): no prompt goes until the user takes it over.
+    watching?: string;
     /// The MCP servers the harness says it loaded (acpmux `mcpServers`, from Claude Code's
     /// system/init); unset when it reports none (every ACP harness).
     mcpServers?: { name: string; status: "connected" | "failed" | "pending" }[];
@@ -519,6 +545,9 @@ export type AcpmuxSnapshot = {
    * `adopt.live`): the pane offers Open Anyway, and Fork It when the harness can fork. `command`
    * is the process that holds it, when acpmux found one. Unset once a choice is sent. */
   liveChat?: { canFork: boolean; command?: string };
+  /** Take Over of a watched chat was refused because the other app still runs it (`adopt.live`):
+   * the pane offers Open Anyway, and Fork It when the harness can fork. */
+  liveTakeOver?: { canFork: boolean; command?: string };
 };
 
 export type PreparedRow = {
@@ -545,6 +574,10 @@ export type ConversationLayout = {
 /// text font, its line and the code sizes follow the user's chat look (chatDisplay.ts), 14px
 /// system-ui on 22.75px lines and 12px code on 20px lines by default.
 const metrics = () => currentChatMetrics();
+/// Room kept under the last row, over the bottom stack's: a streaming reply's newest line sits a
+/// line and a half above the composer instead of on its edge, as in ChatGPT and Claude desktop.
+/// It is always there, streaming or not, so a reply that starts or ends moves nothing.
+export const TRANSCRIPT_RUNWAY = 24;
 /// Vertical padding of a user bubble (`.cv-user__bubble`).
 const USER_BUBBLE_PADDING = 16;
 /// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
@@ -622,15 +655,21 @@ export function editedCardHeight(files: number, plain = 0): number {
 }
 
 /// What edits without a diff list as in the edited-files card: each path they name, once
-/// (toolPaths.ts), and one entry with no path for each call that names none ("Unknown file").
+/// (toolPaths.ts), and one entry with no path for each call that names none ("Unknown file"). A
+/// Write whose old contents are unknown (`contentsUnknown`) lists its diff's path the same way.
 /// Never the tool input itself.
 export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string; path?: string }[] {
   const out: { key: string; path?: string }[] = [];
   const seen = new Set<string>();
   items.forEach((item, index) => {
-    if (!item.tool || item.tool.diffs?.length) return;
-    const paths = editedPaths(item.tool);
-    if (!paths.length) out.push({ key: `unknown-${item.tool.id}-${index}` });
+    if (!item.tool) return;
+    const diffs = item.tool.diffs ?? [];
+    // A Write still waiting for its permission, or one that failed, wrote nothing.
+    const wrote = item.tool.status !== "pending" && item.tool.status !== "failed";
+    const paths = diffs.length
+      ? diffs.filter((diff) => wrote && contentsUnknown(diff)).map((diff) => diff.path)
+      : editedPaths(item.tool);
+    if (!diffs.length && !paths.length) out.push({ key: `unknown-${item.tool.id}-${index}` });
     for (const path of paths)
       if (!seen.has(path)) {
         seen.add(path);
@@ -674,8 +713,11 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
     // (`.cv-tools`: 2px above 26px rows), which is also how a copy inside an open "Worked for" draws.
     const edits = row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ?? [];
     if (edits.length && !isFoldedCopy(row)) {
-      const files = new Set(edits.flatMap((item) => item.tool?.diffs?.map((diff) => diff.path) ?? [])).size;
-      return 14 + editedCardHeight(files, plainEditLabels(edits).length);
+      const files = new Set(
+        edits.flatMap((item) => item.tool?.diffs?.flatMap((diff) => (contentsUnknown(diff) ? [] : [diff.path])) ?? []),
+      );
+      const plain = plainEditLabels(edits).filter((entry) => !entry.path || !files.has(entry.path));
+      return 14 + editedCardHeight(files.size, plain.length);
     }
     // A folded run (Debug toggle) draws one summary line until opened.
     if (row.foldRun && row.items && isFoldedRun(row.items)) return 36;

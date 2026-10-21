@@ -135,6 +135,8 @@ final class AppServices {
     private(set) lazy var vaultPages: VaultPageService = VaultPageService(vault: vault, registry: registry)
     /// Where each window's right sidebar remembers its state (tests set a suite of their own).
     var rightSidebarDefaults: UserDefaults = .standard
+    /// Each window's file explorer (the right sidebar's Files section) and its actions' effects.
+    private(set) lazy var fileExplorers = FileExplorerService(services: self)
     /// The right sidebar's sections by mode (the file explorer adds Files and Find).
     private(set) lazy var rightSidebarSections: RightSidebarSections = {
         let sections = RightSidebarSections()

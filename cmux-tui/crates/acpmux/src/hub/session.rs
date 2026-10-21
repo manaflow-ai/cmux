@@ -195,12 +195,42 @@ pub(crate) fn short_text(s: &str, max: usize) -> String {
 /// The person's text of a prompt: its text blocks, without the hidden context acpmux added
 /// (`prompt_context.rs`).
 pub(crate) fn prompt_text(blocks: &[Value]) -> String {
-    blocks
+    prompt_text_parts(blocks).0
+}
+
+/// The text `prompt_text` records of `blocks`, and the `{start, end}` range of each text
+/// block the composer marked pasted (`_meta.cmux.pasted`) in it, in UTF-16 code units so a
+/// client's `text.slice(start, end)` reads the paste. Both come from this one walk, so the
+/// ranges always match the text.
+pub(crate) fn prompt_text_parts(blocks: &[Value]) -> (String, Vec<Value>) {
+    let (mut text, mut units, mut pasted) = (String::new(), 0usize, Vec::new());
+    let parts = blocks
         .iter()
         .filter(|b| !crate::prompt_context::is_context(b))
-        .filter_map(|b| b.get("text").and_then(Value::as_str))
-        .collect::<Vec<_>>()
-        .join("\n")
+        .filter_map(|b| b.get("text").and_then(Value::as_str).map(|t| (b, t)));
+    for (i, (block, part)) in parts.enumerate() {
+        if i > 0 {
+            text.push('\n');
+            units += 1;
+        }
+        let start = units;
+        text.push_str(part);
+        units += part.encode_utf16().count();
+        if block.pointer("/_meta/cmux/pasted").and_then(Value::as_bool) == Some(true) {
+            pasted.push(json!({"start": start, "end": units}));
+        }
+    }
+    (text, pasted)
+}
+
+/// Adds `pasted` (the ranges of `blocks`' pasted text, `prompt_text_parts`) to the prompt
+/// record `msg`, whose `text` is `prompt_text(blocks)`; none when nothing was pasted, or
+/// when `msg` records some other text the ranges would not fit.
+pub(crate) fn mark_pasted(msg: &mut Value, blocks: &[Value]) {
+    let (text, pasted) = prompt_text_parts(blocks);
+    if !pasted.is_empty() && msg.get("text").and_then(Value::as_str) == Some(text.as_str()) {
+        msg["pasted"] = Value::Array(pasted);
+    }
 }
 
 /// What acpmux last set on a session (`Session::applied`).
