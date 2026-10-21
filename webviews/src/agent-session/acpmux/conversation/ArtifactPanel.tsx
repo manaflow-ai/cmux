@@ -77,6 +77,8 @@ export function ArtifactPanel({
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes the panel from its tabs, buttons or a focused frame's edge.
     <aside
       className="acpmux-artifact"
+      // Slides in from the pane's right edge (ui/presence.ts).
+      data-enter="right"
       aria-label={t("artifact.panel")}
       // ui-allow: Escape closes the panel from anywhere inside it
       onKeyDown={(event) => {
