@@ -77,6 +77,21 @@ impl Launch {
         if args.group.is_some() && name.is_none() {
             bail!("--group needs --name, so a second run finds the same sidebar row");
         }
+        if args.reuse && name.is_none() {
+            bail!("--reuse needs --name: the session to reuse is found by it");
+        }
+        if let (Some(_), Some(host)) = (&args.group, &args.host) {
+            bail!(
+                "--group shows a session of this machine only: run `cmux agent open {host}/NAME \
+                 --group G` on the Mac instead of --host {host}"
+            );
+        }
+        if args.report_to.is_some()
+            && file_prompt.is_none()
+            && args.prompt.join("").trim().is_empty()
+        {
+            bail!("--report-to goes with the session's first prompt: give one or --prompt-file");
+        }
         Ok(Self { reuse: args.reuse || worktree.is_some(), name, title, worktree, file_prompt })
     }
 
@@ -177,9 +192,18 @@ fn read_prompt_file(path: &Path) -> Result<String> {
 /// `_acpmux/info`), None when there is none. `_acpmux/info` also takes a
 /// prefix of a name: a session it finds by one is not this one.
 pub(super) async fn existing(client: &Client, key: &str) -> Result<Option<Value>> {
-    let name = key.rsplit('/').next().unwrap_or(key);
+    let (host, name) = match key.split_once('/') {
+        Some((host, name)) => (Some(host), name),
+        None => (None, key),
+    };
     match client.request(method::MUX_INFO, json!({"sessionId": key})).await {
-        Ok(v) if v.get("name").and_then(Value::as_str) == Some(name) => Ok(Some(v)),
+        // A bare name also finds a peer's session of that name: not this machine's.
+        Ok(v)
+            if v.get("name").and_then(Value::as_str) == Some(name)
+                && v.get("peer").and_then(Value::as_str) == host =>
+        {
+            Ok(Some(v))
+        }
         Ok(_) => Ok(None),
         Err(e) => {
             let m = e.to_string().to_lowercase();
@@ -190,8 +214,9 @@ pub(super) async fn existing(client: &Client, key: &str) -> Result<Option<Value>
 }
 
 /// Refuses to reuse `info` (the session named `name`) for this launch: it
-/// ended, or it works outside the worktree the launch names.
-pub(super) fn check_reusable(info: &Value, name: &str, worktree: bool) -> Result<()> {
+/// ended, or (with `repo`, the launch's repository) it works outside that
+/// repository's worktree named `name`.
+pub(super) fn check_reusable(info: &Value, name: &str, repo: Option<&Path>) -> Result<()> {
     if info.get("status").and_then(Value::as_str) == Some("closed") {
         bail!(
             "a session named {name} exists but has ended: delete it with \
@@ -199,7 +224,7 @@ pub(super) fn check_reusable(info: &Value, name: &str, worktree: bool) -> Result
         );
     }
     let cwd = info.get("cwd").and_then(Value::as_str).unwrap_or_default();
-    if worktree && !in_worktree(Path::new(cwd), name) {
+    if repo.is_some_and(|repo| !in_worktree(Path::new(cwd), repo, name)) {
         bail!(
             "a session named {name} exists but works in {cwd}, not in its worktree: \
              pick another --name"
@@ -208,10 +233,24 @@ pub(super) fn check_reusable(info: &Value, name: &str, worktree: bool) -> Result
     Ok(())
 }
 
-/// `cwd` is in a worktree named `name`: `.../.cmux/worktrees/<project>/<name>[/...]`.
-fn in_worktree(cwd: &Path, name: &str) -> bool {
-    let parts: Vec<_> = cwd.components().map(|c| c.as_os_str().to_string_lossy()).collect();
-    parts.windows(4).any(|w| w[0] == ".cmux" && w[1] == "worktrees" && w[3] == name)
+/// `cwd` is in a worktree of `repo`'s repository whose folder is `name`,
+/// as git reports them (the daemon chose the folder).
+fn in_worktree(cwd: &Path, repo: &Path, name: &str) -> bool {
+    let git = |dir: &Path, arg: &str| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["rev-parse", "--path-format=absolute", arg])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+    };
+    let top = git(cwd, "--show-toplevel");
+    let common = git(cwd, "--git-common-dir");
+    top.is_some_and(|t| Path::new(&t).file_name().is_some_and(|f| f == name))
+        && common.is_some()
+        && common == git(repo, "--git-common-dir")
 }
 
 /// A create that lost a race to another launcher with the same name.
@@ -269,17 +308,34 @@ mod tests {
 
     #[test]
     fn a_session_outside_its_worktree_or_ended_is_not_reused() {
-        let at = |cwd: &str, status: &str| json!({"cwd": cwd, "status": status});
-        let wt = "/home/u/.cmux/worktrees/cmux/lane";
-        assert!(check_reusable(&at(wt, "ready"), "lane", true).is_ok());
-        assert!(check_reusable(&at(&format!("{wt}/cmux-tui"), "running"), "lane", true).is_ok());
-        assert!(check_reusable(&at("/home/u/proj", "ready"), "lane", true).is_err());
-        assert!(check_reusable(&at("/home/u/proj", "ready"), "lane", false).is_ok());
-        assert!(check_reusable(&at(wt, "closed"), "lane", true).is_err());
-        assert!(
-            check_reusable(&at("/home/u/.cmux/worktrees/cmux/lane-2", "ready"), "lane", true)
-                .is_err()
-        );
+        let top = std::env::temp_dir().join(format!("acpmux-reuse-{}", uuid::Uuid::now_v7()));
+        let (repo, wt, other) = (top.join("repo"), top.join("wts/lane"), top.join("wts/lane-2"));
+        std::fs::create_dir_all(&repo).unwrap();
+        let git = |dir: &Path, args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        git(&repo, &["init", "-q"]);
+        git(&repo, &["commit", "-q", "--allow-empty", "-m", "first"]);
+        git(&repo, &["worktree", "add", "-q", "-B", "a", &wt.to_string_lossy()]);
+        std::fs::create_dir_all(wt.join("sub")).unwrap();
+        git(&repo, &["worktree", "add", "-q", "-B", "b", &other.to_string_lossy()]);
+        let at = |cwd: &Path, status: &str| json!({"cwd": cwd, "status": status});
+        let r = Some(repo.as_path());
+        assert!(check_reusable(&at(&wt, "ready"), "lane", r).is_ok());
+        assert!(check_reusable(&at(&wt.join("sub"), "running"), "lane", r).is_ok());
+        assert!(check_reusable(&at(&repo, "ready"), "lane", r).is_err());
+        assert!(check_reusable(&at(&repo, "ready"), "lane", None).is_ok());
+        assert!(check_reusable(&at(&wt, "closed"), "lane", r).is_err());
+        assert!(check_reusable(&at(&other, "ready"), "lane", r).is_err());
+        let _ = std::fs::remove_dir_all(&top);
     }
 
     #[test]

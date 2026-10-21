@@ -376,7 +376,7 @@ async fn dispatch_request(
                 return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
             }
             let asked_policy = policy.is_some();
-            // Last of the checks, so a request refused above makes no worktree.
+            // After the request checks above, so a request they refuse makes no worktree.
             let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
             let req = crate::hub::NewRequest {
                 harness: pick("harness"),

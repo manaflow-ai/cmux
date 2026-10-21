@@ -363,7 +363,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 None => Ok(()),
             };
             if let Some(info) = &reused {
-                launch::check_reusable(info, &name, launch.worktree.is_some())?;
+                launch::check_reusable(
+                    info,
+                    &name,
+                    launch.worktree.as_ref().map(|(_, r)| r.as_path()),
+                )?;
                 // Its first prompt went with the first run; it is not sent twice.
                 show()?;
                 if json_out {

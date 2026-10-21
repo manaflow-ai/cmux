@@ -318,6 +318,9 @@ fn make_worktree_under(folder: &Path, title: &str, home: &Path) -> Result<Worktr
             continue;
         }
         let root = parent.join(&chosen);
+        // Held while it is added and filled, as `ensure_worktree` holds it.
+        let lock = name_lock(&root);
+        let _held = lock.lock().unwrap_or_else(|e| e.into_inner());
         let branch = format!("cmux/{chosen}");
         let add =
             ["worktree", "add", "--no-checkout", "-b", &branch, &root.to_string_lossy(), &commit];
@@ -370,7 +373,7 @@ pub fn ensure_worktree(folder: &Path, name: &str, base: Option<&str>) -> Result<
 
 type Lock = std::sync::Arc<std::sync::Mutex<()>>;
 
-/// One ensure at a time per worktree folder in this process: git lists a
+/// One add or ensure at a time per worktree folder in this process: git lists a
 /// `--no-checkout` worktree before its files are written, so a second
 /// launcher of the same name must not find it half filled.
 fn name_lock(root: &Path) -> Lock {
