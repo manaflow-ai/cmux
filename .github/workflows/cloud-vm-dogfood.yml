@@ -6,6 +6,8 @@ name: Cloud VM dogfood journey
 # carries every step's time; the artifact carries the JSON and the terminal
 # screens. A throwaway smoke user owns the VM and is deleted afterwards.
 on:
+  schedule:
+    - cron: "17 7 * * *"
   workflow_dispatch:
     inputs:
       target:
@@ -26,19 +28,34 @@ on:
         required: false
         default: false
         type: boolean
+      deploy_staging:
+        description: Pull the existing staging environment, apply web migrations, and deploy this exact checkout before dogfood
+        required: false
+        default: false
+        type: boolean
+      run_fanout:
+        description: Instead of the journey, create this many Runs at once (each a small codex task) and time them
+        required: false
+        default: "0"
+        type: choice
+        options:
+          - "0"
+          - "1"
+          - "5"
+          - "20"
 
 permissions:
   contents: read
 
 concurrency:
-  group: cloud-vm-dogfood-${{ inputs.target }}
+  group: cloud-vm-dogfood-${{ inputs.target || 'staging' }}
   cancel-in-progress: false
 
 jobs:
   journey:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 45
-    environment: cloud-vm-${{ inputs.target }}
+    environment: cloud-vm-${{ inputs.target || 'staging' }}
     defaults:
       run:
         working-directory: web
@@ -51,7 +68,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: refs/heads/main
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Setup Bun
@@ -62,9 +79,38 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Deploy exact checkout to staging
+        if: ${{ inputs.deploy_staging == true && (inputs.target || 'staging') == 'staging' }}
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: team_KndpHsJ15gO2OoAP2SO0thYn
+          VERCEL_PROJECT_ID: prj_804LTAUdOwulMvEfcmfnU8bvGo3T
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
+          STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN" || { echo "::error::staging deploy requires the existing VERCEL_TOKEN secret"; exit 1; }
+          for key in DATABASE_URL DIRECT_DATABASE_URL NEXT_PUBLIC_STACK_PROJECT_ID NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY STACK_SECRET_SERVER_KEY; do
+            if [ -z "${!key:-}" ]; then echo "::error::staging deploy binding is missing: $key"; exit 1; fi
+          done
+          echo "staging deploy bindings present: database=1 stack_project=1 stack_client=1 stack_secret=1"
+          mkdir -p "$GITHUB_WORKSPACE/.vercel"
+          printf '{"orgId":"team_KndpHsJ15gO2OoAP2SO0thYn","projectId":"%s"}\n' "$VERCEL_PROJECT_ID" > "$GITHUB_WORKSPACE/.vercel/project.json"
+          cd "$GITHUB_WORKSPACE/web"
+          bun scripts/db-migrate.mjs
+          bun scripts/db-migrate.mjs
+          mkdir -p "$RUNNER_TEMP/dogfood"
+          bun scripts/cloud-vm/run-admission-probe.ts > "$RUNNER_TEMP/dogfood/run-admission.json"
+          # The Vercel project root is configured as web; invoke from the
+          # repository root so Vercel resolves that root exactly once.
+          cd "$GITHUB_WORKSPACE"
+          bunx vercel@56.3.1 deploy . --prod --yes --debug --archive=tgz --env DATABASE_URL="$DATABASE_URL" --env DIRECT_DATABASE_URL="$DIRECT_DATABASE_URL" --env NEXT_PUBLIC_STACK_PROJECT_ID="$NEXT_PUBLIC_STACK_PROJECT_ID" --env NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY="$NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY" --env STACK_SECRET_SERVER_KEY="$STACK_SECRET_SERVER_KEY" --scope manaflow --token "$VERCEL_TOKEN"
       - name: Guard
         env:
-          TARGET: ${{ inputs.target }}
+          TARGET: ${{ inputs.target || 'staging' }}
           CONFIRM_PRODUCTION: ${{ inputs.confirm_production }}
         run: |
           set -euo pipefail
@@ -84,8 +130,9 @@ jobs:
 
       - name: Journey
         env:
-          TARGET: ${{ inputs.target }}
-          SKIP_SLEEP: ${{ inputs.skip_sleep }}
+          TARGET: ${{ inputs.target || 'staging' }}
+          SKIP_SLEEP: ${{ inputs.skip_sleep || false }}
+          RUN_FANOUT: ${{ inputs.run_fanout || '0' }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/dogfood/screens"
@@ -93,6 +140,7 @@ jobs:
             --result-file "$RUNNER_TEMP/dogfood/result.json"
             --screens-dir "$RUNNER_TEMP/dogfood/screens")
           if [ "$SKIP_SLEEP" = "true" ]; then args+=(--skip-sleep); fi
+          if [ "$RUN_FANOUT" != "0" ]; then args+=(--run-fanout "$RUN_FANOUT"); fi
           bun run cloud-vm:dogfood -- "${args[@]}"
 
       - name: Summary
@@ -114,6 +162,8 @@ jobs:
             echo
             jq -r 'if .statusAfterPauseSeries then "Pause status series: " + ([.statusAfterPauseSeries[] | "\(.atMs)ms=\(.status)" + (if .providerStatus then " provider=\(.providerStatus)" else "" end)] | join(", ")) else empty end' "$result"
             jq -r 'if .statusAfterPauseLinkDown then "Pause status series (link down): " + ([.statusAfterPauseLinkDown[] | "\(.atMs)ms=\(.status)" + (if .providerStatus then " provider=\(.providerStatus)" else "" end)] | join(", ")) else empty end' "$result"
+            jq -r 'if .fanout then "Run fan-out: \(.fanout.count) Runs (account VM cap \(.fanout.maxActiveVms)), outcomes \(.fanout.outcomes | tojson), agent replies \(.fanout.agentReplies), wall \(.fanout.wallMs)ms" else empty end' "$result"
+            jq -r 'if .fanout then (.fanout.stats | to_entries[] | "- \(.key): \(.value | tojson)") else empty end' "$result"
             jq -r '.notes[]? | "- \(.)"' "$result"
           } >> "$GITHUB_STEP_SUMMARY"
 

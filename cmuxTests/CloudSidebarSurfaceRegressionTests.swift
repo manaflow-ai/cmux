@@ -43,14 +43,6 @@ struct CloudSidebarSurfaceRegressionTests {
         let accessibilityLabel = snapshot.accessibilityLabel(index: 0, workspaceCount: 1)
         #expect(accessibilityLabel.contains("Cloud workspace on cloud-sidebar-vm"))
         #expect(!accessibilityLabel.contains("local-checkout"))
-        let sidebarDecision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
-            current: nil,
-            next: snapshot,
-            force: false,
-            contextMenuVisible: false
-        )
-        #expect(sidebarDecision.workspaceSnapshotStorage == snapshot)
-        #expect(sidebarDecision.pendingWorkspaceSnapshot == nil)
 
         let manager = TabManager(
             initialWorkspaceTitle: "Cloud",
@@ -270,7 +262,7 @@ struct CloudSidebarSurfaceRegressionTests {
         })
     }
 
-    @Test("Cloud workspaces disappear on the last terminal move or close and return on creation", arguments: [false, true])
+    @Test("Cloud workspaces remain visible after terminal moves or closes", arguments: [false, true])
     @MainActor
     func workspaceVisibilityFollowsDaemonChanges(incremental: Bool) throws {
         let catalog = SurfaceCatalog()
@@ -278,7 +270,7 @@ struct CloudSidebarSurfaceRegressionTests {
         catalog.register(provider)
         let initial = try visibilityState()
         publishVisibility(initial, to: catalog, incremental: false)
-        #expect(workspaceIDs(catalog.snapshot) == ["ws_side"])
+        #expect(workspaceIDs(catalog.snapshot) == ["ws_main", "ws_side"])
 
         // Repro: the focused, empty workspace acquires a terminal, which then
         // moves into another workspace while the original daemon record survives.
@@ -306,7 +298,7 @@ struct CloudSidebarSurfaceRegressionTests {
         try updateVisibility([
             ["kind": "upsert", "resource": "tab", "id": "tab_new", "value": terminalTab(pane: "pane_side")]
         ], in: catalog, incremental: incremental)
-        #expect(workspaceIDs(catalog.snapshot) == ["ws_side"], "stale local projections and daemon focus cannot keep an empty row")
+        #expect(workspaceIDs(catalog.snapshot) == ["ws_main", "ws_side"], "daemon workspace records remain visible as Cloud drop targets")
         #expect(CloudTreeNodeBuilder.structureSignature(visibilityNodes(created)) !=
             CloudTreeNodeBuilder.structureSignature(visibilityNodes(catalog.snapshot)))
         #expect(catalog.cloudStates[machine]?.workspaces.first?.focused == true)
@@ -317,34 +309,34 @@ struct CloudSidebarSurfaceRegressionTests {
             ["kind": "delete", "resource": "tab", "id": "tab_existing"],
             ["kind": "delete", "resource": "terminal", "id": "term_existing"]
         ], in: catalog, incremental: incremental)
-        #expect(workspaceIDs(catalog.snapshot) == ["ws_side"], "removing one of two terminals keeps the workspace")
+        #expect(workspaceIDs(catalog.snapshot) == ["ws_main", "ws_side"], "removing one of two terminals keeps both daemon workspaces")
         try updateVisibility([
             ["kind": "delete", "resource": "tab", "id": "tab_new"]
         ], in: catalog, incremental: incremental)
-        #expect(workspaceRows(catalog.snapshot).isEmpty)
+        #expect(workspaceIDs(catalog.snapshot) == ["ws_main", "ws_side"])
         #expect(catalog.resources[terminalID]?.remoteViews == [])
         #expect(CloudTreeNodeBuilder.flattened(visibilityNodes(catalog.snapshot)).contains {
             $0.id == CloudTreeNodeBuilder.nodeID(resource: terminalID)
         }, "detaching a terminal preserves its process in the machine pool")
         #expect(catalog.cloudStates[machine]?.workspaces.count == 2)
-        #expect(CloudTreeNodeBuilder.flattened(visibilityNodes(catalog.snapshot)).contains {
+        #expect(!CloudTreeNodeBuilder.flattened(visibilityNodes(catalog.snapshot)).contains {
             $0.id == CloudTreeNodeBuilder.nodeID(workspacesPlaceholder: machine)
         })
 
         try updateVisibility([
             ["kind": "upsert", "resource": "tab", "id": "tab_new", "value": terminalTab(pane: "pane_main")]
         ], in: catalog, incremental: incremental)
-        #expect(workspaceIDs(catalog.snapshot) == ["ws_main"])
+        #expect(workspaceIDs(catalog.snapshot) == ["ws_main", "ws_side"])
         let returned = try #require(catalog.resources[terminalID])
         // Terminal kill and accepted create receipts update resources before the
         // next complete graph; both must update visibility without a fleet poll.
         catalog.remove(terminalID, from: provider)
         #expect(catalog.resources[terminalID] == nil)
-        #expect(workspaceRows(catalog.snapshot).isEmpty)
+        #expect(workspaceIDs(catalog.snapshot) == ["ws_main", "ws_side"])
         catalog.upsert(returned, from: provider)
-        #expect(workspaceIDs(catalog.snapshot) == ["ws_main"])
+        #expect(workspaceIDs(catalog.snapshot) == ["ws_main", "ws_side"])
         publishVisibility(try #require(catalog.cloudStates[machine]), to: catalog, incremental: false)
-        #expect(workspaceIDs(catalog.snapshot) == ["ws_main"], "a full refresh agrees with the event stream")
+        #expect(workspaceIDs(catalog.snapshot) == ["ws_main", "ws_side"], "a full refresh agrees with the event stream")
     }
 
     @Test("Visibility preserves workspace metadata and nonterminal content")
@@ -380,11 +372,11 @@ struct CloudSidebarSurfaceRegressionTests {
         terminal.lifecycle = lifecycle
         terminal.remoteViews = nil
         catalog.upsert(terminal, from: provider)
-        #expect(workspaceIDs(catalog.snapshot) == ["ws_side"], "retained terminal output is valid workspace content")
+        #expect(workspaceIDs(catalog.snapshot) == ["ws_main", "ws_side"], "retained terminal output keeps daemon workspaces visible")
         terminal.remoteViews = []
         catalog.upsert(terminal, from: provider)
         #expect(catalog.resources[terminal.id]?.remoteViews == [])
-        #expect(workspaceRows(catalog.snapshot).isEmpty, "explicit detachment overrides a legacy workspace hint")
+        #expect(workspaceIDs(catalog.snapshot) == ["ws_main", "ws_side"], "explicit detachment keeps the daemon workspace visible as a drop target")
     }
 
     private func visibilityState() throws -> CloudVMState {

@@ -30,6 +30,16 @@ def check(ok, message):
         failures.append(message)
 
 
+text = WORKFLOW.read_text()
+schedule = re.findall(r'^    - cron: "([^"]+)"$', text, re.MULTILINE)
+check(schedule == ["7,22,37,52 * * * *"],
+      f"the dev dispatcher must run every 15 minutes off the hour, got {schedule}")
+check("run.head_sha === sha" in text and "activeOrSucceeded" in text,
+      "the exact-SHA dedupe guard must remain in the dispatcher")
+check("run.conclusion === 'success'" in text and "run.status" in text,
+      "a skipped or failed publisher run must not suppress a retry")
+
+
 def script_body():
     text = WORKFLOW.read_text()
     match = re.search(r"^        with:\n          script: \|\n((?:^            .*\n|^\s*\n)+)", text, re.MULTILINE)
@@ -108,6 +118,13 @@ calls = run([dev_run(5, "e" * 40, "success"), dev_run(4, "d" * 40, "success")],
             {5: app_job("success"), 4: app_job("success")},
             [{"name": "x", "display_title": "cmux NEXT DEV daily · publish 5", "status": "completed", "conclusion": "success"}])
 check(published(calls) == [], f"a handled newest app must stop the search, got {published(calls)}")
+
+# A skipped publisher workflow_run is not a handoff receipt. Retry publication
+# rather than treating the skipped run as already handled.
+calls = run([dev_run(8, "8" * 40, "success")], {8: app_job("success")},
+            [{"name": "x", "display_title": "cmux NEXT DEV daily · publish 8",
+              "status": "completed", "conclusion": "skipped"}])
+check(published(calls) == ["8"], f"a skipped publisher must be retried, got {published(calls)}")
 
 # No finished run has an app: nothing is published.
 calls = run([dev_run(7, "7" * 40, "failure"), dev_run(6, "6" * 40, "failure")],

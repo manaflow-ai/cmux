@@ -93,10 +93,10 @@ fi
 if ! awk '
   /^  decide:/ { in_decide=1; next }
   in_decide && /^  [a-zA-Z0-9_-]+:/ { in_decide=0 }
-  in_decide && /vars\.CI_NIGHTLY_DECIDE_RUNNER/ && /vars\.LINUX_RUNNER/ { saw_runner_override=1 }
+  in_decide && /^    runs-on: ubuntu-24\.04$/ { saw_runner_override=1 }
   END { exit !saw_runner_override }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: the short nightly decide gate must use the dedicated runner override with the paid Linux fallback"
+  echo "FAIL: the short nightly decide gate must run on GitHub-hosted ubuntu-24.04, never Blacksmith"
   exit 1
 fi
 
@@ -131,7 +131,7 @@ if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
-if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}" '
+if ! awk -v refresh_runner="runs-on: macos-26" '
   /^  refresh-compilation-cache:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
   in_refresh && /timeout-minutes: 90/ { saw_cold_build_timeout=1 }
@@ -219,16 +219,15 @@ if ! awk '
   exit 1
 fi
 
-if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}" \
-       -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}" '
+if ! awk -v helper_runner="runs-on: macos-15" \
+       -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || 'macos-26' }}" '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
   /^  prepare-nightly-variant:/ { job="publish"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
-  # Fast branch dogfood pins Blacksmith. Normal Nightly uses the repository
-  # override. Both must retain the macOS 15 helper lane. Match the whole
-  # expression: a `.*vars\.NAME` prefix would also accept the ungated form.
+  # Every nightly helper build takes the hosted macOS 15 image (its SDK 15
+  # Xcode); nightlies never use Blacksmith. Match the whole expression.
   job == "helper" && index($0, helper_runner) { saw_helper_runner=1 }
   job == "helper" && /build-ghostty-cli-helper\.sh --universal/ { saw_build=1 }
   job == "helper" && /lipo .* -verify_arch arm64 x86_64/ { saw_arch_assert=1 }
@@ -386,11 +385,22 @@ if ! awk '
   job == "app" && /Clear build outputs a persistent runner kept/ { in_clear=1; next }
   in_clear && /^      - name:/ { in_clear=0 }
   in_clear && /clear-dirs\.sh remote-daemon-assets/ { saw_clear=1 }
-  job == "app" && /Prepare persistent Release DerivedData/ { saw_prepare=1 }
+  job == "app" && /^      - name: Start Release DerivedData empty/ { in_prepare=1; saw_prepare=1; next }
+  in_prepare && /^      - name:/ { in_prepare=0 }
+  in_prepare && /clear-dirs\.sh build-universal/ { saw_clear_dd=1 }
+  in_prepare && /ln -s/ { saw_link=1 }
   job == "app" && /cmux-nightly-\$\{\{ needs\.decide\.outputs\.channel \}\}-\$\{toolchain_key\}/ { saw_key=1 }
-  END { exit !(saw_clear && saw_prepare && saw_key) }
+  job == "app" && /^      - name: Restore Xcode compilation cache/ && !saw_clear_dd { restore_first=1 }
+  job == "app" && /^      - name: Build nightly app \(Release\)/ { saw_build=1 }
+  job == "app" && !saw_build && /ln -s .*build-universal/ { saw_link=1 }
+  job == "app" && !saw_build && /persistent Release DerivedData/ { saw_persistent=1 }
+  END { exit !(saw_clear && saw_prepare && saw_clear_dd && !restore_first && !saw_link && !saw_key && !saw_persistent) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: persistent minis must retain channel/toolchain-keyed Release DerivedData"
+  # An incremental build can keep stale autolink and force-load data in
+  # objects it did not recompile after an import set changed. The shipped app
+  # must start from empty DerivedData; only the content-keyed compilation
+  # cache (restored into it) and the Swift package checkouts may be warm.
+  echo "FAIL: the shipped nightly build must start from empty Release DerivedData, never a persistent tree"
   exit 1
 fi
 
@@ -527,7 +537,7 @@ notarize_timeout = re.search(
     re.MULTILINE | re.DOTALL,
 )
 assert notarize_timeout, "missing notarization step"
-assert "timeout-minutes: 90" in notarize_timeout.group(1)
+assert "timeout-minutes: ${{ needs.decide.outputs.should_publish == 'true' && 90 || 140 }}" in notarize_timeout.group(1)
 assert "timeout-minutes: 50" not in notarize_timeout.group(1)
 assert "CMUX_NOTARY_SUBMIT_ONLY: ${{ needs.decide.outputs.should_publish }}" in notarize_timeout.group(1)
 assert "CMUX_DEFER_GATEKEEPER_ASSESSMENT: ${{ needs.decide.outputs.should_publish }}" in notarize_timeout.group(1)
@@ -549,7 +559,9 @@ assert "Verify trusted source workflow run" in resume
 assert "SOURCE_HEAD_SHA" in resume
 assert "resolve-notarization-recovery.py" in resume
 assert "--extract-app" in resume
-assert "scripts/ci/resume-nightly-notarization.sh" in resume
+# The manual resume continues a recovered DMG through the stapled-app wrapper,
+# which calls scripts/ci/resume-nightly-notarization.sh.
+assert "scripts/ci/resume-stapled-app-notarization.sh" in resume
 resume_script = (Path(sys.argv[1]).parents[2] / "scripts/ci/resume-nightly-notarization.sh").read_text(encoding="utf-8")
 assert "verify_computer_use_helper" in resume_script
 assert "standalone_helper" in resume_script
@@ -589,11 +601,36 @@ assert "workflow_dispatch:" in auto
 assert "source_run_id:" in auto and "source_run_attempt:" in auto
 assert "poll:" in auto
 assert "poll-notary-submission.py" in auto
-assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'" in auto
+assert "runs-on: ubuntu-24.04" in auto
 assert "sleep 300" in auto
 assert "exact recovery artifacts for manual continuation" in auto
 assert "needs.poll.outputs.all_accepted == 'true'" in auto
-assert "CMUX_OUTER_NOTARY_WAIT_TIMEOUT=40m" in auto
+assert "CMUX_OUTER_NOTARY_WAIT_TIMEOUT=25m" in auto
+assert "CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=40m" in auto
+# A recovered DMG gets the DMG around its stapled app as an outer submission.
+assert "./scripts/ci/resume-stapled-app-notarization.sh" in auto
+assert "steps.prepare-outer.outputs.prepared == 'true'" in auto
+assert "scripts/ci/stage-outer-notarization-recovery.py" in auto and "--require-stapled-app" in auto
+assert "stapled-app-notarization-recovery-" in auto
+# A pending stapled-app DMG is polled until Accepted or its 6 h fallback.
+assert "./scripts/ci/poll-outer-notarizations.sh" in auto
+assert "poll-stapled:" in auto and "staple-stapled:" in auto
+assert "fromJSON(needs.poll-stapled.outputs.outer_variants)" in auto
+assert "needs.staple-stapled.result == 'success'" in auto
+assert "--stapled-app-fallback" in auto and "--stapled-app-fallback" in resume
+poller = (Path(sys.argv[1]).parents[2] / "scripts/ci/poll-outer-notarizations.sh").read_text(encoding="utf-8")
+assert "stapled_submitted_at" in poller and "CMUX_STAPLED_APP_FALLBACK_SECONDS:-21600" in poller
+smoke = (Path(sys.argv[1]).parents[2] / "scripts/ci/smoke-dmg.sh").read_text(encoding="utf-8")
+assert '"$XCRUN_TOOL" stapler validate "$APP"' in smoke and "--stapled-app-fallback)" in smoke
+# The fallback record the wrapper writes is the one the verify jobs read.
+assert '"$DMG_IMMUTABLE.stapled-app-fallback"' in (Path(sys.argv[1]).parents[2] / "scripts/ci/resume-stapled-app-notarization.sh").read_text(encoding="utf-8")
+assert 'verified/$immutable.stapled-app-fallback' in auto and '"$dmg.stapled-app-fallback"' in resume
+assert "scripts/ci/stage-outer-notarization-recovery.py" in resume and "steps.prepare-outer.outputs.prepared == 'true'" in resume
+assert "./scripts/ci/resume-stapled-app-notarization.sh" in resume
+stapled = (Path(sys.argv[1]).parents[2] / "scripts/ci/resume-stapled-app-notarization.sh").read_text(encoding="utf-8")
+assert "CMUX_RESUME_APP_ONLY=true" in stapled and "CMUX_NOTARY_SUBMIT_ONLY=true" in stapled
+assert "stapled_app=true" in stapled
+assert "STATE_STAPLED_APP" in resume_script and "RESUME_APP_ONLY" in resume_script
 assert "wait-and-staple:" in auto
 assert "matrix:" in auto and "[arm64, x86_64, universal]" in auto
 assert "needs.wait-and-staple.result == 'success'" in auto

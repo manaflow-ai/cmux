@@ -38,6 +38,9 @@ HEAD = "a" * 40
 # ---------------------------------------------------------------- CI failure attribution
 
 
+os.environ["PR_STATUS_SETTLE_SECONDS"] = "0"  # no wait before the status comment's check
+
+
 class CountingGitHub:
     """classify_failures' GitHub with every read recorded."""
 
@@ -75,6 +78,13 @@ class CountingGitHub:
 
     def request(self, method: str, path: str, body: object = None) -> dict:
         self.writes.append((method, path))
+        # Kept as GitHub would, so the status comment's check after a write reads what it wrote.
+        if method == "POST" and path.endswith("/issues/7/comments"):
+            self._comments = [*self._comments, {"id": 1000, "body": body["body"], "user": {"login": cf.BOT}}]  # type: ignore[index]
+        elif method == "PATCH" and "/issues/comments/" in path:
+            cid = int(path.rsplit("/", 1)[1])
+            self._comments = [dict(c, body=body["body"]) if c["id"] == cid else c  # type: ignore[index]
+                              for c in self._comments]
         return {}
 
 
@@ -115,7 +125,9 @@ class FailureAttributionCalls(unittest.TestCase):
     def test_a_green_run_with_a_comment_still_updates_it(self) -> None:
         gh = CountingGitHub(comments=[BOT_COMMENT])
         act(gh, report([], conclusion="success"))
-        self.assertEqual(gh.reads, ["comments 7", "pull 7"])  # the comments are read once
+        # The comments are read once before the write, and once after it: the status comment's
+        # other lines belong to other jobs, so a write is checked (scripts/ci/pr_status.py).
+        self.assertEqual(gh.reads, ["comments 7", "pull 7", "comments 7"])
         self.assertEqual(gh.writes, [("PATCH", f"repos/{REPO}/issues/comments/99")])
 
     def test_a_green_run_with_a_comment_on_a_moved_head_marks_it_pending(self) -> None:
@@ -159,7 +171,7 @@ class FailureAttributionCalls(unittest.TestCase):
         gh = CountingGitHub(comments=[{**BOT_COMMENT, "body": cf.MARKER + "\n" + cf.head_marker("c" * 40, "failed")}])
         writer = cf.Writer(gh, dry_run=False)  # type: ignore[arg-type]
         self.assertTrue(cf.act_requested(gh, writer, run)["line"].startswith("marked pending"))  # type: ignore[arg-type]
-        self.assertEqual(gh.reads, ["comments 7", "pull 7"])
+        self.assertEqual(gh.reads, ["comments 7", "pull 7", "comments 7"])  # the last checks the write
         gh = CountingGitHub(comments=[BOT_COMMENT], state="closed")
         writer = cf.Writer(gh, dry_run=False)  # type: ignore[arg-type]
         self.assertEqual(cf.act_requested(gh, writer, run)["line"],  # type: ignore[arg-type]
@@ -186,10 +198,11 @@ class GuardAttributionCalls(unittest.TestCase):
         {"number": 7, "base": {"repo": {"url": f"https://api.github.com/repos/{REPO}"}}}]}
 
     def test_a_green_pr_with_a_guard_comment_reads_the_comments_once(self) -> None:
-        gh = GuardGitHub([{"id": 3, "body": ga.PR_MARKER + "\nold"}, {"id": 4, "body": "unrelated"}])
+        bot = {"login": "github-actions[bot]"}
+        gh = GuardGitHub([{"id": 3, "body": ga.PR_MARKER + "\nold", "user": bot}, {"id": 4, "body": "unrelated", "user": bot}])
         rep = ga.analyze_pr(gh, self.RUN, ROOT, "")  # type: ignore[arg-type]
         self.assertEqual(rep["state"], "green")
-        self.assertEqual(rep["comments"], [{"id": 3, "body": ga.PR_MARKER + "\nold"}])
+        self.assertEqual(rep["comments"], [{"id": 3, "body": ga.PR_MARKER + "\nold", "user": bot}])
         rep = json.loads(json.dumps(rep))  # the artifact between analyze and report
         writer = ga.Writer(None, True)
         ga.report_pr(writer, gh, REPO, rep)  # type: ignore[arg-type]
@@ -364,6 +377,68 @@ class HostedQueueRescueCalls(StepHarness):
         calls, _, out = self.run_step(self.STEP["run"], self.ENV, {"runs/42": {**self.RUN, "run_attempt": 2}})
         self.assertEqual(len(calls), 1)
         self.assertIn("another rescue owns it", out)
+
+
+class CmuxBotTokenWorkflowShape(unittest.TestCase):
+    """High-volume bot jobs use the dedicated installation budget when configured."""
+
+    JOBS = {
+        "ci-queue-janitor.yml": ("sweep",),
+        "ci-failure-attribution.yml": ("attribute",),
+        "ci-compile-attribution.yml": ("analyze", "report", "fix"),
+        "ci-guard-attribution.yml": ("analyze", "report"),
+        "ci-hosted-queue-rescue.yml": ("rescue",),
+        "ci-owned-pool-rescue.yml": ("rescue",),
+        # The publish job runs in the artifacts environment, which is limited
+        # to R2 credentials by the production-secret guard. Its explicitly
+        # scoped GITHUB_TOKEN preserves that trust boundary; capture has no
+        # artifact secrets and can use cmux-bot's separate budget.
+        "dogfood-artifact-publish.yml": ("capture",),
+    }
+    PERMISSIONS = {
+        "permission-actions": "write",
+        "permission-checks": "read",
+        "permission-contents": "read",
+        "permission-issues": "write",
+        "permission-pull-requests": "write",
+    }
+
+    def test_bot_jobs_mint_and_use_the_scoped_app_token(self) -> None:
+        for filename, job_names in self.JOBS.items():
+            document = yaml.safe_load((ROOT / ".github/workflows" / filename).read_text())
+            for job_name in job_names:
+                with self.subTest(workflow=filename, job=job_name):
+                    job = document["jobs"][job_name]
+                    steps = job["steps"]
+                    mint = next(step for step in steps if step.get("id") == "cmux-bot-token")
+                    self.assertEqual(mint["uses"],
+                                     "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1")
+                    self.assertIn("vars.CMUX_BOT_APP_ID != ''", mint["if"])
+                    self.assertTrue(mint["continue-on-error"])
+                    self.assertEqual(mint["with"]["app-id"], "${{ vars.CMUX_BOT_APP_ID }}")
+                    self.assertEqual(mint["with"]["private-key"], "${{ secrets.CMUX_BOT_APP_KEY }}")
+                    self.assertEqual({key: mint["with"][key] for key in self.PERMISSIONS}, self.PERMISSIONS)
+
+                    # Every shell step that can call gh receives the App token,
+                    # while the expression keeps forks and rollouts working.
+                    token_envs = [(step.get("id"), step.get("env", {}).get("GH_TOKEN")) for step in steps]
+                    token_envs = [(step_id, value) for step_id, value in token_envs if value is not None]
+                    self.assertTrue(token_envs)
+                    for step_id, value in token_envs:
+                        if filename == "ci-queue-janitor.yml" and step_id == "fresh":
+                            self.assertEqual(value, "${{ github.token }}")
+                        else:
+                            self.assertIn("steps.cmux-bot-token.outputs.token", value)
+
+    def test_artifact_publisher_keeps_the_r2_environment_secret_boundary(self) -> None:
+        document = yaml.safe_load((ROOT / ".github/workflows/dogfood-artifact-publish.yml").read_text())
+        publish = document["jobs"]["publish"]
+        self.assertEqual(publish["environment"], "artifacts")
+        self.assertFalse(any(step.get("id") == "cmux-bot-token" for step in publish["steps"]))
+        for step in publish["steps"]:
+            token = step.get("env", {}).get("GH_TOKEN")
+            if token is not None:
+                self.assertEqual(token, "${{ github.token }}")
 
 
 if __name__ == "__main__":

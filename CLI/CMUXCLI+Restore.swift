@@ -10,7 +10,36 @@ extension CMUXCLI {
         )
     }
 
+    /// Re-plans allowed when admission finds the same session's record refreshed.
+    /// One refresh is the norm after a relaunch; the bound only stops a record
+    /// that keeps changing from holding the terminal forever.
+    static let maxRestoreRecordRefreshes = 3
+
     func runRestoreCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        processEnvironment: [String: String]
+    ) async throws {
+        let workingDirectoryBeforeRestore = FileManager.default.currentDirectoryPath
+        var refreshes = 0
+        while true {
+            do {
+                try await runRestoreAttempt(
+                    commandArgs: commandArgs,
+                    client: client,
+                    processEnvironment: processEnvironment
+                )
+                return
+            } catch let refreshed as RestoreRecordRefreshed {
+                guard refreshes < Self.maxRestoreRecordRefreshes else { throw refreshed.refusal }
+                refreshes += 1
+                // The attempt may have entered the old record's directory.
+                _ = chdir(workingDirectoryBeforeRestore)
+            }
+        }
+    }
+
+    private func runRestoreAttempt(
         commandArgs: [String],
         client: SocketClient,
         processEnvironment: [String: String]

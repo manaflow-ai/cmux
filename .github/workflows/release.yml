@@ -782,6 +782,10 @@ jobs:
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # The DMG around the stapled app is signed after Apple's wait
+          # (notarize-nightly-dmg.sh CMUX_STAPLE_APP_IN_DMG).
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           CMUX_CHANNEL: stable
           # The thin helpers were submitted next to the universal one and have
           # been processing through its wait, so a short wait each keeps the two
@@ -790,7 +794,10 @@ jobs:
           arch: arm64
         run: |
           set -euo pipefail
+          # The DMG around the stapled app is submitted without a wait; one
+          # step below waits for both variants at once.
           CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/cmux-computer-use-notarization-$arch.state" \
+          CMUX_STAPLED_DMG_HANDOFF_FILE="$RUNNER_TEMP/stapled-app-$arch.handoff" \
             ./scripts/ci/notarize-nightly-dmg.sh \
             "variants/$arch/cmux.app" \
             "cmux-macos-$arch.dmg" \
@@ -810,6 +817,10 @@ jobs:
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # The DMG around the stapled app is signed after Apple's wait
+          # (notarize-nightly-dmg.sh CMUX_STAPLE_APP_IN_DMG).
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           CMUX_CHANNEL: stable
           # The thin helpers were submitted next to the universal one and have
           # been processing through its wait, so a short wait each keeps the two
@@ -818,11 +829,30 @@ jobs:
           arch: x86_64
         run: |
           set -euo pipefail
+          # The DMG around the stapled app is submitted without a wait; one
+          # step below waits for both variants at once.
           CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/cmux-computer-use-notarization-$arch.state" \
+          CMUX_STAPLED_DMG_HANDOFF_FILE="$RUNNER_TEMP/stapled-app-$arch.handoff" \
             ./scripts/ci/notarize-nightly-dmg.sh \
             "variants/$arch/cmux.app" \
             "cmux-macos-$arch.dmg" \
             "$RUNNER_TEMP/cmux-macos-$arch-verified.dmg"
+
+      # Both thin variants' DMGs around their stapled apps share one bounded
+      # wait (25 min), so the second submission does not add a wait per
+      # variant to the 355 min job.
+      - name: Finish the stapled-app thin DMGs
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        timeout-minutes: 35
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          CMUX_STAPLED_DMG_WAIT_TIMEOUT: 25m
+        run: |
+          ./scripts/ci/finish-stapled-app-dmgs.sh \
+            "$RUNNER_TEMP/stapled-app-arm64.handoff" \
+            "$RUNNER_TEMP/stapled-app-x86_64.handoff"
 
       - name: Gate distribution with syspolicy_check
         if: steps.guard_release_assets.outputs.skip_all != 'true'

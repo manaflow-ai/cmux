@@ -23,15 +23,22 @@ Nothing already on the branch is replaced without `--force`, and the run names
 the blob it replaced. Every file is converted and measured before the first
 upload, so a file the tool refuses cannot leave the earlier ones stranded.
 
+Every file goes through the shared privacy check (scripts/ci/pr_media_privacy.py)
+before the first upload, the gif made from an mp4 included: a capture that
+shows a private machine or account name in an agent's pull request is refused
+and nothing is uploaded; in a teammate's it is reported and uploaded.
+`put_file()` runs the same check on each file for the tools that import it.
+
 Conversion needs ffmpeg. Everything else needs `gh` with push access to the
 repository. `--dry-run` resolves the whole plan and prints it without running
-either.
+either; it still runs the privacy check on the files as given (no gif yet).
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -82,6 +89,52 @@ FAMILY_OF_SUFFIX = {
 
 class MediaError(Exception):
     """A problem worth a one-line message rather than a traceback."""
+
+
+class PrivacyError(MediaError):
+    """The privacy check refused the files or could not run; a retry gets the same answer."""
+
+
+# The one privacy check shared by every pr-media writer; it lives in scripts/ci.
+PRIVACY_MODULE = Path(__file__).resolve().parent / "ci" / "pr_media_privacy.py"
+_privacy = None
+
+
+def privacy_module():
+    """scripts/ci/pr_media_privacy.py, loaded once. A checkout without it refuses
+    to upload rather than skipping the check."""
+    global _privacy
+    if _privacy is None:
+        spec = importlib.util.spec_from_file_location("cmux_pr_media_privacy", PRIVACY_MODULE)
+        if not PRIVACY_MODULE.is_file() or spec is None or spec.loader is None:
+            raise PrivacyError(f"the privacy check {PRIVACY_MODULE} is missing; nothing is uploaded without it. "
+                             "Add scripts/ci/pr_media_privacy.py (and pr_media_ocr.swift) to a sparse checkout.")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        _privacy = module
+    return _privacy
+
+
+def check_privacy(items: list[tuple[str, Path]], repo: str, **options) -> None:
+    """Run the shared pre-push check on (path on the branch, local file) pairs.
+
+    Raises PrivacyError when a file is refused; the message names paths and kinds,
+    never the text it matched. options go to check_upload (env, ocr, lookup,
+    out); tests replace this module-level hook.
+    """
+    privacy = privacy_module()
+    try:
+        privacy.check_upload(items, repo, **options)
+    except privacy.Refused as refused:
+        raise PrivacyError(str(refused)) from None
+    except privacy.BadInput as error:
+        raise PrivacyError(f"privacy check: {error}") from None
+
+
+def no_author_lookup(numbers: list[int]) -> dict[int, str]:
+    """A dry run's author lookup: it never calls GitHub, so a hit in a PR folder is held."""
+    raise MediaError("a dry run does not look pull request authors up")
 
 
 @dataclass(frozen=True)
@@ -329,8 +382,11 @@ def existing_sha(repo: str, branch: str, path: str, runner=None) -> str | None:
 
 
 def put_file(repo: str, branch: str, path: str, local: Path, message: str,
-             runner=None) -> None:
+             runner=None, checked: bool = False) -> None:
     """Write one file to the branch through the contents API.
+
+    The file goes through the privacy check first unless the caller already
+    checked it (`checked=True`, as main() does for its whole batch).
 
     The body goes in on stdin: a base64 megabyte does not fit in an argument
     list, and `gh api -f` would put it there.
@@ -339,6 +395,8 @@ def put_file(repo: str, branch: str, path: str, local: Path, message: str,
     sessions uploading to this branch at the same time is normal and the loser
     of that race should not lose its clip.
     """
+    if not checked:
+        check_privacy([(path, local)], repo)
     content = base64.b64encode(local.read_bytes()).decode("ascii")
     sha = existing_sha(repo, branch, path, runner=runner)
     for attempt in (1, 2):
@@ -434,6 +492,11 @@ def main(argv: list[str] | None = None, runner=None) -> int:
             for upload in uploads:
                 if not upload.source_name:
                     warnings.extend(check_size(upload.local, upload.kind))
+            print("privacy check of the files as given (a gif is checked when it is made; "
+                  "PR authors are not looked up, so a hit here is held):")
+            check_privacy([(remote_path(args.pr, upload.name), upload.local)
+                           for upload in uploads if not upload.source_name], args.repo,
+                          lookup=no_author_lookup)
             print()
             print(markdown(uploads, args.pr, args.repo, args.branch), end="")
             report(warnings)
@@ -451,6 +514,8 @@ def main(argv: list[str] | None = None, runner=None) -> int:
                     if upload.source_name else upload.local
                 warnings.extend(check_size(path, upload.kind))
                 ready.append((upload, path))
+            # Exactly what will be uploaded, gifs included, before any of it is.
+            check_privacy([(remote_path(args.pr, upload.name), path) for upload, path in ready], args.repo)
 
             replacing = {
                 target: sha
@@ -470,7 +535,7 @@ def main(argv: list[str] | None = None, runner=None) -> int:
                 if target in replacing:
                     print(f"replacing {target} (blob {replacing[target]})")
                 put_file(args.repo, args.branch, target, path,
-                         f"PR {args.pr} media {upload.name}", runner=runner)
+                         f"PR {args.pr} media {upload.name}", runner=runner, checked=True)
                 uploaded.append(upload)
                 print(f"uploaded {target}")
 

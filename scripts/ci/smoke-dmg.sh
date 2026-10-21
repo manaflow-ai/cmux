@@ -4,7 +4,12 @@
 # (CMUX_DEFER_LAUNCH_SMOKES=true) so no bundle code runs where a signing,
 # notarization or publishing credential exists.
 #
-# Usage: smoke-dmg.sh <dmg> <channel> [--expect-sha256 HEX]
+# Usage: smoke-dmg.sh <dmg> <channel> [--expect-sha256 HEX] [--require-stapled-app | --stapled-app-fallback ID]
+# The app inside must carry its own stapled ticket (the default, and
+# --require-stapled-app). --stapled-app-fallback ID is only for the 6 h
+# fallback of resume-stapled-app-notarization.sh, which ships the accepted
+# first DMG while the stapled-app submission ID is not accepted; the DMG ticket
+# is still required.
 # Writes "tested <sha256> <dmg name>" to fd 3 (or stdout), for the job that
 # publishes it; everything else goes to stderr so the job log keeps it.
 # A smoke that skips (an x86_64 app on a runner without Rosetta) is reported
@@ -20,15 +25,20 @@ fi
 exec 1>&2
 
 if [ "$#" -lt 2 ]; then
-  echo "usage: $0 <dmg> <channel> [--expect-sha256 HEX]" >&2
+  echo "usage: $0 <dmg> <channel> [--expect-sha256 HEX] [--require-stapled-app | --stapled-app-fallback ID]" >&2
   exit 2
 fi
 DMG="$1"
 CHANNEL="$2"
 shift 2
 EXPECTED=""
+STAPLED_APP_FALLBACK_ID=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --require-stapled-app) shift ;;
+    --stapled-app-fallback)
+      if [ "$#" -lt 2 ] || ! [[ "$2" =~ ^[A-Za-z0-9._-]+$ ]]; then echo "--stapled-app-fallback needs the pending submission id" >&2; exit 2; fi
+      STAPLED_APP_FALLBACK_ID="$2"; shift 2 ;;
     --expect-sha256)
       if [ "$#" -lt 2 ] || [ -z "$2" ]; then echo "--expect-sha256 needs a value" >&2; exit 2; fi
       EXPECTED="$2"; shift 2 ;;
@@ -67,6 +77,11 @@ trap detach EXIT
 "$HDIUTIL_TOOL" attach "$DMG" -nobrowse -readonly -mountpoint "$MOUNT_DIR"
 APP="$(find "$MOUNT_DIR" -maxdepth 1 -name '*.app' -type d -print -quit)"
 [ -n "$APP" ] || { echo "No app found in $DMG" >&2; exit 1; }
+if [ -n "$STAPLED_APP_FALLBACK_ID" ]; then
+  echo "::warning title=App shipped without its own ticket::the 6 h fallback ships the first DMG; stapled-app submission $STAPLED_APP_FALLBACK_ID is not accepted"
+else
+  "$XCRUN_TOOL" stapler validate "$APP"
+fi
 "$SPCTL_TOOL" -a -vv --type execute "$APP"
 SMOKE_LOG="$(mktemp)"
 # The app must not inherit the fd that carries the tested line.
