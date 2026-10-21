@@ -27,12 +27,18 @@ function entry(overrides: Partial<VmAttachEntry> = {}): VmAttachEntry {
 }
 
 describe("create attach contract", () => {
-  test("requires the attach endpoint to mint a cryptographic client grant", () => {
+  test("a client-grant image always requires the attach endpoint, independent of the backend flag", () => {
     const previous = process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
-    process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = "1";
+    delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
     try {
-      expect(createAttachBlock({ entry: entry(), manifestEntry })).toBeNull();
-      expect(createAttachBlock({ entry: entry({ addressIpv4: null }), manifestEntry })).toBeNull();
+      expect(createAttachBlock({
+        entry: entry(),
+        manifestEntry: { ...manifestEntry, cmuxRemoteAuth: "client-grant" },
+      })).toBeNull();
+      expect(createAttachBlock({
+        entry: entry(),
+        manifestEntry: { ...manifestEntry, cmuxRemoteAuth: "trusted-carrier" },
+      })?.trustedCarrier).toBe(true);
     } finally {
       if (previous === undefined) delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
       else process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = previous;

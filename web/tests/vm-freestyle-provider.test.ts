@@ -948,16 +948,29 @@ describe("Freestyle client configuration", () => {
 // the platform and nothing public is opened. noVNC on 6901 has no auth of
 // its own, so a machine outside a private network gets no URL at all.
 describe("Freestyle openCmuxRemote: snapshot-v2 fast path", () => {
-  test("uses persisted network metadata and mints a cryptographic enrollment grant", async () => {
+  const invitationUri = (id: string): string => `cmux://enroll/${Buffer.from(JSON.stringify({
+    version: 1,
+    id,
+    secret: "secret",
+    daemon_public_key: "public-key",
+    daemon_fingerprint: "daemon-fingerprint",
+    daemon_name: "cloud",
+    expires_at_unix: 2_000_000_000,
+    route_hints: [],
+    approval_required: true,
+  })).toString("base64url")}`;
+
+  test("uses the machine's persisted auth mode and decodes the real enrollment invitation id", async () => {
     const previous = process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
-    process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = "1";
+    delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
     const commands: string[] = [];
+    const uri = invitationUri("inv_real_id");
     const vm = {
       exec: async ({ command }: { command: string }) => {
         commands.push(command);
         return {
           statusCode: 0,
-          stdout: '{"uri":"cmux://enroll/inv_test?secret=test-secret"}',
+          stdout: JSON.stringify({ uri }),
           stderr: "",
         };
       },
@@ -966,15 +979,65 @@ describe("Freestyle openCmuxRemote: snapshot-v2 fast path", () => {
     const provider = new FreestyleProvider({ client: () => client });
     try {
       const endpoint = await provider.openCmuxRemote(VM_ID, {
-        providerMetadata: { cmuxTuiContract: "snapshot-v2", networkIpv4: "10.4.0.7", networkIpv6: "fd00:4::7" },
+        providerMetadata: {
+          cmuxTuiContract: "snapshot-v2",
+          cmuxRemoteAuth: "client-grant",
+          networkIpv4: "10.4.0.7",
+          networkIpv6: "fd00:4::7",
+        },
       });
       expect(endpoint).toMatchObject({
         route: "ws://10.4.0.7:1337/v1/link",
         trustedCarrier: false,
-        invitation: { invitationId: "inv_test" },
+        invitation: { uri, invitationId: "inv_real_id", expiresAtUnix: 2_000_000_000 },
       });
       expect(commands).toHaveLength(1);
       expect(commands[0]).toContain("remote enroll create");
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+      else process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = previous;
+    }
+  });
+
+  test("an enrolled fingerprint uses the cryptographic grant without another guest exec", async () => {
+    const vm = {
+      exec: async () => { throw new Error("an enrolled attach must not exec in the guest"); },
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    const endpoint = await provider.openCmuxRemote(VM_ID, {
+      deviceFingerprint: "device-fingerprint",
+      providerMetadata: {
+        cmuxTuiContract: "snapshot-v2",
+        cmuxRemoteAuth: "client-grant",
+        networkIpv4: "10.4.0.7",
+      },
+    });
+    expect(endpoint.trustedCarrier).toBe(false);
+    expect(endpoint.invitation).toBeUndefined();
+  });
+
+  test("grant rollout enrolls new clients on trusted images without locking out released clients", async () => {
+    const previous = process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+    process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = "1";
+    const uri = invitationUri("inv_compat_id");
+    const vm = {
+      exec: async () => ({ statusCode: 0, stdout: JSON.stringify({ uri }), stderr: "" }),
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    try {
+      const endpoint = await provider.openCmuxRemote(VM_ID, {
+        providerMetadata: {
+          cmuxTuiContract: "snapshot-v2",
+          cmuxRemoteAuth: "trusted-carrier",
+          networkIpv4: "10.4.0.7",
+        },
+      });
+      expect(endpoint).toMatchObject({
+        trustedCarrier: true,
+        invitation: { invitationId: "inv_compat_id" },
+      });
     } finally {
       if (previous === undefined) delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
       else process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = previous;
