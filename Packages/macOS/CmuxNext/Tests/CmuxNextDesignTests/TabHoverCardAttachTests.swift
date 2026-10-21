@@ -63,4 +63,51 @@ import Testing
         #expect(card.minY == tab.maxY)
         #expect(card.minX == tab.minX)
     }
+
+    /// Austin 2026-10-20 (screen recording, a window filling the screen under the menu bar): "The
+    /// cards, when I hover on the tabs, are not connected to the tabs themselves." `rest` put the
+    /// card on its tab, but the card's window is larger than the card (`windowMargin` on every
+    /// side), so for a tab just under the menu bar the window's top reached into the menu bar and
+    /// AppKit moved the whole window down below it: the card hung a toolbar's height under its tab.
+    static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
+
+    @Test(.enabled("the card's window is placed on a screen") { await Self.hasDisplay() })
+    func aTabUnderTheMenuBarKeepsItsCardOnTheTab() throws {
+        _ = NSApplication.shared
+        let screen = try #require(NSScreen.screens.first)
+        // The menu bar band (or the top of a screen without one, when `visibleFrame` ends there).
+        let top = screen.visibleFrame.maxY
+        let parent = NSWindow(contentRect: NSRect(x: screen.frame.minX + 100, y: top - 400, width: 800, height: 400),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false
+        parent.orderFrontRegardless()
+        let panel = HoverCardPanel()
+        defer {
+            panel.orderOut(nil)
+            parent.close()
+        }
+        let body = NSView()
+        body.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            body.widthAnchor.constraint(equalToConstant: Self.size.width),
+            body.heightAnchor.constraint(equalToConstant: Self.size.height),
+        ])
+        // A tab in the window's top row, flush with the menu bar.
+        let tab = CGRect(x: parent.frame.minX + 300, y: top - 36, width: 140, height: 36)
+        panel.present(body: body, anchor: tab, placement: .below, parent: parent, themeAnchor: nil, sliding: false,
+                      applyTheme: {})
+        // The window as placed (`cardFrame` is its frame less the clear band), not as `rest` asked for.
+        let card = panel.cardFrame
+        #expect(abs(card.maxY - tab.minY) < 0.5, "card top \(card.maxY), tab bottom \(tab.minY): a \(tab.minY - card.maxY) pt gap")
+        #expect(abs(card.minX - tab.minX) < 0.5, "card leading \(card.minX), tab leading \(tab.minX)")
+    }
+
+    /// The card's window may reach past the screen's visible frame: only `rest` places the card.
+    @Test(.enabled("the card's window is placed on a screen") { await Self.hasDisplay() })
+    func theCardsWindowIsNotPushedOutOfTheMenuBar() throws {
+        _ = NSApplication.shared
+        let screen = try #require(NSScreen.screens.first)
+        let frame = CGRect(x: screen.frame.minX + 100, y: screen.visibleFrame.maxY - 200, width: 400, height: 300)
+        #expect(HoverCardPanel().constrainFrameRect(frame, to: screen) == frame)
+    }
 }
