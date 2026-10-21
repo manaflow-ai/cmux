@@ -87,7 +87,11 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
         report["after"] = current.clone();
     }
     let changed = !report["undo"].is_null();
-    let action = next_step(&current);
+    // The app's phase follows the setting a moment later: right after the
+    // person allowed it, `off` means the helper has not caught up, and asking
+    // again would show them a second sheet.
+    let action =
+        if changed && current["phase"] == "off" { Some(wait_step()) } else { next_step(&current) };
     report["state"] = json!(match (&action, changed) {
         (Some(_), _) => "needs_user",
         (None, true) => "changed",
@@ -165,8 +169,9 @@ fn turn_on(global: &GlobalArgs) -> Result<(), Value> {
         Ok(_) => Ok(()),
         Err(error) if error.pointer("/data/declined") == Some(&Value::Bool(true)) => Err(json!({
             "kind": "declined",
-            "text": "The person declined turning on Computer Use in cmux; ask before running \
-                     `cmux setup computer-use` again",
+            "text": "Computer Use was not allowed: the person declined, or cmux had no window to \
+                     show the sheet in; ask the person before running `cmux setup computer-use` \
+                     again",
             "command": Value::Null,
             "url": Value::Null,
         })),
@@ -216,15 +221,7 @@ fn next_step(status: &Value) -> Option<Value> {
                 None,
             );
         }
-        "starting" => {
-            return action(
-                "wait",
-                "The Computer Use helper is starting; run `cmux setup computer-use` again in a \
-                 few seconds",
-                Some("cmux setup computer-use".into()),
-                None,
-            );
-        }
+        "starting" => return Some(wait_step()),
         phase => {
             let text = format!(
                 "The Computer Use helper is not ready ({}); Computer Use Setup in cmux shows why",
@@ -248,4 +245,15 @@ fn next_step(status: &Value) -> Option<Value> {
     };
     grant("accessibility", "Accessibility", ACCESSIBILITY_URL)
         .or_else(|| grant("screen_recording", "Screen Recording", SCREEN_RECORDING_URL))
+}
+
+/// The helper is on its way: rerun in a few seconds.
+fn wait_step() -> Value {
+    json!({
+        "kind": "wait",
+        "text": "The Computer Use helper is starting; run `cmux setup computer-use` again in a \
+                 few seconds",
+        "command": "cmux setup computer-use",
+        "url": Value::Null,
+    })
 }

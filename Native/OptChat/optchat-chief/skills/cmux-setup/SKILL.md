@@ -101,5 +101,6 @@ one.
   a sheet to allow it (tell them to click Allow), then each missing macOS
   grant comes back as `user_action` kind `grant`; run its `command` to
   open the System Settings pane and tell them which switch to turn on.
-  Kind `declined` means they said no: do not ask again unless they bring
-  it up.
+  Kind `wait` means it is starting: run the task again in a few seconds.
+  Kind `declined` means it was not allowed (they said no, or cmux had no
+  window to show the sheet in): ask them before running it again.

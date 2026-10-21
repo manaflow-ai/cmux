@@ -1344,3 +1344,22 @@ fn cmux_setup_computer_use_names_what_it_cannot_change() {
     assert_eq!(result["state"], "needs_user", "{result}");
     assert_eq!(result["user_action"]["kind"], "app", "{result}");
 }
+
+/// Allowed, but the app still reads `off` (its phase follows the setting a
+/// moment later): setup says to wait, not to ask the person again, and the
+/// rerun asks for no second sheet once the phase caught up.
+#[test]
+fn cmux_setup_computer_use_waits_when_the_phase_lags_the_ok() {
+    let mut world = World::new("culag");
+    let off = json!({"phase": "off", "accessibility": null, "screen_recording": null});
+    let app = FakeApp::start(&mut world, off.clone(), off);
+    let result = world.json(&["setup", "computer-use"]);
+    assert_eq!(result["state"], "needs_user", "{result}");
+    assert_eq!(result["user_action"]["kind"], "wait", "{result}");
+    assert_eq!(result["undo"], "cmux settings set computerUse.enabled false --confirm");
+    *app.status.lock().unwrap() =
+        json!({"phase": "ready", "accessibility": true, "screen_recording": true, "helper": "1"});
+    let rerun = world.json(&["setup", "computer-use"]);
+    assert_eq!(rerun["state"], "ok", "{rerun}");
+    assert_eq!(app.settings_sets().len(), 1, "the rerun showed a second sheet");
+}
