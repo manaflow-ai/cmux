@@ -19,11 +19,14 @@ public final class AgentPaneView: NSView {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
     public let model: AgentPaneModel
     public let webView: WKWebView
-    /// Opens a link the user clicked in the transcript: the shared link rule (``LinkRouter``,
-    /// `browser.openLinksInCmuxBrowser`), `otherTarget` for a Shift-Command click, beside the pane
-    /// that shows this chat (set in `init`; never the focused pane).
-    public var openURL: (_ url: URL, _ otherTarget: Bool) -> Void = AgentPaneView.routedOpenURL
-    static let routedOpenURL: (URL, Bool) -> Void = { LinkRouter.shared.open($0, otherTarget: $1) }
+    /// Opens a link the user clicked in the transcript with the click's `modifiers`: the shared
+    /// link rule (``LinkRouter``, `browser.openLinksInCmuxBrowser`; Shift-Command the other target,
+    /// Command alone a background tab), from the pane that shows this chat (set in `init`; never
+    /// the focused pane).
+    public var openURL: (_ url: URL, _ modifiers: NSEvent.ModifierFlags) -> Void = AgentPaneView.routedOpenURL
+    static let routedOpenURL: (URL, NSEvent.ModifierFlags) -> Void = {
+        LinkRouter.shared.open($0, otherTarget: LinkRouter.isOtherTarget($1), background: LinkRouter.opensInBackground($1))
+    }
 
     public let source: AgentPaneSource
     public var customization = AgentPaneCustomization() { didSet { if customization != oldValue { applyCustomization() } } }
@@ -173,8 +176,8 @@ public final class AgentPaneView: NSView {
         }
         self.webView = webView
         super.init(frame: .zero)
-        openURL = { [weak self] url, other in
-            if let self { LinkRouter.shared.open(url, otherTarget: other, from: self) } else { Self.routedOpenURL(url, other) }
+        openURL = { [weak self] url, modifiers in
+            if let self { LinkRouter.shared.open(url, modifiers: modifiers, from: self) } else { Self.routedOpenURL(url, modifiers) }
         }
         inputReadiness.attach(webView)
         if let page {
