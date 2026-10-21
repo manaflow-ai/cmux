@@ -210,12 +210,13 @@ land_at "$made" > "$tmp/out" 2>&1 || fail "the progress and what is built from i
 [[ "$(remote_show "$shortcuts")" == "shortcuts for surfaces new, action v3" ]] \
   || fail "the shortcuts were not made on the tip from its exports: $(remote_show "$shortcuts")"
 
-# 11. Without ACTIONS_MADE_AT the exports were made at the run's commit: they land as progress the same way.
+# 11. Without ACTIONS_MADE_AT the run made no action exports (the CI target graph job calls this with
+#     none, and has no bun): nothing built from them is made on the tip; it waits and the run fails.
 setup_built fresh
 lane_commit "lane edits an action" "$actions_src" "action v2"
-land_at "" > "$tmp/out" 2>&1 || fail "exports made at the run's commit did not land as progress: $(cat "$tmp/out")"
-[[ "$(remote_show "$shortcuts")" == "shortcuts for surfaces new, action v2" ]] \
-  || fail "the shortcuts were not made on the tip from its exports: $(remote_show "$shortcuts")"
+if land_at "" > "$tmp/out" 2>&1; then fail "a run with no action exports made what is built from them: $(cat "$tmp/out")"; fi
+[[ "$(remote_show "$shortcuts")" == "shortcuts old" ]] || fail "the shortcuts were made in a run with no action exports"
+grep -q "ACTION_EXPORTS_CURRENT=1" "$tmp/seen" && fail "a run with no action exports told the repair they are current"
 
 # 11b. An unproven ACTIONS_MADE_AT still holds the exports, and what is built from them waits.
 setup_built fresh
