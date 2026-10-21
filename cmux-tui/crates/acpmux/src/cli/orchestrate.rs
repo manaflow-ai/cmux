@@ -665,18 +665,12 @@ pub(crate) async fn tail(
             // Subscribe before reading from the cursor, so an event written
             // in between arrives live; the seq check below drops repeats.
             client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
-            let v = client
-                .request(
-                    method::MUX_EVENTS,
-                    json!({"sessionId": id, "afterSeq": seq, "limit": 100000}),
-                )
-                .await?;
-            v.get("events").and_then(Value::as_array).cloned().unwrap_or_default()
+            events_after(&client, &id, seq, 100000).await?
         }
         None => {
             let v =
                 client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": last})).await?;
-            v.get("events").and_then(Value::as_array).cloned().unwrap_or_default()
+            with_older(&client, &id, &v, last as usize).await?
         }
     };
     let stdout = std::io::stdout();
