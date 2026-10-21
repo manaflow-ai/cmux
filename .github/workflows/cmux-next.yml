@@ -180,7 +180,6 @@ on:
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_base_autofix_finishes.py
       - tests/test_cmux_next_pr_autofix_settings.py
-      - tests/test_cmux_next_pr_changed_paths.py
       - scripts/cmux-next/check-generator-inputs.sh
       - tests/test_ci_generator_input_freshness.sh
       - .github/workflows/cmux-next-pr-autofix.yml
@@ -244,7 +243,6 @@ on:
       - tests/test_ci_generator_input_freshness.sh
       - tests/test_cmux_next_base_autofix_finishes.py
       - tests/test_cmux_next_pr_autofix_settings.py
-      - tests/test_cmux_next_pr_changed_paths.py
       - .github/workflows/cmux-next-base-autofix.yml
       - App/**
       - cmux.xcodeproj/**
@@ -1479,6 +1477,7 @@ jobs:
           python3 tests/test_cmux_next_base_autofix_finishes.py
           python3 tests/test_cmux_next_pr_autofix_settings.py
           python3 tests/test_cmux_next_pr_changed_paths.py
+          python3 tests/test_pr_capture_check_paths.py
           python3 tests/test_car_guards.py
 
       # The cmux NEXT DEV update script (an unchanged build is left alone; an
