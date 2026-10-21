@@ -162,7 +162,8 @@ export function HistoryPage({
           ))}
         </div>
       </header>
-      {snap.error ? (
+      {/* A lost host is said once, below, in the page's own words. */}
+      {snap.error && snap.connection !== "disconnected" ? (
         <p className="history-error" role="alert">
           {snap.error}
         </p>
