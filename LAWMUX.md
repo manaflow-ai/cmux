@@ -117,12 +117,17 @@ open "$HOME/Library/Developer/Xcode/DerivedData/cmux-lawmux/Build/Products/Debug
 
 ### Shift+Space でアプリを呼び出す／戻る
 
-本家の「Show/Hide All Windows」（システム全体のホットキー）をそのまま使います。lawmux が前面なら
-隠して直前のアプリに戻り、そうでなければ呼び出してウィンドウを画面いっぱいにします
-（Hammerspoon で行っていた `win:maximize()` 相当）。権限は不要です。
+本家の「Show/Hide All Windows」（システム全体のホットキー）の登録機構を使い、押したときの
+動作だけ lawmux 専用の実装（`Sources/LawmuxGlobalHotkeyWindowMaximizer.swift` の
+`LawmuxGlobalHotkey`）に差し替えています。権限は不要です。
+
+- lawmux 以外が前面：そのアプリを記憶して lawmux を呼び出し、**マウスカーソルがある画面**で
+  ウィンドウを画面いっぱいにします（2 画面でも、カーソル側に出ます）。
+- lawmux が前面：記憶しておいたアプリに戻ります。記憶がなければ lawmux を隠します。
 
 本家は Command / Option / Control のいずれかを必須にしていて Shift+Space を受け付けないため、
 lawmux ではその検証を Shift だけでも通るよう緩めています（`// lawmux:` の 2 か所）。
+本家側の変更は、この 2 か所と `AppDelegate` のホットキー入口の数行だけです。
 
 設定は次の 2 つです。
 
