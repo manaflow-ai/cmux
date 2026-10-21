@@ -58,7 +58,10 @@ enum HomeAttachmentPanel {
     private static func check(after delay: Duration, triesLeft: Int) {
         timer.schedule(after: delay) { @MainActor in
             warmChecks += 1
-            guard made == nil else { return }
+            // Only in a running app: a process that never ran its event loop (a test host, a ci-step
+            // mini with no open-panel service) would wait 10 s per ViewBridge endpoint, then die.
+            // Checked here, not at schedule time: launch windows come before the loop runs.
+            guard made == nil, NSApp.isRunning else { return }
             // In the background the person types elsewhere: nothing here waits on the main thread.
             // In front, the time since the last input event (kCGAnyInputEventType, ~0).
             let anyInput = CGEventType(rawValue: ~0) ?? .null
