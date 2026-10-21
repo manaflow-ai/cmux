@@ -436,9 +436,6 @@ export type SettingsOps = {
   "cmux.settings.backdrop.image.remove": [{ id: string }, { bytes: number }];
   /** Native: show one of the person's images, or the backgrounds folder, in Finder. */
   "cmux.settings.backdrop.image.reveal": [{ id?: string }, Record<string, never>];
-  /** Native: place the picture a window shows by hand (drag, zoom); refused with
-   * cmux.settings.backdrop.not_adjustable when no window shows a still picture. */
-  "cmux.settings.backdrop.image.adjust": [Record<string, never>, Record<string, never>];
   /** Native: draw and save a collage (backgrounds plan phase 7), replacing an edited one; the
    * page then sets `collage:<id>`. Refused with cmux.settings.backdrop.collage.* codes. */
   "cmux.settings.backdrop.image.collage.save": [{ collage: Collage }, { id: string }];

@@ -1,6 +1,6 @@
 import CmuxNextDesign
 
-/// The Window Background rows for video playback and pane-aware framing (backgrounds plan phase 5).
+/// The Window Background rows for video playback (backgrounds plan phase 5).
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum BackdropPlaybackSettingsSchema {
     static var descriptors: [SettingDescriptor] {
@@ -31,13 +31,6 @@ nonisolated enum BackdropPlaybackSettingsSchema {
                     SettingChoice(BackdropBatteryMode.pause.rawValue, SettingsText.keyed("settings.choice.backgroundVideoOnBattery.pause", "Pause")),
                 ]),
                 default: .string(defaults.onBattery.rawValue), keywords: ["video", "battery", "power", "energy"]
-            ),
-            SettingDescriptor(
-                path + ["backgroundAvoidPanes"], section: .appearance, group: group,
-                title: SettingsText.keyed("settings.appearance.backgroundAvoidPanes", "Keep Paintings Clear of Panes"),
-                help: SettingsText.keyed("settings.appearance.backgroundAvoidPanes.help",
-                                        "Frames a painting so its subject shows beside the sidebar and the agent chat, not under them."),
-                kind: .toggle, default: .bool(defaults.avoidsPanes), keywords: ["painting", "crop", "subject", "framing", "sidebar", "agent"]
             ),
         ]
     }

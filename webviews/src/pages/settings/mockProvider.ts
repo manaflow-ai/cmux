@@ -337,12 +337,6 @@ export class MockSettingsProvider {
         };
         return {};
       },
-      "cmux.settings.backdrop.image.adjust": () => {
-        const current = String(this.values.get("appearance.background") ?? "none");
-        if (current === "none" || current === "desktop")
-          throw new ProtocolError("cmux.settings.backdrop.not_adjustable", "no picture to place");
-        return {};
-      },
       "cmux.settings.backdrop.image.usage": () => ({
         bytes: (this.host.backdrops ?? []).filter((row) => row.collection === "yours").length * 1_000_000,
         folder: "/Users/me/Library/Application Support/cmux/Backgrounds",

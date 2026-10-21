@@ -149,7 +149,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var windowTuning: AppearanceTuning { experimentalAppearance ? appearanceTuning : .identity }
     /// `appearance.statusIndicator.*`.
     public var statusIndicator = StatusIndicatorSettings()
-    /// `appearance.backgroundVideo`, `.backgroundVideoOnBattery`, `.backgroundAvoidPanes`.
+    /// `appearance.backgroundVideo`, `.backgroundVideoOnBattery`.
     public var backdropPlayback = BackdropPlaybackSettings()
     /// `home.chiefPictureMotion`.
     public var chiefPictureMotion = ChiefPictureMotion.hover

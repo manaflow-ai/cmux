@@ -98,9 +98,8 @@ public final class DesignSettings {
     /// `ui.paneAnimations`: pane layout changes spring when true (see
     /// `Motion.animatesPaneLayout`); on by default.
     public var paneAnimations = true
-    /// `appearance.backgroundVideo`, `appearance.backgroundVideoOnBattery` and
-    /// `appearance.backgroundAvoidPanes`: when a video background plays, and whether a painting
-    /// keeps its subject clear of the panes (backgrounds plan phase 5).
+    /// `appearance.backgroundVideo` and `appearance.backgroundVideoOnBattery`: when a video
+    /// background plays (backgrounds plan phase 5).
     public var backdropPlayback = BackdropPlaybackSettings()
     /// `home.chiefPictureMotion`: whether a Chief's animated picture moves (``ChiefPictureMotion``).
     public var chiefPictureMotion = ChiefPictureMotion.hover

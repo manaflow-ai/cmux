@@ -18,17 +18,14 @@ public nonisolated enum BackdropBatteryMode: String, CaseIterable, Sendable {
     case pause
 }
 
-/// The background settings the window backdrop and its video read.
+/// The video background settings the window backdrop's video reads.
 public nonisolated struct BackdropPlaybackSettings: Hashable, Sendable {
     public var video: BackdropVideoMode = .play
     public var onBattery: BackdropBatteryMode = .play
-    /// Keep a painting's subject clear of the sidebar and agent chat (`appearance.backgroundAvoidPanes`).
-    public var avoidsPanes = true
 
-    public init(video: BackdropVideoMode = .play, onBattery: BackdropBatteryMode = .play, avoidsPanes: Bool = true) {
+    public init(video: BackdropVideoMode = .play, onBattery: BackdropBatteryMode = .play) {
         self.video = video
         self.onBattery = onBattery
-        self.avoidsPanes = avoidsPanes
     }
 }
 

@@ -2,32 +2,32 @@ import CmuxNextDesign
 import CmuxNextSettings
 import Testing
 
-/// `appearance.backgroundVideo` (play, whenActive, still), `appearance.backgroundVideoOnBattery`
-/// (play, pause) and `appearance.backgroundAvoidPanes` (backgrounds plan phase 5): defaults play,
-/// play and on; bad values keep the default and say why; the rows offer every choice and agents
-/// may set them like the other background rows.
+/// `appearance.backgroundVideo` (play, whenActive, still) and `appearance.backgroundVideoOnBattery`
+/// (play, pause) (backgrounds plan phase 5): both default to play; bad values keep the default and
+/// say why; the rows offer every choice and agents may set them like the other background rows.
+/// Hand framing (`appearance.backgroundAvoidPanes`) went with #22562: the art aspect-fills.
 struct BackdropPlaybackSettingTests {
     private static func parse(_ appearance: [String: JSONValue]) -> CmuxConfigSnapshot {
         CmuxConfigSnapshot.parse(.object(["appearance": .object(appearance)]), validDensities: [], validMetrics: [])
     }
 
-    @Test func defaultsPlayEverywhereAndAvoidPanes() {
+    @Test func defaultsPlayEverywhere() {
         let snapshot = Self.parse([:])
-        #expect(snapshot.backdropPlayback == BackdropPlaybackSettings(video: .play, onBattery: .play, avoidsPanes: true))
+        #expect(snapshot.backdropPlayback == BackdropPlaybackSettings(video: .play, onBattery: .play))
         #expect(snapshot.diagnostics.isEmpty)
     }
 
     @Test func everyValueParses() {
-        let snapshot = Self.parse(["backgroundVideo": "whenActive", "backgroundVideoOnBattery": "pause", "backgroundAvoidPanes": false])
-        #expect(snapshot.backdropPlayback == BackdropPlaybackSettings(video: .whenActive, onBattery: .pause, avoidsPanes: false))
+        let snapshot = Self.parse(["backgroundVideo": "whenActive", "backgroundVideoOnBattery": "pause"])
+        #expect(snapshot.backdropPlayback == BackdropPlaybackSettings(video: .whenActive, onBattery: .pause))
         #expect(Self.parse(["backgroundVideo": "still"]).backdropPlayback.video == .still)
     }
 
     @Test func aBadValueKeepsTheDefaultAndSaysWhy() {
-        let snapshot = Self.parse(["backgroundVideo": "loud", "backgroundAvoidPanes": "yes"])
+        let snapshot = Self.parse(["backgroundVideo": "loud", "backgroundVideoOnBattery": "sometimes"])
         #expect(snapshot.backdropPlayback == BackdropPlaybackSettings())
         #expect(snapshot.diagnostics.contains { $0.path == "appearance.backgroundVideo" })
-        #expect(snapshot.diagnostics.contains { $0.path == "appearance.backgroundAvoidPanes" })
+        #expect(snapshot.diagnostics.contains { $0.path == "appearance.backgroundVideoOnBattery" })
     }
 
     @Test func theRowsOfferEveryChoiceAndAgentsMaySetThem() throws {
@@ -41,9 +41,8 @@ struct BackdropPlaybackSettingTests {
             #expect(offered.map(\.value) == choices)
             #expect(row.defaultValue == .string("play"))
         }
-        let avoid = try #require(SettingsSchema.descriptor(for: ["appearance", "backgroundAvoidPanes"]))
-        #expect(avoid.defaultValue == .bool(true))
-        for key in ["backgroundVideo", "backgroundVideoOnBattery", "backgroundAvoidPanes"] {
+        #expect(SettingsSchema.descriptor(for: ["appearance", "backgroundAvoidPanes"]) == nil)
+        for key in ["backgroundVideo", "backgroundVideoOnBattery"] {
             #expect(SettingsSchema.agentSettableKeys.contains("appearance." + key))
         }
     }

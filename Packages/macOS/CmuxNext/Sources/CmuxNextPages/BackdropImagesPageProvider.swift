@@ -72,8 +72,6 @@ public final class BackdropImagesPageProvider: PageProvider {
             }
             let images = images
             try await Task.detached { try images.remove(selection) }.value
-            // Its hand placement goes with it.
-            BackdropPlacementStore.shared.set(nil, for: selection.id)
             return try await usage()
         case Self.prefix + "reveal":
             if params["id"] != nil, case .file(let path) = try own(params) {
