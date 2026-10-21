@@ -409,6 +409,8 @@ export type AcpmuxSnapshot = {
     };
   }[];
   canLoadOlder: boolean;
+  /** The oldest event seq the pane holds: it moves with each older read, even one that drew no row. */
+  historyFrom?: number;
   /** The agent's slash commands, for the composer's `/` menu. */
   commands?: SlashCommand[];
   /** A harness switch the pane draws ahead of acpmux (harnessSwitch.ts): starting, applying to

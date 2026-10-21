@@ -172,6 +172,8 @@ const sentByChief = (msg: { promptId?: unknown }) =>
 /// Page size caps acpmux applies (maxBytes): opening a chat, then each older page as the reader scrolls up.
 const OPEN_PAGE_BYTES = 128 * 1024;
 const OLDER_PAGE_BYTES = 256 * 1024;
+/// Pages one older read takes at most (about 2 MB, more when a single record is larger).
+const OLDER_PAGES_PER_ASK = 8;
 /** How long a session list that failed to load waits before it is read once more. */
 const SESSION_REREAD_MS = 2000;
 /// Each chat's slash commands from its last attach on this page (a few dozen chats): back on a
@@ -2517,6 +2519,7 @@ export class AcpmuxDirectClient {
       catalog: [],
       commands: this.commands,
       canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1,
+      historyFrom: this.firstSeq,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
       liveChat: this.liveAdopt && {
         canFork: this.liveAdopt.canFork,
@@ -3557,28 +3560,42 @@ export class AcpmuxDirectClient {
     if (!this.selectedSessionId || !this.firstSeq || this.firstSeq <= 1 || this.historyExhausted) return;
     const sessionId = this.selectedSessionId;
     const generation = this.selectionGeneration;
-    const result = await this.request("_acpmux/events", {
-      sessionId,
-      beforeSeq: this.firstSeq,
-      limit: 400,
-      maxBytes: OLDER_PAGE_BYTES,
-      kinds: ["transcript"],
-    });
-    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
-    let older: EventRecord[] = result?.events ?? [];
-    const more = result?.hasMore === true;
-    // A page whose first records finish the turn before it leaves them to the next page, so pages
-    // hold whole turns and fold on their own.
-    const start = more ? older.findIndex(startsTurn) : 0;
-    if (start > 0) older = older.slice(start);
-    if (start >= 0 && (this.events.length === 0 || startsTurn(this.events[0]!))) {
-      this.events = mergeEventRecords(older, this.events);
-      this.foldOlder(older);
-    } else {
-      // The open page began mid-turn (or this page holds no turn start): fold everything once.
-      this.events = mergeEventRecords(older, this.events);
-      this.rebuildKeepingLiveState();
+    // The prompt drawn first: the open turn's opener when the held events start mid-turn.
+    const drawnFrom = this.turnOpener?.seq ?? this.firstSeq;
+    const opensOlderTurn = (event: EventRecord) => startsTurn(event) && event.seq < drawnFrom;
+    let older: EventRecord[] = [];
+    let more = true;
+    // A page can draw nothing above the first row: a prompt queued with a big paste or image is a
+    // page of its own, and a page that ends in the opener already drawn adds no turn. Read on until
+    // a turn older than the first row starts, at most OLDER_PAGES_PER_ASK pages; a capped read
+    // still moves `historyFrom`, which makes the transcript ask again.
+    for (
+      let before = this.firstSeq, pages = 0;
+      more && pages < OLDER_PAGES_PER_ASK && !older.some(opensOlderTurn);
+      pages++
+    ) {
+      const result = await this.request("_acpmux/events", {
+        sessionId,
+        beforeSeq: before,
+        limit: 400,
+        maxBytes: OLDER_PAGE_BYTES,
+        kinds: ["transcript"],
+      });
+      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+      const page: EventRecord[] = result?.events ?? [];
+      older = [...page, ...older];
+      more = result?.hasMore === true && page.length > 0 && page[0]!.seq < before;
+      if (page.length > 0) before = Math.min(before, page[0]!.seq);
     }
+    // Records before the oldest turn start finish a turn further back: the next read takes them, so
+    // what lands holds whole turns.
+    const start = more ? older.findIndex(opensOlderTurn) : 0;
+    if (start > 0) older = older.slice(start);
+    const foldsAbove = start >= 0 && (this.events.length === 0 || startsTurn(this.events[0]!));
+    this.events = mergeEventRecords(older, this.events);
+    // Held events that start mid-turn (or a read with no turn start) fold everything once.
+    if (foldsAbove) this.foldOlder(older);
+    else this.rebuildKeepingLiveState();
     this.historyExhausted = !more || older.length === 0 || (this.firstSeq ?? 1) <= 1;
     this.emit("history");
   }
