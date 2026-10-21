@@ -111,6 +111,23 @@ impl Hub {
         }
     }
 
+    /// A prompt that left the queue (`dequeued`, `waiting`) refused before its turn: the log
+    /// settles it with `prompt_refused`, so a restart does not queue it again (`restore_queue`).
+    pub(in crate::hub) fn refuse_dequeued(
+        &self,
+        session: &Arc<Session>,
+        waiting: bool,
+        prompt_id: &str,
+        turn_id: &str,
+        client: &str,
+        e: &RpcError,
+    ) {
+        if waiting {
+            let msg = json!({"promptId": prompt_id, "turnId": turn_id, "client": client, "error": e.message, "data": e.data});
+            self.append(session, "mux", "prompt_refused", msg);
+        }
+    }
+
     /// A recorded prompt whose agent could not start: the turn ends failed, so every client
     /// sees the prompt settle instead of a turn that never starts.
     pub(in crate::hub) fn fail_unstarted_turn(

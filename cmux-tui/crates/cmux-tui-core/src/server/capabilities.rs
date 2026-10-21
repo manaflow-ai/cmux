@@ -43,6 +43,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(cloud_conversations::CLOUD_LIVE_CAPABILITY);
         capabilities.push(cloud_conversations::CLOUD_TYPING_CAPABILITY);
         capabilities.push(cloud_attachments::CAPABILITY);
+        capabilities.push(cloud_conversations::SELFHOST_CAPABILITY);
     }
     if mux.host_replica().is_some_and(|replica| replica.running()) {
         capabilities.push(cloud_host_replica::CAPABILITY);
@@ -306,6 +307,7 @@ pub(super) fn advertised_capabilities(
         crate::state::projects_store::SOURCES_CAPABILITY,
         crate::state::palette_usage_store::CAPABILITY,
         crate::state::stash_store::CAPABILITY,
+        crate::state::stash_store::WORKSPACES_CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
         crate::state::workspace_checklist::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,

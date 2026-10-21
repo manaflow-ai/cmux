@@ -98,6 +98,8 @@ pub(super) struct AttachedSurface {
     pub(super) lease_by_stream: BTreeMap<u64, String>,
     pub(super) view_sizes: HashMap<String, Option<(u16, u16)>>,
     pub(super) geometry_lease: Option<String>,
+    /// Leases of `terminal.attach read_only` views: they watch and never size.
+    pub(super) read_only_leases: HashSet<String>,
 }
 
 pub(super) struct DetachedSurface {

@@ -13,6 +13,10 @@ export type IncomingMessage = {
   name: string;
   /// The sending chat, when it is one here that can be opened.
   sessionId?: string;
+  /// The message's id and its thread's (the `agent_message` provenance), which a reply names
+  /// (IncomingMessageCard.tsx's Reply); a Claude Code envelope has neither.
+  msgId?: string;
+  threadId?: string;
   /// What the sender wrote.
   text: string;
   /// The prompt as the agent got it.
@@ -43,9 +47,18 @@ export function incomingPrompt(
     // one.
     const sessionId = provenance.from.startsWith("acp:") ? provenance.from.slice(4) || undefined : undefined;
     const body = renderedBody(text, provenance.msgId);
+    const id = (key: string) =>
+      typeof provenance[key] === "string" && provenance[key] ? { [key]: provenance[key] as string } : {};
     return {
       kind: "message",
-      message: { name, ...(sessionId && { sessionId }), text: (body ?? text).trim(), raw: text },
+      message: {
+        name,
+        ...(sessionId && { sessionId }),
+        ...id("msgId"),
+        ...id("threadId"),
+        text: (body ?? text).trim(),
+        raw: text,
+      },
     };
   }
   if (msg?.client !== "adopt") return undefined;
@@ -84,6 +97,31 @@ function renderedBody(text: string, msgId: unknown): string | undefined {
   if (lines[line++] !== "---") return undefined;
   if (line >= lines.length || lines.at(-1) !== `--- end of message ${msgId} ---`) return undefined;
   return lines.slice(line, -1).join("\n");
+}
+
+/// A reply in place (direct.ts `AcpmuxDirectClient.reply`) as cmux renders an agent message for
+/// the agent (agent_message_prompt.rs `render`), so the agent reads it as that chat's answer in the
+/// thread: who sent it, its id, the message it answers and cmux's note that it is not an
+/// instruction from the operator. `renderedBody` reads it back. It has no `Reply with` line: its id
+/// is acpmux's, which `cmux agent message --reply-to` does not know.
+export function renderedReply(reply: {
+  from: string;
+  fromName?: string;
+  msgId: string;
+  replyTo: string;
+  text: string;
+}): string {
+  const name = (reply.fromName ?? "").replace(/[\s\p{Cc}\p{Cf}]+/gu, " ").trim();
+  const from = name && name !== reply.from ? `${name} (${reply.from})` : reply.from;
+  return [
+    `[cmux agent message] from ${from}`,
+    `Message id: ${reply.msgId}`,
+    `In reply to: ${reply.replyTo}`,
+    RENDERED_NOTE,
+    "---",
+    reply.text,
+    `--- end of message ${reply.msgId} ---`,
+  ].join("\n");
 }
 
 const RENDERED_HEADER = /^\[cmux agent message(?: \(\d+ of \d+\))?\] from \S/;
