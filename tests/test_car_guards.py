@@ -329,7 +329,12 @@ class WebBaseReds(unittest.TestCase):
             git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "car")
             got = json.loads(subprocess.run([sys.executable, "-I", str(root / "scripts/ci/focused_tests.py"), "--root", str(root),
                                              "--files", "webviews/src/x.ts"], check=True, capture_output=True, text=True).stdout)
-            return car_guards.run(root, base, "HEAD", "linux", got, {}, {"web"})
+            # The guard tools are the fixture's, so the fake web runner beside them runs.
+            here, car_guards.HERE = car_guards.HERE, root / "scripts/ci"
+            try:
+                return car_guards.run(root, base, "HEAD", "linux", got, {}, {"web"})
+            finally:
+                car_guards.HERE = here
 
     def test_a_file_red_at_both_ends_is_the_bases(self):
         red = {"webviews/test/a.test.ts": 'import { a } from "../src/x"\n// fail\n'}
@@ -478,6 +483,59 @@ class CarGuardsWorkflow(unittest.TestCase):
                 self.assertIn('echo "status=', run)
                 upload = next(s for s in jobs[leg]["steps"] if "upload-artifact" in str(s.get("uses", "")))
                 self.assertEqual(upload["if"], "always()")
+
+    def test_the_guards_run_from_this_workflows_commit_not_the_cars(self):
+        """Run 39528757300: a car whose head predates scripts/ci/car_guards.py (f3ecea5, before
+        50fc223) checked out its own tree and failed with no such file, so the plan never ran."""
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotRegex(text, r"python3 (-I )?scripts/ci/car_guards\.py",
+                            "the car's tree may predate the guards; run them from the tools checkout")
+        jobs = self.workflow()["jobs"]
+        for name in ("plan", "linux", "mac"):
+            with self.subTest(job=name):
+                steps = jobs[name]["steps"]
+                tools = next((s for s in steps if s.get("id") == "tools"), None)
+                self.assertIsNotNone(tools, "each job checks out the guard tools at this workflow's commit")
+                self.assertEqual(tools["with"]["ref"], "${{ github.sha }}")
+                self.assertEqual(tools["with"]["path"], ".car-guard-tools")
+                self.assertGreater(steps.index(tools), 0, "after the car's checkout, which cleans the workspace")
+                guards = [s for s in steps if "car_guards.py" in str(s.get("run", ""))]
+                self.assertTrue(guards)
+                for step in guards:
+                    self.assertIn('"$CAR_GUARD_TOOLS/scripts/ci/car_guards.py"', step["run"])
+                    self.assertIn("--root .", step["run"])
+
+
+class ToolsOutsideTheCar(unittest.TestCase):
+    """The guards may run from a newer commit than the car's tree: their own helpers come from
+    beside car_guards.py, the car's own guards (prepush, godfiles) from the car."""
+
+    def test_a_car_without_the_guards_still_gets_a_plan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "car"
+            write(root, {"README.md": "x\n", "webviews/src/a.ts": "export const a = 1\n",
+                         "webviews/test/a.test.ts": 'import { a } from "../src/a"\n'})
+            git(root, "init", "-q")
+            git(root, "add", "-A")
+            git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base")
+            base = git(root, "rev-parse", "HEAD")
+            write(root, {"webviews/src/a.ts": "export const a = 2\n"})
+            git(root, "add", "-A")
+            git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "car")
+            self.assertFalse((root / "scripts/ci").exists())
+            proc = subprocess.run([sys.executable, "-I", str(GUARDS), "plan", "--root", str(root),
+                                   "--base", base, "--head", "HEAD", "--car", "old"],
+                                  capture_output=True, text=True, timeout=60)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("web", json.loads(proc.stdout)["linux"])
+
+    def test_the_tools_own_helpers_come_from_beside_car_guards(self):
+        the_plan = {"python": [], "web": [{"path": "test/a.test.ts"}], "native": [],
+                    "cargo": {"changed": True, "files": ["cmux-tui/src/x.rs"]}, "swift": []}
+        listed = {e["name"]: e["cmd"] for e in car_guards.entries(Path("."), "B", "H", "linux", the_plan, set())}
+        self.assertEqual(listed["web"][-1], str(ROOT / "scripts/ci/run-webviews-tests.sh"))
+        self.assertEqual(listed["cargo"][2], str(ROOT / "scripts/ci/cargo_affected.py"))
+        self.assertEqual(listed["guard:prepush"][2], "scripts/cmux-next/prepush-gate.py", "the car's own guard")
 
 
 if __name__ == "__main__":

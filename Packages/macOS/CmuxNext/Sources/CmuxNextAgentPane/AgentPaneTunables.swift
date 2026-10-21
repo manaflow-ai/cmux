@@ -359,6 +359,7 @@ public nonisolated struct AgentPaneTunables {
             liveThoughtViewport.descriptor,
             modelMenu.descriptor,
             newTabPicksFollowLinks.descriptor,
+            newTabPrivateChatLists.descriptor,
             newTabWidgets.descriptor,
             pageHost.descriptor,
             reasoningSlider.descriptor,
