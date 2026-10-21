@@ -36,6 +36,7 @@ import {
   type QueueEdit,
   nextDrawnRow,
   isLastFooter,
+  TRANSCRIPT_RUNWAY,
 } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
@@ -1381,10 +1382,6 @@ const currentRegistry = (): NativeRegistry => ({
 /// The thread's top padding (styles.css `.acpmux-thread`): rows draw this far below their places,
 /// so the transcript ends this far past their total height.
 const THREAD_TOP = 16;
-/// Room kept under the last row, over the bottom stack's: a streaming reply's newest line sits a
-/// line and a half above the composer instead of on its edge, as in ChatGPT and Claude desktop.
-/// It is always there, streaming or not, so a reply that starts or ends moves nothing.
-export const TRANSCRIPT_RUNWAY = 24;
 /// Small layout changes arrive constantly while a reply streams. Treat the bottom as a short
 /// resting zone so every token does not write a new fractional scroll offset (and make the thumb
 /// visibly twitch at the same cadence). A meaningful displacement still corrects immediately.
