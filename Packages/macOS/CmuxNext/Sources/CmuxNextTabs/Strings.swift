@@ -31,6 +31,16 @@ enum Strings {
     static var axNeedsInput: String { String(localized: "tabs.ax.needsInput", defaultValue: "Needs input", bundle: .module) }
     static var axSuccess: String { String(localized: "tabs.ax.success", defaultValue: "Done", bundle: .module) }
     static var axFailure: String { String(localized: "tabs.ax.failure", defaultValue: "Failed", bundle: .module) }
+    /// The trailing state mark's tooltip (`TabItem.stateMarkHelp`).
+    static var stateMarkNeedsInput: String {
+        String(localized: "tabs.stateMark.needsInput", defaultValue: "Waiting for your input", bundle: .module)
+    }
+    static func stateMarkNeedsInputKind(_ kind: String) -> String {
+        String(localized: "tabs.stateMark.needsInputKind", defaultValue: "Waiting for you: \(kind)", bundle: .module)
+    }
+    static var stateMarkSuccess: String { String(localized: "tabs.stateMark.success", defaultValue: "Finished", bundle: .module) }
+    static var stateMarkFailure: String { String(localized: "tabs.stateMark.failure", defaultValue: "Failed", bundle: .module) }
+    static var stateMarkUnread: String { String(localized: "tabs.stateMark.unread", defaultValue: "New activity", bundle: .module) }
     static var hoverWorking: String { String(localized: "tabs.hoverCard.working", defaultValue: "Working", bundle: .module) }
     static var hoverIdle: String { String(localized: "tabs.hoverCard.idle", defaultValue: "Idle", bundle: .module) }
     static var hoverHibernated: String { String(localized: "tabs.hoverCard.hibernated", defaultValue: "Hibernated", bundle: .module) }

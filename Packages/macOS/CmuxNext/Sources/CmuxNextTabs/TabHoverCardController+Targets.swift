@@ -21,6 +21,8 @@ extension TabHoverCardController {
         guard let id = strip.tabID(at: point), let cell = strip.cells[id], strip.model.tab(id)?.isNewTabPage != true else { return nil }
         // The speaker shows its own tooltip (Mute tab / Unmute tab), not the card over it.
         guard !strip.isInAudioButton(id, point) else { return nil }
+        // So does the state mark (what its dot means), not the card over it.
+        guard !strip.isInStateMark(id, point) else { return nil }
         return (id, cell.frame.width, window.convertToScreen(strip.tabsClip.convert(Self.drawn(cell.frame, pill: cell.pillFrameInCell), to: nil)))
     }
 

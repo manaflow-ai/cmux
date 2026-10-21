@@ -38,6 +38,15 @@ extension TabStripView {
         return rect.insetBy(dx: -3, dy: -4).contains(inCell)
     }
 
+    /// Whether `point` (strip coordinates) is on tab `id`'s state mark (the dot), with slack
+    /// around the small mark, so its tooltip can say what it means.
+    func isInStateMark(_ id: TabID, _ point: CGPoint) -> Bool {
+        guard let cell = cells[id], let rect = cell.stateMarkRect, !isInCloseButton(id, point) else { return false }
+        let local = convert(point, to: tabsClip)
+        let inCell = CGPoint(x: local.x - cell.frame.minX, y: local.y - cell.frame.minY)
+        return rect.insetBy(dx: -4, dy: -6).contains(inCell)
+    }
+
     func isInNewTabButton(_ point: CGPoint) -> Bool {
         !newTabButton.isHidden && newTabButton.frame.contains(convert(point, to: contentView))
     }
@@ -69,22 +78,26 @@ extension TabStripView {
             closeHoveredID = closeID
             if let closeID { cells[closeID]?.isCloseHovered = true }
         }
-        setAudioHovered(id.flatMap { isInAudioButton($0, point) ? $0 : nil })
+        setAudioHovered(id.flatMap { isInAudioButton($0, point) ? $0 : nil },
+                        stateMark: id.flatMap { isInStateMark($0, point) ? $0 : nil })
         newTabButton.isHovered = !dragging && isInNewTabButton(point)
 
         // The coordinator hit-tests the pointer itself (`TabHoverCardController.target`).
         if moved, let window { hoverCards.pointerMoved(to: window.convertPoint(toScreen: convert(point, to: nil))) }
     }
 
-    /// The speaker under the pointer: its fill, and a tooltip naming what a click does.
-    func setAudioHovered(_ id: TabID?) {
+    /// The speaker under the pointer: its fill, and a tooltip naming what a click does. Off the
+    /// speaker, the state mark under the pointer (`stateMark`) names what its dot means
+    /// (`TabItem.stateMarkHelp`).
+    func setAudioHovered(_ id: TabID?, stateMark: TabID? = nil) {
         if id != audioHoveredID {
             if let audioHoveredID { cells[audioHoveredID]?.isAudioHovered = false }
             audioHoveredID = id
             if let id { cells[id]?.isAudioHovered = true }
         }
         let tip = id.flatMap { cells[$0]?.item.audio }.map { $0 == .muted ? Strings.unmuteTab : Strings.muteTab }
-        // tooltip-native-allow: the strip's speakers are layers, not views; a themed tracker added while the
+            ?? stateMark.flatMap { cells[$0]?.item.stateMarkHelp }
+        // tooltip-native-allow: the strip's speakers and state marks are layers, not views; a themed tracker added while the
         // pointer is already inside gets no mouseEntered, and one anchors below the whole strip.
         if toolTip != tip { toolTip = tip }
     }

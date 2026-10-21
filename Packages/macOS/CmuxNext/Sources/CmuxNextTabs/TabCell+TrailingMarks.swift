@@ -76,6 +76,14 @@ extension TabCell {
         return dot.width
     }
 
+    /// The drawn state mark's frame in this cell's coordinates (its tooltip's hit area,
+    /// `TabItem.stateMarkHelp`), else nil.
+    var stateMarkRect: CGRect? {
+        if let statusGlyphLayer, statusGlyphLayer.layer.opacity > 0 { return statusGlyphLayer.frame }
+        guard let badgeLayer, badgeLayer.opacity > 0, badgeLayer.superlayer != nil else { return nil }
+        return badgeLayer.frame
+    }
+
     private func removeBadge(onPath: Bool) {
         guard let badgeLayer else { return }
         if onPath {
