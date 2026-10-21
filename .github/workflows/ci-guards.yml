@@ -688,7 +688,7 @@ jobs:
         run: python3 tests/test_pr_status.py
 
       - name: Validate the gallery advisory's state ranking and receipt
-        if: ${{ matrix.group == 'ci' }}
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_gallery_select.py
 
       - name: Validate the feat-cmux-next PR merge-tree publisher
