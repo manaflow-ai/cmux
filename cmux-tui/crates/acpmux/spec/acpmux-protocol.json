@@ -312,6 +312,24 @@
       "result": true
     },
     {
+      "kind": "request",
+      "name": "_acpmux/worktree/report",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/worktree/clean",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/worktree/restore",
+      "params": true,
+      "result": true
+    },
+    {
       "kind": "notification",
       "name": "_acpmux/process_update",
       "params": true
@@ -460,6 +478,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/step_now",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/draft_get",
       "params": true,
       "result": true
@@ -561,6 +585,30 @@
     {
       "kind": "request",
       "name": "_acpmux/person_holds",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/approvers",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/approvers_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/workspace_roots_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/new_chat_picks_set",
       "params": true,
       "result": true
     },
