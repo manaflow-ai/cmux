@@ -257,9 +257,7 @@ impl PtySurface {
     }
 
     pub(super) fn request_frame(&self, generation: u64) {
-        match self.frame_requests.try_send(generation) {
-            Ok(()) | Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
-        }
+        self.frame_requests.request(generation);
     }
 
     /// Apply one replacement to the terminal stream and publish its revision.
@@ -284,6 +282,10 @@ impl PtySurface {
         let mut term = self.term.lock().unwrap();
         let generation = self.drop_exited_modes(&mut term);
         let _ = self.build_producer_frame(term, generation);
+        // The last output's scroll position, before the surface goes.
+        if let Some(mux) = self.mux.upgrade() {
+            let _ = self.frame_requests.flush_scroll(&mux, self.event_surface_id);
+        }
     }
 
     /// Preserve the last hosted frame, then end every live attachment while
