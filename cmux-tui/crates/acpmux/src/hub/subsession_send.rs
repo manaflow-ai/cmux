@@ -46,6 +46,9 @@ impl Hub {
         // An interrupt stops the running turn only once the message is accepted, so a message the
         // agent pair guard holds never cancels it (`Hub::interrupt_once_queued`).
         let (steer, interrupt) = (deliver == Delivery::NextStep, deliver == Delivery::Interrupt);
+        // Never to a session that asks less than the sender (`subsession_guard.rs`); a queued
+        // one is checked again when it runs (`turns.rs`).
+        self.receiver_check(caller, target).await?;
         let accepted =
             self.send_family_prompt(caller, target, text, prompt_id, steer, interrupt).await?;
         Ok(sent_reply(target, &accepted))
