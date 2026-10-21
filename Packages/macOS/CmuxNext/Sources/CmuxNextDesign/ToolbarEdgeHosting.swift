@@ -22,4 +22,8 @@ extension NSView {
         }
         return false
     }
+
+    /// The side a popup opened from this view prefers (``toolbarOpensUpward``): above in a
+    /// bottom omnibar row, else below.
+    public var toolbarPopupSide: PopupPlacement.Side { toolbarOpensUpward ? .above : .below }
 }
