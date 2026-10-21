@@ -18,8 +18,16 @@ nonisolated extension RefusalStrings {
     /// parameter name may have and cut to ``shownNameLimit``, at most ``shownNames`` of them. A
     /// crafted link therefore cannot put its own sentence, newlines or writing-direction marks
     /// into cmux's own chrome.
-    public static func linkParametersIgnored(_ names: [String]) -> String {
-        let shown = names.prefix(shownNames).map(displayedParameterName)
+    ///
+    /// - Parameters:
+    ///   - names: The ignored names, as the link wrote them.
+    ///   - used: The names of the parameters the link did use (`DeepLink.usedParameters`). A
+    ///     stray name shown as one of these is dropped unsaid, as the page drops it: `?host%20=x`
+    ///     beside `?host=big-red` would otherwise deny a parameter the link carries.
+    /// - Returns: The notice, or nil when nothing is left to name.
+    public static func linkParametersIgnored(_ names: [String], used: Set<String> = []) -> String? {
+        let shown = names.map(displayedParameterName).filter { !used.contains($0) }.prefix(shownNames)
+        guard !shown.isEmpty else { return nil }
         return format("handlers.refusal.linkParametersIgnored",
                       "opened the link and ignored parameters it doesn't use: %@",
                       truncatedLinkText(shown.joined(separator: ", ")))

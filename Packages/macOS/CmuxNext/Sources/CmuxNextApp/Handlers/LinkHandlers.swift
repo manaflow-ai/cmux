@@ -25,9 +25,13 @@ enum LinkHandlers {
             // Only this kind, and only after it opened: the older kinds have always ignored
             // their extra parameters (a shared `?utm_source=…`, nightly's `stable_*_id`), and a
             // link that refused shows why it refused instead.
-            if case .agent = parsed.link.target, !parsed.ignoredParameters.isEmpty {
-                services.refusalHUD.show(RefusalStrings.linkParametersIgnored(parsed.ignoredParameters),
-                                         in: services.windows.active?.window ?? NSApp.keyWindow)
+            // It is a notice in the window the reader is in, so it follows the rule refusals
+            // follow (`AppActionContext.showsNotice`): a run this user did not start, and one
+            // whose caller (CLI, socket, palette) reads the reason itself, show no HUD.
+            if case .agent = parsed.link.target, !background, !registry.refusalHasCaller,
+               let notice = RefusalStrings.linkParametersIgnored(parsed.ignoredParameters,
+                                                                 used: parsed.link.usedParameters) {
+                services.refusalHUD.show(notice, in: services.windows.active?.window ?? NSApp.keyWindow)
             }
         })
         registry.bind("palette.copyWorkspaceLink", run: { invocation in

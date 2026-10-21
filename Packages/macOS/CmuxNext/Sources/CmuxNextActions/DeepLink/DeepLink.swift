@@ -141,6 +141,21 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         return URL(string: text)
     }
 
+    /// The names of the parameters this link carries a value for.
+    ///
+    /// A reader that names what a link ignored never denies one of these: a stray name of its own
+    /// (`?host%20=x` beside `?host=big-red`) can be shown as a parameter's name, and saying that
+    /// name was ignored would contradict the chat the link opened
+    /// (schemas/deeplinks/agent-link.json `ignoredOrder`).
+    public var usedParameters: Set<String> {
+        var names: Set<String> = []
+        if machine != nil { names.insert(Self.machineKey) }
+        if hostHint != nil { names.insert(Self.hostHintKey) }
+        if nameHint != nil { names.insert(Self.nameHintKey) }
+        if message != nil { names.insert(Self.messageKey) }
+        return names
+    }
+
     /// The fragment that names a turn: `#turn-<turnId>`.
     static let turnFragmentPrefix = "turn-"
 

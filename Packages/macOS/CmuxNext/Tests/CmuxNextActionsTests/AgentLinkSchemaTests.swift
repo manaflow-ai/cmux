@@ -167,6 +167,10 @@ struct AgentLinkSchemaTests {
             + "&machine=machine_fedcba9876543210fedcba9876543210", ["machine"]),
         ("cmux://agent/claude/s1?host=a&host=b", ["host"]),
         ("cmux://agent/claude/s1?account=someone%40example.com", ["account"]),
+        // `machine` comes before the hints, which come before a name no agent link reads, in the
+        // order `params` lists them (agent-link.json `ignoredOrder`), whatever the URL's order.
+        ("cmux://agent/claude/s1?cwd=x&host=a&host=b&machine=nope", ["machine", "host", "cwd"]),
+        ("cmux://agent/claude/s1?message=&name=a&name=b", ["name", "message"]),
     ]) func aStrayParameterNeverCostsTheChat(_ text: String, _ ignored: [String]) throws {
         let url = try #require(URL(string: text))
         let parsed = try #require(DeepLink.read(url, scheme: "cmux"))

@@ -111,17 +111,32 @@ struct ToastCopyTests {
     /// page does (schemas/deeplinks/agent-link.json `ignoredOrder`): inside the charset a parameter
     /// name may have, and at most eight. A crafted link cannot put its own sentence, a URL or a
     /// writing-direction mark into cmux's own chrome.
-    @Test func anIgnoredParameterNameCannotCarryTextIntoTheToast() {
+    @Test func anIgnoredParameterNameCannotCarryTextIntoTheToast() throws {
         let crafted = "Your session expired, sign in again at https://cmux.example\u{202E} "
-        let message = RefusalStrings.linkParametersIgnored([crafted, "ok_name", "\u{2713}"])
+        let message = try #require(RefusalStrings.linkParametersIgnored([crafted, "ok_name", "\u{2713}"]))
         #expect(!message.contains("sign in again"), "\(message)")
         #expect(!message.contains("https://"), "\(message)")
         #expect(!message.contains("\u{202E}"), "\(message)")
         // A name the charset leaves nothing of is still counted, as the page counts it.
         #expect(message.contains("ok_name, ?"), "\(message)")
 
-        let shown = RefusalStrings.linkParametersIgnored((1...12).map { "p\($0)" })
+        let shown = try #require(RefusalStrings.linkParametersIgnored((1...12).map { "p\($0)" }))
         #expect(shown.contains("p8"), "\(shown)")
         #expect(!shown.contains("p9"), "\(shown)")
+    }
+
+    /// Cutting a name to the charset can leave the name of a parameter the link did use
+    /// (`?host%20=x` beside `?host=big-red`): saying cmux ignored `host` over the chat that
+    /// link's host opened would contradict the link, so that name is dropped unsaid, as the page
+    /// drops it (schemas/deeplinks/agent-link.json `ignoredOrder`). With nothing else to name,
+    /// there is no toast at all.
+    @Test func aStrayNameNeverDeniesAParameterTheLinkUsed() throws {
+        let message = try #require(RefusalStrings.linkParametersIgnored(["host ", "cwd"], used: ["host"]))
+        #expect(!message.contains("host"), "\(message)")
+        #expect(message.contains("cwd"), "\(message)")
+        #expect(RefusalStrings.linkParametersIgnored(["host ", "(host)"], used: ["host"]) == nil)
+        // A name the link does not carry a value for is still named: `?host=` names no machine.
+        let named = try #require(RefusalStrings.linkParametersIgnored(["host"], used: ["message"]))
+        #expect(named.contains("host"), "\(named)")
     }
 }

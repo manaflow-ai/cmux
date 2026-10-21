@@ -90,7 +90,8 @@ nonisolated extension DeepLink {
             link.nameHint = hint(nameHintKey, isHint)
             link.message = hint(messageKey, isAgentSession)
         }
-        ignored += query.map(\.name).filter { !parameters(of: target).contains($0) }
+        let known = parameters(of: target)
+        ignored += query.map(\.name).filter { !known.contains($0) }
         var seen = Set<String>()
         return Parsed(link: link, ignoredParameters: ignored.filter { seen.insert($0).inserted })
     }
