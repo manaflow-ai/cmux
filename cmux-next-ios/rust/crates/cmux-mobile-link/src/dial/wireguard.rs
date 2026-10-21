@@ -96,9 +96,9 @@ fn parse_key(text: &str) -> Result<[u8; 32], DialError> {
 }
 
 /// Receive and send buffer of a tunnel's UDP socket. A roam resends up to
-/// [`REPLAY_MAX`] datagrams at once, as does the peer, on top of a stream
-/// at full rate: the OS default (about 200 KB on Linux) drops part of
-/// such a burst, and TCP inside the tunnel then waits out its 1 s
+/// [`REPLAY_BYTES`] at once, several times (one per event of the roam), as
+/// does the peer, on top of a stream at full rate: the OS default (about
+/// 200 KB on Linux) drops part of such bursts, and TCP inside the tunnel then waits out its 1 s
 /// retransmission timeout. The OS caps it (Linux `net.core.rmem_max`).
 const UDP_BUFFER: usize = 2 * 1024 * 1024;
 
@@ -423,7 +423,8 @@ const ROAM_SPRAY: Duration = Duration::from_secs(3);
 /// Spacing of those extra datagrams inside the window.
 const ROAM_SPRAY_GAP: Duration = Duration::from_millis(100);
 /// Data messages sent in this long before a roam, a route change or a new
-/// TURN allocation are sent again on the new route: those that went into
+/// TURN allocation are sent again on the new route (the newest that fit
+/// [`REPLAY_BYTES`]): those that went into
 /// the dead route would otherwise cost TCP inside the tunnel its 1 s
 /// minimum retransmission timeout, or after a long outage (airplane mode)
 /// its backed-off one. WireGuard's replay window drops the copies that did
@@ -432,6 +433,13 @@ const REPLAY_AGE: Duration = Duration::from_secs(20);
 /// At most this many datagrams are kept for that (about 100 ms of a
 /// 15 Mbit/s stream; a whole outage of retransmissions and keepalives).
 const REPLAY_MAX: usize = 128;
+/// A replay sends only the newest of those that fit this many bytes: a
+/// burst past what a buffer on the path holds drops part of it (a TURN
+/// server's relay socket, which this side does not size, drops what
+/// arrives last; the TURN carrier's input class holds as much). About
+/// 50 full-size datagrams, half a second of a busy terminal.
+const REPLAY_BYTES: usize = 64 * 1024;
+const _: () = assert!(REPLAY_BYTES <= crate::class_queue::INPUT_BYTES);
 /// A route that flips between two addresses of the same peer (a LAN and a
 /// hairpinned public address while candidates are sprayed) replays at most
 /// this often; a roam of this side always replays.
@@ -705,6 +713,9 @@ impl HybridUnderlay {
             Control::Turn(turn) => {
                 tracing::debug!(relayed = %turn.relayed, transport = ?turn.transport, "WireGuard takes a TURN allocation");
                 self.retire_turn();
+                // The server may hand the old relayed address out again: a
+                // `reach` naming it is then about this allocation.
+                self.retired_relayed.retain(|addr| *addr != turn.relayed);
                 self.turn = Some(turn);
                 self.wake_receiver();
                 self.retarget_turn();
@@ -888,8 +899,11 @@ impl HybridUnderlay {
         self.recent.push_back((now, Bytes::copy_from_slice(datagram), class));
     }
 
-    /// Send what went out lately again, on the current route. Replays for
-    /// a route change (not `forced`) happen at most every [`REPLAY_GAP`].
+    /// Send what went out lately again, on the current route: the newest
+    /// that fit [`REPLAY_BYTES`] (what went into a dead route is the
+    /// newest), oldest first (out of order, what was lost would also make
+    /// TCP inside the tunnel see duplicate ACKs and resend its window). Replays for a route change (not `forced`) happen at
+    /// most every [`REPLAY_GAP`].
     fn replay_recent(&mut self, forced: bool) {
         if self.direct.is_none() {
             self.replay_pending = true;
@@ -903,12 +917,20 @@ impl HybridUnderlay {
             }
             self.last_replay = Some(now);
         }
-        let recent: Vec<(Bytes, SendClass)> = self
+        let mut budget = REPLAY_BYTES;
+        let mut recent: Vec<(Bytes, SendClass)> = self
             .recent
             .iter()
+            .rev()
             .filter(|(at, _, _)| now.duration_since(*at) <= REPLAY_AGE)
+            .take_while(|(_, datagram, _)| {
+                let fits = datagram.len() <= budget;
+                budget = budget.saturating_sub(datagram.len());
+                fits
+            })
             .map(|(_, datagram, class)| (datagram.clone(), *class))
             .collect();
+        recent.reverse();
         if !recent.is_empty() {
             tracing::debug!(count = recent.len(), "WireGuard resends recent datagrams on the new route");
         }
@@ -1941,6 +1963,127 @@ mod tests {
         let mut buffer = vec![0u8; 2048];
         let receive = std::future::poll_fn(|cx| underlay.poll_recv(cx, &mut buffer));
         let _ = tokio::time::timeout(wait, receive).await;
+    }
+
+    /// The phone roams to a new TURN allocation, and the Mac replays only
+    /// the newest of what it sent recently that fits [`REPLAY_BYTES`],
+    /// oldest first. What went into the dead route is the newest, and a
+    /// whole replay overflowed the TURN server's relay socket (8 to 18 of
+    /// its datagrams dropped in every round; Linux caps buffers at
+    /// `rmem_max`, about 208 KB), which drops what arrives last: the
+    /// datagram TCP inside the tunnel was missing, so it waited out its 1 s
+    /// retransmission (the `stalled 1.0s` flake of
+    /// `wireguard_roam_with_udp_blocked_takes_a_fresh_turn_tls_allocation`).
+    /// Newest first instead would lose the newest in the TURN carrier's
+    /// queue, which drops from the front.
+    #[tokio::test]
+    async fn a_roam_replays_the_newest_datagrams_that_fit_oldest_first() {
+        let old_relay = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let new_relay = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let (old, new) = (old_relay.local_addr().unwrap(), new_relay.local_addr().unwrap());
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[old.to_string()],
+                peer_relayed: &[old.to_string()],
+                peer_relayed_tls: &[old.to_string()],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                control,
+            },
+            &DialOptions::default(),
+        );
+        // A socket the runtime has not seen writable yet refuses `try_send_to`.
+        underlay.socket.writable().await.unwrap();
+        let udp_from = |addr| Origin { path: UDP_PATH, addr: Some(addr) };
+        underlay.authenticated(udp_from(old));
+        // Recent WireGuard data, each datagram distinct (its fifth byte),
+        // more than a replay sends.
+        const SIZE: usize = 1200;
+        const SENT: u8 = 100;
+        for n in 0..SENT {
+            let mut datagram = vec![n; SIZE];
+            datagram[..4].copy_from_slice(&[4, 0, 0, 0]);
+            underlay.send(&datagram);
+        }
+        // The roam: the phone's network changed, its first datagram comes
+        // from the new relay, then it announces that relay.
+        underlay.apply(Control::PeerEndpoints {
+            endpoints: Vec::new(),
+            relayed: Vec::new(),
+            relayed_tls: Vec::new(),
+        });
+        underlay.authenticated(udp_from(new));
+        assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: new }));
+        underlay.apply(Control::PeerEndpoints {
+            endpoints: vec![new.to_string()],
+            relayed: vec![new.to_string()],
+            relayed_tls: vec![new.to_string()],
+        });
+        let mut order = Vec::new();
+        let mut buffer = [0u8; 2048];
+        while let Ok(Ok((len, _))) =
+            tokio::time::timeout(Duration::from_millis(200), new_relay.recv_from(&mut buffer)).await
+        {
+            if len == SIZE {
+                order.push(buffer[4]);
+            }
+        }
+        // The first replay on the new route (the route change's).
+        let Some(&first) = order.first() else { panic!("nothing reached the new route") };
+        let replay: Vec<u8> =
+            order.iter().copied().take_while(|&n| n != SENT - 1).chain([SENT - 1]).collect();
+        assert_eq!(replay, (first..SENT).collect::<Vec<_>>(), "the newest, oldest first: {order:?}");
+        assert!(replay.len() * SIZE <= REPLAY_BYTES, "{} bytes replayed at once", replay.len() * SIZE);
+        assert!(replay.len() * SIZE + SIZE > REPLAY_BYTES, "as many as fit: {replay:?}");
+    }
+
+    /// The roam's new TURN allocation can get the old one's relayed address
+    /// (the server handed the port out again). A `reach` naming it then
+    /// confirms the route: it is not one sent before the change. Ignored,
+    /// the phone stayed unconfirmed for the rest of the roam (the flake's
+    /// `no roam_turn`, about 1 round in 100 with the test server's 100 relay
+    /// ports).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_new_allocation_on_the_old_relayed_address_is_confirmed() {
+        let turn = crate::testing::TestTurn::start().await;
+        let options = DialOptions {
+            ice_servers: vec![turn.ice.clone()],
+            turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
+            include_loopback: true,
+            ..DialOptions::default()
+        };
+        let first = TurnCarrier::allocate(&options).await.expect("a TURN allocation");
+        let relayed = first.relayed;
+        let mut second = TurnCarrier::allocate(&options).await.expect("a second TURN allocation");
+        second.relayed = relayed;
+        let mac: SocketAddr = "127.0.0.1:9".parse().unwrap();
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[mac.to_string()],
+                peer_relayed: &[],
+                peer_relayed_tls: &[],
+                peer_version: WG_VERSION,
+                turn: Some(first),
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                control,
+            },
+            &options,
+        );
+        underlay.authenticated(Origin { path: TURN_PATH, addr: Some(mac) });
+        assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Turn, addr: mac }));
+        underlay.apply(Control::Turn(second));
+        assert!(!underlay.confirmed);
+        underlay.apply(Control::Reached { from: Some(relayed), via_turn: false });
+        assert!(underlay.confirmed, "a reach naming the new allocation confirms the route");
     }
 
     #[test]
