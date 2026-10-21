@@ -221,6 +221,18 @@ Agent-to-agent messages sent with `cmux agent message`. Per-agent and per-worksp
 |---|---|---|---|
 | `agentMessages.enabled` | boolean | `true` | Allow agents to message each other through cmux. When false, `cmux agent message` fails, nothing is stored, and messages already queued are marked failed instead of being delivered. |
 
+## chief
+
+Chief, the Home agent: whether it is shown and which harness, model, and effort it uses.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `chief.enabled` | boolean | `true` | Show the Home row and Chief entry points. When false, the Home row, the Open Chief shortcut, menu item, and command palette entries are hidden. |
+| `chief.harness` | `"claude"` or `"codex"` | `"claude"` | Agent harness Chief runs on: `claude` (Claude Code) or `codex` (Codex). |
+| `chief.model` | string | `""` | Model passed to the harness. Leave empty to use the harness default. |
+| `chief.effort` | string | `""` | Reasoning effort passed to the harness, such as `low`, `medium`, or `high`. Leave empty to use the harness default. |
+| `chief.dangerouslySkipPermissions` | boolean | `false` | Allow Chief's selected agent to bypass permission prompts and sandbox guardrails. Off by default. |
+
 ## browser
 
 Embedded browser settings from Settings > Browser.

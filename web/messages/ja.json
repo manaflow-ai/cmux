@@ -3452,6 +3452,13 @@
               "enabled": "リモート tmux ワークスペースを選択している場合、「新規ワークスペース」はそのワークスペースのホストで tmux セッションを開始します。"
             }
           }
+        },
+        "chief": {
+          "description": "ホームエージェントのChief：表示するかどうかと、使用するハーネス、モデル、エフォート。",
+          "enabled": "ホーム行とChiefの入口を表示します。falseにすると、ホーム行、Chiefを開くショートカット、メニュー項目、コマンドパレットの項目が非表示になります。",
+          "harness": "Chiefが動作するエージェントハーネス：claude（Claude Code）またはcodex（Codex）。",
+          "model": "ハーネスに渡すモデル。空欄にするとハーネスの既定値を使用します。",
+          "effort": "ハーネスに渡す推論エフォート（low、medium、highなど）。空欄にするとハーネスの既定値を使用します。"
         }
       },
       "exampleMarkdownFontSize": "新しく開く Markdown ビューアの本文フォントサイズ（ポイント単位）。",
@@ -4953,6 +4960,7 @@
     "unsupportedParams": "このリンクには、cmux が拒否するサポートされていないパラメータが含まれています: {params}",
     "conflictingParams": "このリンクには、一緒に使用できないパラメータが含まれています: {params}",
     "invalidParams": "このリンクには無効なパラメータ値が含まれています: {params}",
+    "ignoredParams": "cmux は使用しないパラメータを無視します: {params}。セッションはそのまま開きます。",
     "fixParams": "URL パラメータを修正して、このページを再読み込みします。",
     "examplePrefix": "を参照してください。",
     "exampleLink": "リンク例",
@@ -4976,6 +4984,16 @@
       "title": "cmux のオープンルール",
       "intro": "このページでは、現在の cmux ワークスペースのルールが開きます。",
       "fallback": "cmux は最初にルールを表示し、現在のワークスペースに貼り付ける前に質問します。 cmux が開かない場合は、cmux をインストールし、もう一度 cmux で開くをクリックします。"
+    },
+    "agent": {
+      "metaTitle": "cmux でエージェントセッションを開く",
+      "metaDescription": "cmux が使用できない場合はインストールの案内を表示して、Web から cmux のエージェントセッションのディープリンクを開きます。",
+      "title": "エージェントセッションを開く",
+      "intro": "この Mac がすでにアクセスできる場合、このリンクは cmux でエージェントのセッションを開きます。リンク自体はアクセス権を付与しません。",
+      "fallback": "cmux が開かない場合は、cmux をインストールし、もう一度 cmux で開くをクリックします。cmux は、この Mac がすでにアクセスできるセッションのみを開きます。",
+      "nameLabel": "名前: {value}",
+      "hostLabel": "ホスト: {value}",
+      "harnessLabel": "ハーネス: {value}"
     }
   },
   "download": {

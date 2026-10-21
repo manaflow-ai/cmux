@@ -2266,6 +2266,13 @@
               "enabled": "Gdy wybrano zdalny obszar roboczy tmux, „Nowy obszar roboczy” uruchamia sesję tmux na hoście tego obszaru."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, agent ekranu głównego: czy jest widoczny oraz jakiej uprzęży, modelu i wysiłku używa.",
+          "enabled": "Pokazuje wiersz Strona główna i punkty wejścia do Chief. Gdy false, ukryte są wiersz Strona główna, skrót Otwórz Chief, pozycja menu i wpisy palety poleceń.",
+          "harness": "Uprząż agenta, na której działa Chief: claude (Claude Code) lub codex (Codex).",
+          "model": "Model przekazywany do uprzęży. Pozostaw puste, aby użyć domyślnego.",
+          "effort": "Wysiłek rozumowania przekazywany do uprzęży, np. low, medium lub high. Pozostaw puste, aby użyć domyślnego."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3444,6 +3451,7 @@
     "unsupportedParams": "Ten link zawiera nieobsługiwane parametry, które cmux odrzuci: {params}",
     "conflictingParams": "Ten link zawiera parametry, których nie można używać razem: {params}",
     "invalidParams": "Ten link zawiera nieprawidłowe wartości parametrów: {params}",
+    "ignoredParams": "cmux ignoruje parametry, których nie używa: {params}. Sesja i tak zostanie otwarta.",
     "fixParams": "Popraw parametry adresu URL, a następnie załaduj ponownie tę stronę.",
     "examplePrefix": "Zobacz",
     "exampleLink": "przykładowy link",
@@ -3467,6 +3475,16 @@
       "title": "Otwórz reguły w cmux",
       "intro": "Ta strona otwiera reguły w bieżącym obszarze roboczym cmux.",
       "fallback": "cmux najpierw pokazuje reguły i pyta przed wklejeniem ich do bieżącego obszaru roboczego. Jeśli cmux się nie otworzy, zainstaluj cmux i ponownie kliknij Otwórz w cmux."
+    },
+    "agent": {
+      "metaTitle": "Otwórz sesję agenta w cmux",
+      "metaDescription": "Otwórz z poziomu przeglądarki deeplink cmux do sesji agenta, z opcją instalacji, gdy cmux jest niedostępny.",
+      "title": "Otwórz sesję agenta",
+      "intro": "Ten link otwiera sesję agenta w cmux, jeśli ten Mac ma już do niej dostęp. Sam link nie przyznaje żadnego dostępu.",
+      "fallback": "Jeśli cmux się nie otworzy, zainstaluj cmux i ponownie kliknij Otwórz w cmux. cmux otworzy sesję tylko wtedy, gdy ten Mac ma już do niej dostęp.",
+      "nameLabel": "Nazwa: {value}",
+      "hostLabel": "Host: {value}",
+      "harnessLabel": "Środowisko: {value}"
     }
   },
   "download": {

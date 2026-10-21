@@ -2265,6 +2265,13 @@
               "enabled": "选择远程 tmux 工作区后，“新建工作区”会在该工作区的主机上启动 tmux 会话。"
             }
           }
+        },
+        "chief": {
+          "description": "Chief（主页代理）：是否显示，以及使用的运行框架、模型和推理强度。",
+          "enabled": "显示主页行和 Chief 入口。设为 false 时，将隐藏主页行、打开 Chief 快捷键、菜单项和命令面板条目。",
+          "harness": "Chief 使用的代理运行框架：claude（Claude Code）或 codex（Codex）。",
+          "model": "传递给运行框架的模型。留空则使用运行框架的默认值。",
+          "effort": "传递给运行框架的推理强度，例如 low、medium 或 high。留空则使用运行框架的默认值。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3444,6 +3451,7 @@
     "unsupportedParams": "此链接包含 cmux 将拒绝的不受支持的参数：{params}",
     "conflictingParams": "此链接包含不能一起使用的参数：{params}",
     "invalidParams": "此链接包含无效参数值：{params}",
+    "ignoredParams": "cmux 会忽略它不使用的参数：{params}。会话仍会打开。",
     "fixParams": "修复 URL 参数，然后重新加载此页面。",
     "examplePrefix": "参见",
     "exampleLink": "示例链接",
@@ -3467,6 +3475,16 @@
       "title": "在 cmux 中打开规则",
       "intro": "此页面打开当前 cmux 工作区中的规则。",
       "fallback": "cmux 首先显示规则并在将它们粘贴到当前工作区之前进行询问。如果 cmux 未打开，请安装 cmux 并再次单击“在 cmux 中打开”。"
+    },
+    "agent": {
+      "metaTitle": "在 cmux 中打开代理会话",
+      "metaDescription": "从网页打开 cmux 代理会话深层链接，cmux 不可用时提供安装引导。",
+      "title": "打开代理会话",
+      "intro": "如果这台 Mac 已能访问该会话，此链接会在 cmux 中打开代理的会话。链接本身不授予任何访问权限。",
+      "fallback": "如果 cmux 没有打开，请安装 cmux，然后再次点击“在 cmux 中打开”。只有当这台 Mac 已能访问该会话时，cmux 才会打开它。",
+      "nameLabel": "名称：{value}",
+      "hostLabel": "主机：{value}",
+      "harnessLabel": "工具：{value}"
     }
   },
   "download": {

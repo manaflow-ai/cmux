@@ -2265,6 +2265,13 @@
               "enabled": "Kada je izabran udaljeni tmux radni prostor, „Novi radni prostor“ pokreće tmux sesiju na hostu tog radnog prostora."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, agent početne stranice: da li se prikazuje i koji harness, model i napor koristi.",
+          "enabled": "Prikazuje red Početna i ulazne tačke za Chief. Kada je false, skriveni su red Početna, prečica Otvori Chief, stavka menija i unosi palete komandi.",
+          "harness": "Harness agenta na kojem radi Chief: claude (Claude Code) ili codex (Codex).",
+          "model": "Model koji se prosljeđuje harnessu. Ostavite prazno za zadanu vrijednost harnessa.",
+          "effort": "Napor rezonovanja koji se prosljeđuje harnessu, npr. low, medium ili high. Ostavite prazno za zadanu vrijednost harnessa."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3444,6 +3451,7 @@
     "unsupportedParams": "Ovaj link uključuje nepodržane parametre cmux će odbiti: {params}",
     "conflictingParams": "Ova veza uključuje parametre koji se ne mogu koristiti zajedno: {params}",
     "invalidParams": "Ova veza uključuje nevažeće vrijednosti parametara: {params}",
+    "ignoredParams": "cmux ignoriše parametre koje ne koristi: {params}. Sesija se ipak otvara.",
     "fixParams": "Popravite URL parametre, a zatim ponovo učitajte ovu stranicu.",
     "examplePrefix": "Vidi an",
     "exampleLink": "primjer linka",
@@ -3467,6 +3475,16 @@
       "title": "Otvorite pravila u cmux",
       "intro": "Ova stranica otvara pravila u trenutnom cmux radnom prostoru.",
       "fallback": "cmux prvo prikazuje pravila i pita prije nego što ih zalijepi u trenutni radni prostor. Ako se cmux ne otvori, instalirajte cmux i ponovo kliknite Otvori u cmux."
+    },
+    "agent": {
+      "metaTitle": "Otvori sesiju agenta u cmuxu",
+      "metaDescription": "Otvorite cmux deeplink do sesije agenta s weba, uz opciju instalacije kada cmux nije dostupan.",
+      "title": "Otvori sesiju agenta",
+      "intro": "Ovaj link otvara sesiju agenta u cmuxu ako ovaj Mac već može pristupiti toj sesiji. Sam link ne daje nikakav pristup.",
+      "fallback": "Ako se cmux ne otvori, instalirajte cmux i ponovo kliknite Otvori u cmuxu. cmux otvara sesiju samo ako joj ovaj Mac već može pristupiti.",
+      "nameLabel": "Naziv: {value}",
+      "hostLabel": "Host: {value}",
+      "harnessLabel": "Okruženje: {value}"
     }
   },
   "download": {

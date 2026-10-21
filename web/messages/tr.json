@@ -2265,6 +2265,13 @@
               "enabled": "Uzak bir tmux çalışma alanı seçildiğinde “Yeni çalışma alanı”, o çalışma alanının ana bilgisayarında bir tmux oturumu başlatır."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, Ana Sayfa aracısı: gösterilip gösterilmediği ve hangi altyapıyı, modeli ve çabayı kullandığı.",
+          "enabled": "Ana Sayfa satırını ve Chief giriş noktalarını gösterir. false olduğunda Ana Sayfa satırı, Chief'i Aç kısayolu, menü öğesi ve komut paleti girdileri gizlenir.",
+          "harness": "Chief'in çalıştığı aracı altyapısı: claude (Claude Code) veya codex (Codex).",
+          "model": "Altyapıya iletilen model. Altyapının varsayılanını kullanmak için boş bırakın.",
+          "effort": "Altyapıya iletilen akıl yürütme çabası; örneğin low, medium veya high. Altyapının varsayılanını kullanmak için boş bırakın."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3442,6 +3449,7 @@
     "unsupportedParams": "Bu bağlantı cmux'un reddedeceği desteklenmeyen parametreler içeriyor: {params}",
     "conflictingParams": "Bu bağlantı birlikte kullanılamayan parametreleri içerir: {params}",
     "invalidParams": "Bu bağlantı geçersiz parametre değerleri içeriyor: {params}",
+    "ignoredParams": "cmux kullanmadığı parametreleri yok sayar: {params}. Oturum yine de açılır.",
     "fixParams": "URL parametrelerini düzeltin ve ardından bu sayfayı yeniden yükleyin.",
     "examplePrefix": "Bir gör",
     "exampleLink": "örnek bağlantı",
@@ -3465,6 +3473,16 @@
       "title": "Kuralları cmux'ta açın",
       "intro": "Bu sayfa geçerli cmux çalışma alanındaki kuralları açar.",
       "fallback": "cmux önce kuralları gösterir ve bunları geçerli çalışma alanına yapıştırmadan önce sorar. cmux açılmazsa cmux'u yükleyin ve cmux'da aç'a tekrar tıklayın."
+    },
+    "agent": {
+      "metaTitle": "Ajan oturumunu cmux'ta aç",
+      "metaDescription": "cmux kullanılamadığında kurulum seçeneğiyle, bir ajan oturumuna giden cmux derin bağlantısını web'den açın.",
+      "title": "Ajan oturumunu aç",
+      "intro": "Bu Mac oturuma zaten erişebiliyorsa bu bağlantı ajanın oturumunu cmux'ta açar. Bağlantının kendisi hiçbir erişim izni vermez.",
+      "fallback": "cmux açılmazsa cmux'u yükleyin ve cmux'ta Aç'a yeniden tıklayın. cmux oturumu yalnızca bu Mac ona zaten erişebiliyorsa açar.",
+      "nameLabel": "Ad: {value}",
+      "hostLabel": "Ana makine: {value}",
+      "harnessLabel": "Çalıştırıcı: {value}"
     }
   },
   "download": {

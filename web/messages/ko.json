@@ -2265,6 +2265,13 @@
               "enabled": "원격 tmux 작업 공간을 선택하면 새 작업 공간이 해당 작업 공간의 호스트에서 tmux 세션을 시작합니다."
             }
           }
+        },
+        "chief": {
+          "description": "홈 에이전트 Chief: 표시 여부와 사용할 하네스, 모델, 추론 강도.",
+          "enabled": "홈 행과 Chief 진입점을 표시합니다. false이면 홈 행, Chief 열기 단축키, 메뉴 항목, 명령 팔레트 항목이 숨겨집니다.",
+          "harness": "Chief가 실행되는 에이전트 하네스: claude(Claude Code) 또는 codex(Codex).",
+          "model": "하네스에 전달할 모델. 비워 두면 하네스 기본값을 사용합니다.",
+          "effort": "하네스에 전달할 추론 강도(예: low, medium, high). 비워 두면 하네스 기본값을 사용합니다."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3441,6 +3448,7 @@
     "unsupportedParams": "이 링크에는 cmux에서 거부할 지원되지 않는 매개변수가 포함되어 있습니다: {params}",
     "conflictingParams": "이 링크에는 함께 사용할 수 없는 매개변수가 포함되어 있습니다: {params}",
     "invalidParams": "이 링크에는 잘못된 매개변수 값이 포함되어 있습니다: {params}",
+    "ignoredParams": "cmux는 사용하지 않는 매개변수를 무시합니다: {params}. 세션은 그대로 열립니다.",
     "fixParams": "URL 매개변수를 수정한 후 이 페이지를 새로고침하세요.",
     "examplePrefix": "참조",
     "exampleLink": "예시 링크",
@@ -3464,6 +3472,16 @@
       "title": "cmux에서 규칙 열기",
       "intro": "이 페이지는 현재 cmux 작업 공간의 규칙을 엽니다.",
       "fallback": "cmux는 규칙을 먼저 표시하고 이를 현재 작업 공간에 붙여넣기 전에 묻습니다. cmux가 열리지 않으면 cmux를 설치하고 cmux에서 열기를 다시 클릭합니다."
+    },
+    "agent": {
+      "metaTitle": "cmux에서 에이전트 세션 열기",
+      "metaDescription": "cmux를 사용할 수 없을 때 설치 안내와 함께 웹에서 cmux 에이전트 세션 딥링크를 엽니다.",
+      "title": "에이전트 세션 열기",
+      "intro": "이 Mac이 이미 해당 세션에 접근할 수 있으면 이 링크가 cmux에서 에이전트의 세션을 엽니다. 링크 자체는 어떤 접근 권한도 부여하지 않습니다.",
+      "fallback": "cmux가 열리지 않으면 cmux를 설치하고 cmux에서 열기를 다시 클릭하세요. cmux는 이 Mac이 이미 접근할 수 있는 세션만 엽니다.",
+      "nameLabel": "이름: {value}",
+      "hostLabel": "호스트: {value}",
+      "harnessLabel": "하네스: {value}"
     }
   },
   "download": {

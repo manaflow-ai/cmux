@@ -10,6 +10,11 @@ extension CMUXCLI {
         if normalizedCommand == "window" {
             return false
         }
+        // `chief open` passes the window to `chief.open`, which owns the
+        // focus decision; the other chief verbs never change focus.
+        if normalizedCommand == "chief" {
+            return false
+        }
         // `left-sidebar` takes --window as its target. Only its `focus` action
         // brings that window forward, and the app does that itself.
         if normalizedCommand == "left-sidebar" {

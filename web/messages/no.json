@@ -2265,6 +2265,13 @@
               "enabled": "Når et eksternt tmux-arbeidsområde er valgt, starter «Nytt arbeidsområde» en tmux-økt på arbeidsområdets vert."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, Hjem-agenten: om den vises, og hvilken harness, modell og innsats den bruker.",
+          "enabled": "Vis Hjem-raden og Chief-innganger. Når false, skjules Hjem-raden, snarveien Åpne Chief, menyelementet og kommandopalettens oppføringer.",
+          "harness": "Agent-harness som Chief kjører på: claude (Claude Code) eller codex (Codex).",
+          "model": "Modell som sendes til harnessen. La stå tom for å bruke harnessens standard.",
+          "effort": "Resonneringsinnsats som sendes til harnessen, for eksempel low, medium eller high. La stå tom for å bruke harnessens standard."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3441,6 +3448,7 @@
     "unsupportedParams": "Denne koblingen inneholder parametere som ikke støttes cmux vil avvise: {params}",
     "conflictingParams": "Denne koblingen inneholder parametere som ikke kan brukes sammen: {params}",
     "invalidParams": "Denne koblingen inneholder ugyldige parameterverdier: {params}",
+    "ignoredParams": "cmux ignorerer parametere den ikke bruker: {params}. Økten åpnes likevel.",
     "fixParams": "Fiks URL-parametrene, og last deretter inn denne siden på nytt.",
     "examplePrefix": "Se en",
     "exampleLink": "eksempel lenke",
@@ -3464,6 +3472,16 @@
       "title": "Åpne regler i cmux",
       "intro": "Denne siden åpner regler i det gjeldende cmux-arbeidsområdet.",
       "fallback": "cmux viser reglene først og spør før de limes inn i gjeldende arbeidsområde. Hvis cmux ikke åpnes, installer cmux og klikk Åpne i cmux igjen."
+    },
+    "agent": {
+      "metaTitle": "Åpne agentøkt i cmux",
+      "metaDescription": "Åpne en cmux-dyplenke til en agentøkt fra nettet, med installasjonsalternativ når cmux ikke er tilgjengelig.",
+      "title": "Åpne agentøkt",
+      "intro": "Denne lenken åpner agentens økt i cmux hvis denne Macen allerede kan nå den. Lenken i seg selv gir ingen tilgang.",
+      "fallback": "Hvis cmux ikke åpnes, installer cmux og klikk på Åpne i cmux igjen. cmux åpner bare økten hvis denne Macen allerede kan nå den.",
+      "nameLabel": "Navn: {value}",
+      "hostLabel": "Vert: {value}",
+      "harnessLabel": "Harness: {value}"
     }
   },
   "download": {

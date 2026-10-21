@@ -2265,6 +2265,13 @@
               "enabled": "Lorsqu’un espace de travail tmux distant est sélectionné, « Nouvel espace de travail » démarre une session tmux sur son hôte."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, l’agent d’accueil : s’il est affiché et quel environnement, modèle et effort il utilise.",
+          "enabled": "Affiche la ligne Accueil et les points d’entrée de Chief. Si false, la ligne Accueil, le raccourci Ouvrir Chief, l’élément de menu et les entrées de la palette de commandes sont masqués.",
+          "harness": "Environnement d’agent sur lequel Chief s’exécute : claude (Claude Code) ou codex (Codex).",
+          "model": "Modèle transmis à l’environnement. Laissez vide pour utiliser la valeur par défaut de l’environnement.",
+          "effort": "Effort de raisonnement transmis à l’environnement, par exemple low, medium ou high. Laissez vide pour utiliser la valeur par défaut de l’environnement."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3446,6 +3453,7 @@
     "unsupportedParams": "Ce lien inclut des paramètres non pris en charge que cmux rejettera : {params}",
     "conflictingParams": "Ce lien inclut des paramètres qui ne peuvent pas être utilisés ensemble : {params}",
     "invalidParams": "Ce lien inclut des valeurs de paramètres non valides : {params}",
+    "ignoredParams": "cmux ignore les paramètres qu'il n'utilise pas : {params}. La session s'ouvre quand même.",
     "fixParams": "Corrigez les paramètres URL, puis rechargez cette page.",
     "examplePrefix": "Voir un",
     "exampleLink": "exemple de lien",
@@ -3469,6 +3477,16 @@
       "title": "Règles ouvertes dans cmux",
       "intro": "Cette page ouvre les règles dans l'espace de travail cmux actuel.",
       "fallback": "cmux affiche d'abord les règles et demande avant de les coller dans l'espace de travail actuel. Si cmux ne s'ouvre pas, installez cmux et cliquez à nouveau sur Ouvrir dans cmux."
+    },
+    "agent": {
+      "metaTitle": "Ouvrir une session d'agent dans cmux",
+      "metaDescription": "Ouvrez depuis le web un lien profond cmux vers une session d'agent, avec une solution d'installation si cmux n'est pas disponible.",
+      "title": "Ouvrir une session d'agent",
+      "intro": "Ce lien ouvre la session de l'agent dans cmux si ce Mac peut déjà y accéder. Le lien lui-même n'accorde aucun accès.",
+      "fallback": "Si cmux ne s'ouvre pas, installez cmux et cliquez à nouveau sur Ouvrir dans cmux. cmux n'ouvre la session que si ce Mac peut déjà y accéder.",
+      "nameLabel": "Nom : {value}",
+      "hostLabel": "Hôte : {value}",
+      "harnessLabel": "Harnais : {value}"
     }
   },
   "download": {

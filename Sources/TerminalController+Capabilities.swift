@@ -326,6 +326,13 @@ extension TerminalController {
             "agent.message.mark_read",
             "agent.message.poll",
             "agent.message.settings",
+            "chief.open",
+            "chief.send",
+            "chief.status",
+            "chief.conversations",
+            "chief.read",
+            "chief.mark_read",
+            "chief.stop",
             "debug.terminals",
             "surface.send_text",
             "surface.send_key",
@@ -337,6 +344,7 @@ extension TerminalController {
             "surface.ports_kick",
             "surface.read_text",
             "surface.input_state",
+            "surface.wait_text_change",
             "surface.read_selection",
             "surface.clear_history",
             "surface.trigger_flash",
@@ -489,8 +497,14 @@ extension TerminalController {
         }
         methods.append(contentsOf: ControlCommandExecutionPolicy.simulatorMethods)
 #if DEBUG
+        methods.append("chief.approve")
+        methods.append("chief.answer")
+        methods.append("chief.debug")
         methods.append(contentsOf: Self.v2DebugMethodNames)
 #endif
+        if !ChiefSettings.isEnabled {
+            methods.removeAll { $0.hasPrefix("chief.") }
+        }
 
         return [
             "protocol": "cmux-socket",

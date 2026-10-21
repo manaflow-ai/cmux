@@ -2265,6 +2265,13 @@
               "enabled": "Quando è selezionato uno spazio di lavoro tmux remoto, «Nuovo spazio di lavoro» avvia una sessione tmux sull’host di quello spazio."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, l’agente Home: se viene mostrato e quale harness, modello e sforzo usa.",
+          "enabled": "Mostra la riga Home e i punti di accesso a Chief. Se false, la riga Home, la scorciatoia Apri Chief, la voce di menu e le voci della palette comandi vengono nascoste.",
+          "harness": "Harness dell’agente su cui gira Chief: claude (Claude Code) o codex (Codex).",
+          "model": "Modello passato all’harness. Lascia vuoto per usare il predefinito dell’harness.",
+          "effort": "Sforzo di ragionamento passato all’harness, ad esempio low, medium o high. Lascia vuoto per usare il predefinito dell’harness."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3444,6 +3451,7 @@
     "unsupportedParams": "Questo collegamento include parametri non supportati che cmux rifiuterà: {params}",
     "conflictingParams": "Questo collegamento include parametri che non possono essere utilizzati insieme: {params}",
     "invalidParams": "Questo collegamento include valori di parametri non validi: {params}",
+    "ignoredParams": "cmux ignora i parametri che non utilizza: {params}. La sessione si apre comunque.",
     "fixParams": "Correggi i parametri URL, quindi ricarica questa pagina.",
     "examplePrefix": "Vedi un",
     "exampleLink": "collegamento di esempio",
@@ -3467,6 +3475,16 @@
       "title": "Apri le regole in cmux",
       "intro": "Questa pagina apre le regole nell'area di lavoro cmux corrente.",
       "fallback": "cmux mostra prima le regole e chiede prima di incollarle nell'area di lavoro corrente. Se cmux non si apre, installa cmux e fai nuovamente clic su Apri in cmux."
+    },
+    "agent": {
+      "metaTitle": "Apri sessione agente in cmux",
+      "metaDescription": "Apri dal web un deeplink cmux a una sessione agente, con installazione alternativa se cmux non è disponibile.",
+      "title": "Apri sessione agente",
+      "intro": "Questo link apre la sessione dell'agente in cmux se questo Mac può già raggiungerla. Il link di per sé non concede alcun accesso.",
+      "fallback": "Se cmux non si apre, installa cmux e fai di nuovo clic su Apri in cmux. cmux apre la sessione solo se questo Mac può già raggiungerla.",
+      "nameLabel": "Nome: {value}",
+      "hostLabel": "Host: {value}",
+      "harnessLabel": "Harness: {value}"
     }
   },
   "download": {

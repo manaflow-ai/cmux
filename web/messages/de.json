@@ -2265,6 +2265,13 @@
               "enabled": "Wenn ein Remote-tmux-Arbeitsbereich ausgewählt ist, startet „Neuer Arbeitsbereich“ eine tmux-Sitzung auf dem Host dieses Arbeitsbereichs."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, der Home-Agent: ob er angezeigt wird und welches Harness, Modell und welchen Aufwand er verwendet.",
+          "enabled": "Zeigt die Home-Zeile und die Chief-Einstiegspunkte. Bei false werden die Home-Zeile, der Kurzbefehl „Chief öffnen“, der Menüeintrag und die Befehlspaletten-Einträge ausgeblendet.",
+          "harness": "Agent-Harness, auf dem Chief läuft: claude (Claude Code) oder codex (Codex).",
+          "model": "An das Harness übergebenes Modell. Leer lassen, um den Standard des Harness zu verwenden.",
+          "effort": "An das Harness übergebener Denkaufwand, z. B. low, medium oder high. Leer lassen, um den Standard des Harness zu verwenden."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3444,6 +3451,7 @@
     "unsupportedParams": "Dieser Link enthält nicht unterstützte Parameter, die cmux ablehnt: {params}",
     "conflictingParams": "Dieser Link enthält Parameter, die nicht zusammen verwendet werden können: {params}",
     "invalidParams": "Dieser Link enthält ungültige Parameterwerte: {params}",
+    "ignoredParams": "cmux ignoriert Parameter, die es nicht verwendet: {params}. Die Sitzung wird dennoch geöffnet.",
     "fixParams": "Korrigieren Sie die URL-Parameter und laden Sie dann diese Seite neu.",
     "examplePrefix": "Siehe eine",
     "exampleLink": "Beispiellink",
@@ -3467,6 +3475,16 @@
       "title": "Öffnen Sie Regeln in cmux",
       "intro": "Auf dieser Seite werden Regeln im aktuellen cmux-Arbeitsbereich geöffnet.",
       "fallback": "cmux zeigt die Regeln zuerst an und fragt nach, bevor sie in den aktuellen Arbeitsbereich eingefügt werden. Wenn cmux nicht geöffnet wird, installieren Sie cmux und klicken Sie erneut auf „In cmux öffnen“."
+    },
+    "agent": {
+      "metaTitle": "Agent-Sitzung in cmux öffnen",
+      "metaDescription": "Öffne einen cmux-Deeplink zu einer Agent-Sitzung im Web, mit Installationshinweis, falls cmux nicht verfügbar ist.",
+      "title": "Agent-Sitzung öffnen",
+      "intro": "Dieser Link öffnet die Sitzung des Agents in cmux, sofern dieser Mac sie bereits erreichen kann. Der Link selbst gewährt keinen Zugriff.",
+      "fallback": "Wenn cmux nicht geöffnet wird, installiere cmux und klicke erneut auf In cmux öffnen. cmux öffnet die Sitzung nur, wenn dieser Mac sie bereits erreichen kann.",
+      "nameLabel": "Name: {value}",
+      "hostLabel": "Host: {value}",
+      "harnessLabel": "Harness: {value}"
     }
   },
   "download": {

@@ -2265,6 +2265,13 @@
               "enabled": "Når et eksternt tmux-arbejdsområde er valgt, starter “Nyt arbejdsområde” en tmux-session på arbejdsområdets vært."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, Hjem-agenten: om den vises, og hvilken harness, model og indsats den bruger.",
+          "enabled": "Vis Hjem-rækken og Chief-indgange. Når false, skjules Hjem-rækken, genvejen Åbn Chief, menupunktet og kommandopalettens poster.",
+          "harness": "Agent-harness, som Chief kører på: claude (Claude Code) eller codex (Codex).",
+          "model": "Model, der sendes til harnessen. Lad stå tom for at bruge harnessens standard.",
+          "effort": "Ræsonneringsindsats, der sendes til harnessen, f.eks. low, medium eller high. Lad stå tom for at bruge harnessens standard."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3441,6 +3448,7 @@
     "unsupportedParams": "Dette link indeholder ikke-understøttede parametre, cmux vil afvise: {params}",
     "conflictingParams": "Dette link indeholder parametre, der ikke kan bruges sammen: {params}",
     "invalidParams": "Dette link indeholder ugyldige parameterværdier: {params}",
+    "ignoredParams": "cmux ignorerer parametre, som den ikke bruger: {params}. Sessionen åbnes alligevel.",
     "fixParams": "Ret URL-parametrene, og genindlæs derefter denne side.",
     "examplePrefix": "Se en",
     "exampleLink": "eksempel link",
@@ -3464,6 +3472,16 @@
       "title": "Åbn regler i cmux",
       "intro": "Denne side åbner regler i det aktuelle cmux-arbejdsområde.",
       "fallback": "cmux viser først reglerne og spørger, før de indsættes i det aktuelle arbejdsområde. Hvis cmux ikke åbner, skal du installere cmux og klikke på Åbn i cmux igen."
+    },
+    "agent": {
+      "metaTitle": "Åbn agentsession i cmux",
+      "metaDescription": "Åbn et cmux-deeplink til en agentsession fra nettet, med installationsmulighed, når cmux ikke er tilgængelig.",
+      "title": "Åbn agentsession",
+      "intro": "Dette link åbner agentens session i cmux, hvis denne Mac allerede kan nå den. Selve linket giver ingen adgang.",
+      "fallback": "Hvis cmux ikke åbner, så installer cmux og klik på Åbn i cmux igen. cmux åbner kun sessionen, hvis denne Mac allerede kan nå den.",
+      "nameLabel": "Navn: {value}",
+      "hostLabel": "Vært: {value}",
+      "harnessLabel": "Harness: {value}"
     }
   },
   "download": {
