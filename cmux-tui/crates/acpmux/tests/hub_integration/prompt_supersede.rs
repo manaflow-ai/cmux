@@ -124,7 +124,9 @@ impl Client {
         let prompt_id = params["_meta"]["acpmux"]["promptId"].clone();
         let id = self.send("session/prompt", params).await;
         let accepted = self
-            .until(|v| v["method"] == "_acpmux/prompt_accepted" && v["params"]["promptId"] == prompt_id)
+            .until(|v| {
+                v["method"] == "_acpmux/prompt_accepted" && v["params"]["promptId"] == prompt_id
+            })
             .await;
         (id, accepted["params"].clone())
     }
@@ -160,7 +162,11 @@ async fn a_queued_prompt_under_the_same_key_is_replaced_and_never_runs() {
     assert_eq!(second["replacedPromptIds"], json!(["p-old"]), "{second}");
     // The replaced prompt's `session/prompt` answers at once: no turn ran.
     let answered = c.reply_to(old).await;
-    assert_eq!(answered.pointer("/result/_meta/acpmux/withdrawn"), Some(&json!(true)), "{answered}");
+    assert_eq!(
+        answered.pointer("/result/_meta/acpmux/withdrawn"),
+        Some(&json!(true)),
+        "{answered}"
+    );
     let removed = c.records(&session, "queue_removed").await;
     let removed = removed.iter().find(|m| m["promptId"] == "p-old").expect("its queue_removed");
     assert_eq!(removed["reason"], "superseded", "{removed}");

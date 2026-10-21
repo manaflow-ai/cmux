@@ -60,7 +60,11 @@ impl Hub {
             .collect();
         ids.into_iter()
             .filter(|id| {
-                self.remove_queued_with(session, id, json!({"reason": "superseded", "supersededBy": by}))
+                self.remove_queued_with(
+                    session,
+                    id,
+                    json!({"reason": "superseded", "supersededBy": by}),
+                )
             })
             .collect()
     }

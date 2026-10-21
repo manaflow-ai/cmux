@@ -42,9 +42,12 @@ impl PromptId {
     pub(crate) fn new(given: Option<String>) -> Self {
         match given {
             Some(id) => Self { id, resend: true, from_agent: None, supersede: None },
-            None => {
-                Self { id: uuid::Uuid::now_v7().to_string(), resend: false, from_agent: None, supersede: None }
-            }
+            None => Self {
+                id: uuid::Uuid::now_v7().to_string(),
+                resend: false,
+                from_agent: None,
+                supersede: None,
+            },
         }
     }
 
@@ -921,7 +924,8 @@ mod prompt_tests {
         assert_eq!(first["queued"], true, "{first}");
         assert_eq!(sent_lines(&first, true), ["queued", "replaced 0 queued"]);
         let new = keyed("cause-1b");
-        let second = queue_prompt(client.clone(), &id, "correction", false, None, &new).await.unwrap();
+        let second =
+            queue_prompt(client.clone(), &id, "correction", false, None, &new).await.unwrap();
         assert_eq!(second["replaced"], 1, "{second}");
         assert_eq!(second["replacedPromptIds"], json!([old.id]), "{second}");
         assert_eq!(sent_lines(&second, true), ["queued", "replaced 1 queued"]);
@@ -965,8 +969,7 @@ mod prompt_tests {
         let session = hub.resolve(&id).unwrap();
         assert!(session.turn().is_some(), "the turn should still be running");
         // The same id again is answered by the first run, not a second turn.
-        let again =
-            PromptId { resend: true, ..prompt.clone() };
+        let again = PromptId { resend: true, ..prompt.clone() };
         let dup = queue_prompt(client.clone(), &id, "slow", false, None, &again).await.unwrap();
         assert_eq!(dup["duplicate"], true);
         let user_messages =
