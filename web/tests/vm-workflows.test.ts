@@ -9465,6 +9465,9 @@ describe("Cloud snapshot idempotency", () => {
   function snapshotRequestRepo(source: CloudVmRow, usageEvents: RecordedUsageEvent[], requests: Map<string, SnapshotRequest>): VmRepositoryShape {
     return {
       ...testWorkflowRepo({ vm: source, usageEvents }),
+      hasOwnedSnapshot: ({ snapshotId }) => Effect.succeed(usageEvents.some((event) =>
+        event.eventType === "vm.snapshot.created" && event.metadata?.snapshotId === snapshotId
+      )),
       beginSnapshotRequest: ({ vmId, idempotencyKey, name }) => Effect.sync(() => {
         const key = `${vmId}/${idempotencyKey}`;
         const existing = requests.get(key);
@@ -9640,8 +9643,8 @@ describe("Cloud snapshot request ledger (Postgres)", () => {
       returning id
     `;
     const repo = vmRepositoryLiveShape;
-    const begin = (key: string, name: string | null, staleBefore = new Date(0), maxSnapshots = 10) =>
-      Effect.runPromise(repo.beginSnapshotRequest!({ vmId: vm.id, idempotencyKey: key, name, staleBefore, maxSnapshots }));
+    const begin = (key: string, name: string | null, maxSnapshots = 10) =>
+      Effect.runPromise(repo.beginSnapshotRequest!({ vmId: vm.id, idempotencyKey: key, name, maxSnapshots }));
 
     expect(await begin("k1", "nightly")).toEqual({ kind: "started" });
     expect(await begin("k1", "nightly")).toEqual({ kind: "in_progress" });
@@ -9658,8 +9661,8 @@ describe("Cloud snapshot request ledger (Postgres)", () => {
     // An old pending attempt can represent a provider success whose response
     // was lost, so time alone never makes the same key safe to replay.
     await sql`update cloud_vm_snapshot_requests set updated_at = now() - interval '20 minutes' where vm_id = ${vm.id}`;
-    expect(await begin("k2", null, new Date(Date.now() + 60_000))).toEqual({ kind: "in_progress" });
-    expect(await begin("k2", null, new Date(0))).toEqual({ kind: "in_progress" });
+    expect(await begin("k2", null)).toEqual({ kind: "in_progress" });
+    expect(await begin("k2", null)).toEqual({ kind: "in_progress" });
 
     // Deleting the machine row deletes its requests.
     await sql`delete from cloud_vms where id = ${vm.id}`;
@@ -9682,11 +9685,10 @@ describe("Cloud snapshot request ledger (Postgres)", () => {
       `;
     }
     const repo = vmRepositoryLiveShape;
-    const claim = (key: string, staleBefore = new Date(0)) => Effect.runPromise(repo.beginSnapshotRequest!({
+    const claim = (key: string) => Effect.runPromise(repo.beginSnapshotRequest!({
       vmId: vm.id,
       idempotencyKey: key,
       name: null,
-      staleBefore,
       maxSnapshots: 10,
     }));
 
@@ -9703,7 +9705,7 @@ describe("Cloud snapshot request ledger (Postgres)", () => {
     expect(await claim(refusedKey)).toEqual({ kind: "quota_exceeded", limit: 10 });
 
     await sql`update cloud_vm_snapshot_requests set updated_at = now() - interval '20 minutes' where vm_id = ${vm.id}`;
-    expect(await claim("after-stale", new Date(Date.now() - 15 * 60 * 1000))).toEqual({ kind: "quota_exceeded", limit: 10 });
+    expect(await claim("after-stale")).toEqual({ kind: "quota_exceeded", limit: 10 });
 
     await sql`delete from cloud_vm_snapshot_requests where vm_id = ${vm.id}`;
     await sql`
@@ -9734,7 +9736,6 @@ describe("Cloud snapshot request ledger (Postgres)", () => {
       vmId: vm.id,
       idempotencyKey: "deduped-second",
       name: null,
-      staleBefore: new Date(0),
       maxSnapshots: 2,
     }));
     expect(second).toEqual({ kind: "started" });
