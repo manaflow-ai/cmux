@@ -23,8 +23,10 @@ public final class ThemedMenuRowView: NSView {
     private var shownAt: TimeInterval = 0
     /// Where the pointer was when the menu opened: once it moved, a release is a choice.
     private var openedAt: NSPoint = .zero
-    /// The item `activate` runs once the menu's tracking loop has ended.
+    /// The item `activate` runs once the menu's tracking loop has ended, and its menu: an item
+    /// does not keep its menu, and only AppKit held a right-click menu while it tracked.
     private var pendingItem: NSMenuItem?
+    private var pendingMenu: NSMenu?
 
     init(item: NSMenuItem, scope: ThemeScope, session: ThemedMenuSession) {
         self.scope = scope
@@ -134,11 +136,13 @@ public final class ThemedMenuRowView: NSView {
         root.cancelTracking()
         if menu !== root { menu.cancelTracking() }
         pendingItem = item
+        pendingMenu = menu
         RunLoop.main.perform(#selector(runPendingItem), target: self, argument: nil, order: Self.pendingRunOrder, modes: [.default])
     }
 
     @objc private func runPendingItem() {
-        guard let item = pendingItem, let menu = item.menu else { return }
+        defer { pendingMenu = nil }
+        guard let item = pendingItem, let menu = item.menu ?? pendingMenu else { return }
         pendingItem = nil
         menu.performActionForItem(at: menu.index(of: item))
     }
