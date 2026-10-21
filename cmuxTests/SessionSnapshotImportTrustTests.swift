@@ -889,6 +889,53 @@ struct SessionSnapshotImportTrustTests {
         #expect(Self.layoutPanelIDs(layout) == [panel.id])
     }
 
+    @Test("trusted restore bounds a skewed deep layout without overflowing the stack")
+    func trustedRestoreBoundsSkewedDeepLayout() throws {
+        let panel = Self.panel(terminal: SessionTerminalPanelSnapshot())
+        let empty = SessionWorkspaceLayoutSnapshot.pane(
+            SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
+        )
+        var layout = SessionWorkspaceLayoutSnapshot.pane(
+            SessionPaneLayoutSnapshot(panelIds: [panel.id], selectedPanelId: panel.id)
+        )
+        // A skewed tree is the shape that defeats a depth guard implemented
+        // with recursive descent: it reaches the guard only after consuming
+        // one native stack frame per level.
+        for _ in 0..<10_000 {
+            layout = .split(SessionSplitLayoutSnapshot(
+                orientation: .horizontal,
+                dividerPosition: 0.5,
+                first: layout,
+                second: empty
+            ))
+        }
+        var workspace = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "Deep skew",
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp/project",
+            focusedPanelId: panel.id,
+            layout: layout,
+            panels: [panel],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        let original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+
+        let (restored, _) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+        let restoredLayout = try #require(
+            restored.windows.first?.tabManager.workspaces.first?.layout
+        )
+        #expect(Self.layoutNodeCount(restoredLayout) <= SessionPersistencePolicy.maxLayoutNodes)
+        #expect(Self.layoutPanelIDs(restoredLayout) == [panel.id])
+    }
+
     // MARK: - Fixtures
 
     private static func makeTempDirectory() throws -> URL {
