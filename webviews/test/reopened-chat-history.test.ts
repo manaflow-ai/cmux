@@ -77,6 +77,11 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
 
   /// acpmux's `events_page` (hub/paging.rs): the newest records before `beforeSeq` that match
   /// `kinds`, ending before their JSON passes `maxBytes`, and always at least one record.
+  ///
+  /// Only that backwards page, which is every read a cold open makes. acpmux also serves a
+  /// forward page (`afterSeq`, which `limit: 0` or no `newest` asks for, for a reconnect's missed
+  /// events); this answers the newest page for one of those, so extend it before a test here
+  /// reconnects or resumes.
   const newestPage = (records: Rec[], beforeSeq: number, limit: number, maxBytes: number | undefined) => {
     const events: Rec[] = [];
     let bytes = 0;
@@ -140,7 +145,9 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
     family: "claude",
     model: "claude-opus",
     status: "idle",
-    turnCount: 14,
+    // The chat's own turns. Load-bearing only in that a chat of none is a new chat, which draws
+    // the hero instead of a transcript (`isNewChat`).
+    turnCount: records().filter((record) => record.kind === "user_message").length,
     updatedAt: START,
     currentModeId: "default",
     modes: {
@@ -150,6 +157,17 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
   });
 
   let olderReads = 0;
+  /// The byte caps the pane asked for, which is the whole of what bounds a page: acpmux caps one
+  /// only when the client says to (`max_bytes`, paging.rs). A pane that stopped asking would be
+  /// served every record at once, and this fixture would stop standing for a real chat, so what it
+  /// asked for is checked below instead of assumed.
+  const asked = new Set<number>();
+  const bytes = (params: Record<string, any>): number | undefined => {
+    if (params.maxBytes === undefined) return undefined;
+    const max = Number(params.maxBytes);
+    asked.add(max);
+    return max;
+  };
   const answer = (method: string, params: Record<string, any>): unknown => {
     const all = records();
     switch (method) {
@@ -158,18 +176,25 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
       case "_acpmux/watch":
         return { sessions: [summary()] };
       case "_acpmux/attach": {
-        const page = newestPage(all, Number.POSITIVE_INFINITY, Number(params.limit ?? 400), OPEN_BYTES);
+        // The cap is the client's to set, as it is in acpmux (`max_bytes`): what the pane asks for
+        // is what it gets, so a pane that stopped asking would be seen here.
+        const page = newestPage(all, Number.POSITIVE_INFINITY, Number(params.limit ?? 400), bytes(params));
         return { session: summary(), lastSeq: all.length, events: page.events, hasMore: page.hasMore };
       }
       case "_acpmux/events": {
         const before = params.beforeSeq === undefined ? Number.POSITIVE_INFINITY : Number(params.beforeSeq);
-        if (params.beforeSeq !== undefined) olderReads += 1;
         // The pane asks for `transcript` when paging older history, and by kind for the rest.
         const kinds: string[] | undefined = Array.isArray(params.kinds) ? params.kinds.map(String) : undefined;
+        // Only the history reads: the pane's own one-record probes before its page (the chat's
+        // slash commands, `fetchCommands`) carry a `beforeSeq` too and are not history.
+        if (params.beforeSeq !== undefined && kinds?.includes("transcript")) olderReads += 1;
+        // `transcript` is every record of these chats: each `mux` kind here is in acpmux's
+        // TRANSCRIPT_MUX_KINDS, and each `in` record carries a `session/update` method, which is
+        // what `is_transcript` asks of one (paging.rs). So the filter has nothing to drop.
         const wanted = kinds?.includes("transcript")
           ? all
           : all.filter((record) => (kinds ? kinds.includes(record.kind) : true));
-        const page = newestPage(wanted, before, Number(params.limit ?? 400), OLDER_BYTES);
+        const page = newestPage(wanted, before, Number(params.limit ?? 400), bytes(params));
         return { events: page.events, hasMore: page.hasMore, lastSeq: all.length };
       }
       default:
@@ -236,15 +261,32 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
     const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
+    const count = () => scroller.querySelectorAll(".acpmux-row").length;
+    // A chat that has not drawn yet is not a settled chat. The dock and the scroller mount on the
+    // App's first render, well before the attach reply, so frames measured in between hold still
+    // at nothing — and would report the very numbers this test calls the bug (no rows, a band, a
+    // transcript that does not scroll). The chat is drawn first, and only then may it settle.
+    let passes = 0;
+    while (count() === 0) {
+      if (passes > 900) throw new Error("the chat drew no row");
+      passes += 1;
+      await frame();
+    }
     // Settled: the extent and the row count stop changing for a few frames in a row (older pages
     // keep landing for a while after the first paint).
     let was = "";
-    for (let still = 0, passes = 0; still < 8 && passes < 600; passes += 1) {
+    for (let still = 0; still < 8; passes += 1) {
+      if (passes > 1800) throw new Error(`the chat never settled: ${was}`);
       await frame();
-      const now = `${scroller.scrollHeight}|${scroller.querySelectorAll(".acpmux-row").length}|${scroller.scrollTop}`;
+      const now = `${scroller.scrollHeight}|${count()}|${scroller.scrollTop}`;
       still = now === was ? still + 1 : 0;
       was = now;
     }
+    // The band is only the transcript's own to answer for while the composer floats over it
+    // (`data-dock`); on the hero, a handoff review, the diff or the inspector the stack is in flow
+    // and `.acpmux-dock` is `display: contents`, whose rect is all zeroes (bottomStack.css).
+    const mode = document.querySelector<HTMLElement>(".acpmux-main")?.dataset.dock;
+    if (mode !== "float") throw new Error(`the stage is not the transcript: data-dock=${mode}`);
     const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
     const last = rows.at(-1);
     const view = scroller.getBoundingClientRect();
@@ -266,31 +308,40 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
     let oldest = "";
-    for (let pass = 0; pass < 400; pass += 1) {
+    let still = 0;
+    let pass = 0;
+    for (; still < 8; pass += 1) {
+      if (pass > 400) throw new Error(`the top never settled: ${oldest}`);
       scroller.scrollTop = 0;
       await frame();
       await frame();
       const first = scroller.querySelector<HTMLElement>(".acpmux-row");
       const text = (first?.innerText ?? "").replace(/\s+/g, " ").slice(0, 40);
-      // At the top with no newer first row for a while: the chat has nothing older left.
-      if (text === oldest && pass > 12 && scroller.scrollTop <= 1) break;
+      // At the top with the same first row for a few passes in a row: nothing older is left. The
+      // count matches `settled()`, because the same thing is being waited for — the pane asking
+      // for older pages and drawing them (`OLDER_PAGES_PER_ASK` of them per ask).
+      still = text === oldest && pass > 12 && scroller.scrollTop <= 1 ? still + 1 : 0;
       oldest = text;
     }
     const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
     return {
       rows: rows.length,
       firstRowText: (rows[0]?.innerText ?? "").slice(0, 80).replace(/\s+/g, " "),
-      reachedFirstTurn: document.body.innerText.includes("Lane report 1:"),
+      // The transcript's own text: a first turn echoed anywhere else on the page (a summary card,
+      // a queue preview) is not the row this asks about.
+      reachedFirstTurn: scroller.innerText.includes("Lane report 1:"),
     };
   };
 
   const openChat = async (name: ChatName) => {
     chat = name;
     olderReads = 0;
+    asked.clear();
     const page = await browser!.newPage({ viewport: { width: 1000, height: 820 } });
     await page.goto(url());
-    // The pane draws the chat (its loading state is over) before anything is measured.
-    await page.waitForFunction(() => document.querySelector(".acpmux-dock") !== null);
+    // The pane has drawn the chat, not just its frame, before anything is measured: a row of the
+    // transcript, which only the attach reply can put there.
+    await page.locator(".acpmux-row").first().waitFor({ timeout: 25_000 });
     return page;
   };
 
@@ -305,12 +356,17 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
       console.log(`reopened-chat-history ${name}: settled ${JSON.stringify(state)}`);
       console.log(`reopened-chat-history ${name}: top ${JSON.stringify(reached)}, older reads ${olderReads}`);
 
+      // What bounded the pages above was the pane's own asking, as it is with acpmux.
+      expect([...asked].sort((a, b) => a - b)).toEqual([OPEN_BYTES, OLDER_BYTES]);
       // Leo: "only the last messages" — the chat's own turns are drawn, not an empty transcript.
       expect(state.rows).toBeGreaterThan(0);
       // Leo: "a big blank gap between the transcript and the composer".
       expect(state.lastLine).not.toBeNull();
       expect(state.lastLine!).toBeLessThan(LAST_LINE_MAX);
-      expect(state.lastLine!).toBeGreaterThan(-1);
+      // Not buried under the composer either. Loose by a few pixels: the dock floats over the
+      // transcript's foot and the transcript reserves exactly its height, so the last row's bottom
+      // lands on the dock's top give or take subpixel residue, which moves with the font metrics.
+      expect(state.lastLine!).toBeGreaterThan(-8);
       // Pinned to the bottom: the newest message is what a reopened chat opens on.
       expect(state.atBottom).toBeLessThan(2);
       // Leo: "no older history, and he could not scroll up" — the chat scrolls, and scrolling up
