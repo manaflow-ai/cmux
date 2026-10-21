@@ -3,8 +3,9 @@
 //! monitorable and I can jump in deeper using cmux ui"). A workspace named
 //! after the subagent's task, whose selected tab is the agent chat of the
 //! SAME acpmux session the Chief drives: the user watches its chat and tool
-//! calls live and can write to it. It is named `aN · Short title` and goes
-//! into a sidebar group named by its topic. It stays after the subagent
+//! calls live and can write to it. It is named after its task's short title,
+//! like any workspace (Leo 2026-10-21: no `aN · ` id in the sidebar; the id is
+//! the Chief's own), and goes into a sidebar group named by its topic. It stays after the subagent
 //! finishes with its name untouched (Lawrence 2026-10-19: "I don't like the
 //! checkmark"): the chat tab's own idle state shows it is done, and a name
 //! the user gave it is never overwritten. Closing it only detaches the tab.
@@ -23,7 +24,7 @@ use serde_json::{Value, json};
 
 /// The app action that opens a session's chat in a new workspace.
 pub const OPEN_ACTION: &str = "agent.openSessionWorkspace";
-/// Characters of a workspace title, after the `aN · ` prefix.
+/// Characters of a workspace title.
 const TITLE_CHARS: usize = 32;
 
 /// Where subagents' workspaces are made.
@@ -77,11 +78,6 @@ impl WorkspaceRef {
             self.session, self.id
         )
     }
-}
-
-/// A subagent's workspace name: its id and a short title of its task.
-pub fn name(id: &str, task: &str) -> String {
-    format!("{id} · {}", title(task))
 }
 
 /// The value of a leading `key: value` header line of `task` (`Title:`,
