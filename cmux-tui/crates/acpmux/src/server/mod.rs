@@ -989,6 +989,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 mod agent_messages;
+mod app_reply;
 mod change_kind;
 mod chats;
 pub mod conn_auth;
