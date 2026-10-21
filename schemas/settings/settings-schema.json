@@ -17,7 +17,8 @@
               "window.titlebar",
               "window.titlebarButtons",
               "app.globalHotKey",
-              "app.startAgentGlobalHotKey"
+              "app.startAgentGlobalHotKey",
+              "app.hideDockIconWithoutWindows"
             ],
             "title" : {
               "key" : "settings.group.window",
@@ -775,7 +776,7 @@
             "key" : "settings.group.sessions",
             "rows" : [
               "sessions.keepAwake",
-              "sessions.allowFullAccess"
+              "sessions.resumeAgents"
             ],
             "title" : {
               "key" : "settings.group.sessions",
@@ -1923,6 +1924,57 @@
       "title" : {
         "key" : "settings.app.startAgentGlobalHotKey",
         "text" : "Start Agent from Any App"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.hideDockIconWithoutWindows.help",
+        "text" : "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.hideDockIconWithoutWindows",
+      "keywords" : [
+        "dock",
+        "icon",
+        "menu bar",
+        "background",
+        "app switcher",
+        "command tab",
+        "accessory",
+        "windows"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "hideDockIconWithoutWindows"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.app.hideDockIconWithoutWindows",
+        "text" : "Hide Dock Icon When No Windows Are Open"
       },
       "validation" : "portable"
     },
@@ -4148,7 +4200,7 @@
         true,
         false
       ],
-      "agent_refusal" : "destructive",
+      "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -4160,25 +4212,26 @@
         "text" : "Agent Sessions"
       },
       "help" : {
-        "key" : "settings.sessions.allowFullAccess.help",
-        "text" : "Off, cmux won't switch an agent into a mode that skips approvals."
+        "key" : "settings.sessions.resumeAgents.help",
+        "text" : "Terminal agents reopen their session after a crash or restart."
       },
       "kept_on_reset_all" : false,
-      "key" : "sessions.allowFullAccess",
+      "key" : "sessions.resumeAgents",
       "keywords" : [
-        "bypass",
-        "permissions",
-        "yolo",
-        "full access",
-        "dangerous",
-        "approve",
-        "safety"
+        "resume",
+        "restore",
+        "restart",
+        "reboot",
+        "crash",
+        "claude",
+        "codex",
+        "agents"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
       "path" : [
         "sessions",
-        "allowFullAccess"
+        "resumeAgents"
       ],
       "refuses" : [
         "true",
@@ -4188,8 +4241,8 @@
       "section" : "general",
       "summary" : null,
       "title" : {
-        "key" : "settings.sessions.allowFullAccess",
-        "text" : "Allow Full-Access Modes"
+        "key" : "settings.sessions.resumeAgents",
+        "text" : "Resume Agents After Restart"
       },
       "validation" : "portable"
     },
@@ -5379,7 +5432,7 @@
       },
       "help" : {
         "key" : "settings.layout.linkPlacement.help",
-        "text" : "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane."
+        "text" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."
       },
       "kept_on_reset_all" : false,
       "key" : "layout.linkPlacement",
