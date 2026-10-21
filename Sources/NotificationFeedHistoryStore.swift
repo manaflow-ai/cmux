@@ -1,3 +1,4 @@
+import CmuxNotifications
 import Foundation
 
 /// Main-actor owner of the durable, chronological notification feed.
@@ -203,8 +204,18 @@ final class NotificationFeedHistoryStore {
             persistenceAllowsWrites = false
         }
 
+        // Builds before #12667 recorded cmux's memory-pressure warning here; nothing
+        // owns it any more, so it would sync to paired phones indefinitely (#21847).
+        let retiredNotice = RetiredMemoryPressureNotice()
+        let loadedCount = loadedNotifications.count
+        loadedNotifications.removeAll {
+            $0.surfaceId == nil && $0.panelId == nil &&
+                retiredNotice.matches(title: $0.title, subtitle: $0.subtitle)
+        }
+        let droppedRetiredNotices = loadedNotifications.count != loadedCount
+
         var loadedReadRecordCount = loadedNotifications.lazy.filter(\.isRead).count
-        var replayedChanges = 0
+        var replayedChanges = droppedRetiredNotices ? 1 : 0
         for mutation in pendingMutations {
             let result = Self.apply(
                 mutation,

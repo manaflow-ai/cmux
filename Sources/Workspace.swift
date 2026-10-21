@@ -433,6 +433,8 @@ extension Workspace {
             from: snapshot,
             oldToNewPanelIds: oldToNewPanelIds
         )
+        // Reads the unfiltered list: an unread retired memory-pressure notice is what
+        // set `hasUnreadIndicator`, so it must clear the indicator, not restore it.
         let hasUnreadWorkspaceNotification = snapshot.notifications?.contains { !$0.isRead } == true
         if snapshot.hasUnreadIndicator == true, !hasUnreadWorkspaceNotification {
             AppDelegate.shared?.notificationStore?.restoreUnreadIndicator(forTabId: id)
@@ -2522,9 +2524,9 @@ extension Workspace {
         from snapshot: SessionWorkspaceSnapshot,
         oldToNewPanelIds: [UUID: UUID]
     ) -> [TerminalNotification] {
-        var notifications = (snapshot.notifications ?? []).map {
-            $0.terminalNotification(tabId: id, surfaceId: nil, panelId: nil)
-        }
+        var notifications = (snapshot.notifications ?? [])
+            .filter { !RetiredMemoryPressureNotice().matches(title: $0.title, subtitle: $0.subtitle) }
+            .map { $0.terminalNotification(tabId: id, surfaceId: nil, panelId: nil) }
 
         for panelSnapshot in snapshot.panels {
             guard let newPanelId = oldToNewPanelIds[panelSnapshot.id] else { continue }
