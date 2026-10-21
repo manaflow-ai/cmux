@@ -89,9 +89,14 @@
   padding: 0;
   background: none;
 }
-.acpmux-md ul,
-.acpmux-md ol {
+.acpmux-md ul {
   padding-left: 22px;
+}
+/* A number hangs left of its item, and WebKit puts about 1.2em between it and the text. The
+   field scrolls, so a number past its edge is cut: the composer's plain footer leaves the field
+   7px of its own padding, and 22px here cut the left of "1." (Austin 2026-10-20). 2.5em holds "10.". */
+.acpmux-md ol {
+  padding-left: 2.5em;
 }
 .acpmux-md li > p {
   margin: 0;
