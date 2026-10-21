@@ -950,6 +950,9 @@ export class AcpmuxDirectClient {
   /// What a prompt's sender is told once acpmux took the prompt (its `user_message` echo, or the
   /// reply), by prompt id. A refusal comes before either, so the composer keeps the prompt.
   private promptAccepts = new Map<string, () => void>();
+  /// The prompt ids this client sent: acpmux's refusal of one answers its request (a failed bubble
+  /// with Retry), so its `prompt_refused` record adds no notice (``noticeRefusal``).
+  private readonly sentPrompts = new Set<string>();
   /// Replies in place waiting for acpmux to take them (`_acpmux/prompt_accepted`), by prompt id.
   private replyAccepts = new Map<string, () => void>();
   /// A prompt that was not sent, by its row: what Retry sends again.
@@ -2203,7 +2206,28 @@ export class AcpmuxDirectClient {
     this.lastSeq = event.seq;
     this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
     this.reduce(event);
+    this.noticeRefusal(event);
     this.emitInFrame(event.kind);
+  }
+
+  /// A queued prompt acpmux refused when its turn came, heard live, that this client did not send
+  /// (it waited in a chat moved here, or across a restart: hub/queue.rs `resume_queues`): it left
+  /// the queue, and the chat says why in acpmux's words. Only a live record: one in the history
+  /// a page loads was said when it happened, so opening the chat again does not repeat it.
+  private noticeRefusal(event: EventRecord): void {
+    if (event.kind !== "prompt_refused") return;
+    const msg = (event.msg ?? {}) as { promptId?: unknown; error?: unknown };
+    const promptId = typeof msg.promptId === "string" ? msg.promptId : "";
+    if (!promptId || this.sentPrompts.has(promptId)) return;
+    const reason = typeof msg.error === "string" && msg.error ? msg.error : translate("transport.refused");
+    const id = noticeId("notice-refused");
+    this.rows.set(id, {
+      id,
+      version: 1,
+      at: event.at,
+      kind: "notice",
+      text: translate("queue.promptRefused", { reason }),
+    });
   }
 
   /// Snapshots before the next display frame, once for every event that lands before it.
@@ -3322,6 +3346,7 @@ export class AcpmuxDirectClient {
       release();
     };
     this.promptAccepts.set(promptId, accept);
+    this.sentPrompts.add(promptId);
     // A prompt behind the turn is drawn in the queue now: that row shows the send, so the composer
     // is free for the next prompt without waiting for acpmux (a lagged event stream can lose its
     // `queued` record). The context is spent only when acpmux takes it.

@@ -17,7 +17,15 @@ export interface HeaderPullRequest {
   readonly review: string;
   /// `mergeable`, `conflicting`, or empty while GitHub works it out.
   readonly mergeable: string;
-  readonly checks: { readonly state: string; readonly passed: number; readonly total: number };
+  readonly checks: {
+    readonly state: string;
+    readonly passed: number;
+    readonly total: number;
+    /// How many of the failing checks also fail at the base branch's tip, so the pull request did
+    /// not break them. Absent or 0 means "none claimed", not "none exist": a single-link
+    /// `gh pr view` cannot read the base's checks at all.
+    readonly failingOnBase?: number;
+  };
   /// Each check, failed first (cx-ncc.77.1): `passed`, `failed` or `pending`, with its run's https page.
   readonly checkList: readonly HeaderCheck[];
 }
@@ -26,6 +34,9 @@ export interface HeaderCheck {
   readonly name: string;
   readonly state: string;
   readonly url?: string;
+  /// This check fails the same way at the base branch's tip (AgentPanePullRequest `onBase`). Absent
+  /// means "nothing claimed", not "it is this pull request's": a `gh pr view` cannot read the base.
+  readonly onBase?: boolean;
 }
 
 export interface HeaderState {
@@ -126,12 +137,20 @@ function pullRequestOf(value: unknown): HeaderPullRequest | undefined {
       const row = (check ?? {}) as Record<string, unknown>;
       if (typeof row.name !== "string") return [];
       const url = typeof row.url === "string" && row.url.startsWith("https://") ? row.url : undefined;
-      return [{ name: row.name, state: text(row.state), ...(url ? { url } : {}) }];
+      return [
+        {
+          name: row.name,
+          state: text(row.state),
+          ...(url ? { url } : {}),
+          ...(row.onBase === true ? { onBase: true } : {}),
+        },
+      ];
     }),
     checks: {
       state: typeof checks.state === "string" ? checks.state : "none",
       passed: typeof checks.passed === "number" ? checks.passed : 0,
       total: typeof checks.total === "number" ? checks.total : 0,
+      failingOnBase: typeof checks.failingOnBase === "number" ? checks.failingOnBase : 0,
     },
   };
 }
