@@ -57,6 +57,10 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// relaunch is subject to the quiet-input and daemon-mirror holds. Read once by
     /// ``handleShouldPostponeRelaunch(installHandler:)``.
     var relaunchIsAutomatic = false
+    /// Whether an install the user asked for waits for busy agents and running commands.
+    /// cmux-next turns it off: its click hides every window first, and the daemon keeps the
+    /// sessions across the relaunch, so only automatic installs wait.
+    var holdsUserInstalls = true
     /// The update Sparkle's own silent driver staged (`willInstallUpdateOnQuit`), which never
     /// reaches ``backgroundItem``; read only while its "Restart to Complete Update" state holds.
     var quitInstallItem: SUAppcastItem?
@@ -232,6 +236,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         relaunchIsAutomatic = false
         var isAutoUpdate = false
         if case .installing(let installing) = model.state { isAutoUpdate = installing.isAutoUpdate }
+        guard automatic || holdsUserInstalls else { return false }
         let reported = currentRelaunchBlockers()
         let blockers = automatic ? reported : reported.forUserInstall
         guard !blockers.isEmpty else { return false }

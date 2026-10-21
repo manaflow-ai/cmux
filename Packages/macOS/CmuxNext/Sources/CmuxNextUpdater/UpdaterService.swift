@@ -201,6 +201,9 @@ public final class UpdaterService {
             // Set on this updater only; no defaults change, so the legacy app
             // sharing the domain keeps its own behavior.
             controller.installsUpdatesInBackground = true
+            // The click hides every window and the daemon keeps every session, so a user
+            // install relaunches at once; only automatic idle installs wait.
+            controller.holdsUserInstalls = false
             // The nightly feed lists each build's deltas minutes after its DMG
             // (nightly.yml generate-nightly-deltas); a scheduled check in that gap
             // waits once instead of downloading the full DMG.

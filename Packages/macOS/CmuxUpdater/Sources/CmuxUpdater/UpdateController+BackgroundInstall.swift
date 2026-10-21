@@ -17,6 +17,13 @@ extension UpdateController {
         set { driver.installsWhenIdle = newValue }
     }
 
+    /// Whether an install the user asked for (a click, Install Now, Restart Now) waits for busy
+    /// agents and running commands. Automatic idle installs always wait.
+    public var holdsUserInstalls: Bool {
+        get { driver.holdsUserInstalls }
+        set { driver.holdsUserInstalls = newValue }
+    }
+
     /// The downloaded update waiting for ``installStagedUpdate()``, or nil.
     public var stagedUpdate: SUAppcastItem? {
         driver.stagedItem
