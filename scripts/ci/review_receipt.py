@@ -36,7 +36,9 @@ from pathlib import Path
 from typing import Callable
 
 TRUSTED = {"OWNER", "MEMBER", "COLLABORATOR"}
-REVIEW_LINE = re.compile(r"review", re.I)  # "Review (subagent, correctness first): SHIP", "Self-review", ...
+# "Review (subagent, correctness first): SHIP", "Self-review", ... One stricter than next-autoland: a first line
+# "Verdict: BLOCK" counts too (autoland reads only lines that say "review"; review of cmux#23067).
+REVIEW_LINE = re.compile(r"review|\bverdict\b", re.I)
 HOLD_LINE = re.compile(r"^\W*hold(?:ing)?\b", re.I)  # "**Holding this PR. ...**"
 # A review-like comment counts only with an explicit verdict in a label near its top (next_autoland.py).
 LABELLED = r"(?:\breview[^:\n]{0,160}|\bverdict\W{0,4}):\W{0,8}"
@@ -89,7 +91,7 @@ def review_verdict(body: str) -> str | None:
 def review_state(pr: dict) -> tuple[str, str]:
     """(state, detail) from the newest review-like word by someone with write access, on any head: "reviewed",
     "blocked" (changes requested, a BLOCK verdict, a review still owed), "held" (a comment starting "Hold..."),
-    or "none". A port of next_autoland.py's review_state()."""
+    or "none". A port of next_autoland.py's review_state(), with REVIEW_LINE also matching "Verdict:"."""
     found = []
     for item in (pr.get("reviews") or {}).get("nodes") or []:
         if not trusted(item):
