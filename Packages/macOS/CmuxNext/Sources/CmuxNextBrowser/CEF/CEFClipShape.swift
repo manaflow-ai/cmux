@@ -89,15 +89,28 @@ nonisolated enum CEFClipShape {
 
     /// Clips around `view`: every ancestor whose layer clips with a corner
     /// radius (the layout's pane clip) or a plain rectangular mask (the column
-    /// strip's clip, `PaneHostView.setStripClip`), then the window's corners.
-    /// Rects are in `view`'s coordinates.
+    /// strip's clip, `PaneHostView.setStripClip`), the window's corners, and
+    /// the square region the square-clipping ancestors and the window leave
+    /// visible, when `view` reaches past it. Rects are in `view`'s coordinates.
+    ///
+    /// The square region keeps a page inside its screen and window while a
+    /// layout spring carries its pane past them (Leo 2026-10-20: the chat's
+    /// side panel drew past the window's right edge as it opened); at rest it
+    /// holds all of `view` and adds nothing.
     @MainActor
     static func clips(around view: NSView) -> [RoundedRect] {
         var result: [RoundedRect] = []
+        var visible: CGRect?
+        func clipVisible(to rect: CGRect) { visible = visible.map { $0.intersection(rect) } ?? rect }
         var ancestor = view.superview
         while let current = ancestor {
-            if let layer = current.layer, layer.masksToBounds, layer.cornerRadius > 0 {
-                result.append(RoundedRect(rect: view.convert(current.bounds, from: current), radius: layer.cornerRadius))
+            if let layer = current.layer, layer.masksToBounds {
+                let rect = view.convert(current.bounds, from: current)
+                if layer.cornerRadius > 0 {
+                    result.append(RoundedRect(rect: rect, radius: layer.cornerRadius))
+                } else {
+                    clipVisible(to: rect)
+                }
             }
             if let mask = current.layer?.mask, mask.name == CALayer.cmuxStripClipName {
                 result.append(RoundedRect(rect: view.convert(mask.frame, from: current), radius: 0))
@@ -105,11 +118,15 @@ nonisolated enum CEFClipShape {
             ancestor = current.superview
         }
         if let window = view.window {
+            let rect = view.convert(CGRect(origin: .zero, size: window.frame.size), from: nil)
+            clipVisible(to: rect)
             let radius = windowCornerRadius(window)
             if radius > 0 {
-                let rect = view.convert(CGRect(origin: .zero, size: window.frame.size), from: nil)
                 result.append(RoundedRect(rect: rect, radius: radius))
             }
+        }
+        if let visible, !visible.insetBy(dx: -0.5, dy: -0.5).contains(view.bounds) {
+            result.append(RoundedRect(rect: visible.isNull ? .zero : visible, radius: 0))
         }
         return result
     }
