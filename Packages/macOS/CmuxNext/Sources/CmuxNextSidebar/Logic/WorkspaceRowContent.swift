@@ -65,8 +65,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// The session tree: the row's pull requests, a glyph and a count in their status color.
     public var pullRequests: SidebarPullRequestBadge?
     /// The Priority view's chip (`SidebarWorkspace.agentChip`) when it asks for something
-    /// (`rowChip`): the row view draws its word as the name line's trailing text in the chip's
-    /// color, in place of the age or one-line status.
+    /// (`rowChip`), for the row's accessibility label. Never drawn: a row shows no status words
+    /// (Leo 2026-10-21); needs you is the badge's yellow dot.
     public var chip: SidebarPriorityEntry.State?
     /// What the working agent does now (`SidebarWorkspace.agentStep`), in place of the second
     /// line's text: the row view draws it as "Now: …". Set only on a row that has a second line.

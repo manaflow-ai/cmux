@@ -48,7 +48,6 @@ struct SidebarRowNoDoneTests {
         let (view, window) = row(workspace(.done))
         let done = SidebarPriorityRowView.chipText(.done, now: Date())
         #expect(!shownText(view).contains(done), "the row draws \(shownText(view))")
-        #expect(view.chip == nil)
         #expect(view.accessibilityLabel()?.contains(done) != true)
         // The quiet unread dot is the finished chat's only cue.
         #expect(view.accessibilityLabel()?.contains(Strings.unreadDot) == true)
@@ -64,9 +63,17 @@ struct SidebarRowNoDoneTests {
         }
     }
 
-    @Test func needsYouStillReadsOnTheRow() {
+    /// No status words at all (Leo 2026-10-21, on a blue dot beside "Needs you": "why ISN'T THIS
+    /// JUST A YELLOW DOT!?"): the badge's dot says it; only the accessibility label words it.
+    @Test func aRowShowsNoStatusWords() {
+        for chip: SidebarPriorityEntry.State in [.needsYou, .failed, .lost, .ciFailing, .done] {
+            let (view, window) = row(workspace(chip))
+            let word = SidebarPriorityRowView.chipText(chip, now: Date())
+            #expect(!shownText(view).contains(word), "\(chip): the row draws \(shownText(view))")
+            window.close()
+        }
         let (view, window) = row(workspace(.needsYou))
-        #expect(shownText(view).contains(SidebarPriorityRowView.chipText(.needsYou, now: Date())))
+        #expect(view.accessibilityLabel()?.contains(SidebarPriorityRowView.chipText(.needsYou, now: Date())) == true)
         window.close()
     }
 }

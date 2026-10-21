@@ -73,7 +73,6 @@ import Testing
             let options = SidebarLayoutOptions()
             let waiting = options.rowContent(try #require(rows["waiting"]), machine: nil)
             #expect(waiting.chip == .needsYou)
-            #expect(waiting.time == nil, "the chip takes the name line's trailing slot")
             #expect(options.rowContent(try #require(rows["working"]), machine: nil).chip == nil)
         }
     }
