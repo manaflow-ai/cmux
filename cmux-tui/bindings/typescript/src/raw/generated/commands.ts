@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc. */
+/* cmux-tui mux protocol 12, IR 3754c36ce52011289e7881a29238e84ccbee966165de2e530249f968e8857209. */
 
 
 import type * as T from "./types.js";
@@ -1063,12 +1063,15 @@ export type CreateTerminalResult = T.TerminalPlacement;
 /** Protocol v7; authority: control. */
 export interface CreateWorkspaceRequest extends CmuxRequestBase {
   cmd: "create-workspace";
+  "current"?: (string) | null;
   "expected_generation"?: (string) | null;
   "expected_revision"?: (bigint) | null;
   "key"?: (string) | null;
   "mutation_id"?: (string) | null;
   "name"?: (string) | null;
   "origin"?: (string) | null;
+  "placement"?: (string) | null;
+  "places_by_setting"?: boolean;
 }
 export type CreateWorkspaceResult = T.WorkspaceMutationResult;
 

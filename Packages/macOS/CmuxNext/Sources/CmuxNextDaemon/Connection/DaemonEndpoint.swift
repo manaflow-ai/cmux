@@ -39,6 +39,9 @@ public struct DaemonCapabilities: Sendable {
     public let workspaceGroups = "workspace-groups-v1"
     public let workspaceMetadata = "workspace-metadata-v1"
     public let workspaceNameSource = "workspace-name-source-v1"
+    /// `create-workspace {places_by_setting, current, placement}`: the daemon places a new workspace
+    /// against the creating window's current workspace by the app's `workspaces.newPlacement`.
+    public let workspaceCreateCurrent = "workspace-create-current-v1"
     public let tabMetadata = "tab-metadata-v1"
     public let frontendBrowserTabs = "frontend-browser-tabs-v1"
     public let frontendBrowserTabKeys = "frontend-browser-tab-keys-v1" // idempotency_key on new-frontend-browser-tab
@@ -464,7 +467,7 @@ public struct DaemonCapabilities: Sendable {
     /// scripts/cmux-next/check-daemon-capabilities.sh fails the build when it
     /// does not serve one of these or `required`. The GUI still checks each
     /// with `DaemonIdentity.supports`, for remote and older daemons.
-    public var optional: [String] { [workspaceGroups, workspaceMetadata, workspaceNameSource, tabMetadata, frontendBrowserTabs, tabDrag,
+    public var optional: [String] { [workspaceGroups, workspaceMetadata, workspaceNameSource, workspaceCreateCurrent, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
                                             terminalReap, resumeCommand, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, frontendBrowserTabKeys, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles, personalRemoteLocalhost,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
