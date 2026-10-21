@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Fail only on the guard steps a change turns red; report the base's own reds as warnings.
 
-    guards_new_reds.py HEAD_RESULTS BASE_RESULTS
+    guards_new_reds.py [--label NAME] HEAD_RESULTS BASE_RESULTS
 
 Each file is run_ci_guards.py --results output ({step name: passed}) from one runner: the head's
 checkout run on the head, then on the base (--root). A step red on the head that passed on the
 base, or is new, fails; a step red on both is a warning. Missing base results (an unreadable base)
 make every head red the change's.
+
+The webview tests (webviews_test_results.py) name a test `FILE > TEST`. One the base does not list
+takes the base's `FILE` result when that is red: the file never got to its tests there. --label
+names what the annotations count (default: Guard).
 """
 from __future__ import annotations
 
@@ -23,27 +27,38 @@ def load(path: str) -> dict[str, bool] | None:
     return {str(k): bool(v) for k, v in found.items()} if isinstance(found, dict) else None
 
 
+def on_base(base: dict[str, bool], step: str) -> bool | None:
+    """The base's result for `step`: its own, else its file's when that is red, else None (not run)."""
+    if step in base:
+        return base[step]
+    file = step.split(" > ", 1)[0]
+    return False if file != step and base.get(file) is False else None
+
+
 def main(argv: list[str]) -> int:
+    label = "Guard"
+    if len(argv) == 4 and argv[0] == "--label":
+        label, argv = argv[1], argv[2:]
     if len(argv) != 2:
         print(__doc__, file=sys.stderr)
         return 2
     head, base = load(argv[0]), load(argv[1])
     if head is None:
-        print(f"::error title=Guard results missing::no head results in {argv[0]}")
+        print(f"::error title={label} results missing::no head results in {argv[0]}")
         return 1
     if base is None:
         print(f"no base results in {argv[1]}: every red step counts as this change's")
         base = {}
-    new = sorted(step for step, ok in head.items() if not ok and base.get(step, True))
-    old = sorted(step for step, ok in head.items() if not ok and base.get(step) is False)
+    new = sorted(step for step, ok in head.items() if not ok and on_base(base, step) is not False)
+    old = sorted(step for step, ok in head.items() if not ok and on_base(base, step) is False)
     fixed = sorted(step for step, ok in head.items() if ok and base.get(step) is False)
     for step in old:
-        print(f"::warning title=Guard red on the base too::{step}")
+        print(f"::warning title={label} red on the base too::{step}")
     for step in new:
-        print(f"::error title=Guard red on this change::{step}")
+        print(f"::error title={label} red on this change::{step}")
     if fixed:
         print("fixed by this change: " + "; ".join(fixed))
-    print(f"{len(new)} guard steps red on this change, {len(old)} red on the base too, {len(fixed)} fixed")
+    print(f"{len(new)} {label.lower()} steps red on this change, {len(old)} red on the base too, {len(fixed)} fixed")
     return 1 if new else 0
 
 
