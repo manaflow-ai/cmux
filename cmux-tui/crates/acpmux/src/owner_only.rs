@@ -640,6 +640,15 @@ mod tests {
         assert!(output.status.success(), "icacls: {}", String::from_utf8_lossy(&output.stderr));
     }
 
+    fn grant_everyone_add_file(path: &Path) {
+        let output = std::process::Command::new("icacls")
+            .arg(path)
+            .args(["/grant", "*S-1-1-0:(WD)"])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "icacls: {}", String::from_utf8_lossy(&output.stderr));
+    }
+
     #[test]
     fn private_dir_refuses_an_existing_directory_another_sid_can_change() {
         let root = std::env::temp_dir().join(format!(
@@ -669,6 +678,21 @@ mod tests {
 
         private_dir(&checked).expect("add-subdirectory alone could replace an existing child");
         assert!(only_owner_reads(&checked).unwrap());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn private_dir_refuses_an_ancestor_that_can_be_made_a_reparse_point() {
+        let root = std::env::temp_dir().join(format!(
+            "acpmux-owner-add-file-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        private_dir(&root).unwrap();
+        grant_everyone_add_file(&root);
+
+        private_dir(&root.join("checked"))
+            .expect_err("FILE_WRITE_DATA can turn the ancestor into a reparse point");
         let _ = std::fs::remove_dir_all(&root);
     }
 
