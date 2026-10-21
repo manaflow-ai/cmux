@@ -17,6 +17,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { webkit, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -152,6 +153,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     queue = prompts.map((prompt, i) => ({ promptId: `q-${i + 1}`, prompt }));
     edits.length = 0;
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
@@ -290,8 +292,8 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
         page.evaluate(
           () =>
             new Promise<Record<string, unknown>>((resolve) =>
-              requestAnimationFrame(() =>
-                requestAnimationFrame(() => {
+              window.cmuxPaintFrame().then(() =>
+                window.cmuxPaintFrame().then(() => {
                   const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
                   const box = list.getBoundingClientRect();
                   const fold = document.querySelector<HTMLElement>(".acpmux-queue-fold")!.getBoundingClientRect();
@@ -390,8 +392,8 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       page.evaluate(
         () =>
           new Promise<Record<string, unknown>>((resolve) =>
-            requestAnimationFrame(() =>
-              requestAnimationFrame(() => {
+            window.cmuxPaintFrame().then(() =>
+              window.cmuxPaintFrame().then(() => {
                 const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
                 const box = list.getBoundingClientRect();
                 const shows = (el: Element) => {

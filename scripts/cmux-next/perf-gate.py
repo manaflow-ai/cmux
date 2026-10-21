@@ -40,9 +40,10 @@ warnings only.
   status         4 background workspaces print OSC 7501 progress 4 times a second for 5 s:
                  0 applies, 0 topology sends, 0 pane snapshots, 0 sidebar list reloads (I1-I3).
 
-The drag lag and the theme blend need a window that draws. On a console without a lit display
-(fleet minis, CI VMs) the window is occluded and the display link does not tick: with
---frames auto (the CI default) the script then reports those two checks as skipped (a warning);
+The drag lag, the theme blend and the tab switch and new workspace timings (the app times them
+per frame) need a window that draws. On a console without a lit display (fleet minis, CI VMs)
+the window is occluded and the display link does not tick: with
+--frames auto (the CI default) the script then reports those checks as skipped (a warning);
 with --frames required (the GUI host) no frames is a failure. A budget breach names its callers
 (debug.layout_counters `sources`).
 
@@ -407,6 +408,14 @@ class Gate:
             warn(what + "; the frame-dependent checks are skipped here and run on the GUI host (--frames required)", scenario)
         return False
 
+    def timed_count(self, rows, expected, what, scenario):
+        """Whether the app timed every one of `expected` (`what`, e.g. "debug.tab_switch timed {n} of 40
+        switches"). The app times them against the display link's frames: a window that draws none
+        times none, which is the frame probe's skip (or its failure with --frames required)."""
+        if not rows and not self.frames_ok(scenario):
+            return False
+        return check(len(rows) == expected, what.format(n=len(rows)), scenario)
+
     def switch_steps(self, targets, scenario):
         """goToWorkspace each target; per switch the counters must fit BUDGET['switch']."""
         app, worst, patches, rows = self.app, {}, 0, []
@@ -714,7 +723,7 @@ class Gate:
         # first frame it could); the commit's end (an upper bound) is reported.
         switches = own.get("switches") or []
         phase["switches"] = [{k: round(v, 2) for k, v in row.items()} for row in switches]
-        if not check(len(switches) == ops, f"debug.tab_switch timed {len(switches)} of {ops} switches", scenario):
+        if not self.timed_count(switches, ops, f"debug.tab_switch timed {{n}} of {ops} switches", scenario):
             return
         col = lambda name: sorted(row[name] for row in switches)
         p99 = lambda values: values[max(0, int(len(values) * 0.99) - 1)]
@@ -755,7 +764,7 @@ class Gate:
         wait(lambda: len(app.workspace_ids()) <= len(before), 60)
         rows = [{k: round(v, 2) for k, v in row.items()} for row in own.get("creates") or []]
         report["phases"][scenario] = {"workspaces_before": counts, "reply_ms": replies, "creates": rows}
-        if not check(len(rows) == creates, f"debug.new_workspace timed {len(rows)} of {creates} new workspace rows", scenario):
+        if not self.timed_count(rows, creates, f"debug.new_workspace timed {{n}} of {creates} new workspace rows", scenario):
             return
         for row, count in zip(rows, counts):
             row["workspaces_before"] = count

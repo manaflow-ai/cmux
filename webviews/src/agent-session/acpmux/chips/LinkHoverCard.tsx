@@ -49,10 +49,13 @@ export function LinkHoverCard({
   const host = linkHost(href);
   // A pull request's page title repeats its own title, which the body shows: the head names the host.
   const head = pullRequest ? host : (siteTitle ?? host);
+  // Any http(s) link opens in a cmux tab as a click on it does (`browser.openIn` with cmux's own id,
+  // which spends the click's gesture); `browser.open` takes only a turn's local preview page.
+  const openInCmux = (url: string) => void callChipHost("browser.openIn", { url, browserId: "cmux" });
   const onOpen = (event: PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    void callChipHost("browser.open", { url: href });
+    openInCmux(href);
   };
   return (
     <AnchoredCard
@@ -71,11 +74,7 @@ export function LinkHoverCard({
             {t("image.open")}
             <span aria-hidden="true">↗</span>
           </button>
-          <OpenInMenu
-            url={href}
-            onOpenInPane={(url) => void callChipHost("browser.open", { url })}
-            onOpenChange={hover.menuChanged}
-          />
+          <OpenInMenu url={href} onOpenInPane={openInCmux} onOpenChange={hover.menuChanged} />
         </div>
         {pullRequest && <PullRequestCardBody url={href} known={pullRequest} open={hover.open} />}
         <div className="cv-link-preview__target">

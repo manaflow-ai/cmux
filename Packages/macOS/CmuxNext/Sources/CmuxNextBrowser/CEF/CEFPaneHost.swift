@@ -174,7 +174,7 @@ final class CEFPaneHost {
     // MARK: Creation
 
     func ensureCreated(_ tab: CEFTab) {
-        guard tab.browserID == nil, tab.isCreationPending == false, let shim = runtime.shim else { return }
+        guard tab.browserID == nil, tab.isCreationPending == false, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return }
         switch window {
         case .none:
             let request = runtime.makeRequestToken()
