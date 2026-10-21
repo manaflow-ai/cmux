@@ -614,10 +614,9 @@ extension DockSplitStore {
         // ordinary shell instead of waiting behind deferred admission.
         let deferredAgentResumeCandidateInput: String? = if
             !compatibilityBindingOwnsStartup,
-            ownsRestorePassCheckpoint,
+            (ownsRestorePassCheckpoint || restorePassCapacityDeferred),
             (restoreStartupBlocked || liveSessionOwner != nil || legacySubrouterResumeInput != nil ||
                 restorePassCapacityDeferred),
-            (ownsRestorePassCheckpoint || restorePassCapacityDeferred),
             hibernation == nil,
             restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
             if let legacySubrouterResumeInput {
