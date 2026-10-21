@@ -335,6 +335,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.begin_startup(login_env);
     // The ACP Registry and agent CLI health, off the startup path (`hub/health_view.rs`).
     hub.start_harness_checks();
+    // Uploads past their age cap (`hub/file_uploads.rs`).
+    hub.start_upload_sweep();
     crate::config::write_atomic(
         &home().join("daemon.pid"),
         std::process::id().to_string().as_bytes(),

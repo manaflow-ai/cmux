@@ -10,11 +10,18 @@
 //! Each file is at most [`MAX_BYTES`]: the request crosses the peer link as one WebSocket frame,
 //! and an older peer's listener reads at most tungstenite's default 16 MiB frame (a larger one
 //! resets the link and every chat on it). 10 MiB is 13.4 MiB of base64, leaving room for the rest
-//! of the request. Like the app's own Chat Uploads folder, nothing deletes them yet.
+//! of the request.
+//!
+//! A chat's files go when the chat is deleted (`_acpmux/kill` with purge, [`remove_session`]), and
+//! any file goes once it is older than `uploadsMaxAgeDays` (default 30; 0 keeps them), read from
+//! the UUIDv7 name of its folder ([`sweep`], at the daemon's start and every day after). A folder
+//! the daemon did not name that way is never deleted.
 
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
 
 /// The `initialize` feature of a daemon that takes `_acpmux/file_put`.
 pub const FEATURE: &str = "filePut";
@@ -30,6 +37,72 @@ fn session_dir(id: &str) -> Option<PathBuf> {
     let plain =
         !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
     plain.then(|| root().join(id))
+}
+
+/// Deletes session `id`'s uploads: the chat was deleted. Blocking: run it off the runtime.
+pub(crate) fn remove_session(id: &str) {
+    let Some(dir) = session_dir(id) else { return };
+    // Never follows a symlink: `remove_dir_all` removes the link, not what it names.
+    match std::fs::remove_dir_all(&dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => tracing::warn!(session = id, "uploads not deleted: {e}"),
+    }
+}
+
+/// When the folder `name` was made, in Unix ms: the time a UUIDv7 name holds ([`put`] names each
+/// file's folder so); None for any other name.
+fn made_at(name: &str) -> Option<u64> {
+    let id = uuid::Uuid::try_parse(name).ok().filter(|id| id.get_version_num() == 7)?;
+    let (secs, nanos) = id.get_timestamp()?.to_unix();
+    Some(secs * 1000 + u64::from(nanos) / 1_000_000)
+}
+
+/// Deletes each upload under `root` older than `max_age` at `now_ms`, and a session folder it
+/// leaves empty; answers how many uploads went. Only real folders with a UUIDv7 name are read as
+/// uploads: a symlink, a file or another name is kept. Blocking: run it off the runtime.
+pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Duration) -> usize {
+    let cutoff = now_ms.saturating_sub(u64::try_from(max_age.as_millis()).unwrap_or(u64::MAX));
+    let real_dirs =
+        |dir: &Path| {
+            std::fs::read_dir(dir).into_iter().flatten().flatten().filter(|entry| {
+                entry.file_type().is_ok_and(|kind| kind.is_dir() && !kind.is_symlink())
+            })
+        };
+    let mut removed = 0;
+    for session in real_dirs(root) {
+        for upload in real_dirs(&session.path()) {
+            let old = upload.file_name().to_str().and_then(made_at).is_some_and(|at| at < cutoff);
+            if old && std::fs::remove_dir_all(upload.path()).is_ok() {
+                removed += 1;
+            }
+        }
+        // Only an empty folder goes (`remove_dir` refuses any other).
+        let _ = std::fs::remove_dir(session.path());
+    }
+    removed
+}
+
+impl super::Hub {
+    /// The age cap's sweep (module docs): at the start, then every day. `uploadsMaxAgeDays` is
+    /// read at each sweep, so a config reload applies from the next.
+    pub fn start_upload_sweep(self: &Arc<Self>) {
+        let hub = self.clone();
+        tokio::spawn(async move {
+            let mut every = tokio::time::interval(Duration::from_secs(24 * 60 * 60));
+            every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                every.tick().await;
+                let Some(max_age) = hub.config.read().await.uploads_max_age() else { continue };
+                let now = crate::store::now_ms();
+                match tokio::task::spawn_blocking(move || sweep(&root(), now, max_age)).await {
+                    Ok(0) => {}
+                    Ok(n) => tracing::info!(uploads = n, "deleted uploads past the age cap"),
+                    Err(e) => tracing::warn!("the upload sweep failed: {e}"),
+                }
+            }
+        });
+    }
 }
 
 /// A name a folder holds as one plain file (the app's `AgentPaneUpload.isFileName`): 1 to 255
@@ -179,6 +252,46 @@ mod tests {
             let err = check(&params).expect_err("past the cap");
             assert_eq!(err.data.as_ref().unwrap()["reason"], "filePut.tooLarge", "{n}");
         }
+    }
+
+    #[test]
+    fn the_sweep_deletes_old_uploads_and_keeps_new_ones_and_what_it_did_not_name() {
+        let root = std::env::temp_dir().join(format!("acpmux-sweep-{}", uuid::Uuid::now_v7()));
+        let day = 24 * 60 * 60 * 1000;
+        let now = crate::store::now_ms();
+        let named = |ms: u64| {
+            let at = uuid::Timestamp::from_unix(uuid::NoContext, ms / 1000, 0);
+            uuid::Uuid::new_v7(at).to_string()
+        };
+        let old = root.join("chat-a").join(named(now - 31 * day));
+        let new = root.join("chat-a").join(named(now - day));
+        let only_old = root.join("chat-b").join(named(now - 40 * day));
+        let other = root.join("chat-c").join("notes");
+        let v4 = root.join("chat-c").join("0190a000-0000-4000-8000-000000000000");
+        for dir in [&old, &new, &only_old, &other, &v4] {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join("f.txt"), b"x").unwrap();
+        }
+        // An old-named link, and a linked session folder: neither is followed.
+        let outside = root.with_extension("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("keep.txt"), b"x").unwrap();
+        #[cfg(unix)]
+        {
+            std::fs::create_dir_all(root.join("chat-d")).unwrap();
+            std::os::unix::fs::symlink(&outside, root.join("chat-d").join(named(now - 90 * day)))
+                .unwrap();
+            std::os::unix::fs::symlink(&outside, root.join("chat-e")).unwrap();
+        }
+        assert_eq!(sweep(&root, now, Duration::from_millis(30 * day)), 2);
+        assert!(!old.exists() && new.exists());
+        assert!(!root.join("chat-b").exists(), "an emptied session folder stays");
+        assert!(other.exists() && v4.exists());
+        assert!(outside.join("keep.txt").exists());
+        // Nothing past the cap is left: a second sweep deletes nothing.
+        assert_eq!(sweep(&root, now, Duration::from_millis(30 * day)), 0);
+        std::fs::remove_dir_all(&root).unwrap();
+        std::fs::remove_dir_all(&outside).unwrap();
     }
 
     #[test]

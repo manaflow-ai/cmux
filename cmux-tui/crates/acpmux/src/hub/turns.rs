@@ -1052,6 +1052,10 @@ impl Hub {
                 remote: None,
             });
             self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
+            // The files dropped into the chat go with it (`file_uploads.rs`).
+            let id = session.id.clone();
+            let _ =
+                tokio::task::spawn_blocking(move || super::file_uploads::remove_session(&id)).await;
         }
         Ok(())
     }
