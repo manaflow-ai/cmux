@@ -77,7 +77,7 @@ import Testing
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let menu = NSMenu()
         let row = NSMenuItem()
-        let strip = SwatchStrip(title: "Color", choices: [], current: nil)
+        let strip = MenuSwatchStrip(title: "Color", choices: [], colors: [], current: nil)
         row.view = MenuIdentityHeaderView(field: nil, strip: strip)
         menu.addItem(row)
         menu.themeRows(in: scope)
