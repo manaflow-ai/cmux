@@ -1,4 +1,4 @@
-// The full-height thread minimap's model (threadMinimap/scrollMap.ts): the rail maps the whole
+// The full-height thread minimap's model (threadMinimap/mapGeometry.ts): the rail maps the whole
 // scroll height, so every prompt and reply draws at its place, the bar is the view, and a point on
 // the rail scrolls the view there.
 import { expect, test } from "bun:test";
@@ -13,7 +13,7 @@ import {
   mapY,
   markAt,
   scrollTopAt,
-} from "../src/agent-session/acpmux/threadMinimap/scrollMap";
+} from "../src/agent-session/acpmux/threadMinimap/mapGeometry";
 
 const row = (id: string, kind: string, text = id): AcpmuxRow => ({ id, kind, version: 1, at: 0, text });
 /// `count` turns, each a prompt 100 px tall and a reply 300 px tall.
@@ -32,7 +32,7 @@ test("every prompt and reply draws at its place, top to bottom, within the rail"
   const { rows, layout } = chat(10);
   const turns = minimapTurns(rows).turns;
   const marks = mapMarks(rows, turns, layout, 400);
-  expect(marks.map((mark) => mark.kind)).toEqual(Array.from({ length: 10 }, () => ["user", "agent"]).flat());
+  expect(marks.map((mark) => mark.kind)).toEqual(Array.from({ length: 10 }, () => ["user", "agent"] as const).flat());
   expect(marks.filter((mark) => mark.kind === "user").map((mark) => mark.turn)).toEqual([...Array(10).keys()]);
   for (let index = 1; index < marks.length; index += 1) expect(marks[index]!.y).toBeGreaterThan(marks[index - 1]!.y);
   expect(marks[0]!.y).toBeGreaterThanOrEqual(0);

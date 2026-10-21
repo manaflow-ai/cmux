@@ -4,7 +4,7 @@
 // is on screen and follows the scroll on its own frame without a render. Hovering grows the marks
 // near the pointer and, after the hover delay, previews the nearest message beside it. A click on a
 // mark jumps to it (a prompt as the compact rail's click does); a click on the track jumps there;
-// dragging anywhere scrubs the transcript. Geometry is the transcript's layout (scrollMap.ts).
+// dragging anywhere scrubs the transcript. Geometry is the transcript's layout (mapGeometry.ts).
 import React, { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
@@ -37,7 +37,7 @@ import {
   markAt,
   scrollTopAt,
   type MapMark,
-} from "./scrollMap";
+} from "./mapGeometry";
 
 /// A pointer that moves this far after pressing scrubs instead of clicking.
 const SCRUB_SLOP = 3;
@@ -46,7 +46,7 @@ const USER_LENGTH = [11, TICK_BOX] as const;
 const AGENT_LENGTH = [5, 15] as const;
 
 type PromptMarks = ReturnType<typeof usePromptMarks>;
-type Press = { pointer: number; y: number; moved: boolean; mark?: number };
+type Press = { pointer: number; y: number; moved: boolean; mark?: string };
 
 const within = (element: Element | null, to: EventTarget | null) =>
   !!element && !!to && "nodeType" in to && element.contains(to as Node);
@@ -74,11 +74,18 @@ export function ScrollMap({
   const t = useT();
   const height = Math.max(0, Math.floor(viewportHeight - 2 * MAP_MARGIN));
   const marks = useMemo(() => mapMarks(rows, turns, layout, height), [rows, turns, layout, height]);
-  /// The pointer's place on the rail (for the fisheye), and the mark it is on.
+  /// Each mark's place in `marks`, by its row's id. The state below names row ids, not places: which
+  /// replies merge moves as a reply streams, and older turns arriving renumber every place and row.
+  const keyOf = (mark: MapMark | undefined) => (mark ? (rows[mark.row]?.id ?? `#${mark.row}`) : undefined);
+  const byKey = useMemo(
+    () => new Map(marks.map((mark, index) => [rows[mark.row]?.id ?? `#${mark.row}`, index])),
+    [marks, rows],
+  );
+  /// The pointer's place on the rail (for the fisheye), and the row id of the mark it is on.
   const [pointerY, setPointerY] = useState<number | undefined>(undefined);
-  const [hovered, setHovered] = useState<number | undefined>(undefined);
-  const [focused, setFocused] = useState<number | undefined>(undefined);
-  const [cardMark, setCardMark] = useState<number | undefined>(undefined);
+  const [hovered, setHovered] = useState<string | undefined>(undefined);
+  const [focused, setFocused] = useState<string | undefined>(undefined);
+  const [cardMark, setCardMark] = useState<string | undefined>(undefined);
   const [cardHeight, setCardHeight] = useState(0);
   const [cardFocus, setCardFocus] = useState(false);
   const [scrubbing, setScrubbing] = useState(false);
@@ -117,7 +124,8 @@ export function ScrollMap({
     return () => node.removeEventListener("scroll", placeThumb);
   }, [scroller, placeThumb]);
 
-  const cardAt = cardMark === undefined ? undefined : marks[cardMark];
+  const markOf = (key: string | undefined) => (key === undefined ? undefined : marks[byKey.get(key) ?? -1]);
+  const cardAt = markOf(cardMark);
   const showCard = preview.shown !== null && cardAt !== undefined;
   if (!showCard && cardFocus) setCardFocus(false);
   useEscapeCloses(showCard && cardFocus, dismiss);
@@ -130,17 +138,21 @@ export function ScrollMap({
     [cardAt?.kind, cardRow],
   );
 
-  // A shorter transcript or another chat can leave the marks the state named behind.
-  if (hovered !== undefined && hovered >= marks.length) setHovered(undefined);
-  if (focused !== undefined && focused >= marks.length) setFocused(undefined);
-  if (cardMark !== undefined && cardMark >= marks.length) setCardMark(undefined);
+  // What the marks' handlers do: one stable object for the memoized marks, reading this render.
+  const handlers = useRef<MarkActions | undefined>(undefined);
+  const [actions] = useState<MarkActions>(() => ({
+    focus: (row) => handlers.current?.focus(row),
+    blur: (row) => handlers.current?.blur(row),
+    key: (event, turn) => handlers.current?.key(event, turn),
+    activate: (row) => handlers.current?.activate(row),
+  }));
 
   if (!shown) return null;
 
   const railY = (clientY: number) => clientY - (rail.current?.getBoundingClientRect().top ?? 0);
-  /// Scrolls to `markIndex`'s message: a prompt as the compact rail's click, a reply to its top.
-  const activate = (markIndex: number) => {
-    const mark = marks[markIndex];
+  /// Scrolls to `key`'s message: a prompt as the compact rail's click, a reply to its top.
+  const activate = (key: string) => {
+    const mark = markOf(key);
     const node = scroller.current;
     if (!mark || !node) return;
     if (mark.kind === "user" && mark.turn >= 0) {
@@ -166,7 +178,7 @@ export function ScrollMap({
     } else animateScroll(node, () => to, jumpDuration(to - node.scrollTop), JUMP_CURVE);
   };
   const point = (y: number) => {
-    const at = markAt(marks, y);
+    const at = keyOf(marks[markAt(marks, y) ?? -1]);
     setPointerY(Math.round(y));
     setHovered(at);
     if (at === undefined) return;
@@ -191,6 +203,33 @@ export function ScrollMap({
     rail.current
       ?.querySelector<HTMLButtonElement>(`[data-tick="${Math.max(0, Math.min(turns.length - 1, turn))}"]`)
       ?.focus();
+  handlers.current = {
+    focus(key) {
+      if (press.current) return;
+      setReduce(reducedMotion());
+      setFocused(key);
+      setCardMark(key);
+      intend("map", 0);
+    },
+    blur(key) {
+      setFocused((current) => (current === key ? undefined : current));
+    },
+    key(event, turn) {
+      if (event.key === "Escape") dismiss();
+      const to =
+        event.key === "ArrowUp"
+          ? turn - 1
+          : event.key === "ArrowDown"
+            ? turn + 1
+            : event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? turns.length - 1
+                : undefined;
+      if (to !== undefined) focusTick(to);
+    },
+    activate,
+  };
   const cardTurn = cardAt?.kind === "user" ? turns[cardAt.turn] : undefined;
   const cardMarked = cardTurn ? bookmarks.has(cardTurn) : false;
   return (
@@ -226,7 +265,12 @@ export function ScrollMap({
         onPointerDown={(event) => {
           if (event.button !== 0 || event.pointerType === "touch") return;
           const y = railY(event.clientY);
-          const state: Press = { pointer: event.pointerId, y: event.clientY, moved: false, mark: markAt(marks, y) };
+          const state: Press = {
+            pointer: event.pointerId,
+            y: event.clientY,
+            moved: false,
+            mark: keyOf(marks[markAt(marks, y) ?? -1]),
+          };
           press.current = state;
           // A press released off the rail ends here, so a later hover cannot scrub.
           const page = event.currentTarget.ownerDocument.defaultView ?? window;
@@ -252,50 +296,24 @@ export function ScrollMap({
         }}
       >
         <div ref={thumb} className="acpmux-scrollmap__view" aria-hidden />
-        {marks.map((mark, index) => (
-          <Mark
-            key={`${mark.kind}-${rows[mark.row]?.id ?? mark.row}`}
-            mark={mark}
-            index={index}
-            progress={pointerY !== undefined ? mapProgress(mark.y - pointerY) : index === focused ? 1 : 0}
-            active={index === active}
-            bookmarked={mark.kind === "user" && !!turns[mark.turn] && bookmarks.has(turns[mark.turn]!)}
-            describedBy={showCard && cardMark === index ? cardId : undefined}
-            label={
-              mark.kind === "user" && turns[mark.turn]
-                ? t(bookmarks.has(turns[mark.turn]!) ? "minimap.tickBookmarked" : "minimap.tick", {
-                    index: mark.turn + 1,
-                    count: turns.length,
-                    prompt: turns[mark.turn]!.prompt,
-                  })
-                : ""
-            }
-            last={turns.length - 1}
-            onFocus={() => {
-              if (press.current) return;
-              setReduce(reducedMotion());
-              setFocused(index);
-              setCardMark(index);
-              intend("map", 0);
-            }}
-            onBlur={() => setFocused((current) => (current === index ? undefined : current))}
-            onKey={(event) => {
-              if (event.key === "Escape") dismiss();
-              const to =
-                event.key === "ArrowUp"
-                  ? mark.turn - 1
-                  : event.key === "ArrowDown"
-                    ? mark.turn + 1
-                    : event.key === "Home"
-                      ? 0
-                      : event.key === "End"
-                        ? turns.length - 1
-                        : undefined;
-              if (to !== undefined) focusTick(to);
-            }}
-            onActivate={() => activate(index)}
-          />
-        ))}
+        {marks.map((mark) => {
+          const turn = mark.kind === "user" ? turns[mark.turn] : undefined;
+          const key = keyOf(mark)!;
+          return (
+            <Mark
+              key={key}
+              id={key}
+              mark={mark}
+              progress={pointerY !== undefined ? mapProgress(mark.y - pointerY) : key === focused ? 1 : 0}
+              active={key === active}
+              bookmarked={!!turn && bookmarks.has(turn)}
+              describedBy={showCard && cardMark === key ? cardId : undefined}
+              prompt={turn?.prompt}
+              count={turns.length}
+              actions={actions}
+            />
+          );
+        })}
       </nav>
       {showCard && cardAt && (
         <PreviewCard
@@ -329,37 +347,45 @@ export function ScrollMap({
 
 /// One message's mark: a prompt's is a button (a tab stop, Return or Space jumps); a reply's is
 /// drawn only, reached by pointer.
+type MarkActions = {
+  focus(key: string): void;
+  blur(key: string): void;
+  key(event: React.KeyboardEvent<HTMLButtonElement>, turn: number): void;
+  activate(key: string): void;
+};
+
 const Mark = memo(function Mark({
+  id,
   mark,
-  index,
   progress,
   active,
   bookmarked,
   describedBy,
-  label,
-  last,
-  onFocus,
-  onBlur,
-  onKey,
-  onActivate,
+  prompt,
+  count,
+  actions,
 }: {
+  /// The mark's row id, which the rail's state names.
+  id: string;
   mark: MapMark;
-  index: number;
   progress: number;
   active: boolean;
   bookmarked: boolean;
   describedBy?: string;
-  label: string;
-  last: number;
-  onFocus(): void;
-  onBlur(): void;
-  onKey(event: React.KeyboardEvent<HTMLButtonElement>): void;
-  onActivate(): void;
+  /// A prompt's mark: its prompt, for the label.
+  prompt?: string;
+  count: number;
+  actions: MarkActions;
 }) {
+  const t = useT();
   const [rest, grown] = mark.kind === "user" ? USER_LENGTH : AGENT_LENGTH;
   const length = rest + (grown - rest) * progress;
   const style = { transform: `translateY(${mark.y - 5}px)` };
   const tone = active ? "active" : "rest";
+  const label =
+    prompt === undefined
+      ? ""
+      : t(bookmarked ? "minimap.tickBookmarked" : "minimap.tick", { index: mark.turn + 1, count, prompt });
   const bar = <span className="acpmux-minimap__bar" style={{ transform: `scaleX(${length / TICK_BOX})` }} />;
   if (mark.kind === "agent")
     return (
@@ -371,10 +397,9 @@ const Mark = memo(function Mark({
     <MinimapTick
       type="button"
       index={mark.turn}
-      last={last}
+      last={count - 1}
       active
       data-tick={mark.turn}
-      data-mark={index}
       data-kind="user"
       className="acpmux-minimap__tick acpmux-scrollmap__mark"
       data-tone={tone}
@@ -382,13 +407,13 @@ const Mark = memo(function Mark({
       aria-label={label}
       aria-describedby={describedBy}
       style={style}
-      onFocus={onFocus}
-      onBlur={onBlur}
+      onFocus={() => actions.focus(id)}
+      onBlur={() => actions.blur(id)}
       // The rail's pointer handlers take presses; a click with no pointer (Return, Space) jumps here.
       onClick={(event) => {
-        if (event.detail === 0) onActivate();
+        if (event.detail === 0) actions.activate(id);
       }}
-      keyboard={onKey}
+      keyboard={(event) => actions.key(event, mark.turn)}
     >
       {bar}
       <span className="acpmux-minimap__dot" style={{ transform: `translateX(${length}px)` }} />
