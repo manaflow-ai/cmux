@@ -259,7 +259,7 @@ final class WorkspaceRowView: SidebarRowView {
         }
         title.font = ws.titleWeight.map { NSFont.systemFont(ofSize: SidebarStyle.titleFont.pointSize, weight: $0.font) } ?? SidebarStyle.titleFont
         subtitle.setFont(SidebarStyle.subtitleFont)
-        subtitle.setString(row.detail ?? "")
+        subtitle.setString(shown.now.map(Strings.rowNow) ?? row.detail ?? "")
         hasSubtitle = row.detail != nil
         // While the agent works, its running time takes the age's place (WorkspaceRowView+Elapsed).
         let trailingText = shown.chip.map { SidebarPriorityRowView.chipText($0, now: Date()) }
