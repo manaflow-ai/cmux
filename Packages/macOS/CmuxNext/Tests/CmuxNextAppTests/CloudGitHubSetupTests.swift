@@ -65,7 +65,7 @@ struct CloudGitHubSetupTests {
 
     // MARK: Validation
 
-    @Test(arguments: ["Ann\nrm -rf ~", "Ann\0", "Ann\u{1B}[31m", "Ann\r", "Ann\u{7F}", String(repeating: "a", count: 257)])
+    @Test(arguments: ["Ann\nrm -rf ~", "Ann\0", "Ann\u{1B}[31m", "Ann\rLee", "Ann\u{7F}", String(repeating: "a", count: 257)])
     func aValueWithAControlCharacterOrTooLongIsRefused(value: String) {
         #expect(throws: ActionFailure(message: CloudStrings.gitHubIdentityUnsafe)) {
             try CloudGitHubSetup.validated(.init(name: value, email: "a@b.c"))
