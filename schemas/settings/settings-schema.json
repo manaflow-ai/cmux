@@ -1245,6 +1245,7 @@
             "key" : "settings.group.phone",
             "rows" : [
               "phone.allowConnections",
+              "phone.newDevices",
               "phone.startSessions",
               "phone.keepAwake",
               "phone.cloudReplica"
@@ -4660,6 +4661,71 @@
     },
     {
       "accepts" : [
+        "ask",
+        "account"
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.phoneNewDevicesAsk",
+            "text" : "Ask on This Mac"
+          },
+          "value" : "ask"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.phoneNewDevicesAccount",
+            "text" : "Any Phone on My Account"
+          },
+          "value" : "account"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "ask",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.phone",
+        "text" : "Phone Access"
+      },
+      "help" : {
+        "key" : "settings.phone.newDevices.help",
+        "text" : "The first time a phone signed in to your cmux account connects, this Mac can ask you to allow it. Allowed phones are listed below, where you can remove them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "phone.newDevices",
+      "keywords" : [
+        "iphone",
+        "pair",
+        "approve",
+        "device",
+        "trust",
+        "remove"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "phone",
+        "newDevices"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.phone.newDevices",
+        "text" : "New Phones"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -6105,7 +6171,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "afterCurrent",
+      "default" : "top",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
