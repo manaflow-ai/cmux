@@ -107,6 +107,12 @@ impl Translator {
                             // Claude Code reads it at its next tool boundary
                             // and echoes it; the echo answers this request.
                             self.steers.lock().await.push_back((uuid, id.to_string()));
+                            // Send now (`_meta.interrupt`): the step stops and Claude Code
+                            // reads the line at once, as one more turn of this prompt.
+                            if p.pointer("/_meta/interrupt").and_then(Value::as_bool) == Some(true)
+                            {
+                                return Outbound::Lines(vec![line, self.step_interrupt()]);
+                            }
                             return Outbound::Lines(vec![line]);
                         }
                         self.in_turn.store(true, Ordering::SeqCst);
@@ -268,13 +274,21 @@ impl Translator {
                     }
                 }
             }
-            Message::Notification { method: m, .. } => {
-                if m == method::SESSION_CANCEL {
+            Message::Notification { method: m, params } => {
+                if m == method::SESSION_CANCEL
+                    && params
+                        .as_ref()
+                        .and_then(|p| p.pointer("/_meta/steerNow"))
+                        .and_then(Value::as_bool)
+                        == Some(true)
+                {
+                    // Send now for a steer Claude Code has not read: only the step stops.
+                    // With no steer waiting there is nothing to send, so nothing stops.
+                    let unread = !self.steers.lock().await.is_empty();
+                    Outbound::Lines(if unread { vec![self.step_interrupt()] } else { vec![] })
+                } else if m == method::SESSION_CANCEL {
                     self.cancelled.store(true, Ordering::SeqCst);
-                    let n = self.next_control.fetch_add(1, Ordering::SeqCst);
-                    Outbound::Lines(vec![
-                        json!({"type": "control_request", "request_id": format!("int-{n}"), "request": {"subtype": "interrupt"}}),
-                    ])
+                    Outbound::Lines(vec![self.step_interrupt()])
                 } else {
                     Outbound::Lines(vec![])
                 }
@@ -338,6 +352,16 @@ impl Translator {
 
 /// An ACP `resource` or `resource_link` block as prompt text, so embedded
 /// context reaches Claude instead of an empty string.
+impl Translator {
+    /// Claude Code's interrupt: it stops the running step. Claude Code then reads a steered line
+    /// it has not read yet as one more turn of the prompt (`inbound.rs`); `cancelled`, which a
+    /// Stop sets beside this, stops that turn too.
+    fn step_interrupt(&self) -> Value {
+        let n = self.next_control.fetch_add(1, Ordering::SeqCst);
+        json!({"type": "control_request", "request_id": format!("int-{n}"), "request": {"subtype": "interrupt"}})
+    }
+}
+
 fn resource_text(b: &Value) -> String {
     let r = b.get("resource").unwrap_or(b);
     let uri = r.get("uri").and_then(Value::as_str).unwrap_or("");
