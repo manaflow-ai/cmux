@@ -52,7 +52,13 @@ test("agent_message provenance names the sending chat", () => {
 test("only a chat's address opens; a terminal agent or a person at a shell does not", () => {
   for (const from of ["cli", "term_0123456789abcdef0123456789abcdef", "acp:"]) {
     const message = incomingPrompt("hi", { _meta: { provenance: { ...provenance, from, fromName: undefined } } });
-    expect(message?.kind === "message" && message.message).toEqual({ name: from, text: "hi", raw: "hi" });
+    expect(message?.kind === "message" && message.message).toEqual({
+      name: from,
+      msgId: "m-1",
+      threadId: "t-1",
+      text: "hi",
+      raw: "hi",
+    });
   }
 });
 
@@ -61,14 +67,14 @@ test("a message cmux rendered shows the sender's words; raw keeps the whole prom
   const raw = rendered(body);
   expect(incomingPrompt(raw, { _meta: { provenance } })).toEqual({
     kind: "message",
-    message: { name: "Grid fix", sessionId: "child-3", text: body, raw },
+    message: { name: "Grid fix", sessionId: "child-3", msgId: "m-1", threadId: "t-1", text: body, raw },
   });
   // A reply, and a person's message from a shell (no Reply line).
   const reply = rendered("Thanks.", { replyTo: "m-0" });
   expect(incomingPrompt(reply, { _meta: { provenance } })).toMatchObject({ message: { text: "Thanks." } });
   const shell = rendered("Ship it.", { from: "cli", reply: false });
   expect(incomingPrompt(shell, { _meta: { provenance: { ...provenance, from: "cli", fromName: undefined } } })).toEqual(
-    { kind: "message", message: { name: "cli", text: "Ship it.", raw: shell } },
+    { kind: "message", message: { name: "cli", msgId: "m-1", threadId: "t-1", text: "Ship it.", raw: shell } },
   );
   expect(incomingPrompt(rendered(""), { _meta: { provenance } })).toMatchObject({ message: { text: "" } });
 });

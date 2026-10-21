@@ -592,7 +592,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
         _meta: {
           provenance: {
             kind: "agent_message",
-            from: "child-3",
+            from: "acp:child-3",
             fromName: "Grid fix",
             to: SESSION,
             msgId: "m-1",
