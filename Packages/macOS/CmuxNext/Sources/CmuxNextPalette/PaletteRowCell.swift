@@ -126,6 +126,7 @@ final class PaletteRowCell: NSTableCellView {
     private let keycaps = PaletteKeycapsView()
     private var symbolName: String?
     private var titleText = ""
+    private var titleFace: NSFont?
     private var highlights: [Int] = []
     private var isSelected = false
     private var swatches: [ThemeRGB] = []
@@ -160,6 +161,7 @@ final class PaletteRowCell: NSTableCellView {
         icon.isHidden = drawsColor
         self.isSelected = isSelected
         titleText = item.title
+        titleFace = item.fontFamily.flatMap { PaletteFontFaces.shared.font(family: $0, size: Typography.body.pointSize) }
         highlights = row.highlights
         applyColors()
         subtitle.stringValue = item.subtitle ?? ""
@@ -191,7 +193,7 @@ final class PaletteRowCell: NSTableCellView {
     private func applyColors() {
         performWithTheme {
             icon.contentTintColor = isSelected ? Palette.textPrimary : Palette.textSecondary
-            title.attributedStringValue = Self.highlighted(titleText, highlights)
+            title.attributedStringValue = Self.highlighted(titleText, highlights, face: titleFace)
             swatch.colors = ball.map { [$0.color.ballRGB] } ?? swatches
         }
     }
@@ -234,14 +236,15 @@ final class PaletteRowCell: NSTableCellView {
     /// Matched characters in full label color and the emphasized weight; the
     /// rest slightly muted, so the match reads without a colored highlight.
     /// theme-scoped: called inside `performWithTheme`.
-    static func highlighted(_ text: String, _ positions: [Int]) -> NSAttributedString {
+    /// `face` (a font row's own family) draws every character, the match by color alone.
+    static func highlighted(_ text: String, _ positions: [Int], face: NSFont? = nil) -> NSAttributedString {
         let base: [NSAttributedString.Key: Any] = [
-            .font: Typography.body,
+            .font: face ?? Typography.body,
             .foregroundColor: positions.isEmpty ? Palette.textPrimary : Palette.textPrimary.withAlphaComponent(0.78),
         ]
         let result = NSMutableAttributedString(string: text, attributes: base)
         guard !positions.isEmpty else { return result }
-        let emphasized: [NSAttributedString.Key: Any] = [.font: Typography.bodyEmphasized, .foregroundColor: Palette.textPrimary]
+        let emphasized: [NSAttributedString.Key: Any] = [.font: face ?? Typography.bodyEmphasized, .foregroundColor: Palette.textPrimary]
         let wanted = Set(positions)
         var utf16Offset = 0
         for (offset, scalar) in text.unicodeScalars.enumerated() {

@@ -10,13 +10,10 @@
 // The engines come from `playwright install chromium webkit`. Where one is not installed, its
 // cases are skipped and say so.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { spawn, type ChildProcess } from "node:child_process";
-import net from "node:net";
 import path from "node:path";
 import { chromium, webkit, type BrowserType, type Page } from "playwright";
-import { stopDevServer } from "./support/devServer";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmDevServer } from "./support/warmDevServer";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("settings-search-results.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -34,7 +31,8 @@ await requireBrowserLane("settings-search-results.test.ts", async () => {
     }
   }
 
-  let server: ChildProcess | null = null;
+  const { createServer } = await import("vite");
+  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let base = "";
   // The page's utility classes, compiled as the app build does (the settings dev server compiles none).
   let utilities = "";
@@ -43,34 +41,19 @@ await requireBrowserLane("settings-search-results.test.ts", async () => {
     if (engines.length === 0) return;
     const { compileTailwind } = await import("../scripts/agent-pane/tailwindCompile.mjs");
     utilities = await compileTailwind(path.join(webviews, "src/pages/settings/tailwind.css"));
-    const port = await new Promise<number>((resolve) => {
-      const probe = net.createServer().listen(0, "127.0.0.1", () => {
-        const { port } = probe.address() as net.AddressInfo;
-        probe.close(() => resolve(port));
-      });
+    // The settings dev server, in this process: `listen()` resolves once it takes requests.
+    vite = await createServer({
+      configFile: path.join(webviews, "vite.config.settings-page.mjs"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
     });
-    server = spawn(
-      path.join(webviews, "node_modules/.bin/vp"),
-      ["dev", "--config", "vite.config.settings-page.mjs", "--port", String(port), "--strictPort"],
-      { cwd: webviews, stdio: ["ignore", "ignore", "ignore"] },
-    );
-    base = `http://127.0.0.1:${port}`;
-    const deadline = Date.now() + 60_000;
-    let listening = false;
-    while (!listening && Date.now() < deadline) {
-      try {
-        listening = (await fetch(`${base}/`)).ok;
-      } catch {
-        // Not listening yet.
-      }
-      if (!listening) await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-    if (!listening) throw new Error("settings dev server did not start");
-    await warmDevServer(base, "/");
+    await vite.listen();
+    base = `http://127.0.0.1:${(vite.httpServer!.address() as { port: number }).port}`;
+    await warmViteServer(vite, "/");
   }, 180_000);
 
-  afterAll(() => {
-    stopDevServer(server);
+  afterAll(async () => {
+    await vite?.close();
   });
 
   /** Types `query` into the search field and waits until the results have settled. */

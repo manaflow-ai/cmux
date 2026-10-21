@@ -6,6 +6,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ComposerQueue } from "./ComposerQueue";
+import { queuedRowsState } from "./queuedRowsState";
 import type { QueueEdit } from "./model";
 
 let dom: JSDOM | undefined;
@@ -312,4 +313,52 @@ test("editing only a queued prompt's text sends no image list, so it keeps them 
     field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   });
   expect(edits).toEqual([["p-1", { op: "update", text: "why does the sidebar overlap?" }]]);
+});
+
+test("chat_state reads each queued row's text, its image ids and how far each thumbnail got", async () => {
+  const container = await renderPictured(async () => true, []);
+  const [first, second] = thumbnails(container).map((button) => button.querySelector("img")!);
+  expect(queuedRowsState(container)).toEqual([
+    {
+      promptId: "p-1",
+      text: "why does this overlap?",
+      editing: false,
+      images: [
+        { id: SHOT_A, label: "sidebar.png", thumbnail: "loading" },
+        { id: SHOT_B, label: "toolbar.png", thumbnail: "loading" },
+      ],
+    },
+  ]);
+  // One draws, the other's bytes do not.
+  await act(async () => {
+    first!.dispatchEvent(new dom!.window.Event("load"));
+    second!.dispatchEvent(new dom!.window.Event("error"));
+  });
+  expect(queuedRowsState(container)[0]!.images.map((image) => image.thumbnail)).toEqual(["loaded", "failed"]);
+  // In edit mode the row reads the field's text.
+  const [edit] = actions(container, "p-1");
+  await act(async () => edit.click());
+  const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
+  field.value = "why does the toolbar overlap?";
+  expect(queuedRowsState(container)[0]).toMatchObject({ editing: true, text: "why does the toolbar overlap?" });
+});
+
+test("a queued image acpmux has no bytes for reads as missing, one being read as reading", async () => {
+  const container = installDom();
+  let finish: (url: string | undefined) => void = () => undefined;
+  const queue = [{ id: "p-2", prompt: "see", images: [{ id: SHOT_A, mimeType: "image/png", name: "shot.png" }] }];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={queue}
+        chat="c"
+        t={t}
+        readImage={() => new Promise<string | undefined>((resolve) => (finish = resolve))}
+      />,
+    );
+  });
+  expect(queuedRowsState(container)[0]!.images).toEqual([{ id: SHOT_A, label: "shot.png", thumbnail: "reading" }]);
+  await act(async () => finish(undefined));
+  expect(queuedRowsState(container)[0]!.images).toEqual([{ id: SHOT_A, label: "shot.png", thumbnail: "missing" }]);
 });

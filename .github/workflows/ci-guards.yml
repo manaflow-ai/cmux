@@ -190,9 +190,17 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_macos_xcode_selection.py
 
+      - name: Validate the CEF shim C++ tests run on Linux
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_shim_cpp_linux.py
+
       - name: Validate Xcode pin audit
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_xcode_pin_audit.py
+
+      - name: Validate the bash 3.2 parse job runs on Linux
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_bash32_linux_job.py
 
       - name: Validate v0.64.25 rpath repair workflow contract
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -811,6 +819,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
 
+      # Reads the other branch's workflows too (origin/main here, origin/feat-cmux-next on main) and
+      # main's rescue lists; under Actions the test fetches it blob-less and fails if it cannot.
+      - name: Validate that the persistent-pool rescue watches every owned-pool workflow
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_pool_sources.py
+
       - name: Validate the backend migrations plan
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_backend_migrations_plan.py
@@ -944,6 +958,10 @@ jobs:
       - name: Validate the PR media pruner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_prune_pr_media.py
+
+      - name: Validate the PR media privacy check and its writers
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_media_privacy.py
 
       - name: Validate nightly prune Python compatibility
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
@@ -1201,6 +1219,10 @@ jobs:
       - name: Validate the cmux-next tour bounds its DerivedData on each Mac
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_ci_prune_media_derived_data.py
+
+      - name: Validate reload.sh reads the cmux-next tour's free-space floor from tour-requirements.json
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_tour_requirements.py
 
       - name: Validate a second cmux-next tour of a tag waits for the tour holding it
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

@@ -19,6 +19,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -126,26 +127,34 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
 
   async function open(): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${CHAT}`);
     await page.getByText("Answer 40:", { exact: false }).waitFor({ timeout: 60_000 });
-    // Rows place by their drawn heights a frame after they mount.
-    await page.waitForTimeout(500);
+    // Rows place by their drawn heights a frame after they mount, and rise in (cv-enter): wait out
+    // the finite animations, then for the offset and the card to hold.
+    await page.evaluate(async () => {
+      for (;;) {
+        const moving = document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+          );
+        if (moving.length === 0) break;
+        await Promise.allSettled(moving.map((animation) => animation.finished));
+      }
+    });
+    await untilStill(page);
     return page;
   }
 
-  /// Resolves after `count` painted frames (a task queued from the last one's animation frame).
+  /// Resolves after `count` painted frames.
   const painted = (page: Page, count: number) =>
-    page.evaluate(
-      (count) =>
-        new Promise<void>((done) => {
-          let left = count;
-          const tick = () => (--left <= 0 ? setTimeout(done, 0) : requestAnimationFrame(tick));
-          requestAnimationFrame(tick);
-        }),
-      count,
-    );
+    page.evaluate(async (count) => {
+      for (let left = count; left > 0; left--) await window.cmuxPaintFrame();
+    }, count);
   /// Resolves once the scroller's offset has held for 12 painted frames (a wheel's scroll can run
   /// over several frames).
   const restingScroll = (page: Page) =>
@@ -155,13 +164,13 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
           const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
           let last = scroller.scrollTop;
           let still = 0;
-          const tick = () => {
+          window.cmuxAfterPaint(() => {
             still = scroller.scrollTop === last ? still + 1 : 0;
             last = scroller.scrollTop;
-            if (still >= 12) done();
-            else requestAnimationFrame(tick);
-          };
-          requestAnimationFrame(tick);
+            if (still < 12) return true;
+            done();
+            return false;
+          });
         }),
     );
   /// The pane, the scroller (whose height is its scrollbar's track) and the composer's card, and
@@ -237,20 +246,18 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
           fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
         });
       };
-      // Read after each frame paints (a task queued from its animation frame).
-      const tick = () => {
-        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return;
-        setTimeout(sample, 0);
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
+      // Read after each frame paints, until the frames are taken.
+      window.cmuxAfterPaint(() => {
+        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return false;
+        sample();
+      });
     });
     for (let line = 1; line <= 5; line++) {
       await page.keyboard.type(`Line ${line} of a longer prompt`);
       await page.keyboard.press("Shift+Enter");
-      await page.waitForTimeout(60);
+      await painted(page, 3);
     }
-    await page.waitForTimeout(300);
+    await untilStill(page);
     const frames = await page.evaluate(() => {
       const holder = window as unknown as { __frames?: { rowAboveCard: number; fromEnd: number }[] };
       const frames = holder.__frames ?? [];
@@ -292,22 +299,20 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
         const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         frames.push({ top: node.scrollTop, height: node.scrollHeight, view: node.clientHeight });
       };
-      // Read after each frame paints (a task queued from its animation frame).
-      const tick = () => {
-        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return;
-        setTimeout(sample, 0);
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
+      // Read after each frame paints, until the frames are taken.
+      window.cmuxAfterPaint(() => {
+        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return false;
+        sample();
+      });
     });
     // Lines from Shift-Return, then a line that wraps.
     for (let line = 1; line <= 4; line++) {
       await page.keyboard.type(`Line ${line} of a longer prompt`);
       await page.keyboard.press("Shift+Enter");
-      await page.waitForTimeout(60);
+      await painted(page, 3);
     }
     await page.keyboard.type("and a last line long enough to wrap in the composer's card ".repeat(3));
-    await page.waitForTimeout(300);
+    await untilStill(page);
     const frames = await page.evaluate(() => {
       const holder = window as unknown as { __frames?: { top: number; height: number; view: number }[] };
       const frames = holder.__frames ?? [];
@@ -328,7 +333,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     // Back at the end, the latest row sits above the grown card.
     await page.mouse.move(view.x + view.width / 2, view.y + 120);
     for (let step = 0; step < 4; step++) await page.mouse.wheel(0, 2000);
-    await page.waitForTimeout(600);
+    await untilStill(page);
     const end = await measure(page);
     expect({ fromEnd: end.fromEnd, lastIsLatest: end.lastIsLatest }).toEqual({ fromEnd: 0, lastIsLatest: true });
     expect(end.rowAboveCard).toBeGreaterThanOrEqual(-1);
@@ -370,12 +375,11 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
           cardHeight: document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().height,
         });
       };
-      const tick = () => {
-        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return;
-        setTimeout(sample, 0);
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
+      // Read after each frame paints, until the frames are taken.
+      window.cmuxAfterPaint(() => {
+        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return false;
+        sample();
+      });
     }, start.row);
     const restHeight = await page.evaluate(
       () => document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().height,
@@ -385,7 +389,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     for (let line = 1; line <= 5; line++) {
       await page.keyboard.type(`Line ${line} of a longer prompt`);
       await page.keyboard.press("Shift+Enter");
-      await page.waitForTimeout(60);
+      await painted(page, 3);
     }
     // And back: the lines removed one at a time, then the rest of the draft at once.
     for (let line = 1; line <= 3; line++) {
@@ -394,17 +398,17 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       await page.keyboard.press("Home");
       await page.keyboard.up("Shift");
       await page.keyboard.press("Backspace");
-      await page.waitForTimeout(60);
+      await painted(page, 3);
     }
     await page.keyboard.press("ControlOrMeta+A");
     await page.keyboard.press("Backspace");
     // Sampled until the card is back to its height before typing (a slow runner can paint the
-    // last shrink after a fixed wait), then a few frames more.
+    // last shrink late), then a few frames more.
     await page.waitForFunction(
       (rest) => Math.abs(document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().height - rest) <= 1,
       restHeight,
     );
-    await page.waitForTimeout(150);
+    await painted(page, 10);
     const frames = await page.evaluate(() => {
       const holder = window as unknown as { __frames?: { top: number; rowTop: number; cardHeight: number }[] };
       const frames = holder.__frames ?? [];
@@ -446,12 +450,11 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
           cardHeight: Math.round(card.height),
         });
       };
-      const tick = () => {
-        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return;
-        setTimeout(sample, 0);
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
+      // Read after each frame paints, until the frames are taken.
+      window.cmuxAfterPaint(() => {
+        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return false;
+        sample();
+      });
     });
     const restHeight = await page.evaluate(
       () => document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().height,
@@ -461,7 +464,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     for (let line = 1; line <= 5; line++) {
       await page.keyboard.type(`Line ${line} of a longer prompt`);
       await page.keyboard.press("Shift+Enter");
-      await page.waitForTimeout(60);
+      await painted(page, 3);
     }
     for (let line = 1; line <= 3; line++) {
       await page.keyboard.press("Backspace");
@@ -469,17 +472,17 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       await page.keyboard.press("Home");
       await page.keyboard.up("Shift");
       await page.keyboard.press("Backspace");
-      await page.waitForTimeout(60);
+      await painted(page, 3);
     }
     await page.keyboard.press("ControlOrMeta+A");
     await page.keyboard.press("Backspace");
     // Sampled until the card is back to its height before typing (a slow runner can paint the
-    // last shrink after a fixed wait), then a few frames more.
+    // last shrink late), then a few frames more.
     await page.waitForFunction(
       (rest) => Math.abs(document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().height - rest) <= 1,
       restHeight,
     );
-    await page.waitForTimeout(150);
+    await painted(page, 10);
     const frames = await page.evaluate(() => {
       const holder = window as unknown as {
         __frames?: { rowAboveCard: number; fromEnd: number; cardHeight: number }[];
@@ -522,12 +525,11 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
           rowAboveCard: Math.round(card.top - last.getBoundingClientRect().bottom),
         });
       };
-      const tick = () => {
-        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return;
-        setTimeout(sample, 0);
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
+      // Read after each frame paints, until the frames are taken.
+      window.cmuxAfterPaint(() => {
+        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return false;
+        sample();
+      });
     });
   const stopFrames = (page: Page): Promise<Frame[]> =>
     page.evaluate(() => {
@@ -548,13 +550,13 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
           const read = () => `${scroller.scrollTop}:${card.getBoundingClientRect().height}`;
           let last = read();
           let since = performance.now();
-          const tick = (now: number) => {
+          window.cmuxAfterPaint((now) => {
             const seen = read();
             if (seen !== last) [last, since] = [seen, now];
-            if (now - since >= 200) resolve();
-            else requestAnimationFrame(tick);
-          };
-          requestAnimationFrame(tick);
+            if (now - since < 200) return true;
+            resolve();
+            return false;
+          });
         }),
     );
 
@@ -585,7 +587,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     await startFrames(page);
     for (let step = 0; step < 12; step++) {
       await page.mouse.wheel(0, 150);
-      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+      await page.evaluate(() => window.cmuxPaintFrame());
     }
     await untilStill(page);
     const frames = await stopFrames(page);
@@ -639,7 +641,6 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
   // the composer make the scrollbar jump"). Before: each line grew the room under the last row, so
   // the offset was written to the new end and the overlay thumb showed and shrank on every line.
   test("a composer that grows and shrinks at the latest row keeps the scrollbar still on every frame", async () => {
-    // fixed-wait: open() rests 500ms for rows to place by drawn height, as every test in this file does.
     const page = await open();
     await page.locator(".acpmux-md").click();
     const before = await measure(page);
@@ -671,13 +672,11 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
           cardHeight: Math.round(card.height),
         });
       };
-      // Read after each frame paints (a task queued from its animation frame).
-      const tick = () => {
-        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return;
-        setTimeout(sample, 0);
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
+      // Read after each frame paints, until the frames are taken.
+      window.cmuxAfterPaint(() => {
+        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return false;
+        sample();
+      });
     });
     for (let line = 1; line <= 5; line++) {
       await page.keyboard.type(`Line ${line} of a longer prompt`);
@@ -702,9 +701,10 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       before.cardHeight,
     );
     // A few more painted frames at the card's resting height.
-    await page.evaluate(
-      () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 0)))),
-    );
+    await page.evaluate(async () => {
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
+    });
     const frames = await page.evaluate(() => {
       const holder = window as unknown as { __frames?: Frame[] };
       const frames = holder.__frames ?? [];
@@ -743,7 +743,6 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
   // by the wheel's distance, in its direction, on every painted frame. Without that, the rows dropped
   // by the growth (five lines, about 100px) in the frame the view stopped following.
   test("a reader who scrolls up from a grown composer sees the rows move only by the wheel", async () => {
-    // fixed-wait: open() rests 500ms for rows to place by drawn height, as every test in this file does.
     const page = await open();
     await page.locator(".acpmux-md").click();
     for (let line = 1; line <= 5; line++) {
@@ -771,13 +770,11 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
         const row = document.querySelector(`.acpmux-scroll .acpmux-row[aria-posinset="${posinset}"]`);
         if (row) frames.push(row.getBoundingClientRect().top);
       };
-      // Read after each frame paints (a task queued from its animation frame).
-      const tick = () => {
-        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return;
-        setTimeout(sample, 0);
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
+      // Read after each frame paints, until the frames are taken.
+      window.cmuxAfterPaint(() => {
+        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return false;
+        sample();
+      });
     }, posinset);
     const view = (await page.locator(".acpmux-scroll").boundingBox())!;
     await page.mouse.move(view.x + view.width / 2, view.y + 120);
@@ -814,6 +811,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     const short = await papercutPane(() => browser!, { turns: 3, running: false });
     try {
       const page = await short.open();
+      await installPaintedFrames(page);
       // Size the view so the transcript is 2-3px taller than it: the chat opens at its latest row.
       const fit = await page.evaluate(() => ({
         total: parseFloat(document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height),

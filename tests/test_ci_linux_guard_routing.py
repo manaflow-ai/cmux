@@ -305,7 +305,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
     def test_linux_preflight_skips_when_macos_route_is_false(self):
         block = workflow_job_block("linux-preflight")
         self.assertIn(
-            "if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.macos != 'false' }}",
+            "if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.macos != 'false' }}",
             block,
         )
 
@@ -438,6 +438,15 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         # bucket just to run the repository-wide py_compile check.
         _, groups = route_decision(["scripts/ci/new_syntax_only.py"])
         self.assertEqual(groups, ("quality-determinism",))
+
+    def test_the_pr_media_privacy_check_runs_its_own_and_the_uploaders_tests(self):
+        # tests/test_ci_pr_media_privacy.py runs in ci; tests/test_pr_media.py,
+        # whose uploads go through the check, in preflight.
+        _, groups = route_decision(["scripts/ci/pr_media_privacy.py"])
+        self.assertIn("ci", groups)
+        self.assertIn("preflight", groups)
+        _, groups = route_decision(["tests/test_ci_pr_media_privacy.py"])
+        self.assertIn("ci", groups)
 
     def test_macos_admission_helpers_run_only_workflow_guard_contracts(self):
         expected = {
