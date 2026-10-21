@@ -37,6 +37,8 @@ type Chip = {
   chevron: boolean;
   /** The model's name color. */
   nameColor?: string;
+  /** The model's effort detail color (its own --agent-muted ink). */
+  detailColor?: string;
 };
 type Row = {
   /** Whether the model's name (any form) and the mode's label draw: the row's fit steps
@@ -77,6 +79,7 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
       const modelName =
         [...element.querySelectorAll(".acpmux-model-name, .acpmux-model-short")].find(shown) ??
         element.querySelector(".acpmux-model-name");
+      const detail = [...element.querySelectorAll(".acpmux-model-detail")].find(shown);
       return [
         {
           name,
@@ -91,6 +94,7 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
           leadingIcon: !!leading && shown(leading),
           chevron: !!chevron && shown(chevron),
           ...(modelName ? { nameColor: getComputedStyle(modelName).color } : {}),
+          ...(detail ? { detailColor: getComputedStyle(detail).color } : {}),
         },
       ];
     };
@@ -294,9 +298,9 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
           if (was && Math.abs(was.height - each.height) > 0.5) problems.push(`${each.name}'s height changed`);
           if (each.name !== "model" && !each.chevron) problems.push(`${each.name} lost its chevron`);
         }
-        // Muted like its effort: the name takes the button's own quiet ink, which the effort detail draws in.
+        // Muted like its effort: the name draws in the effort detail's own quiet ink.
         const model = chip(row, "model");
-        const muted = model?.color;
+        const muted = model?.detailColor;
         if (model?.nameColor !== muted) problems.push(`the model name ${model?.nameColor} is not muted (${muted})`);
         if (row.modelLabel && model?.leadingIcon) problems.push("the model's brand mark still draws beside its name");
         if (!row.modelLabel && !model?.leadingIcon) problems.push("the stepped-down model chip has no mark");
