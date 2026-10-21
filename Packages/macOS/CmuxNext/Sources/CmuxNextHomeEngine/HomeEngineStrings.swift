@@ -188,10 +188,18 @@ public nonisolated enum HomeEngineStrings {
     }
     static var answeredBy: String { String(localized: "home.engine.answeredBy", defaultValue: "Recent replies, answered by:", table: "Home", bundle: .module) }
 
+    /// "claude-sr2-pipe, claude-opus-5-5": the turn's harness and model, each kept on one line.
+    /// The card's diagnostics wrap at its width, and a line broke after a hyphen inside a name
+    /// ("claude-sr2-" / "pipe", Leo's screenshot 2026-10-20), so a name's hyphens are
+    /// non-breaking (U+2011, drawn the same); the labels are not selectable, so none is copied.
+    static func engineTitle(_ turn: HomeEngineTurn) -> String {
+        [turn.harness, turn.model].compactMap { $0?.replacingOccurrences(of: "-", with: "\u{2011}") }.joined(separator: ", ")
+    }
+
     /// "“Both subagents are done…” claude-sr, claude-opus-5-5", or the engine
     /// alone for a turn whose reply the trace kept no text of (no empty quotes).
     static func reply(_ turn: HomeEngineTurn) -> String {
-        let engine = [turn.harness, turn.model].compactMap { $0 }.joined(separator: ", ")
+        let engine = engineTitle(turn)
         let text = turn.reply?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return text.isEmpty ? engine : "\u{201C}\(text)\u{201D} \(engine)"
     }
@@ -200,7 +208,7 @@ public nonisolated enum HomeEngineStrings {
 
     /// "Last turn: claude-sr, claude-opus-5-5, 7.8 s, 1 tool call, 50% cached, $0.144".
     static func lastTurn(_ turn: HomeEngineTurn) -> String {
-        let engine = [turn.harness, turn.model].compactMap { $0 }.joined(separator: ", ")
+        let engine = engineTitle(turn)
         // Numbers in the reader's own format (decimal mark, percent sign, currency).
         let hit = turn.hitRate.map { $0.formatted(.percent.precision(.fractionLength(0)).rounded(rule: .toNearestOrAwayFromZero)) } ?? "-"
         let cost = turn.cost.map { $0.formatted(.currency(code: "USD").precision(.fractionLength(3))) } ?? "-"
