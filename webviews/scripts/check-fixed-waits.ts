@@ -18,7 +18,9 @@ import { fileURLToPath } from "node:url";
  *
  * Files from before the rule have a count in fixed-waits-baseline.tsv. A file fails with more
  * unmarked waits than its row, and with fewer until the row is lowered (`--update-baseline`), so
- * the count only moves down. `--update-baseline` refuses to raise a row.
+ * the count only moves down. `--update-baseline` refuses to raise a row. A row whose file is gone
+ * passes (a deleted test hides no wait; a renamed one is counted under its new name) and is dropped
+ * on the next `--update-baseline`.
  */
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -235,6 +237,25 @@ function writeBaseline(counts: Map<string, number>) {
   );
 }
 
+/** Files above their baseline row (with their waits) and below it; a row whose file is gone is neither. */
+export function compareToBaseline(
+  found: Map<string, string[]>,
+  baseline: Map<string, number>,
+  exists: (file: string) => boolean,
+): { grew: string[]; shrank: string[] } {
+  const grew: string[] = [];
+  const shrank: string[] = [];
+  for (const file of [...new Set([...found.keys(), ...baseline.keys()])].sort()) {
+    const now = found.get(file)?.length ?? 0;
+    const before = baseline.get(file) ?? 0;
+    if (!found.has(file) && !exists(file)) continue;
+    if (now > before)
+      grew.push(`  ${file}: ${now} fixed waits, baseline ${before}\n    ${found.get(file)!.join("\n    ")}`);
+    else if (now < before) shrank.push(`  ${file}: ${now} fixed waits, baseline ${before}`);
+  }
+  return { grew, shrank };
+}
+
 if (import.meta.main) {
   const found = new Map<string, string[]>();
   // Every source under test/ (tests, harnesses, support and latency helpers; fixtures are data),
@@ -253,16 +274,7 @@ if (import.meta.main) {
   scan(path.join(root, "test"), true);
   scan(path.join(root, "src"), false);
   const counts = new Map([...found].map(([file, waits]) => [file, waits.length]));
-  const baseline = readBaseline();
-  const grew: string[] = [];
-  const shrank: string[] = [];
-  for (const file of [...new Set([...counts.keys(), ...baseline.keys()])].sort()) {
-    const now = counts.get(file) ?? 0;
-    const before = baseline.get(file) ?? 0;
-    if (now > before)
-      grew.push(`  ${file}: ${now} fixed waits, baseline ${before}\n    ${found.get(file)!.join("\n    ")}`);
-    else if (now < before) shrank.push(`  ${file}: ${now} fixed waits, baseline ${before}`);
-  }
+  const { grew, shrank } = compareToBaseline(found, readBaseline(), (file) => existsSync(path.join(root, file)));
   if (process.argv.includes("--update-baseline")) {
     if (grew.length && existsSync(baselinePath)) {
       console.error("check-fixed-waits: refusing to raise the baseline; wait for a condition instead:");

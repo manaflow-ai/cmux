@@ -71,6 +71,10 @@ export type AgentSessionTheme = {
   /// How agent work shows (Debug Settings `status.working`, CmuxNextDesign StatusWorkingLook): sets
   /// `data-working-look` on the root. Absent means the stylesheet default, the breathing dot.
   workingLook?: "breathe" | "shimmer" | "spinner";
+  /// Running subagents in one tray above the composer, a line where each ended (Debug Settings
+  /// `agentPane.debug.subagentTray`, acpmux subagents/runningTray.ts). Absent or true is the tray;
+  /// false keeps the transcript's group cards and the agents pill.
+  subagentTray?: boolean;
 };
 
 export type AppContext = {

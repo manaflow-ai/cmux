@@ -130,7 +130,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         liveLine.onTick = { [weak self] in self?.turnPopover?.refresh() }
         liveLine.onClose = { [weak self] in self?.turnPopover?.close() }
         video.controller = controller
-        media.onReady = { [weak self] _ in self?.refreshAttachments() }
+        // A finished picture redraws only the rows that show it (not every attachment row shown).
+        media.onReady = { [weak self] hash in self?.refreshAttachments(only: hash) }
     }
 
     func start() {
@@ -509,9 +510,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// HomeStore's progress and HomeMedia's pictures change no transcript
     /// content, so they reach MessagesLab's message without a transition
     /// (`.cmuxSetAttachment`, the row redraws in place).
-    func refreshAttachments() {
+    /// `only`: just the items that show this hash (its picture became ready).
+    func refreshAttachments(only hash: String? = nil) {
         guard !stopped, let store = controller.store else { return }
-        for item in shown where !item.isRetracted && !item.attachmentHashes.isEmpty {
+        for item in shown where !item.isRetracted && !item.attachmentHashes.isEmpty && (hash.map(item.attachmentHashes.contains) ?? true) {
             for (hash, files) in item.localAttachments { media.useLocal(files, for: hash) }
             let id = HomeMapping.id(item, aliases: aliases)
             guard let message = store.state.message(id) else { continue }
