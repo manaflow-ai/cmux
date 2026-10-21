@@ -64,7 +64,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         }
     }
 
-    public override var wantsUpdateLayer: Bool { true }
+    nonisolated public override var wantsUpdateLayer: Bool { true }
 
     /// Show `state`, drawn in `style` (nil: the configured style).
     public func configure(_ state: StatusIndicatorState, style: StatusIndicatorStyle? = nil) {
@@ -81,14 +81,27 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     public func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {
         refresh()
         needsDisplay = true
+        // The static look can show or hide the mark; the host lays out again.
+        superview?.needsLayout = true
+    }
+
+    public func statusIndicatorResync() {
+        if let window { isWindowVisible = window.occlusionState.contains(.visible) }
+        refresh()
     }
 
     private func refresh() {
         var config = StatusIndicatorAppearance.shared.config
         if ignoresScaleSetting { config.settings.scale = 1 }
-        let animates = window != nil && isWindowVisible && config.animatesLoops
-        let plan = StatusIndicatorPlan.make(state, style: config.style(hint: styleHint), animates: animates, set: config.iconSet)
+        // A host's hidden flag that went stale (its "visible" notice missed this row) cannot keep a
+        // row on a visible window still: the window's own state wins when it says visible.
+        let visible = isWindowVisible || window?.occlusionState.contains(.visible) == true
+        let animates = window != nil && visible && config.animatesLoops
+        let plan = StatusIndicatorPlan.make(state, style: config.style(hint: styleHint), animates: animates, set: config.iconSet,
+                                            isStatic: config.isStatic, staticShapes: config.staticShapes,
+                                            working: config.workingLook)
         let showed = showsGlyph
+        nameState()
         indicator.apply(plan, config: config)
         isHidden = plan.glyph == .none
         // The host reserves trailing space only for a visible glyph.

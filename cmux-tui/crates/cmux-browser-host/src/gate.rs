@@ -105,6 +105,34 @@ const FOCUSED_FRAME_URL: &str = "() => { let doc = document; for (let i = 0; i <
     const el = doc.activeElement; if (!el || (el.tagName !== 'IFRAME' && el.tagName !== 'FRAME')) return doc.location.href; \
     let inner = null; try { inner = el.contentDocument; } catch (e) { inner = null; } if (!inner) return null; doc = inner; } return null; }";
 
+/// Measures the focused element a type or key event goes to (host world):
+/// its rect in the top document's viewport (same-origin frame offsets
+/// added) and whether it hides what is typed (a password field, a
+/// password or one-time-code autocomplete, `-webkit-text-security`);
+/// `{unknown: true}` when focus is in a frame it cannot see into, null
+/// when nothing is focused.
+const FOCUSED_INPUT: &str = "/* cmux-focused-input */ () => { let doc = document, ox = 0, oy = 0; \
+    for (let i = 0; i < 16; i++) { let el = doc.activeElement; \
+    while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement; \
+    if (!el || el === doc.body || el === doc.documentElement) return null; \
+    if (el.tagName === 'IFRAME' || el.tagName === 'FRAME') { let inner = null; try { inner = el.contentDocument; } catch (e) { inner = null; } \
+    if (!inner) return { unknown: true }; const f = el.getBoundingClientRect(); ox += f.left + el.clientLeft; oy += f.top + el.clientTop; doc = inner; continue; } \
+    const type = String(el.type || el.getAttribute('type') || '').toLowerCase(); \
+    const auto = String(el.getAttribute('autocomplete') || '').toLowerCase(); \
+    let css = 'none'; try { css = getComputedStyle(el).webkitTextSecurity || 'none'; } catch (e) { css = 'none'; } \
+    const secret = (el.tagName === 'INPUT' && type === 'password') || /password|one-time-code|cc-number|cc-csc/.test(auto) || css !== 'none'; \
+    const r = el.getBoundingClientRect(); return { secret, x: r.left + ox, y: r.top + oy, w: r.width, h: r.height }; } \
+    return { unknown: true }; }";
+
+/// What a measured field says about masking and where it is.
+struct Measured {
+    /// The field hides its text (a password field).
+    secret: bool,
+    /// The host could not see the field (a cross-origin frame, an error).
+    unknown: bool,
+    rect: Option<crate::automation_input::Rect>,
+}
+
 impl Gate {
     pub fn new(driver: Arc<dyn Driver>, grants: Grants) -> Gate {
         Gate {
@@ -443,6 +471,106 @@ impl Gate {
         Ok(())
     }
 
+    /// What a type or key input types, for its `automation.input` event
+    /// (the app's keystroke overlay), read before a secret resolves so its
+    /// value is never in it, and where the field is. Only for a session
+    /// that publishes inputs; one read of the page per input.
+    fn typing_details(
+        &self,
+        method: &str,
+        params: &Value,
+    ) -> Option<(crate::automation_input::Typing, Option<crate::automation_input::Rect>)> {
+        use crate::automation_input::{Typing, is_agent_fill};
+        self.inputs.as_ref()?;
+        let target = params.get("targetId").and_then(Value::as_str)?;
+        let fill = method == "frame.evaluate" && is_agent_fill(params);
+        let raw = match method {
+            "input.insertText" => params.get("text"),
+            "input.key" if params.get("type").and_then(Value::as_str) != Some("up") => {
+                params.get("text")
+            }
+            _ if fill => params["args"].get(2),
+            _ => return None,
+        };
+        let key =
+            (method == "input.key").then(|| params.get("key").and_then(Value::as_str)).flatten();
+        let modifiers: Vec<String> = match method {
+            "input.key" => params
+                .get("modifiers")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect(),
+            _ => Vec::new(),
+        };
+        // A `{__secret}` handle: its value is never read here.
+        let secret = raw.is_some_and(Value::is_object);
+        let text = raw.and_then(Value::as_str).filter(|t| !t.is_empty());
+        let measured = if fill { self.measure_fill(params) } else { self.measure_focus(target) };
+        let masked_text =
+            text.is_some_and(|text| self.mask_text_for_target(Some(target), text) != text);
+        // Only text is hidden: a key such as Enter in a password field is shown.
+        let hides = measured.secret || measured.unknown || masked_text;
+        let masked = secret || (text.is_some() && hides);
+        let shown = if secret {
+            Some("•".repeat(8))
+        } else {
+            text.map(|text| Typing::shown(text, masked))
+        };
+        // A masked key that types a character does not name it either.
+        let key = key.filter(|key| !(masked && key.chars().count() == 1)).map(str::to_owned);
+        Some((Typing { text: shown, key, modifiers, masked, replace: fill }, measured.rect))
+    }
+
+    /// The focused element of `target` (`FOCUSED_INPUT`).
+    fn measure_focus(&self, target: &str) -> Measured {
+        let unknown = Measured { secret: false, unknown: true, rect: None };
+        let probe =
+            json!({"targetId": target, "world": "host", "source": FOCUSED_INPUT, "args": []});
+        match self.driver.call("frame.evaluate", &probe) {
+            Ok(Value::Null) => Measured { secret: false, unknown: false, rect: None },
+            Ok(found @ Value::Object(_)) if found.get("unknown").is_none() => Measured {
+                secret: found.get("secret").and_then(Value::as_bool).unwrap_or(true),
+                unknown: false,
+                rect: rect_of(&found, "w", "h"),
+            },
+            _ => unknown,
+        }
+    }
+
+    /// The element a page-agent `fill` writes to: its preview says whether
+    /// it is a password field; its rect is in the top document's viewport
+    /// only when it is in the top frame.
+    fn measure_fill(&self, params: &Value) -> Measured {
+        let handle = params["args"].get(1).cloned().unwrap_or(Value::Null);
+        let read = |method: &str| {
+            let mut call =
+                json!({"targetId": params["targetId"], "method": method, "args": [handle]});
+            if let Some(frame) = params.get("frameId").filter(|f| !f.is_null()) {
+                call["frameId"] = frame.clone();
+            }
+            self.driver.call("frame.observe", &call)
+        };
+        let Ok(preview) = read("describe") else {
+            return Measured { secret: false, unknown: true, rect: None };
+        };
+        // Playwright's node preview, `<input type="password" …>`.
+        let preview = match preview {
+            Value::String(text) => text,
+            other => other.to_string(),
+        }
+        .to_lowercase();
+        let secret = ["type=\"password\"", "-password\"", "one-time-code"]
+            .iter()
+            .any(|needle| preview.contains(needle));
+        let top = params.get("frameId").is_none_or(Value::is_null);
+        let rect =
+            if top { read("rect").ok().and_then(|r| rect_of(&r, "width", "height")) } else { None };
+        Measured { secret, unknown: false, rect }
+    }
+
     /// Main's `input.insertText { secret: name }`: the same check and typing
     /// as a `{__secret}` handle in `text`; a secret with a text is invalid.
     fn secret_insert(params: &mut Value) -> Result<(), DriverError> {
@@ -490,6 +618,7 @@ impl VmHost for Gate {
         if method == "input.insertText" {
             Self::secret_insert(&mut params)?;
         }
+        let typing = self.typing_details(method, &params);
         if matches!(method, "input.insertText" | "input.key") {
             self.resolve_secret(&mut params, "text")?;
         }
@@ -499,8 +628,12 @@ impl VmHost for Gate {
         // dispatched (a refused input emits nothing and takes no seq).
         let mut announce = || {
             if let Some(inputs) = &self.inputs
-                && let Some(planned) = inputs.plan(method, &params)
+                && let Some(mut planned) = inputs.plan(method, &params)
             {
+                if let Some((typing, rect)) = &typing {
+                    planned.typing = Some(typing.clone());
+                    planned.rect = *rect;
+                }
                 inputs.publish(planned, &|event| self.driver.send_session_event(event));
             }
         };
@@ -828,3 +961,16 @@ fn effective(policy: &Policy) -> Value {
 #[cfg(test)]
 #[path = "gate_tests.rs"]
 mod tests;
+
+/// A rect from a page answer `{x, y, <w>, <h>}` with finite numbers and a
+/// size that is not negative.
+fn rect_of(value: &Value, w: &str, h: &str) -> Option<crate::automation_input::Rect> {
+    let number = |name: &str| value.get(name).and_then(Value::as_f64).filter(|n| n.is_finite());
+    let rect = crate::automation_input::Rect {
+        x: number("x")?,
+        y: number("y")?,
+        w: number(w)?,
+        h: number(h)?,
+    };
+    (rect.w >= 0.0 && rect.h >= 0.0).then_some(rect)
+}

@@ -3,7 +3,7 @@ import Foundation
 import WebKit
 
 /// Keeps the web view on its page (`AgentPaneSource`): the main frame shows only the page
-/// document. A clicked http(s) link opens outside the pane after a real user gesture
+/// document. A clicked http(s) link, or a cmux app link (opened in the app), opens outside the pane after a real user gesture
 /// (``openOutside(_:gestures:open:)``); a frame inside the page may show a loopback web page (a
 /// turn's preview card, `URL.isAgentPanePreview`) or the render frame (a render card,
 /// `AgentPaneRenderFrame`); every other navigation is cancelled.
@@ -51,6 +51,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         view?.applyZoom()
         view?.applyShortcuts()
         view?.applyPreviewFeatures()
+        if let view { AgentPaneSessionStatus.push(to: view) }
         if let view { AgentPaneSuggestedTasks.shared.push(to: view) }
         view?.applyEditedFiles()
         view?.replayCustomization()
@@ -79,6 +80,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
             return url.isAgentPanePreview && !source.isTrusted(url) ? .allow : .cancel
         }
         if userClicked, let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" { return .openOutside(url) }
+        if userClicked, isCmuxAppLink(url) { return .openOutside(url) }
         return .cancel
     }
 }

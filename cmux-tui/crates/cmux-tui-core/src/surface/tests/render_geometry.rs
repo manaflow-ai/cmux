@@ -467,28 +467,34 @@ fn pty_eof_publishes_final_render_frame_before_surface_removal() {
 }
 
 #[test]
-fn pty_pixel_overflow_rejects_creation_and_geometry_updates_without_mutation() {
+fn pty_pixel_overflow_saturates_instead_of_refusing_the_geometry() {
     let mux = Mux::new_for_test("pty-pixel-overflow", SurfaceOptions::default());
     let oversized = SurfaceOptions { cols: 10_000, ..SurfaceOptions::default() };
-    let creation_error = Surface::spawn_for_test(1, oversized, Arc::downgrade(&mux)).unwrap_err();
-    assert!(creation_error.to_string().contains("PTY pixel width exceeds 65535"));
+    let wide = Surface::spawn_for_test(1, oversized, Arc::downgrade(&mux)).unwrap();
+    assert_eq!(wide.size(), (10_000, 24));
+    let master = wide.test_master_size();
+    assert_eq!((master.cols, master.pixel_width), (10_000, u16::MAX));
 
     let surface =
         Surface::spawn_for_test(2, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
-    let resize_error = surface.resize(10_000, 24).unwrap_err();
-    assert!(resize_error.to_string().contains("PTY pixel width exceeds 65535"));
-    let cell_error = surface.set_cell_pixel_size(1_000, 16).unwrap_err();
-    assert!(cell_error.to_string().contains("PTY pixel width exceeds 65535"));
-
-    assert_eq!(surface.size(), (80, 24));
-    assert_eq!(surface.test_cell_pixel_size(), (8, 16));
+    assert!(surface.resize(10_000, 24).unwrap());
+    assert_eq!(surface.size(), (10_000, 24));
     {
         let terminal = surface.as_pty().unwrap().term.lock().unwrap();
-        assert_eq!((terminal.cols(), terminal.rows()), (80, 24));
+        assert_eq!((terminal.cols(), terminal.rows()), (10_000, 24));
     }
     let master = surface.test_master_size();
     assert_eq!(
         (master.cols, master.rows, master.pixel_width, master.pixel_height),
-        (80, 24, 640, 384)
+        (10_000, 24, u16::MAX, 384)
+    );
+
+    assert!(surface.resize(80, 24).unwrap());
+    assert!(surface.set_cell_pixel_size(1_000, 16).unwrap());
+    assert_eq!(surface.test_cell_pixel_size(), (1_000, 16));
+    let master = surface.test_master_size();
+    assert_eq!(
+        (master.cols, master.rows, master.pixel_width, master.pixel_height),
+        (80, 24, u16::MAX, 384)
     );
 }

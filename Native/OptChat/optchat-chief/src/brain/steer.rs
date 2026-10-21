@@ -12,7 +12,7 @@
 //! the next turn starts the moment this one ends. A message never stops a
 //! turn (decision 2026-10-09); only chief.stop does.
 
-use super::{Brain, Input, Phase, Queued, Source};
+use super::{Brain, Input, Phase, Queued};
 use crate::acpmux::Family;
 
 /// Most images one steer carries (the reference's PICS).
@@ -60,6 +60,14 @@ impl Brain {
             return false;
         }
         let items: Vec<Queued> = self.queue.drain(..take).collect();
+        // Never feed a non-owner's text into an approve-all session. It waits
+        // for the current turn to end, then starts its own ask-policy turn.
+        if !self.turn_ask && items.iter().any(Queued::requires_approval) {
+            for item in items.into_iter().rev() {
+                self.queue.push_front(item);
+            }
+            return false;
+        }
         let mut blocks: Vec<serde_json::Value> = items
             .iter()
             .flat_map(|i| i.images.iter())
@@ -141,22 +149,13 @@ impl Brain {
         self.maybe_start_turn();
     }
 
-    /// Whether a delivered batch has a paired device's message: the turn's
-    /// local effects then need an approval (README "Remote-origin messages").
-    pub(super) fn taint_remote(&mut self, items: &[Queued]) {
-        let remote = items.iter().any(|i| {
-            matches!(
-                i.source,
-                Source::Message {
-                    remote: Some(_),
-                    ..
-                }
-            )
-        });
-        if remote {
-            self.turn_remote = true;
-            self.turn_ask = !self.chief.remote_auto_approve;
-            self.interrupt.set_gate(self.turn_ask);
+    /// Another person's text delivered to a running turn keeps that turn's
+    /// local effects refused until it ends.
+    pub(super) fn taint_approval(&mut self, items: &[Queued]) {
+        if items.iter().any(Queued::requires_approval) {
+            self.turn_ask = true;
+            self.last_turn_ask = true;
+            self.interrupt.set_gate(true);
         }
     }
 }

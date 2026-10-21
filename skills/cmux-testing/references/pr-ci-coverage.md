@@ -9,13 +9,13 @@ or targeted validation that already cover them.
 | Label | Effect |
 | --- | --- |
 | `full-ci` | Requests the expensive full macOS suite lanes. |
-| `no-full-ci` | Records a deliberate skip for `suite-coverage`. |
 
 Normal PR routing already runs the Swift package and CLI checks a diff touches.
 `full-ci` is not shorthand for normal PR checks, relevant tests, review
-readiness or permission to merge. Do not add it as a generic review or merge
-requirement. Add it only when the user or an agreed validation plan explicitly
-calls for the broad suite, and state which additional lanes are needed and why.
+readiness or permission to merge. The rule for when to add it lives in the root
+[CLAUDE.md](../../../CLAUDE.md#ci-review-and-merge): only for a requested or
+agreed broad plan, naming the extra lanes and why. The old `no-full-ci` label
+and its `suite-coverage` job were removed.
 
 The label permits lanes; it does not force them. Path routing, release routing
 and job dependencies still apply, and it does not request every repository test.

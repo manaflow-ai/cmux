@@ -1,12 +1,15 @@
 /* The composer's attachment row (Composer.tsx AttachmentChip), laid out like a native chat composer:
-   the row sits inside the composer at the text's own inset, the attachments keep a gap between them
-   and above the text, and each thumbnail's corners nest in the composer's (inner radius = the
-   composer's radius minus the inset). The row is its own band above the prompt, so the caret never
+   the row sits inside the composer at the text's own side inset and close under its top, the
+   attachments keep a small gap between them and above the text (Leo 2026-10-18: compact, like the
+   Claude desktop composer's 64 px tiles), and each thumbnail's radius is the composer's minus the
+   side inset. The row is its own band above the prompt, so the caret never
    draws over a thumbnail. The remove button is a small × inside the thumbnail's corner, shown while
    the chip is hovered or focused. Theme tokens only. */
 .acpmux-composer-box {
   --acpmux-attach-inset: 16px;
-  --acpmux-attach-gap: 8px;
+  --acpmux-attach-top: 8px;
+  --acpmux-attach-gap: 6px;
+  --acpmux-attach-height: 64px;
   --acpmux-attach-radius: max(4px, calc(var(--acpmux-composer-radius, 22px) - var(--acpmux-attach-inset)));
 }
 .acpmux-attachments {
@@ -20,12 +23,20 @@
   align-items: center;
   gap: var(--acpmux-attach-gap);
   margin: 0;
-  /* The text's inset on every side but the bottom; the field's own 15px top inset
-     (markdownField.css, which also places the placeholder) is the gap to the text. */
-  padding: var(--acpmux-attach-inset) var(--acpmux-attach-inset) 0;
+  /* The text's side inset and a short top one; the field below drops its own top inset to the gap
+     (the rule after this one), so the text starts just under the strip. */
+  padding: var(--acpmux-attach-top) var(--acpmux-attach-inset) 0;
   border: 0;
   overflow-x: auto;
   overflow-y: hidden;
+}
+/* Under the strip, the prompt, its placeholder and the shell field (with its glyph) start one gap
+   down instead of the field's own top inset, so entering shell mode still moves nothing. */
+.acpmux-attachments ~ .acpmux-composer-field-menu :is(.acpmux-md-field, .acpmux-shell-field) {
+  padding-top: var(--acpmux-attach-gap);
+}
+.acpmux-attachments ~ .acpmux-composer-field-menu :is(.acpmux-md-placeholder, .acpmux-shell-glyph) {
+  top: var(--acpmux-attach-gap);
 }
 .acpmux-attachment {
   position: relative;
@@ -38,7 +49,7 @@
 /* As tall as a few lines of text and as wide as the image's own shape (within bounds), so a wide
    screenshot shows as itself, not a sliver of its text (Leo, 2026-10-14). */
 .acpmux-attachment-image {
-  height: 80px;
+  height: var(--acpmux-attach-height);
 }
 .acpmux-attachment-open {
   display: block;
@@ -57,23 +68,41 @@
 .acpmux-attachment-image img {
   display: block;
   width: auto;
-  min-width: 56px;
-  max-width: 160px;
+  min-width: 48px;
+  max-width: 128px;
   /* Its own height, not a percentage, so WebKit sizes the width from the image's shape too. */
-  height: 80px;
+  height: var(--acpmux-attach-height);
   object-fit: cover;
   border-radius: var(--acpmux-attach-radius);
-  /* A neutral checker under the image, so a transparent one still reads as a thumbnail. */
-  background: repeating-conic-gradient(
-      color-mix(in srgb, var(--agent-text) 10%, transparent) 0 25%,
-      transparent 0 50%
-    )
-    0 0 / 8px 8px;
+  /* A neutral backing under the image, so a transparent one still shows its content as a
+     thumbnail; a checker read as an image that failed to draw. */
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
   /* The edge draws over the image (an outline paints above it) in the text's color, so a
      screenshot as dark or light as the composer still shows where it ends (Leo, 2026-10-13 and
      -14: dark ones looked missing behind a hairline of the border color). */
   outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
   outline-offset: -1px;
+}
+/* An image the engine could not draw: the thumbnail's own size, a picture glyph over a short note,
+   never an empty checker that reads like a transparent image. */
+.acpmux-attachment-image-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 104px;
+  padding: 0 8px;
+  color: var(--agent-muted);
+  text-align: center;
+}
+.acpmux-attachment-failed-icon {
+  flex: none;
+  opacity: 0.8;
+}
+.acpmux-attachment-failed-text {
+  font-size: var(--text-caption);
+  line-height: 1.2;
 }
 .acpmux-attachment-file {
   display: flex;
@@ -87,6 +116,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* A file that goes as its path: its name, then what happens to it in the caption's color. */
+.acpmux-attachment-link { gap: 6px; }
+.acpmux-attachment-link .acpmux-attachment-link-note {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
 }
 .acpmux-attachment-document {
   display: grid;
@@ -234,7 +270,9 @@
 .acpmux-attachment-document-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-attachment-document-pages { color: var(--agent-muted); font-size: var(--text-caption); }
 .acpmux-attachment-document .acpmux-attachment-remove { top: 20px; }
-.acpmux-composer .acpmux-attachment-remove {
+/* The chat composer's and the New Tab card's (.nt-box): without it the New Tab badge drew as a
+   stray button under the thumbnail. */
+:is(.acpmux-composer, .nt-box) .acpmux-attachment-remove {
   position: absolute;
   top: 4px;
   right: 4px;
@@ -260,10 +298,10 @@
 .acpmux-attachment:focus-within .acpmux-attachment-remove {
   opacity: 1;
 }
-.acpmux-composer .acpmux-attachment-remove:hover {
+:is(.acpmux-composer, .nt-box) .acpmux-attachment-remove:hover {
   background: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-bg));
 }
-.acpmux-composer .acpmux-attachment-remove:focus-visible {
+:is(.acpmux-composer, .nt-box) .acpmux-attachment-remove:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
 }

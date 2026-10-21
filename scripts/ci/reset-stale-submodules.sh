@@ -59,7 +59,12 @@ if [[ "$mode" == reuse ]]; then
     # forcing the exact commit. Keep ignored build caches for warm compilation.
     git -C "$submodule" reset --hard --quiet
     git -C "$submodule" clean -ffd --quiet
-    git -C "$repo" submodule update --init --force --depth 1 --filter=blob:none -- "$path"
+    # Keep the same bounded retry/low-speed behavior as cold initialization.
+    if [[ -x "$repo/scripts/ci/init-submodule.sh" ]]; then
+      (cd "$repo" && bash scripts/ci/init-submodule.sh "$path")
+    else
+      git -C "$repo" submodule update --init --force --depth 1 --filter=blob:none -- "$path"
+    fi
     expected="$(git -C "$repo" rev-parse "HEAD:$path")"
     actual="$(git -C "$submodule" rev-parse HEAD)"
     [[ "$actual" == "$expected" ]] || {

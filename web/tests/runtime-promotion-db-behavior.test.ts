@@ -83,7 +83,13 @@ dbTest("promotes a successful fan-out attempt into a persistent Runtime and repl
     kind: "attempt.succeeded",
     payload: { providerVmId: handles.providerVmId, evidenceVerified: true },
   });
-  await scheduleAttemptRetention({ runId: run.run.id, attemptId: attempt.id, providerVmId: handles.providerVmId });
+  await scheduleAttemptRetention({
+    runId: run.run.id,
+    attemptId: attempt.id,
+    leaseToken: lease.leaseToken,
+    leaseGeneration: lease.leaseGeneration,
+    providerVmId: handles.providerVmId,
+  });
   if (!db) throw new Error("test database not initialized");
   await db`update run_attempts set result = ${JSON.stringify({ evidenceVerified: true })}::jsonb where id = ${attempt.id}`;
 

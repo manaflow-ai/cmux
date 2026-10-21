@@ -51,18 +51,38 @@ export type Enforcement = {
   policy: string;
 } & Record<string, unknown>;
 
+export interface HarnessUpdatePlanParams {
+  cli: string;
+}
+
 export type Indicator = "input" | "working" | "failed" | "lost" | "done";
+
+export type InventoryRefreshParams = Record<string, never>;
+
+export interface InventoryWatchParams {
+  enabled: boolean;
+}
 
 /** acpmux never claims host isolation. */
 export type Isolation = "unverified";
 
 /** The session's lane (cx-v9k2f), decided once by the daemon (`views::lane`). */
 export type Lane = {
-  /** The failed or lost turn's error text. */
+  /** The failed or lost turn's error text, secrets masked (`secret_scan`). */
   error: (string | null);
   /** Unix ms the state began; null when the daemon does not know. */
   since: (number | null);
   state: LaneState;
+  /**
+   * What the session is doing now, one line: the running turn's prompt,
+   * else the agent's last reply line, secrets masked (`secret_scan`).
+   */
+  step: (string | null);
+  /**
+   * The session's title, else its latest prompt, one line, secrets masked
+   * (`secret_scan`).
+   */
+  title: (string | null);
 } & Record<string, unknown>;
 
 export type LaneState = "working" | "input" | "failed" | "lost" | "idle";
@@ -89,7 +109,11 @@ export type LastTurn = {
   turnId?: (string | null);
 } & Record<string, unknown>;
 
-/** A durable lifecycle fact supplied by an explicit producer. */
+/**
+ * A durable lifecycle fact supplied by an explicit producer. This contract
+ * is intentionally optional and opaque to the session sidebar until a
+ * producer wires it to a real controller receipt.
+ */
 export type LifecycleReceipt = {
   id: string;
   sequence: number;
@@ -281,9 +305,42 @@ export interface PermissionRespondParams {
 
 export type PermissionRespondResult = Record<string, unknown>;
 
+/**
+ * `_acpmux/process/background` (Ctrl-B): the chat whose running work goes
+ * to the background, and the one tool call to move (none: every
+ * foreground task, as Claude Code's own Ctrl-B does).
+ */
+export interface ProcessBackgroundParams {
+  /** The chat's id, name or unique prefix. */
+  sessionId: string;
+  /** Only the task this tool call started. */
+  toolCallId?: (string | null);
+}
+
+export type ProcessBackgroundResult = {
+  /**
+   * Claude Code moved something: the tasks arrive as `process_update`s
+   * with origin `user_backgrounded`. False when nothing ran in the
+   * foreground (or no turn ran).
+   */
+  backgrounded: boolean;
+} & Record<string, unknown>;
+
 /** A purged session: only its id is left. */
 export type PurgedSession = {
   sessionId: string;
+} & Record<string, unknown>;
+
+/** An image a queued prompt sends. */
+export type QueuedImage = {
+  /**
+   * The SHA-256 of its bytes (64 lowercase hex digits): `_acpmux/attachment {sessionId, id}`
+   * reads it, and `_acpmux/queue_edit` `update` `images` keeps it.
+   */
+  id: string;
+  mimeType: string;
+  /** Its file name, when the client gave one. */
+  name: (string | null);
 } & Record<string, unknown>;
 
 /** A prompt waiting for the running turn to end. */
@@ -291,6 +348,8 @@ export type QueuedPromptSummary = {
   client: string;
   /** Waits behind a failed turn until the queue is resumed. */
   held: boolean;
+  /** The images it sends, in its order; `_acpmux/attachment` reads each by its id. */
+  images: QueuedImage[];
   prompt: string;
   promptId: string;
   queuedAt: number;
@@ -331,10 +390,20 @@ export type SessionSummary = {
   agentSessionId?: (string | null);
   /** Attached clients. */
   attached: number;
+  /**
+   * `_acpmux/process/background` (Ctrl-B) moves its foreground work: its
+   * harness is Claude Code (claude-stdio), whatever the harness's name.
+   * Clients offer Ctrl-B from this, not from `harness`.
+   */
+  backgroundsWork: boolean;
+  /** Its sub-sessions that are not closed. */
+  children: number;
   createdAt: number;
   currentModeId?: (string | null);
   /** Lossy when the path is not UTF-8. */
   cwd: string;
+  /** 0 for a root session, 1 for its sub-sessions, and so on. */
+  depth: number;
   enforcement: Enforcement;
   eventCount: number;
   family?: (string | null);
@@ -352,7 +421,11 @@ export type SessionSummary = {
   lastPrompt?: (string | null);
   lastSeq: number;
   lastTurn?: (LastTurn | null);
-  /** An optional explicit lifecycle receipt; absent until a producer supplies validated evidence. */
+  /**
+   * An optional controller/daemon lifecycle receipt. It is absent until a
+   * producer supplies a validated receipt; clients must not infer one from
+   * status or placement fields.
+   */
   lifecycleReceipt?: (LifecycleReceipt | null);
   /**
    * The MCP servers the harness says it loaded, from its own report (Claude
@@ -369,6 +442,11 @@ export type SessionSummary = {
   pendingPermissions: number;
   policy?: (string | null);
   preview?: (string | null);
+  /**
+   * The pull request URLs its `gh pr create` calls printed, oldest first;
+   * absent from a peer on an older acpmux.
+   */
+  pullRequests?: string[];
   queue: QueuedPromptSummary[];
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
@@ -376,6 +454,8 @@ export type SessionSummary = {
   /** The session has its own permission rules. */
   rules: boolean;
   sessionId: string;
+  /** Its name among its parent's sub-sessions; null for a root. */
+  shortName?: (string | null);
   /** Some attached client shows the chat. */
   shown: boolean;
   /**
@@ -383,6 +463,13 @@ export type SessionSummary = {
    * only while that parent is listed; one level.
    */
   spawnedBy?: (string | null);
+  /**
+   * The session whose agent started this one with its `start_session`
+   * tool (`hub/subsessions.rs`); null for a session a person or client
+   * started. Kept when the parent is closed or gone, so a client draws
+   * the tree from these links at any depth.
+   */
+  startedBy?: (string | null);
   stateSeq: number;
   /**
    * `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
@@ -404,10 +491,21 @@ export type SessionSummary = {
   updatedAt: number;
 } & Record<string, unknown>;
 
-export type SessionsParams = Record<string, never>;
+/** Also the page fields of `_acpmux/watch` (`hub::session_pages`). */
+export interface SessionsParams {
+  /** A previous reply's `nextCursor`: the page starts after that session. */
+  cursor?: (string | null);
+  /** Page size, at least 1. Without it the reply is the whole list. */
+  limit?: (number | null);
+}
 
 export type SessionsResult = {
-  /** Local and peer sessions, newest first. */
+  /**
+   * With `limit`: the cursor for the next page, null when the list is
+   * done. Absent without `limit`.
+   */
+  nextCursor?: (string | null);
+  /** Local and peer sessions, newest first, then by `sessionId`. */
   sessions: SessionSummary[];
 } & Record<string, unknown>;
 

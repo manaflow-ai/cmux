@@ -157,6 +157,8 @@ must work with no page.
 - The screen's create row (cx-ag5.7): New terminal and New browser tab ask the host's `tab.open`
   with no text (a blank terminal in the tab's folder; a browser tab on `browser.newTabPage`); New
   chat is Return's chat with nothing to send. Ctrl-` is New Terminal Tab everywhere (#18133).
+  The same three also end the suggestion list under the field (Leo, 2026-10-18), after the agent,
+  search and workspace rows and outside their cap, so ArrowDown reaches them from a prompt.
 - `check-action-surfaces.sh` gets the new action with every surface.
 
 ## 6. Ownership
@@ -202,6 +204,13 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
   any other text is a prompt for the chosen agent; a web search is only the explicit row under the
   field (and `newTab.submit --arg search=true`). The mode memory, the Tab toggle and the `mode`
   argument are removed; only the last agent is remembered.
+- R86 reversed (Leo, 2026-10-18): Search | Ask comes back on the default screen as a small glass
+  switch at the field's right with "Tab to switch". Tab flips it in place (Shift-Tab still moves
+  focus out of the field, and a polite live region says the new mode); the mode
+  only decides which row leads and takes Return for a prompt (Ask: the agent; Search: the web
+  search). An address still opens first, `!` is still a terminal, and the mode is not remembered.
+  The thumb moves by transform on its own layer before the rows render, so it stays smooth under
+  CPU load.
 - cx-e2aa (Lawrence, 2026-10-09): the project picker and the agent's model/effort/speed chip sit on
   top of the page (the composer's `ProjectChooser` and chips, one implementation with the Start
   Agent launcher); Enter on a prompt asks the agent on the chip in the picked project. The rows
@@ -216,6 +225,10 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
 
 ### Status (2026-10-04)
 
+- The project picker's start (Leo, 2026-10-18): a New Tab with no project of its own (no folder,
+  the home folder or a private agent-home folder) and no host start folder starts on the project of
+  the newest local chat; a tab with a project keeps it. The folder menu also offers "Do not work in
+  a project", which starts the chat with `noProject` in the host's private folder.
 - Landed: plan, N1 (shared intent table), N2 (variant B page), N3 (host side: search, type-only `!`,
   type-ahead, choice memory, `newTab.layout`).
 - N4: one spare per window (`NewTabSparePool`), adopted by `newTabPage()`; spares exist while the

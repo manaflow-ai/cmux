@@ -1,17 +1,34 @@
 {
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/ci/base-merge-warning-hook.sh",
+            "timeout": 40
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/ci/merge-compile-guard-hook.sh",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/ci/lint-swift-post-edit.sh",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}/scripts/ci/lint-swift-post-edit.sh\" || true",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "bash scripts/ci/format-post-edit.sh",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}/scripts/ci/format-post-edit.sh\" || true",
             "timeout": 30
           }
         ]

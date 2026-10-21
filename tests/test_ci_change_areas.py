@@ -126,6 +126,28 @@ def test_test_only_changes_skip_the_release_build() -> None:
         assert actual.release_build is False, (paths, actual)
 
 
+def test_portable_guard_runner_and_tests_are_linux_control_plane_only() -> None:
+    paths = ["scripts/ci/run_ci_guards.py", "tests/test_ci_run_guards.py"]
+    actual = module.classify_files(paths)
+    assert actual == module.ChangeAreas(
+        macos=False,
+        web=False,
+        agent_session_web=False,
+        swift_packages=False,
+        release_build=False,
+    ), (paths, actual)
+
+
+def test_portable_guard_runner_does_not_hide_a_native_change() -> None:
+    paths = [
+        "scripts/ci/run_ci_guards.py",
+        "tests/test_ci_run_guards.py",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextControl/ControlService.swift",
+    ]
+    actual = module.classify_files(paths)
+    assert actual.macos is True, (paths, actual)
+
+
 def test_resources_bin_release_neutral_inputs_are_text_scripts() -> None:
     # The Release lane validates compiled binaries' slices; a bundled text
     # script cannot fail it. A binary in this list would skip that check.
@@ -476,6 +498,15 @@ def test_operational_ci_helpers_skip_product_areas() -> None:
         "scripts/ci/swift_incremental_diagnostics.py",
         "scripts/ci/cmux_workload_profile.py",
         "scripts/ci/r2-canary-cloudflare.py",
+    ):
+        assert_areas([path], macos=False, web=False)
+
+
+def test_merge_gate_policy_changes_skip_native_compile() -> None:
+    for path in (
+        "scripts/gh-merge-green",
+        "scripts/ci/vercel_merge_gate.py",
+        "scripts/tests/test_vercel_merge_gate.py",
     ):
         assert_areas([path], macos=False, web=False)
 
@@ -2819,7 +2850,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
 
-    assert "if: ${{ !cancelled() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
+    assert "if: ${{ !cancelled() }}" in block
     assert "PLATFORM_NEEDS: ${{ toJSON(needs) }}" in block
     assert 'allowed = {"success", "skipped"}' in block
 
@@ -2850,12 +2881,26 @@ def test_feat_next_route_preserves_focused_package_lane() -> None:
 
 
 def test_cmux_next_does_not_run_full_suite_for_unrelated_packages() -> None:
+    # Since #21504 the pull_request paths admit every product input
+    # (Packages/macOS/** included) and only decide whether the workflow
+    # starts; cmux_next_route.py picks the tier. A file in a package
+    # CmuxNext does not use must not reach the full suite there.
     workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
     pull = workflow[workflow.index("  pull_request:"):workflow.index("  push:")]
-    assert "      - Packages/macOS/**" not in pull
-    assert "      - Packages/Shared/**" not in pull
-    assert "      - Packages/iOS/**" not in pull
     assert "      - Packages/macOS/CmuxNext/**" in pull
+    spec = importlib.util.spec_from_file_location("cmux_next_route", ROOT / "scripts/ci/cmux_next_route.py")
+    assert spec is not None and spec.loader is not None
+    router = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = router
+    spec.loader.exec_module(router)
+    for path in (
+        "Packages/macOS/CmuxPhonePush/Sources/CmuxPhonePush/PhonePushPayload.swift",
+        "Packages/iOS/CmuxMobilePairedMac/Package.swift",
+    ):
+        assert (ROOT / path).is_file(), path
+        result = router.route(ROOT, "pull_request", [path], set())
+        assert not result.full, (path, result.reasons)
+        assert not result.tests, (path, sorted(result.tests))
 
 
 def test_ci_status_waits_for_platform_workflows() -> None:
@@ -5017,7 +5062,7 @@ def test_guard_bun_setup_runs_only_for_owned_groups() -> None:
     setup = block.index("      - name: Set up Bun for guard tests")
     next_step = block.index("      - name: Run agent-chat tests", setup)
     setup_block = block[setup:next_step]
-    assert "if: ${{ matrix.group == 'preflight-agent-chat' || matrix.group == 'release-ios' }}" in setup_block
+    assert "if: ${{ !cancelled() && (matrix.group == 'preflight-agent-chat' || matrix.group == 'release-ios') }}" in setup_block
     assert block.count("setup-bun@") == 1
 
 
@@ -5026,7 +5071,7 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     setup = block.index("      - name: Set up Python 3.9 for nightly prune compatibility")
     prepare = block.index("      - name: Prepare workflow guard Python dependencies", setup)
     setup_block = block[setup:prepare]
-    assert "if: ${{ matrix.group == 'release-tooling' }}" in setup_block
+    assert "if: ${{ !cancelled() && matrix.group == 'release-tooling' }}" in setup_block
     prepare_block = block[
         prepare:block.index("      - name: Validate Blacksmith Testbox broker trust boundary", prepare)
     ]
@@ -5035,9 +5080,9 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     # the venv.
     # preflight needs YAML traversal for the macOS runner identity guard.
     assert (
-        "if: ${{ matrix.group == 'preflight' || matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
+        "if: ${{ !cancelled() && (matrix.group == 'preflight' || matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
         "matrix.group == 'app-host-cache' || "
-        "matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}"
+        "matrix.group == 'release-notary' || matrix.group == 'release-tooling') }}"
     ) in prepare_block
     assert "python3 -m venv" in prepare_block
     assert "packages=(PyYAML==6.0.3)" in prepare_block
@@ -5052,7 +5097,7 @@ def test_pipe_safe_capture_guard_runs_once_in_app_host_execution_group() -> None
     start = block.index("      - name: Validate pipe-safe CI capture")
     end = block.index("      - name: Validate focused test launcher", start)
     step = block[start:end]
-    assert "if: ${{ matrix.group == 'app-host-execution' }}" in step
+    assert "if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}" in step
     assert block.count("Validate pipe-safe CI capture") == 1
 
 

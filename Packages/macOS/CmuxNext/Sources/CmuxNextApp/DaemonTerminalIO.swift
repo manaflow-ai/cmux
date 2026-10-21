@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -29,10 +30,9 @@ import os
 ///   next frame, one grid in flight per terminal (a drag reflows live).
 /// - A dropped stream or failed attach leaves the view disconnected (last
 ///   screen and a status label). A visible view re-attaches by itself after
-///   a capped backoff (500 ms doubling to 30 s, about a minute in all,
-///   cx-wwtam), then waits for an event: shown again, a key press, a click,
-///   focus or Retry, or the App's ``reconnect()`` (terminal or connection
-///   back). A restored view says "Restoring…" until its first replay.
+///   a capped backoff (500 ms doubling to 30 s, cx-wwtam) until an attach works, offering Retry
+///   after about 90 s; a hidden one waits for an event: shown again, a key press, a click, focus or
+///   Retry, or the App's ``reconnect()``. A restored view says "Restoring…" until its first replay.
 ///   ``processExited()`` ends it until the daemon reports the terminal
 ///   running again (``processRevived()``, R41).
 nonisolated final class DaemonTerminalIO: TerminalIO {
@@ -74,7 +74,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                                                     size: size, claimGeometry: false,
                                                     snapshotVersion: Self.attachSnapshotVersion,
                                                     localHistory: Self.attachLocalHistory,
-                                                    images: Self.attachImages)
+                                                    images: Self.attachImages,
+                                                    device: await Self.sizingDevice.value)
             },
             onFailure: { error in
                 logger.error("attach \(surface) failed: \(String(describing: error), privacy: .public)")
@@ -84,7 +85,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             },
             observer: InputJournal.shared.isEnabled ? InputJournal.attachObserver(surface: String(surface)) : nil,
             cursorDefault: target.cursorDefault,
-            backoffDelay: { failed in try await Self.reattachBackoff(afterFailures: failed) }
+            backoffDelay: { failed in try await Self.reattachBackoff(afterFailures: failed); if policyBlocked() { throw CancellationError() } }
         )
         self.driver = driver
         self.creatingInput = creatingInput
@@ -126,6 +127,11 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// or re-attaches a disconnected view.
     func focusGained() async {
         driver.focused()
+    }
+
+    /// Take over from the "Sized for" chip: always a new claim (see `TerminalAttachMachine`).
+    func takeOverSize(setLatest: Bool) async {
+        driver.takeOver(setLatest: setLatest)
     }
 
     /// A click in a disconnected view re-attaches it.
@@ -186,11 +192,11 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         driver.processRevived()
     }
 
-    /// Capped backoff before the `failed + 1`th re-attach in a row: spaces
-    /// the view's own retries and the event-started ones after them.
+    /// Backoff before the `failed + 1`th re-attach in a row, 30 s after 8 doublings: spaces the view's own
+    /// retries and the event-started ones after them. A view turned off by its organization stops after it (the caller).
     nonisolated static func reattachBackoff(afterFailures failed: Int) async throws {
         var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
-        for _ in 1..<max(1, failed) { _ = backoff.next() }
+        for _ in 1..<min(max(1, failed), 8) { _ = backoff.next() }
         // concurrency-allow: async sleep on the attach task, only before a re-attach that follows a failed one
         try await backoff.wait(owner: "terminal.reattach")
     }
@@ -227,7 +233,19 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         case .output(let data): .output(data)
         case .exited: .exited
         case .status(let status): .status(Self.connection(status))
+        case .sizing(let notice): .sizedFor(notice.map(Self.sizedFor))
         }
+    }
+
+    /// This Mac in the terminal's shared sizing: views name it, and their attach joins
+    /// `shared-sizing-v1` (size states for "Sized for", and the Mac's name on other devices).
+    /// Read once, off the main actor (MacName).
+    static let sizingDevice = Task { TerminalSizingDevice(kind: "mac", name: await MacName().computerName()) }
+
+    static func sizedFor(_ notice: TerminalSizeNotice) -> TerminalSizedFor {
+        TerminalSizedFor(deviceName: notice.ownerName, deviceKind: notice.ownerKind, sameDevice: notice.sameDevice,
+                         grid: TerminalGridSize(columns: notice.cols, rows: notice.rows),
+                         fixedSize: notice.fixedSize, takeOverSetsLatest: notice.takeOverSetsLatest)
     }
 
     static func connection(_ status: TerminalLinkStatus) -> TerminalConnectionStatus {

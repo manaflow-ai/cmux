@@ -3,9 +3,38 @@ import CmuxNextDesign
 /// Settings > Home (the Home tab's conversations). One group of
 /// `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum HomeSettingsSchema {
+    /// Rows an agent may set (looks only): the Chief chat's bubble style.
+    static let agentSettableKeys: Set<String> = [HomeChiefBubbleStyleSetting.key]
+
     static var descriptors: [SettingDescriptor] {
         let attachments = SettingsText.keyed("settings.group.attachments", "Attachments")
         return [
+            // Which server Home's direct messages and group chats use (dm-group-chat-DESIGN.md 4.5).
+            SettingDescriptor(
+                HomeServerSetting.configPath, section: .home,
+                group: SettingsText.keyed("settings.group.messagesServer", "Messages Server"),
+                title: SettingsText.keyed("settings.home.server", "Server"),
+                help: SettingsText.keyed("settings.home.server.help",
+                                         "Direct messages and group chats use cmux Cloud by default. A self-hosted server is reached over Tailscale by its MagicDNS name, for example http://mini.tail1234.ts.net:7320. No password is sent: the server knows you by your Tailscale login."),
+                kind: .choiceOrURL([
+                    SettingChoice(HomeServerSetting.hosted, SettingsText.keyed("settings.choice.homeServer.hosted", "cmux Cloud")),
+                ], urlKey: HomeServerSetting.selfHostedKey),
+                default: .string(HomeServerSetting.hosted),
+                keywords: ["server", "self-hosted", "tailscale", "messages", "chat", "cloud", "home"]
+            ),
+            // The Chief chat's look: iMessage's by default (the founders like its blue), the theme's on request (Leo 2026-10-19).
+            SettingDescriptor(
+                HomeChiefBubbleStyleSetting.configPath, section: .home, group: SettingsText.keyed("settings.group.chiefChat", "Chief Chat"),
+                title: SettingsText.keyed("settings.home.chiefBubbleStyle", "Bubble Style"),
+                help: SettingsText.keyed("settings.home.chiefBubbleStyle.help",
+                                         "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors."),
+                kind: .choice([
+                    SettingChoice(HomeChiefBubbleStyleSetting.iMessage, "iMessage"), // a product name, not translated
+                    SettingChoice(HomeChiefBubbleStyleSetting.theme, SettingsText.keyed("settings.choice.chiefBubbleStyle.theme", "Theme")),
+                ]),
+                default: .string(HomeChiefBubbleStyleSetting.defaultStyle),
+                keywords: ["chief", "imessage", "messages", "bubbles", "blue", "chat", "theme", "colors", "home"]
+            ),
             SettingDescriptor(
                 HomeKeepLocationSetting.configPath, section: .home, group: attachments,
                 title: SettingsText.keyed("settings.home.keepLocation", "Keep Location in Photos and Videos"),
@@ -21,6 +50,29 @@ nonisolated enum HomeSettingsSchema {
                 help: SettingsText.keyed("settings.home.channelsEnabled.help",
                                          "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette."),
                 kind: .toggle, default: .bool(false), keywords: ["home", "channels", "slack", "threads", "sidebar", "messages"]
+            ),
+            SettingDescriptor(
+                HomeChiefPetSetting.configPath, section: .home, group: SettingsText.keyed("settings.group.chiefPet", "Chief Pet"),
+                title: SettingsText.keyed("settings.home.chiefPetEnabled", "Show Chief Pet"),
+                help: SettingsText.keyed("settings.home.chiefPetEnabled.help",
+                                         "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app."),
+                kind: .toggle, default: .bool(false), keywords: ["chief", "pet", "mascot", "floating", "notifications", "reply", "dock"]
+            ),
+            SettingDescriptor(
+                HomeChiefPetSetting.mascotPath, section: .home, group: SettingsText.keyed("settings.group.chiefPet", "Chief Pet"),
+                title: SettingsText.keyed("settings.home.chiefPetMascot", "Character"),
+                kind: .choice([
+                    SettingChoice("orb", SettingsText.keyed("settings.choice.chiefPetMascot.orb", "Orb")),
+                    SettingChoice("orb-spark", SettingsText.keyed("settings.choice.chiefPetMascot.orb-spark", "Orb Spark")),
+                    SettingChoice("orb-hood", SettingsText.keyed("settings.choice.chiefPetMascot.orb-hood", "Hooded Orb")),
+                    SettingChoice("machine", SettingsText.keyed("settings.choice.chiefPetMascot.machine", "Machine")),
+                    SettingChoice("machine-cyan", SettingsText.keyed("settings.choice.chiefPetMascot.machine-cyan", "Cyan Machine")),
+                    SettingChoice("machine-blue", SettingsText.keyed("settings.choice.chiefPetMascot.machine-blue", "Blue Machine")),
+                    SettingChoice("moon", SettingsText.keyed("settings.choice.chiefPetMascot.moon", "Moon")),
+                    SettingChoice("moon-blue", SettingsText.keyed("settings.choice.chiefPetMascot.moon-blue", "Blue Moon")),
+                    SettingChoice("fox", SettingsText.keyed("settings.choice.chiefPetMascot.fox", "Fox")),
+                ]),
+                default: .string(HomeChiefPetSetting.defaultMascot), keywords: ["chief", "pet", "mascot", "character", "avatar", "pixel"]
             ),
         ]
     }

@@ -1,10 +1,12 @@
-// The paths, defaults, ranges and the choice enums (UpdatesMeteredSetting, UpdatesNotifySetting)
+// The paths, defaults, ranges and the choice enums (UpdatesChannelSetting, UpdatesMeteredSetting, UpdatesNotifySetting)
 // are generated from schemas/settings/source/updates.json (Schema/SettingsSchema+Updates*.generated.swift,
 // cx-d5b5d); this file only parses.
 
 /// `updates.*` in cmux.json (R114): automatic checks, downloads and
 /// install on quit are on by default; every step can be turned off.
 public nonisolated struct UpdatesSettings: Sendable, Equatable {
+    /// The release ring this Mac follows in the cmux NEXT appcast (release rings).
+    public var channel = UpdatesSettings.channelDefault
     public var checkAutomatically = UpdatesSettings.checkAutomaticallyDefault
     /// Seconds between automatic checks.
     public var checkIntervalSeconds = UpdatesSettings.checkIntervalDefault
@@ -14,7 +16,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     /// Previous builds kept for rollback (`cmux update rollback`).
     public var keepPreviousVersions = Int(UpdatesSettings.keepPreviousVersionsDefault)
     public var meteredNetwork = UpdatesSettings.meteredNetworkDefault
-    /// The What's New item at the top of the sidebar after an update
+    /// The bottom-left "cmux Updated!" card after an update
     /// (WHATS-NEW-AFTER-UPDATE W1); managed config can force it off.
     public var showWhatsNew = UpdatesSettings.showWhatsNewDefault
 
@@ -23,6 +25,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
         var settings = Self()
         guard var reader = ConfigFieldReader(root, at: ["updates"], diagnostics: &diagnostics) else { return settings }
+        if let value = reader.choice("channel", UpdatesChannelSetting.self) { settings.channel = value }
         if let value = reader.bool("checkAutomatically") { settings.checkAutomatically = value }
         if let value = reader.number("checkIntervalSeconds", range: checkIntervalRange) { settings.checkIntervalSeconds = value }
         if let value = reader.bool("downloadAutomatically") { settings.downloadAutomatically = value }

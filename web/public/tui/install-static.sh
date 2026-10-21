@@ -98,6 +98,21 @@ esac
 
 echo "Installed cmux to $bin_dir/cmux"
 
+# Remote hosting (plans/cmux-next/remote-hosts.md): with CMUX_HOST=1 this
+# machine serves its cmux sessions to its owner's other machines over the
+# tailnet. A tagged machine names its owner with CMUX_HOST_OWNER=<login>.
+if [ "${CMUX_HOST:-}" = "1" ]; then
+  if [ -n "${CMUX_HOST_OWNER:-}" ]; then
+    set -- --owner "$CMUX_HOST_OWNER"
+  else
+    set --
+  fi
+  if ! "$bin_dir/cmux" host enable "$@"; then
+    echo "cmux: installed, but remote hosting is not on; fix the error above, then run: $bin_dir/cmux host enable $*" >&2
+    exit 1
+  fi
+fi
+
 curl --proto '=https' --tlsv1.2 -fsS --max-time 2 \
   -H 'content-type: application/json' \
   -d "{\"product\":\"tui\",\"platform\":\"$os-$arch\",\"method\":\"curl\"}" \

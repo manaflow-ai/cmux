@@ -1,5 +1,6 @@
 import CmuxNextSettings
 import CmuxNextCompat
+import CmuxNextDaemon
 
 /// Whether a request's work started, decided exactly once, so a timeout can
 /// say `not_run` (the work never started and never will) or `in_progress`
@@ -12,6 +13,17 @@ public final class ControlCallProgress: Sendable {
     }
 
     private let phase = Mutex(Phase.pending)
+    /// The `action.run` command scope, for its stage log at a timeout.
+    private let scope = Mutex<DaemonCommandScope?>(nil)
+
+    /// Keeps `scope` for ``stageLog`` and returns it.
+    func track(_ scope: DaemonCommandScope) -> DaemonCommandScope {
+        self.scope.withLock { $0 = scope }
+        return scope
+    }
+
+    /// The tracked scope's stage log (`DaemonCommandScope.stageLog`).
+    var stageLog: [String]? { scope.withLock { $0 }?.stageLog }
 
     public init() {}
 
@@ -57,6 +69,7 @@ extension ControlError {
         var members = data?.objectValue ?? [:]
         members["not_run"] = .bool(notRun)
         members["state"] = .string(notRun ? "not_run" : "in_progress")
+        if code == "timeout", let log = progress.stageLog { members["waiting_on"] = .array(log.map(JSONValue.string)) }
         error.data = .object(members)
         return error
     }

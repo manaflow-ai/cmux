@@ -4,6 +4,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -38,21 +39,33 @@ afterAll(() => {
   }
 });
 
-const chat = (sessionId: string, title: string) => ({
+const chat = (sessionId: string, title: string): AcpmuxSessionEntry => ({
   sessionId,
+  displayTitle: title,
   title,
   harness: "claude",
   cwd: "/tmp/cmux",
   updatedAt: 1,
 });
 
-async function sidebar(sessions: ReturnType<typeof chat>[], settledSessions: ReturnType<typeof chat>[]) {
+async function sidebar(
+  sessions: ReturnType<typeof chat>[],
+  settledSessions: ReturnType<typeof chat>[],
+  groupProjects = false,
+) {
   const { createRoot } = await import("react-dom/client");
   const { SessionSidebar } = await import("../src/agent-session/acpmux/SessionSidebar");
   act(() => root?.unmount());
   root = createRoot(host);
   await act(async () =>
-    root!.render(<SessionSidebar sessions={sessions} settledSessions={settledSessions} onSelect={() => {}} />),
+    root!.render(
+      <SessionSidebar
+        sessions={sessions}
+        settledSessions={settledSessions}
+        groupProjects={groupProjects}
+        onSelect={() => {}}
+      />,
+    ),
   );
 }
 
@@ -74,7 +87,36 @@ test("a search that matches nothing says so once", async () => {
   expect(host.querySelector('input[type="search"]')!.getAttribute("aria-label")).toBe("Search chats");
 });
 
+// Grouped by project, the chats live in groups, not the flat Active list; they count as matches.
+test("chats grouped by project are not called no matches", async () => {
+  await sidebar([chat("a", "Fix the build"), chat("c", "Ship the docs")], [], true);
+  expect(host.textContent).toContain("Fix the build");
+  expect(host.textContent).not.toContain("No matching chats");
+  expect(host.querySelector(".acpmux-sidebar-settled")).not.toBeNull();
+  await search("docs");
+  expect(host.textContent).toContain("Ship the docs");
+  expect(host.textContent).not.toContain("No matching chats");
+  await search("zzz");
+  expect(host.textContent!.split("No matching chats").length - 1).toBe(1);
+});
+
 test("an empty sidebar says there are no chats yet", async () => {
   await sidebar([], []);
   expect(host.textContent).toContain("No chats yet");
+});
+
+test("the default sidebar hides archived, side, and folded child chats", async () => {
+  await sidebar(
+    [
+      chat("parent", "Parent chat"),
+      { ...chat("child", "Folded child"), spawnedBy: "parent" },
+      { ...chat("archived", "Archived chat"), archived: true },
+      { ...chat("side", "Side question"), side: true },
+    ],
+    [],
+  );
+  expect(host.textContent).toContain("Parent chat");
+  expect(host.textContent).not.toContain("Folded child");
+  expect(host.textContent).not.toContain("Archived chat");
+  expect(host.textContent).not.toContain("Side question");
 });

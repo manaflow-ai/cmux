@@ -11,8 +11,8 @@ extension NotificationCenterService {
     ///   tab (key window, cmux active) is seen at once;
     /// - an unread notification on a viewed tab is read at once, on every
     ///   path that marks it unread (an arrival, a held delivery, a resync),
-    ///   as a focus on that tab would read it (`interacted(.focus)`, by the
-    ///   dismissal policy).
+    ///   when the dismissal policy reads on focus (`interacted(.focus)`; the
+    ///   default `click` keeps it until the pane is clicked or typed in).
     /// Focus, typing, clicks and opens see the rest through `interacted`. An
     /// agent chat's turns are acpmux's (`unread`, cx-n8ou): its pane says
     /// whether it shows the chat.
@@ -20,8 +20,22 @@ extension NotificationCenterService {
         Task { [weak self] in // task-owner: start(services:) keeps the handle in tasks
             for await _ in ObservationStream({ [weak self] in self?.viewedFacts(store) ?? ViewedTabsFacts(revision: 0, tabs: []) }) {
                 guard let self else { return }
-                for tab in self.viewedTabs(store) { self.interacted(.focus, tab: tab) }
+                let viewed = self.viewedTabs(store)
+                for tab in viewed { self.interacted(.focus, tab: tab) }
+                self.clearTabMarks(entering: viewed)
             }
+        }
+    }
+
+    /// Clears the manual mark (Mark Tab Unread, `TabUnreadMark`) of each tab
+    /// that came into view since the last pass. A tab marked while viewed
+    /// keeps the mark until it is viewed again.
+    func clearTabMarks(entering viewed: [TabModel]) {
+        let entered = Set(TabUnreadMark.entered(viewed.map(\.id), previous: viewedTabIDs))
+        viewedTabIDs = Set(viewed.map(\.id))
+        guard let services else { return }
+        for tab in viewed where tab.markedUnread && entered.contains(tab.id) {
+            try? TabUnreadMark.set(false, tab: tab, daemon: services.daemon)
         }
     }
 

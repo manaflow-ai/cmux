@@ -18,7 +18,7 @@ function ensureWasm(): void {
   initialized = true;
 }
 
-export type Kind = "user" | "talk" | "tool" | "echo" | "note";
+export type Kind = "user" | "talk" | "tool" | "echo" | "note" | "ai";
 
 export interface LogEntry {
   readonly i: number;
@@ -44,26 +44,9 @@ export const CAP = 30_000;
 export const JOBS = 8;
 export const TRIES = 5;
 export const RETRY_MS = 10_000;
-/** optchat-core DELTA_HARD (spec 5a.4b): the growth cap between folds. */
-export const DELTA_HARD = 32_000;
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder();
 export const bytes = (s: string) => encoder.encode(s).length;
-
-/** Cuts UTF-8 `text` at byte offsets (the core's cache marks) into pieces. */
-export function cutAtMarks(text: string, marks: ReadonlyArray<number>): string[] {
-  const raw = encoder.encode(text);
-  const pieces: string[] = [];
-  let start = 0;
-  for (const m of marks) {
-    if (m <= start || m >= raw.length) continue;
-    pieces.push(decoder.decode(raw.subarray(start, m)));
-    start = m;
-  }
-  pieces.push(decoder.decode(raw.subarray(start)));
-  return pieces.filter((p) => p.length > 0);
-}
 
 /**
  * Spec 7: a tool result over CAP characters keeps its head and tail, with a note of the cut.
@@ -236,34 +219,27 @@ export class Memory {
     return this.core.settled();
   }
 
-  /**
-   * Whether the next turn input is due a forced re-render (OptChat 5a.4b: the delta since the frozen
-   * view's front is over DELTA_HARD bytes). Only then may a turn wait, briefly, for the compactor:
-   * otherwise the turn runs at once on the frozen view plus the delta, and compaction stays in the background.
-   */
-  foldDue(): boolean {
-    const json = this.sql.exec<{ json: string }>(`SELECT json FROM oc_frozen WHERE id = 1`).toArray()[0]?.json;
-    // No frozen view yet: this turn renders one, which then stays frozen, so it may wait (briefly) for summaries.
-    if (!json) return !this.core.settled();
-    // A heuristic of the core's rule: this count also includes this turn's new and imported messages, so it can
-    // only be high (an early, at most 3 s wait), never low; the core decides the re-render itself.
-    const front = Number((JSON.parse(json) as { front?: unknown }).front ?? 0);
-    const bytes = Number(this.sql.exec<{ n: number | null }>(`SELECT SUM(size) AS n FROM oc_message WHERE i >= ?`, front).one().n ?? 0);
-    return bytes > DELTA_HARD;
+  /** The first message whose view line is not built yet, or the log's length (the reference client's `Memory.first`). */
+  first(): number {
+    return this.core.first();
   }
 
-  /** The rendered `<chat>` view and its cache marks (UTF-8 byte offsets). */
+  /** The rendered `<chat>` view and its cache marks (indices into the JS string `text`, UTF-16 code units). */
   render(): { text: string; marks: number[] } {
     return JSON.parse(this.core.renderView(this.store)) as { text: string; marks: number[] };
   }
 
   /**
-   * The turn's cache-stable input (OptChat 5a, optchat-core `turn_input`): the frozen view's 4-line
-   * blocks, then the delta blocks (every message after the view's front, the new ones included). The
-   * frozen view is kept here and given back next turn; the core decides when to render it again.
+   * The turn's input (optchat-core `turn_input`), as 4-line view blocks then the delta blocks.
+   * `fresh` (every message before the new ones is summarized): the view is rendered again, so it
+   * shows every message before the new ones as built lines and the delta holds only the new
+   * messages, as the reference client builds each call (`Memory.view(mem, from)` + the new messages).
+   * Not fresh (the compactor is behind): the view rendered last is given back, with every message
+   * since as a whole delta line (OptChat 5a), so nothing unsummarized is hidden behind a placeholder.
+   * The rendered view is kept here either way.
    */
-  turnInput(newMessages: number): string[] {
-    const prior = this.sql.exec<{ json: string }>(`SELECT json FROM oc_frozen WHERE id = 1`).toArray()[0]?.json ?? "";
+  turnInput(newMessages: number, fresh = false): string[] {
+    const prior = fresh ? "" : (this.sql.exec<{ json: string }>(`SELECT json FROM oc_frozen WHERE id = 1`).toArray()[0]?.json ?? "");
     let out: { frozen: unknown; rerendered: boolean; view: string[]; delta: string[] };
     try {
       out = JSON.parse(this.core.turnInput(this.store, prior, newMessages)) as typeof out;

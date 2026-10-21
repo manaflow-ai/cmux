@@ -268,6 +268,7 @@ fn every_routed_scope_prints_its_own_help() {
         (&["open", "--help"], "cmux open <path|url>"),
         (&["keybinding", "--help"], "cmux keybinding list"),
         (&["ghostty", "--help"], "cmux ghostty diagnostics"),
+        (&["errors", "--help"], "cmux errors clear"),
         (&["browser", "page", "--help"], "cmux browser <tab_…|page> navigate"),
         (&["browser", "--help"], "cmux browser page|<tab_…>"),
         (&["browser", "--help"], "cmux browser open <url> [--workspace <selector>]"),

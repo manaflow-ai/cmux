@@ -95,12 +95,26 @@ impl Client {
             notif_tx,
             closed,
         });
-        let init = client
-            .request(
-                method::INITIALIZE,
-                json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-cli", "version": crate::hub::VERSION}}),
-            )
-            .await?;
+        let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-cli", "version": crate::hub::VERSION}});
+        // Inside an acpmux session: say which, with the caller token the
+        // daemon put in that session's env (`hub/person.rs` (a)), only to
+        // the socket of the daemon that issued it (never to another daemon,
+        // or whatever listens on a path the agent pointed the CLI at).
+        let caller = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+        let issuer = caller(crate::hub::person::CALLER_SOCKET_ENV);
+        if let (Some(id), Some(token), true) = (
+            caller("ACPMUX_SESSION_ID"),
+            caller(crate::hub::person::CALLER_TOKEN_ENV),
+            issuer.is_some_and(|socket| Path::new(&socket) == path),
+        ) {
+            let mut meta = serde_json::Map::new();
+            meta.insert(
+                crate::hub::person::CALLER_FIELD.to_owned(),
+                json!({"sessionId": id, "token": token}),
+            );
+            hello["_meta"] = json!({"acpmux": meta});
+        }
+        let init = client.request(method::INITIALIZE, hello).await?;
         *client.daemon_build.lock().unwrap() =
             init.pointer("/_meta/acpmux/build").and_then(Value::as_str).map(str::to_owned);
         if let (Some(n), Some(c)) = (
@@ -160,6 +174,12 @@ impl Client {
             self.tag_spawned_by(&reply).await;
         }
         Ok(reply)
+    }
+
+    /// A `session/new` that never tags its caller's session as the parent: an ephemeral run
+    /// (`acpmux run --ephemeral`, an agent's probe, `probe_prompt.rs`) is no subagent.
+    pub async fn request_parentless(&self, m: &str, params: Value) -> Result<Value> {
+        self.send_request(m, params).await
     }
 
     /// A `session/new` sent from inside an acpmux session (its agent runs `acpmux new`,
@@ -230,8 +250,16 @@ impl std::error::Error for DaemonError {}
 /// whether the daemon is still running (it dropped us: a restart or an
 /// internal error), died without cleanup (a crash), or was shut down.
 pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error {
+    use std::io::Read as _;
+
     let home = crate::config::home();
-    let pid = std::fs::read_to_string(home.join("daemon.pid"))
+    let pid_path = home.join("daemon.pid");
+    let pid = crate::config::private_state_file(&pid_path)
+        .and_then(|mut file| {
+            let mut text = String::new();
+            file.read_to_string(&mut text)?;
+            Ok(text)
+        })
         .ok()
         .and_then(|s| s.trim().parse::<i32>().ok());
     #[cfg(unix)]

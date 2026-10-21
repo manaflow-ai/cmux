@@ -50,10 +50,20 @@ impl Client {
         Client(in_tx, out_rx, 0)
     }
 
-    async fn call(&mut self, m: &str, params: Value) -> Value {
+    async fn send(&mut self, m: &str, params: Value) -> i64 {
         self.2 += 1;
         let id = self.2;
         self.0.send(Message::request(id, m, params).to_line()).await.unwrap();
+        id
+    }
+
+    async fn notify(&self, m: &str, params: Value) {
+        self.0.send(Message::notification(m, params).to_line()).await.unwrap();
+    }
+
+    async fn call_with_notifications(&mut self, m: &str, params: Value) -> (Value, Vec<Value>) {
+        let id = self.send(m, params).await;
+        let mut notifications = Vec::new();
         loop {
             let line = tokio::time::timeout(Duration::from_secs(20), self.1.recv())
                 .await
@@ -61,7 +71,30 @@ impl Client {
                 .unwrap();
             let v: Value = serde_json::from_str(&line).unwrap();
             if v.get("id") == Some(&json!(id)) {
-                return v;
+                return (v, notifications);
+            }
+            if v.get("method").is_some() {
+                notifications.push(v);
+            }
+        }
+    }
+
+    async fn call(&mut self, m: &str, params: Value) -> Value {
+        self.call_with_notifications(m, params).await.0
+    }
+
+    async fn wait_for(&mut self, m: &str, pred: impl Fn(&Value) -> bool) -> Value {
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(20), self.1.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            let Message::Notification { method, params } = Message::parse(&line).unwrap() else {
+                continue;
+            };
+            let params = params.unwrap_or(Value::Null);
+            if method == m && pred(&params) {
+                return params;
             }
         }
     }
@@ -451,4 +484,133 @@ async fn a_side_session_is_opened_by_the_app_and_the_unix_socket_never_the_web_o
         assert!(r["result"]["sessionId"].is_string(), "{origin:?}: {r}");
     }
     assert_eq!(hub.sessions().len(), before + 2, "one side session each");
+}
+
+async fn session(c: &mut Client, name: &str) -> String {
+    let r = c
+        .call(
+            "session/new",
+            json!({
+                "cwd": std::env::temp_dir(),
+                "mcpServers": [],
+                "_meta": {"acpmux": {"name": name}}
+            }),
+        )
+        .await;
+    r["result"]["sessionId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("session/new failed: {r}"))
+        .to_owned()
+}
+
+async fn start_until_cancel(c: &mut Client, id: &str) {
+    c.send(
+        "session/prompt",
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "until-cancel"}]}),
+    )
+    .await;
+    c.wait_for("session/update", |p| p["update"]["sessionUpdate"] == "agent_message_chunk").await;
+}
+
+async fn wait_for_turn_end(c: &mut Client) -> Value {
+    c.wait_for("_acpmux/event", |p| p["kind"] == "turn_end").await
+}
+
+async fn assert_no_turn_end(c: &mut Client) {
+    let result = tokio::time::timeout(
+        Duration::from_millis(300),
+        c.wait_for("_acpmux/event", |p| p["kind"] == "turn_end"),
+    )
+    .await;
+    assert!(result.is_err(), "a refused remote cancel still ended the turn: {result:?}");
+}
+
+#[tokio::test]
+async fn remote_request_and_notification_cancels_cannot_stop_local_sessions() {
+    for (n, origin) in [("web", Origin::Web), ("peer", Origin::Peer)] {
+        // Request form: a local-origin turn remains active after the remote
+        // caller is refused, then the Unix socket can still stop it.
+        let hub = hub();
+        let mut local = Client::new(&hub, Origin::Local);
+        let id = session(&mut local, &format!("{n}-request")).await;
+        start_until_cancel(&mut local, &id).await;
+        let mut remote = Client::new(&hub, origin);
+        let (reply, _) =
+            remote.call_with_notifications("session/cancel", json!({"sessionId": id})).await;
+        assert_eq!(
+            reply["error"]["data"]["reason"], "remote.session_cancel_ownership",
+            "{origin:?}: {reply}"
+        );
+        assert_no_turn_end(&mut local).await;
+        local.notify("session/cancel", json!({"sessionId": id})).await;
+        assert_eq!(wait_for_turn_end(&mut local).await["msg"]["stopReason"], "cancelled");
+
+        // Notification form has no response to inspect, so the running turn
+        // itself is the side-effect assertion.
+        let id = session(&mut local, &format!("{n}-notification")).await;
+        start_until_cancel(&mut local, &id).await;
+        remote.notify("session/cancel", json!({"sessionId": id})).await;
+        assert_no_turn_end(&mut local).await;
+        local.notify("session/cancel", json!({"sessionId": id})).await;
+        assert_eq!(wait_for_turn_end(&mut local).await["msg"]["stopReason"], "cancelled");
+    }
+}
+
+#[tokio::test]
+async fn remote_callers_can_cancel_sessions_they_started() {
+    // A Web-owned session may be cancelled by the Web request form.
+    let web_hub = hub();
+    let mut web = Client::new(&web_hub, Origin::Web);
+    let id = session(&mut web, "web-owned").await;
+    start_until_cancel(&mut web, &id).await;
+    let (reply, notifications) =
+        web.call_with_notifications("session/cancel", json!({"sessionId": id})).await;
+    assert_eq!(reply["result"], json!({}), "{reply}");
+    assert_eq!(
+        wait_for_turn_end_or_seen(&mut web, &notifications).await["msg"]["stopReason"],
+        "cancelled"
+    );
+
+    // A Peer-owned session may be cancelled by the ACP notification form.
+    let peer_hub = hub();
+    let mut peer = Client::new(&peer_hub, Origin::Peer);
+    let id = session(&mut peer, "peer-owned").await;
+    start_until_cancel(&mut peer, &id).await;
+    peer.notify("session/cancel", json!({"sessionId": id})).await;
+    assert_eq!(wait_for_turn_end(&mut peer).await["msg"]["stopReason"], "cancelled");
+}
+
+#[tokio::test]
+async fn web_cancel_still_requires_web_control_of_remote_sessions() {
+    for form in ["request", "notification"] {
+        let hub = hub();
+        let mut web = Client::new(&hub, Origin::Web);
+        let id = session(&mut web, &format!("web-owned-{form}")).await;
+        let owned = hub.resolve(&id).unwrap();
+        hub.set_rules(&owned, Some(json!({"default": "approve"})));
+        let mut local = Client::new(&hub, Origin::Local);
+
+        // Keep a turn running so the refusal is checked by its actual side effect.
+        start_until_cancel(&mut local, &id).await;
+        if form == "request" {
+            let (reply, _) =
+                web.call_with_notifications("session/cancel", json!({"sessionId": id})).await;
+            assert_eq!(reply["error"]["data"]["reason"], "remote.policy_not_asking", "{reply}");
+        } else {
+            web.notify("session/cancel", json!({"sessionId": id})).await;
+        }
+        assert_no_turn_end(&mut local).await;
+
+        local.notify("session/cancel", json!({"sessionId": id})).await;
+        assert_eq!(wait_for_turn_end(&mut local).await["msg"]["stopReason"], "cancelled");
+    }
+}
+
+async fn wait_for_turn_end_or_seen(c: &mut Client, seen: &[Value]) -> Value {
+    if let Some(event) =
+        seen.iter().find(|v| v["method"] == "_acpmux/event" && v["params"]["kind"] == "turn_end")
+    {
+        return event["params"].clone();
+    }
+    wait_for_turn_end(c).await
 }

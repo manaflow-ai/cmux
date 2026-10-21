@@ -102,8 +102,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&spec.socket, std::fs::Permissions::from_mode(0o600))?;
     }
-    let mut child =
-        cmd.spawn().with_context(|| format!("spawn {} {}", spec.program, spec.args.join(" ")))?;
+    let mut child = cmd.spawn().context("spawn harness process")?;
     let record = HostRecord {
         record_version: RECORD_VERSION,
         session_id: spec.session_id.clone(),
@@ -112,6 +111,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         start_nonce: nonce,
         harness_pid: child.id(),
         owner_token: random_hex(32),
+        caller_token: spec.caller_token(),
         protocol_min: PROTOCOL_MIN,
         protocol_max: PROTOCOL_MAX,
         host_build: crate::hub::BUILD.to_owned(),
@@ -712,7 +712,7 @@ impl State {
             self.write_codex_line(l);
         }
         for m in split.hub {
-            self.push(Entry::In { msg: m.to_value() });
+            self.push(Entry::In { msg: crate::codex_app_server::into_value(m) });
         }
     }
 
@@ -752,8 +752,7 @@ impl State {
         }
         if let Some(cx) = self.codex.clone() {
             self.push(Entry::Tap { dir: TapDir::Out, msg: message.to_value() });
-            // Answers and updates the translator gives itself go out as if
-            // Codex sent them.
+            // Answers and updates the translator gives itself go out as if Codex sent them.
             self.codex_out(cx.from_client(&message.to_value()));
             return;
         }

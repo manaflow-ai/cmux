@@ -220,7 +220,7 @@ describe("Chief hands", { timeout: 60_000 }, () => {
     })
     expect((await http("PUT", `/v1/hands/${hand}/level`, token, { level: "ask" })).json.value).toMatchObject({ level: "ask" })
     // The owner's app socket (the user wire) gets the approval as it happens: no polling.
-    const wire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+    const wire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${token}` } })
     const appFrames: Array<any> = []
     wire.webSocket!.addEventListener("message", (e) => {
       const f = JSON.parse(e.data as string)
@@ -292,7 +292,7 @@ describe("Chief hands", { timeout: 60_000 }, () => {
     const { hand, key } = await pairHand(token)
     const sock = await dial(hand, key, "sandbox", () => {})
     const send = (x: unknown) => sock.ws!.send(JSON.stringify(x))
-    const wire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+    const wire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${token}` } })
     const appFrames: Array<any> = []
     wire.webSocket!.addEventListener("message", (e) => {
       const f = JSON.parse(e.data as string)
@@ -329,7 +329,7 @@ describe("Chief hands", { timeout: 60_000 }, () => {
     const signWith = async (k: CryptoKey, m: string) => btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, k, new TextEncoder().encode(m))))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
     const installKey = await ec()
     const install = (await op(token, "install.register", { public_jwk: await pubOf(installKey), kind: "mac", name: "mac", device_name: "mac", platform: "macos" })).value.id as string
-    const wire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+    const wire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${token}` } })
     const frames: Array<any> = []
     wire.webSocket!.addEventListener("message", (e) => {
       const f = JSON.parse(e.data as string)

@@ -158,7 +158,7 @@ fn wait(global: &GlobalArgs, wait: &WaitPlan) -> i32 {
             );
         }
     };
-    if let Err(error) = resolve::apply_global_route(global, &mut plan.params) {
+    if let Err(error) = resolve::apply_global_route(global, &mut plan) {
         eprintln!("cmux: {error}");
         return 2;
     }

@@ -55,7 +55,7 @@ describe("chief tokens", { timeout: 60_000 }, () => {
     // A chief token cannot change the owner's account.
     expect((await op(tok.json.access_token, "install.revoke", { install: a.install })).json.ok).toBe(false)
     // Archive the chief: the same token is refused on the next request, and its open sockets close.
-    const muxRes = await worker.fetch(`https://api.test/v1/wire/mux/${chief.id}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${tok.json.access_token}` } })
+    const muxRes = await worker.fetch(`https://api.test/v1/wire/mux/${chief.id}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${tok.json.access_token}` } })
     expect(muxRes.status).toBe(101)
     const ws = muxRes.webSocket!
     let closed: number | undefined
@@ -87,7 +87,7 @@ describe("chief tokens", { timeout: 60_000 }, () => {
     expect(JSON.stringify(chiefList.json)).toContain("auth.forbidden")
     // The cloud socket (the stream behind the daemon's cloud-inbox-subscribe).
     const subscribe = async (token: string) => {
-      const res = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+      const res = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${token}` } })
       expect(res.status).toBe(101)
       const ws = res.webSocket!
       const frames: Array<any> = []
@@ -123,7 +123,7 @@ describe("chief tokens", { timeout: 60_000 }, () => {
     expect((hist.json.value.messages as Array<{ client_msg_id: string; seq: number }>).some((m) => m.client_msg_id === "to-chief")).toBe(true)
     const seq = (hist.json.value.messages as Array<{ client_msg_id: string; seq: number }>).find((m) => m.client_msg_id === "to-chief")!.seq
     const firstFrame = async (path: string) => {
-      const res = await worker.fetch(`https://api.test${path}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${tok}` } })
+      const res = await worker.fetch(`https://api.test${path}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${tok}` } })
       expect(res.status).toBe(101)
       const ws = res.webSocket!
       const frames: Array<any> = []

@@ -38,11 +38,21 @@
         "connectable": true,
         "deleted": false,
         "recoverable": false,
-        "os": "darwin"
+        "os": "darwin",
+        "platform": {
+          "os": "darwin",
+          "arch": "arm64"
+        },
+        "capabilities": [
+          "terminal",
+          "workspace",
+          "agent_session"
+        ]
       }
     ],
     "agent_cli.list": {
       "machine": "machine_mac01",
+      "complete": true,
       "clis": []
     },
     "app.pane.open": {}

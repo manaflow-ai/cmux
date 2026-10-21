@@ -40,11 +40,18 @@ extension SidebarViewComponents {
             return CGRect(x: rect.minX, y: height - rect.maxY, width: rect.width, height: rect.height)
         }
         var glyphs: [SidebarDebugStatusGlyph] = []
-        func walk(_ view: NSView) {
-            guard !view.isHidden else { return }
+        // Depth first, a view before its subviews, subviews in order. An explicit stack, not a
+        // recursive local function that captures `glyphs` (Swift 6.3.3's SendNonSendable pass
+        // crashed now and then on such captures in Release).
+        var pending: [NSView] = [self]
+        while let view = pending.popLast() {
+            guard !view.isHidden else { continue }
             // A pooled row's indicator is laid out at zero size until the row shows.
-            guard let indicator = view as? StatusIndicatorView else { return view.subviews.forEach(walk) }
-            guard indicator.showsGlyph, indicator.bounds.width > 0 else { return }
+            guard let indicator = view as? StatusIndicatorView else {
+                pending.append(contentsOf: view.subviews.reversed())
+                continue
+            }
+            guard indicator.showsGlyph, indicator.bounds.width > 0 else { continue }
             let frame = topLeft(indicator), layer = indicator.indicator
             let scale = window.backingScaleFactor
             var glyph = SidebarDebugStatusGlyph(
@@ -72,7 +79,6 @@ extension SidebarViewComponents {
             }
             glyphs.append(glyph)
         }
-        walk(self)
         return glyphs
     }
 }

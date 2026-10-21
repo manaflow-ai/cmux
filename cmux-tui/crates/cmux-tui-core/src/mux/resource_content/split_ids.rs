@@ -16,6 +16,24 @@ pub(super) fn ensure_split_public_ids(state: &mut State) -> anyhow::Result<()> {
     mint_split_public_ids(state, splits)
 }
 
+/// Names every split of the screen at `location` (workspace and screen
+/// index) that has no public id yet, so a layout the daemon sends names each
+/// of its splits from the first time it holds them (`split_id`,
+/// `split-client-split-id-v1`). O(the screen's splits).
+pub(crate) fn ensure_screen_split_public_ids(
+    state: &mut State,
+    location: (usize, usize),
+) -> anyhow::Result<()> {
+    let mut splits = HashSet::new();
+    if let Some(screen) =
+        state.workspaces.get(location.0).and_then(|workspace| workspace.screens.get(location.1))
+    {
+        collect_screen_split_ids(screen, &mut splits);
+    }
+    splits.retain(|split| !state.resource_indexes.split_ids.contains_key(split));
+    mint_split_public_ids(state, splits)
+}
+
 /// Every split of one screen: its layout splits, viewport columns and rows.
 pub(super) fn collect_screen_split_ids(
     screen: &crate::model::Screen,

@@ -7,12 +7,14 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use cmux_cloud_wire::SnapshotBackoff;
 use serde_json::{Value, json};
 
 use super::CloudError;
 use super::contract::{
     self, InboxOpRequest, MAX_PAGE, MAX_TAIL, OpRequest, Target, history_data, inbox_list_data,
-    mutation_data, read_body, read_value, require_agent, require_conversation, snapshot_data,
+    mutation_data, read_body, read_value, requests_list_data, require_agent, require_conversation,
+    snapshot_data,
 };
 use super::session::{CloudSession, SessionParams};
 use super::stream::{CloudEvent, StreamAction, StreamState};
@@ -68,12 +70,13 @@ pub trait CloudWire: Send {
 /// The HTTP and WebSocket seam. Calls block; the daemon runs them off the
 /// connection's request loop.
 pub trait CloudBackend: Send + Sync {
-    /// `POST url` with `authorization: Bearer <bearer>`, the JSON `body` and,
-    /// when given, `x-cmux-client-version`.
+    /// `POST url` with `authorization: Bearer <bearer>` (no Authorization
+    /// header when `bearer` is `None`: a self-hosted server on the tailnet),
+    /// the JSON `body` and, when given, `x-cmux-client-version`.
     fn post(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
         body: &Value,
     ) -> Result<HttpReply, TransportError>;
@@ -83,7 +86,7 @@ pub trait CloudBackend: Send + Sync {
     fn get(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
     ) -> Result<HttpReply, TransportError> {
         let _ = (url, bearer, client_version);
@@ -107,11 +110,12 @@ pub trait CloudBackend: Send + Sync {
         Err(TransportError("this cloud backend reads no byte ranges".into()))
     }
     /// Opens `url` with subprotocol `cmux.wire.v1` and the bearer in the
-    /// `authorization` header (cx-dgsp; legacy subprotocol only for an old Worker).
+    /// `authorization` header (cx-dgsp; legacy subprotocol only for an old
+    /// Worker); no Authorization header when `bearer` is `None`.
     fn connect(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
     ) -> Result<Box<dyn CloudWire>, ConnectError>;
 }
@@ -146,6 +150,8 @@ pub struct ServiceOptions {
     pub max_concurrent_requests: usize,
     /// Unix milliseconds.
     pub now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// How a stream asks again for a snapshot that did not decode.
+    pub snapshot_backoff: SnapshotBackoff,
     /// API origins beyond the built-in cmux Cloud ones that a lease from a
     /// connection that is not the app may name (`CMUX_CLOUD_API_ORIGINS`).
     pub api_origins: Vec<String>,
@@ -167,6 +173,7 @@ impl Default for ServiceOptions {
                 .filter(|entry| !entry.is_empty())
                 .map(str::to_string)
                 .collect(),
+            snapshot_backoff: SnapshotBackoff::default(),
             now_ms: Arc::new(|| {
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -195,8 +202,13 @@ struct Subscription {
     idle_since: Option<Instant>,
     /// The shared socket's current state, which a later subscriber is told.
     state: SocketState,
-    /// Frames a client asked the driver to send on the socket (`run.live.get`).
+    /// Frames a client asked the driver to send on the socket (`run.live.get`,
+    /// `typing`).
     outbox: Vec<String>,
+    /// The client whose `cloud-conversation-typing` is on: the indicator is
+    /// sent again after a reconnect (the owner turned it off when the old
+    /// socket closed), and turned off when that client's connection closes.
+    typing_by: Option<u64>,
 }
 
 /// One `cloud-subscription-state`: the state, its reason and the account of
@@ -308,7 +320,10 @@ impl CloudConversations {
         let reply = {
             let mut lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
             check_lease_holder(&lease, by_app)?;
-            if !by_app {
+            // A self-hosted server is admitted by its tailnet origin
+            // (CloudSession::new); a bearer lease from another connection
+            // must name a known cmux Cloud origin.
+            if !by_app && params.lease_auth()? == super::session::LeaseAuth::Bearer {
                 super::session::check_known_origin(
                     &params.api_base_url,
                     &self.inner.options.api_origins,
@@ -324,11 +339,7 @@ impl CloudConversations {
             lease.generation = session.generation;
             lease.expiring_sent = false;
             lease.expired_sent = false;
-            let reply = json!({
-                "state": "active",
-                "api_base_url": session.origin(),
-                "expires_at": session.expires_at,
-            });
+            let reply = session.status("active");
             lease.session = Some(session);
             lease.app_held = by_app;
             (reply, fresh_account)
@@ -373,11 +384,9 @@ impl CloudConversations {
         let lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
         match &lease.session {
             None => json!({"state": "signed_out"}),
-            Some(session) => json!({
-                "state": if session.is_expired(now) { "expired" } else { "active" },
-                "api_base_url": session.origin(),
-                "expires_at": session.expires_at,
-            }),
+            Some(session) => {
+                session.status(if session.is_expired(now) { "expired" } else { "active" })
+            }
         }
     }
 
@@ -414,6 +423,14 @@ impl CloudConversations {
         let reply = self.post("/v1/read", &read_body("inbox.list", params))?;
         let (value, revision) = read_value(reply)?;
         inbox_list_data(value, revision)
+    }
+
+    /// `cloud-requests-list`: the lease person's open message requests
+    /// (`home.requests.list`), rows without a valid conversation id dropped.
+    pub fn requests_list(&self) -> Result<Value, CloudError> {
+        let reply = self.post("/v1/read", &read_body("home.requests.list", json!({})))?;
+        let (value, _revision) = read_value(reply)?;
+        requests_list_data(value)
     }
 
     /// `cloud-conversation-snapshot`.
@@ -514,10 +531,83 @@ impl CloudConversations {
     pub fn lease_person(&self) -> Option<(String, String)> {
         let lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
         let session = lease.session.as_ref()?;
-        if session.agent.is_some() {
+        if session.agent.is_some() || session.is_tailscale() {
             return None;
         }
         Some((session.account.clone()?, session.audience.clone()?))
+    }
+
+    /// The origin and the person's user id (once `cloud-selfhost-info`
+    /// learned it) of a self-hosted lease (`auth: "tailscale"`); `None` for
+    /// a bearer lease or no lease.
+    pub fn lease_selfhost(&self) -> Option<(String, Option<String>)> {
+        let lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
+        let session = lease.session.as_ref().filter(|session| session.is_tailscale())?;
+        Some((session.origin().to_string(), session.account.clone()))
+    }
+
+    /// `cloud-selfhost-info`: `GET /v1/selfhost/info` of the self-hosted
+    /// server (no Authorization header: it identifies the caller by
+    /// Tailscale), `{kind: "selfhost", user_id, login, display_name,
+    /// server_name}`. The person's `user_id` becomes the lease's account, so
+    /// every later event is tagged with it; open sockets reconnect to carry
+    /// it. Refused (`not_selfhost`) for a bearer lease.
+    pub fn selfhost_info(&self) -> Result<Value, CloudError> {
+        let session = self.inner.usable_session()?;
+        if !session.is_tailscale() {
+            return Err(CloudError::daemon_reject(
+                "not_selfhost",
+                "cloud-selfhost-info needs a self-hosted lease (auth \"tailscale\")",
+            ));
+        }
+        let reply = self.get("/v1/selfhost/info")?;
+        let not_selfhost =
+            || CloudError::Unavailable("the server is not a cmux self-hosted server".into());
+        if reply.status != 200 {
+            return Err(match reply.status {
+                404 => not_selfhost(),
+                status => CloudError::Unavailable(format!("selfhost info answered HTTP {status}")),
+            });
+        }
+        let body = &reply.body;
+        let text = |name: &str| -> Option<String> {
+            body.get(name)
+                .and_then(Value::as_str)
+                .filter(|value| value.len() <= 256)
+                .map(str::to_string)
+        };
+        let user = text("user_id").filter(|user| valid_selfhost_user(user));
+        let (Some("selfhost"), Some(user)) = (body.get("kind").and_then(Value::as_str), user)
+        else {
+            return Err(not_selfhost());
+        };
+        let mut info = json!({"kind": "selfhost", "user_id": user});
+        for field in ["login", "display_name", "server_name"] {
+            if let Some(value) = text(field) {
+                info[field] = json!(value);
+            }
+        }
+        let changed = {
+            let mut lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
+            let generation = lease.generation;
+            match lease.session.as_mut() {
+                Some(current)
+                    if generation == session.generation
+                        && current.is_tailscale()
+                        && current.account.as_deref() != Some(user.as_str()) =>
+                {
+                    current.account = Some(user);
+                    current.generation = generation + 1;
+                    lease.generation = generation + 1;
+                    true
+                }
+                _ => false,
+            }
+        };
+        if changed {
+            self.inner.notify();
+        }
+        Ok(info)
     }
 
     /// The leased chief's wake queue (`cloud-mux-subscribe`): the agent is
@@ -638,6 +728,11 @@ impl CloudConversations {
             .backend
             .get(&session.http_url(path), session.bearer(), session.client_version.as_deref())
             .map_err(|TransportError(detail)| CloudError::Unavailable(detail))?;
+        // A self-hosted server refuses a login it does not admit: no Stack
+        // lease would help, so nothing is asked for.
+        if reply.status == 401 && session.is_tailscale() {
+            return Err(CloudError::Unauthenticated);
+        }
         if reply.status == 401 {
             self.inner.emit(CloudEvent::SessionNeeded {
                 reason: "unauthenticated",
@@ -669,6 +764,9 @@ impl CloudConversations {
                 body,
             )
             .map_err(|TransportError(detail)| CloudError::Unavailable(detail))?;
+        if reply.status == 401 && session.is_tailscale() {
+            return Err(CloudError::Unauthenticated);
+        }
         if reply.status == 401 {
             self.inner.emit(CloudEvent::SessionNeeded {
                 reason: "unauthenticated",
@@ -715,6 +813,7 @@ impl CloudConversations {
                         idle_since: None,
                         state: initial,
                         outbox: Vec::new(),
+                        typing_by: None,
                     },
                 );
                 (true, reply)
@@ -767,6 +866,34 @@ impl CloudConversations {
         Ok(subscription.state.reply(&target))
     }
 
+    /// `cloud-conversation-typing` (`cloud-conversation-typing-v1`): the
+    /// lease's participant is typing (`on`) or stopped, as the owner's
+    /// ephemeral `typing {on, conversation}` frame on the conversation's
+    /// shared socket (the owner's `onFrame`, conversation-do.ts); the owner
+    /// broadcasts it as `conversation-typing` and turns it off when the socket
+    /// closes. Any client of this daemon may send it while some client
+    /// subscribes the conversation (a Chief brain reads and writes on two
+    /// connections), else `not_subscribed`. The newest state replaces one
+    /// that has not gone out yet; it goes out once the socket is live, again
+    /// after a reconnect while on, and off when `client` closes while on.
+    pub fn typing(&self, client: u64, conversation: &str, on: bool) -> Result<Value, CloudError> {
+        require_conversation(conversation)?;
+        let target = Target::Conversation(conversation.to_string());
+        let mut subscriptions =
+            self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(subscription) =
+            subscriptions.get_mut(&target).filter(|subscription| !subscription.clients.is_empty())
+        else {
+            return Err(CloudError::daemon_reject(
+                "not_subscribed",
+                "subscribe to the cloud conversation first",
+            ));
+        };
+        subscription.typing_by = on.then_some(client);
+        queue_typing(subscription, conversation, on);
+        Ok(subscription.state.reply(&target))
+    }
+
     /// Emits `target`'s current socket state. The daemon calls it after it
     /// sent a subscribe reply: replies and events travel on different queues
     /// of a connection, so a change that raced the reply could otherwise
@@ -805,9 +932,17 @@ impl CloudConversations {
         {
             let mut subscriptions =
                 self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
-            for subscription in subscriptions.values_mut() {
+            for (target, subscription) in subscriptions.iter_mut() {
                 if subscription.clients.remove(&client) && subscription.clients.is_empty() {
                     subscription.idle_since = Some(Instant::now());
+                }
+                // Its indicator ends with it (another subscriber may keep
+                // the socket, so the owner's close-time off would not come).
+                if subscription.typing_by == Some(client)
+                    && let Target::Conversation(conversation) = target
+                {
+                    subscription.typing_by = None;
+                    queue_typing(subscription, conversation, false);
                 }
             }
         }
@@ -984,11 +1119,28 @@ impl Inner {
     }
 
     /// Time left before an idle subscription retires, capped at `cap`.
+    /// Unix milliseconds as the mirror counts them.
+    fn now(&self) -> i64 {
+        i64::try_from((self.options.now_ms)()).unwrap_or(i64::MAX)
+    }
+
     fn idle_wait(&self, target: &Target, cap: Duration) -> Duration {
         let subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
         match subscriptions.get(target).and_then(|subscription| subscription.idle_since) {
             Some(since) => self.options.linger.saturating_sub(since.elapsed()).min(cap),
             None => cap,
+        }
+    }
+
+    /// A socket of `target` went live: an indicator that is on goes out again
+    /// (the owner turned it off when the previous socket closed).
+    fn resend_typing(&self, target: &Target) {
+        let Target::Conversation(conversation) = target else { return };
+        let mut subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(subscription) = subscriptions.get_mut(target)
+            && subscription.typing_by.is_some()
+        {
+            queue_typing(subscription, conversation, true);
         }
     }
 
@@ -1043,8 +1195,19 @@ enum Ended {
     Unauthenticated,
 }
 
+/// Queues the owner's `typing` frame; the outbox holds at most one, the
+/// newest state.
+fn queue_typing(subscription: &mut Subscription, conversation: &str, on: bool) {
+    subscription.outbox.retain(|frame| {
+        !serde_json::from_str::<Value>(frame).is_ok_and(|frame| frame["t"] == "typing")
+    });
+    subscription
+        .outbox
+        .push(json!({"t": "typing", "on": on, "conversation": conversation}).to_string());
+}
+
 fn run_driver(inner: &Arc<Inner>, target: Target) {
-    let mut stream = StreamState::new(target.clone());
+    let mut stream = StreamState::new(target.clone(), inner.options.snapshot_backoff);
     let mut reporter = StateReporter { inner, target: target.clone(), last: None };
     let mut backoff = inner.options.backoff_min;
     let poll = inner.options.poll;
@@ -1071,7 +1234,7 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
             Err(ConnectError::Unavailable(_)) => Ended::Dropped,
             Ok(mut wire) => {
                 stream.on_connect();
-                pump(
+                let ended = pump(
                     inner,
                     &target,
                     &mut stream,
@@ -1079,7 +1242,13 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
                     wire.as_mut(),
                     &session,
                     &mut backoff,
-                )
+                );
+                // The owner's `off` for anyone still typing could only come
+                // on this socket.
+                for event in stream.typing_ended() {
+                    inner.emit(event.with_account(account));
+                }
+                ended
             }
         };
         match ended {
@@ -1090,6 +1259,23 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
                 break;
             }
             Ended::Reconnect => {}
+            // A self-hosted server that does not admit this login: no lease
+            // to ask for; try again after the backoff (the owner may admit it).
+            Ended::Unauthenticated if session.is_tailscale() => {
+                reporter.report("disconnected", Some("unauthenticated"), account);
+                let until = Instant::now() + backoff;
+                while Instant::now() < until
+                    && inner.generation() == session.generation
+                    && !inner.retire(&target)
+                {
+                    let seen = inner.signal_now();
+                    inner.wait(
+                        seen,
+                        inner.idle_wait(&target, until.saturating_duration_since(Instant::now())),
+                    );
+                }
+                backoff = (backoff * 2).min(inner.options.backoff_max);
+            }
             Ended::Unauthenticated => {
                 inner.emit(CloudEvent::SessionNeeded {
                     reason: "unauthenticated",
@@ -1142,7 +1328,7 @@ fn pump(
         if inner.stream_session().is_err() {
             return Ended::Reconnect;
         }
-        // A client's request on the socket (`run.live.get`) goes out once
+        // A client's request on the socket (`run.live.get`, `typing`) goes out once
         // the stream is live; a failed send drops the socket, and the
         // owner's join snapshot answers instead.
         if stream.is_live() {
@@ -1152,12 +1338,26 @@ fn pump(
                 }
             }
         }
-        match wire.recv(inner.idle_wait(target, inner.options.poll)) {
+        let now = inner.now();
+        // A snapshot that did not decode is asked for again when its backoff ends.
+        for action in stream.snapshot_retry_due(now) {
+            if let StreamAction::Send(frame) = action
+                && wire.send(&frame).is_err()
+            {
+                return Ended::Dropped;
+            }
+        }
+        let mut wait = inner.idle_wait(target, inner.options.poll);
+        if let Some(at) = stream.snapshot_retry_at() {
+            let until = u64::try_from(at.saturating_sub(now)).unwrap_or(0);
+            wait = wait.min(Duration::from_millis(until));
+        }
+        match wire.recv(wait) {
             WireRecv::Idle => {}
             WireRecv::Closed { code: Some(4401) } => return Ended::Unauthenticated,
             WireRecv::Closed { .. } => return Ended::Dropped,
             WireRecv::Text(text) => {
-                for action in stream.on_text(&text) {
+                for action in stream.on_text(&text, inner.now()) {
                     match action {
                         StreamAction::Send(frame) => {
                             if wire.send(&frame).is_err() {
@@ -1166,13 +1366,29 @@ fn pump(
                         }
                         StreamAction::Emit(event) => inner.emit(event.with_account(account)),
                         StreamAction::Live => {
-                            *backoff = inner.options.backoff_min;
                             reporter.report("live", None, account);
+                            inner.resend_typing(target);
                         }
+                        StreamAction::Drop => return Ended::Dropped,
                         StreamAction::Forbidden => return Ended::Forbidden,
                     }
+                }
+                // The backoff resets only when the stream works: a snapshot or
+                // an event reached clients and no snapshot is failing. A
+                // welcome alone, or a snapshot that keeps failing, keeps it,
+                // so those reconnects slow down.
+                if stream.take_progress() && stream.is_healthy() {
+                    *backoff = inner.options.backoff_min;
                 }
             }
         }
     }
+}
+
+/// A self-hosted server's user id (`user_ts_...`): `user_` and 6-80
+/// characters of `[A-Za-z0-9_.-]` in all.
+fn valid_selfhost_user(user: &str) -> bool {
+    (6..=80).contains(&user.len())
+        && user.starts_with("user_")
+        && user.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
 }

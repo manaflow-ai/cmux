@@ -23,6 +23,7 @@ on:
     branches:
       - feat-cmux-next
       - "feat-cmux-next-hq39-mobile-*"
+      - "feat-cmux-next-object-sync*"
     paths:
       - ".github/workflows/cmux-mobile-ffi.yml"
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -38,6 +39,10 @@ on:
       - "backend/catalog/cloud-operations.json"
       - "backend/catalog/cloud-vectors.json"
       - "backend/packages/protocol/scripts/export-rust-client.ts"
+      # The ownership mirror (cmux-cloud-wire::mirror) and its trace vectors.
+      - "schemas/ownership-mirror/**"
+      - "backend/packages/ownership/src/**"
+      - "backend/packages/ownership/scripts/export-mirror-vectors.ts"
   workflow_dispatch:
     inputs:
       ref:

@@ -44,4 +44,9 @@ final class SidebarSectionTargetSource: PaletteTargetSource {
             next.title(of: target)
         }
     }
+
+    /// Descriptions belong to kinds `next` lists.
+    func currentDescription(of target: ActionTargetRef) -> String? {
+        next.currentDescription(of: target)
+    }
 }

@@ -126,7 +126,8 @@ final class InternalPageTabStore {
         if let view = views[key] { return view }
         guard tabsByPane.entries.contains(where: { $0.value.contains(key) }), let page = LocalPageTab.page(of: key),
               let provider = providers[page] else { return nil }
-        let view = InternalPageView(key: key, page: page, content: provider.makeView(for: key, in: windows[key]))
+        let content = provider.makeView(for: key, in: windows[key])
+        let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
         view.navigate = navigate
         views[key] = view
         return view
@@ -159,7 +160,11 @@ final class InternalPageTabStore {
     /// machine's daemon never names a file or folder for this Mac to read.
     func view(forStoreTab tab: TabModel, page: InternalPageID? = nil, in store: DaemonStore, local: Bool = false,
               window: WindowController?) -> InternalPageView? {
-        if let key = storeKeys[tab.id], let view = views[key] { return view }
+        if let key = storeKeys[tab.id], let view = views[key] {
+            // The tab moved to another window: the same view shows there, and its window follows.
+            if let window { windows[key] = window }
+            return view
+        }
         guard let page = page ?? tab.page.map(InternalPageID.init(rawValue:)), let provider = providers[page] else { return nil }
         let key = storeKeys[tab.id] ?? LocalPageTab.makeKey(page)
         // A tab this app did not open (Reopen Closed, relaunch, another app): its route says what it shows.
@@ -167,7 +172,8 @@ final class InternalPageTabStore {
         track(tab.id, key: key, in: store, window: window)
         // A pane lists it: the tree has it.
         seenLive.insert(tab.id)
-        let view = InternalPageView(key: key, page: page, content: provider.makeView(for: key, in: windows[key]))
+        let content = provider.makeView(for: key, in: windows[key])
+        let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
         view.navigate = navigate
         views[key] = view
         return view
@@ -211,14 +217,15 @@ final class InternalPageTabStore {
         pane.services.registry.track(Task { @MainActor [weak self, weak pane] () -> ActionWorkFailure? in
             do {
                 let (created, sequence) = try await create(handle, daemon, page.rawValue, route, transaction)
-                self?.storeTabCreated(provisional.id, as: created.key, surface: created.surface)
+                // Closed first (CancelledCreation): nothing moves to the store's tab, nothing is reported.
+                if !store.creations.wasCancelled(transaction) { self?.storeTabCreated(provisional.id, as: created.key, surface: created.surface) }
                 // The store's tab replaces the provisional one in one step, never beside it.
                 ProvisionalTab.created(transaction, surface: created.surface, in: store)
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
-                onCreated?(created.surface)
+                if !store.creations.wasCancelled(transaction) { onCreated?(created.surface) }
             } catch {
                 daemon.logger.error("new-conversation-tab (page) failed: \(String(describing: error), privacy: .public)")
-                self?.keepAsLocalTab(provisional.id, key: key, page: page, in: pane, store: store, window: window)
+                if !store.creations.wasCancelled(transaction) { self?.keepAsLocalTab(provisional.id, key: key, page: page, in: pane, store: store, window: window) }
                 store.rejectIntent(transaction)
             }
             return nil

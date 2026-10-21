@@ -215,8 +215,11 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
     }
     return last;
   }
+  /// A pick in the full picker, which Cmd-Ctrl-M opens over the model button (its click opens the
+  /// compact menu, whose More models leads to the full picker: Leo 2026-10-20).
   async function pickModel(page: Page, id: string) {
-    await page.locator('[data-menu="Model"]').first().click();
+    await page.locator('[data-menu="Model"]').first().waitFor();
+    await page.keyboard.press("Meta+Control+m");
     await page.locator(`.acpmux-mp-models [role="option"][data-key="model:${id}"]`).click();
   }
   async function until(what: string, check: () => boolean) {
@@ -245,9 +248,9 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
     await page.goto(url("newtab"));
     await page.locator(".nt-field").waitFor();
     await page.waitForFunction((selector) => !!document.querySelector(selector)?.textContent, CHIP);
-    expect(await settledChip(page)).toBe("Claude Opus 5.5");
+    expect(await settledChip(page)).toBe("Opus 5.5");
     await pickModel(page, PICK);
-    expect(await settledChip(page)).toBe("Claude Sonnet 5.5");
+    expect(await settledChip(page)).toBe("Sonnet 5.5");
     await page.locator(".nt-field").click();
     await page.keyboard.type("Add retry to the uploader");
     await page.keyboard.press("Enter");
@@ -257,14 +260,14 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
     await page.getByText("Answered on").waitFor();
     expect(promptModels(sessionId)).toEqual([PICK]);
     await page.getByText(`Answered on ${PICK}.`).waitFor();
-    expect(await settledChip(page)).toBe("Claude Sonnet 5.5");
+    expect(await settledChip(page)).toBe("Sonnet 5.5");
     // The next send stays on it too.
     await page.locator(".acpmux-composer [contenteditable], .acpmux-composer textarea").first().click();
     await page.keyboard.type("And log each retry");
     await page.keyboard.press("Enter");
     await until("the second prompt", () => promptModels(sessionId).length === 2);
     expect(promptModels(sessionId)).toEqual([PICK, PICK]);
-    expect(await settledChip(page)).toBe("Claude Sonnet 5.5");
+    expect(await settledChip(page)).toBe("Sonnet 5.5");
     await context.close();
   });
 
@@ -281,7 +284,7 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
     const page = await context.newPage();
     await page.goto(url(`session=${sessionId}`));
     await page.getByText("Retry added.").waitFor();
-    expect(await settledChip(page)).toBe("Claude Opus 5.5");
+    expect(await settledChip(page)).toBe("Opus 5.5");
     // A turn starts and keeps running.
     holdNextPrompt = true;
     await page.locator(".acpmux-composer [contenteditable], .acpmux-composer textarea").first().click();
@@ -290,7 +293,7 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
     await until("the running turn", () => holding?.sessionId === sessionId);
     // The pick while it runs.
     await pickModel(page, PICK);
-    expect(await settledChip(page)).toBe("Claude Sonnet 5.5");
+    expect(await settledChip(page)).toBe("Sonnet 5.5");
     // The turn ends on the model it started on; the agent reports what it runs.
     holding!.finish();
     holding = undefined;
@@ -298,14 +301,14 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
       .getByText(/Answered on/)
       .first()
       .waitFor();
-    expect(await settledChip(page)).toBe("Claude Sonnet 5.5");
+    expect(await settledChip(page)).toBe("Sonnet 5.5");
     await page.locator(".acpmux-composer [contenteditable], .acpmux-composer textarea").first().click();
     await page.keyboard.type("And add a test");
     await page.keyboard.press("Enter");
     await until("the next prompt", () => promptModels(sessionId).length === 2);
     expect(promptModels(sessionId)).toEqual([DEFAULT, PICK]);
     await page.getByText(`Answered on ${PICK}.`).waitFor();
-    expect(await settledChip(page)).toBe("Claude Sonnet 5.5");
+    expect(await settledChip(page)).toBe("Sonnet 5.5");
     await context.close();
   });
 });

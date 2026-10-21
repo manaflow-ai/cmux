@@ -22,6 +22,10 @@ extension DaemonEvent {
         func d<T: Decodable>(_ type: T.Type) throws -> T { try decoder.decode(T.self, from: line) }
         do {
             switch name {
+            case "apps-agent-inventory-demand":
+                return .unknown(name: name, payload: AgentInventoryProviderDemand.payload(line: line))
+            case "agent-inventory-changed", "agent-inventory-watch-ended":
+                return .unknown(name: name, payload: AgentInventoryWatchEvent.decode(name: name, line: line)?.payload ?? .null)
             case "workspace-added": return .workspaceAdded(try d(WorkspaceDelta.self))
             case "workspace-closed": return .workspaceClosed(try d(WorkspaceDelta.self))
             case "workspace-renamed": return .workspaceRenamed(try d(WorkspaceDelta.self))
@@ -38,9 +42,9 @@ extension DaemonEvent {
             case "tab-renamed": return .tabRenamed(try d(TabDelta.self))
             case "tab-changed": return .tabChanged(try d(TabDelta.self))
             case "tree-changed": return .treeChanged(transaction: try d(EventPayload.TransactionField.self).clientTransactionID)
-            // Personal state (`profiles-v1`) changed: the snapshot refetches
-            // `list-personal` with the tree, like saved tab groups.
-            case "personal-changed": return .treeChanged(transaction: nil)
+            // Personal state (`profiles-v1`) changed: the store refetches
+            // `list-personal` alone (a group fold must not refetch the tree).
+            case "personal-changed": return .personalChanged
             case "layout-changed":
                 let e = try d(EventPayload.ScreenField.self)
                 // `layout-delta-v1`: the screen's layout fields, flat. A

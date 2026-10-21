@@ -133,7 +133,7 @@ fn exited_host_fixture_with_parser_at(
         stream_progress: TerminalStreamProgress::default(),
         writer: Mutex::new(Box::new(std::io::sink())),
         master: Mutex::new(Box::new(TestHostMaster {
-            size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS).unwrap()),
+            size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS)),
         })),
         killer: Mutex::new(Box::new(TestHostKiller)),
         pid: None,
@@ -308,6 +308,7 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
         control_responses: Arc::new(ControlResponses::new()),
         next_request: AtomicU64::new(2),
         viewer_size: Mutex::new(None),
+        viewer_size_acks: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,

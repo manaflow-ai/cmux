@@ -43,7 +43,7 @@ struct PaletteArgumentFlow {
             return .push(withPreview(listPage(for: argument, options: options, collected: collected), argument, collected))
         case .target(let kind):
             guard let targets else { return .textInput(textSpec(for: argument, collected: collected)) }
-            return .push(listPage(for: argument, options: targets.targets(of: kind), collected: collected))
+            return .push(listPage(for: argument, options: targets.targets(of: kind, for: descriptor.id), collected: collected))
         }
     }
 
@@ -106,8 +106,8 @@ struct PaletteArgumentFlow {
             title: Self.stepTitle(descriptor, argument),
             placeholder: argument.title,
             symbol: descriptor.symbol,
-            initialText: argument.isTargetName ? currentName(of: collected.target) ?? "" : "",
-            skipsUnchangedText: argument.isTargetName,
+            initialText: currentText(for: argument, of: collected.target) ?? "",
+            skipsUnchangedText: argument.isTargetName || argument.isTargetDescription,
             submitTitle: { text in PaletteStrings.submitText(title: descriptor.title, text: text) },
             isValid: { text in
                 !text.trimmingCharacters(in: .whitespaces).isEmpty && argument.parse(text) != nil
@@ -119,10 +119,13 @@ struct PaletteArgumentFlow {
         )
     }
 
-    /// The name `target` shows now (a rename starts from it).
-    private func currentName(of target: ActionTargetRef?) -> String? {
+    /// The text `argument`'s prompt starts from: `target`'s current name
+    /// (a rename) or description (an edit); nil for any other argument.
+    private func currentText(for argument: ActionArgument, of target: ActionTargetRef?) -> String? {
         guard let target else { return nil }
-        return targets?.title(of: target)
+        if argument.isTargetName { return targets?.title(of: target) }
+        if argument.isTargetDescription { return targets?.currentDescription(of: target) }
+        return nil
     }
 
     private func listPage(for argument: ActionArgument, options: [PaletteTargetOption], collected: ActionInvocation,

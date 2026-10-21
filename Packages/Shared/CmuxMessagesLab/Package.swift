@@ -57,7 +57,18 @@ let package = Package(
             dependencies: [
                 "MessagesLabHome",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
             ],
+            // MessagesLab's shared/conversation.json (vendor.tsv), read by path.
+            exclude: ["Fixtures"],
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+                .define("APPKIT_NATIVE"),
+            ]
+        ),
+        .testTarget(
+            name: "MessagesLabSidebarTests",
+            dependencies: ["MessagesLabSidebar"],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
                 .define("APPKIT_NATIVE"),

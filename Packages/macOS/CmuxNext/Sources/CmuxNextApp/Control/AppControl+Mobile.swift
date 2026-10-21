@@ -1,6 +1,7 @@
 import CmuxNextControl
 import CmuxNextMobile
 import CMUXMobileCore
+import CmuxNextPhoneAccess
 import CmuxNextSettings
 import Foundation
 
@@ -26,7 +27,7 @@ extension AppControl {
                 let request = try Self.ticketRequest(call.params)
                 guard let host = services.mobile.host else {
                     throw ControlError(code: "unavailable", message: "Mobile host routes are not available yet",
-                                       data: ["reason": "phone access starts after Cloud sign-in"])
+                                       data: ["reason": services.mobile.allowed ? "phone access starts after Cloud sign-in" : "phone access is off"])
                 }
                 let scheme = Self.pairingScheme(tag: tag)
                 return .followUp {

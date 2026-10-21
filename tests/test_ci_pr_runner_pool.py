@@ -1813,6 +1813,22 @@ class RootRunners(unittest.TestCase):
         self.assertIn("10 gui runners, more than the 4 machines",
                       pool.slot_problems('{"std": 4, "gui-std": 10}', PR_XCODE)[0])
 
+    def test_the_session_label_is_an_owned_role_label_beside_the_gui_label(self):
+        # glaeda#1530: a mini's console gui runner and its extra session runners carry
+        # glaeda-session-<class>-xcode-<version>. Jobs that need a logged-in session but not the
+        # console gui token take it, so they run beside a console GUI job.
+        session = "glaeda-session-std-xcode-26.6"
+        self.assertTrue(pool.persistent(session))
+        self.assertEqual((pool.session_label(MINI), pool.pool_label(session)), (session, MINI))
+        self.assertEqual(pool.session_label("glaeda-light-xcode-26.6"), "glaeda-session-light-xcode-26.6")
+        for label in (session, "glaeda-gui-std-xcode-26.6", ROOT_MINI, SMALL, ""):
+            self.assertEqual(pool.session_label(label), "", label)
+        self.assertEqual((pool.root_label(session), pool.side_label(session), pool.gui_label(session)), ("", "", ""))
+        # The class form counts. A mini with guiRunners 2 carries it on two runners, so a count above
+        # the pool's machines is not a typo.
+        self.assertEqual(pool.slots('{"std": 4, "session-std": 8}', PR_XCODE)[session], 8)
+        self.assertEqual(pool.slot_problems('{"std": 4, "session-std": 8}', PR_XCODE), [])
+
     def test_no_root_count_keeps_the_pool_label(self):
         choice = owned_choice(fleet(busy=0), jobs=4, root_jobs=2)
         self.assertEqual((choice.runner, choice.root_runner), (MINI, ""))
@@ -2679,7 +2695,9 @@ IOS_SLOTS = {MINI: 40, ROOT_MINI: 10, IOS_SIM: 2}
 
 
 # test-ios.yml's per-job Xcode pin: only on an owned Mac, and never for a fork's pull request.
+# feat-cmux-next pushes run test-ios on the owned minis too (adaccb5c3755), so they read the pin.
 IOS_XCODE_PIN = ("${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || "
+                 "github.event_name == 'push' || "
                  "github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}")
 
 
@@ -3678,7 +3696,12 @@ class IOSWiring(unittest.TestCase):
         self.assertEqual(runner["permissions"], {"contents": "read", "actions": "read"})
         step = self.picker_step(runner)
         self.assertIn("--lane test-ios", step["run"])
-        self.assertEqual(step["env"]["REQUESTED_RUNNER"], "${{ inputs.runner }}")
+        # The cmux-next lane (feat-cmux-next pushes, same-repository pull requests into it)
+        # asks for the owned minis (user, 2026-10-20, adaccb5c3755); a fork pull request
+        # fails the same-repository clause and asks for nothing.
+        self.assertEqual(step["env"]["REQUESTED_RUNNER"], "${{ inputs.runner || ((github.event_name == 'push' || "
+                         "(github.base_ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == "
+                         "github.repository)) && 'owned' || '') }}")
         self.assertEqual(step["env"]["RUNNER_VARIABLE"], "${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}")
         self.assertEqual(step["env"]["IOS_OWNED"], "${{ vars.CI_IOS_OWNED }}")
         self.assertEqual(step["env"]["IOS_VERSION"], "${{ inputs.ios_version }}")
@@ -3737,7 +3760,7 @@ class IOSWiring(unittest.TestCase):
                 self.assertNotIn(routed, text, f"{name} must not route to an owned Mac")
         validate = self.workflow("ios-streamed-validate.yml")["jobs"]["validate"]
         self.assertEqual(validate["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                                              "vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}")
+                                              "'blacksmith-6vcpu-macos-26' }}")
 
     def test_home_secrets_are_removed_however_the_job_ends(self):
         # A reused runner keeps $HOME: every job that writes a secret file there

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSidebar
+import CmuxNextWorkspaceRepair
 
 // The last tab of the last pane takes its workspace along (coordinator
 // decision 2026-09-30, REWRITE.md round 3), the same way dragging a window's

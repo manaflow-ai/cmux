@@ -47,6 +47,11 @@ public nonisolated protocol TerminalIO: Sendable {
     /// (the latest active client holds geometry).
     func focusGained() async
 
+    /// Take over ("Sized for" chip): this view sets the grid with a new claim even when it
+    /// believes it holds it. `setLatest`: the terminal's policy picks by size, so it becomes last
+    /// active first. Ordered with `write`.
+    func takeOverSize(setLatest: Bool) async
+
     /// The user clicked a disconnected terminal (``TerminalConnectionStatus``).
     /// A daemon IO re-attaches. Ordered with `write`.
     func reconnectRequested() async
@@ -61,6 +66,7 @@ public extension TerminalIO {
     var answersTerminalQueries: Bool { true }
     @MainActor func appliesViewGrid(reporting: Bool) -> Bool { false }
     func focusGained() async {}
+    func takeOverSize(setLatest: Bool) async {}
     func reconnectRequested() async {}
     func resyncRequested() async {}
 }
@@ -93,6 +99,38 @@ public nonisolated enum TerminalIOEvent: Sendable, Equatable {
     case exited
     /// The view's link to its terminal changed; the last screen stays.
     case status(TerminalConnectionStatus)
+    /// Another view sets the terminal's grid and it does not fit this one: the view says for whom
+    /// and offers Take over. Nil clears it.
+    case sizedFor(TerminalSizedFor?)
+}
+
+/// "Sized for <device> · cols×rows" over a terminal whose grid another view sets
+/// (plans/cmux-next/sync-ux/DESIGN.md 2.6).
+public nonisolated struct TerminalSizedFor: Sendable, Equatable {
+    /// The owner's device name (or its user's name); nil names it by `deviceKind`. Nil with
+    /// `fixedSize`: nobody sets the grid, the terminal has a fixed size.
+    public var deviceName: String?
+    /// `mac`, `iphone`, `ipad`, `tui`, `browser`, `linux`, `windows` or `unknown`.
+    public var deviceKind: String?
+    /// The owner is another view on this device (another window of this Mac).
+    public var sameDevice: Bool
+    public var grid: TerminalGridSize
+    /// The terminal has a fixed size (no view sets it): "Fixed size · cols×rows".
+    public var fixedSize: Bool
+    /// Take over sets the terminal's policy to last active before it claims: the policy picks by
+    /// size (`smallest`, `largest`, `fixed`) or by rank (`priority` with a ranked view counting),
+    /// so a claim alone would not move the grid (plans/cmux-next/sync-ux/DESIGN.md 2.6).
+    public var takeOverSetsLatest: Bool
+
+    public init(deviceName: String?, deviceKind: String?, sameDevice: Bool, grid: TerminalGridSize,
+                fixedSize: Bool = false, takeOverSetsLatest: Bool = false) {
+        self.deviceName = deviceName
+        self.deviceKind = deviceKind
+        self.sameDevice = sameDevice
+        self.grid = grid
+        self.fixedSize = fixedSize
+        self.takeOverSetsLatest = takeOverSetsLatest
+    }
 }
 
 /// Kitty graphics state that accompanies a replay (daemon `vt-state` /

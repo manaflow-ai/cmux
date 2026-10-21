@@ -121,11 +121,9 @@ def compile_commands(outputs):
         root = Path(directory)
         stubs = {
             # The recorder invokes the workflow snippets without running a
-            # compiler.  Keep the state replay/record bookkeeping a no-op,
+            # compiler.  Keep any nightly_build_state.py call a no-op,
             # while still forwarding the helper's `python3 -- command`
-            # shape to the command recorder.  The old loop assumed every
-            # Python invocation had `--`; the retained-state workflow now
-            # also calls `python3 scripts/ci/nightly_build_state.py ...`.
+            # shape to the command recorder.
             "bin/python3": 'case "${1:-}" in scripts/ci/nightly_build_state.py) exit 0;; scripts/ci/run-with-helper-prebuild.py) script="$1"; shift; exec "$script" "$@";; --) shift; exec "$@";; *) exec /usr/bin/python3 "$@";; esac',
             "bin/xcodebuild": 'printf "%s\\n" "$@" > "$CAPTURE/app"',
             "bin/lipo": 'exit 0',

@@ -26,6 +26,7 @@ export default appsPageEntry({
   covers: [
     "page:cmux.apps",
     "pages/apps/AppsPage.tsx",
+    "pages/apps/CloudFeature.tsx",
     "pages/apps/AppDetailView.tsx",
     "pages/apps/InstalledView.tsx",
     "pages/apps/UpdatesView.tsx",
@@ -34,7 +35,7 @@ export default appsPageEntry({
   ],
   variants: {
     list: {
-      note: "The discover grid with first-party, verified and unverified apps.",
+      note: "The discover grid with first-party, verified and unverified apps, under the featured Cloud banner.",
       hash: "#/discover?layout=grid",
       data: base,
     },
@@ -80,6 +81,12 @@ export default appsPageEntry({
     "not-found": {
       note: "A deep link names an app that is no longer in the catalog.",
       hash: "#/discover?layout=split&app=sample.missing",
+      data: base,
+    },
+    "detail-error": {
+      note: "The selected app detail fails once, then can be retried without losing selection.",
+      detailError: { code: "cmux.apps.backend_unavailable", message: "The app details are temporarily unavailable." },
+      hash: "#/discover?layout=split&app=cmux.coderouter",
       data: base,
     },
   },

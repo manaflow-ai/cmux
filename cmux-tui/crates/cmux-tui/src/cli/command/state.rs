@@ -20,7 +20,7 @@ use super::{
 const GROUP_COLORS: &[&str] =
     &["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 const LOG_LEVELS: &[&str] = &["info", "progress", "success", "warning", "error"];
-const STATUS_AREAS: &[&str] = &["status", "progress", "log"];
+pub(super) const STATUS_AREAS: &[&str] = &["status", "progress", "log"];
 
 /// Parameters plus the name lookups they need.
 #[derive(Default)]
@@ -841,7 +841,10 @@ fn closed_members(value: &str) -> Result<Value, UsageError> {
     Ok(Value::Array(members))
 }
 
+mod checklist;
 mod status_flags;
+
+pub(super) use checklist::parse_workspace_checklist;
 
 #[cfg(test)]
 mod tests;

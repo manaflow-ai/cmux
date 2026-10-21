@@ -217,6 +217,42 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/subsession/get",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/subsession/limits",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/subsession/list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/subsession/send",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/subsession/start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/subsession/stop",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/set_tools",
       "params": true,
       "result": true
@@ -253,6 +289,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/agent_pair_resume",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/process/list",
       "params": true,
       "result": true
@@ -266,6 +308,34 @@
     {
       "kind": "request",
       "name": "_acpmux/process/kill",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/process/background",
+      "params": {
+        "$ref": "#/types/ProcessBackgroundParams"
+      },
+      "result": {
+        "$ref": "#/types/ProcessBackgroundResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/worktree/report",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/worktree/clean",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/worktree/restore",
       "params": true,
       "result": true
     },
@@ -506,6 +576,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/computer_use_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/person_prove",
       "params": true,
       "result": true
@@ -708,8 +784,46 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/harness/secret/set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/harness/health",
       "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/harness/inventory/watch",
+      "params": {
+        "$ref": "#/types/InventoryWatchParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/harness/inventory/refresh",
+      "params": {
+        "$ref": "#/types/InventoryRefreshParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/harness/update/plan",
+      "params": {
+        "$ref": "#/types/HarnessUpdatePlanParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/harness/update/prepare",
+      "params": {
+        "$ref": "#/types/HarnessUpdatePlanParams"
+      },
       "result": true
     },
     {
@@ -888,6 +1002,11 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/harness_inventory",
+      "params": true
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/start_mode_changed",
       "params": true
     },
@@ -1055,6 +1174,18 @@
       ],
       "type": "object"
     },
+    "HarnessUpdatePlanParams": {
+      "additionalProperties": false,
+      "properties": {
+        "cli": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "cli"
+      ],
+      "type": "object"
+    },
     "Indicator": {
       "enum": [
         "input",
@@ -1064,6 +1195,22 @@
         "done"
       ],
       "type": "string"
+    },
+    "InventoryRefreshParams": {
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "InventoryWatchParams": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "type": "object"
     },
     "Isolation": {
       "description": "acpmux never claims host isolation.",
@@ -1076,7 +1223,7 @@
       "description": "The session's lane (cx-v9k2f), decided once by the daemon (`views::lane`).",
       "properties": {
         "error": {
-          "description": "The failed or lost turn's error text.",
+          "description": "The failed or lost turn's error text, secrets masked (`secret_scan`).",
           "type": [
             "string",
             "null"
@@ -1093,12 +1240,28 @@
         },
         "state": {
           "$ref": "#/types/LaneState"
+        },
+        "step": {
+          "description": "What the session is doing now, one line: the running turn's prompt,\nelse the agent's last reply line, secrets masked (`secret_scan`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "The session's title, else its latest prompt, one line, secrets masked\n(`secret_scan`).",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "error",
         "since",
-        "state"
+        "state",
+        "step",
+        "title"
       ],
       "type": "object"
     },
@@ -1186,7 +1349,7 @@
       "type": "object"
     },
     "LifecycleReceipt": {
-      "description": "A durable lifecycle fact supplied by an explicit producer.",
+      "description": "A durable lifecycle fact supplied by an explicit producer. This contract\nis intentionally optional and opaque to the session sidebar until a\nproducer wires it to a real controller receipt.",
       "properties": {
         "id": {
           "type": "string"
@@ -1850,6 +2013,39 @@
     "PermissionRespondResult": {
       "type": "object"
     },
+    "ProcessBackgroundParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/process/background` (Ctrl-B): the chat whose running work goes\nto the background, and the one tool call to move (none: every\nforeground task, as Claude Code's own Ctrl-B does).",
+      "properties": {
+        "sessionId": {
+          "description": "The chat's id, name or unique prefix.",
+          "type": "string"
+        },
+        "toolCallId": {
+          "description": "Only the task this tool call started.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "ProcessBackgroundResult": {
+      "properties": {
+        "backgrounded": {
+          "description": "Claude Code moved something: the tasks arrive as `process_update`s\nwith origin `user_backgrounded`. False when nothing ran in the\nforeground (or no turn ran).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "backgrounded"
+      ],
+      "type": "object"
+    },
     "PurgedSession": {
       "description": "A purged session: only its id is left.",
       "properties": {
@@ -1862,6 +2058,31 @@
       ],
       "type": "object"
     },
+    "QueuedImage": {
+      "description": "An image a queued prompt sends.",
+      "properties": {
+        "id": {
+          "description": "The SHA-256 of its bytes (64 lowercase hex digits): `_acpmux/attachment {sessionId, id}`\nreads it, and `_acpmux/queue_edit` `update` `images` keeps it.",
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "name": {
+          "description": "Its file name, when the client gave one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "mimeType",
+        "name"
+      ],
+      "type": "object"
+    },
     "QueuedPromptSummary": {
       "description": "A prompt waiting for the running turn to end.",
       "properties": {
@@ -1871,6 +2092,14 @@
         "held": {
           "description": "Waits behind a failed turn until the queue is resumed.",
           "type": "boolean"
+        },
+        "images": {
+          "default": [],
+          "description": "The images it sends, in its order; `_acpmux/attachment` reads each by its id.",
+          "items": {
+            "$ref": "#/types/QueuedImage"
+          },
+          "type": "array"
         },
         "prompt": {
           "type": "string"
@@ -1890,6 +2119,7 @@
       "required": [
         "client",
         "held",
+        "images",
         "prompt",
         "promptId",
         "queuedAt",
@@ -1973,6 +2203,16 @@
           "minimum": 0,
           "type": "integer"
         },
+        "backgroundsWork": {
+          "description": "`_acpmux/process/background` (Ctrl-B) moves its foreground work: its\nharness is Claude Code (claude-stdio), whatever the harness's name.\nClients offer Ctrl-B from this, not from `harness`.",
+          "type": "boolean"
+        },
+        "children": {
+          "description": "Its sub-sessions that are not closed.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
         "createdAt": {
           "format": "uint64",
           "minimum": 0,
@@ -1987,6 +2227,12 @@
         "cwd": {
           "description": "Lossy when the path is not UTF-8.",
           "type": "string"
+        },
+        "depth": {
+          "description": "0 for a root session, 1 for its sub-sessions, and so on.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
         },
         "enforcement": {
           "$ref": "#/types/Enforcement"
@@ -2086,7 +2332,7 @@
               "type": "null"
             }
           ],
-          "description": "An optional explicit lifecycle receipt; absent until a producer supplies validated evidence."
+          "description": "An optional controller/daemon lifecycle receipt. It is absent until a\nproducer supplies a validated receipt; clients must not infer one from\nstatus or placement fields."
         },
         "mcpServers": {
           "description": "The MCP servers the harness says it loaded, from its own report (Claude\nCode's system/init); null when it reports none (every ACP harness).",
@@ -2141,6 +2387,14 @@
             "null"
           ]
         },
+        "pullRequests": {
+          "default": [],
+          "description": "The pull request URLs its `gh pr create` calls printed, oldest first;\nabsent from a peer on an older acpmux.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "queue": {
           "items": {
             "$ref": "#/types/QueuedPromptSummary"
@@ -2163,12 +2417,26 @@
         "sessionId": {
           "type": "string"
         },
+        "shortName": {
+          "description": "Its name among its parent's sub-sessions; null for a root.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "shown": {
           "description": "Some attached client shows the chat.",
           "type": "boolean"
         },
         "spawnedBy": {
           "description": "The session whose agent started this one (its `spawnedBy` tag), kept\nonly while that parent is listed; one level.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "startedBy": {
+          "description": "The session whose agent started this one with its `start_session`\ntool (`hub/subsessions.rs`); null for a session a person or client\nstarted. Kept when the parent is closed or gone, so a client draws\nthe tree from these links at any depth.",
           "type": [
             "string",
             "null"
@@ -2246,10 +2514,13 @@
         "lastSeq",
         "eventCount",
         "turnCount",
+        "depth",
+        "children",
         "queued",
         "queuePaused",
         "moving",
         "steering",
+        "backgroundsWork",
         "queue",
         "pendingPermissions",
         "enforcement",
@@ -2266,12 +2537,38 @@
     },
     "SessionsParams": {
       "additionalProperties": false,
+      "description": "Also the page fields of `_acpmux/watch` (`hub::session_pages`).",
+      "properties": {
+        "cursor": {
+          "description": "A previous reply's `nextCursor`: the page starts after that session.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "description": "Page size, at least 1. Without it the reply is the whole list.",
+          "format": "uint64",
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "SessionsResult": {
       "properties": {
+        "nextCursor": {
+          "description": "With `limit`: the cursor for the next page, null when the list is\ndone. Absent without `limit`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "sessions": {
-          "description": "Local and peer sessions, newest first.",
+          "description": "Local and peer sessions, newest first, then by `sessionId`.",
           "items": {
             "$ref": "#/types/SessionSummary"
           },

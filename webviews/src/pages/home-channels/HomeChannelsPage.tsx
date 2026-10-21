@@ -10,6 +10,7 @@ import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
 import { Composer } from "./Composer";
 import { GoalStrip } from "./GoalStrip";
 import { useHostSelection, type HomeSelection } from "./hostSelection";
+import { useHostMove } from "./hostMove";
 import { ConversationList, useStamp } from "./ConversationList";
 import { HomeIcon } from "./icons";
 import {
@@ -35,7 +36,7 @@ import { Palette, type PaletteItem } from "./Palette";
 import { backToList, conversationHash, setHash, useHashPane, useNarrow, type Pane } from "./panes";
 import { RunsContext, type RunsContextValue } from "./RunCard";
 import { useRunEntry } from "./runs";
-import { RouteSheets } from "./RouteSheets";
+import { ChiefRoutePage, RouteSheets } from "./RouteSheets";
 import { LiveTyping } from "./LiveTyping";
 import { RunSheet } from "./RunSheet";
 import type { HomeChannelsStore } from "./store";
@@ -66,6 +67,8 @@ export function HomeChannelsPage({
   const pane = fixedPane ?? hashPane;
   const sheetState = useSyncExternalStore(store.sheets.subscribe, store.sheets.getSnapshot);
   const caps = sheetState.capabilities;
+  // New Chief and Edit Chief are a page on the right side, in place of the conversation (u2586).
+  const chiefPage = sheetState.route?.kind === "newChief" || sheetState.route?.kind === "editChief";
   const [palette, setPalette] = useState(false);
   const [editing, setEditing] = useState<{ id: string; surface: "main" | "thread" } | undefined>();
   const [focused, setFocused] = useState<string | undefined>();
@@ -261,7 +264,7 @@ export function HomeChannelsPage({
     [measured, listShown, snap.selected, selectionMessage],
   );
   useHostSelection(store.host, selection);
-  const moveList = (delta: 1 | -1, unreadOnly: boolean) => {
+  const moveList = (delta: 1 | -1, unreadOnly: boolean): boolean => {
     // The order the list shows: my pins first, then newest activity.
     const { pinned, rest } = listOrder(snap.conversations.values());
     const order = [...pinned, ...rest];
@@ -272,10 +275,13 @@ export function HomeChannelsPage({
       const next = order[(((base + delta * step) % n) + n) % n];
       if (next && (!unreadOnly || isUnread(next))) {
         select(next.id, true);
-        return;
+        return true;
       }
     }
+    return false;
   };
+  // The host's Cmd-Shift-[ / ] while the docked Home shows Channels (hostMove.ts).
+  useHostMove(store.host, (delta) => moveList(delta, false));
   useHomeKeys({
     openPalette: () => setPalette(true),
     move: moveList,
@@ -501,10 +507,17 @@ export function HomeChannelsPage({
                 onSelect={select}
                 onOpenPalette={() => setPalette(true)}
                 onCompose={online && caps.start ? () => store.sheets.open({ kind: "newMessage" }) : undefined}
+                onNewChief={online && caps.chiefs ? () => store.sheets.open({ kind: "newChief" }) : undefined}
                 actions={rowActions}
+                chiefs={sheetState.chiefs}
               />
-              <section className={`lg-main${snap.thread ? " with-sheet" : ""}`} aria-label={place || t("page.title")}>
-                {snap.loading ? null : empty || !open ? (
+              <section
+                className={`lg-main${snap.thread && !chiefPage ? " with-sheet" : ""}`}
+                aria-label={chiefPage ? undefined : place || t("page.title")}
+              >
+                {chiefPage ? (
+                  <ChiefRoutePage sheets={store.sheets} state={sheetState} strings={strings} />
+                ) : snap.loading ? null : empty || !open ? (
                   <EmptyState
                     strings={strings}
                     noConversations={empty}
@@ -519,7 +532,6 @@ export function HomeChannelsPage({
                         type="button"
                         className="hc-icon-button lg-back"
                         aria-label={t("action.back")}
-                        title={t("action.back")}
                         aria-keyshortcuts="Meta+["
                         onClick={back}
                       >

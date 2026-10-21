@@ -54,6 +54,12 @@ RELEASE_JOBS = {
     "update-homebrew.yml": ["update-cask"],
 }
 
+# The cmux NEXT feed's own token lives in `release-next` (policy: branch
+# nightly-next only).
+RELEASE_NEXT_JOBS = {
+    "nightly-next-rollback.yml": ["rollback"],
+}
+
 
 def _check(cond, msg):
     if not cond:
@@ -77,6 +83,11 @@ def main():
                        f"{name} {job} environment is release except release-next for nightly-next")
                 continue
             _check(environment == "release", f"{name} {job} runs in the release environment")
+    for name, jobs in RELEASE_NEXT_JOBS.items():
+        document = yaml.load(open(os.path.join(WORKFLOWS, name), encoding="utf-8"), Loader=yaml.BaseLoader)
+        for job in jobs:
+            _check(document["jobs"].get(job, {}).get("environment") == "release-next",
+                   f"{name} {job} runs in the release-next environment")
     for name, jobs in ARTIFACT_JOBS.items():
         text = open(os.path.join(WORKFLOWS, name), encoding="utf-8").read()
         document = yaml.load(text, Loader=yaml.BaseLoader)

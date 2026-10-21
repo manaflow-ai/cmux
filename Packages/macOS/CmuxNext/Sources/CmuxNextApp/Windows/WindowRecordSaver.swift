@@ -86,7 +86,9 @@ final class WindowRecordSaver {
             saves.requested = false
             let tickets = saves.tickets
             saves.tickets = []
+            let requested = CACurrentMediaTime()
             let failure = await saveNow()
+            if failure == nil { DebugTabSwitch.confirmed(requestedAt: requested) }
             for ticket in tickets { await services.daemon.closeTicket(ticket, label: "save window records", error: failure) }
         }
         saves.inFlight = false
@@ -128,15 +130,15 @@ final class WindowRecordSaver {
         }
     }
 
+    /// Front first by the registry's recency (`WindowManager.windowDidOrder`): a save never asks the
+    /// window server (`NSApp.orderedWindows` is a synchronous query, cx-8w027.25).
     func currentRecords() -> [WindowRecord] {
-        let ordered = NSApp.orderedWindows
         let value = manager.registry.value
         let states = manager.states
+        let order = Dictionary(value.recency.enumerated().map { ($1, $0) }, uniquingKeysWith: min)
         return value.windows.compactMap { window in
             let controller = manager.controller(for: window.id)
-            let order = controller?.window.flatMap { ordered.firstIndex(of: $0) }
-                ?? (value.recency.firstIndex(of: window.id) ?? 0) + ordered.count
-            var record = value.record(window.id, state: states[window.id], order: order,
+            var record = value.record(window.id, state: states[window.id], order: order[window.id] ?? order.count,
                                       isFullScreen: controller?.window?.styleMask.contains(.fullScreen) == true
                                           || states[window.id]?.restoresFullScreen == true,
                                       selectedTabs: selectedTabs(window: window))

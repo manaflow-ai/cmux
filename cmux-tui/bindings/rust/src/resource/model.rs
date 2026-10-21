@@ -34,37 +34,9 @@ impl Document {
     }
 }
 
-/// Origin of a machine visible to cmux.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum MachineOrigin {
-    Local,
-}
-
-/// Current lifecycle state of a machine.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum MachineStatus {
-    Running,
-    Connecting,
-    Sleeping,
-    Stopped,
-    Unavailable,
-}
-
-/// Catalog snapshot for one machine.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-pub struct MachineSnapshot {
-    pub id: MachineId,
-    pub name: String,
-    pub origin: MachineOrigin,
-    pub status: MachineStatus,
-    pub connectable: bool,
-    pub deleted: bool,
-    pub recoverable: bool,
-    #[serde(default)]
-    pub extra: BTreeMap<String, Value>,
-}
+#[path = "model_machine.rs"]
+mod machine;
+pub use machine::{MachineOrigin, MachinePlatform, MachineSnapshot, MachineStatus};
 
 /// Catalog snapshot for one session.
 #[derive(Clone, Debug, Deserialize, PartialEq)]

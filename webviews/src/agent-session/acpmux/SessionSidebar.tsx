@@ -2,6 +2,7 @@ import React, { createContext, memo, useContext, useEffect, useId, useMemo, useR
 import {
   filterSessions,
   groupMark,
+  activityTime,
   sessionMark,
   sessionPlace,
   sortByRecency,
@@ -17,6 +18,7 @@ import { Icon } from "./icons/Icon";
 import { rowIconSize } from "./icons/iconSize";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { listRowKeyboardProps } from "../../ui/listRowKeyboard";
+import { pressToOpen } from "../../ui/pressToOpen";
 import { AnchoredCard } from "../../ui/Tooltip";
 import { HOVER_INTENT, HoverGroup, useHoverIntent } from "../../ui/hoverIntent";
 import { useSidebarPreviewVariant, type SidebarPreviewVariant } from "./sidebarPreview";
@@ -119,7 +121,7 @@ export function SessionSidebar({
   return (
     <OpenSessions.Provider value={openIds}>
       <nav className="acpmux-sidebar" id="acpmux-sidebar" data-list-keyboard aria-label={t("sidebar.label")}>
-        <div className="acpmux-rail" data-list-keyboard>
+        <div className="acpmux-sidebar-rail" data-list-keyboard>
           <RailButton label={t("picker.newChat")} title={t("picker.newChat")} onClick={onNewChat} icon="home" />
 
           <RailButton
@@ -274,19 +276,13 @@ function SessionsView({
     </button>
   );
   const searching = query.trim() !== "";
-  const { pinned, groups } = useMemo(() => sidebarSections(sessions, query), [sessions, query]);
-  const active = useMemo(
-    () =>
-      sortByRecency(
-        filterSessions(
-          sessions.filter((session) => !session.pinned),
-          query,
-        ),
-      ),
-    [sessions, query],
+  const { pinned, groups, active } = useMemo(
+    () => sidebarSections(sessions, query, groupProjects),
+    [sessions, query, groupProjects],
   );
   const settled = useMemo(() => sortByRecency(filterSessions(settledSessions, query)), [settledSessions, query]);
-  const noMatches = pinned.length === 0 && active.length === 0 && settled.length === 0;
+  // Grouped by project, the shown chats are in `groups` and `active` is empty.
+  const noMatches = pinned.length === 0 && active.length === 0 && groups.length === 0 && settled.length === 0;
   if (sessions.length === 0 && settledSessions.length === 0)
     return (
       <>
@@ -480,7 +476,7 @@ function FlatView({
         ? []
         : sessions
             .filter((session) => view === "history" || session.status === "closed")
-            .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0)),
+            .sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0)),
     [sessions, view],
   );
   const now = Date.now();
@@ -500,7 +496,7 @@ function FlatView({
               selected={session.sessionId === selectedId}
               onSelect={onSelect}
               flat
-              trailing={shortAge(session.updatedAt, now, t)}
+              trailing={shortAge(activityTime(session), now, t)}
             />
           ))}
         </ul>
@@ -590,7 +586,10 @@ const SessionRow = memo(function SessionRow({
   const placeLabel =
     place &&
     `${t(PLACE_LABELS[place.kind])} ${place.label}${place.branch ? `, ${t(PLACE_LABELS.branch)} ${place.branch}` : ""}`;
-  const previewStatus = mark ? t(MARK_LABELS[mark]) : undefined;
+  // A chat whose sub-session waits for a folder's trust says so, not just "Needs your input".
+  const markKey: StringKey | undefined =
+    mark && (mark === "input" && session.trustPending ? "sidebar.markTrust" : MARK_LABELS[mark]);
+  const previewStatus = markKey ? t(markKey) : undefined;
   const menuItems: ContextMenuItem[] = [];
   if (section === "settled" && onContinue) {
     menuItems.push({
@@ -617,7 +616,7 @@ const SessionRow = memo(function SessionRow({
       aria-describedby={previewText && previewIntent.shown ? previewId : undefined}
       aria-label={
         mark || place || trailing || open
-          ? [title, open && t("sidebar.alreadyOpen"), trailing, placeLabel, mark && t(MARK_LABELS[mark])]
+          ? [title, open && t("sidebar.alreadyOpen"), trailing, placeLabel, markKey && t(markKey)]
               .filter(Boolean)
               .join(", ")
           : undefined
@@ -625,6 +624,8 @@ const SessionRow = memo(function SessionRow({
       onPointerEnter={(event) => previewText && hoverPreview(event.currentTarget)}
       onPointerLeave={leavePreviewRow}
       onPointerDown={dismissPreviewNow}
+      // Opens on the press, as the native sidebar rows do; Enter and Space still click.
+      {...pressToOpen(() => onSelect(session.sessionId))}
       onFocus={(event) => previewText && hoverPreview(event.currentTarget, 0)}
       onBlur={leavePreviewCard}
       // ui-allow: Escape dismisses this row's anchored preview; arrow/Home/End navigation stays in the shared helper.
@@ -632,7 +633,6 @@ const SessionRow = memo(function SessionRow({
         keyboard.onKeyDown?.(event);
         if (event.key === "Escape") dismissPreviewNow();
       }}
-      onClick={() => onSelect(session.sessionId)}
     >
       <span className="acpmux-session-row-title">{title}</span>
       {trailing && (
@@ -645,11 +645,17 @@ const SessionRow = memo(function SessionRow({
           {PLACE_GLYPHS[place.kind]}
         </span>
       )}
-      {mark ? (
+      {mark === "input" ? (
+        // A chat waiting on the person says so in amber, like the question card's pill.
+        <span className="acpmux-session-mark acpmux-session-mark-input acpmux-session-mark-labeled" aria-hidden="true">
+          {MARK_GLYPHS.input}
+          {t(markKey ?? MARK_LABELS.input)}
+        </span>
+      ) : mark ? (
         <span
           className={`acpmux-session-mark acpmux-session-mark-${mark}`}
           aria-hidden="true"
-          title={t(MARK_LABELS[mark])}
+          title={t(markKey ?? MARK_LABELS[mark])}
         >
           {MARK_GLYPHS[mark]}
         </span>

@@ -85,19 +85,11 @@ extension TabContentCache {
         presentationChanges.notify(changed: Set(effects.rendering.keys).union(effects.evicted).union(effects.displaced.map(\.key)))
     }
 
-    /// A hidden terminal leaves the warm set: its last picture (off the main thread) stays, then it closes.
+    /// A hidden terminal leaves the warm set: its last frame stays (no copy), then it closes.
     private func evict(_ entry: TerminalEntry, key: String) {
+        lastFrames.evict(entry.session, key: key, capacity: warmBudget.terminalCapacity, atOnce: evictsAtOnce)
         entry.session.view.removeFromSuperview()
-        guard !evictsAtOnce, entry.session.showsOutput else { return entry.close() }
-        Task { [weak self] in
-            let generation = self?.lifecycle.record(key)?.generation
-            let image = await entry.session.snapshotInBackground(maxPixelSize: 480)
-            entry.close()
-            // Not for a closed tab (no record), a live surface again, or a newer eviction (generation after `.released`).
-            guard let image, let self, self.terminals[key] == nil, let record = self.lifecycle.record(key),
-                  record.generation == generation else { return }
-            self.previews.insert(image, for: key)
-        }
+        entry.close()
     }
 
     // MARK: Lifecycle effects
@@ -147,6 +139,9 @@ extension TabContentCache {
         if let entry = terminals[key] {
             entry.session.isRenderingSuspended = false
             entry.io.setVisible(true)
+            // A new session after an eviction shows its last frame until its content draws (one that
+            // parsed its content while hidden draws it now: no hold).
+            lastFrames.show(key, on: entry.session)
         }
         if let entry = browsers[key] {
             entry.tab.setContentVisible(true)

@@ -77,7 +77,7 @@ extension DaemonStore {
         guard let entry = intentLog.entries.first(where: { $0.transaction == transaction }) else { return }
         // A split's `pane-added` echo comes before the `layout-changed` that places the pane:
         // it stays until the records place it (cx-ry0y), as when its reply settles it.
-        if awaitsRecords(entry) { return intentLog.awaitRecords(transaction) }
+        if ProvisionalSplit.awaitsRecords(entry, in: self) { return intentLog.awaitRecords(transaction) }
         if needsResync {
             if let sequence { intentLog.settle(transaction, at: sequence) }
             return
@@ -94,8 +94,12 @@ extension DaemonStore {
 
     /// Reported after the overlay is back (`withOverlayLifted`).
     private func settleIntent(_ transaction: ClientTransactionID, _ settlement: IntentSettlement) {
-        guard intentLog.remove(transaction) != nil else { return }
+        guard let removed = intentLog.remove(transaction) else { return }
         intentSettlements.append((transaction, settlement))
+        // A refused create held a guessed tab that was another create's: guess it again.
+        if settlement == .rejected, !removed.createdConfirmed, let surface = removed.createdSurface {
+            ProvisionalTab.reguess(surface, in: self)
+        }
     }
 
     /// Runs `body` (event or snapshot apply, a settlement) on the confirmed
@@ -107,11 +111,11 @@ extension DaemonStore {
         overlayLifted = true
         liftOverlay()
         let result = body()
-        nameDaemonSplits()
-        for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: awaitsRecords) {
+        for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, in: self) }) {
             intentSettlements.append((intent.transaction, .applied))
         }
         releaseSettledProvisionalPanes()
+        releaseSettledProvisionalWorkspaces()
         let confirmedTabs = debugTabCensus()
         restoreOverlay()
         overlayLifted = false
@@ -124,32 +128,15 @@ extension DaemonStore {
         let settled = intentSettlements
         intentSettlements.removeAll()
         for (transaction, settlement) in settled { onIntentSettled?(transaction, settlement) }
+        CancelledCreation.requestCloses(in: self)
         return result
-    }
-
-    /// A split stays until the daemon's layout places its pane (cx-ry0y): `pane-added` and the
-    /// `layout-changed` that places it can land after the reply's settle sequence, and undoing
-    /// the split before them showed the pane unsplit for one turn.
-    private func awaitsRecords(_ intent: PendingIntent) -> Bool {
-        guard case .splitPane(_, _, _, let provisional) = intent.kind else { return false }
-        return !ProvisionalSplit.daemonPlaces(provisional, in: self)
-    }
-
-    /// A pending split whose pane the daemon's layout now places names the daemon's split after
-    /// its own, before the intent can settle.
-    private func nameDaemonSplits() {
-        for entry in intentLog.entries {
-            if case .splitPane(let target, _, _, let provisional) = entry.kind {
-                ProvisionalSplit.nameDaemonSplit(provisional, target: target, in: self)
-            }
-        }
     }
 
     /// The pane model of a split that left the log (settled or refused) is no longer provisional.
     private func releaseSettledProvisionalPanes() {
         guard !provisionalPanes.isEmpty else { return }
         let pending = Set(intentLog.entries.compactMap { entry -> String? in
-            if case .splitPane(_, _, _, let provisional) = entry.kind { return provisional.paneID }
+            if !entry.closeWhenCreated, case .splitPane(_, _, _, let provisional) = entry.kind { return provisional.paneID }
             return nil
         })
         provisionalPanes = provisionalPanes.filter { pending.contains($0.key) }
@@ -164,14 +151,32 @@ extension DaemonStore {
         return model
     }
 
+    /// The record of a workspace the daemon reports: the provisional workspace's own model when a
+    /// pending create shows it under the same key, updated in place (as ``confirmedPane(_:)``);
+    /// else a new model.
+    func confirmedWorkspace(_ snapshot: WorkspaceSnapshot) -> WorkspaceModel {
+        guard let model = provisionalWorkspaces.workspacesByID[WorkspaceModel.identity(snapshot)] else { return WorkspaceModel(snapshot) }
+        model.update(snapshot)
+        return model
+    }
+
+    /// The models of a workspace create that left the log (settled or refused) are no longer provisional.
+    private func releaseSettledProvisionalWorkspaces() {
+        guard !provisionalWorkspaces.workspacesByID.isEmpty || !provisionalWorkspaces.screensByID.isEmpty else { return }
+        let pending = Set(intentLog.entries.compactMap { entry -> String? in
+            if case .createWorkspace(let provisional, _) = entry.kind { return provisional.key.rawValue }
+            return nil
+        })
+        provisionalWorkspaces.workspacesByID = provisionalWorkspaces.workspacesByID.filter { pending.contains($0.key) }
+        provisionalWorkspaces.screensByID = provisionalWorkspaces.screensByID.filter { pending.contains($0.key) }
+    }
+
     /// A new connection replaces the last one (`run(connection:)`): its
     /// event sequences restart from its own serial, so the store's
     /// sequences reset, and intents whose reply came settle with its first
     /// snapshot.
     func beginConnection() {
         snapshotBarrier = 0
-        // A new daemon generation numbers its splits anew: no split keeps an old name.
-        for screen in screensByHandle.values { screen.clearSplitNames() }
         if appliedSequence != 0 { appliedSequence = 0 }
         intentLog.connectionReplaced()
     }

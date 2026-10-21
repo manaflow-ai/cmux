@@ -16,6 +16,22 @@ public protocol CloudConversationCommands: Sendable {
     func requestLive(_ conversation: String) async throws
     /// `cloud-conversation-run`: the steps of a Cloud Chief's run (nil: no such read).
     func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows?
+    /// `cloud-requests-list`: the account's open message requests.
+    func messageRequests() async throws -> [CloudMessageRequest]
+    /// `cloud-conversation-typing`: the person's typing in a subscribed conversation.
+    func typing(_ conversation: String, on: Bool) async throws
+    /// `cloud-inbox-op`: the person's own pin or mute of one Cloud conversation
+    /// (UserDO `inbox.pin`, `inbox.mute`), with the intent's idempotency key.
+    func inboxOp(_ conversation: String, idempotencyKey: String, op: ConversationInboxOpRequest.Op) async throws
+    /// `cloud-attachment-upload` (`cloud-attachments-v1`): uploads `attachment`'s bytes from `file`
+    /// (and its poster or preview) to a Cloud conversation through the daemon's lease. A hash the
+    /// conversation already holds returns the owner's record without sending bytes.
+    func uploadAttachment(conversation: String, attachment: ConversationAttachment, file: URL, posterFile: URL?,
+                          previewFile: URL?, progress: @escaping @Sendable (Double) -> Void) async throws -> StoredConversationAttachment
+    /// `cloud-attachment-read` (`cloud-attachments-v1`): reads `variant` of `hash` in a Cloud
+    /// conversation into `destination` atomically; returns its mime type.
+    func downloadAttachment(conversation: String, hash: String, variant: ConversationAttachmentVariant,
+                            to destination: URL) async throws -> String
 }
 
 /// Cloud conversations (`cloud-conversations-v1`, plans/cmux-next/home-cloud-proxy.md)
@@ -64,6 +80,11 @@ public struct CloudConversationClient: CloudConversationCommands {
         try await local(CloudSessionStatusRequest())
     }
 
+    /// `cloud-selfhost-info`: the daemon asks the self-hosted server its lease names who the person is.
+    public func selfHostInfo() async throws -> CloudSelfHostInfo {
+        try await network(CloudSelfHostInfoRequest())
+    }
+
     public func inboxList(limit: Int) async throws -> CloudInboxList {
         try await network(CloudInboxListRequest(limit: limit))
     }
@@ -101,6 +122,41 @@ public struct CloudConversationClient: CloudConversationCommands {
         _ = try await local(CloudConversationLiveRequest(conversation: conversation))
     }
 
+    public func messageRequests() async throws -> [CloudMessageRequest] {
+        try await network(CloudMessageRequestsRequest()).requests
+    }
+
+    public func typing(_ conversation: String, on: Bool) async throws {
+        guard await connection.identity?.supports(DaemonCapabilities.shared.cloudConversationTyping) == true else { return }
+        _ = try await local(CloudConversationTypingRequest(conversation: conversation, on: on))
+    }
+
+    public func inboxOp(_ conversation: String, idempotencyKey: String, op: ConversationInboxOpRequest.Op) async throws {
+        _ = try await network(CloudInboxOpRequest(conversation: conversation, idempotencyKey: idempotencyKey, op: op))
+    }
+
+    /// A Cloud upload's `commit` sends every byte to the Cloud owner before it answers.
+    static let attachmentCommitTimeout: Duration = .seconds(600)
+
+    /// The Cloud proxy's steps: `begin` and each read reach the Worker, `chunk` stays on the daemon.
+    private var attachments: AttachmentTransfer<CloudAttachmentUploadRequest, CloudAttachmentReadRequest> {
+        AttachmentTransfer(connection: connection, beginTimeout: Self.networkTimeout, chunkTimeout: ConversationClient.attachmentChunkTimeout,
+                           commitTimeout: Self.attachmentCommitTimeout, readTimeout: Self.networkTimeout)
+    }
+
+    public func uploadAttachment(conversation: String, attachment: ConversationAttachment, file: URL, posterFile: URL?,
+                                 previewFile: URL?, progress: @escaping @Sendable (Double) -> Void) async throws -> StoredConversationAttachment {
+        try await require()
+        return try await attachments.upload(conversation: conversation, attachment: attachment, file: file, posterFile: posterFile,
+                                            previewFile: previewFile, progress: progress)
+    }
+
+    public func downloadAttachment(conversation: String, hash: String, variant: ConversationAttachmentVariant,
+                                   to destination: URL) async throws -> String {
+        try await require()
+        return try await attachments.download(conversation: conversation, hash: hash, variant: variant, to: destination)
+    }
+
     public func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows? {
         guard await connection.identity?.supports(DaemonCapabilities.shared.cloudConversationRuns) == true else { return nil }
         var all = try await network(CloudConversationRunRequest(conversation: conversation, agent: agent, run: run))
@@ -116,8 +172,31 @@ public struct CloudConversationClient: CloudConversationCommands {
 }
 
 extension CloudConversationCommands {
+    /// Fakes without message requests: none.
+    public func messageRequests() async throws -> [CloudMessageRequest] { [] }
+
     /// Fakes and daemons without live frames: nothing to ask.
     public func requestLive(_ conversation: String) async throws {}
+
+    /// Fakes and daemons without typing: nothing to send.
+    public func typing(_ conversation: String, on: Bool) async throws {}
+
+    /// Fakes without the person's inbox: refused as a daemon without `cloud-inbox-op` would.
+    public func inboxOp(_ conversation: String, idempotencyKey: String, op: ConversationInboxOpRequest.Op) async throws {
+        throw DaemonError.missingCapabilities([DaemonCapabilities.shared.conversationInboxState])
+    }
+
+    /// Fakes and daemons without Cloud attachments.
+    public func uploadAttachment(conversation: String, attachment: ConversationAttachment, file: URL, posterFile: URL?,
+                                 previewFile: URL?, progress: @escaping @Sendable (Double) -> Void) async throws -> StoredConversationAttachment {
+        throw DaemonError.missingCapabilities([DaemonCapabilities.shared.cloudAttachments])
+    }
+
+    /// Fakes and daemons without Cloud attachments.
+    public func downloadAttachment(conversation: String, hash: String, variant: ConversationAttachmentVariant,
+                                   to destination: URL) async throws -> String {
+        throw DaemonError.missingCapabilities([DaemonCapabilities.shared.cloudAttachments])
+    }
 
     /// Fakes and daemons without run reads.
     public func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows? { nil }

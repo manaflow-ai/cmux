@@ -26,8 +26,10 @@ public final class TerminalHostView: NSView {
     private var shellStall: TerminalShellStall?
     /// "Restart Shell Here" above the banner while the shell has ended.
     private let restartButton = TerminalRestartButton()
-    /// "Retry" above the banner once the view stopped retrying its attach.
+    /// "Retry" above the banner once the view's attach kept failing.
     private let retryButton = TerminalRetryButton()
+    /// "Sized for <device>" with Take over, bottom-trailing, while another view sets the grid.
+    private let sizedForChip = TerminalSizedForChip()
     /// The App's `tab.restart` for this tab; nil hides the button (a daemon
     /// without `tab-restart-v1`, a tab that cannot restart).
     public var onRestart: (@MainActor () -> Void)? {
@@ -47,10 +49,40 @@ public final class TerminalHostView: NSView {
         let gridWidth = CGFloat(grid.columns) * model.cellPixelSize.width / scale
         let gridHeight = CGFloat(grid.rows) * model.cellPixelSize.height / scale
         let width = bounds.width - scroller.reservedWidth
-        return CGPoint(x: max(padding.leading, (width - gridWidth) / 2), y: max(padding.top, (bounds.height - gridHeight) / 2))
+        return CGPoint(x: max(padding.leading, (width - gridWidth) / 2), y: max(padding.top, (terminalBounds.height - gridHeight) / 2))
+    }
+
+    /// A view under the terminal (the App's TextBox composer): the full width at the bottom, at
+    /// its fitting height, and the surface, the scroller and the overlays take the rest. A hidden
+    /// accessory takes no room. Set the host's `needsLayout` when its height or visibility changes.
+    public var bottomAccessory: NSView? {
+        didSet {
+            guard oldValue !== bottomAccessory else { return }
+            oldValue?.removeFromSuperview()
+            if let bottomAccessory {
+                bottomAccessory.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
+                addSubview(bottomAccessory, positioned: .above, relativeTo: scroller)
+            }
+            needsLayout = true
+        }
+    }
+
+    /// The accessory's height, 0 while there is none or it is hidden.
+    private var accessoryHeight: CGFloat {
+        guard let bottomAccessory, !bottomAccessory.isHidden else { return 0 }
+        return min(bounds.height, ceil(bottomAccessory.fittingSize.height))
+    }
+
+    /// The part of the host the terminal shows in: all of it, less the accessory's strip.
+    private var terminalBounds: CGRect {
+        let accessory = accessoryHeight
+        return CGRect(x: bounds.minX, y: bounds.minY + accessory, width: bounds.width, height: max(0, bounds.height - accessory))
     }
 
     private var configObserver: (any NSObjectProtocol)?
+    private var transparencyObserver: (any NSObjectProtocol)?
+    /// Held here: scopes keep their responders weakly.
+    private let aroundListener = TerminalHostThemeListener()
 
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
@@ -70,10 +102,18 @@ public final class TerminalHostView: NSView {
         addSubview(retryButton, positioned: .above, relativeTo: banner)
         // The same re-attach a click in the disconnected terminal starts.
         retryButton.onRetry = { [weak self] in self?.current?.session?.surfaceClicked() }
+        addSubview(sizedForChip, positioned: .above, relativeTo: banner)
+        sizedForChip.onTakeOver = { [weak self] setLatest in self?.current?.session?.takeOverSize(setLatest: setLatest) }
         // A config reload can change window-padding-x.
         configObserver = NotificationCenter.default.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated { self?.needsLayout = true }
+        }
+        // Reduce Transparency turns the window opaque or see-through without a theme change.
+        transparencyObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
+            MainActor.assumeIsolated { self?.paintBackground() }
         }
     }
 
@@ -115,6 +155,17 @@ public final class TerminalHostView: NSView {
         needsLayout = true
     }
 
+    /// The "Sized for" chip's text, nil while hidden (diagnostics and tests).
+    var sizedForText: String? {
+        sizedForChip.shown.map { TerminalSizedForChip.text(for: $0) }
+    }
+
+    func showSizedFor(_ sizedFor: TerminalSizedFor?) {
+        guard sizedFor != sizedForChip.shown else { return }
+        sizedForChip.show(sizedFor)
+        needsLayout = true
+    }
+
     func showHostLoss(_ loss: TerminalHostLoss?, cause: TerminalHostLossCause?) {
         hostLoss = loss
         hostLossCause = cause
@@ -134,6 +185,7 @@ public final class TerminalHostView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+            if let transparencyObserver { NSWorkspace.shared.notificationCenter.removeObserver(transparencyObserver) }
         }
     }
 
@@ -166,16 +218,29 @@ public final class TerminalHostView: NSView {
         scroller.update(bar)
     }
 
+    /// The width a surface gets in a host `hostWidth` points wide (less a legacy scroller's strip),
+    /// for working out a terminal's grid before its host exists.
+    public static func surfaceWidth(hostWidth: CGFloat) -> CGFloat {
+        let reserved = NSScroller.preferredScrollerStyle == .legacy
+            ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
+        return max(0, hostWidth - reserved)
+    }
+
     /// The surface's frame: the host, less a legacy scroller's strip (none: the scroller is overlay).
     private var surfaceFrame: CGRect {
-        CGRect(x: bounds.minX, y: bounds.minY, width: max(0, bounds.width - scroller.reservedWidth), height: bounds.height)
+        let area = terminalBounds
+        return CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scroller.reservedWidth), height: area.height)
     }
 
     public override func layout() {
         super.layout()
         if let current, current.frame != surfaceFrame { current.frame = surfaceFrame }
-        let strip = scroller.strip(in: bounds)
+        let strip = scroller.strip(in: terminalBounds)
         if scroller.frame != strip { scroller.frame = strip }
+        if let bottomAccessory, !bottomAccessory.isHidden {
+            let frame = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: accessoryHeight)
+            if bottomAccessory.frame != frame { bottomAccessory.frame = frame }
+        }
         layoutOverlays()
     }
 
@@ -188,17 +253,26 @@ public final class TerminalHostView: NSView {
             layoutStatus(buttons: buttons)
         }
         let inset = Metrics.panelInset
+        if !sizedForChip.isHidden {
+            // Bottom-trailing, clear of the scroller: where a padded grid leaves room.
+            let trailing = bounds.width - scroller.reservedWidth - inset
+            _ = place(sizedForChip, maxWidth: bounds.width - inset * 2) { size in
+                CGPoint(x: max(inset, trailing - size.width), y: self.terminalBounds.minY + inset)
+            }
+        }
         // Framed hidden too: the bar shows itself when find opens.
+        // The shared find pill sits where every pane's does (FindPillMetrics.inset from top and trailing).
+        let findInset = FindPillMetrics.inset
         for case let bar as TerminalFindBarView in subviews {
-            _ = place(bar, maxWidth: bounds.width - inset * 2, evenHidden: true) { size in
-                CGPoint(x: self.bounds.width - inset - size.width, y: self.bounds.height - inset - size.height)
+            _ = place(bar, maxWidth: bounds.width - findInset * 2, evenHidden: true) { size in
+                CGPoint(x: self.bounds.width - findInset - size.width, y: self.bounds.height - findInset - size.height)
             }
         }
     }
 
     private func layoutStatus(buttons: [NSView]) {
         let banner = place(self.banner, maxWidth: bounds.width - 24) { size in
-            CGPoint(x: (self.bounds.width - size.width) / 2, y: 12)
+            CGPoint(x: (self.bounds.width - size.width) / 2, y: self.terminalBounds.minY + 12)
         }
         for button in buttons {
             _ = place(button, maxWidth: bounds.width) { size in
@@ -230,21 +304,52 @@ public final class TerminalHostView: NSView {
         paintBackground()
     }
 
-    /// Opaque windows only, like `GhosttyRuntime.backgroundColor`: in a
-    /// translucent window the window root paints the one sheet. The user's
-    /// terminal background (`appearance.surfaces.terminal`) replaces both;
+    /// The host roots its terminal's scope, so the panes' repaint stops here: it listens to the
+    /// scope it sits in, whose colors decide whether its own theme shows (`paintBackground`).
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        aroundListener.host = self
+        superview?.themeScope.addResponder(aroundListener)
+        paintBackground()
+    }
+
+    /// An opaque window paints the terminal's theme background, like
+    /// `GhosttyRuntime.backgroundColor`. Where the window is see-through
+    /// (translucent, glass, or over art) the window root paints the one
+    /// sheet and the host stays clear, as the panes around it do, unless the
+    /// terminal's theme differs from theirs: its background then lies over
+    /// the glass at the window's tint (`WindowBackdrop.tintOpacity`). The user's terminal
+    /// background (`appearance.surfaces.terminal`) replaces all of these;
     /// the surfaces then draw a transparent default background.
-    private func paintBackground() {
+    fileprivate func paintBackground() {
+        let (scope, tokens) = (themeScope, themeTokens)
+        // The window root's backdrop (`WindowRootView.backdrop`): the scope's art and its own tint.
+        let backdrop = WindowBackdrop(tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
+                                      selection: scope.backdropSelection, tintOpacity: scope.backdropTintOpacity)
+        GhosttyRuntime.setSeeThrough(superview != nil && !backdrop.panesPaintBackground, host: self)
         let fill = performWithTheme { Palette.surfaceOverride(.terminal) }
         if let fill {
             layer?.backgroundColor = fill.cgColor
             return
         }
-        let runtime = GhosttyRuntime.shared
-        guard let rgb = theme?.colors?.background, runtime.backgroundOpacity >= 1 else {
-            layer?.backgroundColor = runtime.backgroundColor.cgColor
+        guard !backdrop.panesPaintBackground else {
+            guard let rgb = theme?.colors?.background else {
+                layer?.backgroundColor = GhosttyRuntime.shared.backgroundColor.cgColor
+                return
+            }
+            layer?.backgroundColor = CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
             return
         }
-        layer?.backgroundColor = CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
+        let around = superview?.themeTokens.surfaceBackground.withAlpha(1)
+        let own = tokens.surfaceBackground.withAlpha(1)
+        layer?.backgroundColor = theme == nil || own == around ? nil : own.withAlpha(backdrop.tintOpacity).cgColor
     }
+}
+
+/// Repaints a host when the scope around it changes its colors or its art.
+@MainActor
+private final class TerminalHostThemeListener: ThemeResponsive {
+    weak var host: TerminalHostView?
+
+    func themeDidChange() { host?.paintBackground() }
 }

@@ -275,6 +275,49 @@ mod tests {
     }
 
     #[test]
+    fn cmux_next_agent_cli_list_admits_only_the_read_grant() {
+        let table = ScopeTable::get();
+        assert_eq!(
+            table.check(
+                "agent_cli.list",
+                &json!({"machine":"machine_owner"}),
+                &grant(&["agent_cli:read"])
+            ),
+            Decision::Allow(OpClass::Read),
+        );
+        for scopes in [vec![], vec!["agent_cli:execute"], vec!["workspace:read"]] {
+            assert!(matches!(
+                table.check("agent_cli.list", &json!({}), &grant(&scopes)),
+                Decision::ScopeMissing(_),
+            ));
+        }
+    }
+
+    #[test]
+    fn cmux_next_agent_cli_list_denies_preview_and_revoked_grants() {
+        let table = ScopeTable::get();
+        for g in [
+            Grant { preview: true, ..grant(&["agent_cli:read"]) },
+            Grant { revoked: true, ..grant(&["agent_cli:read"]) },
+        ] {
+            assert!(matches!(
+                table.check("agent_cli.list", &json!({}), &g),
+                Decision::ScopeMissing(_),
+            ));
+        }
+    }
+
+    #[test]
+    fn cmux_next_agent_cli_list_does_not_admit_execution_or_refresh_operations() {
+        let g = grant(&["agent_cli:read", "agent_cli:execute"]);
+        for op in
+            ["agent_cli.install", "agent_cli.update", "agent_cli.sign_in", "agent_cli.refresh"]
+        {
+            assert_eq!(ScopeTable::get().check(op, &json!({}), &g), Decision::Unsupported);
+        }
+    }
+
+    #[test]
     fn unknown_is_unsupported_and_ungranted_is_scope_missing() {
         let table = ScopeTable::get();
         assert_eq!(table.check("made.up", &json!({}), &grant(&[])), Decision::Unsupported);

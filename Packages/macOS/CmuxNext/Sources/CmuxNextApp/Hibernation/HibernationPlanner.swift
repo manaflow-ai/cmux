@@ -32,6 +32,10 @@ struct HibernationPlanner {
         /// The acpmux turn watch is down, so no chat's turn is known: every chat counts as busy.
         case agentTurnsUnknown = "agent_turns_unknown"
         case formSubmission = "form_submission"  // the page shows a form result (BR-R1)
+        /// An agent called the page within `BrowserHibernation.agentGrace` (`cmux browser`, MCP, the REPL).
+        case agentDriving = "agent_driving"
+        /// Beside a pane's shown tab, or hovered (`browser.keepNeighborTabsAwake`).
+        case neighbor
     }
 
     struct Plan: Equatable {
@@ -61,6 +65,25 @@ struct HibernationPlanner {
         if candidate.isPinned, !setting.includesPinnedTabs { return .pinned }
         if setting.excludes(host: candidate.host) { return .excluded }
         return nil
+    }
+
+    /// Which hidden pages freeze now, and when the next one will: after
+    /// `freezeSeconds` hidden, whatever the hibernation mode, except pinned
+    /// tabs (unless they hibernate too), excluded hosts, open DevTools and capture.
+    static func freezePlan(_ setting: BrowserHibernationSetting, candidates: [Candidate]) -> Plan {
+        var plan = Plan()
+        guard let threshold = setting.freezeSeconds else { return plan }
+        for candidate in candidates {
+            if candidate.hasDevTools || candidate.isCapturing || setting.excludes(host: candidate.host)
+                || (candidate.isPinned && !setting.includesPinnedTabs) { continue }
+            let remaining = threshold - candidate.hiddenFor
+            if remaining <= 0 {
+                plan.due.append(candidate.key)
+            } else {
+                plan.nextCheck = min(plan.nextCheck ?? remaining, remaining)
+            }
+        }
+        return plan
     }
 
     static func plan(_ setting: BrowserHibernationSetting, pressure: MemoryPressureLevel, candidates: [Candidate]) -> Plan {

@@ -74,7 +74,14 @@ impl Hub {
 /// error from it. Waiting reads `inputSince` (when it began waiting), so a
 /// later record or a draft save does not move it.
 ///
-/// `{state, since, error}`; null for a closed session.
+/// `step` is what it is doing now (hq#2509), see `lane_step`; `title` is the
+/// session's title, else its latest prompt. The lane's error, step and title
+/// are masked (`secret_scan`), so a view that reads only the lane never shows
+/// a pasted secret. The summary's other fields (`turn.prompt`, `lastPrompt`,
+/// `lastMessage`, `preview`, `title`) carry the raw text, masked only on the
+/// way to a peer daemon (`server/peer_text.rs`).
+///
+/// `{state, since, error, step, title}`; null for a closed session.
 pub fn lane(summary: &Value) -> Value {
     if summary["status"] == "closed" {
         return Value::Null;
@@ -101,8 +108,75 @@ pub fn lane(summary: &Value) -> Value {
         "lost" if !in_turn => summary["lastTurn"]["errorText"].clone(),
         _ => Value::Null,
     };
-    json!({"state": state, "since": since, "error": error})
+    let error = error.as_str().map_or(Value::Null, |e| Value::String(masked_error(e)));
+    json!({"state": state, "since": since, "error": error, "step": lane_step(summary), "title": lane_title(summary)})
 }
+
+/// The lane's step, one line: the running turn's prompt, else the agent's
+/// last reply line. Masked before it is folded and cut, so a cut never
+/// leaves part of a secret unmasked. Null when there is neither, or when a
+/// person's own message is the last one (it says nothing new).
+fn lane_step(summary: &Value) -> Value {
+    let reply = || {
+        (summary["lastMessage"]["role"] == "agent")
+            .then(|| summary["lastMessage"]["text"].as_str())
+            .flatten()
+    };
+    let line = summary["turn"]["prompt"].as_str().or_else(reply).map(masked_line);
+    line.filter(|l| !l.is_empty()).map_or(Value::Null, Value::String)
+}
+
+/// The lane's title: the session's title, else its latest prompt, masked and
+/// cut like the step. Null when there is neither.
+fn lane_title(summary: &Value) -> Value {
+    let title = summary["title"].as_str().filter(|t| !t.trim().is_empty());
+    let line = title.or_else(|| summary["lastPrompt"].as_str()).map(masked_line);
+    line.filter(|l| !l.is_empty()).map_or(Value::Null, Value::String)
+}
+
+/// `text` folded to one line, masked and cut to `LANE_STEP_CHARS`. Only the
+/// head of the folded text is scanned (a pasted log can be megabytes), and it
+/// is masked before the cut, so a cut never leaves part of a secret unmasked.
+/// The head is cut after folding: a raw cut inside a token behind a blank run
+/// would leave the token's head unmasked once the run folds away.
+fn masked_line(text: &str) -> String {
+    let (mut head, mut chars) = (String::new(), 0);
+    for word in text.split_whitespace() {
+        if chars > 0 {
+            head.push(' ');
+            chars += 1;
+        }
+        let taken: String = word.chars().take(LANE_SCAN_CHARS.saturating_sub(chars)).collect();
+        chars += taken.chars().count();
+        head.push_str(&taken);
+        if chars >= LANE_SCAN_CHARS {
+            break;
+        }
+    }
+    super::session::short_text(&crate::secret_scan::mask(&head), LANE_STEP_CHARS)
+}
+
+/// A turn's error masked, lines kept. An error can be a whole pasted log, so
+/// only its head is scanned, and it is cut well inside that head after
+/// masking, so a secret that straddles the cut is still masked whole.
+fn masked_error(text: &str) -> String {
+    if text.chars().nth(LANE_ERROR_CHARS).is_none() {
+        return crate::secret_scan::mask(text);
+    }
+    let head: String = text.chars().take(LANE_SCAN_CHARS).collect();
+    let mut error: String =
+        crate::secret_scan::mask(&head).chars().take(LANE_ERROR_CHARS).collect();
+    error.push('…');
+    error
+}
+
+/// How long a lane's error may be.
+const LANE_ERROR_CHARS: usize = 3072;
+/// How long a lane's step may be; the row clips it to its width anyway.
+const LANE_STEP_CHARS: usize = 240;
+/// How much of a step or title is scanned: far past the cut, so a secret
+/// that starts before it is still whole.
+const LANE_SCAN_CHARS: usize = 4096;
 
 /// Set the summary's derived fields: its status dot and its lane.
 pub fn decide(summary: &mut Value) {
@@ -167,17 +241,26 @@ impl Hub {
     /// A child lists under it, never on its own in a chat list. Kept only while that session is
     /// here, listed (not archived) and not a child itself: one level, so a loop of tags or a
     /// parent nobody sees never hides a chat.
+    /// A sub-session (`subsessions.rs`) names its parent the same way, by its proven link.
     pub fn spawned_by(&self, m: &SessionMeta) -> Option<String> {
-        let parent = live_tags(m).get(SPAWNED_BY_TAG)?.as_str()?.to_owned();
+        let parent = match &m.subsession {
+            Some(link) => link.started_by.clone(),
+            None => live_tags(m).get(SPAWNED_BY_TAG)?.as_str()?.to_owned(),
+        };
         let session =
             self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&parent).cloned()?;
-        let tags = live_tags(&session.meta());
-        let listed = tags.get(SPAWNED_BY_TAG).is_none() && tags.get("archived").is_none();
+        let pm = session.meta();
+        let tags = live_tags(&pm);
+        let listed = tags.get(SPAWNED_BY_TAG).is_none()
+            && pm.subsession.is_none()
+            && tags.get("archived").is_none();
         (parent != m.id && listed).then_some(parent)
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
-        use crate::protocol::session::{QueuedPromptSummary, SessionSummary, TurnSummary};
+        use crate::protocol::session::{
+            QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
+        };
         let m = session.meta();
         let turn = session.turn();
         let summary = SessionSummary {
@@ -197,6 +280,11 @@ impl Hub {
             // Where a fork branched off its parent (the pane's < 1/2 > arrows, cx-ncc.61).
             fork_seq: m.fork_seq,
             spawned_by: self.spawned_by(&m),
+            pull_requests: m.pull_requests.clone(),
+            started_by: m.subsession.as_ref().map(|l| l.started_by.clone()),
+            short_name: m.subsession.as_ref().map(|l| l.short_name.clone()),
+            depth: m.subsession.as_ref().map_or(0, |l| l.depth),
+            children: self.subsessions.open_count(&m.id),
             title: m.title.clone(),
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
@@ -209,6 +297,12 @@ impl Hub {
             // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
             // with `interrupt` stops the turn and runs next.
             steering: session.steering.load(Ordering::SeqCst),
+            // Ctrl-B moves its work (`processes.rs`); no while the configuration is
+            // being written, until the next summary.
+            backgrounds_work: self
+                .config
+                .try_read()
+                .is_ok_and(|cfg| super::processes::backgrounds_work(&cfg, &m.harness)),
             turn: turn.map(|t| TurnSummary {
                 started_at: t.started_at,
                 client: t.client,
@@ -227,6 +321,15 @@ impl Hub {
                     prompt: q.preview,
                     queued_at: q.queued_at,
                     held: q.held,
+                    // By attachment id: `_acpmux/attachment` reads each back.
+                    images: super::prompt_images::named(&q.run.blocks)
+                        .into_iter()
+                        .map(|image| QueuedImage {
+                            id: image["id"].as_str().unwrap_or_default().to_owned(),
+                            mime_type: image["mimeType"].as_str().unwrap_or_default().to_owned(),
+                            name: image["name"].as_str().map(str::to_owned),
+                        })
+                        .collect(),
                 })
                 .collect(),
             pending_permissions: session.pending_permissions().len() as u64,
@@ -263,7 +366,15 @@ impl Hub {
             lifecycle_receipt: None,
             peer: None,
         };
+        let receipt = SessionReceipt::new(
+            LOCAL_HOST_ID,
+            m.id.clone(),
+            m.agent_session_id.clone(),
+            self.started_at,
+        );
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
+        summary["qualifiedSessionId"] = Value::String(receipt.qualified_id());
+        summary["sessionReceipt"] = receipt.to_value();
         decide(&mut summary);
         summary
     }
@@ -284,6 +395,8 @@ impl Hub {
         v["gitHead"] = json!(m.git_head);
         // What the session's turns cost together (`turn_usage.rs`).
         v["totals"] = json!(m.totals);
+        // The sub-session limits in force and where each comes from (`subsessions.rs`).
+        v["subsessionLimits"] = self.subsession_limits_value(&m);
         let mut pending = session.permissions.lock().unwrap().pending_records();
         for p in &mut pending {
             p["personInstance"] = Value::String(self.person.instance().to_owned());
@@ -339,3 +452,7 @@ impl Hub {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "views_lane_tests.rs"]
+mod lane_tests;

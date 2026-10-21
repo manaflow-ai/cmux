@@ -24,18 +24,24 @@ applies to the focused cloud workspace's machine.
 | Promote Machine to Template | `cmux cloud promote-machine-to-template --target machine:vm-…` |
 | Hand Off Cloud Machine | `cmux cloud hand-off-machine --target machine:vm-…` |
 | Kill Machine | `cmux cloud kill-machine --target machine:vm-…` |
-| Copy Machine ID / Link / Port | `cmux cloud copy-machine-id`, `copy-machine-link --port <n>`, `copy-machine-port --port <n>` |
+| Pause Machine / Resume Machine | `cmux cloud pause-machine`, `cmux cloud resume-machine` (with `--target machine:vm-…`) |
+| Open Cloud SSH Terminal / Run Command on Cloud Machine… | `cmux cloud ssh`, `cmux cloud exec --command '<cmd>'` |
+| Cloud files (list, read, write, create directory, remove, details) | `cmux cloud files-list\|file-read\|file-write\|file-mkdir\|file-remove\|file-stat --path <p>` |
+| Networks, firewall rules and tunnels | `cmux cloud network-list`, `firewall-list\|get\|create\|delete`, `tunnel-attach\|detach\|rotate-key` |
+| Move to Cloud / Bring Back Local (agent chat tab) | `cmux cloud move`, `cmux cloud bring-back` |
+| Copy Machine ID / Link / Port | Menu only: the CLI never writes the clipboard |
 | Cloud Diagnostics… | `cmux cloud diagnostics` |
 | Team Picker | `cmux cloud team-picker` |
 | Sign In / Sign Out | `cmux cloud sign-in`, `cmux cloud sign-out` |
 | Open Mobile Pairing | `cmux cloud open-mobile-pairing` |
 
 Actions return the app's action result. They do not return machine data such as a
-tree, command output or a port URL on stdout; copy actions write to the clipboard.
+tree, a file, command output or a port URL on stdout; read and list actions show
+their result in an app toast, and copy actions write to the clipboard.
 
 Removed with the Swift CLI, with no action equivalent: `vm tree` and its sidebar
 pin/order verbs, `vm workspace open|close|rm|rename` against a machine,
 `surface ls|open|new-terminal`, `vm open <m>:desktop|:port/<n>`, `vm tui`,
-`vm pause|resume`, `vm prompt`, `vm layout|env` from the Mac and the headless
+`vm prompt`, `vm layout|env` from the Mac and the headless
 `vm terminal send|read|wait|wait-exit|output` verbs. Inside a machine terminal, the
 machine's own `cmux` covers the terminal verbs; see [guest operations](guest.md).

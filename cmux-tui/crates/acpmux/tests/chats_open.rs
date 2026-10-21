@@ -76,8 +76,7 @@ fn write_rollout(codex_home: &Path, cwd: &Path) {
     // A person's chat has a user message (the index lists no chat without one).
     let prompt = json!({"type": "event_msg", "timestamp": "2026-10-02T09:00:01Z", "payload": {"type": "user_message", "message": "Fix the build"}});
     std::fs::write(&rollout, format!("{record}\n{prompt}\n")).unwrap();
-    // Written an hour ago: a transcript written in the last minutes is a
-    // chat live in another process, which adopt refuses (adopt_live.rs).
+    // Written an hour ago, like a person's earlier chat.
     let hour_ago = std::time::SystemTime::now() - Duration::from_secs(3600);
     std::fs::File::options().write(true).open(&rollout).unwrap().set_modified(hour_ago).unwrap();
 }

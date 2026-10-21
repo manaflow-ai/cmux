@@ -9,7 +9,7 @@ final class CEFDevToolsDivider: NSView {
     weak var devTools: CEFDevToolsController?
     private var dragging = false
 
-    override var isFlipped: Bool { false }
+    nonisolated override var isFlipped: Bool { false }
     override var mouseDownCanMoveWindow: Bool { false }
     /// The page and DevTools are their own windows and take key when used,
     /// so the drag's first click often lands while cmux's window is not key.

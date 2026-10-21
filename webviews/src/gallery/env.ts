@@ -194,13 +194,14 @@ export function writeEnv(env: GalleryEnv, params = new URLSearchParams()): URLSe
  * gallery's edited tunables (experiments/tunable.ts `writeTunes`), outside the shared contract:
  * the native gallery has no tunables.
  */
-export type StageAddress = { entry: string; variant: string; tune?: string; source?: string };
+export type StageAddress = { entry: string; variant: string; tune?: string; opts?: string; source?: string };
 
 export function frameQuery(address: StageAddress, env: GalleryEnv): string {
   const params = writeEnv(env);
   params.set("entry", address.entry);
   params.set("variant", address.variant);
   if (address.tune) params.set("tune", address.tune);
+  if (address.opts) params.set("opts", address.opts);
   if (address.source) params.set("source", address.source);
   return params.toString();
 }

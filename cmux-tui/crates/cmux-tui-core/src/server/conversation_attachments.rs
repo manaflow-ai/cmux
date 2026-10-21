@@ -204,17 +204,13 @@ pub(super) fn read(mux: &Mux, client: u64, params: ReadParams) -> anyhow::Result
     }))
 }
 
-/// A link's offered file name: the upload rules for a name, never an
-/// executable or active-document extension.
+/// A link's offered file name: the upload rules for a name. Any extension
+/// (the download goes with an attachment disposition, `nosniff`, and a
+/// listed type or `application/octet-stream`, so nothing renders or runs).
 pub(super) fn checked_name(name: Option<String>) -> anyhow::Result<Option<String>> {
     match name {
         None => Ok(None),
-        Some(name)
-            if cmux_conversation::valid_attachment_name(&name)
-                && !cmux_conversation::is_denied_name(&name) =>
-        {
-            Ok(Some(name))
-        }
+        Some(name) if cmux_conversation::valid_attachment_name(&name) => Ok(Some(name)),
         Some(_) => {
             Err(crate::conversation_store::attachments::AttachmentRejected("validation_invalid")
                 .into())

@@ -6,7 +6,9 @@
 #   2. its cmux-next.yml push run has a successful "cmux-next Release compile
 #      (Xcode 26)" job (main's promote job checks this again), and
 #   3. its generated page strings are fresh (gen-strings --check, on the commit
-#      requested; a stale one is passed over for an older green one).
+#      requested; a stale one is passed over for an older green one). Since
+#      #21946 the tables are build output: a commit that no longer tracks them
+#      passes when they generate (no translation missing).
 # Both finish asynchronously, so each side asks when its half completes:
 #
 #   --sha <sha> --release-compile-green
@@ -104,7 +106,11 @@ strings_fresh() { # <sha>
     [[ "$1" == "$head" ]] || cleanup_strings
     return 0
   fi
-  (cd "$root/webviews" && node scripts/pages/gen-strings.mjs --check) || rc=$?
+  if git -C "$root" ls-files --error-unmatch webviews/src/pages/settings/generated/strings.json >/dev/null 2>&1; then
+    (cd "$root/webviews" && node scripts/pages/gen-strings.mjs --check) || rc=$?
+  else
+    (cd "$root/webviews" && node scripts/pages/gen-strings.mjs) || rc=$?
+  fi
   [[ "$1" == "$head" ]] || cleanup_strings
   return "$rc"
 }
@@ -193,7 +199,11 @@ fi
 # this history the bound falls back to <sha>. One fetch of the branch's recent history covers every
 # candidate (a fetch per commit took over 5 minutes in run 37820762809); a
 # commit it does not reach is older than the lower bound or off the branch.
-git fetch -q --no-tags --depth="$((window * 4))" origin refs/heads/feat-cmux-next 2>/dev/null \
+# Depth-limited only in a shallow checkout: in a full clone --depth writes
+# .git/shallow and truncates history for every worktree sharing it.
+depth=()
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth="$((window * 4))")
+git fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin refs/heads/feat-cmux-next 2>/dev/null \
   || echo "warning: could not fetch feat-cmux-next; considering only local commits" >&2
 # One page holds the window (at most 99): paginating walked every push run ever made.
 runs="$(gh api "repos/$repo/actions/workflows/cmux-next.yml/runs?event=push&branch=feat-cmux-next&per_page=$window")"

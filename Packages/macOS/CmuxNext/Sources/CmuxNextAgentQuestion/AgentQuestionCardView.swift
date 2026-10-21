@@ -38,9 +38,9 @@ public final class AgentQuestionCardView: NSView {
     private let skipButton = AgentQuestionPillButton()
     private let submitButton = AgentQuestionPillButton()
     private let check = NSImageView()
-    private var summaryLabels: [NSTextField] = []
+    private var summaryLabels: [ChromeLabel] = []
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { cardState?.question.isPending == true }
 
     public override init(frame: NSRect) {

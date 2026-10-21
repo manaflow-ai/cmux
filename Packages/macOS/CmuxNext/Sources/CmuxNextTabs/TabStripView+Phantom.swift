@@ -148,15 +148,15 @@ extension TabStripView {
         let start = entries.first?.x ?? (base.contentWidth + (pinnedCount > 0 ? metrics.pinnedGroupGap : 0))
         let width = groupWidth ?? (base.standardWidth > 0 ? base.standardWidth : metrics.maxTabWidth)
         let contentX = scrollMapping.contentX(convert(point, to: tabsClip).x, isPinned: false)
-        let minX = contentX - width / 2
         if groupWidth != nil {
-            let resolved = TabGroupDropMath.resolveGroup(entries: entries, start: start, draggedMinX: minX)
+            let resolved = TabGroupDropMath.resolveGroup(entries: entries, start: start, draggedMinX: contentX - width / 2)
             return TabGroupDropResolution(index: pinnedCount + resolved.tabIndex, groupID: nil)
         }
+        // A tab goes to the slot edge nearest the pointer, as its ghost card follows it (cx-6ggef).
         let resolved = TabGroupDropMath.resolveTab(
             entries: entries,
             start: start,
-            draggedMinX: minX,
+            draggedMinX: contentX,
             currentGroup: dropPlaceholderGroup,
             hysteresis: width * Self.groupJoinHysteresis
         )

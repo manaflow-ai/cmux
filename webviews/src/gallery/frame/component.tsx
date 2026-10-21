@@ -7,6 +7,7 @@ import type { StageContext } from "./context";
 import { addPseudoLocales } from "../pseudo";
 import { applyAgentTheme } from "../../agent-session/shared/theme";
 import { installChipHost } from "./chips";
+import { applyOptions } from "../options";
 
 export async function mountComponent(
   entry: ComponentEntry<Record<string, unknown>>,
@@ -41,7 +42,7 @@ export async function mountComponent(
   const root = document.getElementById("root")!;
   createRoot(root).render(
     <UiProvider container={root} dir={languageDirection(context.env.locale)}>
-      <Component {...state.props} />
+      <Component {...(applyOptions(entry.options, context.options, state.props) as typeof state.props)} />
     </UiProvider>,
   );
 }

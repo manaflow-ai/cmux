@@ -26,7 +26,7 @@ final class AgentQuestionOptionRowView: NSView {
     private let check = NSImageView()
     private var frames: AgentQuestionCardLayout.Row?
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     init() {
         super.init(frame: .zero)
@@ -37,7 +37,6 @@ final class AgentQuestionOptionRowView: NSView {
         for label in [keycapLabel, title, detail] {
             label.isSelectable = false
             label.drawsBackground = false
-            label.isBordered = false
             addSubview(label)
         }
         keycapLabel.alignment = .center

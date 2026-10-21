@@ -1083,8 +1083,8 @@ class SideLanes(unittest.TestCase):
                              "fork push": side_event(event="push", head_repository={"full_name": "someone/cmux"}),
                              "not a side lane": side_event(path=".github/workflows/plain-paste-worker.yml")}.items():
             self.assertIsInstance(rescue.target_from_event(payload, "manaflow-ai/cmux"), str, why)
-        trusted_target = side_event(path=".github/workflows/cmux-tui-artifacts.yml", event="pull_request_target")
-        self.assertTrue(rescue.target_from_event(trusted_target, "manaflow-ai/cmux").side)
+        artifacts_target = side_event(path=".github/workflows/cmux-tui-artifacts.yml", event="pull_request_target")
+        self.assertIsInstance(rescue.target_from_event(artifacts_target, "manaflow-ai/cmux"), str)
 
     def test_a_marked_cmux_next_run_is_adopted_as_a_side_lane(self):
         # cmux-next.yml lives on feat-cmux-next only and uploads the watch marker itself.
@@ -1097,8 +1097,10 @@ class SideLanes(unittest.TestCase):
         self.assertIsInstance(rescue.sweep_target(fork, "manaflow-ai/cmux", late=False), str)
 
     def test_a_completed_failed_blacksmith_retry_is_not_watched_again(self):
+        # The bot's attempt 3; a person's re-run stays minis-first and is watched at any attempt.
         run = dict(side_event(path=rescue.CMUX_NEXT_WORKFLOW_PATH, run_attempt=3,
-                              status="completed", conclusion="failure")["workflow_run"])
+                              status="completed", conclusion="failure",
+                              triggering_actor={"login": rescue.RESCUE_ACTOR})["workflow_run"])
         self.assertFalse(rescue.owned_rerun(run))
         self.assertEqual(rescue.sweep_target(run, "manaflow-ai/cmux", late=False), "attempt 3")
 
@@ -1480,6 +1482,17 @@ class Nightly(unittest.TestCase):
         self.assertIn("newer:nightly-next", api.calls)
         self.assertNotIn("newer:main", api.calls)
         self.assertIn("a newer nightly run on nightly-next", summary)
+
+    def test_a_next_run_whose_head_is_no_longer_the_tip_is_never_rerun(self):
+        # nightly-next pushes share one job-level build slot, which the workflow-level
+        # pending check cannot see: a rerun of an older run would rejoin the slot and
+        # replace the newest push's waiting build. The branch head decides instead.
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200, head="b" * 40)
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("branch:nightly-next", api.calls)
+        self.assertIn("nightly-next has moved on", summary)
 
     def test_next_refusal_moves_failed_jobs_to_blacksmith(self):
         clock = Clock()
