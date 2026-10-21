@@ -188,6 +188,36 @@ test("Turn off queueing turns queueing off, and the menu then offers to turn it 
   expect(await openMore(container, "p-1")).toEqual(["composer.queueEditMessage", "composer.queueingOn"]);
 });
 
+test("where the chat opens side chats, the ⋯ menu's Open in side chat asks the prompt there and withdraws it", async () => {
+  const container = installDom();
+  const asked: [string, string][] = [];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={queue}
+        chat="c"
+        t={t}
+        onChange={async () => true}
+        onRemove={async () => true}
+        onSideChat={async (id, prompt) => {
+          asked.push([id, prompt]);
+          return true;
+        }}
+      />,
+    );
+  });
+  expect(await openMore(container, "p-2")).toEqual([
+    "composer.queueEditMessage",
+    "composer.queueSideChat",
+    "composer.queueingOff",
+  ]);
+  await act(async () => menuItem("composer.queueSideChat").click());
+  await settle();
+  expect(asked).toEqual([["p-2", "second"]]);
+  expect(container.querySelector('[data-prompt-id="p-2"]')).toBeNull();
+});
+
 test("⌘↩ on a row, held or not, sends nothing and keeps focus on it", async () => {
   const edits: [string, QueueEdit][] = [];
   const container = await render(

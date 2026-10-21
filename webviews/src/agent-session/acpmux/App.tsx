@@ -7319,6 +7319,27 @@ function AcpmuxPane() {
             onQueueChange={editQueued}
             // A prompt that started while it was edited comes back to the prompt, so the edit is kept.
             onQueueLost={(text) => composerHandle.current?.restore(text, [])}
+            // A queued row's Open in side chat: `/btw`'s path, behind its gate. The prompt leaves the
+            // queue first, so it never also runs here; one that already started stays with the turn.
+            // A side chat that could not start gives its text back to the prompt.
+            onQueueSideChat={
+              opensSideSessions && !isSideSession && snapshot.sessionId
+                ? async (promptId, prompt) => {
+                    const sessionId = snapshot.sessionId!;
+                    if (!(await removeQueued(promptId))) return false;
+                    setBtwFailure(undefined);
+                    const fail = (error: unknown) => setBtwFailure({ sessionId, reason: errorMessage(error) });
+                    callNative<string>("chat.btw", { question: prompt }).then(
+                      (side) => postNative("chat.sideChat", { sessionId: side }).catch(fail),
+                      (error: unknown) => {
+                        fail(error);
+                        composerHandle.current?.restore(prompt, []);
+                      },
+                    );
+                    return true;
+                  }
+                : undefined
+            }
             queueImage={readQueuedImage}
             onProject={chooseProject}
             onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
