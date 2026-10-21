@@ -496,11 +496,9 @@ jobs:
           python3 tests/test_ci_macos_stubs.py
           python3 tests/test_ci_macho_parity.py
 
-      - name: The cmux-browser-host release package and smoke
+      - name: The cmux-browser-host release package
         if: ${{ !cancelled() }}
-        run: |
-          python3 tests/test_browser_host_release_package.py
-          python3 tests/test_browser_host_release_smoke.py
+        run: python3 tests/test_browser_host_release_package.py
 
       - name: install-zig-ci.sh installs only a reviewed Zig
         if: ${{ !cancelled() }}

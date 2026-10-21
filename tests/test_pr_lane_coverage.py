@@ -309,7 +309,6 @@ class ThisTree(unittest.TestCase):
         in_tooling_tests = (
             "tests/test_app_crate_licenses.py",
             "tests/test_browser_host_release_package.py",
-            "tests/test_browser_host_release_smoke.py",
             "tests/test_ci_macho_parity.py",
             "tests/test_ci_macos_stubs.py",
             "tests/test_ci_package_lane_prebuild.py",

@@ -44,32 +44,11 @@ LICENSE = ROOT / "LICENSE"
 NOTICES = ROOT / "cmux-tui/build-support/notices/browser-host/THIRD_PARTY_LICENSES.linux.md"
 
 
-def crate_version(cargo_toml: Path) -> str:
-    """The crate's [package] version; `version.workspace = true` takes the workspace's.
-
-    The workspace is the nearest Cargo.toml above the crate with a [workspace] table, as Cargo
-    finds it. Anything else that is not a plain version string is an error, not a mismatch.
-    """
-    version = tomllib.loads(cargo_toml.read_text())["package"]["version"]
-    if version == {"workspace": True}:
-        for directory in cargo_toml.resolve().parent.parents:
-            manifest = directory / "Cargo.toml"
-            if not manifest.is_file():
-                continue
-            workspace = tomllib.loads(manifest.read_text()).get("workspace")
-            if workspace is not None:
-                version = (workspace.get("package") or {}).get("version")
-                break
-    if not isinstance(version, str):
-        raise SystemExit(f"{cargo_toml}: cannot read the crate version (got {version!r})")
-    return version
-
-
 def tag_version(tag: str, cargo_toml: str) -> str:
     match = re.fullmatch(rf"{NAME}-v({VERSION_RE.pattern})", tag)
     if not match:
         raise SystemExit(f"tag must be {NAME}-vX.Y.Z (got {tag!r})")
-    crate = crate_version(Path(cargo_toml))
+    crate = tomllib.loads(Path(cargo_toml).read_text())["package"]["version"]
     if crate != match.group(1):
         raise SystemExit(f"tag {tag} names {match.group(1)} but {cargo_toml} says {crate}")
     return crate
