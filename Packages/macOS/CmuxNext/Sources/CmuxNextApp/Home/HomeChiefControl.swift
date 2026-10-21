@@ -29,10 +29,9 @@ struct HomeChiefControl {
     /// The `shared stop action` (palette, the compose bar's stop button, Esc
     /// and Cmd-. in the field): the key window's Home view stops its Chief.
     static let stopAction: ActionID = "home.stopChief"
-    static let stopNotification = Notification.Name("HomeHostView.stopChief")
     /// Stop all agents (the menu, the palette, Option-click on the stop
-    /// button): the key window's Chief Home stops its Chief's turn and every
-    /// subagent, and its toast offers Restart (HomeHostView+StopAll).
+    /// button): the front window's Chief Home stops its Chief's turn and
+    /// every subagent, and its toast offers Restart (HomeHostView+StopAll).
     static let stopAllAction: ActionID = "home.stopAllAgents"
 
     var isCloud: Bool { services.home.isCloudConversation(conversation) }
