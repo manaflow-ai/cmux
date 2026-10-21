@@ -186,9 +186,12 @@ fn an_agent_with_events_in_a_skipped_range_is_not_reported_working() {
         seals: vec![first, second],
     };
     corrupt_seal_and_drop_roster_snapshot(&store, 1, false);
+    let head = WorkspaceRegistry::open(&root, session).unwrap().session_journal_head().unwrap();
     let reopened = open_persistent_test_mux(session, &root);
-    // No event of `quiet` is in the skipped range: its decoded state stands.
-    assert_eq!(roster_agent_state(&reopened, &quiet).as_deref(), Some("working"));
+    // No event of `quiet` is in the skipped range: its decoded state stands, working. Its
+    // terminal did not survive the restart, so the reopen ends that session (#22995).
+    assert!(terminal_exit_end_journaled(&reopened, head, quiet.as_str()));
+    assert_eq!(roster_agent_state(&reopened, &quiet), None);
     assert_eq!(roster_agent_state(&reopened, &live).as_deref(), Some("unknown"));
     // The next real report corrects it.
     append_journal_hook(&reopened, &live, "UserPromptSubmit", Some("live"));
