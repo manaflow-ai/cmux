@@ -153,7 +153,7 @@ def sweep_variant(tag, variant, config, config_path, modes):
             log("hover_cards", label=label, report=app_call(tag, "debug.hover_cards", {}).get("result"))
             if label == "row-hover":
                 # The overflow button sits at the row's trailing edge.
-                mouse(tag, action="click", x=frame["x"] + frame["width"] - 14, y=y)
+                mouse(tag, action="click", x=frame["x"] + frame["width"] - 36, y=y)
                 time.sleep(0.8)
                 snap(tag, f"{prefix}-03-overflow-menu")
                 app_call(tag, "debug.key", {"key": "escape"})
