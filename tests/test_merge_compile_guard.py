@@ -73,11 +73,29 @@ class FleetCompileCheck(unittest.TestCase):
     feat-cmux-next, posts on the head, and only when that run finished green naming the full head.
     """
 
-    def test_a_verified_fleet_pass_stands_in_for_the_release_compile(self):
-        for runs in ([check(COMPILE, "queued")], [check(COMPILE, conclusion="failure")], [], [check(guard.ROUTING[0], "in_progress")]):
+    def test_a_verified_fleet_pass_stands_in_for_a_release_compile_still_waiting(self):
+        for runs in ([check(COMPILE, "queued")], [check(COMPILE, "in_progress")], [],
+                     [check(guard.ROUTING[0], "in_progress")]):
             with self.subTest(runs=runs):
                 self.assertNotEqual(guard.verdict(pr(), SWIFT, runs), "")
                 self.assertEqual(guard.verdict(pr(), SWIFT, runs, fleet_passed=True), "")
+
+    def test_a_fleet_pass_never_overrides_a_release_compile_that_finished_red(self):
+        # The fleet compiles on Linux with the pool SDK, not Xcode 26 Release: a red there is the truth.
+        for conclusion in ("failure", "cancelled", "timed_out"):
+            with self.subTest(conclusion=conclusion):
+                runs = [check(COMPILE, conclusion=conclusion)]
+                self.assertIn(f"finished {conclusion}", guard.verdict(pr(), SWIFT, runs, fleet_passed=True))
+                self.assertFalse(guard.compile_wait(runs))
+
+    def test_every_gh_call_shares_one_deadline_under_the_hooks_timeout(self):
+        self.assertLess(guard.BUDGET, 120)
+        spent = guard.STARTED
+        try:
+            guard.STARTED = guard.time.monotonic() - guard.BUDGET
+            self.assertIsNone(guard.run(["true"]))
+        finally:
+            guard.STARTED = spent
 
     def test_a_refusal_says_how_to_get_a_fleet_pass(self):
         why = guard.verdict(pr(), SWIFT, [check(COMPILE, "queued")])
@@ -97,10 +115,14 @@ def status(state="success", creator="github-actions[bot]", run=99):
     return {"state": state, "creator": creator, "url": f"https://github.com/manaflow-ai/cmux/actions/runs/{run}"}
 
 
-def fleet_run(sha=HEAD, branch="feat-cmux-next", path=None, event="workflow_dispatch", conclusion="success"):
+RUN_SHA, TIP = "e" * 40, "f" * 40  # the commit the fleet run's workflow file came from; feat-cmux-next's tip
+
+
+def fleet_run(sha=HEAD, branch="feat-cmux-next", path=None, event="workflow_dispatch", conclusion="success",
+              head_sha=RUN_SHA):
     return {"path": path or f".github/workflows/{guard.FLEET_WORKFLOW}", "head_branch": branch, "event": event,
             "status": "completed" if conclusion else "in_progress", "conclusion": conclusion,
-            "display_title": f"{guard.FLEET_TITLE}{sha}"}
+            "display_title": f"{guard.FLEET_TITLE}{sha}", "head_sha": head_sha}
 
 
 class Targets(unittest.TestCase):
@@ -217,7 +239,7 @@ def fake_gh(bin_dir: Path, answers: dict[str, str], log: Path) -> None:
 
 class Hook(unittest.TestCase):
     def run_hook(self, command: str, compile_state: tuple[str, str | None] | None, statuses=None, fleet_runs=None,
-                 other_statuses=None):
+                 other_statuses=None, on_base="ahead"):
         """statuses: the head's fleet/compile-check statuses; fleet_runs: {run id: fleet_run()}; other_statuses:
         statuses on another sha."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -244,6 +266,9 @@ class Hook(unittest.TestCase):
                     json.dumps(s) for s in other_statuses)
             for run_id, run in (fleet_runs or {}).items():
                 answers[f"repos/manaflow-ai/cmux/actions/runs/{run_id}"] = json.dumps(run)
+            answers["repos/manaflow-ai/cmux/branches/feat-cmux-next"] = json.dumps(TIP)
+            if on_base:
+                answers[f"repos/manaflow-ai/cmux/compare/{RUN_SHA}...{TIP}"] = json.dumps(on_base)
             fake_gh(bin_dir, answers, log)
             payload = json.dumps({"tool_name": "Bash", "cwd": str(tmp), "tool_input": {"command": command}})
             env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
@@ -305,6 +330,8 @@ class Hook(unittest.TestCase):
             "run from another branch": ([status()], {99: fleet_run(branch="my-branch")}),
             "another workflow": ([status()], {99: fleet_run(path=".github/workflows/mine.yml")}),
             "not a dispatch": ([status()], {99: fleet_run(event="push")}),
+            # A tag named feat-cmux-next holding a doctored copy of the workflow has head_branch feat-cmux-next.
+            "workflow from a commit not on the branch": ([status()], {99: fleet_run(head_sha="a" * 40)}),
             "run failed": ([status()], {99: fleet_run(conclusion="failure")}),
             "run unreadable": ([status(run=98)], {99: fleet_run()}),
             "link to another repo's run": ([{**status(), "url": "https://github.com/x/cmux/actions/runs/99"}],
@@ -315,6 +342,19 @@ class Hook(unittest.TestCase):
                 out, _ = self.run_hook(self.MERGE, ("queued", None), statuses=statuses, fleet_runs=fleet_runs)
                 self.assertIsNotNone(out, name)
                 self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_a_run_whose_workflow_commit_left_the_branch_does_not_count(self):
+        for on_base in ("diverged", "behind", None):
+            with self.subTest(on_base=on_base):
+                out, _ = self.run_hook(self.MERGE, ("queued", None), statuses=[status()],
+                                       fleet_runs={99: fleet_run()}, on_base=on_base)
+                self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_a_fleet_pass_does_not_let_a_red_release_compile_merge(self):
+        out, calls = self.run_hook(self.MERGE, ("completed", "failure"), statuses=[status()],
+                                   fleet_runs={99: fleet_run()})
+        self.assertIn("finished failure", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertFalse(any("statuses" in " ".join(json.loads(c)) for c in calls))
 
     def test_a_newer_unverified_status_does_not_hide_a_verified_pass(self):
         out, _ = self.run_hook(self.MERGE, ("queued", None), statuses=[status(state="pending", run=98), status()],
