@@ -14,7 +14,7 @@
 // The engine comes from `playwright install webkit`; where it is not installed, the cases are
 // skipped and say so.
 //
-// Starting Vite, warming the ten entries' frames and 22 page loads took about 100 s on a busy Huge
+// Starting Vite, warming the named surfaces' frames and 22 page loads took about 90 s on a busy Huge
 // Blue; warming the whole gallery (about 2,300 modules) instead took 170 s there and 115 s on the CI
 // runner (run-webviews-tests.sh):
 // cmux-web-test-timeout: 240
@@ -107,9 +107,10 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
     browser = await engine!.launch({ headless: true });
-    // The named surfaces only: the others may fail to mount, which their tests tolerate (above).
+    // The named surfaces only: the others may fail to mount, which their tests tolerate (below).
     await warmGalleryFrame(base, [...new Set(cases.filter(({ named }) => named).map(({ entry }) => entry))], {
       browser,
+      timeoutMs: 240_000,
     });
   }, 300_000);
 
