@@ -112,7 +112,7 @@ struct CoderouterCLIEndpoints: Equatable, Sendable {
 /// holds the app's session and the selected team, so the sidebar never reads
 /// or switches the user's own `cr login`. A terminal running `cr` keeps its
 /// own sign-in untouched.
-enum CoderouterAppCLISession {
+struct CoderouterAppCLISession: Sendable {
     typealias Run = CoderouterCLIAccountReader.Run
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app", category: "coderouter-accounts")
@@ -120,29 +120,62 @@ enum CoderouterAppCLISession {
     /// use only the session above; the routed agent commands that would spend
     /// a route token never run from this configuration.
     static let routeTokenPlaceholder = "cmux-app-session"
-    /// Where reads and removals keep their per-command configuration. They
-    /// finish within a CLI timeout, so anything older was left by a crash.
+    /// How long one read or removal may run before it is stopped and reported
+    /// as unreachable. Below `readSession.staleAge`, so no sweep can remove a
+    /// running command's configuration.
+    static let defaultCommandTimeout: TimeInterval = 2 * 60
+    /// Where reads and removals keep their per-command configuration. Each
+    /// runs one command bounded by the timeout, so anything older was left by
+    /// a crash.
     static let readSession = SessionKind(directoryName: "reads", staleAge: 10 * 60)
-    /// Where New Account terminals keep theirs. The interactive sign-in can
-    /// take a while; one older than a day was killed before its cleanup trap.
+    /// Where New Account terminals keep theirs. A running terminal marks its
+    /// directory with its shell's PID and is never swept; an unmarked one
+    /// older than a day was killed before its cleanup trap.
     static let addSession = SessionKind(directoryName: "adds", staleAge: 24 * 60 * 60)
+    /// The file a New Account shell writes its PID to while it runs.
+    static let ownerFileName = "owner.pid"
 
     struct SessionKind: Sendable {
         let directoryName: String
         let staleAge: TimeInterval
 
-        func root(in base: URL = CoderouterAppCLISession.baseDirectory) -> URL {
+        func root(in base: URL) -> URL {
             base.appendingPathComponent(directoryName, isDirectory: true)
         }
     }
 
-    static var baseDirectory: URL {
+    static var defaultBaseDirectory: URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("cmux-coderouter-sessions", isDirectory: true)
+    }
+
+    let credentials: any CoderouterAppCredentialProviding
+    /// The resolved CLI, or nil when none is installed.
+    let executable: String?
+    let endpoints: CoderouterCLIEndpoints
+    /// The environment commands inherit before ``isolatedEnvironment(dataDirectory:)``.
+    let environment: [String: String]
+    let baseDirectory: URL
+    let commandTimeout: TimeInterval
+
+    init(
+        credentials: any CoderouterAppCredentialProviding,
+        executable: String?,
+        endpoints: CoderouterCLIEndpoints = .current,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        baseDirectory: URL = CoderouterAppCLISession.defaultBaseDirectory,
+        commandTimeout: TimeInterval = CoderouterAppCLISession.defaultCommandTimeout
+    ) {
+        self.credentials = credentials
+        self.executable = executable
+        self.endpoints = endpoints
+        self.environment = environment
+        self.baseDirectory = baseDirectory
+        self.commandTimeout = commandTimeout
     }
 
     /// Removes configurations a crash or a killed terminal left behind. Runs
     /// at launch and before each new session.
-    static func sweepAllStaleSessions(base: URL = baseDirectory, now: Date = Date()) {
+    static func sweepAllStaleSessions(base: URL = defaultBaseDirectory, now: Date = Date()) {
         for kind in [readSession, addSession] {
             sweepStaleSessions(root: kind.root(in: base), olderThan: kind.staleAge, now: now)
         }
@@ -150,50 +183,72 @@ enum CoderouterAppCLISession {
 
     /// Runs `body` with a CLI runner bound to the app's session for `teamID`.
     /// The private configuration is removed when `body` returns or throws.
-    static func withSession<T>(
+    func withSession<T>(
         teamID: String,
         teamName: String?,
         expectedAccountID: String?,
-        credentials provider: any CoderouterAppCredentialProviding,
-        executable: String?,
-        endpoints: CoderouterCLIEndpoints = .current,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        root: URL = readSession.root(),
         body: (Run) async throws -> T
     ) async throws -> T {
         guard let executable else { throw CoderouterCLIFailure.notInstalled }
-        let credentials = try await provider.credentials(expectedAccountID: expectedAccountID)
+        let credentials = try await credentials.credentials(expectedAccountID: expectedAccountID)
         try Task.checkCancellation()
         let directory = try makeSessionDirectory(
+            kind: Self.readSession,
             credentials: credentials,
             teamID: teamID,
-            teamName: teamName,
-            endpoints: endpoints,
-            root: root,
-            staleAge: readSession.staleAge
+            teamName: teamName
         )
         defer { try? FileManager.default.removeItem(at: directory) }
-        let commandEnvironment = isolatedEnvironment(environment, dataDirectory: directory)
+        let commandEnvironment = isolatedEnvironment(dataDirectory: directory)
+        let timeout = commandTimeout
         return try await body { arguments in
-            do {
-                return try await CoderouterCLIAccountReader.runProcess(
-                    executable: executable,
-                    arguments: arguments,
-                    environment: commandEnvironment
-                ).stdout
-            } catch let error as NSError where error.domain == NSCocoaErrorDomain || error.domain == NSPOSIXErrorDomain {
-                // Process.run fails before the child starts, for example when
-                // the resolved binary was removed after resolution.
-                logger.error("Could not launch CodeRouter CLI: \(error.localizedDescription, privacy: .public)")
-                throw CoderouterCLIFailure.notInstalled
+            try await Self.runBounded(
+                executable: executable,
+                arguments: arguments,
+                environment: commandEnvironment,
+                timeout: timeout
+            )
+        }
+    }
+
+    /// Runs one command, stopping it once `timeout` passes.
+    private static func runBounded(
+        executable: String,
+        arguments: [String],
+        environment: [String: String],
+        timeout: TimeInterval
+    ) async throws -> Data {
+        try await withThrowingTaskGroup(of: Data.self) { group in
+            group.addTask {
+                do {
+                    return try await CoderouterCLIAccountReader.runProcess(
+                        executable: executable,
+                        arguments: arguments,
+                        environment: environment
+                    ).stdout
+                } catch let error as NSError where error.domain == NSCocoaErrorDomain || error.domain == NSPOSIXErrorDomain {
+                    // Process.run fails before the child starts, for example when
+                    // the resolved binary was removed after resolution.
+                    logger.error("Could not launch CodeRouter CLI: \(error.localizedDescription, privacy: .public)")
+                    throw CoderouterCLIFailure.notInstalled
+                }
             }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                logger.error("CodeRouter CLI timed out after \(timeout, privacy: .public) s")
+                throw CoderouterCLIFailure.unreachable
+            }
+            // The loser is cancelled; a cancelled command terminates its child.
+            defer { group.cancelAll() }
+            guard let output = try await group.next() else { throw CancellationError() }
+            return output
         }
     }
 
     /// The child's environment: no cmux context, no inherited CodeRouter
     /// overrides (an API key or team pin from the app's launch environment
     /// would replace the app session), and the private data directory.
-    static func isolatedEnvironment(_ environment: [String: String], dataDirectory: URL) -> [String: String] {
+    func isolatedEnvironment(dataDirectory: URL) -> [String: String] {
         var result = environment.filter { key, _ in
             !key.hasPrefix("CMUX_") && !key.hasPrefix("CMUXD_") && !key.hasPrefix("CODEROUTER_")
         }
@@ -201,18 +256,18 @@ enum CoderouterAppCLISession {
         return result
     }
 
-    /// Creates a 0700 directory holding a 0600 `coderouter/config.json` for
-    /// the app session. The caller owns its removal.
-    static func makeSessionDirectory(
+    /// Creates a 0700 directory under `kind`'s root holding a 0600
+    /// `coderouter/config.json` for the app session. The caller owns its
+    /// removal.
+    func makeSessionDirectory(
+        kind: SessionKind,
         credentials: CoderouterAppCredentials,
         teamID: String,
         teamName: String?,
-        endpoints: CoderouterCLIEndpoints,
-        root: URL,
-        staleAge: TimeInterval,
         now: Date = Date()
     ) throws -> URL {
         let fileManager = FileManager.default
+        let root = kind.root(in: baseDirectory)
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         // An existing root keeps its attributes; only a private one of ours is used.
         let rootAttributes = try fileManager.attributesOfItem(atPath: root.path)
@@ -220,13 +275,13 @@ enum CoderouterAppCLISession {
             throw CoderouterCLIFailure.unavailable
         }
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
-        sweepStaleSessions(root: root, olderThan: staleAge, now: now)
+        Self.sweepStaleSessions(root: root, olderThan: kind.staleAge, now: now)
         let directory = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         do {
             let configDirectory = directory.appendingPathComponent("coderouter", isDirectory: true)
             try fileManager.createDirectory(at: configDirectory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-            let config = configuration(
+            let config = Self.configuration(
                 credentials: credentials,
                 teamID: teamID,
                 teamName: teamName,
@@ -270,7 +325,8 @@ enum CoderouterAppCLISession {
         ]
     }
 
-    /// Removes session directories under `root` last modified before `staleAge`.
+    /// Removes session directories under `root` last modified before
+    /// `staleAge`, except one whose owner process is still running.
     static func sweepStaleSessions(root: URL, olderThan staleAge: TimeInterval, now: Date = Date()) {
         let fileManager = FileManager.default
         guard let entries = try? fileManager.contentsOfDirectory(
@@ -280,34 +336,47 @@ enum CoderouterAppCLISession {
         ) else { return }
         for entry in entries {
             let modified = (try? entry.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-            if let modified, now.timeIntervalSince(modified) > staleAge {
+            if let modified, now.timeIntervalSince(modified) > staleAge, !ownerIsRunning(entry) {
                 try? fileManager.removeItem(at: entry)
             }
         }
     }
 
+    /// Whether the PID recorded in `directory`'s owner file is a live process.
+    /// A reused PID only keeps the directory until that process exits.
+    static func ownerIsRunning(_ directory: URL) -> Bool {
+        guard let text = try? String(contentsOf: directory.appendingPathComponent(ownerFileName), encoding: .utf8),
+              let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              pid > 0 else { return false }
+        return kill(pid, 0) == 0 || errno == EPERM
+    }
+
     /// The shell command a New Account terminal runs: the resolved CLI's
     /// interactive `add` for the team, as the app session, deleting the
     /// private configuration when the command exits or the terminal closes.
-    static func addAccountCommand(
+    func addAccountCommand(
         provider: CoderouterProvider,
         organizationID: String,
-        executable: String,
         sessionDirectory: URL
-    ) -> String {
+    ) throws -> String {
+        guard let executable else { throw CoderouterCLIFailure.notInstalled }
         let verb = provider.id == "opencode-go" ? "opencode" : provider.id
         let script = [
-            "dir=\(shellQuote(sessionDirectory.path))",
+            "dir=\(Self.shellQuote(sessionDirectory.path))",
             "trap 'rm -rf \"$dir\"' EXIT",
             "trap 'exit 129' HUP",
             "trap 'exit 130' INT",
             "trap 'exit 143' TERM",
-            // A login profile can export an API key or team pin that would
-            // replace the app session inside the CLI.
-            "unset CODEROUTER_API_KEY CODEROUTER_API_URL CODEROUTER_TEAM_ID CMUX_CODEROUTER_MACHINE",
-            "CODEROUTER_DATA_DIR=\"$dir\" \(shellQuote(executable)) add \(verb) --team \(shellQuote(organizationID))",
+            // Marks the directory as in use so no sweep removes it mid-sign-in.
+            "echo $$ > \"$dir/\(Self.ownerFileName)\"",
+            // The same rule as `isolatedEnvironment`: a login profile can
+            // export any CodeRouter override (an API key, team pin or endpoint)
+            // that would replace the app session inside the CLI.
+            "for v in $(env | sed -n 's/^\\(CODEROUTER_[A-Za-z0-9_]*\\)=.*/\\1/p'); do unset \"$v\"; done",
+            "unset CMUX_CODEROUTER_MACHINE",
+            "CODEROUTER_DATA_DIR=\"$dir\" \(Self.shellQuote(executable)) add \(verb) --team \(Self.shellQuote(organizationID))",
         ].joined(separator: "; ")
-        return "/bin/sh -c \(shellQuote(script))"
+        return "/bin/sh -c \(Self.shellQuote(script))"
     }
 
     static func shellQuote(_ value: String) -> String {

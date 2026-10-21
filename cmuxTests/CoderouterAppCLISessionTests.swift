@@ -42,7 +42,7 @@ struct CoderouterAppCLISessionTests {
             // that would replace the app session.
             try Data("""
                 #!/bin/sh
-                printf '{"args":"%s","apiKey":"%s","teamPin":"%s","dataDir":"%s","config":' "$*" "${CODEROUTER_API_KEY-unset}" "${CODEROUTER_TEAM_ID-unset}" "$CODEROUTER_DATA_DIR"
+                printf '{"args":"%s","apiKey":"%s","teamPin":"%s","stackURL":"%s","dataDir":"%s","config":' "$*" "${CODEROUTER_API_KEY-unset}" "${CODEROUTER_TEAM_ID-unset}" "${CODEROUTER_STACK_API_URL-unset}" "$CODEROUTER_DATA_DIR"
                 cat "$CODEROUTER_DATA_DIR/coderouter/config.json"
                 printf '}'
 
@@ -61,6 +61,7 @@ struct CoderouterAppCLISessionTests {
                 "CODEROUTER_DATA_DIR": userDataDirectory.path,
                 "CODEROUTER_API_KEY": "crk_user",
                 "CODEROUTER_TEAM_ID": "other-team",
+                "CODEROUTER_STACK_API_URL": "https://other-signin.example",
                 "CMUX_SOCKET_PATH": "/tmp/cmux.sock",
             ]
         }
@@ -70,6 +71,7 @@ struct CoderouterAppCLISessionTests {
         let args: String
         let apiKey: String
         let teamPin: String
+        let stackURL: String
         let dataDir: String
         let config: [String: String]
     }
@@ -93,21 +95,32 @@ struct CoderouterAppCLISessionTests {
         }
     }
 
+    private func session(
+        credentials: any CoderouterAppCredentialProviding,
+        executable: String?,
+        fixture: Fixture,
+        commandTimeout: TimeInterval = CoderouterAppCLISession.defaultCommandTimeout
+    ) -> CoderouterAppCLISession {
+        CoderouterAppCLISession(
+            credentials: credentials,
+            executable: executable,
+            endpoints: Self.endpoints,
+            environment: fixture.environment,
+            baseDirectory: fixture.sessionRoot,
+            commandTimeout: commandTimeout
+        )
+    }
+
     private func read(
         team: String,
         expectedAccountID: String? = "user-1",
         credentials: Credentials,
         fixture: Fixture
     ) async throws -> Report {
-        let output = try await CoderouterAppCLISession.withSession(
+        let output = try await session(credentials: credentials, executable: fixture.executable, fixture: fixture).withSession(
             teamID: team,
             teamName: "Team",
-            expectedAccountID: expectedAccountID,
-            credentials: credentials,
-            executable: fixture.executable,
-            endpoints: Self.endpoints,
-            environment: fixture.environment,
-            root: fixture.sessionRoot
+            expectedAccountID: expectedAccountID
         ) { run in
             try await run(["accounts", "--json", "--team", team])
         }
@@ -133,6 +146,7 @@ struct CoderouterAppCLISessionTests {
         // An inherited API key or team pin would replace the app session.
         #expect(report.apiKey == "unset")
         #expect(report.teamPin == "unset")
+        #expect(report.stackURL == "unset")
         // The private configuration is gone; the user's is untouched.
         #expect(!FileManager.default.fileExists(atPath: report.dataDir))
         let userConfig = try String(contentsOf: fixture.userDataDirectory.appendingPathComponent("coderouter/config.json"), encoding: .utf8)
@@ -166,7 +180,8 @@ struct CoderouterAppCLISessionTests {
         await #expect(throws: CoderouterCLIFailure.unavailable) {
             _ = try await read(team: Self.teamA, expectedAccountID: "user-1", credentials: credentials, fixture: fixture)
         }
-        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: fixture.sessionRoot.path)) ?? []
+        let reads = CoderouterAppCLISession.readSession.root(in: fixture.sessionRoot)
+        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: reads.path)) ?? []
         #expect(leftovers.isEmpty)
     }
 
@@ -177,21 +192,21 @@ struct CoderouterAppCLISessionTests {
         let credentials = Credentials()
 
         await #expect(throws: CoderouterCLIFailure.notInstalled) {
-            try await CoderouterAppCLISession.withSession(
-                teamID: Self.teamA, teamName: nil, expectedAccountID: nil,
-                credentials: credentials, executable: nil,
-                endpoints: Self.endpoints, environment: fixture.environment, root: fixture.sessionRoot
+            try await session(credentials: credentials, executable: nil, fixture: fixture).withSession(
+                teamID: Self.teamA, teamName: nil, expectedAccountID: nil
             ) { run in try await run(["accounts", "--json"]) }
         }
         #expect(await credentials.requests == 0)
 
         // A resolved CLI that disappeared before launch is also not installed.
         await #expect(throws: CoderouterCLIFailure.notInstalled) {
-            try await CoderouterAppCLISession.withSession(
-                teamID: Self.teamA, teamName: nil, expectedAccountID: nil,
-                credentials: credentials, executable: fixture.directory.appendingPathComponent("missing").path,
-                endpoints: Self.endpoints, environment: fixture.environment, root: fixture.sessionRoot
-            ) { run in try await run(["accounts", "--json"]) }
+            try await session(
+                credentials: credentials,
+                executable: fixture.directory.appendingPathComponent("missing").path,
+                fixture: fixture
+            ).withSession(teamID: Self.teamA, teamName: nil, expectedAccountID: nil) { run in
+                try await run(["accounts", "--json"])
+            }
         }
     }
 
@@ -209,11 +224,8 @@ struct CoderouterAppCLISessionTests {
             """.utf8).write(to: script)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
 
-        let snapshot = try await CoderouterAppCLISession.withSession(
-            teamID: Self.teamA, teamName: nil, expectedAccountID: "user-1",
-            credentials: Credentials(), executable: script.path,
-            endpoints: Self.endpoints, environment: fixture.environment, root: fixture.sessionRoot
-        ) { run in
+        let reader = session(credentials: Credentials(), executable: script.path, fixture: fixture)
+        let snapshot = try await reader.withSession(teamID: Self.teamA, teamName: nil, expectedAccountID: "user-1") { run in
             try await CoderouterCLIAccountReader.snapshot(for: Self.teamA, name: nil, run: run)
         }
         #expect(snapshot.organizationID == Self.teamA)
@@ -221,11 +233,7 @@ struct CoderouterAppCLISessionTests {
 
         // The CLI's "not found" for a team the account cannot see is actionable.
         await #expect(throws: CoderouterCLIFailure.notMember) {
-            try await CoderouterAppCLISession.withSession(
-                teamID: Self.teamA, teamName: nil, expectedAccountID: "user-1",
-                credentials: Credentials(), executable: script.path,
-                endpoints: Self.endpoints, environment: fixture.environment, root: fixture.sessionRoot
-            ) { run in
+            try await reader.withSession(teamID: Self.teamA, teamName: nil, expectedAccountID: "user-1") { run in
                 try await CoderouterCLIAccountReader.snapshot(for: Self.teamB, name: nil, run: run)
             }
         }
@@ -235,22 +243,21 @@ struct CoderouterAppCLISessionTests {
     func addAccountCommandUsesSession() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let session = try CoderouterAppCLISession.makeSessionDirectory(
+        let adder = session(credentials: Credentials(), executable: fixture.executable, fixture: fixture)
+        let directory = try adder.makeSessionDirectory(
+            kind: CoderouterAppCLISession.addSession,
             credentials: CoderouterAppCredentials(accountID: "user-1", accessToken: "user-1-access", refreshToken: "user-1-refresh"),
             teamID: Self.teamA,
-            teamName: nil,
-            endpoints: Self.endpoints,
-            root: fixture.sessionRoot,
-            staleAge: CoderouterAppCLISession.addSession.staleAge
+            teamName: nil
         )
-        let attributes = try FileManager.default.attributesOfItem(atPath: session.appendingPathComponent("coderouter/config.json").path)
+        #expect(directory.path.hasPrefix(CoderouterAppCLISession.addSession.root(in: fixture.sessionRoot).path))
+        let attributes = try FileManager.default.attributesOfItem(atPath: directory.appendingPathComponent("coderouter/config.json").path)
         #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
 
-        let command = CoderouterAppCLISession.addAccountCommand(
+        let command = try adder.addAccountCommand(
             provider: .opencodeGo,
             organizationID: "team's-id",
-            executable: fixture.executable,
-            sessionDirectory: session
+            sessionDirectory: directory
         )
         // Run it the way the setup terminal does, with a login profile's overrides.
         let output = try await CoderouterCLIAccountReader.runProcess(
@@ -261,11 +268,41 @@ struct CoderouterAppCLISessionTests {
         let report = try JSONDecoder().decode(Report.self, from: output)
 
         #expect(report.args == "add opencode --team team's-id")
-        #expect(report.dataDir == session.path)
+        #expect(report.dataDir == directory.path)
         #expect(report.config["stackAccessToken"] == "user-1-access")
+        // The same rule as background reads: no CodeRouter override survives.
         #expect(report.apiKey == "unset")
         #expect(report.teamPin == "unset")
-        #expect(!FileManager.default.fileExists(atPath: session.path))
+        #expect(report.stackURL == "unset")
+        #expect(!FileManager.default.fileExists(atPath: directory.path))
+
+        // Without a CLI there is no command to run.
+        #expect(throws: CoderouterCLIFailure.notInstalled) {
+            _ = try session(credentials: Credentials(), executable: nil, fixture: fixture)
+                .addAccountCommand(provider: .codex, organizationID: Self.teamA, sessionDirectory: directory)
+        }
+    }
+
+    @Test("A command that hangs is stopped and reported unreachable")
+    func hungCommandTimesOut() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let script = fixture.directory.appendingPathComponent("hung-cli")
+        try Data("#!/bin/sh\nexec sleep 30\n".utf8).write(to: script)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let reader = session(credentials: Credentials(), executable: script.path, fixture: fixture, commandTimeout: 0.2)
+        let started = Date()
+
+        await #expect(throws: CoderouterCLIFailure.unreachable) {
+            try await reader.withSession(teamID: Self.teamA, teamName: nil, expectedAccountID: "user-1") { run in
+                try await run(["accounts", "--json", "--team", Self.teamA])
+            }
+        }
+        #expect(Date().timeIntervalSince(started) < 10)
+        let reads = CoderouterAppCLISession.readSession.root(in: fixture.sessionRoot)
+        #expect(((try? FileManager.default.contentsOfDirectory(atPath: reads.path)) ?? []).isEmpty)
+        // No sweep can remove a configuration while its command may still run.
+        #expect(CoderouterAppCLISession.defaultCommandTimeout < CoderouterAppCLISession.readSession.staleAge)
     }
 
     @Test("Stale session directories are swept at each kind's age; fresh ones stay")
@@ -273,11 +310,12 @@ struct CoderouterAppCLISessionTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let credentials = CoderouterAppCredentials(accountID: "u", accessToken: "a", refreshToken: "r")
-        func make(_ kind: CoderouterAppCLISession.SessionKind, age: TimeInterval) throws -> URL {
-            let directory = try CoderouterAppCLISession.makeSessionDirectory(
-                credentials: credentials, teamID: Self.teamA, teamName: nil,
-                endpoints: Self.endpoints, root: kind.root(in: fixture.directory), staleAge: kind.staleAge
-            )
+        let maker = session(credentials: Credentials(), executable: fixture.executable, fixture: fixture)
+        func make(_ kind: CoderouterAppCLISession.SessionKind, age: TimeInterval, owner: pid_t? = nil) throws -> URL {
+            let directory = try maker.makeSessionDirectory(kind: kind, credentials: credentials, teamID: Self.teamA, teamName: nil)
+            if let owner {
+                try Data("\(owner)\n".utf8).write(to: directory.appendingPathComponent(CoderouterAppCLISession.ownerFileName))
+            }
             try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-age)], ofItemAtPath: directory.path)
             return directory
         }
@@ -286,12 +324,17 @@ struct CoderouterAppCLISessionTests {
         let crashedRead = try make(read, age: read.staleAge + 60)
         let runningAdd = try make(add, age: read.staleAge + 60)
         let killedAdd = try make(add, age: add.staleAge + 60)
+        // A sign-in left open for more than a day is still in use.
+        let longAdd = try make(add, age: add.staleAge + 60, owner: getpid())
+        let deadOwnerAdd = try make(add, age: add.staleAge + 60, owner: pid_t.max)
 
-        CoderouterAppCLISession.sweepAllStaleSessions(base: fixture.directory)
+        CoderouterAppCLISession.sweepAllStaleSessions(base: fixture.sessionRoot)
 
         #expect(!FileManager.default.fileExists(atPath: crashedRead.path))
         #expect(FileManager.default.fileExists(atPath: runningAdd.path))
         #expect(!FileManager.default.fileExists(atPath: killedAdd.path))
+        #expect(FileManager.default.fileExists(atPath: longAdd.path))
+        #expect(!FileManager.default.fileExists(atPath: deadOwnerAdd.path))
     }
 }
 
