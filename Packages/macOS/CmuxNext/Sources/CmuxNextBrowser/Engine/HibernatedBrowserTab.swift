@@ -50,6 +50,9 @@ public final class HibernatedBrowserTab: BrowserTab {
         saved.canGoBack = state.canGoBack
         saved.canGoForward = state.canGoForward
         saved.zoom = state.zoom
+        // The omnibar's lock and the page's icon while it sleeps and wakes, as before it slept.
+        saved.security = state.security
+        saved.faviconURL = state.faviconURL
         self.state = saved
         self.favicon = favicon
         self.restoreState = restoreState

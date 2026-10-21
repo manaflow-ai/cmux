@@ -78,10 +78,20 @@ fn page(mux: &Mux, cursor: u64) -> anyhow::Result<(Vec<(HistoryKind, Value)>, u6
             // Past the in-memory journal: neither fold reads terminal
             // output, so skip it (and the sealed segments that hold only
             // output) instead of inflating it.
-            let head = mux.session_journal_head()?;
-            let (records, reached) =
-                mux.session_journal_without_output_after(cursor, head, PAGE)?;
-            for record in &records {
+            // Read on a reader of our own, never through the registry, whose
+            // lock every write takes.
+            let (behind, reached) = match mux.shared_journal_handle().open_reader()? {
+                Some(reader) => {
+                    let head = reader.head()?;
+                    reader.without_output_after(cursor, head, PAGE)?
+                }
+                // An in-memory registry has no file to open.
+                None => {
+                    let head = mux.session_journal_head()?;
+                    mux.session_journal_without_output_after(cursor, head, PAGE)?
+                }
+            };
+            for record in &behind {
                 take(record)?;
             }
             scanned = scanned.max(reached);
@@ -170,3 +180,7 @@ fn run(weak: &Weak<Mux>, kernel: &crate::journal_kernel::JournalKernel) {
         epoch = kernel.wait_until(epoch, None);
     }
 }
+
+#[cfg(test)]
+#[path = "journal_feed_tests.rs"]
+mod tests;

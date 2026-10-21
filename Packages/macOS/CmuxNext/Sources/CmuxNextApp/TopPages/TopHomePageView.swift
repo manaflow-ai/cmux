@@ -73,6 +73,11 @@ final class TopHomePageView: NSView {
         }
     }
 
+    /// Redraws the list after a pin change (`home.togglePin`).
+    func listPinsChanged() {
+        list.update(sidebar.model())
+    }
+
     private func wireList(_ services: AppServices) {
         let sidebar = sidebar
         // Opening a conversation from the list reads it, so a Mark as Unread ends there.
@@ -87,10 +92,12 @@ final class TopHomePageView: NSView {
         }
         // The list redraws in the same turn, so a dropped tile lands from where it was drawn.
         // The New Message row is no conversation: it never pins or takes a mark.
+        // Pin/Unpin on a row and a tile dragged out of the grid run the one pin action (palette, CLI, MCP).
         list.onSetPinned = { [weak self] on, id in
             guard id != HomeSidebarView.draftRowID else { return }
-            sidebar.setPinned(on, id)
-            self?.list.update(sidebar.model())
+            let arguments: [String: ActionValue] = ["conversation": .string(id.rawValue), "pinned": .bool(on)]
+            _ = services.registry.perform("home.togglePin", invocation: ActionInvocation(arguments: arguments, origin: .user))
+            self?.listPinsChanged()
         }
         list.onPlacePinned = { [weak self] id, index in
             guard id != HomeSidebarView.draftRowID else { return }
@@ -108,7 +115,7 @@ final class TopHomePageView: NSView {
             Task { _ = try? await store.perform(.setReadCursor(conversation: id, seq: row.summary.lastSeq)) }
         }
         list.onMarkUnread = { id in if id != HomeSidebarView.draftRowID { sidebar.setMarkedUnread(true, id) } }
-        // Archive Chief on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
+        // Usage… and Archive Chief on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
         // Group Info, Rename, Add People and Leave (the same actions as the palette and the CLI).
         list.menuItems = { id in
             guard let row = home.homeStore.rows.first(where: { $0.id == id }) else { return [] }
@@ -119,8 +126,11 @@ final class TopHomePageView: NSView {
                 }]
             }
             if row.kind == .chief {
-                guard let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first else { return [] }
-                return item("home.archiveChief", nil, ["chief": .string(chief.id)])
+                // Chief Usage (chief.openUsage) reads this Mac's Chiefs: left out in a build without one.
+                let usage = registry.unavailableReason(for: ChiefUsagePageTab.actionID) == nil
+                    ? item(ChiefUsagePageTab.actionID, ChiefUsagePageTab.menuTitle) : []
+                guard let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first else { return usage }
+                return usage + item("home.archiveChief", nil, ["chief": .string(chief.id)])
             }
             let conversation: [String: ActionValue] = ["conversation": .string(id.rawValue)]
             let actions = home.groupActions

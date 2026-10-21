@@ -61,6 +61,7 @@ import Testing
         let summary = ConversationSummary(id: id, title: "Chief", participants: people, lastSeq: Seq(messages),
                                           createdAt: base, updatedAt: base, readCursors: [:], readCursorTimes: [:])
         var core = ProjectionCore(me: me)
+        core.replies = .streaming // the stream bubbles (HomeReplyDisplay)
         let (conv, w) = core.install(id, items: items, summary: summary)
         let store = Store(conversation: conv, baseDate: Replay.base, windowStart: w.start, total: w.total)
         store.responder = nil
@@ -78,9 +79,8 @@ import Testing
     /// The Chief's reply streams one more chunk (the whole reply so far, as HomeStore holds it).
     static func stream(_ rig: inout Rig, _ chunk: String) {
         rig.text += chunk
-        var draft = HomeTurnDraft(participant: chief, turn: turn)
-        draft.segments[0] = rig.text
-        for action in rig.core.stream(draft, state: rig.store.state) { rig.store.dispatch(action) }
+        let row = HomeStreamRow(turn: turn, author: chief, text: rig.text)
+        for action in rig.core.streams([row], state: rig.store.state) { rig.store.dispatch(action) }
     }
 
     /// One width change as a divider drag makes it: the frame only, then AppKit's layout pass.

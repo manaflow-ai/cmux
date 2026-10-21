@@ -7,6 +7,8 @@ import { useSyncExternalStore, type ReactNode } from "react";
 import type { Strings } from "../shared/i18n";
 import type { ReadOnlyReason } from "./host";
 import { PREFERENCE_KEYS, isLargeFile, resolveEditorSettings } from "./settings";
+import type { EditorFind } from "./editorFind";
+import { EditorFindBar } from "./EditorFindBar";
 import type { EditorStore } from "./store";
 import { L } from "./strings";
 import type { ViewStatus } from "./view";
@@ -29,6 +31,8 @@ export class StatusStore {
 export interface EditorPageProps {
   store: EditorStore;
   status: StatusStore;
+  /** Cmd-F's state: the shared find pill over the editor (absent in tests that render no editor). */
+  find?: EditorFind;
   strings: Strings;
   /** Mounts the editor into its element (and unmounts it on null). */
   editorRef: (element: HTMLDivElement | null) => void;
@@ -47,7 +51,7 @@ function fileName(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
 }
 
-export function EditorPage({ store, status, strings, editorRef, emptyState }: EditorPageProps) {
+export function EditorPage({ store, status, find, strings, editorRef, emptyState }: EditorPageProps) {
   const state = useSyncExternalStore(store.subscribe, store.getState);
   const view = useSyncExternalStore(status.subscribe, status.get);
   const { t } = strings;
@@ -119,7 +123,10 @@ export function EditorPage({ store, status, strings, editorRef, emptyState }: Ed
         <div className="ed-note">{t(READ_ONLY_NOTE[state.readOnlyReason])}</div>
       ) : null}
       {large && state.phase === "ready" ? <div className="ed-note">{t(L.largeNotice)}</div> : null}
-      <div className="ed-host" ref={editorRef} />
+      <div className="ed-frame">
+        <div className="ed-host" ref={editorRef} />
+        {find ? <EditorFindBar find={find} strings={strings} /> : null}
+      </div>
       {settings.statusBar && view && state.phase === "ready" ? (
         <footer className="ed-status">
           <span>{strings.format(L.position, String(view.line), String(view.column))}</span>

@@ -245,7 +245,9 @@
 .acpmux-attachment-document-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-attachment-document-pages { color: var(--agent-muted); font-size: var(--text-caption); }
 .acpmux-attachment-document .acpmux-attachment-remove { top: 20px; }
-.acpmux-composer .acpmux-attachment-remove {
+/* The chat composer's and the New Tab card's (.nt-box): without it the New Tab badge drew as a
+   stray button under the thumbnail. */
+:is(.acpmux-composer, .nt-box) .acpmux-attachment-remove {
   position: absolute;
   top: 4px;
   right: 4px;
@@ -271,10 +273,10 @@
 .acpmux-attachment:focus-within .acpmux-attachment-remove {
   opacity: 1;
 }
-.acpmux-composer .acpmux-attachment-remove:hover {
+:is(.acpmux-composer, .nt-box) .acpmux-attachment-remove:hover {
   background: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-bg));
 }
-.acpmux-composer .acpmux-attachment-remove:focus-visible {
+:is(.acpmux-composer, .nt-box) .acpmux-attachment-remove:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
 }

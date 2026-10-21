@@ -345,7 +345,8 @@ fn a_chief_makes_and_edits_chiefs_through_its_tool_and_only_its_own_turn_may() {
     assert_eq!(
         turn.names(),
         [
-            "zoom", "date", "tell", "control", "profile", "chiefs", "version", "react", "reply"
+            "zoom", "date", "tell", "control", "profile", "chiefs", "version", "react", "reply",
+            "send", "stop", "sleep"
         ]
     );
     let (err, made) = turn.call(

@@ -118,7 +118,7 @@ pub fn mode_person_required(
             "mode {mode} does not ask before it acts, so only the person starts a session in it: approve preset {p} once in cmux NEXT on {host}, or start the session there"
         ),
         (true, None) => format!(
-            "mode {mode} does not ask before it acts, so only the person starts a session in it: start it in cmux NEXT on {host}, or approve a preset with this mode there once and use acpmux new --preset NAME"
+            "mode {mode} does not ask before it acts, so only the person starts a session in it: start it in cmux NEXT on {host}, approve a preset with this mode there once and use acpmux new --preset NAME, or start without --mode: the session then runs in the person's own start mode"
         ),
         (false, _) => format!(
             "mode {mode} does not ask before it acts, so only the person sets it: set it in cmux NEXT on {host}, or start the session from a preset approved there once"

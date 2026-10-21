@@ -201,9 +201,9 @@ public final class FindPillView: NSView {
         isPresented = presented
         if presented {
             isHidden = false
-            Motion.animate(.fadeIn, in: self) { animator().alphaValue = 1 }
+            Motion.overlays.animate(.fadeIn, in: self) { animator().alphaValue = 1 }
         } else {
-            Motion.animate(.fadeOut, in: self, { animator().alphaValue = 0 }, completion: { [weak self] in
+            Motion.overlays.animate(.fadeOut, in: self, { animator().alphaValue = 0 }, completion: { [weak self] in
                 // Reopened while fading out: stay visible.
                 guard let self, !self.isPresented else { return }
                 self.isHidden = true

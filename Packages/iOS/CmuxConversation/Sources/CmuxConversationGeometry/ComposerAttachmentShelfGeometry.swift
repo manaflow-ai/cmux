@@ -9,6 +9,7 @@ import Foundation
 /// (`entryViewMaxPluginShelfHeight`), a 6 pt inset
 /// (`messageEntryContentViewPhotoPluginInsets`), a 1 pt divider
 /// (`dividerHeight`) inset 16 pt from both sides, then the text row.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ComposerAttachmentShelfGeometry {
     public static let previewHeight: CGFloat = 155
     /// Above and below the previews, before the first and after the last.
@@ -83,6 +84,7 @@ public enum ComposerAttachmentShelfGeometry {
 }
 
 /// The shelf's motion in Messages (iOS 26.5 and 27.0, 60 fps recordings).
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ComposerAttachmentShelfMotion {
     /// Every move is one critically damped spring: the field growing for the
     /// first photo and collapsing after the last (fits within 0.7 pt rms on
@@ -120,6 +122,7 @@ public enum ComposerAttachmentShelfMotion {
 /// 26.5 and 27.0, keyboards 328 to 347 pt, and a real iPhone 17 Pro Max with
 /// a 318 pt keyboard), and the message field keeps the place the keyboard
 /// gave it, 16 pt above the keyboard: 21.3 pt above the sheet.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum PhotoDrawerGeometry {
     /// Messages' large detent on iOS 26.5 stops this far under the safe
     /// area (iPhone 17 Pro: sheet top 72 with the safe top at 62); iOS 27.0

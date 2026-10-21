@@ -641,6 +641,8 @@ pub(crate) fn dispatch(
                         .filter_map(|member| member.as_u64().and_then(|m| usize::try_from(m).ok()))
                         .collect()
                 }),
+                tab: string(fields, "tab"),
+                fallback_pane: string(fields, "fallback_pane"),
             };
             let commit = mux
                 .state_reopen_closed(&mutation(&request)?, expected_revision(fields)?, &reopen)

@@ -547,12 +547,12 @@ final class BrowserHibernation {
     }
 
     private func finishRestore(_ key: String, token: ContentLifecycle<String>.Token, page: any BrowserTab) {
-        guard let cache, cache.browsers[key]?.tab is HibernatedBrowserTab, cache.lifecycle.record(key)?.pending == token else {
+        guard let cache, let asleep = cache.browsers[key]?.tab as? HibernatedBrowserTab, cache.lifecycle.record(key)?.pending == token else {
             // Closed or superseded while it restored.
             page.close()
             return
         }
-        cache.swapPage(key, with: page)
+        cache.swapPage(key, with: page, asleep: asleep.state)
         cache.dormantTabs.set(key, false)
         cache.previews.remove(key)  // the live page now; a later sleep takes a new picture
         restoredCount += 1

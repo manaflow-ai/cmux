@@ -213,13 +213,13 @@ final class PaneOverlayView: NSView {
         ]
         // Split before either write: once a leaving layer is set, it no longer reads as leaving.
         let leaving = targets.map { layer, value in layer === border ? value > layer.opacity : value < layer.opacity }
-        Motion.transaction(nil) {
+        Motion.panes.transaction(nil) {
             for ((layer, value), leaves) in zip(targets, leaving) where leaves {
                 layer.removeAnimation(forKey: "opacity")
                 layer.opacity = value
             }
         }
-        Motion.transaction(animated ? .focus : nil) {
+        Motion.feedback.transaction(animated ? .focus : nil) {
             for ((layer, value), leaves) in zip(targets, leaving) where !leaves { layer.opacity = value }
             dimLayer.opacity = Float(dim)
         }
@@ -243,7 +243,7 @@ final class PaneOverlayView: NSView {
         observesAttentionLook = false
         attentionLook = observedAttentionLook()
         if attentionMark != nil, attentionSettings.style != .none {
-            Motion.transaction(.focus) { attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook) }
+            Motion.feedback.transaction(.focus) { attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook) }
         }
         applyColors()
     }
@@ -254,7 +254,7 @@ final class PaneOverlayView: NSView {
         attentionLook = observedAttentionLook()
         guard let mark, attentionSettings.style != .none else {
             attention.removeAnimation(forKey: "attention")
-            Motion.transaction(animated ? .focus : nil) { attention.opacity = 0 }
+            Motion.feedback.transaction(animated ? .focus : nil) { attention.opacity = 0 }
             return
         }
         guard previous?.generation != mark.generation else { return }
@@ -264,7 +264,7 @@ final class PaneOverlayView: NSView {
         CATransaction.setDisableActions(true)
         attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook)
         attention.removeAnimation(forKey: "attention")
-        if let animation = Motion.attentionAnimation(attentionSettings, look: attentionLook) {
+        if let animation = Motion.indicators.attentionAnimation(attentionSettings, look: attentionLook) {
             attention.add(animation, forKey: "attention")
         }
         CATransaction.commit()

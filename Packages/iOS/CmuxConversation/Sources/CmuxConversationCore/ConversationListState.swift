@@ -76,6 +76,7 @@ public struct ConversationListStateChange: Sendable, Hashable {
 /// How a conversation list arranges conversations, shared by every platform's
 /// list: pins on top in pin order (at most `maxPinned`), then everything else
 /// newest first; deleted conversations are not listed.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationListArrangement {
     /// Messages: "You can pin up to 9 conversations."
     public static let maxPinned = 9

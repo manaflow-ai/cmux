@@ -44,7 +44,7 @@ public final class AddServerCardPanel: NSPanel {
     /// Shows the card over `window` (the cmux window it belongs to; nil uses the screen's top).
     /// `takeKeys` is true when the user opened it by hand and is about to type the code.
     public func present(over window: NSWindow?, takeKeys: Bool) {
-        animationBehavior = Motion.animatesMovement ? .utilityWindow : .none
+        animationBehavior = Motion.overlays.animatesMovement ? .utilityWindow : .none
         let size = host.fittingSize
         let screen = window?.screen ?? NSScreen.main
         let visible = screen?.visibleFrame ?? NSRect(origin: .zero, size: size)

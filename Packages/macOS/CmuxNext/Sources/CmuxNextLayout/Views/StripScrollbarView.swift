@@ -151,7 +151,7 @@ final class StripScrollbarView: NSView {
         applyColors()
         let value: Float = shown ? 1 : 0
         thumb.opacity = value
-        _ = Motion.set(thumb, "opacity", to: value, fade: shown ? .fadeIn : .fadeOut, from: shown ? Float(0) : Float(1))
+        _ = Motion.panes.set(thumb, "opacity", to: value, fade: shown ? .fadeIn : .fadeOut, from: shown ? Float(0) : Float(1))
     }
 
     private func applyColors() {

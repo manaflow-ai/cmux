@@ -30,6 +30,30 @@ moves this cloud browser onto that host. So:
   measured 13 ms key G2G in a VM; WebRTC adds about 30 ms of jitter buffer and pacing unless the
   section 4 measures (playout delay 0) land.
 
+### View-only check on `cmux-screen-host` (2026-10-20)
+
+One Freestyle VM (`vm-f2296c0030dd4bb0a0e6115c36bacca3`, 16 vCPU / 32 GiB, deleted after; under $1).
+`cmux-screen-host --backend desktop --no-tailnet` from `feat-cmux-next-tailnet-media` (4fce3bda894)
+built on the VM, streaming Xvfb `:1` (1920x1080) with Chrome full screen on a page that scrolls
+text every frame. Viewer: headless Chrome on the same VM (its own WebRTC), joining the existing
+room Worker as `viewer`, host candidates only. Scripts: `experiments/cloud-browser/screen-check/`.
+View only: the Linux backend has no input (M2), so no input-to-frame number exists yet.
+
+| Run | WebSocket open | answer | ICE connected | first frame | presented fps | decoded fps | Mbit/s | jitter buffer | host CPU |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 422 ms | 615 ms | 619 ms | **731 ms** | 48.6 | 58 | 2.9 | 9 ms | 129 % of a core |
+| 2 | 418 ms | 782 ms | 785 ms | **1536 ms** | 50.4 | 60 | 3.0 | 8 ms | 125 % |
+
+Connect to first frame 0.7-1.5 s (the design's target is ≤ 1.0 s); most of it is the round trip
+to the Cloudflare room. The host held 59-60 fps at 1080p full-screen motion. Its log shows the
+browser viewer negotiated **libvpx (VP8)**, software, not H.264: a cmux viewer must prefer H.264
+(and on CPU VMs Cisco's OpenH264, per the codec default). Host CPU above one core is capture,
+I420 conversion and VP8 at 60 fps; it is the number the 2-core encode budget must hold.
+
+Build notes for M2: libwebrtc's prebuilt needs clang 21 (Ubuntu 24.04 has 18; apt.llvm.org works)
+and the link needs gio/gobject/glib and the X11 libraries added (`build.sh` passes them as
+RUSTFLAGS); the room's `/ice` has no CORS headers, so a web viewer cannot read it.
+
 ## 0. Answer in one paragraph
 
 Not yet in Mighty's position, but closer than it looks. The hard parts exist: a low-latency media
@@ -269,6 +293,19 @@ A cloud subagent on a Freestyle VM uses the cloud browser on its own VM. The API
    the automation lease decides between the agent and the person.
 4. Lifetime: Chrome outlives viewers and restarts after a crash (tested); it stops with the host, so
    the subagent's VM teardown also ends the browser.
+
+Landed for point 2 (CB-2): `cmux-rd host --browser-cdp-port N` (127.0.0.1 only, off by default),
+proven by a test that starts real Chrome under Xvfb, runs `Runtime.evaluate` over the DevTools
+WebSocket, sees the page title change, and checks the port does not answer on the VM's network
+address (`browser::tests::cdp_an_agent_drives_the_cloud_browser_on_loopback_only`, `--ignored`; needs
+Chrome and Xvfb). Image role: `/usr/local/bin/cmux-cloud-browser` and the `cmux-cloud-browser` unit in
+the devbox image, shipped but not enabled; it does nothing without `CMUX_CLOUD_BROWSER=1`. Gap: the
+`cmux-rd` binary is not in the image yet, so the unit exits with "cmux-rd is not installed" until
+it is; and per remote-desktop-DESIGN.md M3 the stream side moves to `cmux-screen-host`.
+
+Far users: one region (Freestyle, San Francisco) for now. Users far from the West Coast pay their
+RTT to SF on every input; above `remoteDesktop.interactiveMaxRttMs` (80 ms) the pane is view only
+until a second region exists.
 
 Changes to these four points must keep a VM subagent able to start, drive and hand off the browser.
 

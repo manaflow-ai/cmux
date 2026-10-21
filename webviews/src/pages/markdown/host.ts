@@ -45,6 +45,11 @@ export const MARKDOWN_SAVE_OP = "cmux.markdown.save";
 export const MARKDOWN_EDITED_OP = "cmux.markdown.edited";
 /** Host to page: saves pending edits now and answers `{dirty}` (before a tab closes or the app quits). */
 export const MARKDOWN_FLUSH_OP = "cmux.markdown.flush";
+/** Host to page: the selection's text and source lines, `{text, startLine?, endLine?}`, or null with
+ * nothing selected (a viewer comment, viewer-comments-DESIGN.md). */
+export const MARKDOWN_SELECTION_OP = "cmux.markdown.selection";
+/** Page to host: `{path, id}` forgets one viewer comment (its card's Delete); the host sends the list again. */
+export const MARKDOWN_DELETE_COMMENT_OP = "cmux.markdown.deleteComment";
 export const MARKDOWN_OPEN_LINK_OP = "cmux.markdown.openLink";
 export const MARKDOWN_RESOLVE_LINKS_OP = "cmux.markdown.resolveLinks";
 export const MARKDOWN_LIST_FILES_OP = "cmux.markdown.listFiles";
@@ -106,6 +111,8 @@ export interface MarkdownConfig {
   settings?: unknown;
   /** The file's saved table column widths (`SavedTableWidths`, tables.ts), when it has some. */
   tableWidths?: unknown;
+  /** The file's viewer comments, `{v: 1, comments: [...]}` (comments.ts). */
+  comments?: unknown;
   /** `<cmux.json dir>/markdown/theme.css`, applied after the settings; absent when missing. */
   themeCSS?: string;
 }

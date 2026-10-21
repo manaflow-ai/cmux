@@ -140,6 +140,30 @@ pub struct HostState {
     /// [`MESSAGE_ROOTS_KEPT`], oldest dropped first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub message_roots: Vec<(String, String)>,
+    /// Wakes the Chief asked for with `sleep` (brain/wakes.rs), soonest
+    /// first. At most [`WAKES_KEPT`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub wakes: Vec<Wake>,
+}
+
+/// How many pending wakes `HostState::wakes` keeps.
+pub const WAKES_KEPT: usize = 8;
+
+/// One wake the Chief asked for with `sleep`: at `at_ms` (wall clock, ms
+/// since the epoch) a note with `note` starts a turn.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Wake {
+    /// When it is due (ms since the epoch).
+    pub at_ms: u64,
+    /// When the Chief asked for it (ms since the epoch).
+    pub asked_ms: u64,
+    /// Why: the Chief's own words, shown in the wake note.
+    #[serde(default)]
+    pub note: String,
+    /// `until: event`: a turn for a user message or a report that starts
+    /// first drops this wake.
+    #[serde(default)]
+    pub until_event: bool,
 }
 
 /// How many thread roots `HostState::message_roots` keeps.
@@ -348,6 +372,15 @@ pub struct SubRecord {
     /// The stuck note of this run was sent.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stuck_noted: bool,
+    /// Its task as spawned (the start, for `control status`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub task: String,
+    /// Automatic continues of a silent run (sub_watch.rs) in this run.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub auto_continues: u32,
+    /// When the last automatic continue was sent (ms since the epoch).
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub continued_ms: u64,
     /// Its session exists but its first prompt (view and task) is not sent
     /// yet: tells wait in the inbox so they never arrive before the task.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

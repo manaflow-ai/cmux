@@ -121,6 +121,22 @@ const COMMIT_FILE_CAP = 3000;
 // GitHub's secondary rate limit for concurrent requests.
 const READ_CONCURRENCY = 16;
 
+// GitHub answers a read with a 5xx now and then (run 39413299148). A read
+// that fails that way is tried again after a short wait, up to this many
+// times in all; a 4xx or a lasting 5xx still throws (fail closed).
+const READ_ATTEMPTS = 4;
+
+async function retrying(fn, sleep) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (!(error?.status >= 500) || attempt >= READ_ATTEMPTS) throw error;
+      await sleep(1000 * 2 ** attempt);
+    }
+  }
+}
+
 // fn over items with at most `limit` calls in flight; results in input order.
 async function mapLimit(items, limit, fn) {
   const results = new Array(items.length);
@@ -265,6 +281,10 @@ async function pushActors(github, owner, repo, compare, wanted, rangeSet, bounda
 async function landersOf(github, owner, repo, commit, actors) {
   const logins = new Set();
   const add = (login) => { if (login && !BOT_LOGINS.has(login)) logins.add(login); };
+  // GitHub leaves these users null when an email is not linked to an account.
+  // Silently omitting that identity would let a release approver approve their
+  // own commit while the non-lander policy appears to be enabled.
+  if (!commit.author?.login || !commit.committer?.login) return null;
   add(commit.author?.login);
   add(commit.committer?.login);
   const pushers = actors.get(commit.sha);
@@ -275,12 +295,15 @@ async function landersOf(github, owner, repo, commit, actors) {
   });
   for (const pull of pulls || []) {
     if (!pull.merged_at) continue;
+    if (!pull.user?.login) return null;
     add(pull.user?.login);
     const { data: full } = await github.rest.pulls.get({ owner, repo, pull_number: pull.number });
+    if (!full.merged_by?.login) return null;
     add(full.merged_by?.login);
     // Anyone whose commits are in the merged PR counts as a lander too.
     const prCommits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: pull.number, per_page: 100 });
     for (const prCommit of prCommits) {
+      if (!prCommit.author?.login || !prCommit.committer?.login) return null;
       add(prCommit.author?.login);
       add(prCommit.committer?.login);
     }
@@ -349,6 +372,11 @@ export async function decide({
   }
   const matches = surfaceMatcher(parseSurface(surfaceText));
   if (!current) {
+    if (policy.require_non_lander_approver) {
+      return refuse(`${TARGET} does not exist; the commit-author exclusion cannot establish a bounded promotion range`, {
+        sha, current, surfaceFiles: ['*'],
+      });
+    }
     return { action: 'needs-ack', reason: `${TARGET} does not exist; the first promotion needs a release approver`, sha, current, surfaceFiles: ['*'], landers: [] };
   }
   const touches = (file) => matches(file.filename) || Boolean(file.previous_filename && matches(file.previous_filename));
@@ -379,7 +407,7 @@ export async function decide({
   // A change no single commit shows (a merge that kept the other side's
   // version) is attributed to the range's merge commits.
   const detailed = await mapLimit(commits, READ_CONCURRENCY, async (commit) => {
-    const full = await commitWithFiles(github, owner, repo, commit.sha);
+    const full = await retrying(() => commitWithFiles(github, owner, repo, commit.sha), sleep);
     return full || { sha: commit.sha, truncated: true, files: [], parents: commit.parents || [] };
   });
   const touching = detailed.filter((commit) => commit.truncated || commit.files.some(touches));
@@ -398,14 +426,14 @@ export async function decide({
   const actors = await pushActors(github, owner, repo, compare, new Set(touching.map((commit) => commit.sha)), rangeSet, current);
   const landers = new Set();
   const unresolved = [];
-  const landerSets = await mapLimit(touching, READ_CONCURRENCY, (commit) => landersOf(github, owner, repo, commit, actors));
+  const landerSets = await mapLimit(touching, READ_CONCURRENCY, (commit) => retrying(() => landersOf(github, owner, repo, commit, actors), sleep));
   touching.forEach((commit, index) => {
     const logins = landerSets[index];
     if (!logins) unresolved.push(commit.sha);
     else logins.forEach((login) => landers.add(login));
   });
   if (unresolved.length && policy.require_non_lander_approver) {
-    return refuse(`no push actor found for ${unresolved.join(', ')}; the landers of the release surface change are unknown`, { sha, current, surfaceFiles });
+    return refuse(`an author, committer, pull-request lander, or push actor is unknown for ${unresolved.join(', ')}; the landers of the release surface change cannot be established`, { sha, current, surfaceFiles });
   }
   return {
     action: 'needs-ack',
