@@ -6,6 +6,7 @@ import CmuxNextHomeEngine
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextUpdater
 import Foundation
 import UniformTypeIdentifiers
 import CmuxNextMobileHost
@@ -139,10 +140,7 @@ struct PageFactory {
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
-        provider.themeColors = { [weak services] in
-            guard let catalog = services?.themes.catalog else { return [] }
-            return catalog.names.compactMap { catalog.colors[$0] }
-        }
+        provider.themeColors = { [weak services] in (services?.themes.catalog).map { c in c.names.compactMap { c.colors[$0] } } ?? [] }
         let registry = services.registry
         provider.sectionActions = { section in
             .array(SettingsSchema.actions(in: section).compactMap { id in
@@ -194,7 +192,8 @@ struct PageFactory {
                       // Agents > Chiefs: the same Chief editor routes as Home (ChiefProfilePageRelay, AgentHarnessCenter).
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
-                      PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone))]
+                      PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone)),
+                      PageRoute(prefix: ChannelsPageProvider.prefix, provider: ChannelsPageProvider(updater: services.updater))]
             + (images.map { [PageRoute(prefix: BackdropImagesPageProvider.prefix, provider: $0)] } ?? [])
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
         let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices,

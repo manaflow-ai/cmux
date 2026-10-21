@@ -18,6 +18,7 @@ test("every page row has exactly one home", () => {
 test("the categories are the approved ones, in order", () => {
   expect(categories.map((category) => category.id)).toEqual([
     "general",
+    "updates",
     "theme",
     "appearance",
     "terminal",
