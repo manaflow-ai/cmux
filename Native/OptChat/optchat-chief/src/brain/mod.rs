@@ -24,6 +24,7 @@
 mod approvals;
 mod children;
 mod control;
+mod desk;
 mod drafts;
 mod engine_control;
 pub mod files;
@@ -43,6 +44,7 @@ mod spawns;
 mod steer;
 mod turns;
 mod wakes;
+pub use desk::DESK_GRACE;
 pub use replies::{REACTIONS, reaction, tapback};
 pub use turns::stuck_notice;
 
@@ -260,8 +262,7 @@ pub enum Input {
     },
     /// Once a minute while subagents work: stuck detection (control.rs).
     SubTick,
-    /// Changes a per-Chief setting (`chief_settings`); refused for
-    /// `remote.autoApprove` on during a remote-origin turn.
+    /// Changes a per-Chief setting (`chief_settings`).
     Setting {
         key: String,
         value: String,
@@ -274,6 +275,13 @@ pub enum Input {
     /// The policy floor for a child spawned now (`Brain::spawn_policy`).
     SpawnPolicy {
         reply: Sender<Option<String>>,
+    },
+    /// Whether the turn may run a Chief tool with these arguments
+    /// (`Brain::turn_gate`).
+    TurnGate {
+        tool: String,
+        input: serde_json::Value,
+        reply: Sender<Result<(), String>>,
     },
     /// A description of a turn's image arrived (or failed): logged as a note.
     Described {
@@ -663,25 +671,19 @@ pub struct Brain {
     turn_engine: Option<crate::engine::TurnEngine>,
     /// The per-Chief settings (`chief_settings`), owned by the host.
     chief: crate::chief_settings::ChiefSettings,
-    /// The running turn has a remote origin (a paired device's message, or
-    /// a remote turn it supersedes): the strictest origin wins until it ends.
-    turn_remote: bool,
-    /// The running turn runs with policy `ask` (`turn_why` says why).
+    /// The running turn carries another person's text: it runs with policy
+    /// `ask`, and every local effect it asks for is refused at once.
     turn_ask: bool,
-    /// Why the running turn asks before its local effects (None: it doesn't).
-    turn_why: Option<crate::approval::Why>,
-    /// Requests a person or a stop denied in the running turn
-    /// (`approval::signature`): the same request again is denied at once,
-    /// never asked twice.
+    /// The last turn was an ask turn: a tool call of it that reaches the
+    /// host after it ended is still held to its rules (`turn_gate`) until
+    /// the next turn starts.
+    last_turn_ask: bool,
+    /// Requests refused in the running turn (`approval::signature`): a
+    /// repeat counts toward stopping the turn.
     turn_denied: Vec<String>,
     /// Requests of the running turn denied again because they repeat one
     /// already denied (`approvals::REPEATS_BEFORE_STOP` stops the turn).
     repeat_denials: u32,
-    /// A remote-origin turn was stopped for a newer message: the turn that
-    /// answers both keeps its origin.
-    remote_taint: bool,
-    /// The running turn's permission requests waiting for a person.
-    approvals: VecDeque<crate::approval::Pending>,
     /// Writes the log's description of each turn image (None: references only).
     describer: Option<Arc<dyn images::Describe>>,
     /// Images being described now (`conversation/hash`), started once each.
@@ -736,6 +738,15 @@ pub struct Brain {
     /// the latest at this deadline.
     handoff_at: Option<Instant>,
     handoff_wait: std::time::Duration,
+    /// How long a message waits on a running turn before the front desk's
+    /// receipt (`desk.rs`); None: no receipts.
+    desk_grace: Option<Duration>,
+    /// The receipt waiting for its grace.
+    desk: Option<desk::DeskPending>,
+    /// The turn the last receipt was for: one receipt per turn.
+    desk_told: Option<String>,
+    /// The running turn's latest activity line, by turn key.
+    turn_activity: Option<(String, String)>,
 }
 
 impl Brain {
@@ -799,13 +810,10 @@ impl Brain {
             keep_pending: None,
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chief,
-            turn_remote: false,
             turn_ask: false,
-            turn_why: None,
+            last_turn_ask: false,
             turn_denied: Vec::new(),
             repeat_denials: 0,
-            remote_taint: false,
-            approvals: VecDeque::new(),
             after_turn: None,
             notices: Vec::new(),
             noticed: HashSet::new(),
@@ -853,6 +861,10 @@ impl Brain {
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
             handoff_at: None,
             handoff_wait: HANDOFF_DEADLINE,
+            desk_grace: None,
+            desk: None,
+            desk_told: None,
+            turn_activity: None,
         };
         // Each cut turn runs again first, on the reference client's note;
         // its messages are in the log already and are not logged again.
@@ -1010,6 +1022,7 @@ impl Brain {
             self.resume_at,
             self.orphan_wait,
             self.handoff_at,
+            self.desk_due(),
         ]
         .into_iter()
         .flatten()
@@ -1018,6 +1031,7 @@ impl Brain {
 
     /// Runs until a fatal error; returns it.
     pub fn run(mut self, rx: Receiver<Input>) -> String {
+        self.rearm_auto_resumes();
         loop {
             if let Some(fatal) = &self.fatal {
                 return fatal.clone();
@@ -1186,6 +1200,9 @@ impl Brain {
             Input::SpawnPolicy { reply } => {
                 let _ = reply.send(self.spawn_policy().map(str::to_owned));
             }
+            Input::TurnGate { tool, input, reply } => {
+                let _ = reply.send(self.turn_gate(&tool, &input));
+            }
             Input::Described { image, description } => self.described(&image, description),
             Input::Engine { request, reply } => {
                 let _ = reply.send(self.engine_control(request));
@@ -1312,6 +1329,7 @@ impl Brain {
             self.flush_outbox();
         }
         self.on_resume_timer();
+        self.on_desk_timer(now);
         if self.orphan_wait.is_some_and(|at| at <= now) {
             (self.log)("an adopted turn session ran past its wait; folding and ending it");
             self.adopt_orphans(true);
@@ -1354,23 +1372,13 @@ impl Brain {
         }
     }
 
-    /// Whether `remote.autoApprove` is on.
-    pub fn remote_auto_approve(&self) -> bool {
-        self.chief.remote_auto_approve
-    }
-
-    /// Changes a per-Chief setting and saves it. An approval gate can be
-    /// loosened (`remote.autoApprove` on, `remote.ask` or `home.ask` off)
-    /// only when no remote-origin work is running, settling or queued: never
-    /// by a paired device, nor by a command a remote turn runs (an approved
-    /// shell command reaches the host the same way). Tightening one is
-    /// always allowed.
+    /// Changes a per-Chief setting and saves it.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
         use crate::chief_settings::{
-            CACHE_TTL, REMOTE_AUTO_APPROVE, REPLY_THREADS, SHOW_AFTER_REPORT, parse_bool,
+            CACHE_TTL, CLOUD_AUTO_PAUSE_IDLE_SECONDS, REPLY_THREADS, SHOW_AFTER_REPORT, parse_bool,
             parse_reply_threads, parse_ttl,
         };
-        if key == crate::chief_settings::CLOUD_AUTO_PAUSE_IDLE_SECONDS {
+        if key == CLOUD_AUTO_PAUSE_IDLE_SECONDS {
             let secs = crate::chief_settings::parse_idle_secs(value)?;
             let mut next = self.chief;
             next.cloud_auto_pause_idle_secs = secs;
@@ -1415,47 +1423,9 @@ impl Brain {
             (self.log)(&format!("setting {key} = {}", ttl.as_str()));
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
-        use crate::chief_settings::{HOME_ASK, REMOTE_ASK};
-        if key != REMOTE_AUTO_APPROVE && key != REMOTE_ASK && key != HOME_ASK {
-            return Err(format!(
-                "unknown setting {key:?} (known: {REMOTE_ASK}, {HOME_ASK}, {REMOTE_AUTO_APPROVE}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT})"
-            ));
-        }
-        let on = parse_bool(value)?;
-        // Loosening a gate: autoApprove on, or an ask gate off.
-        let loosens = if key == REMOTE_AUTO_APPROVE { on } else { !on };
-        let remote_queued = self.queue.iter().any(|q| {
-            matches!(
-                q.source,
-                Source::Message {
-                    remote: Some(_),
-                    ..
-                }
-            )
-        });
-        if loosens
-            && (self.turn_ask
-                || self.turn_remote
-                || self.remote_taint
-                || remote_queued
-                || self.ask_child_live())
-        {
-            (self.log)(&format!("refused: {key} = {on} during remote-origin work"));
-            return Err(format!(
-                "refused: {key} can be set to {on} only from the Mac, outside a turn that asks or a paired device started"
-            ));
-        }
-        let mut next = self.chief;
-        match key {
-            REMOTE_ASK => next.remote_ask = on,
-            HOME_ASK => next.home_ask = on,
-            _ => next.remote_auto_approve = on,
-        }
-        next.save(&self.settings.settings_file)
-            .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
-        self.chief = next;
-        (self.log)(&format!("setting {key} = {on}"));
-        Ok(format!("{key} = {on}"))
+        Err(format!(
+            "unknown setting {key:?} (known: {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS})"
+        ))
     }
 
     fn queue(&mut self, text: String, source: Source) {
@@ -1481,6 +1451,14 @@ impl Brain {
         // the next turn and never stops it (decision 2026-10-09).
         let human = matches!(source, Source::Message { .. } | Source::Spawn(_));
         let same = self.phase == Phase::Running && self.turn_side() == conversation;
+        // A person's message to the main conversation's running turn: the
+        // front desk answers if the turn is still at it after the grace.
+        if let Source::Message { seq, .. } = &source
+            && same
+            && conversation.is_none()
+        {
+            self.desk_arm(*seq);
+        }
         let item = Queued {
             logged: false,
             text,

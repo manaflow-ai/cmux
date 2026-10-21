@@ -1,17 +1,22 @@
-//! A remote-origin turn's approvals (README "Remote-origin messages"): the
-//! turn session's permission requests, answered at once for the memory
-//! tools and otherwise asked in the Chief chat; each answer is recorded in
-//! the trace with the approving device.
+//! The Chief never asks a person before it acts (Lawrence, 2026-10-20). A
+//! permission request of the running turn's session or of a child is
+//! answered at once: allowed for the memory tools and the Chief's own
+//! tools, refused for any other local effect. Requests reach the host only
+//! from sessions that run with policy `ask`: a turn that carries another
+//! person's text, and the children spawned under it (the spawn floor). Each
+//! refusal goes to the trace.
 
-use cmux_conversation::{Message, Origin};
 use serde_json::{Value, json};
 
-use super::{Brain, reply_entry};
-use crate::approval::{Answer, Pending, is_memory_tool, option_for, question, tool_name};
+use super::Brain;
+use crate::approval::{Answer, Pending, is_memory_tool, option_for, tool_name};
 
-/// A turn that asks again for a request it was denied this many times is
+/// A turn that asks again for a request it was refused this many times is
 /// stopped: the model is not left looping on a refused tool.
 const REPEATS_BEFORE_STOP: u32 = 3;
+
+/// The trace's approver of a refusal.
+const REFUSED_BY: &str = "another person's turn";
 
 impl Brain {
     /// Whether `session_id` is the running turn's session.
@@ -39,13 +44,25 @@ impl Brain {
                 self.agents
                     .respond_permission(&session_id, &permission_id, option.as_deref())
             {
-                (self.log)(&format!("allowing {tool}: {e}"));
+                // acpmux takes an allow only from the person's app. A
+                // request left open holds the turn forever: refuse it, so
+                // the model hears why and the turn goes on. The turn's
+                // settings allow these tools, so this is a session started
+                // before them.
+                (self.log)(&format!("allowing {tool}: {e}; refusing it instead"));
+                let deny = option_for(&request, Answer::Deny);
+                if let Err(e) =
+                    self.agents
+                        .respond_permission(&session_id, &permission_id, deny.as_deref())
+                {
+                    (self.log)(&format!("refusing {tool}: {e}"));
+                }
             }
             return;
         }
         if !self.turn_ask {
             (self.log)(&format!(
-                "turn session asked for {tool} outside an ask turn; left to its harness"
+                "turn session asked for {tool} outside a turn another person started; left to its harness"
             ));
             return;
         }
@@ -55,29 +72,17 @@ impl Brain {
             tool,
             request,
             child: None,
-            conversation: self.turn_side(),
-            why: self.turn_why.clone(),
         };
-        // Stop means stop: a stopped turn asks nobody, it is denied at once.
-        if self.owner_stopped {
-            self.respond(&pending, Answer::Deny, "the owner stopped the turn", None);
-            return;
-        }
-        if self.denial_stopped.is_some() {
-            self.respond(&pending, Answer::Deny, "the turn was stopped", None);
-            return;
-        }
-        // A request denied once in this turn is not asked again.
-        if self
+        let repeat = self
             .turn_denied
-            .contains(&crate::approval::signature(&pending))
-        {
-            self.respond(&pending, Answer::Deny, "denied earlier in this turn", None);
+            .contains(&crate::approval::signature(&pending));
+        self.refuse(&pending);
+        if repeat && self.denial_stopped.is_none() {
             self.repeat_denials += 1;
             if self.repeat_denials >= REPEATS_BEFORE_STOP {
                 // The model keeps asking for what was refused: end the turn.
                 (self.log)(&format!(
-                    "{} was denied and asked for again {} times: stopping the turn",
+                    "{} was refused and asked for again {} times: stopping the turn",
                     pending.tool, self.repeat_denials
                 ));
                 self.denial_stopped = Some(crate::approval::describe(
@@ -86,38 +91,7 @@ impl Brain {
                 ));
                 self.interrupt.request_hard();
             }
-            return;
         }
-        let key = format!(
-            "approval:{}:{}",
-            self.state.turn.as_ref().map_or("", |t| t.key.as_str()),
-            pending.permission_id
-        );
-        self.ask_person(pending, &key);
-    }
-
-    /// The name of the paired device that sent one of `items` (its
-    /// participant's display name), else "another device".
-    pub(super) fn device_name(&self, items: &[super::Queued]) -> String {
-        let install = items.iter().find_map(|i| match &i.source {
-            super::Source::Message {
-                remote: Some(install),
-                ..
-            } => Some(install.clone()),
-            _ => None,
-        });
-        install
-            .and_then(|install| {
-                let id = format!("remote_{install}");
-                self.summary.as_ref().and_then(|s| {
-                    s.participants
-                        .iter()
-                        .find(|p| p.id == id)
-                        .map(|p| p.display_name.clone())
-                })
-            })
-            .filter(|name| !name.trim().is_empty())
-            .unwrap_or_else(|| "another device".to_owned())
     }
 
     /// Whether one of the Chief's own tools runs without asking in this
@@ -133,13 +107,23 @@ impl Brain {
     ///   own effects (policy `ask`), so an untrusted turn cannot launder a
     ///   command through an approve-all subagent.
     pub(super) fn internal_allowed(&self, tool: &str, request: &Value) -> bool {
+        self.internal_allowed_input(tool, request.pointer("/toolCall/rawInput"), self.turn_ask)
+    }
+
+    /// [`Self::internal_allowed`] on a call's `input` (its arguments), in
+    /// an ask turn when `ask`.
+    pub(super) fn internal_allowed_input(
+        &self,
+        tool: &str,
+        input: Option<&Value>,
+        ask: bool,
+    ) -> bool {
         if !crate::approval::CHIEF_TOOLS.contains(&tool) {
             return false;
         }
-        if !self.turn_ask {
+        if !ask {
             return true;
         }
-        let input = request.pointer("/toolCall/rawInput");
         let get = |key: &str| input.and_then(|i| i.get(key));
         let field = |key: &str| get(key).and_then(Value::as_str);
         match tool {
@@ -178,117 +162,38 @@ impl Brain {
             .is_some_and(|(_, s)| s.policy.as_deref() == Some(crate::approval::ASK))
     }
 
+    /// Whether the turn may run Chief tool `tool` (`mcp__optchat__<name>`)
+    /// with `input` now. The turn's settings allow the Chief's tools with
+    /// no permission request, so this is where a turn another person
+    /// started is held to [`Self::internal_allowed`].
+    pub fn turn_gate(&self, tool: &str, input: &Value) -> Result<(), String> {
+        let ask = self.turn_ask || (self.last_turn_ask && self.state.turn.is_none());
+        if self.internal_allowed_input(tool, Some(input), ask) {
+            return Ok(());
+        }
+        (self.log)(&format!("refused {tool} ({REFUSED_BY})"));
+        Err(format!(
+            "refused: this turn carries another person's text, so {tool} may not run with these arguments"
+        ))
+    }
+
     /// A permission request of a child that runs with policy `ask` (spawned
-    /// under the ask floor): asked in the Chief chat with the child's name,
-    /// never answered by the Chief itself.
+    /// under the spawn floor of a turn another person started): refused at
+    /// once, never asked and never answered by the Chief itself.
     pub(super) fn child_permission(
         &mut self,
         child: &cmux_chief::acp::SessionSummary,
         permission_id: String,
         request: Value,
     ) {
-        let key = format!("approval:{}:{}", child.session_id, permission_id);
         let pending = Pending {
             session_id: child.session_id.clone(),
             permission_id,
             tool: tool_name(&request),
             request,
             child: Some(child.name.clone()),
-            conversation: None,
-            why: None,
         };
-        self.ask_person(pending, &key);
-    }
-
-    /// Asks in the conversation the request belongs to (G9): the running
-    /// turn's, or the main one for a child.
-    fn ask_person(&mut self, pending: Pending, key: &str) {
-        let conversation = pending
-            .conversation
-            .clone()
-            .or_else(|| self.state.conversation.clone());
-        if let Some(conversation) = conversation {
-            // The card (a question part with Allow once and Deny); a client
-            // without cards shows its prompt and options, and an owner that
-            // refuses the part gets the two-line text instead.
-            let mut entry = reply_entry(conversation, key, "");
-            if let cmux_conversation::Op::MessageSend { parts, .. } = &mut entry.op {
-                *parts = vec![crate::approval::card(&pending)];
-            }
-            entry.plain_text = Some(question(&pending));
-            self.approvals.push_back(pending);
-            self.state.outbox.push(entry);
-            self.save();
-            self.flush_outbox();
-        } else {
-            self.approvals.push_back(pending);
-        }
-    }
-
-    /// A card was answered (`question.answer` on the Chief's own message):
-    /// the owner's selection answers the approval it names, once.
-    pub(super) fn answer_card(&mut self, conversation: &str, message: &Message) {
-        for part in &message.parts {
-            let cmux_conversation::Part::Question(q) = part else {
-                continue;
-            };
-            let cmux_conversation::QuestionState::Answered { answer } = &q.state else {
-                continue;
-            };
-            let Some(permission) = q.permission.as_deref() else {
-                continue;
-            };
-            let Some(respondent) = answer.respondent.as_ref() else {
-                continue;
-            };
-            // The card answers only the approval it was posted for, in the
-            // conversation it was posted in.
-            let main = self.state.conversation.clone();
-            let Some(k) = self.approvals.iter().position(|p| {
-                p.permission_id == permission
-                    && p.session_id == q.session
-                    && p.conversation
-                        .as_ref()
-                        .or(main.as_ref())
-                        .map(String::as_str)
-                        == Some(conversation)
-            }) else {
-                continue;
-            };
-            // Only the owner approves (a paired device answers as its
-            // person). Another participant's answer closed this card, so
-            // the owner gets a fresh one; the request stays pending.
-            if respondent.participant != self.settings.membership.owner {
-                (self.log)(&format!(
-                    "approval {permission}: answered by {}, not the owner; asking the owner again",
-                    respondent.participant
-                ));
-                if let Some(pending) = self.approvals.remove(k) {
-                    let key = format!("approval:again:{}:{}", message.id, pending.permission_id);
-                    self.ask_person(pending, &key);
-                }
-                continue;
-            }
-            let Some(decision) = crate::approval::card_answer(answer) else {
-                continue;
-            };
-            let Some(pending) = self.approvals.remove(k) else {
-                continue;
-            };
-            let approver = format!(
-                "{} ({})",
-                respondent
-                    .device
-                    .as_deref()
-                    .unwrap_or(respondent.display_name.as_str()),
-                respondent.participant
-            );
-            let install = respondent
-                .remote
-                .then(|| respondent.device.clone())
-                .flatten();
-            self.respond(&pending, decision, &approver, install.as_deref());
-        }
+        self.refuse(&pending);
     }
 
     /// Whether a child that runs with policy `ask` is still live: the spawn
@@ -306,92 +211,37 @@ impl Brain {
     }
 
     /// The policy floor for a child spawned now (`chief agents spawn` asks
-    /// the host): `ask` during an ask turn or while an ask child is live,
-    /// unless the Mac turned on remote.autoApprove.
+    /// the host): `ask` during a turn another person started or while an
+    /// `ask` child is live, so another person cannot reach the Mac through a
+    /// subagent.
     pub fn spawn_policy(&self) -> Option<&'static str> {
         // The shared rule (cmux_chief::policy::spawn_floor).
         cmux_chief::policy::spawn_floor(
-            self.chief.remote_auto_approve,
+            false,
             self.turn_ask,
             self.ask_child_live(),
             self.ask_subagent_live(),
         )
     }
 
-    /// Drops the running turn's own pending approvals (its session ends);
-    /// children's stay.
-    pub(super) fn clear_turn_approvals(&mut self) {
-        self.approvals.retain(|p| p.child.is_some());
-    }
-
-    /// Whether an approval waits for an answer in `conversation` (None:
-    /// the main one).
-    pub(super) fn has_approval(&self, conversation: Option<&str>) -> bool {
-        self.approvals
-            .iter()
-            .any(|p| p.conversation.as_deref() == conversation)
-    }
-
-    /// A person in `conversation` (None: main) answered that conversation's
-    /// oldest pending approval with `message`; another conversation's
-    /// approvals are never answered from here.
-    pub(super) fn answer_approval(
-        &mut self,
-        answer: Answer,
-        message: &Message,
-        conversation: Option<&str>,
-    ) {
-        let Some(k) = self
-            .approvals
-            .iter()
-            .position(|p| p.conversation.as_deref() == conversation)
-        else {
-            return;
-        };
-        let Some(pending) = self.approvals.remove(k) else {
-            return;
-        };
-        let install = message
-            .origin
-            .as_ref()
-            .map(|Origin::Remote { install }| install.clone());
-        self.respond(&pending, answer, &message.author, install.as_deref());
-    }
-
-    /// Denies the running turn's pending approvals (`why` is the trace's
-    /// approver); children's stay for a person.
-    pub(super) fn deny_pending(&mut self, why: &str) {
-        let (turn, children): (Vec<Pending>, Vec<Pending>) =
-            self.approvals.drain(..).partition(|p| p.child.is_none());
-        self.approvals.extend(children);
-        for pending in turn {
-            self.respond(&pending, Answer::Deny, why, None);
-        }
-    }
-
-    fn respond(
-        &mut self,
-        pending: &Pending,
-        answer: Answer,
-        approver: &str,
-        install: Option<&str>,
-    ) {
-        if answer == Answer::Deny && pending.child.is_none() {
+    /// Refuses `pending` (its reject option) and records the refusal in
+    /// the trace.
+    fn refuse(&mut self, pending: &Pending) {
+        if pending.child.is_none() {
             let signature = crate::approval::signature(pending);
             if !self.turn_denied.contains(&signature) {
                 self.turn_denied.push(signature);
             }
         }
-        let option = option_for(&pending.request, answer);
+        let option = option_for(&pending.request, Answer::Deny);
         let result = self.agents.respond_permission(
             &pending.session_id,
             &pending.permission_id,
             option.as_deref(),
         );
         (self.log)(&format!(
-            "approval {}: {} {} by {approver}{}",
+            "approval {}: refused {} ({REFUSED_BY}){}",
             pending.permission_id,
-            answer.as_str(),
             pending.tool,
             match &result {
                 Ok(()) => String::new(),
@@ -405,14 +255,13 @@ impl Brain {
                 "permission": pending.permission_id,
                 "tool": pending.tool,
                 "child": pending.child,
-                "decision": answer.as_str(),
+                "decision": Answer::Deny.as_str(),
                 "option": option,
-                "approver": approver,
-                "install": install,
+                "approver": REFUSED_BY,
                 "delivered": result.is_ok(),
             });
             if let Err(e) = crate::approval::record(dir, fields) {
-                (self.log)(&format!("recording an approval in the trace: {e}"));
+                (self.log)(&format!("recording a refusal in the trace: {e}"));
             }
         }
     }

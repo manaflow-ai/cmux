@@ -1021,6 +1021,19 @@ fn private_folder(dir: &Path, home: &Path) -> Option<&'static str> {
 }
 
 impl Orchestrator for Spawner {
+    fn turn_gate(&self, tool: &str, input: &Value) -> Result<(), String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::TurnGate {
+            tool: tool.to_owned(),
+            input: input.clone(),
+            reply,
+        })?;
+        // No answer fails closed, like the spawn floor.
+        answer
+            .recv_timeout(Duration::from_secs(30))
+            .unwrap_or_else(|_| Err("the Chief host did not answer the turn's tool check".into()))
+    }
+
     fn spawn(&self, tasks: Vec<String>, cwd: Option<String>) -> Result<String, String> {
         self.spawn_with_effort(tasks, cwd, None)
     }
@@ -1104,8 +1117,8 @@ impl Orchestrator for Spawner {
                 (self.log)(&format!("the subagent directory's CLAUDE.md: {e}"));
             }
         }
-        // The security floor: during a remote-origin (ask) turn, or while an
-        // ask child or subagent lives, every subagent runs with policy ask.
+        // The security floor: during a turn another person started, or while
+        // an ask child or subagent lives, every subagent runs with policy ask.
         // No answer from the brain fails closed (ask).
         let floor = self.spawn_floor();
         let (dir, dir_note) = match &cloud {

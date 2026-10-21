@@ -183,11 +183,7 @@ impl Brain {
         let subagents = self.stop_subagents();
         let turn = self.phase == Phase::Running;
         if turn {
-            self.deny_pending("the owner stopped the turn");
             self.owner_stopped = true;
-            // Stop means stop: the session is cancelled even while a tool
-            // call waits for an approval (it never ran), and every later
-            // request of this turn is denied at once (`turn_permission`).
             self.interrupt.request_hard();
             (self.log)("the owner stopped the running turn");
         }

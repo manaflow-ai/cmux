@@ -24,6 +24,8 @@ export async function enforceVmAllocationRateLimit(input: {
   readonly check?: VmAllocationRateLimitCheck;
   readonly isVercel?: boolean;
   readonly timeoutMs?: number;
+  /** Provider allocations this request can launch; each consumes one rate-limit check. */
+  readonly cost?: number;
 }): Promise<Response | null> {
   if (!(input.isVercel ?? process.env.VERCEL === "1")) return null;
   const ruleId = (input.ruleId ?? process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID)?.trim();
@@ -32,13 +34,23 @@ export async function enforceVmAllocationRateLimit(input: {
     return unavailableResponse(input.request);
   }
 
-  let result: { rateLimited: boolean; error?: string | null };
+  const cost = input.cost ?? 1;
+  if (!Number.isSafeInteger(cost) || cost < 1 || cost > 32) {
+    console.error("vm allocation rate-limit received an invalid cost", {
+      route: input.route,
+      failure: "invalid_cost",
+    });
+    return unavailableResponse(input.request);
+  }
+
+  let results: Array<{ rateLimited: boolean; error?: string | null }>;
   try {
-    result = await (input.check ?? checkRateLimit)(ruleId, {
+    const signal = AbortSignal.timeout(input.timeoutMs ?? VM_ALLOCATION_RATE_LIMIT_TIMEOUT_MS);
+    results = await Promise.all(Array.from({ length: cost }, () => (input.check ?? checkRateLimit)(ruleId, {
       request: input.request,
       rateLimitKey: `vm-allocation:${input.billingTeamId}`,
-      signal: AbortSignal.timeout(input.timeoutMs ?? VM_ALLOCATION_RATE_LIMIT_TIMEOUT_MS),
-    });
+      signal,
+    })));
   } catch {
     console.error("vm allocation rate-limit unavailable", {
       route: input.route,
@@ -47,7 +59,7 @@ export async function enforceVmAllocationRateLimit(input: {
     return unavailableResponse(input.request);
   }
 
-  if (result.rateLimited || result.error === "blocked") {
+  if (results.some((result) => result.rateLimited || result.error === "blocked")) {
     const copy = await vmMutationGuardCopy("allocationUnavailable", vmRequestLocale(input.request));
     return vmErrorResponse({
       error: "vm_allocation_rate_limited",
@@ -60,11 +72,11 @@ export async function enforceVmAllocationRateLimit(input: {
       retryAfterSeconds: VM_ALLOCATION_RETRY_AFTER_SECONDS,
     });
   }
-  if (result.error === "not-found") {
+  if (results.some((result) => result.error === "not-found")) {
     void reportMissingRateLimitRule({ route: input.route, reason: "not-found" });
     return unavailableResponse(input.request);
   }
-  if (result.error) {
+  if (results.some((result) => result.error)) {
     console.error("vm allocation rate-limit returned an error", {
       route: input.route,
       failure: "check_error",

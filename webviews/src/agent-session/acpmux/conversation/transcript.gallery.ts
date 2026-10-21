@@ -345,8 +345,8 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
   await ctx.waitFor(() => {
     const group = ctx.document.querySelector<HTMLElement>(".cv-turn-action-group");
     const datasetPlacement = ctx.document.documentElement.dataset.turnActionsPlacement;
-    // Right is the stylesheet default, so the bridge removes its data attribute for that side.
-    const datasetMatches = placement === "right" ? datasetPlacement === undefined : datasetPlacement === placement;
+    // Left is the stylesheet default, so the bridge removes its data attribute for that side.
+    const datasetMatches = placement === "left" ? datasetPlacement === undefined : datasetPlacement === placement;
     return (
       datasetMatches &&
       group !== null &&
@@ -467,7 +467,9 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/WorkingFor.tsx",
     "agent-session/acpmux/conversation/TurnRows.tsx",
     "agent-session/acpmux/conversation/DateLine.tsx",
-    "agent-session/acpmux/FailedPrompt.tsx",
+    "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryFailure",
+    "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryMark",
+    "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/PermissionCard.tsx",
   ],
   variants: {
@@ -586,7 +588,9 @@ export default agentPaneEntry({
       snapshot: forkTurns(undefined),
       play: async (ctx) => {
         await ctx.focus({ selector: "[contenteditable='true']" });
-        await ctx.waitFor(() => ctx.document.querySelectorAll('button[aria-label="Fork from here"]').length === 1);
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll('.cv-turn-actions button[aria-label="Fork from here"]').length === 1,
+        );
       },
     },
     "mark-unread-menu": {
@@ -783,6 +787,26 @@ export default agentPaneEntry({
           ),
         ],
         { isWorking: true },
+      ),
+    },
+    "working-tokens": {
+      note: "A live Claude turn says its tokens so far after its time, as Claude desktop does: the working dots, then Working for 5m 54s · 2.1M tokens. A harness that does not report each call shows the time alone.",
+      snapshot: chat(
+        [
+          user(prompt, 5.9),
+          activity(
+            [
+              thought("The helper lives in src/net/client.ts; check how errors are parsed first."),
+              tool("Read client.ts", "read", "completed", {
+                locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+              }),
+              tool("Search for parseError", "search", "completed"),
+            ],
+            5.85,
+          ),
+          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", 5.5),
+        ],
+        { isWorking: true, turnTokens: 2_140_000 },
       ),
     },
     "working-counts": {
@@ -1092,12 +1116,55 @@ export default agentPaneEntry({
         }),
       ]),
     },
+    rhythm: {
+      note: "The transcript's vertical rhythm: two prompts in one turn, each meta row right under its bubble, a reply's footer right under the reply, turns a fixed gap apart, and a Worked for turn.",
+      snapshot: chat([
+        user("Is the hosted test run done?", 20),
+        assistant("Checking the hosted run now.", 19.8),
+        user("Also check the PR checks.", 19.7),
+        assistant("Not yet: the hosted test run is still queued, and the PR checks wait on it.", 19.5),
+        summary(19.5, { status: "completed", durationMs: 17_000 }),
+        ...workedTurnRows(minutesAgo(15)),
+        summary(14, { status: "completed", toolCount: 3 }),
+      ]),
+    },
+    "prompt-delivery": {
+      note: "Each sent prompt's way to the agent: the read check once it started, unread once acpmux took it, a clock and Still sending while it waits, and one that failed with Retry, Edit, Remove and Details.",
+      snapshot: chat([
+        user("Add retries to the client", 6, {
+          delivery: { state: "read", promptId: "p1", sessionId: "s", sentAt: 0, acceptedAt: 40, readAt: 90 },
+        }),
+        assistant("Added.", 5.5),
+        summary(5.5, { status: "completed" }),
+        user("And a test for it", 3, {
+          delivery: { state: "delivered", promptId: "p2", sessionId: "s", sentAt: 0, acceptedAt: 60 },
+        }),
+        user("Then open a PR", 2, {
+          pending: true,
+          delivery: { state: "sending", promptId: "p3", sessionId: "s", sentAt: 0, slow: true },
+        }),
+        user("Ship it", 1, {
+          failed: true,
+          error: "Not sent: no answer from acpmux.",
+          delivery: {
+            state: "failed",
+            promptId: "p4",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 60000,
+            hop: "acpmux",
+            code: "timeout",
+            error: "Not sent: no answer from acpmux.",
+          },
+        }),
+      ]),
+    },
     "edited-files": {
       note: "A turn that edited three files: the edited-files card with Undo.",
       snapshot: chat([...workedTurnRows(minutesAgo(15)), summary(14, { status: "completed", toolCount: 3 })]),
     },
     "preview-card": {
-      note: "A turn that started a local server: the preview card.",
+      note: "A turn that started a local server. Its address stays a link in the reply; the preview card under the answer shows only with the Debug toggle agentPane.debug.turnPreviewCards (data-turn-preview-cards on <html>).",
       snapshot: chat([
         user("Start the dev server", 9),
         activity(
@@ -1112,6 +1179,17 @@ export default agentPaneEntry({
         ),
         assistant("The dev server runs at http://localhost:5173/.", 8.8),
         summary(8.8, { status: "completed", toolCount: 1 }),
+      ]),
+    },
+    "token-link": {
+      note: "An agent's bare local address with a token (Leo 2026-10-20): plain link text with the token as •••, no card under the answer; hovering it offers Open and Open in.",
+      snapshot: chat([
+        user("Open the dashboard", 6),
+        assistant(
+          "The dashboard is up at http://127.0.0.1:47811?token=0f3c9a7d51e2b8846a0c3f9e1d7b2a5c6e8f0a1b and reloads on save.",
+          5.9,
+        ),
+        summary(5.9, { status: "completed" }),
       ]),
     },
     "chips-and-previews": {
@@ -1462,7 +1540,10 @@ async function forkEarlierTurn(ctx: PlayContext) {
   const page = ctx.document.defaultView as unknown as {
     cmuxGalleryLog: { method: string; params?: { throughSeq?: number } }[];
   };
-  const forks = () => [...ctx.document.querySelectorAll<HTMLButtonElement>('button[aria-label="Fork from here"]')];
+  // The answers' footers: a prompt's own row has a Fork too (UserBubble.tsx).
+  const forks = () => [
+    ...ctx.document.querySelectorAll<HTMLButtonElement>('.cv-turn-actions button[aria-label="Fork from here"]'),
+  ];
   await ctx.focus({ selector: "[contenteditable='true']" });
   await ctx.waitFor(() => forks().length === 2);
   forks()[0]!.click();

@@ -515,6 +515,8 @@ fn version_of(cli: &Path) -> Option<String> {
     use std::io::Read;
     let mut child = std::process::Command::new(cli)
         .arg("--version")
+        // The MCP server's proxied servers and their tokens stay with it.
+        .env_remove("CMUX_MCP_UPSTREAMS")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
