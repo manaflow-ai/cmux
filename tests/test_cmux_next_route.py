@@ -123,7 +123,9 @@ class PullRequestTiers(unittest.TestCase):
 
     def test_a_shared_module_selects_its_dependents(self):
         result = tiers([f"{PACKAGE}/Sources/CmuxNextSidebar/SidebarView.swift"])
-        self.assertEqual(result["swift_targets"].split(), ["CmuxNextAppTests", "CmuxNextKeepAwakeTests", "CmuxNextPhoneAccessTests", "CmuxNextWorkspaceNamingTests"])
+        # CmuxNextChiefViews links CmuxNextUpdater, whose Settings > Updates page provider uses
+        # CmuxNextPages, which uses the sidebar.
+        self.assertEqual(result["swift_targets"].split(), ["CmuxNextAppTests", "CmuxNextChiefViewsTests", "CmuxNextKeepAwakeTests", "CmuxNextPhoneAccessTests", "CmuxNextWorkspaceNamingTests"])
         self.assertEqual(result["daemon"], "false")
 
     def test_daemon_client_sources_run_the_daemon_tier(self):
@@ -143,11 +145,12 @@ class PullRequestTiers(unittest.TestCase):
         # a bundle, the app that embeds them, and CmuxNextPhoneAccessTests,
         # CmuxNextMobileHostTests and CmuxNextHomeEngineTests (their targets depend on
         # CmuxNextAgentPane and CmuxNextPages) and CmuxNextAgentIntegrationsTests (its target
-        # depends on CmuxNextPages) are selected with it, and nothing else.
+        # depends on CmuxNextPages) and CmuxNextChiefViewsTests (its target links CmuxNextUpdater,
+        # which depends on CmuxNextPages) are selected with it, and nothing else.
         result = tiers(["schemas/settings/settings-schema.json"])
         self.assertEqual(result["swift_targets"].split(), sorted([
             "CmuxNextSettingsTests", "CmuxNextAppTests", "CmuxNextAgentPaneTests", "CmuxNextPagesTests", "CmuxNextPaletteTests",
-            "CmuxNextPhoneAccessTests", "CmuxNextMobileHostTests", "CmuxNextHomeEngineTests",
+            "CmuxNextPhoneAccessTests", "CmuxNextMobileHostTests", "CmuxNextHomeEngineTests", "CmuxNextChiefViewsTests",
             # The graph is bot-only (#21946): the new target joins it with the base autofix after the merge.
             *(["CmuxNextAgentIntegrationsTests"] if "CmuxNextAgentIntegrationsTests" in GRAPH["targets"] else []),
         ]))
