@@ -112,6 +112,8 @@ final class FocusEffectApplier: FocusEffectApplying {
             }
         case .agentPage(let pane, let tab):
             guard case .agent(let view)? = presented(pane: pane, tab: tab) else { return }
+            // An agent page in Chromium shows in a child window: it takes the keys like a Chromium page.
+            if let page = TabContent.agent(view).childWindowTab { return focusPage(page, in: window) }
             blurChildWindowPage()
             if !responder(of: window, isInside: view) { window.makeFirstResponder(view.webView) }
         case .page(let pane, let tab):
@@ -236,6 +238,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         switch controller.focus.state.resolved {
         case .browserPage, .devTools, .overlay: return
         case .page(let pane, let tab) where presented(pane: pane, tab: tab)?.childWindowTab != nil: return
+        case .agentPage(let pane, let tab) where presented(pane: pane, tab: tab)?.childWindowTab != nil: return
         default: reclaimKeyFromPageWindow()
         }
     }

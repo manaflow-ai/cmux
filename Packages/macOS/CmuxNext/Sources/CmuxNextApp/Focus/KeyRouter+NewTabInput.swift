@@ -118,6 +118,8 @@ final class NewTabInputCoordinator {
                 focusedAtOpening = nil
                 focus.send(.focusPane(pane.paneKey, source: .programmatic))
             }
+            // A Chromium page takes the keys in its own window (a child of this one).
+            if view.chromiumPage != nil { return view.focusPage() }
             return window.makeFirstResponder(view.webView)
         }, deliver: deliver(in: window))
         let entry = Entry(buffer: buffer, limit: holdLimit, opened: pane.currentTabKey, pane: pane, window: window)
@@ -145,6 +147,7 @@ final class NewTabInputCoordinator {
             // A Chromium page window or the old window may be key: the page's window takes it.
             if !shown.isKeyWindow, NSApp.isActive { shown.makeKey() }
             target.pageWindow = shown
+            if view.chromiumPage != nil { return view.focusPage() }
             return shown.makeFirstResponder(view.webView)
         }, deliver: { [weak router, weak window] event in
             // Ready: the page's window. Not ready (the limit, a failed creation): the key window.
@@ -218,11 +221,28 @@ final class NewTabInputCoordinator {
     static func replay(_ event: NSEvent, held: NSEvent, in window: NSWindow, router: KeyRouter) {
         router.dispatchingSynthetic(event) {
             guard !router.interceptKeyDown(event, in: window) else { return }
+            // A page in Chromium has the keys in its own window, a child of this one.
+            if let page = NSApp.keyWindow, page !== window, page.parent === window {
+                Self.chromiumAgentPane(under: page, in: window)?.judge(held, eventWindow: page)
+                return page.sendEvent(event)
+            }
             var view = window.firstResponder as? NSView
             while let current = view, !(current is AgentPaneView) { view = current.superview }
             (view as? AgentPaneView)?.judge(held, eventWindow: window)
             window.sendEvent(event)
         }
+    }
+
+    /// The agent pane in `window` whose Chromium page shows in `page` (its child window).
+    private static func chromiumAgentPane(under page: NSWindow, in window: NSWindow) -> AgentPaneView? {
+        let center = CGPoint(x: page.frame.midX, y: page.frame.midY)
+        var stack: [NSView] = window.contentView.map { [$0] } ?? []
+        while let view = stack.popLast() {
+            if let pane = view as? AgentPaneView, let content = pane.chromiumPage?.contentView, let host = content.window,
+               host.convertToScreen(content.convert(content.bounds, to: nil)).contains(center) { return pane }
+            stack.append(contentsOf: view.subviews)
+        }
+        return nil
     }
 
     private func install(_ entry: Entry, in window: NSWindow) {

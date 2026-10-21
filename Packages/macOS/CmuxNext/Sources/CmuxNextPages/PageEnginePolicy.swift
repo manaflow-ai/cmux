@@ -4,9 +4,9 @@ public import Foundation
 /// Picks the engine of a cmux page: the one rule behind every web view the page host makes.
 ///
 /// `browser.defaultEngine` (Chromium unless set to WebKit) is the one setting for browser tabs
-/// and cmux's own pages. A page follows it unless the page cannot run in Chromium yet
-/// (``PageWebKitReason``), and Chromium must be available. Pure: the inputs are values, so tests
-/// enumerate every case.
+/// and cmux's own pages. A page follows it unless its options keep it on WebKit
+/// (``PageEngineOptions/requiresWebKit``, with a ``PageWebKitReason``), and Chromium must be
+/// available. Pure: the inputs are values, so tests enumerate every case.
 ///
 /// ```swift
 /// let decision = PageEnginePolicy(preference: .chromium, chromiumAvailable: true)
@@ -40,20 +40,9 @@ public nonisolated struct PageEnginePolicy: Sendable, Hashable {
     /// - Returns: Chromium, or WebKit with the reason.
     public func decide(for page: PageDescriptor, options: PageEngineOptions) -> PageEngineDecision {
         guard preference == .chromium else { return .webKit(.personChoseWebKit) }
-        if let reason = page.chromiumBlocker ?? options.requiresWebKit { return .webKit(reason) }
+        if let reason = options.requiresWebKit { return .webKit(reason) }
         guard chromiumAvailable else { return .webKit(.chromiumUnavailable) }
         guard chromiumServes else { return .webKit(.notServedByChromium) }
         return .chromium
     }
-}
-
-nonisolated extension PageDescriptor {
-    /// Why this page cannot run in Chromium yet, nil when it can (``PageEnginePolicy``).
-    public var chromiumBlocker: PageWebKitReason? {
-        if id == Self.agentPageID { return .agentChat }
-        return nil
-    }
-
-    /// The agent page's id (its descriptor lives in CmuxNextAgentPane, above this module).
-    private static let agentPageID = "cmux.agent"
 }
