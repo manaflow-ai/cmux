@@ -114,7 +114,7 @@ final class SidebarResizeHandle: NSView {
     private func updateLine() {
         let target: Float = isLineVisible ? 1 : 0
         guard line.opacity != target else { return }
-        Motion.set(line, "opacity", to: target, fade: .hover)
+        Motion.sidebar.set(line, "opacity", to: target, fade: .hover)
     }
 
     /// A press here resizes the sidebar, also in the titlebar band: it never moves the window

@@ -87,8 +87,11 @@ extension SidebarListViewComponents {
         // Group members start right of their group's line (`SidebarStyle.groupGutter`).
         // A block's region draws its own insets, as the band did.
         if case .block = row.key { return NSRect(x: 0, y: row.y, width: bounds.width, height: row.height) }
+        // One gutter per group level (`SidebarRow.depth`): a nested group's header and members move in
+        // with it (remote-groups-DESIGN.md slice 2).
         let gutter: CGFloat = switch row.key {
-        case .workspace, .tab, .item: row.group == nil ? 0 : SidebarStyle.groupGutter
+        case .workspace, .tab, .item: row.group == nil ? 0 : SidebarStyle.groupGutter * CGFloat(max(1, row.depth))
+        case .group: SidebarStyle.groupGutter * CGFloat(row.depth)
         default: 0
         }
         return NSRect(x: inset + gutter, y: row.y, width: max(0, bounds.width - inset * 2 - gutter), height: row.height)
@@ -116,12 +119,12 @@ extension SidebarListViewComponents {
         let adopting = springsRows && !old.rows.isEmpty
         // A new workspace row (Cmd-N, a script, another client) opens only with ui.animations.newWorkspace on (hq-1d).
         let insertsWorkspace = layout.rows.contains { if case .workspace = $0.key { old.row(for: $0.key) == nil } else { false } }
-        let animate = !adopting && animated && !old.rows.isEmpty && (!insertsWorkspace || Motion.animates(.newWorkspace))
+        let animate = !adopting && animated && !old.rows.isEmpty && (!insertsWorkspace || Motion.sidebar.animates(.newWorkspace))
         // New rows open from their run's top, so only the rows below move; a row still opening
         // that the next update moves (appended, then placed below) opens again there, in a new view:
         // the old one's retargeted spring would carry its stale open on through the rows (cx-ai79).
         let now = CACurrentMediaTime()
-        openingRows = openingRows.filter { now - $0.value < Motion.spring(.move).settlingTime() }
+        openingRows = openingRows.filter { now - $0.value < Motion.sidebar.spring(.move).settlingTime() }
         let reopened = animate ? Set(layout.rows.filter { openingRows[$0.key] != nil && old.row(for: $0.key)?.y != $0.y }.map(\.key)) : []
         for row in layout.rows where animate && (old.row(for: row.key) == nil || reopened.contains(row.key)) { openingRows[row.key] = now } // only animated applies open rows (hq-1d)
         let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
@@ -263,6 +266,8 @@ extension SidebarListViewComponents {
     func fitToClip() {
         guard let clip = enclosingScrollView?.contentView else { return }
         if frame.width != clip.bounds.width { setFrameSize(NSSize(width: clip.bounds.width, height: frame.height)) }
+        // The pool parks two realization rects of rows: a space switch's leaving and returning pages.
+        rowPool.limit = SidebarRowViewPool.limit(forHeight: realizationRect().height, rowHeight: metrics.rowHeight)
         updateDocumentHeight()
         realizeVisibleRows()
     }
@@ -307,7 +312,7 @@ extension SidebarListViewComponents {
         updateHover()
     }
     func pruneOffscreen() {
-        let keepRect = realizationRect().insetBy(dx: 0, dy: -SidebarStyle.overscan)
+        let keepRect = realizationRect().insetBy(dx: 0, dy: -SidebarStyle.pruneMargin)
         // Only realized rows can be pruned: visit those, not every row.
         for (key, view) in rowViews {
             guard let row = displayed.row(for: key), !frame(for: row).intersects(keepRect),

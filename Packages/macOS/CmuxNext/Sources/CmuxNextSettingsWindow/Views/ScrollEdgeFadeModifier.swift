@@ -42,7 +42,7 @@ struct ScrollEdgeFadeModifier: ViewModifier {
                     )
                 } action: { _, new in
                     // motion-allow: the curve and duration come from Motion.animation(.hover)
-                    withAnimation(Motion.animation(.hover)) { edges = new }
+                    withAnimation(Motion.feedback.animation(.hover)) { edges = new }
                 }
         } else {
             content

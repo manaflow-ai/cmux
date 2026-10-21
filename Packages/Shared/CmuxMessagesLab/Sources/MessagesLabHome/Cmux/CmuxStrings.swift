@@ -26,10 +26,52 @@ enum CmuxStrings {
         String(localized: "home.turn.under1s", defaultValue: "<1s", table: "CmuxHome", bundle: .module)
     }
 
+    // MARK: The running indicator's folded steps (HomeTurnProgress); the agent chat's words
+
+    static func turnRanCommands(_ n: Int) -> String {
+        String(localized: "home.turn.ranCommands", defaultValue: "Ran \(n) commands", table: "CmuxHome", bundle: .module)
+    }
+    static func turnReadFiles(_ n: Int) -> String {
+        String(localized: "home.turn.readFiles", defaultValue: "Read \(n) files", table: "CmuxHome", bundle: .module)
+    }
+    static func turnEditedFiles(_ n: Int) -> String {
+        String(localized: "home.turn.editedFiles", defaultValue: "Edited \(n) files", table: "CmuxHome", bundle: .module)
+    }
+    static func turnRanSearches(_ n: Int) -> String {
+        String(localized: "home.turn.ranSearches", defaultValue: "Ran \(n) searches", table: "CmuxHome", bundle: .module)
+    }
+    /// Finished steps of other kinds, alone in the row.
+    static func turnSteps(_ n: Int) -> String {
+        String(localized: "home.turn.steps", defaultValue: "\(n) steps", table: "CmuxHome", bundle: .module)
+    }
+    /// Finished steps of other kinds, after a folded kind ("Ran 3 commands · 2 more steps").
+    static func turnMoreSteps(_ n: Int) -> String {
+        String(localized: "home.turn.moreSteps", defaultValue: "\(n) more steps", table: "CmuxHome", bundle: .module)
+    }
+
     /// The message menu's permalink item (tree threads, cx-och3h).
     /// The remove button on an attachment in the message box (its help and accessibility label).
     static var removeAttachment: String {
         String(localized: "home.compose.removeAttachment", defaultValue: "Remove Attachment", table: "CmuxHome", bundle: .module)
+    }
+    /// The compose field's send button (its help and accessibility label).
+    static var send: String {
+        String(localized: "home.compose.send", defaultValue: "Send", table: "CmuxHome", bundle: .module)
+    }
+    /// Reply to Selection (ChatController+ReplyQuote.swift): the menu item, the card's line and its remove button.
+    static var replyToSelection: String {
+        String(localized: "home.message.replyToSelection", defaultValue: "Reply to Selection", table: "CmuxHome", bundle: .module)
+    }
+    /// The card's line over the quote: "Replying to Chief".
+    static func replyingTo(_ name: String) -> String {
+        String(format: String(localized: "home.replyQuote.replyingTo", defaultValue: "Replying to %@", table: "CmuxHome", bundle: .module), name)
+    }
+    /// The card's line when the quoted message's sender is unknown.
+    static var replyingToSelection: String {
+        String(localized: "home.replyQuote.replyingToSelection", defaultValue: "Replying to Selection", table: "CmuxHome", bundle: .module)
+    }
+    static var replyQuoteRemove: String {
+        String(localized: "home.replyQuote.remove", defaultValue: "Remove Quote", table: "CmuxHome", bundle: .module)
     }
     static var copyLink: String {
         String(localized: "home.message.copyLink", defaultValue: "Copy Link", table: "CmuxHome", bundle: .module)
@@ -71,6 +113,11 @@ enum CmuxStrings {
     /// The context menu item on my "Not Delivered" message that sends it again.
     static var tryAgain: String {
         String(localized: "home.menu.tryAgain", defaultValue: "Try Again", table: "CmuxHome", bundle: .module)
+    }
+
+    /// The context menu item that sends a bubble's text to another chat or agent.
+    static var forward: String {
+        String(localized: "home.menu.forward", defaultValue: "Forward…", table: "CmuxHome", bundle: .module)
     }
 
     /// The context menu item on my "Not Delivered" message that drops it.

@@ -5,12 +5,16 @@
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserDownloadsMenu.swift
 3 Packages/macOS/CmuxNext/Sources/CmuxNextApp/MainMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/Panel/NotificationsPanelController.swift
+# 2026-10-20 (base red): was an NSMenuItem subclass the check could not see; f408f10cb16c made it a target object. Markdown Share rows have no registered action yet.
+1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/MarkdownShare/MarkdownMenuAction.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneToolbar.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/SidebarToggleIconMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/StatusIconSetMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/TitlebarHistoryMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkFolderMenu.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFDevToolsDivider.swift
+# 2026-10-20 (base red): the address field's display rows (Always Show Full URLs, Manage Search Engines) from e1dafcb90aa2 have no registered action yet.
+2 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/AddressBarView+Display.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/AddressField.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserChromeView+BackForwardMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserDeviceMenu.swift
@@ -18,6 +22,8 @@
 1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/BrowserToolbarButtonsView.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/ExtensionsMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid/FileGridView.swift
+# 2026-10-20 (base red): one row builder for every file row; was an NSMenuItem subclass the check could not see until d2af2d78b672 made it a target object. File rows have no file-target registered action yet.
+1 Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/FileActionsMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/FileSidebarView.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefSettingsView.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomePageMenus.swift

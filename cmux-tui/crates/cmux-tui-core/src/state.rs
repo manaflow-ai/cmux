@@ -76,6 +76,8 @@ pub(crate) mod palette_usage_ops;
 #[cfg(test)]
 mod palette_usage_protocol_tests;
 pub(crate) mod palette_usage_store;
+#[cfg(test)]
+mod persistent_ids_tests;
 pub(crate) mod personal;
 pub(crate) mod personal_order;
 pub(crate) mod personal_state_store;

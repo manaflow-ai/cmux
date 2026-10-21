@@ -17,7 +17,9 @@ use crate::mux::Mux;
 use crate::resource::{MachinePublicId, ResourceError, SessionPublicId};
 
 pub(super) const CAPABILITY: &str = "agent-cli-update-job-v1";
+pub(super) const RESOLVE_CAPABILITY: &str = "agent-cli-update-job-resolve-v1";
 const COMMAND: &str = "agent-cli-update-job";
+const RESOLVE_COMMAND: &str = "agent-cli-update-job-resolve";
 const TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Deserialize)]
@@ -77,9 +79,11 @@ pub(super) fn try_handle(
     let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(message) else {
         return None;
     };
-    if fields.remove("cmd").as_ref().and_then(Value::as_str) != Some(COMMAND) {
-        return None;
-    }
+    let resolve = match fields.remove("cmd").as_ref().and_then(Value::as_str) {
+        Some(COMMAND) => false,
+        Some(RESOLVE_COMMAND) => true,
+        _ => return None,
+    };
     let id = fields.remove("id");
     // Same-uid Unix alone is insufficient. Require the proved main app and
     // no terminal/agent binding, before parsing owner/CLI/key or any work.
@@ -119,6 +123,9 @@ pub(super) fn try_handle(
         Ok(mutation) => mutation,
         Err(_) => return Some(reply(writer, id, Err(Failure::BadRequest.into()))),
     };
+    if resolve {
+        return Some(reply(writer, id, mux.resolve_agent_cli_update_job(&params.cli, &mutation)));
+    }
     let slot = match agent_inventory::reserve(mux) {
         Ok(slot) => slot,
         Err(_) => return Some(reply(writer, id, Err(Failure::Busy.into()))),

@@ -320,6 +320,7 @@
     "search_app.clear_recent",
     "search_app.cycle_variant",
     "search_app.search",
+    "server.network.confirm",
     "session.get",
     "session.journal.append",
     "session.journal.checkpoint.create",

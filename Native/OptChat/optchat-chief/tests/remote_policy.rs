@@ -1,10 +1,12 @@
-//! The remote-origin turn policy (README "Remote-origin messages"): a turn
-//! that a paired device's message started runs with acpmux policy `ask`, so
-//! every local effect waits for an approval shown in the Chief chat; the
-//! memory tools and plain replies need none. Approvals record the approving
-//! device in the trace. `remote.autoApprove` (default false) can be turned on
-//! only outside a remote-origin turn. A turn keeps the strictest policy of
-//! its origins until it ends.
+//! The remote-origin turn policy (README "Remote-origin messages") with the
+//! gate turned on (`remote.ask`, "Ask before acting on requests from other
+//! devices"; default off, tests/approval_gates.rs): a turn that a paired
+//! device's message started runs with acpmux policy `ask`, so every local
+//! effect waits for an approval card in the Chief chat; the memory tools,
+//! the Chief's own tools and plain replies need none. Approvals record the
+//! approving device in the trace. `remote.autoApprove` can be turned on only
+//! outside a remote-origin turn. A turn keeps the strictest policy of its
+//! origins until it ends.
 
 mod common;
 
@@ -35,13 +37,14 @@ fn paired() -> Summary {
     s
 }
 
-/// A Chief with approvals turned on from the Mac (`remote.autoApprove`
-/// false): remote-origin turns ask, and the spawn floor applies.
+/// A Chief with approvals turned on from the Mac (`remote.ask` true,
+/// `remote.autoApprove` false): remote-origin turns ask, and the spawn
+/// floor applies.
 fn harness(script: Script) -> Harness {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("settings.json"),
-        r#"{"remote": {"autoApprove": false}}"#,
+        r#"{"remote": {"autoApprove": false, "ask": true}}"#,
     )
     .unwrap();
     harness_in(dir, script)
@@ -163,13 +166,37 @@ fn permission_of(session: &str, id: &str, tool: &str, input: Value) -> Input {
     })
 }
 
+/// What the Chief posted, as text: a reply's text, an approval card's
+/// line, reason and buttons.
 fn sends(h: &Harness) -> Vec<String> {
     h.owner
         .lock()
         .unwrap()
-        .sends()
-        .into_iter()
-        .map(|(_, text)| text)
+        .ops
+        .iter()
+        .filter_map(|(_, op)| match op {
+            cmux_conversation::Op::MessageSend { parts, .. } => match &parts[0] {
+                Part::Text { text, .. } => Some(text.clone()),
+                Part::Question(q) => Some(
+                    q.items
+                        .iter()
+                        .map(|i| {
+                            let options: Vec<String> = i
+                                .options
+                                .iter()
+                                .map(|o| {
+                                    format!("{} {}", o.label, o.detail.clone().unwrap_or_default())
+                                })
+                                .collect();
+                            format!("{} {}", i.prompt, options.join(" "))
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                ),
+                _ => None,
+            },
+            _ => None,
+        })
         .collect()
 }
 
@@ -242,7 +269,7 @@ fn a_non_owner_turn_asks_and_only_the_owner_may_approve_it() {
 }
 
 #[test]
-fn ambient_home_terminal_text_makes_the_turn_ask() {
+fn with_home_ask_on_ambient_home_text_makes_the_turn_ask() {
     use std::collections::BTreeMap;
     use std::os::unix::fs::PermissionsExt;
 
@@ -273,6 +300,12 @@ fn ambient_home_terminal_text_makes_the_turn_ask() {
     )
     .unwrap();
     std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // The Home gate is on ("Ask before acting on what Home shows").
+    std::fs::write(
+        dir.path().join("settings.json"),
+        r#"{"home": {"ask": true}}"#,
+    )
+    .unwrap();
     let owner = Arc::new(std::sync::Mutex::new(Owner {
         summary: Some(paired()),
         ..Owner::default()
@@ -328,13 +361,9 @@ fn a_remote_turn_cannot_run_a_shell_without_an_approval() {
     }
     let asked = sends(&h);
     assert_eq!(asked.len(), 1, "{asked:?}");
+    assert!(asked[0].contains("rm -rf target"), "{}", asked[0]);
     assert!(
-        asked[0].contains("Bash") && asked[0].contains("rm -rf target"),
-        "{}",
-        asked[0]
-    );
-    assert!(
-        asked[0].contains("allow") && asked[0].contains("deny"),
+        asked[0].contains("Allow once") && asked[0].contains("Deny"),
         "{}",
         asked[0]
     );
@@ -612,15 +641,18 @@ fn a_subagent_spawned_during_a_remote_turn_asks_too() {
 }
 
 #[test]
-fn by_default_a_remote_turn_asks_and_keeps_the_spawn_floor() {
+fn by_default_a_remote_turn_runs_like_a_local_one_without_the_spawn_floor() {
     let mut h = harness_default(started());
     h.agents.hold(true);
     deliver(&mut h, true, "clean up the build directory");
     h.step();
     h.agents.wait_prompts(1);
     wait_session(&mut h);
-    assert_eq!(h.agents.inner.lock().unwrap().specs[0].policy, "ask");
-    assert_eq!(h.brain.spawn_policy(), Some("ask"));
+    assert_eq!(
+        h.agents.inner.lock().unwrap().specs[0].policy,
+        "approve-all"
+    );
+    assert_eq!(h.brain.spawn_policy(), None);
     h.agents.hold(false);
     h.agents.release();
     h.settle();

@@ -44,7 +44,11 @@ struct CnxApp: App {
             RootView(auth: auth, store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: []))
             #endif
             }
-            .modifier(ChiefCallCover(controller: ChiefVoice.controller, scenePhase: scenePhase))
+            .modifier(ChiefCallCover(
+                controller: ChiefVoice.controller,
+                scenePhase: scenePhase,
+                accountID: auth.isSignedIn ? auth.user?.id : nil
+            ))
         }
     }
 }
@@ -53,6 +57,7 @@ struct CnxApp: App {
 private struct ChiefCallCover: ViewModifier {
     let controller: ChiefVoiceController
     let scenePhase: ScenePhase
+    let accountID: String?
 
     func body(content: Content) -> some View {
         content
@@ -65,6 +70,9 @@ private struct ChiefCallCover: ViewModifier {
             .onChange(of: scenePhase, initial: true) { _, phase in
                 // Notes an earlier call saved go out when the app comes back.
                 if phase == .active { Task { await controller.drainOutbox() } }
+            }
+            .task(id: accountID) {
+                await controller.selectAccount(accountID)
             }
     }
 }

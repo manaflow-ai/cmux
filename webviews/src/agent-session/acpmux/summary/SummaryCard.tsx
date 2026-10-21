@@ -112,6 +112,7 @@ export function SummaryCard({
     count("waiting") > 0 && t("summary.subagents.waiting", { n: count("waiting") }),
     count("running") > 0 && t("summary.subagents.running", { n: count("running") }),
     count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
+    count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
     count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
   ].filter(Boolean);
   const title = t("summary.open");
@@ -122,7 +123,7 @@ export function SummaryCard({
       <aside
         ref={panel}
         className="acpmux-summary-card"
-        // Focusable from script only: the last place closing the Subagents tab can leave focus.
+        // ui-allow: focusable from script only, the last place closing the Subagents tab can leave focus.
         tabIndex={-1}
         aria-label={title}
         data-placement={card.column ? "inline" : "popover"}

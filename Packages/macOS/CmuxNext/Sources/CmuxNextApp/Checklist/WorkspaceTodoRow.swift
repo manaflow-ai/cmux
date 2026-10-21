@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextDesign
 import SwiftUI
 
 /// One checklist item on the Todo page: its state mark (click toggles complete), its text
@@ -13,13 +14,14 @@ struct WorkspaceTodoRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Button { actions.toggle(item.id) } label: {
                 Image(systemName: Self.symbol(item.state))
-                    .foregroundStyle(item.state == .done ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(item.state == .done ? Color(nsColor: Palette.accent) : Color.secondary)
             }
             .buttonStyle(.plain)
             .help(WorkspaceChecklistStrings.toggle)
             if isEditing {
                 TextField(WorkspaceChecklistStrings.addPlaceholder, text: $text)
                     .textFieldStyle(.plain)
+                    .focusEffectDisabled()
                     .onAppear { text = item.text }
                     .onSubmit { actions.commitEdit(item.id, text) }
                     .onExitCommand { actions.cancelEdit() }

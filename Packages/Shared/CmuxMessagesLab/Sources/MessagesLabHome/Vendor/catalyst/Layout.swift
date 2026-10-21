@@ -113,6 +113,8 @@ struct TextLayout: Hashable {
                 case "italic": traits.insert(.traitItalic)
                 case "underline": a.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
                 case "strikethrough": a.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+                // cmux: a quoted excerpt (Reply to Selection, a Markdown `>` line) in the text's own colour at 66 %.
+                case "quote": a.addAttribute(.foregroundColor, value: color.withAlphaComponent(color.alphaComponent * 0.66), range: range)
                 default: break
                 }
             }
@@ -1131,7 +1133,8 @@ enum RowBuilder {
         // centered): the Chief's "working on" line reads as a caption of the bubble it heads (RowDraw `.notice`
         // draws it at the bubble's left edge). Same gap and height as upstream's.
         if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
-            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: 16))
+            // cmux: one caption row per line (the running indicator's folded steps, narration and step: HomeNoticeRows).
+            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: HomeNoticeRows.height(notice)))
         }
         if !threadMode, span.upperBound == messages.count, s.atNewest, typists {
             rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))

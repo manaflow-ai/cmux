@@ -11,7 +11,10 @@
 //!    Claude Code's settings.json `model` (a `[1m]` variant suffix dropped),
 //!    when the catalog lists that model (an alias names its id); the effort
 //!    when it fits the running model and the config names no model or one the
-//!    catalog lists. The file is read only when the saved default leaves a
+//!    catalog lists. Codex runs the model its config.toml names even when the
+//!    catalog does not list it (a provider's own model, or one newer than the
+//!    snapshot), with the config's effort, as raw `codex` does (user
+//!    2026-10-20). The file is read only when the saved default leaves a
 //!    value open;
 //! 3. the curated catalog's `defaultModel` for the harness and that model's
 //!    `defaultEffort` (Claude Code: Opus 5.5, Codex: GPT-6.1 Sol, both
@@ -280,6 +283,10 @@ impl Hub {
                     .find(|x| x.id == m || x.aliases.iter().flatten().any(|a| a == m))
             })
         };
+        // Codex: a config model the catalog does not list still runs (module docs).
+        let codex = crate::config::derive_family(agent, profile) == "codex";
+        let own_unlisted =
+            || own().model.clone().filter(|m| codex && !m.is_empty() && own_model().is_none());
         let start_model = match model {
             Some(_) => None,
             None => saved
@@ -289,6 +296,9 @@ impl Hub {
                 .or_else(|| {
                     own_model()
                         .map(|m| StartValue { value: m.id.clone(), source: StartSource::Harness })
+                })
+                .or_else(|| {
+                    own_unlisted().map(|value| StartValue { value, source: StartSource::Harness })
                 })
                 .or_else(|| {
                     curated
@@ -315,10 +325,12 @@ impl Hub {
                 // in the config is taken; one paired with a model the catalog refused was
                 // chosen for that model, not the catalog default, and is not.
                 let paired = own().model.is_none() || own_model().is_some();
+                // The config's own unlisted model runs with the config's effort as it is.
+                let own_runs = own_unlisted().is_some_and(|m| runs == Some(m.as_str()));
                 own()
                     .effort
                     .clone()
-                    .filter(|e| paired && fits(e))
+                    .filter(|e| own_runs || (paired && fits(e)))
                     .map(|value| StartValue { value, source: StartSource::Harness })
             })
             .or_else(|| {

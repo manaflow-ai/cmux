@@ -116,6 +116,9 @@ public struct DaemonCapabilities: Sendable {
     /// is kept: `keep` on creation, `set-terminal-keep`, and
     /// `shutdown-daemon end_terminals` (cmux-tui PR 15600).
     public let terminalReap = "terminal-reap-v1"
+    /// `terminal-resume-command`: a person's resume command for one terminal,
+    /// typed on the new prompt when the daemon respawns it.
+    public let resumeCommand = "resume-command"
     /// The owner's reaper runs now (started with a reap grace, as the app
     /// starts it), so a detached terminal ends after the grace period. An
     /// owner started without a grace does not serve it.
@@ -214,6 +217,9 @@ public struct DaemonCapabilities: Sendable {
     /// directory and ends the keep (an exit closes the tab again, no relaunch
     /// on the next connect): the only way kept tabs restart (Unix daemons).
     public let tabRestartKeptLayout = "tab-restart-kept-layout-v1"
+    /// `park-tabs`: terminal tabs keep their place while their shells end,
+    /// as keep-layout tabs; `restart-tab` starts each again (Unix daemons).
+    public let tabPark = "tab-park-v1"
     /// `create-terminal {detached: true}`: a kept terminal with no tab.
     public let detachedTerminals = "detached-terminals-v1"
     /// Personal state kept only on the home (local) session
@@ -395,6 +401,9 @@ public struct DaemonCapabilities: Sendable {
     /// `move-tab-to-split` `keep_focus`: the new pane does not take focus (a
     /// pane the app opens for a subagent while the user types in the chat).
     public let tabSplitKeepFocus = "tab-split-keep-focus-v1"
+    /// `workspace.create` `focus`: a created workspace becomes the focused
+    /// one only when asked (the app asks for the person's creations).
+    public let workspaceCreateFocus = "workspace-create-focus-v1"
     /// Additive shapes the app asks for through `set-client-info`: view
     /// identity on attach, creation receipts, caller-chosen creation attempt
     /// keys, and per-terminal color overrides.
@@ -433,6 +442,8 @@ public struct DaemonCapabilities: Sendable {
     public let agentCLIAppInvalidation = "agent-cli-app-invalidation-v1"
     /// Admission receipts on the agent inventory watch (`DaemonReadyConnection`).
     public let agentInventoryWatchAdmission = "agent-inventory-watch-admission-v1"
+    /// Stash, a native OneTab (`stash.*`; `StateResourceClient+Stash.swift`).
+    public let stash = "stash-v1"
 
     /// Capabilities the bundled daemon must serve. The bundled cmux-tui is
     /// built from this checkout's own cmux-tui tree
@@ -442,18 +453,18 @@ public struct DaemonCapabilities: Sendable {
     /// with `DaemonIdentity.supports`, for remote and older daemons.
     public var optional: [String] { [workspaceGroups, workspaceMetadata, workspaceNameSource, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, frontendBrowserTabKeys, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles, personalRemoteLocalhost,
+                                            terminalReap, resumeCommand, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, frontendBrowserTabKeys, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles, personalRemoteLocalhost,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, workspaceChecklist, notificationMarkUnread, tabMarkUnread, workspaceDescription, workspaceStatus,
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, pinnedDock, pinnedDockAlone, rows, columnMove, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
-                                            sessionIdentity, localConversations, conversationDraftEvents, chiefLive, cloudChiefLive, conversationRuns, cloudConversationRuns, cloudConversationTyping, tabSplitRespawn, tabSplitKeepFocus, frontendBrowserHistory, frontendBrowserTabProfile,
+                                            sessionIdentity, localConversations, conversationDraftEvents, chiefLive, cloudChiefLive, conversationRuns, cloudConversationRuns, cloudConversationTyping, tabSplitRespawn, tabSplitKeepFocus, workspaceCreateFocus, frontendBrowserHistory, frontendBrowserTabProfile,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, conversationInboxState, homeInbox, chiefEvents, cloudConversations, cloudHostReplica, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, splitClientSplitID, conversationTabSplit, terminalInputWhileCreating,
-                                            workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart, tabRestartKeptLayout,
+                                            workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart, tabRestartKeptLayout, tabPark,
                                             originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview, sharedSizing,
-                                            machineIdentity, agentCLIAppProvider, agentCLIAppInvalidation, agentInventoryWatchAdmission, sendExpectForeground] }
+                                            machineIdentity, agentCLIAppProvider, agentCLIAppInvalidation, agentInventoryWatchAdmission, sendExpectForeground, stash] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

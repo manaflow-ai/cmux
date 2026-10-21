@@ -1,6 +1,6 @@
 //! `cmux-rd`: the Linux remote desktop host engine (phase 1, virtual X display) and its
 //! measurement tools. Subcommands:
-//!   host     [--browser URL [--browser-bin google-chrome]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--max-fps 60] [--codec openh264|x264] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
+//!   host     [--browser URL [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--max-fps 60] [--codec openh264|x264] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
 //!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--input key|click|scroll] [--samples 300] [--user USER] [--upstream mic|camera|screen]
 //!   testapp  --display :99 --workload marker|text|motion|idle
 //!   encode-selftest --codec videotoolbox|x264|openh264 --workload marker|text [--width 1920 --height 1080 --frames 300]

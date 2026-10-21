@@ -15,6 +15,8 @@ import {
   parseNativeStackTokens,
   unauthorized,
   verifyRequest,
+  verifyRequestFromSnapshot,
+  vmMembershipSnapshotMaxAgeMs,
   type AuthedUser,
 } from "./auth";
 import {
@@ -190,7 +192,14 @@ export async function withAuthedVmApiRoute(
         const authStart = performance.now();
         let user: AuthedUser | null;
         try {
-          user = await verifyRequest(request, { requestedTeamId: requestedVmTeamIdFromRequest(request) });
+          user = await verifyRequestFromSnapshot(request, {
+            requestedTeamId: requestedVmTeamIdFromRequest(request),
+            allowCookie: true,
+            // Keep the prior missed-webhook bound, but make a delivered
+            // revocation immediate across every instance through the shared
+            // snapshot row the webhook deletes.
+            maxSnapshotAgeMs: vmMembershipSnapshotMaxAgeMs(),
+          });
         } catch (error) {
           return finalize(authProviderErrorResponse(error, `${route}.auth`));
         }
@@ -497,7 +506,16 @@ export async function reverifyVmRequestForTeam(input: {
   if (!requestedBillingTeamId || input.user.teamIds.includes(requestedBillingTeamId)) {
     return { ok: true, user: input.user };
   }
-  const run = () => verifyRequest(input.request, { requestedTeamId: requestedBillingTeamId });
+  // VM route authentication supplies a complete shared membership snapshot.
+  // A body team absent from it is not a member; preserve that complete list so
+  // the account-scope resolver returns its typed 403 without a second Stack
+  // call an attacker could amplify. Older/partial callers still refresh.
+  if (input.user.completeTeamList === true) return { ok: true, user: input.user };
+  const run = () => verifyRequest(input.request, {
+    requestedTeamId: requestedBillingTeamId,
+    requireFreshTeamMembership: true,
+    forceCompleteTeamList: true,
+  });
   let refreshedUser: AuthedUser | null;
   try {
     refreshedUser = input.measure ? await input.measure(run) : await run();

@@ -82,17 +82,21 @@ public struct SidebarMapping {
                     return rowSource.map { $0(workspace, machine.id, make) } ?? make()
                 }
             if let group = section.group {
-                nodes.append(.group(SidebarGroup(
+                var made = SidebarGroup(
                     id: GroupID(group.id.rawValue),
                     name: group.name,
-                    color: color(group.color) ?? .grey,
+                    // No stored color (a group an agent or the CLI made): a stable palette color, not grey.
+                    color: color(group.color) ?? .unset(id: group.id.rawValue),
                     // A custom `#RRGGBB` (cx-25az) draws instead of the token.
                     custom: group.color.flatMap { $0.hasPrefix("#") ? GroupTint(wire: $0)?.wire : nil },
                     isCollapsed: group.collapsed || collapsedGroups.contains(group.id.rawValue),
                     isPinned: group.pinned,
                     icon: group.icon.flatMap { groupImage($0).map(WorkspaceIcon.favicon) ?? WorkspaceIcon.parse($0) },
                     workspaces: rows
-                )))
+                )
+                made.parent = group.parent.map { GroupID($0.rawValue) }
+                made.depth = group.depth
+                nodes.append(.group(made))
             } else {
                 nodes += rows.map(SidebarNode.workspace)
             }

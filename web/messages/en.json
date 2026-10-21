@@ -18,6 +18,7 @@
     "description": "Return to your terminal to finish setup."
   },
   "guestCLI": {
+    "useReasonSharedMachine": "required: this machine is shared with the team",
     "openURLUsage": "Usage: cmux open-url <http-or-https-url>",
     "openURLInvalid": "A valid HTTP or HTTPS URL is required.",
     "openURLFallback": "Open this URL: %s",

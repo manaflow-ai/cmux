@@ -21,6 +21,7 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showChatsPath = ["sidebar", "showChats"]
     public static let showSpacesPath = ["sidebar", "showSpaces"]
     public static let showProfileControlPath = ["sidebar", "showProfileControl"]
+    public static let showSearchButtonPath = ["sidebar", "showSearchButton"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
     public static let detailedStatusIconsPath = ["sidebar", "detailedStatusIcons"]
     public static let showTimestampsPath = ["sidebar", "showTimestamps"]
@@ -148,6 +149,13 @@ public nonisolated enum SidebarSectionsSetting {
                               title: SettingsText.keyed("settings.sidebar.showProfileControl", "Show Profile Button"),
                               kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showProfileControl),
                               keywords: ["sidebar", "profile", "account", "avatar", "footer", "hide", "show"]),
+            // The footer's Search button (plans/cmux-next/sidebar-search.md).
+            SettingDescriptor(showSearchButtonPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.showSearchButton", "Show Search Button"),
+                              help: SettingsText.keyed("settings.sidebar.showSearchButton.help",
+                                                       "A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette."),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showSearchButton),
+                              keywords: ["sidebar", "search", "find", "magnifying glass", "everything", "footer", "hide", "show"]),
         ]
     }
 
@@ -219,6 +227,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.showProjects = flag(root, showProjectsPath, fallback: result.showProjects, &diagnostics)
         result.showSpaces = flag(root, showSpacesPath, fallback: result.showSpaces, &diagnostics)
         result.showProfileControl = flag(root, showProfileControlPath, fallback: result.showProfileControl, &diagnostics)
+        result.showSearchButton = flag(root, showSearchButtonPath, fallback: result.showSearchButton, &diagnostics)
         result.minimal = flag(root, minimalPath, fallback: result.minimal, &diagnostics)
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: result.detailedStatusIcons, &diagnostics)
         result.showTimestamps = flag(root, showTimestampsPath, fallback: result.showTimestamps, &diagnostics)

@@ -25,6 +25,8 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     public static let sidebarItems = "sidebarItems"
     /// Every density: the built-ins, then the user's custom ones (the App lists them).
     public static let densities = "densities"
+    /// The Home conversations a message can go to (Send Message To…, Send to…; Chiefs first).
+    public static let homeRecipients = "homeRecipients"
     /// The names of this Mac's layout templates (New Workspace from Template's `template`).
     public static let layoutTemplates = "layoutTemplates"
     /// Backgrounds a pane may take (`pane.setBackground`): the bundled art, by title.

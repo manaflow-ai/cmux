@@ -7,8 +7,9 @@ extension SidebarViewComponents {
     /// Everything the list renders. Emitting a value type lets the list
     /// skip reloads when an unrelated model property changes.
     struct RenderState: Hashable, Sendable {
-        /// `SidebarModel.sectionsRevision`: a structural change, compared
-        /// instead of every row (a row content change patches its row).
+        /// `SidebarModel.structureRevision`: a structural change, compared
+        /// instead of every row (a row content change patches its row; a
+        /// group's fold splices its rows through `onGroupFolded`).
         var sectionsRevision: UInt64
         var selection: Set<WorkspaceID>
         var selected: SidebarItem?
@@ -30,7 +31,7 @@ extension SidebarViewComponents {
         var titlebarHeight: CGFloat
         var cards: SidebarBottomCards
         init(_ model: SidebarModel, _ design: DesignSettings) {
-            sectionsRevision = model.observedSectionsRevision
+            sectionsRevision = model.observedStructureRevision
             selection = model.selection
             selected = model.selectedItem
             profiles = model.profiles
@@ -115,6 +116,6 @@ extension SidebarViewComponents {
     }
     /// Whether a sections change animates its rows. Provisional rows swap in place.
     static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
-        !((old ?? []) + new).contains(where: \.hasProvisionalRows)
+        !new.contains(where: \.hasProvisionalRows) && !(old ?? []).contains(where: \.hasProvisionalRows)
     }
 }

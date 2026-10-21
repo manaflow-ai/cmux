@@ -19,7 +19,7 @@ extension NSView {
     func setHoverShown(_ view: NSView, _ shown: Bool, fades requested: Bool, token: MotionFade = .hover,
                        onHidden: (@MainActor () -> Void)? = nil) {
         // An instant token (Reduce Motion, animations off) shows or hides at once, not after a 0 s fade.
-        let fades = requested && Motion.duration(token) > 0
+        let fades = requested && Motion.sidebar.duration(token) > 0
         let appears = shown && view.isHidden
         if appears {
             view.alphaValue = fades ? 0 : 1
@@ -54,7 +54,7 @@ extension NSView {
     /// Reduce Motion. While it fades out it keeps `frame`'s place; `onHidden` runs once it is hidden.
     func setHoverSlotShown(_ slot: SidebarRevealSlotView, _ shown: Bool, frame: CGRect, fades requested: Bool,
                            token: MotionFade = .hoverReveal, onHidden: (@MainActor () -> Void)? = nil) {
-        let fades = requested && Motion.duration(token) > 0
+        let fades = requested && Motion.sidebar.duration(token) > 0
         let wasShown = !slot.isHidden && slot.alphaValue > 0
         let before = slot.layer.map { ($0.presentation() ?? $0).position }
         if shown || !wasShown { slot.frame = frame }
@@ -81,13 +81,13 @@ extension NSView {
         let collapsed = CGRect(x: full.width, y: 0, width: 0, height: full.height)
         let shift = CGPoint(x: layer.position.x + full.width, y: layer.position.y)
         if shown, !wasShown {
-            Motion.set(layer, "bounds", to: NSValue(rect: full), movementFade: token, from: NSValue(rect: collapsed))
-            Motion.set(layer, "position", to: NSValue(point: layer.position), movementFade: token, from: NSValue(point: shift))
+            Motion.sidebar.set(layer, "bounds", to: NSValue(rect: full), movementFade: token, from: NSValue(rect: collapsed))
+            Motion.sidebar.set(layer, "position", to: NSValue(point: layer.position), movementFade: token, from: NSValue(point: shift))
         } else if !shown, wasShown {
-            Motion.set(layer, "bounds", to: NSValue(rect: collapsed), movementFade: token, from: NSValue(rect: full))
-            Motion.set(layer, "position", to: NSValue(point: shift), movementFade: token, from: NSValue(point: layer.position))
+            Motion.sidebar.set(layer, "bounds", to: NSValue(rect: collapsed), movementFade: token, from: NSValue(rect: full))
+            Motion.sidebar.set(layer, "position", to: NSValue(point: shift), movementFade: token, from: NSValue(point: layer.position))
         } else if shown, let before, before != layer.position {
-            Motion.set(layer, "position", to: NSValue(point: layer.position), movementFade: token, from: NSValue(point: before))
+            Motion.sidebar.set(layer, "position", to: NSValue(point: layer.position), movementFade: token, from: NSValue(point: before))
         }
     }
 
@@ -99,6 +99,6 @@ extension NSView {
         view.alphaValue = alpha
         guard let layer = view.layer else { return }
         guard fades, let shown else { return layer.removeAnimation(forKey: "opacity") }
-        Motion.set(layer, "opacity", to: Float(alpha), fade: token, from: shown)
+        Motion.sidebar.set(layer, "opacity", to: Float(alpha), fade: token, from: shown)
     }
 }

@@ -9,8 +9,6 @@ nonisolated enum FeedStrings {
 
     static var title: String { t("feed.title", "Feed") }
     static var empty: String { t("feed.empty", "Nothing new") }
-    static var menubarEmpty: String { t("menubar.empty", "No open requests") }
-    static var openFeed: String { t("menubar.openFeed", "Open Feed") }
     static var markAllRead: String { t("feed.markAllRead", "Mark All Read") }
     static var github: String { t("feed.github", "GitHub") }
     static var addConnection: String { t("feed.addConnection", "Add connection") }
