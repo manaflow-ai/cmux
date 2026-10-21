@@ -11,6 +11,61 @@
       "note": "Automatic updates under General (R114): every step of checking, downloading and installing is a row; the defaults keep cmux current with no clicks beyond the one that relaunches.",
       "rows": [
         {
+          "key": "updates.channel",
+          "note": "Release ring inside the one cmux NEXT appcast: each choice allows its own sparkle:channel tag plus every slower one (stable < nightly < canary < dev). Design: cmuxterm-hq docs/release-rings.md.",
+          "title": {
+            "key": "settings.updates.channel",
+            "text": "Update Channel"
+          },
+          "help": {
+            "key": "settings.updates.channel.help",
+            "text": "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "stable",
+              "title": {
+                "key": "settings.choice.updatesChannelStable",
+                "text": "Stable"
+              }
+            },
+            {
+              "value": "nightly",
+              "title": {
+                "key": "settings.choice.updatesChannelNightly",
+                "text": "Nightly"
+              }
+            },
+            {
+              "value": "canary",
+              "title": {
+                "key": "settings.choice.updatesChannelCanary",
+                "text": "Canary"
+              }
+            },
+            {
+              "value": "dev",
+              "title": {
+                "key": "settings.choice.updatesChannelDev",
+                "text": "Dev"
+              }
+            }
+          ],
+          "default": "nightly",
+          "keywords": [
+            "update",
+            "channel",
+            "ring",
+            "release",
+            "stable",
+            "nightly",
+            "canary",
+            "beta",
+            "dev"
+          ]
+        },
+        {
           "key": "updates.checkAutomatically",
           "title": {
             "key": "settings.updates.checkAutomatically",

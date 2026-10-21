@@ -209,3 +209,44 @@ test("a focused prompt keeps its card when earlier turns arrive above it", async
     await view.unmount();
   }
 });
+
+test("a chat that fits its pane above the composer has no map", async () => {
+  // Two short turns: the transcript is shorter than the 600 px viewport.
+  const view = await mount(2);
+  try {
+    expect(document.querySelector(".acpmux-scrollmap")).toBeNull();
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("the marks under the view bar are current, at the top and at the bottom", async () => {
+  const view = await mount(12);
+  try {
+    const current = () => ticks().flatMap((node, index) => (node.dataset.tone === "current" ? [index] : []));
+    expect(current()[0]).toBe(0);
+    expect(current()).not.toContain(11);
+    // The bottom: as far as the transcript scrolls.
+    view.scroller.scrollTop =
+      parseFloat(document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height) - VIEWPORT;
+    await view.scrolled();
+    expect(current()).toContain(11);
+    expect(current()).not.toContain(0);
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("the previewed prompt stays lit while focus is on its card", async () => {
+  const view = await mount(12);
+  try {
+    await act(async () => tick(6).focus());
+    expect(tick(6).dataset.tone).toBe("active");
+    const bookmark = card()!.querySelector<HTMLButtonElement>(".acpmux-minimap__bookmark")!;
+    await act(async () => bookmark.focus());
+    expect(card()?.textContent).toContain("Question 6");
+    expect(tick(6).dataset.tone).toBe("active");
+  } finally {
+    await view.unmount();
+  }
+});
