@@ -48,6 +48,9 @@ ALLOWED_LISTENERS = {
     "page is focused with nothing in it focused (#22456), as composerFocus.ts does; reads no data",
     (f"{ACPMUX}/newtab/listMotion.ts", "visibilitychange"): "cancels the list's own motion when "
     "the page hides; reads no data",
+    (f"{ACPMUX}/subagents/SubagentGroup.tsx", "visibilitychange"): "`useNow` rests the running "
+    "tray's and cards' one-second clock while the page hides and catches it up on show; reads no "
+    "data",
     (f"{ACPMUX}/pageKey.ts", "focus"): "marks the page key or not for the caret; reads no data",
     (f"{ACPMUX}/pageKey.ts", "visibilitychange"): "the same, on hide and show",
     (f"{ACPMUX}/harnesses/HarnessesScreen.tsx", "focus"): "follow-up: re-reads harness health on "

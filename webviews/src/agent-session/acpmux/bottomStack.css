@@ -49,9 +49,8 @@
   padding: 0 var(--cv-inset) 8px;
 }
 /* The tray of running subagents and background commands (subagents/SubagentTray.tsx), aligned
-   with the composer card. */
+   with the composer card; in a short pane it gives up its height like the parts below. */
 .acpmux-dock > .acpmux-running-tray {
-  flex: none;
   margin: 0 var(--cv-inset) 8px;
 }
 .acpmux-dock > .acpmux-composer {
@@ -67,6 +66,7 @@
    keeps, so the composer card stays in view. */
 .acpmux-dock > .acpmux-composer > .acpmux-composer-queue,
 .acpmux-dock > .acpmux-pr-dock,
+.acpmux-dock > .acpmux-running-tray,
 .acpmux-dock > .acpmux-asks-stack {
   flex: 0 1 auto;
   min-height: var(--acpmux-stack-row-min, 34px);

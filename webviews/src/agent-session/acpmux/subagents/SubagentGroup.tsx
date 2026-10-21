@@ -58,15 +58,30 @@ export function groupElapsed(agents: readonly Subagent[], now: number): number {
 export const SubagentClockContext = createContext(0);
 
 /// The current time on the session's clock (SubagentClockContext), ticking each second only
-/// while `live`, so it counts against the subagents' own start and end times.
+/// while `live`, so it counts against the subagents' own start and end times. A hidden pane's
+/// clock rests (the tray above the composer, a group card and the summary rows tick with it) and
+/// catches up the moment the pane shows again.
 export function useNow(live: boolean): number {
   const offset = useContext(SubagentClockContext);
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (!live) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const tick = () => setNow(Date.now());
+    const sync = () => {
+      clearInterval(timer);
+      timer = undefined;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      tick();
+      timer = setInterval(tick, 1000);
+    };
+    sync();
+    if (typeof document === "undefined") return () => clearInterval(timer);
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", sync);
+    };
   }, [live]);
   return now - offset;
 }

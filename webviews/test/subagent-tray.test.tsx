@@ -375,6 +375,30 @@ describe("the tray", () => {
     }
   });
 
+  test("a hidden pane's tray clock rests and catches up when the pane shows", async () => {
+    let visibility = "visible";
+    Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, get: () => visibility });
+    const started = Date.now() - 10_000;
+    const items = trayItems([agent("Reviewer", { startedAt: started })], [], NONE, true);
+    const { root, done } = await render(
+      createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+    );
+    const time = () => root.querySelector(".acpmux-agent-line__time")?.textContent;
+    try {
+      visibility = "hidden";
+      await act(async () => void dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange")));
+      const rested = time();
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 1300)));
+      expect(time()).toBe(rested);
+      visibility = "visible";
+      await act(async () => void dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange")));
+      expect(time()).not.toBe(rested);
+    } finally {
+      await done();
+      visibility = "visible";
+    }
+  });
+
   test("the summary card's Subagents list draws the tray's own line", async () => {
     const { root, done } = await render(
       createElement(SubagentStatusList, {
