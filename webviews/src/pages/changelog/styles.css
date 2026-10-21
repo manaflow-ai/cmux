@@ -271,11 +271,16 @@ html[data-cmux-page="changelog"] body {
 .cll .cl-group li.cl-wide-row::before { content: "•"; position: absolute; left: 4px; color: var(--page-text-2); }
 .cll .cl-row-text { max-width: 76ch; }
 /* The lead change's picture stays a picture, not a wall: it stops growing at a large card. */
-.cll-body > .cl-media { max-width: 880px; }
+.cll-body > .cl-media { max-width: 720px; }
 .cll .cl-row-summary { margin: 2px 0 0; text-wrap: pretty; }
 .cll .cl-row-actions { display: inline-flex; margin-left: 8px; }
 @container (min-width: 720px) {
-  .cll .cl-group li.cl-has-media { grid-template-columns: minmax(0, 1fr) minmax(260px, 44%); align-items: start; }
+  /* Text and picture stay together on the left, not split to the pane's two edges. */
+  .cll .cl-group li.cl-has-media {
+    grid-template-columns: minmax(0, 68ch) minmax(280px, 520px);
+    justify-content: start;
+    align-items: start;
+  }
   .cll .cl-group li.cl-has-media .cl-row-media { margin: 2px 0 0; max-width: none; }
 }
 .cll-body .cl-builds { margin-top: 14px; }
