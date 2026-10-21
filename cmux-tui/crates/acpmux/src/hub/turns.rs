@@ -1023,7 +1023,7 @@ impl Hub {
                 },
                 remote: None,
             });
-            self.store.delete(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
+            self.store.purge(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
         }
         Ok(())
     }
