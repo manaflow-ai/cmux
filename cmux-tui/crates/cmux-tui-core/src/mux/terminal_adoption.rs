@@ -134,6 +134,18 @@ impl Mux {
             )?;
             handled_terminals.insert(record.terminal_id);
         }
+        // Every host's row and public id under one registry lock: taken per
+        // host, the lock waits on other startup threads cost about 7 ms each.
+        let mut prefetched = {
+            let registry = self.workspace_registry.lock().unwrap();
+            let mut rows = HashMap::new();
+            for (_, record) in &records {
+                let row = registry.terminal_record(&record.terminal_id)?;
+                let public_id = registry.terminal_resource_id(&record.terminal_id)?;
+                rows.insert(record.terminal_id.clone(), (row, public_id));
+            }
+            rows
+        };
         for (record_path, record) in records {
             let terminal_id = record.terminal_id.clone();
             if handled_terminals.contains(&terminal_id) {
@@ -142,8 +154,12 @@ impl Mux {
                 }
                 continue;
             }
-            let mut terminal =
-                self.workspace_registry.lock().unwrap().terminal_record(&terminal_id)?;
+            let (mut terminal, public_id) = match prefetched.remove(&terminal_id) {
+                Some(prefetched) => prefetched,
+                None => {
+                    (self.workspace_registry.lock().unwrap().terminal_record(&terminal_id)?, None)
+                }
+            };
             if terminal.is_none()
                 && !template_claimed
                 && options.adopt_template_terminal
@@ -232,7 +248,15 @@ impl Mux {
             // write runs before the answer either. The tab is adopting, not
             // dead, until then (R41).
             handled_terminals.insert(terminal_id.clone());
-            self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting);
+            match public_id {
+                // An imported or recovered row has no prefetched id: read it now.
+                Some(public_id) => {
+                    self.set_pending_terminal_as(public_id, &terminal_id, PendingTerminal::Adopting)
+                }
+                None => {
+                    self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting);
+                }
+            }
             deferred.push((record, record_path));
         }
 
