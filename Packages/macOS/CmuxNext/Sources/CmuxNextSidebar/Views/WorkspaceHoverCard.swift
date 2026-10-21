@@ -97,7 +97,9 @@ final class WorkspaceHoverCardController: HoverCardSource {
                                                     delay: DesignSettings.shared.groupHoverCard.delay, leave: leave),
                                 anchor: anchor)
         }
-        guard let id = list.hoverCardWorkspace(at: point), let anchor = list.hoverCardAnchor(for: id) else { return nil }
+        guard let id = list.hoverCardWorkspace(at: point), let anchor = list.hoverCardAnchor(for: id),
+              !Self.onPullRequestBadge((list.rowViews[.workspace(id)] as? WorkspaceRowView)?.pullRequests, window: window, screenPoint: screenPoint)
+        else { return nil }
         return HoverCardHit(target: HoverTarget(id: Self.targetID(id), window: window.windowNumber, delay: delay, leave: leave),
                             anchor: anchor)
     }
@@ -115,6 +117,14 @@ final class WorkspaceHoverCardController: HoverCardSource {
     func hoverCardAnchor(for id: HoverTargetID) -> CGRect? {
         if let group = groupID(id) { return list?.hoverCardAnchor(forGroup: group) }
         return workspaceID(id).flatMap { list?.hoverCardAnchor(for: $0) }
+    }
+
+    /// The pointer is on a row's pull request badge, whose own card (`SidebarPullRequestCard`)
+    /// shows there instead.
+    static func onPullRequestBadge(_ badge: SidebarPullRequestBadgeView?, window: NSWindow, screenPoint: CGPoint) -> Bool {
+        guard let badge, !badge.isHidden, badge.badge?.items.isEmpty == false, SidebarPullRequestCardController.isEnabled
+        else { return false }
+        return window.convertToScreen(badge.convert(badge.bounds, to: nil)).contains(screenPoint)
     }
 
     func hoverCardBody(for id: HoverTargetID) -> HoverCardBody? {

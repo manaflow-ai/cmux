@@ -390,6 +390,7 @@ public nonisolated struct AgentPaneTunables {
             topStripStyle.descriptor,
             turnPreviewCards.descriptor,
             turnActionsPlacement.descriptor,
+            agentLinks.descriptor,
         ]
     }
 }

@@ -7,11 +7,13 @@ import React, {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 import { flushSync } from "react-dom";
+import { CONNECT_ACTIONS, type ConnectKind } from "./environments";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
@@ -32,6 +34,7 @@ import {
   type AcpmuxRow,
   type AcpmuxSnapshot,
   type QueueEdit,
+  nextDrawnRow,
 } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
@@ -93,7 +96,8 @@ import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./E
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { HomeLists } from "./HomeLists";
-import { turnFiles, turnRows, type TurnFile } from "./diff";
+import { endsTurn, turnFiles, turnRows, type TurnFile } from "./diff";
+import { opensTurn } from "./turnStart";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
 import { SecretCard } from "./SecretCard";
@@ -189,6 +193,8 @@ import {
   RENDER,
   THINKING,
   WORKED,
+  turnFoldFor,
+  turnFooterFrom,
   WORKING,
   type TurnView,
   turnViewFrom,
@@ -241,6 +247,7 @@ import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
+import { PendingSteer } from "./conversation/PendingSteer";
 import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
@@ -666,6 +673,7 @@ const MessageRow = memo(
           )}
           <DeliveryFailure row={row} />
           {row.steer && <SteerMark steer={row.steer} />}
+          <PendingSteer row={row} send={editQueued} />
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>
@@ -1012,18 +1020,33 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
 
 /// Slides the thread from `step` px below (above, when negative) to its place over 180 ms, so
 /// content that grew at the latest row glides in. Glides stack (`composite: "add"`): two started
-/// before one paint move the text by their sum. None under Reduce Motion.
-function glide(node: HTMLElement | null, step: number): void {
+/// before one paint move the text by their sum. None under Reduce Motion (undefined).
+function glide(node: HTMLElement | null, step: number): Animation | undefined {
   // Content that grew while the chat was hidden, or as it shows again, is drawn in place.
-  if (isAgentMotionOff() || !entranceAllowed() || !node || typeof node.animate !== "function") return;
-  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-  node.animate([{ transform: `translateY(${step}px)` }, { transform: "translateY(0px)" }], {
+  if (isAgentMotionOff() || !entranceAllowed() || !node || typeof node.animate !== "function") return undefined;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return undefined;
+  return node.animate([{ transform: `translateY(${step}px)` }, { transform: "translateY(0px)" }], {
     duration: GLIDE_MS,
     easing: "cubic-bezier(0.2, 0, 0, 1)",
     composite: "add",
   });
 }
 const GLIDE_MS = 180;
+/// How many rows from the end a glide looks for the row it holds.
+const FOLLOWED_ROW_SEARCH = 64;
+
+/// Where `id` sits in `layout`'s content (its top), looked for among the last rows; undefined when gone.
+function trailingRowTop(layout: ConversationLayout, rows: readonly { id: string }[], id: string): number | undefined {
+  for (let at = rows.length - 1; at >= Math.max(0, rows.length - FOLLOWED_ROW_SEARCH); at -= 1)
+    if (rows[at]!.id === id) return layout.tops[at];
+  return undefined;
+}
+
+/// What a followed view's glides hold still: the latest row as the reader last saw it (`id`, drawn
+/// `top` px down the view, its glides aside), and the glides started since then (`added` px in all).
+/// A frame can lay the rows out several times before it paints (each streamed snapshot, then its
+/// drawn heights): each glide is measured from what was painted, not from a layout nobody saw.
+type GlideHold = { id: string; top: number; added: number; glides: Animation[] };
 
 /// Whether `updates` change any drawn height in `current`.
 function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, DrawnHeight>): boolean {
@@ -1060,6 +1083,8 @@ const RowFrame = React.memo(function RowFrame({
   kind,
   joinsPrevious,
   joinsNext,
+  beforeFooter,
+  lastFooter,
   index,
   setSize,
   top,
@@ -1086,6 +1111,10 @@ const RowFrame = React.memo(function RowFrame({
   joinsPrevious: boolean;
   /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
   joinsNext: boolean;
+  /// A reply right over its turn's footer: the footer hugs it (`--cv-meta-gap`), as a meta row.
+  beforeFooter: boolean;
+  /// The chat's last footer: it ends at the message gap, so no band sits over the composer.
+  lastFooter: boolean;
   index: number;
   setSize: number;
   top: number;
@@ -1153,14 +1182,14 @@ const RowFrame = React.memo(function RowFrame({
         row.version,
         acpmuxPerf.timed("row.measure", () => node.getBoundingClientRect().height),
       );
-  }, [row.id, row.version, rowWidth, expanded, joinsPrevious, joinsNext, report]);
+  }, [row.id, row.version, rowWidth, expanded, joinsPrevious, joinsNext, beforeFooter, lastFooter, report]);
   return (
     <article
       ref={ref}
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
+      className={`acpmux-row acpmux-${kind}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -1177,7 +1206,6 @@ const RowFrame = React.memo(function RowFrame({
           className="acpmux-row__copy cv-iconbtn"
           {...copyTabStop}
           aria-label={copied ? t("turn.copied") : t("turn.copy")}
-          title={copied ? t("turn.copied") : t("turn.copy")}
           onClick={async () => {
             try {
               await onCopyRow(row.id);
@@ -1326,6 +1354,11 @@ const JUMP_LATEST_SETTLE_MS = 600;
 /// the latest line, which stopped the chat following for good (cx-02st5).
 const READER_SCROLL_MS = 1000;
 const STRAY_SCROLL_PX = 24;
+/// How long a followed view keeps the room a queued prompt's card left, for the prompt to arrive.
+const FLOOR_HOLD_MS = 1000;
+/// How long it keeps the room a withdrawn prompt's card left after the reply last grew: a reply
+/// streaming fills it, and a turn in a tool call or thinking brings nothing to fill it with.
+const WITHDRAWN_HOLD_MS = 250;
 /// How long a reopened chat stays unseen while older pages bring back the row the reader left it on
 /// (cx-odzaz): each page must land within OPEN_AT_PAGE_MS and the whole walk within OPEN_AT_SEEK_MS,
 /// else the chat opens at its latest message.
@@ -1415,7 +1448,6 @@ function JumpToLatest({
       aria-label={label}
       // Hidden, it is inert: out of the tab order and the accessibility tree while it fades out.
       inert={!shown}
-      title={label}
       // A click does not focus a button in WebKit, so focus on it means Return or Space.
       onClick={(event) => onJump(event.currentTarget === document.activeElement)}
     >
@@ -1465,6 +1497,7 @@ export function VirtualTranscript({
   working = false,
   jumpButton = false,
   dock,
+  queueWithdrawn,
   focusComposer,
   openAt,
   onAnchor,
@@ -1488,6 +1521,9 @@ export function VirtualTranscript({
   /// it, the scrollbar's track to the pane's bottom as in the Claude and Codex apps, and its end sits
   /// above it. Its height is room under the last row, followed as it changes before the frame paints.
   dock?: HTMLElement | null;
+  /// Prompts withdrawn from the queue (snapshot `queueWithdrawn`): no row comes for one whose card
+  /// leaves the stack, so the view keeps no room for it.
+  queueWithdrawn?: readonly string[];
   /// Where a keyboard Jump to latest leaves focus, since the button hides (inert) once there.
   focusComposer?: () => void;
   onToggleActivity: (id: string) => void;
@@ -1531,6 +1567,34 @@ export function VirtualTranscript({
   const [dockSpace, setDockSpace] = useState(0);
   const dockSpaceRef = useRef(0);
   dockSpaceRef.current = dockSpace;
+  /// A queued prompt left the bottom stack this frame: a sent one is about to come in as the latest
+  /// row; a withdrawn one (deleted from the queue) never does.
+  const queueLeft = useRef(false);
+  const queuedIds = useRef(new Set<string>());
+  /// The prompts whose cards left, which the room under the last row is kept for (`floor`).
+  const heldFor = useRef(new Set<string>());
+  const withdrawnSet = useMemo(() => new Set(queueWithdrawn), [queueWithdrawn]);
+  const withdrawn = useRef(withdrawnSet);
+  withdrawn.current = withdrawnSet;
+  const dockRef = useRef(dock);
+  dockRef.current = dock;
+  /// Notes the stack's queued prompts; called first by each size observer (the stack's, and the
+  /// view's, for a stack laid out under the transcript), so the render a size change makes knows.
+  const noteQueue = useCallback(() => {
+    const now = new Set(
+      [...(dockRef.current?.querySelectorAll<HTMLElement>(".acpmux-queued") ?? [])].map(
+        (card) => card.dataset.promptId ?? "",
+      ),
+    );
+    const left = [...queuedIds.current].filter((id) => !now.has(id));
+    queuedIds.current = now;
+    if (!left.length) return;
+    for (const id of left) heldFor.current.add(id);
+    if (queueLeft.current) return;
+    queueLeft.current = true;
+    // Only the size change of this frame is the card leaving.
+    requestAnimationFrame(() => requestAnimationFrame(() => (queueLeft.current = false)));
+  }, []);
   useLayoutEffect(() => {
     if (!dock) {
       setDockSpace(0);
@@ -1546,13 +1610,15 @@ export function VirtualTranscript({
       return stack.height > 0 && view ? Math.max(0, Math.min(stack.height, view.bottom - stack.top)) : 0;
     };
     const observer = new ResizeObserver(() => {
+      noteQueue();
       const next = over();
       if (Math.abs(next - dockSpaceRef.current) >= 0.5) flushSync(() => setDockSpace(next));
     });
     observer.observe(dock);
+    noteQueue();
     setDockSpace(over());
     return () => observer.disconnect();
-  }, [dock]);
+  }, [dock, noteQueue]);
   const [width, setWidth] = useState(() => lastTranscriptBox.width);
   // The column's cap (layout.json `chatWidth`): a new one measures every row again.
   const chatWidth = useChatWidth();
@@ -1778,11 +1844,14 @@ export function VirtualTranscript({
     };
     // Before the frame paints: a resized pane (its tab strip showing or hiding) otherwise drew the
     // transcript at its old offset and caught up a frame later.
-    const observer = new ResizeObserver(() => flushSync(() => measure(true)));
+    const observer = new ResizeObserver(() => {
+      noteQueue();
+      flushSync(() => measure(true));
+    });
     observer.observe(node);
     measure(false);
     return () => observer.disconnect();
-  }, []);
+  }, [noteQueue]);
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
   const previousRows = useRef<AcpmuxRow[]>(rows);
   const previousViewport = useRef({ height, width, dockSpace });
@@ -1790,6 +1859,8 @@ export function VirtualTranscript({
   /// heights at the new width are that resize, not growth, and never glide.
   const reflowing = useRef(false);
   const thread = useRef<HTMLDivElement>(null);
+  /// What the glides hold since the last paint (GlideHold); cleared once a frame paints.
+  const glideHold = useRef<GlideHold | undefined>(undefined);
   // The reader scrolls: a glide in flight ends at once, so the view goes where they scroll.
   useEffect(() => {
     const node = ref.current;
@@ -1907,9 +1978,32 @@ export function VirtualTranscript({
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
   // The bottom stack's room follows the rows, so the latest row ends above it.
+  // A followed view does not move down when a queued prompt's card leaves the stack: its offset stays,
+  // and the room the card leaves stays under the last row for the prompt, which arrives as the latest
+  // row a moment later. Dropping it moved the view down a card's height, and the prompt moved it back
+  // up. That holds for a stack over the view's foot (its room shrinks) and under it (the view grows).
+  // The room goes once rows grow into it, the reader leaves the latest row, the rows rewrap, or after
+  // FLOOR_HOLD_MS (a prompt deleted from the queue never arrives), when the view glides down.
+  const floor = useRef({ height: 0, width, sessionId });
+  const [, releaseFloor] = useReducer((count: number) => count + 1, 0);
+  const floorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(floorTimer.current), []);
+  // Kept for a prompt that was sent, or while the reply streams, which fills it. A prompt withdrawn
+  // with nothing streaming brings nothing: the room goes now (the queue's update can come before
+  // acpmux's `queue_removed`, which then lets it go).
+  const keptFor = working || [...heldFor.current].some((id) => !withdrawn.current.has(id));
+  const kept = following && keptFor && floor.current.width === width && floor.current.sessionId === sessionId;
+  const box = previousViewport.current;
+  const footDropped = height - dockSpace > box.height - box.dockSpace;
+  const floorHeight = !kept
+    ? 0
+    : queueLeft.current && footDropped && previousLayout.current
+      ? Math.max(floor.current.height, previousLayout.current.totalHeight - box.height + height)
+      : floor.current.height;
+  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + dockSpace;
   const layout = useMemo(
-    () => ({ ...measured.layout, totalHeight: measured.layout.totalHeight + THREAD_TOP + dockSpace }),
-    [measured, dockSpace],
+    () => ({ ...measured.layout, totalHeight: Math.max(floorHeight, rowsHeight) }),
+    [measured, rowsHeight, floorHeight],
   );
   const reportedLayout = useRef<typeof measured | null>(null);
   const reportedEstimate = useRef<typeof estimated | null>(null);
@@ -2116,12 +2210,26 @@ export function VirtualTranscript({
       // the new end; the offset recorded before this commit is where the reader was.
       // A clamp lands exactly on the scroller's own end, which rounds the layout's
       // fractional height, so compare with that rather than allow for the rounding.
+      // A viewport that grew clamps at the end the content had then: the room a queued prompt's
+      // card leaves (`floor`) can make the content taller again in this same commit.
       const live = node.scrollTop;
-      const clamped = live < scrolledTo.current.top - 0.5 && live >= node.scrollHeight - node.clientHeight - 0.5;
+      // The browser rounds the height it clamps to, so the old end allows a pixel either way.
+      const end = Math.min(node.scrollHeight, old.totalHeight) - node.clientHeight;
+      const clamped = live < scrolledTo.current.top - 0.5 && live >= end - 1;
       // An offset that has not moved since it was recorded was at the latest row if it was
       // then; a shorter viewport alone would otherwise read as scrolled up.
       const unmoved = Math.abs(live - scrolledTo.current.top) <= 0.5;
       const top = clamped ? scrolledTo.current.top : live;
+      // The reader scrolled up and its scroll event has not come yet: WebKit moves the offset with
+      // the wheel and reports it a frame later, and a snapshot that lands between them put the view
+      // back at the latest row. A move up past a stray's (or past the deadband, right after the
+      // reader's own input) is theirs, so the view stops following now.
+      const readerLeft =
+        followingRef.current &&
+        !clamped &&
+        scrolledTo.current.top - live >
+          (performance.now() - readerAt.current <= READER_SCROLL_MS ? FOLLOW_BOTTOM_DEADBAND_PX : STRAY_SCROLL_PX);
+      if (readerLeft) follow(false);
       const atLatest = followingRef.current
         ? true
         : clamped || unmoved
@@ -2134,8 +2242,26 @@ export function VirtualTranscript({
       if (didOpenAtLatest.current && atLatest) {
         // At the latest row: stay there as rows settle to their drawn heights.
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-        const step = latest - node.scrollTop;
-        const settled = settleFollowBottom(node, latest);
+        // A clamp moved the offset already (content that shrank under the view): from where it was.
+        const before = top;
+        const settled = settleFollowBottom(node, latest) || clamped;
+        // The glide holds the latest row the reader saw where it was painted, then slides it to its
+        // place. Gliding by the offset's step alone also moved it by what grew above it (a working
+        // line opening over a turn's first tool call), and by layouts of the same frame that never
+        // painted (a new turn's rows by estimate, then by drawn height): the text dropped that far,
+        // then slid up past where it was. The offset is read back, as WebKit keeps it to whole pixels.
+        const lastSeen = oldRows.at(-1);
+        if (!glideHold.current && lastSeen) {
+          const was = trailingRowTop(old, oldRows, lastSeen.id);
+          if (was !== undefined) {
+            glideHold.current = { id: lastSeen.id, top: was - before, added: 0, glides: [] };
+            // After this frame paints (a task queued from its animation frame runs after it).
+            requestAnimationFrame(() => setTimeout(() => (glideHold.current = undefined), 0));
+          }
+        }
+        const hold = glideHold.current;
+        const heldTop = hold && trailingRowTop(layout, rows, hold.id);
+        const step = hold && heldTop !== undefined ? hold.top - (heldTop - node.scrollTop) - hold.added : 0;
         if (settled) followTrace.set(latest);
         // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll"); a
         // resized viewport only moves the offset. A row that grew is placed by its estimate, then
@@ -2146,8 +2272,20 @@ export function VirtualTranscript({
         // then drawn height, at every frame of the drag: none of that glides, and a glide in
         // flight ends, so the text sits at the end of the view on every frame.
         if (rewrapped) for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
-        if (settled && Math.abs(step) < node.clientHeight && !resized && !reflowing.current)
-          glide(thread.current, step);
+        const glided =
+          settled && Math.abs(step) >= 0.5 && Math.abs(step) < node.clientHeight && !resized && !reflowing.current
+            ? glide(thread.current, step)
+            : undefined;
+        if (glided) {
+          hold!.added += step;
+          hold!.glides.push(glided);
+        } else if (settled || resized) {
+          // The view moved without a glide: what it holds is placed again from here. A resize also
+          // takes back this frame's glides: they slid toward a layout the resize has replaced (a
+          // queued prompt's card leaving clamps the offset, which the room it leaves then restores).
+          if (resized) for (const each of hold?.glides ?? []) each.cancel();
+          glideHold.current = undefined;
+        }
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
@@ -2202,6 +2340,23 @@ export function VirtualTranscript({
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width, dockSpace };
+    // The room a followed view keeps (`floor` above), until the rows fill it or it stops following.
+    const holding = didOpenAtLatest.current && followingRef.current && floorHeight > rowsHeight;
+    // Held for a sent prompt: once, for the prompt to arrive. Held only for a withdrawn one (the
+    // reply was working): again at each pass, so it lasts while the reply grows and goes soon after.
+    const forSent = [...heldFor.current].some((id) => !withdrawn.current.has(id));
+    if (holding && (!floor.current.height || !forSent)) {
+      clearTimeout(floorTimer.current);
+      floorTimer.current = setTimeout(
+        () => {
+          floor.current = { ...floor.current, height: 0 };
+          releaseFloor();
+        },
+        forSent ? FLOOR_HOLD_MS : WITHDRAWN_HOLD_MS,
+      );
+    } else if (!holding) clearTimeout(floorTimer.current);
+    floor.current = { height: holding ? floorHeight : 0, width, sessionId };
+    if (!holding && !queueLeft.current) heldFor.current.clear();
     if (node && node.clientHeight > 0 && didOpenAtLatest.current) {
       scrolledTo.current = scrollPosition(node, layout.totalHeight);
       seenAnchor.current = restingAnchor(node.scrollTop, scrolledTo.current.atLatest, layout, rows);
@@ -2567,11 +2722,7 @@ export function VirtualTranscript({
     pointedRow.current = rowId;
     pointedRows.current = rows;
     const from = row ? Number(row.getAttribute("aria-posinset")) - 1 : -1;
-    let footer: string | undefined;
-    for (let index = from; index >= 0 && index < rows.length && !footer; index += 1) {
-      if (index > from && rows[index]!.kind === "user") break;
-      if (rows[index]!.kind === "turnSummary") footer = rows[index]!.id;
-    }
+    const footer = from >= 0 ? turnFooterFrom(rows, from) : undefined;
     if (footer === pointedTurn.current) return;
     pointedTurn.current = footer;
     markTurns();
@@ -2592,6 +2743,9 @@ export function VirtualTranscript({
         aria-busy={seeking || undefined}
         data-fade-top={renderScroll.top > 0.5 || undefined}
         data-fade-bottom={(!renderFollowing && layout.totalHeight - renderScroll.top - height > 0.5) || undefined}
+        // Jump to latest stands in that band: the fade reaches past it, so rows (a date line) pass
+        // out of sight behind it instead of reading through its glass.
+        data-jump-shown={(jumpButton && behind) || undefined}
         // Under the bottom stack: rows there stay out of sight (conversation.css), and focus or Find
         // scroll a row into view above it.
         data-docked={dockSpace > 0 || undefined}
@@ -2604,6 +2758,7 @@ export function VirtualTranscript({
           scroller={ref}
           scrollTop={renderScroll.top}
           viewportHeight={height - dockSpace}
+          scrolls={layout.totalHeight - height > 0.5}
           width={width}
           placed={minimapPlaced}
         />
@@ -2631,6 +2786,10 @@ export function VirtualTranscript({
                       kind={kind}
                       joinsPrevious={isStepRow(row) && isStepRow(rows[absoluteIndex - 1])}
                       joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
+                      beforeFooter={
+                        row.kind === "assistant" && nextDrawnRow(rows, absoluteIndex)?.kind === "turnSummary"
+                      }
+                      lastFooter={row.kind === "turnSummary" && !nextDrawnRow(rows, absoluteIndex)}
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
                       top={layout.tops[absoluteIndex]}
@@ -3794,10 +3953,11 @@ function AcpmuxPane() {
   turnRowsRef.current = snapshot.rows;
   // The image viewer holds the chat's images from when it opened; another chat closes it.
   const [imageView, setImageView] = useState<{ images: ChatImage[]; index: number } | undefined>();
-  const openImage = useCallback((src: string, alt: string) => {
+  const openImage = useCallback((src: string, alt: string, path?: string) => {
     const images = chatImages(turnRowsRef.current);
     const index = images.findIndex((image) => image.src === src);
-    setImageView(index < 0 ? { images: [{ src, alt }], index: 0 } : { images, index });
+    if (index < 0) setImageView({ images: [{ src, alt, path }], index: 0 });
+    else setImageView({ images: images.map((image, i) => (i === index && path ? { ...image, path } : image)), index });
   }, []);
   useEffect(() => setImageView(undefined), [snapshot.sessionId]);
   const readTurn = useCallback(
@@ -3810,8 +3970,7 @@ function AcpmuxPane() {
   const diffTurn = diffView && diffOpen ? turnKey(diffView.rowId) : undefined;
   // A turn's pair exists once it has ended, so the view asks then (and again when it ends while
   // the view is open); until then it shows the tool calls' edits.
-  const diffTurnEnded =
-    diffView && diffOpen ? turnRows(snapshot.rows, diffView.rowId).some((row) => row.kind === "turnSummary") : false;
+  const diffTurnEnded = diffView && diffOpen ? turnRows(snapshot.rows, diffView.rowId).some(endsTurn) : false;
   useEffect(() => {
     if (diffTurn && diffTurnEnded) requestTurnCheckpoint(diffTurn);
   }, [diffTurn, diffTurnEnded, requestTurnCheckpoint]);
@@ -3841,11 +4000,11 @@ function AcpmuxPane() {
     while (at >= 0 && rowKind(rows[at]!) !== "editedFiles") at -= 1;
     if (at < 0) return undefined;
     const edit = rows[at]!;
-    // Its turn: from its prompt to the next one (diff.ts turnRows, from the index found here).
+    // Its turn: from its prompt to the next one, past steers (diff.ts turnRows, from the index found here).
     let start = at;
-    while (start > 0 && rows[start]!.kind !== "user") start -= 1;
+    while (start > 0 && !opensTurn(rows[start]!)) start -= 1;
     let end = at + 1;
-    while (end < rows.length && rows[end]!.kind !== "user") end += 1;
+    while (end < rows.length && !opensTurn(rows[end]!)) end += 1;
     const activity = rows.slice(start, end).filter((row) => row.kind === "activity");
     // Keyed by the chat too: another chat's rows never read as this one's.
     const key = `${snapshot.sessionId}\u0000${edit.id}\u0000${activity.map((row) => `${row.id}:${row.version}`).join("|")}`;
@@ -3928,8 +4087,8 @@ function AcpmuxPane() {
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
   const [preview, setPreview] = useState(false);
   // SSH… opens Connect to Machine; New Cloud Machine opens the host's create flow (Lawrence 2026-10-06).
-  const connectMachine = (kind: "ssh" | "cloud") =>
-    void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(() => undefined);
+  const connectMachine = (kind: ConnectKind) =>
+    void callNative("action.run", { id: CONNECT_ACTIONS[kind] }).catch(() => undefined);
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
@@ -4017,6 +4176,8 @@ function AcpmuxPane() {
     () => (snapshot.isWorking ? runningBackgroundTasks(snapshot.rows) : []),
     [snapshot.isWorking, snapshot.rows],
   );
+  // The turn's tokens so far, said after its time (direct.ts `turnTokens`).
+  const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
   const counted = useRef({ runningAgents, runningCommands, sourceRows, transcriptRows, summaryCard });
   counted.current = { runningAgents, runningCommands, sourceRows, transcriptRows, summaryCard };
   const workingCounts = useMemo<WorkingCounts>(() => {
@@ -4028,11 +4189,8 @@ function AcpmuxPane() {
       const row = rows[index];
       if (!row) return;
       if (!shown.some((drawn) => isFindRow(drawn, row.id))) {
-        const user = rows
-          .slice(0, index)
-          .reverse()
-          .find((earlier) => earlier.kind === "user");
-        if (user) openFold(`${WORKED}-${user.id}`);
+        const fold = turnFoldFor(rows, index);
+        if (fold) openFold(fold);
       }
       const key = Date.now();
       setRevealRow({ rowId: row.id, key, toolId });
@@ -4041,6 +4199,7 @@ function AcpmuxPane() {
     return {
       agents: runningAgents.length,
       commands: runningCommands.length,
+      tokens: turnTokens,
       openAgents: () => {
         const { runningAgents: agents, summaryCard: card } = counted.current;
         if (agents.length === 1) showSubagent(agents[0]!.id);
@@ -4052,7 +4211,7 @@ function AcpmuxPane() {
         else card.show();
       },
     };
-  }, [runningAgents.length, runningCommands.length, showSubagent, openFold]);
+  }, [runningAgents.length, runningCommands.length, turnTokens, showSubagent, openFold]);
   // The Quick Composer cannot show the Harnesses page: it registers no opener, so its + hides.
   useEffect(() => (quick ? undefined : registerHarnessesPage(() => setHarnessesOpen(true))), [quick]);
   // `/btw` (cx-ef2m), behind its experiment; the Quick Composer never shows a side question.
@@ -4902,14 +5061,15 @@ function AcpmuxPane() {
               });
             }
             harnessSwitch.cancel();
-            return persistSession(
-              await client.create(
-                harness ? String(harness) : undefined,
-                folder,
-                peer ? String(peer) : undefined,
-                noProject === true,
-              ),
+            // Resolves to the chat it started (none: nothing started), so a caller can hold a prompt.
+            const started = await client.create(
+              harness ? String(harness) : undefined,
+              folder,
+              peer ? String(peer) : undefined,
+              noProject === true,
             );
+            await persistSession(started);
+            return started;
           },
           "chat.harness.hint": async ({ harness }) => harnessSwitch.hint(harness ? String(harness) : undefined),
           "chat.harness.retry": async () => harnessSwitch.retry(),
@@ -5797,6 +5957,7 @@ function AcpmuxPane() {
                                         focusComposer={() => composerHandle.current?.focus()}
                                         // Quick Chat's panel stacks its composer below the transcript.
                                         dock={quick ? undefined : dock}
+                                        queueWithdrawn={snapshot.queueWithdrawn}
                                         find={quick ? undefined : find}
                                         sessionId={
                                           childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId
@@ -6258,6 +6419,7 @@ function AcpmuxPane() {
           onProject={chooseProject}
           onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
           onConnect={connectMachine}
+          onRefreshMachines={() => void directClient.current?.refreshPeers()}
           // A started local chat lists the same folders to move to (dogfood 09); Start Agent's
           // panel lists them before its first prompt (cx-hkat).
           projectChoices={freshChat || (!quick && canMove) ? newTabProjects : undefined}

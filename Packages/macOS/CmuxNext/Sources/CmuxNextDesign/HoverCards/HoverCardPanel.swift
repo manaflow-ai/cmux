@@ -151,11 +151,21 @@ final class HoverCardPanel: NSPanel {
             newBody.translatesAutoresizingMaskIntoConstraints = false
             let container = glass.contentView
             container.addSubview(newBody)
+            // Bottom and trailing just below required: `place()` lays the glass out at the last
+            // card's size before it measures and resizes, and a required pair there conflicted
+            // with the new body's fixed rows and width limits on every hover retarget (about 650
+            // of 1564 "Unable to simultaneously satisfy constraints" in 3 h of NIGHTLY logs, up
+            // to 39 a second, each solved and logged on the main thread). 999 still beats the
+            // fitting-size compression, so `fittingSize` and the resting layout are the same.
+            let bottom = newBody.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+            bottom.priority = .init(999)
+            let trailing = newBody.trailingAnchor.constraint(equalTo: container.trailingAnchor)
+            trailing.priority = .init(999)
             edgeConstraints = [
                 newBody.topAnchor.constraint(equalTo: container.topAnchor),
-                newBody.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                bottom,
                 newBody.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-                newBody.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                trailing,
             ]
             sizeConstraints = [newBody.widthAnchor.constraint(equalToConstant: 0), newBody.heightAnchor.constraint(equalToConstant: 0)]
             NSLayoutConstraint.activate(edgeConstraints)

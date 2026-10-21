@@ -1,13 +1,17 @@
 import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import type { ConnectKind } from "../environments";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import type { Project } from "../ProjectChooser";
-import { isAgentHome, mostRecentProject } from "../sessionList";
+import { isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
 import { WorktreeFailure } from "../startFolder";
+import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
+import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
+import { useSavedEnvironments } from "./savedEnvironments";
 import type { ComposerAttachment } from "../attachments";
 import { AttachmentStrip, useAttachmentIntake } from "../composer/attachmentIntake";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
@@ -62,6 +66,8 @@ export type NewTabScreenActions = {
   /// `noProject`: Do not work in a project was picked, so the chat starts in no project.
   /// `attachments`: what was pasted or dropped on the page (composer/attachmentIntake.tsx), sent
   /// with the chat's first prompt.
+  /// `saved`: a saved environment picked the place. `cwd` is its folder, used even when it is the
+  /// tab's own; with `peer` (an SSH environment's machine) a folder there.
   onAsk(
     harness: string,
     text: string,
@@ -69,6 +75,7 @@ export type NewTabScreenActions = {
     model?: string,
     noProject?: boolean,
     attachments?: ComposerAttachment[],
+    saved?: { peer?: string },
   ): void;
   onOpen(url: string): void;
   onSearch(text: string): void;
@@ -93,11 +100,14 @@ export type NewTabScreenActions = {
   /// Preview features on: the location row's computer is the environment picker (ComposerContext).
   environments?: boolean;
   /// The environment picker's New environment: the host's SSH and cmux Cloud connect flows.
-  onConnect?(kind: "ssh" | "cloud"): void;
+  onConnect?(kind: ConnectKind): void;
   /// With `environments`, New Worktree beside the folder: the host makes a worktree of `cwd` and
   /// this resolves to the folder the chat starts in (startFolder.tsx newWorktree); rejects with the
   /// host's reason.
   onNewWorktree?(cwd: string): Promise<string | undefined>;
+  /// With `environments`, the host's saved environments (`environment.list/save/remove`): the
+  /// environment picker lists them and Create environment makes one.
+  savedEnvironments?: SavedEnvironmentHost;
   /// New terminal / New browser tab (cx-ag5.7): the host replaces this tab with a blank one.
   onCreate?(kind: "terminal" | "browser"): void;
   /// The Now Playing player's controls (`nowPlaying.command`); without it the page shows no player.
@@ -254,12 +264,19 @@ export function NewTabScreen(props: Props) {
     () => snapshot.catalog.map((entry) => ({ id: entry.id, name: entry.name })),
     [snapshot.catalog],
   );
+  // A saved environment the picker picked names where the chat starts (askInEnvironment).
+  const saved = useSavedEnvironments(props.environments ? props.savedEnvironments : undefined);
+  const environment = saved.picked;
   // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
-  const chatFolder = none
-    ? undefined
-    : project && project !== props.cwd
-      ? project
-      : (props.startCwd ?? project ?? props.cwd);
+  const chatFolder = environment
+    ? environment.kind === "local"
+      ? environment.folder
+      : undefined
+    : none
+      ? undefined
+      : project && project !== props.cwd
+        ? project
+        : (props.startCwd ?? project ?? props.cwd);
   // The project chip names the folder a prompt starts in (screenActions onAsk): a real pick, else
   // the host's start folder, as a new chat's hero does; never the home ~ a fresh workspace's tab
   // inherits, nor the private agent-home folder a chat with neither starts in (cx-7fje0, cx-nn3e).
@@ -278,6 +295,7 @@ export function NewTabScreen(props: Props) {
   // A prompt's chat, in no project when that was the pick.
   // The images and files pasted or dropped on the page go with the first prompt.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string) => {
+    if (environment) return askInEnvironment(environment, agent, prompt, model);
     if (attachments.length > 0) return props.onAsk(agent, prompt, cwd, model, none || undefined, attachments);
     return none ? props.onAsk(agent, prompt, cwd, model, true) : props.onAsk(agent, prompt, cwd, model);
   };
@@ -742,6 +760,8 @@ export function NewTabScreen(props: Props) {
   const projectChoice = useRef(0);
   const pickProject = (cwd?: string) => {
     projectChoice.current += 1;
+    // A folder picked anywhere on the page (a widget card's project) replaces a saved environment.
+    saved.pick(undefined);
     touch();
     setPicked(true);
     setNone(cwd === undefined);
@@ -756,6 +776,36 @@ export function NewTabScreen(props: Props) {
     [snapshot.sessions],
   );
   const [worktreeError, setWorktreeError] = useState<string>();
+  // A saved environment's chat: on its machine, in its folder there, or on this computer in a new
+  // worktree of its folder (the host makes it first; its refusal shows above the card and the
+  // prompt stays in the field).
+  const worktreePending = useRef(false);
+  function askInEnvironment(picked: SavedEnvironment, agent: string, prompt: string, model?: string) {
+    const extra = attachments.length > 0 ? attachments : undefined;
+    if (picked.kind === "ssh")
+      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host });
+    if (!picked.worktree || !picked.folder || !props.onNewWorktree)
+      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, {});
+    if (worktreePending.current) return;
+    worktreePending.current = true;
+    setWorktreeError(undefined);
+    // No chat started: the page's create buttons work again (startChat set `created`).
+    const unstarted = () => {
+      worktreePending.current = false;
+      created.current = false;
+    };
+    void props.onNewWorktree(picked.folder).then(
+      (folder) => {
+        if (!folder) return unstarted();
+        worktreePending.current = false;
+        props.onAsk(agent, prompt, folder, model, undefined, extra, {});
+      },
+      (error: unknown) => {
+        unstarted();
+        setWorktreeError((error instanceof Error && error.message) || String(error));
+      },
+    );
+  }
   const newWorktreeHere =
     props.environments && props.onNewWorktree
       ? (cwd: string) => {
@@ -805,8 +855,55 @@ export function NewTabScreen(props: Props) {
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
         {...(props.environments && props.onConnect ? { onConnect: props.onConnect } : {})}
+        {...(saved.on
+          ? {
+              saved: {
+                environments: saved.list,
+                ...(environment ? { current: environment.id } : {}),
+                onPick: (id: string) => {
+                  touch();
+                  saved.pick(id);
+                  requestAnimationFrame(() => field.current?.focus());
+                },
+                onClear: () => saved.pick(undefined),
+                onCreate: () => saved.edit(null),
+                onEdit: (id: string) => saved.edit(saved.list.find((other) => other.id === id)),
+              },
+            }
+          : {})}
       />
     </div>
+  );
+  // The SSH machines a saved environment can name (acpmux's `ssh://` peers) and each one's folders.
+  const sshMachines = useMemo(
+    () => (snapshot.peers ?? []).filter((peer) => snapshot.peerKinds?.[peer] === "ssh"),
+    [snapshot.peers, snapshot.peerKinds],
+  );
+  const machineFolders = (machine: string) =>
+    [
+      ...new Set(
+        snapshot.sessions.filter((session) => session.peer === machine && session.cwd).map((session) => session.cwd!),
+      ),
+    ].map((cwd) => ({ id: cwd, label: projectLabel(cwd) }));
+  const environmentPanel = saved.on && saved.editing !== undefined && (
+    <SavedEnvironmentPanel
+      key={saved.editing?.id ?? "new"}
+      {...(saved.editing ? { environment: saved.editing } : {})}
+      initial={{ kind: "local", ...(askFolder ? { folder: askFolder } : {}) }}
+      folders={(props.projects ?? [])
+        .filter((choice) => !isAgentHome(choice.cwd))
+        .map((choice) => ({ id: choice.cwd, label: choice.label }))}
+      {...(props.onBrowseProject ? { onBrowse: props.onBrowseProject } : {})}
+      machines={sshMachines}
+      machineFolders={machineFolders}
+      {...(props.onConnect ? { onConnectSSH: () => props.onConnect!("ssh") } : {})}
+      onSave={saved.save}
+      onRemove={saved.remove}
+      onClose={() => {
+        saved.edit(undefined);
+        requestAnimationFrame(() => field.current?.focus());
+      }}
+    />
   );
   // The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
   // this page draws no context ring.
@@ -1055,11 +1152,13 @@ export function NewTabScreen(props: Props) {
           </div>
           {composerCard}
           {props.notice}
+          {environmentPanel}
         </>
       ) : (
         <>
           {composerCard}
           {props.notice}
+          {environmentPanel}
           {/* The create actions (cx-ag5.7, dogfood call K2): a blank terminal in the tab's folder, a
               browser tab on the new tab page, or this page as an empty chat with the agent Return asks.
               Not beside All chats: that list takes the room under the field (new-tab-scroll). */}

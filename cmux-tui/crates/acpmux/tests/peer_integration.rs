@@ -1374,3 +1374,143 @@ async fn a_peer_may_not_edit_a_queued_prompt_that_holds_a_secret() {
     let cancel = Message::notification(method::SESSION_CANCEL, json!({"sessionId": id}));
     cb.tx.send(cancel.to_line()).await.unwrap();
 }
+
+/// The harness names in an `_acpmux/models` reply.
+fn model_harnesses(v: &Value) -> Vec<String> {
+    v["harnesses"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|h| h["harness"].as_str().unwrap_or("").to_owned())
+        .collect()
+}
+
+/// A and B list each other as peers. A models read on A lists B's harnesses
+/// once, as `b/...`, and returns: before, each daemon asked the other for its
+/// whole reply, so the request bounced between them until memory ran out.
+async fn mutual_peers_answer_models_once(with_peer_tokens: bool, tag: &str) {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (a_port, a_peer_token) = listen_with_peer_token(a.clone(), &format!("{tag}-a")).await;
+    let (b_port, b_peer_token) = listen_with_peer_token(b.clone(), &format!("{tag}-b")).await;
+    let (a_token, b_token) =
+        if with_peer_tokens { (Some(a_peer_token), Some(b_peer_token)) } else { (None, None) };
+    a.add_peer("b", &format!("ws://127.0.0.1:{b_port}"), Some("tok".into()), b_token, true)
+        .await
+        .unwrap();
+    b.add_peer("a", &format!("ws://127.0.0.1:{a_port}"), Some("tok".into()), a_token, true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let mut cb = client(b.clone()).await;
+    for (c, me, other) in [(&mut ca, "a", "b"), (&mut cb, "b", "a")] {
+        let names = model_harnesses(&c.call("_acpmux/models", json!({})).await.unwrap());
+        assert!(names.contains(&"fake".to_owned()), "{me}: {names:?}");
+        assert!(names.contains(&format!("{other}/fake")), "{me}: {names:?}");
+        assert!(
+            !names.iter().any(|n| n.matches('/').count() > 1 || n.starts_with(&format!("{me}/"))),
+            "{me} relisted a peer's peers: {names:?}"
+        );
+    }
+    assert_eq!(a.models_fanouts.load(std::sync::atomic::Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn mutual_peers_answer_models_once_as_peers() {
+    mutual_peers_answer_models_once(true, "models-peer").await;
+}
+
+#[tokio::test]
+async fn mutual_peers_answer_models_once_as_web() {
+    mutual_peers_answer_models_once(false, "models-web").await;
+}
+
+/// A peer from before `localOnly`: on `_acpmux/models` it asks A for A's whole
+/// reply over A's WebSocket listener (as Web), then answers with its own
+/// harness plus A's rows labelled as its peer's.
+async fn legacy_models_peer(a_port: u16) -> u16 {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as Ws;
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((tcp, _)) = l.accept().await {
+            let Ok(ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
+            tokio::spawn(async move {
+                let (mut sink, mut source) = ws.split();
+                while let Some(Ok(Ws::Text(text))) = source.next().await {
+                    let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
+                        continue;
+                    };
+                    let result = match m.as_str() {
+                        method::INITIALIZE => json!({"protocolVersion": 1, "_meta": {"acpmux": {
+                            "version": "0", "build": "legacy", "origin": "peer",
+                            "personInstance": "legacy-run"}}}),
+                        "_acpmux/models" => {
+                            let mut req =
+                                format!("ws://127.0.0.1:{a_port}").into_client_request().unwrap();
+                            req.headers_mut()
+                                .insert("authorization", "Bearer tok".parse().unwrap());
+                            let (mut back, _) =
+                                tokio_tungstenite::connect_async(req).await.unwrap();
+                            let ask = Message::request(1, "_acpmux/models", json!({})).to_line();
+                            back.send(Ws::Text(ask.trim_end().to_owned().into())).await.unwrap();
+                            let mut rows = vec![json!({"harness": "old-agent", "models": []})];
+                            while let Some(Ok(Ws::Text(t))) = back.next().await {
+                                if let Ok(Message::Response { result: Some(r), .. }) =
+                                    Message::parse(&t)
+                                {
+                                    if r.get("peersOmitted") == Some(&json!(true)) {
+                                        rows.push(json!({"harness": "saw-omitted", "models": []}));
+                                    }
+                                    for mut h in
+                                        r["harnesses"].as_array().cloned().unwrap_or_default()
+                                    {
+                                        h["harness"] = json!(format!(
+                                            "a/{}",
+                                            h["harness"].as_str().unwrap_or("")
+                                        ));
+                                        h["peer"] = json!("a");
+                                        rows.push(h);
+                                    }
+                                    break;
+                                }
+                            }
+                            json!({"harnesses": rows})
+                        }
+                        _ => json!({}),
+                    };
+                    let reply = Message::ok(id, result).to_line();
+                    if sink.send(Ws::Text(reply.trim_end().to_owned().into())).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    port
+}
+
+/// With a peer that ignores `localOnly` and asks back, the cycle ends at A:
+/// while A asks its peers, a remote asker gets A's own catalog.
+#[tokio::test]
+async fn a_legacy_peer_that_asks_back_cannot_loop_models() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let (a_port, _) = listen_with_peer_token(a.clone(), "models-legacy").await;
+    let old = legacy_models_peer(a_port).await;
+    a.add_peer("old", &format!("ws://127.0.0.1:{old}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let names = model_harnesses(&ca.call("_acpmux/models", json!({})).await.unwrap());
+    assert!(names.contains(&"fake".to_owned()), "{names:?}");
+    assert!(names.contains(&"old/old-agent".to_owned()), "{names:?}");
+    // A answered the legacy peer's ask-back from its own catalog, and said so.
+    assert!(names.contains(&"old/saw-omitted".to_owned()), "{names:?}");
+    assert!(!names.iter().any(|n| n.starts_with("old/a/")), "{names:?}");
+    // The top-level asker got every peer; only the nested ask was cut short.
+    let again = ca.call("_acpmux/models", json!({})).await.unwrap();
+    assert_eq!(again.get("peersOmitted"), None, "{again}");
+    assert_eq!(a.models_fanouts.load(std::sync::atomic::Ordering::SeqCst), 0);
+}

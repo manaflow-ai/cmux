@@ -123,22 +123,26 @@ export function createDrizzleHexclaveInboxStore(db: () => InboxDb = cloudDb): He
         if (locked.length === 0) return [];
 
         const result = await tx.execute(sql`
-          update ${inbox} as entry
-          set claimed_until = ${timestamp(leaseUntil)}
-          from (values ${sql.join(locked.map((candidate) => sql`(${candidate.entity_kind}, ${candidate.entity_id})`), sql`, `)})
-            as picked(entity_kind, entity_id)
-          where entry.entity_kind = picked.entity_kind
-            and entry.entity_id = picked.entity_id
-            and entry.dead_lettered_at is null
-            and entry.next_attempt_at <= ${at}
-            and (entry.claimed_until is null or entry.claimed_until <= ${at})
-            and not exists (
+          with eligible as materialized (
+            select picked.entity_kind, picked.entity_id
+            from (values ${sql.join(locked.map((candidate) => sql`(${candidate.entity_kind}, ${candidate.entity_id})`), sql`, `)})
+              as picked(entity_kind, entity_id)
+            where not exists (
               select 1 from ${inbox} as active
-              where active.entity_kind = entry.entity_kind
-                and active.entity_id = entry.entity_id
+              where active.entity_kind = picked.entity_kind
+                and active.entity_id = picked.entity_id
                 and active.dead_lettered_at is null
                 and active.claimed_until > ${at}
             )
+          )
+          update ${inbox} as entry
+          set claimed_until = ${timestamp(leaseUntil)}
+          from eligible
+          where entry.entity_kind = eligible.entity_kind
+            and entry.entity_id = eligible.entity_id
+            and entry.dead_lettered_at is null
+            and entry.next_attempt_at <= ${at}
+            and (entry.claimed_until is null or entry.claimed_until <= ${at})
           returning entry.svix_id, entry.event_type, entry.entity_kind, entry.entity_id,
             entry.revoke_candidate_team_ids, entry.attempts, entry.claimed_until
         `);
@@ -261,10 +265,11 @@ async function mutateOwnedClaims(
     if (claims.length !== svixIds.length) return false;
     const entityKeys = [...new Set(claims.map((claim) => `hexclave:inbox:${claim.kind}:${claim.id}`))].sort();
     for (const key of entityKeys) {
-      const [lock] = await tx
-        .select({ acquired: sql<boolean>`pg_try_advisory_xact_lock(hashtextextended(${key}, 0))` })
-        .from(sql`(select 1) as lock_probe`);
-      if (!lock?.acquired) return false;
+      // claimDue never waits for this lock. A mutation does: a competing
+      // claim may hold it briefly only to recheck and discover this live
+      // lease. After that transaction commits, the exact token below tells
+      // whether this worker still owns the rows or actually lost them.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`);
     }
     const owned = await tx
       .select({ svixId: inbox.svixId })
