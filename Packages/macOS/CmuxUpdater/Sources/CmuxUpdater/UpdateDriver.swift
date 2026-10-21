@@ -35,8 +35,15 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     var downloadsInBackground = true
     /// Replaces the baked feed when set (``UpdateController/feedOverride``).
     var feedOverride: String?
+    /// The release ring whose `sparkle:channel` tags are accepted (``UpdateController/ring``).
+    var ring: UpdateRing = .nightly
     /// Builds at or below this are not offered (``UpdateController/skipsBuildsThrough``).
     var skipsBuildsThrough: String?
+    /// Holds back a fresh update without deltas for one scheduled check
+    /// (``UpdateController/pendingDeltaWindow``); nil offers every update at once.
+    var pendingDeltaWait: PendingDeltaWait?
+    /// The current time, for ``pendingDeltaWait`` (replaced by tests).
+    var now: () -> Date = Date.init
     /// The update a background check accepted, and its held install once it is ready.
     var backgroundItem: SUAppcastItem?
     var stagedInstall: (() -> Void)?
@@ -101,9 +108,14 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             setState(.idle)
             return reply(.dismiss)
         }
+        if !isUserInitiatedCheck, pendingDeltaWait?.shouldHold(appcastItem, now: now()) == true {
+            log.append("not offering \(appcastItem.versionString) yet: its deltas are not listed; the next check takes it")
+            setState(.idle)
+            return reply(.dismiss)
+        }
         let available = UpdateState.UpdateAvailable(appcastItem: appcastItem) { choice in reply(choice) }
         available.reply.onConsumed = { [weak self] reply, choice, source in
-            self?.handlePromptReply(reply, choice: choice, source: source)
+            self?.handlePromptReply(reply, choice: choice, source: source, item: appcastItem)
         }
         if installsInBackground && downloadsInBackground { return acceptInBackground(available) }
         setState(.updateAvailable(available))
@@ -281,8 +293,13 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func handlePromptReply(_ reply: UpdatePromptReply,
                            choice: SPUUserUpdateChoice,
-                           source: UpdatePromptReplySource) {
+                           source: UpdatePromptReplySource,
+                           item: SUAppcastItem? = nil) {
         log.append("update prompt reply consumed (choice=\(choice.rawValue), source=\(source.rawValue))")
+        // Whoever answered Install (a background accept, an Install Update click that
+        // confirmed a fresh check, the user), the download that follows stages this
+        // item, so ``stagedItem`` always names the build this driver downloaded.
+        if choice == .install, let item { backgroundItem = item }
         guard source == .user, choice == .dismiss || choice == .skip else { return }
 
         guard case .updateAvailable(let available) = model.state,
@@ -295,6 +312,15 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         // action from an old prompt must not cancel a newer check or accepted install.
         eventDelegate?.updateDriverUserDidDismissPrompt()
         setState(.idle)
+    }
+
+    /// Whether the check being answered is one the person started: only those enter the
+    /// checking states (``showUserInitiatedUpdateCheck(cancellation:)``).
+    private var isUserInitiatedCheck: Bool {
+        switch model.state {
+        case .checking, .preparingCheck: true
+        default: false
+        }
     }
 
     // MARK: - State transition helpers

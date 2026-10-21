@@ -7,6 +7,8 @@ public struct ImportBatch: Sendable, Codable, Equatable {
     public var history: [ImportedHistoryEntry] = []
     public var openTabs: [ImportedTab] = []
     public var extensions: [ImportedExtension] = []
+    /// The default search engine, when the profile set one.
+    public var searchEngine: ImportedSearchEngine?
     /// The kinds the user picked for this profile (an empty list then means
     /// "the source has none", not "not imported").
     public var kinds: Set<ImportDataKind> = []
@@ -27,7 +29,7 @@ public struct ImportBatch: Sendable, Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case source, bookmarks, history, openTabs, extensions, kinds, cookies, cookieError, passwords, passwordError, importedAt
+        case source, bookmarks, history, openTabs, extensions, searchEngine, kinds, cookies, cookieError, passwords, passwordError, importedAt
     }
 
     /// Files saved before `kinds` existed decode with the kinds that hold data.
@@ -38,6 +40,7 @@ public struct ImportBatch: Sendable, Codable, Equatable {
         history = try container.decodeIfPresent([ImportedHistoryEntry].self, forKey: .history) ?? []
         openTabs = try container.decodeIfPresent([ImportedTab].self, forKey: .openTabs) ?? []
         extensions = try container.decodeIfPresent([ImportedExtension].self, forKey: .extensions) ?? []
+        searchEngine = try container.decodeIfPresent(ImportedSearchEngine.self, forKey: .searchEngine)
         importedAt = try container.decode(Date.self, forKey: .importedAt)
         cookies = try container.decodeIfPresent(CookieImportReport.self, forKey: .cookies)
         cookieError = try container.decodeIfPresent(CookieImportError.self, forKey: .cookieError)
@@ -58,7 +61,7 @@ public struct ImportBatch: Sendable, Codable, Equatable {
 
     public var counts: ImportCounts {
         ImportCounts(bookmarks: bookmarks.count, history: history.count, openTabs: openTabs.count, extensions: extensions.count,
-                     cookies: cookies?.written ?? 0, passwords: passwords?.imported ?? 0)
+                     cookies: cookies?.written ?? 0, passwords: passwords?.imported ?? 0, searchEngines: searchEngine == nil ? 0 : 1)
     }
 }
 
@@ -76,6 +79,12 @@ public struct ImportSourceRecord: Sendable, Codable, Equatable, Hashable {
     /// The source profile's own name ("Work"); nil for one-store browsers
     /// (Safari, Opera) and records saved by older builds.
     public var profileName: String?
+    /// Keep in Sync: the source's history database, read again whenever it
+    /// changes (``ImportHistorySync``); nil when the history was imported once.
+    public var syncedHistoryFile: URL?
+    /// Times a Clear History removed this source's pages from: a later
+    /// Keep in Sync read leaves out pages last visited in them.
+    public var clearedRanges: [DateInterval]?
 
     public init(browser: ImportBrowser, profileDirectory: String, displayName: String, proposedProfileID: String, targetProfileID: String,
                 profileName: String? = nil) {
@@ -112,4 +121,6 @@ public struct ImportSummary: Sendable, Equatable {
         return batches.flatMap(\.extensions).filter { seen.insert($0.id).inserted }
     }
     public var openTabs: [ImportedTab] { batches.flatMap(\.openTabs) }
+    /// The first imported profile's default search engine (cmux has one engine for every profile).
+    public var searchEngine: ImportedSearchEngine? { batches.lazy.compactMap(\.searchEngine).first }
 }

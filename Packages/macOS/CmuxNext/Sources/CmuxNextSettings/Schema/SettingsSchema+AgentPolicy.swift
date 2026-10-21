@@ -49,7 +49,7 @@ extension SettingsSchema {
         "shortcuts.showModifierHoldHints",
         "window.titlebarButtons",
         "tabs.plusButton",
-        "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",
+        "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons", "browser.toolbarPosition",
         "navigation.historyScope", "navigation.history.scope",
         "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
@@ -60,6 +60,7 @@ extension SettingsSchema {
         "tabs.newTabPosition",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
+        "tabs.terminalFirst",
         "app.hideDockIconWithoutWindows", // Dock icon and Cmd-Tab entry with no window open; ends no work
         "tabs.overflow",
         "tabs.swapCmdTAndCmdN",
@@ -90,6 +91,7 @@ extension SettingsSchema {
         "appearance.backdropArt",
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
+        "appearance.inactiveWindowDim",
         "appearance.background",
         "appearance.backgroundRotation",
         "appearance.paneBackgrounds",
@@ -124,6 +126,7 @@ extension SettingsSchema {
         "ui.animations.feedback",
         "ui.animations.web",
         "ui.paneAnimations",
+        "ui.calm",
         "appearance.colorTransition.enabled",
         "appearance.colorTransition.duration",
         "appearance.colorTransition.curve",
@@ -164,7 +167,7 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
+        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats", "sidebar.sessionTree",
         "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.maxRows",
         "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting",
         "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.hoverCards.groups.workspaceGroups", "sidebar.hoverCards.groups.tabGroups",
@@ -286,6 +289,8 @@ extension SettingsSchema {
         "updates.checkIntervalSeconds": .network,
         "updates.downloadAutomatically": .network,
         "updates.meteredNetwork": .network,
+        // Which builds this Mac installs (a faster ring runs less-tested code): the person's call.
+        "updates.channel": .userOnly,
         "announcements.fetch": .network,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.
@@ -305,6 +310,11 @@ extension SettingsSchema {
         "agents.subsessions.enabled": .userOnly,
         "agents.subsessions.maxChildren": .userOnly,
         "agents.subsessions.maxDepth": .userOnly,
+        // Which folders an agent may open without asking is the person's call: an agent must not
+        // widen what it may open without asking.
+        "agents.trust.autoTrust": .userOnly,
+        "agents.trust.projectRoots": .userOnly,
+        "agents.trust.ownOrgs": .userOnly,
         // What reaches this Mac from outside and what leaves it: only the person opens phone access.
         "phone.allowConnections": .network,
         "phone.startSessions": .network,

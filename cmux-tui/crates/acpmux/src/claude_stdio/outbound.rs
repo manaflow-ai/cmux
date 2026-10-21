@@ -261,6 +261,37 @@ impl Translator {
                             json!({"type": "control_request", "request_id": format!("stop-{}", id), "request": {"subtype": "stop_task", "task_id": task}}),
                         ])
                     }
+                    BACKGROUND_TASKS => {
+                        let tool = p.get("toolCallId").and_then(Value::as_str);
+                        let tool = tool.filter(|t| !t.is_empty());
+                        // The foreground shells it may move are the person's once they
+                        // move (`inbound.rs` `origin`).
+                        let mut asked = Vec::new();
+                        for (call, shell) in self.background_shells.lock().await.iter_mut() {
+                            if !shell.background && tool.is_none_or(|t| t == call) {
+                                shell.asked = true;
+                                asked.push(call.clone());
+                            }
+                        }
+                        // The hub stops waiting after `timeoutMs`, and the marks go then
+                        // (`end_background_asks`); without one, at the turn's end.
+                        let wait = p.get("timeoutMs").and_then(Value::as_u64);
+                        let deadline = wait.and_then(|ms| {
+                            std::time::Instant::now()
+                                .checked_add(std::time::Duration::from_millis(ms))
+                        });
+                        self.pending
+                            .lock()
+                            .await
+                            .insert(id.to_string(), Pending::Background(asked, deadline));
+                        let mut request = json!({"subtype": "background_tasks"});
+                        if let Some(tool) = tool {
+                            request["tool_use_id"] = json!(tool);
+                        }
+                        Outbound::Lines(vec![
+                            json!({"type": "control_request", "request_id": format!("bg-{}", id), "request": request}),
+                        ])
+                    }
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
                     // Send now on a steer Claude Code has not read: its step stops, so it
                     // reads the steer; with none waiting nothing stops.

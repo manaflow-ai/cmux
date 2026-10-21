@@ -455,6 +455,59 @@ async fn an_adopted_chat_still_steers_after_an_update_restart() {
     daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
 }
 
+/// A chat saved by a build that did not keep `steering` (cc5bd5f68, the daemon that adopted every
+/// open chat three times on 2026-10-20) and adopted since never initializes its agent again, so it
+/// read steering=false for good: all 57 open chats then stopped their turn for every prompt sent
+/// into it (agent-message-steer). A chat whose saved agent is Claude Code's adapter steers: that
+/// adapter always does.
+#[tokio::test]
+async fn a_claude_chat_saved_without_steering_steers_once_adopted() {
+    let mut daemon = Daemon::claude_steering("steer-unsaved");
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("gate: {}", gate.display())}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+
+    daemon.sigterm();
+    drop(client);
+    // The chat as the older build saved it: Claude Code's adapter, no `steering`.
+    let path = daemon.home.join("sessions").join(&session).join("session.json");
+    let mut meta: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    meta.as_object_mut().unwrap().remove("steering");
+    meta["agentInfo"] = json!({"name": "claude-stdio", "title": "Claude Code"});
+    std::fs::write(&path, serde_json::to_vec_pretty(&meta).unwrap()).unwrap();
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+
+    let mut rpc = daemon.rpc().await;
+    let listed = rpc.call("session/list", json!({})).await;
+    let entry = listed["sessions"]
+        .as_array()
+        .and_then(|all| all.iter().find(|s| s["sessionId"] == session.as_str()))
+        .cloned()
+        .unwrap_or(Value::Null);
+    assert_eq!(
+        entry["_meta"]["acpmux"]["steering"], true,
+        "the adopted chat does not steer: {entry}"
+    );
+    let steered = rpc
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "a tell"}], "_meta": {"acpmux": {"steer": true}}}),
+        )
+        .await;
+    assert_eq!(steered["stopReason"], "steered", "the prompt stopped the adopted turn: {steered}");
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+}
+
 #[tokio::test]
 async fn permission_prompt_survives_a_daemon_upgrade_restart_and_reaches_the_agent() {
     let mut daemon = Daemon::new("perm", "ask");
@@ -1266,6 +1319,61 @@ async fn queue_ops_edits_survive_a_daemon_crash() {
         .filter(|id| id.starts_with("q-"))
         .collect();
     assert_eq!(order, ["q-2", "q-1"]);
+}
+
+/// A queued prompt that left the queue for its turn (`dequeued`) when the daemon died, before
+/// its turn started, runs once after the restart: a client that resends it gets its real
+/// outcome, not `interrupted`. `ACPMUX_TEST_EXIT_AFTER_DEQUEUE` stops the first daemon there.
+#[tokio::test]
+async fn a_dequeued_prompt_survives_a_daemon_crash() {
+    let seam = [("ACPMUX_TEST_EXIT_AFTER_DEQUEUE", "1")];
+    let mut daemon = Daemon::with_env("qdeq", "approve-all", &seam);
+    let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "after the gate"}], "_meta": {"acpmux": {"promptId": "q-1"}}}),
+        )
+        .await;
+    daemon.wait_event(&session, "queued record", |e| {
+        e["kind"] == "queued" && e["msg"]["promptId"] == "q-1"
+    });
+    // The gated turn ends, q-1 leaves the queue for its turn, and the daemon stops there.
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_exit();
+    drop(client);
+    let of_q1 = |events: &[Value], kind: &str| {
+        events.iter().filter(|e| e["kind"] == kind && e["msg"]["promptId"] == "q-1").count()
+    };
+    let events = daemon.events(&session);
+    assert_eq!(of_q1(&events, "dequeued"), 1, "q-1 never left the queue: {events:#?}");
+    assert_eq!(of_q1(&events, "turn_started"), 0, "q-1's turn started before the stop");
+
+    daemon.env.clear();
+    daemon.start();
+    let mut resend = daemon.rpc().await;
+    let resent = resend
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "after the gate"}], "_meta": {"acpmux": {"promptId": "q-1", "resend": true}}}),
+        )
+        .await;
+    let reply = loop {
+        let line = tokio::time::timeout(Duration::from_secs(30), resend.lines.next_line())
+            .await
+            .expect("the resent prompt answered in time")
+            .unwrap()
+            .expect("daemon closed the socket");
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v.get("id") == Some(&json!(resent)) {
+            break v;
+        }
+    };
+    assert_eq!(reply["result"]["stopReason"], "end_turn", "q-1 never ran: {reply:#}");
+    daemon.wait_event(&session, "q-1's answer", |e| chunk(e, "echo: after the gate"));
+    let events = daemon.events(&session);
+    assert_eq!(events.iter().filter(|e| chunk(e, "echo: after the gate")).count(), 1);
+    assert_eq!(of_q1(&events, "turn_started"), 1, "q-1 ran more than once");
 }
 
 /// A message's provenance (`_meta.acpmux.provenance`, cx-55d27) stays with its queued prompt

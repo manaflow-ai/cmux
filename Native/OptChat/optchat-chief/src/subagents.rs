@@ -854,9 +854,14 @@ impl Spawner {
             // before launches were).
             None => match self.rebuild_waiting(queued) {
                 Ok(w) => {
-                    (self.log)(&format!(
-                        "subagent {id}: the host restarted while it waited; starting it from its saved task"
-                    ));
+                    match queued.launch.as_ref().and_then(|l| l.harness.as_deref()) {
+                        Some(harness) => (self.log)(&format!(
+                            "subagent {id}: continuing it in a new session on {harness}"
+                        )),
+                        None => (self.log)(&format!(
+                            "subagent {id}: the host restarted while it waited; starting it from its saved task"
+                        )),
+                    }
                     w
                 }
                 Err(e) => return fail(&e),
@@ -1021,6 +1026,19 @@ fn private_folder(dir: &Path, home: &Path) -> Option<&'static str> {
 }
 
 impl Orchestrator for Spawner {
+    fn turn_gate(&self, tool: &str, input: &Value) -> Result<(), String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::TurnGate {
+            tool: tool.to_owned(),
+            input: input.clone(),
+            reply,
+        })?;
+        // No answer fails closed, like the spawn floor.
+        answer
+            .recv_timeout(Duration::from_secs(30))
+            .unwrap_or_else(|_| Err("the Chief host did not answer the turn's tool check".into()))
+    }
+
     fn spawn(&self, tasks: Vec<String>, cwd: Option<String>) -> Result<String, String> {
         self.spawn_with_effort(tasks, cwd, None)
     }
@@ -1166,6 +1184,7 @@ impl Orchestrator for Spawner {
                         cwd: Some(dir.display().to_string()),
                         effort: launch.effort.clone(),
                         floor: floor.clone(),
+                        harness: None,
                     },
                 });
                 self.waiting
@@ -1451,6 +1470,7 @@ pub fn recover_launch(
                         .and_then(Value::as_str)
                         .map(str::to_owned),
                     floor: None,
+                    harness: None,
                 });
             }
             _ => {}

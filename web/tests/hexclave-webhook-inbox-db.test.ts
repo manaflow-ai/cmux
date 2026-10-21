@@ -113,9 +113,12 @@ describe("Hexclave webhook inbox store", () => {
 
     let unlock!: () => void;
     let locked!: () => void;
+    let holderPid = 0;
     const release = new Promise<void>((resolve) => { unlock = resolve; });
     const ready = new Promise<void>((resolve) => { locked = resolve; });
     const holder = sql!.begin(async (tx) => {
+      const [session] = await tx<{ pid: number }[]>`select pg_backend_pid()::int as pid`;
+      holderPid = session!.pid;
       await tx`select pg_advisory_xact_lock(hashtextextended('hexclave:inbox:user:u-renew-locked', 0))`;
       locked();
       await release;
@@ -133,8 +136,9 @@ describe("Hexclave webhook inbox store", () => {
       while (!settled && waiting === 0 && Date.now() < deadline) {
         const [row] = await observer<{ waiting: number }[]>`
           select count(*)::int as waiting
-          from pg_locks
-          where locktype = 'advisory' and not granted
+          from pg_stat_activity as waiter
+          where waiter.wait_event_type = 'Lock'
+            and ${holderPid} = any(pg_blocking_pids(waiter.pid))
         `;
         waiting = row?.waiting ?? 0;
         if (waiting === 0) await new Promise((resolve) => setTimeout(resolve, 10));
@@ -160,6 +164,7 @@ describe("Hexclave webhook inbox store", () => {
     expect((await store.claimDue(now, 5, leaseUntil)).map((entry) => entry.svixId)).toEqual(["m-remove"]);
 
     await store.enqueue({ svixId: "m-readd", eventType: "team_membership.created", target: user("u-one") });
+    await sql!`update hexclave_webhook_inbox set next_attempt_at = ${new Date(now.getTime() - 1_000)} where svix_id = 'm-readd'`;
     expect(await store.claimDue(now, 5, leaseUntil)).toEqual([]);
     const afterLease = new Date(leaseUntil.getTime() + 1);
     expect((await store.claimDue(afterLease, 5, new Date(afterLease.getTime() + 60_000)))

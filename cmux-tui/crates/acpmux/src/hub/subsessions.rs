@@ -329,6 +329,10 @@ struct KeptWorktree {
     folder: PathBuf,
     made: crate::subsession_worktree::Worktree,
     kept: bool,
+    /// A decision trusts `folder` (a person's, an agent's own, or cmux's for a folder it made),
+    /// not an auto-trust rule alone (`ensure_folder_trusted`): the worktree is recorded as
+    /// trusted too.
+    source_decided: bool,
 }
 
 impl KeptWorktree {
@@ -562,6 +566,13 @@ impl Hub {
             ));
         }
         if let Some(kept) = worktree {
+            // The folder it was made from is trusted by a decision, so its worktree is too. A
+            // folder only an auto-trust rule trusts gets no record: a Web client reads a record
+            // as a person's answer, and the rule still answers the pane for the worktree's own
+            // folder when it covers it.
+            if kept.source_decided {
+                self.trust_made_worktree(&kept.made.cwd).await;
+            }
             kept.keep();
         }
         let link = child.meta().subsession.clone();
@@ -589,11 +600,15 @@ impl Hub {
         let harness = req.harness.clone().unwrap_or_else(|| pm.harness.clone());
         let asked = req.cwd.clone().unwrap_or_else(|| pm.cwd.clone());
         let folder = super::subsession_guard::resolved_folder(&asked)?;
+        // A folder nobody answered the trust question for waits on a card in the parent's chat
+        // instead of failing (`trust_wait.rs`); the checks below read that answer.
+        let decided = self.ensure_folder_trusted(parent, &folder, &harness, &short).await?;
         self.subsession_folder_check(pm, &folder).await?;
         self.subsession_harness_check(pm, &harness, req.model.as_deref(), &folder).await?;
         let mut cwd = folder.clone();
         let worktree = if req.worktree {
-            let kept = self.subsession_worktree(pm, &folder, &short).await?;
+            let mut kept = self.subsession_worktree(pm, &folder, &short).await?;
+            kept.source_decided = decided;
             cwd = std::fs::canonicalize(&kept.made.cwd).unwrap_or_else(|_| kept.made.cwd.clone());
             Some(kept)
         } else {
@@ -681,6 +696,7 @@ impl Hub {
                 folder: folder2,
                 made,
                 kept: false,
+                source_decided: false,
             })
         })
         .await
