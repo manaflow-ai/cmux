@@ -311,6 +311,7 @@
           {
             "key" : "settings.group.motion",
             "rows" : [
+              "ui.calm",
               "ui.animations.enabled",
               "ui.animations.sidebar",
               "ui.animations.tabs",
@@ -355,7 +356,8 @@
               "appearance.backgroundRotation",
               "appearance.paneBackgrounds",
               "appearance.backgroundOpacity",
-              "appearance.backgroundBlur"
+              "appearance.backgroundBlur",
+              "appearance.inactiveWindowDim"
             ],
             "title" : {
               "key" : "settings.group.windowBackground",
@@ -408,6 +410,7 @@
               "sidebar.pinnedBandsScroll",
               "sidebar.showWorkspaceTabs",
               "sidebar.showChats",
+              "sidebar.sessionTree",
               "sidebar.showProjects",
               "sidebar.groupBy",
               "sidebar.showSpaces",
@@ -421,6 +424,8 @@
               "sidebar.groupHeader.unreadCount",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
+              "sidebar.priorityView.enabled",
+              "sidebar.priorityView.shown",
               "sidebar.side",
               "sidebar.spacesPosition",
               "sidebar.spacesVisibility",
@@ -777,7 +782,8 @@
             "key" : "settings.group.sessions",
             "rows" : [
               "sessions.keepAwake",
-              "sessions.resumeAgents"
+              "sessions.resumeAgents",
+              "sessions.allowFullAccess"
             ],
             "title" : {
               "key" : "settings.group.sessions",
@@ -797,14 +803,15 @@
             }
           },
           {
-            "key" : "settings.group.chiefPet",
+            "key" : "settings.group.folderTrust",
             "rows" : [
-              "home.chiefPetEnabled",
-              "home.chiefPetMascot"
+              "agents.trust.autoTrust",
+              "agents.trust.projectRoots",
+              "agents.trust.ownOrgs"
             ],
             "title" : {
-              "key" : "settings.group.chiefPet",
-              "text" : "Chief Pet"
+              "key" : "settings.group.folderTrust",
+              "text" : "Folder Trust"
             }
           }
         ],
@@ -822,6 +829,39 @@
           "agentHarnesses",
           "chiefs",
           "computerUse"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.chiefPet",
+            "rows" : [
+              "home.chiefPetEnabled",
+              "home.chiefPetMascot"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefPet",
+              "text" : "Chief Pet"
+            }
+          }
+        ],
+        "id" : "chief-pet",
+        "lead" : [
+          "chiefPet"
+        ],
+        "symbol" : "pawprint",
+        "title" : {
+          "key" : "settings.category.chiefPet",
+          "text" : "Chief Pet"
+        },
+        "trail" : [
+
         ]
       },
       {
@@ -2853,7 +2893,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -4336,6 +4376,56 @@
         true,
         false
       ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.allowFullAccess.help",
+        "text" : "Off, cmux won't switch an agent into a mode that skips approvals."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.allowFullAccess",
+      "keywords" : [
+        "bypass",
+        "permissions",
+        "yolo",
+        "full access",
+        "dangerous",
+        "approve",
+        "safety"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "allowFullAccess"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.allowFullAccess",
+        "text" : "Allow Full-Access Modes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -4717,6 +4807,179 @@
       "title" : {
         "key" : "settings.agents.subsessions.maxDepth",
         "text" : "Deepest Nesting"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.folderTrust",
+        "text" : "Folder Trust"
+      },
+      "help" : {
+        "key" : "settings.agents.trust.autoTrust.help",
+        "text" : "Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.trust.autoTrust",
+      "keywords" : [
+        "trust",
+        "folder",
+        "repository",
+        "prompt",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "trust",
+        "autoTrust"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.trust.autoTrust",
+        "text" : "Trust My Own Folders Without Asking"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "/Users/ada/src",
+          "~/notes"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.folderTrust",
+        "text" : "Folder Trust"
+      },
+      "help" : {
+        "key" : "settings.agents.trust.projectRoots.help",
+        "text" : "Everything inside these folders is trusted. Use full paths or ~/ paths."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.trust.projectRoots",
+      "keywords" : [
+        "trust",
+        "project",
+        "roots",
+        "folders",
+        "workspace"
+      ],
+      "kind" : "folder_list",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "trust",
+        "projectRoots"
+      ],
+      "refuses" : [
+        "/Users/ada/src",
+        [
+          "relative/path"
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.trust.projectRoots",
+        "text" : "Trusted Project Roots"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.folderTrust",
+        "text" : "Folder Trust"
+      },
+      "help" : {
+        "key" : "settings.agents.trust.ownOrgs.help",
+        "text" : "A repository is trusted when all of its GitHub remotes belong to these users or organizations."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.trust.ownOrgs",
+      "keywords" : [
+        "trust",
+        "github",
+        "organization",
+        "owner",
+        "remote",
+        "repository"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "trust",
+        "ownOrgs"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.trust.ownOrgs",
+        "text" : "Trusted GitHub Owners"
       },
       "validation" : "portable"
     },
@@ -5517,7 +5780,7 @@
       },
       "help" : {
         "key" : "settings.layout.linkPlacement.help",
-        "text" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."
+        "text" : "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane."
       },
       "kept_on_reset_all" : false,
       "key" : "layout.linkPlacement",
@@ -10860,6 +11123,64 @@
       "default" : 0,
       "default_label" : null,
       "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.inactiveWindowDim.help",
+        "text" : "How much more theme color covers a window while another one is in front. 0 keeps the same look."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.inactiveWindowDim",
+      "keywords" : [
+        "inactive",
+        "unfocused",
+        "focus",
+        "dim",
+        "opacity",
+        "transparency",
+        "background"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "inactiveWindowDim"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.inactiveWindowDim",
+        "text" : "Dim Inactive Windows"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
         "key" : "settings.group.appearanceTuning",
         "text" : "Appearance Tuning"
       },
@@ -12856,6 +13177,87 @@
       "title" : {
         "key" : "settings.focusRing.showWhenSinglePane",
         "text" : "Show With One Pane"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "calm",
+        "still"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.calm",
+            "text" : "Calm"
+          },
+          "value" : "calm"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.still",
+            "text" : "Still"
+          },
+          "value" : "still"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "off",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.calm.help",
+        "text" : "Calm: nothing slides, springs or spins, hover cards stay closed and the pointer leaves no highlight on tabs, rows and buttons. Still: Calm, and every animation is instant. Your other motion and hover card settings come back when it is off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.calm",
+      "keywords" : [
+        "calm",
+        "quiet",
+        "focus",
+        "zen",
+        "reduce motion",
+        "reduced motion",
+        "hover",
+        "no hover",
+        "highlight",
+        "distraction",
+        "busy",
+        "noise",
+        "minimal",
+        "still"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "calm"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.calm",
+        "text" : "Calm Mode"
       },
       "validation" : "portable"
     },
@@ -20426,6 +20828,57 @@
       "consumers" : [
         "cmux-next"
       ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.sessionTree.help",
+        "text" : "Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.sessionTree",
+      "keywords" : [
+        "sidebar",
+        "tree",
+        "nested",
+        "parent",
+        "child",
+        "pull request",
+        "keycap",
+        "sessions"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "sessionTree"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.sessionTree",
+        "text" : "Session Tree"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : true,
       "default_label" : null,
       "group" : {
@@ -21143,6 +21596,112 @@
       "title" : {
         "key" : "settings.sidebar.cards.tips",
         "text" : "Show Tips"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.priorityView.enabled.help",
+        "text" : "A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.priorityView.enabled",
+      "keywords" : [
+        "sidebar",
+        "priority",
+        "attention",
+        "agents",
+        "chats",
+        "needs you",
+        "activity",
+        "bell",
+        "inbox"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "priorityView",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.sidebar.priorityView.enabled.summary",
+        "text" : "Agent chats that need you, at the top of the sidebar"
+      },
+      "title" : {
+        "key" : "settings.sidebar.priorityView.enabled",
+        "text" : "Priority View"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.priorityView.shown.help",
+        "text" : "The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.priorityView.shown",
+      "keywords" : [
+        "sidebar",
+        "priority",
+        "activity",
+        "bell",
+        "show",
+        "hide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "priorityView",
+        "shown"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.priorityView.shown",
+        "text" : "Show Priority View"
       },
       "validation" : "portable"
     },
