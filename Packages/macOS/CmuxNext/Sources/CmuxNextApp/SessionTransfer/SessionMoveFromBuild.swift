@@ -4,7 +4,8 @@ import CmuxNextDesign
 import CmuxNextSessionTransfer
 
 /// Move Sessions from Another cmux Build… (cx-yxmkh): finds the sibling
-/// builds with sessions, asks which to move in a cmux dialog, pulls them
+/// builds with sessions, asks which to move in a cmux dialog (and again,
+/// with no Return default, before ending a terminal there), pulls them
 /// here through `SessionTransferService` and says what happened in a toast.
 /// The picker and the toast text are `SessionMoveSelection` and `SessionMoveOutcome`.
 @MainActor
@@ -40,6 +41,13 @@ struct SessionMoveFromBuild {
         let answer = await CmuxDialogCenter.shared.present(selection.dialog, in: .window(window))
         let pulls = selection.pulls(answer)
         guard !pulls.isEmpty else { return nil }
+        // Moving a terminal ends its program and scrollback in the other build: that takes a
+        // second, explicit Move and End Terminals (no Return default), never the picker's Return.
+        let terminals = selection.terminals(in: pulls)
+        if !terminals.isEmpty {
+            let confirm = await CmuxDialogCenter.shared.present(SessionMoveSelection.endTerminalsDialog(for: terminals), in: .window(window))
+            guard SessionMoveSelection.confirmsEndingTerminals(confirm) else { return nil }
+        }
         var outcome = SessionMoveOutcome()
         for pull in pulls {
             do {

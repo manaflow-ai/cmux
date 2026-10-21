@@ -62,6 +62,29 @@ final class SessionTransferService {
         try await connection.closeTabs(ids, endTerminals: true)
     }
 
+    /// Each local terminal's foreground program by surface, for `session.transfer.list`'s
+    /// `idle` and `foreground_program`, asked at once with a short deadline. A nil program:
+    /// its shell only. A terminal missing from it did not answer or reported no foreground,
+    /// so a taker treats it as busy: a move ends it, so unlike a close, no answer is not idle.
+    func foregroundPrograms(_ surfaces: [String]) async -> [String: String?] {
+        guard let connection = services?.daemon.connection else { return [:] }
+        return await withTaskGroup(of: (String, String??).self) { group in
+            for surface in surfaces {
+                guard let id = UInt64(surface).map(SurfaceID.init(rawValue:)) else { continue }
+                group.addTask {
+                    let info = try? await connection.request(TerminalProcessInfoRequest(surface: id), timeout: .milliseconds(500))
+                    guard let info, info.foregroundExecutable?.isEmpty == false else { return (surface, nil) }
+                    return (surface, .some(info.runningProgram))
+                }
+            }
+            var programs: [String: String?] = [:]
+            for await (surface, program) in group {
+                if let program { programs[surface] = .some(program) }
+            }
+            return programs
+        }
+    }
+
     /// The sibling builds and their movable sessions, for `session.transfer.peers` and `.pull`.
     /// Throws ``Failure/peerRefused`` when no peer has sessions and at least
     /// one refused the connection (classic's default `cmuxOnly` socket mode
@@ -91,7 +114,8 @@ final class SessionTransferService {
             let build = fields["build"]?.stringValue ?? fields["version"]?.stringValue ?? ""
             let tag = fields["tag"]?.stringValue ?? ControlSocketPath.shared.bundleTag(fields["bundle_identifier"]?.stringValue)
             let items: [SessionTransferItem]
-            if let list = try? await ControlPeerClient.request(path: path, method: "session.transfer.list"),
+            // A cmux-next source asks each terminal for its foreground program (up to half a second).
+            if let list = try? await ControlPeerClient.request(path: path, method: "session.transfer.list", timeout: .seconds(5)),
                let records = list["sessions"]?.arrayValue {
                 items = records.compactMap { SessionTransferItem(json: $0) }
             } else {

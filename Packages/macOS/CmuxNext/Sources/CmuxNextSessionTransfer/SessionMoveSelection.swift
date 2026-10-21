@@ -2,9 +2,13 @@ public import CmuxNextDesign
 import Foundation
 
 /// The picker of Move Sessions from Another cmux Build… (cx-yxmkh) as data:
-/// each build's name, then one check box per session (all checked), and the
-/// sessions each build's checked boxes name. `CmuxDialogCenter` draws it;
-/// `SessionMoveFromBuild` runs it.
+/// each build's name, then one check box per session, and the sessions each
+/// build's checked boxes name. Moving a terminal opens a new shell here and
+/// ends the terminal in its build (its program and scrollback), so a terminal
+/// starts unchecked, one running a program (or whose build can't tell) has no
+/// check box, and a move that ends one asks again (``endTerminalsDialog(for:)``)
+/// with no Return default. Chats and agents start checked. `CmuxDialogCenter`
+/// draws it; `SessionMoveFromBuild` runs it.
 public nonisolated struct SessionMoveSelection: Equatable {
     /// One session's check box.
     public struct Row: Equatable {
@@ -14,6 +18,14 @@ public nonisolated struct SessionMoveSelection: Equatable {
         public let item: String
         /// The check box's title (``SessionMoveSelection/title(_:)``).
         public let title: String
+        /// What the session is: moving a terminal ends it in its build.
+        public let kind: SessionTransferItem.Kind
+        /// Why the row can't be checked (a terminal that runs a program, or whose build
+        /// can't tell), as the dialog shows it in place of a check box; nil when it can.
+        public let blocked: String?
+
+        /// Whether the row's session is a terminal.
+        public nonisolated var isTerminal: Bool { kind == .terminal }
     }
 
     /// One build: its heading, then its sessions' rows.
@@ -49,6 +61,8 @@ public nonisolated struct SessionMoveSelection: Equatable {
 
     /// The id of the dialog's Move button.
     public static let moveButton = "move"
+    /// The id of the Move and End Terminals button of ``endTerminalsDialog(for:)``.
+    public static let endTerminalsButton = "endTerminals"
 
     /// The builds that have sessions, in discovery order.
     public let groups: [Group]
@@ -59,7 +73,9 @@ public nonisolated struct SessionMoveSelection: Equatable {
         groups = peers.enumerated().compactMap { index, peer in
             guard !peer.items.isEmpty else { return nil }
             let rows = peer.items.enumerated().map { row, item in
-                Row(field: "session.\(index).\(row)", item: item.id, title: Self.title(item))
+                let title = Self.title(item)
+                return Row(field: "session.\(index).\(row)", item: item.id, title: title, kind: item.kind,
+                           blocked: Self.blocked(item, title: title))
             }
             return Group(source: peer.path, heading: Self.heading(peer), rows: rows)
         }
@@ -74,21 +90,25 @@ public nonisolated struct SessionMoveSelection: Equatable {
         return Dictionary(rows.map { ($0.item, $0.title) }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// The picker as a cmux dialog: each build's heading, then its sessions, all checked.
+    /// The picker as a cmux dialog: each build's heading, then its sessions. Chats and agents
+    /// start checked, terminals unchecked; a blocked terminal is a line saying why, not a check box.
     public var dialog: CmuxDialogSpec {
         let fields = groups.flatMap { group -> [CmuxDialogField] in
-            [.preview(group.heading)] + group.rows.map { .check(id: $0.field, title: $0.title, on: true) }
+            [.preview(group.heading)] + group.rows.map { row in
+                row.blocked.map(CmuxDialogField.preview) ?? .check(id: row.field, title: row.title, on: !row.isTerminal)
+            }
         }
-        return CmuxDialogSpec(title: Self.dialogTitle, lines: [Self.dialogLine], fields: fields,
+        return CmuxDialogSpec(title: Self.dialogTitle, lines: [Self.dialogLine, Self.terminalLine], fields: fields,
                               buttons: [.cancel(), CmuxDialogButton(id: Self.moveButton, title: Self.move, role: .default)],
                               identifier: "cmux.dialog.sessionMove")
     }
 
     /// The builds to pull from and the sessions each moves, in picker order.
     /// A build with nothing checked is left out: `pull` with no ids moves all of its sessions.
+    /// A blocked row never moves, whatever `checked` says.
     public func pulls(checked: Set<String>) -> [Pull] {
         groups.compactMap { group in
-            let ids = Set(group.rows.filter { checked.contains($0.field) }.map(\.item))
+            let ids = Set(group.rows.filter { $0.blocked == nil && checked.contains($0.field) }.map(\.item))
             return ids.isEmpty ? nil : Pull(source: group.source, heading: group.heading, ids: ids)
         }
     }
@@ -97,6 +117,39 @@ public nonisolated struct SessionMoveSelection: Equatable {
     public func pulls(_ answer: CmuxDialogAnswer) -> [Pull] {
         guard answer.button == Self.moveButton, !answer.isDismissal else { return [] }
         return pulls(checked: Set(answer.values.compactMap { $0.value.bool == true ? $0.key : nil }))
+    }
+
+    /// The titles of the terminals `pulls` would move, which their builds end. Non-empty,
+    /// the move waits for ``endTerminalsDialog(for:)``.
+    public func terminals(in pulls: [Pull]) -> [String] {
+        pulls.flatMap { pull in
+            groups.filter { $0.source == pull.source }.flatMap(\.rows)
+                .filter { $0.isTerminal && pull.ids.contains($0.item) }.map(\.title)
+        }
+    }
+
+    /// The second question a move that ends `terminals` asks, naming them. Its confirm
+    /// button, Move and End Terminals, is destructive and nothing is the Return default,
+    /// so Return never ends a terminal; Escape cancels.
+    public static func endTerminalsDialog(for terminals: [String]) -> CmuxDialogSpec {
+        CmuxDialogSpec(title: endTerminalsTitle, lines: [terminalLine], fields: terminals.map(CmuxDialogField.preview),
+                       buttons: [.cancel(), CmuxDialogButton(id: endTerminalsButton, title: moveAndEndTerminals, role: .destructive)],
+                       identifier: "cmux.dialog.sessionMove.endTerminals")
+    }
+
+    /// Whether `answer` to ``endTerminalsDialog(for:)`` confirms ending the terminals.
+    public static func confirmsEndingTerminals(_ answer: CmuxDialogAnswer) -> Bool {
+        answer.button == endTerminalsButton && !answer.isDismissal
+    }
+
+    /// Why `item` can't be picked: a terminal that runs a program, or whose build can't tell.
+    static func blocked(_ item: SessionTransferItem, title: String) -> String? {
+        guard item.kind == .terminal else { return nil }
+        switch item.activity {
+        case .idle: return nil
+        case .running(let program) where !program.isEmpty: return Self.running(title, program)
+        case .running, .unknown: return Self.unknownActivity(title)
+        }
     }
 
     /// The build's app name and, when it has one, its tag.
@@ -124,6 +177,29 @@ public nonisolated struct SessionMoveSelection: Equatable {
     public static var dialogLine: String {
         String(localized: "sessionMove.dialog.line",
                defaultValue: "Each checked session opens here and closes in the build it came from.", bundle: .module)
+    }
+    /// Localized text: terminalLine.
+    public static var terminalLine: String {
+        String(localized: "sessionMove.dialog.terminalLine",
+               defaultValue: "A moved terminal reopens here as a new shell, and its program and scrollback in the other build end.",
+               bundle: .module)
+    }
+    /// Localized text: a terminal that can't move because it runs `program`.
+    public static func running(_ title: String, _ program: String) -> String {
+        String(localized: "sessionMove.row.running", defaultValue: "\(title): running \(program), so it stays in the other build.", bundle: .module)
+    }
+    /// Localized text: a terminal that can't move because its build can't tell whether a program runs in it.
+    public static func unknownActivity(_ title: String) -> String {
+        String(localized: "sessionMove.row.unknownActivity",
+               defaultValue: "\(title): the other build can’t tell whether a program is running, so it stays there.", bundle: .module)
+    }
+    /// Localized text: endTerminalsTitle.
+    public static var endTerminalsTitle: String {
+        String(localized: "sessionMove.endTerminals.title", defaultValue: "End These Terminals in the Other Build?", bundle: .module)
+    }
+    /// Localized text: moveAndEndTerminals.
+    public static var moveAndEndTerminals: String {
+        String(localized: "sessionMove.endTerminals.move", defaultValue: "Move and End Terminals", bundle: .module)
     }
     /// Localized text: move.
     public static var move: String {

@@ -30,6 +30,10 @@ public nonisolated struct SessionTransferItem: Sendable, Equatable, Identifiable
     public var acpmuxSocket: String?
     /// The source build's acpmux home, paired with ``acpmuxSocket``.
     public var acpmuxHome: String?
+    /// What a terminal runs in the foreground, as its build reported it. Moving a terminal
+    /// ends it there, so only an ``Activity/idle`` one may be picked; a build that does not
+    /// say (classic, a cmux-next build before this field) leaves it ``Activity/unknown``.
+    public var activity: Activity = .unknown
 
     /// `agent` resumes a harness's own session id; `chat` moves an acpmux chat with its history,
     /// queue and draft (a build that predates it skips the record).
@@ -40,6 +44,17 @@ public nonisolated struct SessionTransferItem: Sendable, Equatable, Identifiable
         case agent
         /// A cmux-next agent chat moved through acpmux.
         case chat
+    }
+
+    /// A terminal's foreground, on the wire as `idle` (true: its shell only) and
+    /// `foreground_program` (the program when `idle` is false); both absent or null: unknown.
+    public nonisolated enum Activity: Sendable, Equatable {
+        /// Only the terminal's shell runs.
+        case idle
+        /// A program other than the shell runs (`vim`, `ssh`, a build).
+        case running(String)
+        /// The build did not say, or could not tell.
+        case unknown
     }
 
     /// The item's id within its build: its source surface.
@@ -59,6 +74,8 @@ public nonisolated struct SessionTransferItem: Sendable, Equatable, Identifiable
             "agent_session": .optional(agentSessionID),
             "acpmux_socket": .optional(acpmuxSocket),
             "acpmux_home": .optional(acpmuxHome),
+            "idle": activity.idleFlag.map(JSONValue.bool) ?? .null,
+            "foreground_program": .optional(activity.program),
         ]
     }
 
@@ -105,7 +122,26 @@ public nonisolated struct SessionTransferItem: Sendable, Equatable, Identifiable
         agentSessionID = object["agent_session"]?.stringValue
         acpmuxSocket = object["acpmux_socket"]?.stringValue
         acpmuxHome = object["acpmux_home"]?.stringValue
+        activity = switch object["idle"]?.boolValue {
+        case true?: .idle
+        case false?: .running(object["foreground_program"]?.stringValue ?? "")
+        case nil: .unknown
+        }
     }
+}
+
+extension SessionTransferItem.Activity {
+    /// `idle` on the wire: nil when unknown.
+    nonisolated var idleFlag: Bool? {
+        switch self {
+        case .idle: true
+        case .running: false
+        case .unknown: nil
+        }
+    }
+
+    /// The running program's name, else nil.
+    nonisolated var program: String? { if case .running(let program) = self { program } else { nil } }
 }
 
 private extension JSONValue {

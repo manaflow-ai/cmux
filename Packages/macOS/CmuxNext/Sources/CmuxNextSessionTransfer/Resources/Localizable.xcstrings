@@ -1583,6 +1583,666 @@
           }
         }
       }
+    },
+    "sessionMove.dialog.terminalLine": {
+      "comment": "Line in the Move Sessions dialog and its End Terminals question: moving a terminal opens a new shell in this build in the same folder, and the terminal in the other build closes, ending the program running in it and its scrollback.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A moved terminal reopens here as a new shell, and its program and scrollback in the other build end."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein verschobenes Terminal öffnet sich hier als neue Shell; sein Programm und sein Verlauf im anderen Build werden beendet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un terminal déplacé se rouvre ici dans un nouveau shell, et son programme et son historique dans l’autre build prennent fin."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُفتح الطرفية المنقولة هنا كصدفة جديدة، وينتهي برنامجها وسجل التمرير الخاص بها في الإصدار الآخر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un terminal movido se vuelve a abrir aquí como un shell nuevo, y su programa y su historial en la otra compilación terminan."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動的終端機會在這裡以新的 shell 重新開啟，它在另一個版本中的程式與捲動記錄會結束。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移动的终端会在这里以新的 shell 重新打开，它在另一个版本中的程序和回滚记录会结束。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "옮긴 터미널은 여기에서 새 셸로 다시 열리고, 다른 빌드에서 실행 중이던 프로그램과 스크롤백은 종료됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動したターミナルはここで新しいシェルとして開き直され、元のビルドのプログラムとスクロールバックは終了します。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premješteni terminal ponovo se otvara ovdje kao nova ljuska, a njegov program i historija u drugoj verziji završavaju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En flyttet terminal åbnes igen her som en ny shell, og dens program og rullehistorik i det andet build afsluttes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un terminale spostato si riapre qui come una nuova shell, e il suo programma e la cronologia nell’altra build terminano."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal ដែលបានផ្លាស់ទីបើកឡើងវិញនៅទីនេះជា shell ថ្មី ហើយកម្មវិធី និងប្រវត្តិរំកិលរបស់វានៅក្នុង build ផ្សេងទៀតត្រូវបញ្ចប់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En flyttet terminal åpnes på nytt her som et nytt skall, og programmet og rullehistorikken i det andre bygget avsluttes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przeniesiony terminal otworzy się tutaj jako nowa powłoka, a jego program i historia przewijania w drugiej kompilacji zostaną zakończone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um terminal movido reabre aqui como um novo shell, e seu programa e histórico na outra compilação são encerrados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перенесённый терминал откроется здесь как новая оболочка, а его программа и история прокрутки в другой сборке завершатся."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทอร์มินัลที่ย้ายจะเปิดใหม่ที่นี่เป็นเชลล์ใหม่ และโปรแกรมกับประวัติการเลื่อนในบิลด์อื่นจะสิ้นสุดลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taşınan bir terminal burada yeni bir kabuk olarak yeniden açılır; diğer derlemedeki programı ve geçmişi sona erer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перенесений термінал відкриється тут як нова оболонка, а його програма й історія прокручування в іншій збірці завершаться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal được chuyển sẽ mở lại ở đây dưới dạng shell mới, còn chương trình và lịch sử cuộn của nó trong bản dựng kia sẽ kết thúc."
+          }
+        }
+      }
+    },
+    "sessionMove.row.running": {
+      "comment": "Line in the Move Sessions dialog in place of a terminal's check box: the terminal runs a program, so it cannot be moved. The first %@ is the terminal's title, the second the program's name (vim, ssh).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: running %@, so it stays in the other build."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ läuft, daher bleibt es im anderen Build."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ : %2$@ est en cours d’exécution, il reste donc dans l’autre build."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: يعمل فيها %2$@، لذا تبقى في الإصدار الآخر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: está ejecutando %2$@, así que se queda en la otra compilación."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：正在執行 %2$@，因此會留在另一個版本中。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：正在运行 %2$@，因此会留在另一个版本中。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ 실행 중이므로 다른 빌드에 남습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@ を実行中のため、元のビルドに残ります。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@: pokreće %2$@, pa ostaje u drugoj verziji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@: kører %2$@, så den bliver i det andet build."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@: sta eseguendo %2$@, quindi resta nell’altra build."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@៖ កំពុងដំណើរការ %2$@ ដូច្នេះវានៅក្នុង build ផ្សេងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@: kjører %2$@, så den blir i det andre bygget."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@: działa %2$@, więc zostaje w drugiej kompilacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@: executando %2$@, então fica na outra compilação."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@: выполняется %2$@, поэтому он остаётся в другой сборке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@: กำลังรัน %2$@ จึงยังอยู่ในบิลด์อื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@: %2$@ çalışıyor, bu yüzden diğer derlemede kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@: виконується %2$@, тому він залишається в іншій збірці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@: đang chạy %2$@, nên vẫn ở trong bản dựng kia."
+          }
+        }
+      }
+    },
+    "sessionMove.row.unknownActivity": {
+      "comment": "Line in the Move Sessions dialog in place of a terminal's check box: the other cmux build does not report whether a program runs in the terminal, so it cannot be moved. %@ is the terminal's title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: the other build can’t tell whether a program is running, so it stays there."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Der andere Build kann nicht feststellen, ob ein Programm läuft, daher bleibt es dort."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ : l’autre build ne peut pas savoir si un programme est en cours d’exécution, il reste donc là-bas."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: لا يستطيع الإصدار الآخر معرفة ما إذا كان هناك برنامج قيد التشغيل، لذا تبقى هناك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: la otra compilación no puede saber si se está ejecutando un programa, así que se queda allí."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：另一個版本無法判斷是否有程式正在執行，因此會留在那裡。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：另一个版本无法判断是否有程序正在运行，因此会留在那里。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: 다른 빌드에서 프로그램 실행 여부를 알 수 없으므로 그곳에 남습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：元のビルドではプログラムが実行中かどうか判断できないため、そちらに残ります。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@: druga verzija ne može utvrditi da li se pokreće program, pa ostaje tamo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@: det andet build kan ikke se, om et program kører, så den bliver der."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@: l’altra build non può sapere se è in esecuzione un programma, quindi resta lì."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@៖ build ផ្សេងទៀតមិនអាចដឹងថាមានកម្មវិធីកំពុងដំណើរការឬអត់ទេ ដូច្នេះវានៅទីនោះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@: det andre bygget kan ikke se om et program kjører, så den blir der."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@: druga kompilacja nie może ustalić, czy działa program, więc zostaje tam."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@: a outra compilação não consegue saber se há um programa em execução, então fica lá."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@: другая сборка не может определить, запущена ли программа, поэтому он остаётся там."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@: บิลด์อื่นไม่สามารถบอกได้ว่ามีโปรแกรมกำลังทำงานอยู่หรือไม่ จึงยังอยู่ที่นั่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@: diğer derleme bir programın çalışıp çalışmadığını anlayamıyor, bu yüzden orada kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@: інша збірка не може визначити, чи виконується програма, тому він залишається там."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@: bản dựng kia không xác định được có chương trình đang chạy hay không, nên vẫn ở đó."
+          }
+        }
+      }
+    },
+    "sessionMove.endTerminals.title": {
+      "comment": "Title of the question the Move Sessions dialog asks before moving checked terminals: moving them ends each terminal (its program and scrollback) in the cmux build it came from.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End These Terminals in the Other Build?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Terminals im anderen Build beenden?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermer ces terminaux dans l’autre build ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد إنهاء هذه الطرفيات في الإصدار الآخر؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Terminar estos terminales en la otra compilación?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要結束另一個版本中的這些終端機嗎？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要结束另一个版本中的这些终端吗？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 빌드의 이 터미널들을 종료할까요?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のビルドのこれらのターミナルを終了しますか？"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Završiti ove terminale u drugoj verziji?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afslut disse terminaler i det andet build?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminare questi terminali nell’altra build?"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ចប់ Terminal ទាំងនេះនៅក្នុង build ផ្សេងទៀតឬ?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avslutte disse terminalene i det andre bygget?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zakończyć te terminale w drugiej kompilacji?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Encerrar estes terminais na outra compilação?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завершить эти терминалы в другой сборке?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สิ้นสุดเทอร์มินัลเหล่านี้ในบิลด์อื่นหรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu terminaller diğer derlemede sonlandırılsın mı?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завершити ці термінали в іншій збірці?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết thúc các terminal này trong bản dựng kia?"
+          }
+        }
+      }
+    },
+    "sessionMove.endTerminals.move": {
+      "comment": "Destructive confirm button of the question before moving terminals: moves the checked sessions here and ends the terminals in the other cmux build. It is never pressed by Return.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move and End Terminals"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verschieben und Terminals beenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacer et fermer les terminaux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقل وإنهاء الطرفيات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover y terminar terminales"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動並結束終端機"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移动并结束终端"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "옮기고 터미널 종료"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動してターミナルを終了"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Premjesti i završi terminale"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyt og afslut terminaler"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sposta e termina i terminali"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លាស់ទី ហើយបញ្ចប់ Terminal"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flytt og avslutt terminaler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przenieś i zakończ terminale"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover e encerrar terminais"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перенести и завершить терминалы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย้ายและสิ้นสุดเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taşı ve terminalleri sonlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перенести й завершити термінали"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chuyển và kết thúc terminal"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
