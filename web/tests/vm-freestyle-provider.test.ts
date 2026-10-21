@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { describe, expect, setSystemTime, test } from "bun:test";
 import { FreestyleApiError, type Freestyle } from "freestyle";
@@ -107,6 +108,22 @@ describe("FreestyleProvider transport contract", () => {
     const provider = new FreestyleProvider();
     expect((provider as { fork?: unknown }).fork).toBeUndefined();
   });
+});
+
+test("Freestyle enrollment approval sends one valid complete shell command", async () => {
+  const commands: string[] = [];
+  const vm = {
+    exec: async ({ command }: { command: string }) => {
+      commands.push(command);
+      const syntax = spawnSync("/bin/sh", ["-n", "-c", command]);
+      expect(syntax.status).toBe(0);
+      return { statusCode: 0, stdout: '{"fingerprint":"device-fingerprint"}', stderr: "" };
+    },
+  };
+  const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+  const result = await providerWith({ client }).approveCmuxRemoteEnrollment(VM_ID, "inv_wait");
+  expect(result).toMatchObject({ approved: true, deviceFingerprint: "device-fingerprint" });
+  expect(commands).toHaveLength(1);
 });
 
 describe("Freestyle fork readiness", () => {
