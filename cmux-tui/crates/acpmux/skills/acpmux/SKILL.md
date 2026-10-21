@@ -30,6 +30,12 @@ session's caller token is not one this acpmux daemon knows", run
 `acpmux session restart @`: your agent restarts in the same conversation when
 the turn ends, with tools that work again; your sub-sessions keep running.
 
+To put a session's chat in front of the user without moving their focus, run
+`cmux agent open SESSION_ID` (the `cmux` MCP server's `app_agent_open`); a
+`start_session` child is also listed under your chat in the chat list. Post progress on a workspace's
+sidebar row with `cmux workspace WS status set KEY TEXT`, and ask for
+attention with `cmux notify`. `cmux docs search "show the user"` lists the rest.
+
 ## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`
 
 One flag. The head is a family (`claude`, `codex`, `opencode`, `pi`, `omp`, `prime`,
@@ -73,8 +79,8 @@ acpmux --json run -m claude "…"                    # {"sessionId","name","repl
 acpmux exec -m claude "…"                          # run, then delete the session
 acpmux ensure NAME -m codex --cwd DIR              # get the session, or create it (idempotent)
 acpmux send NAME "next step"                       # stream the reply; -q for the final text only
-acpmux send NAME --no-wait "…"                     # queue and return; says what it is behind
-acpmux send NAME --steer "stop, do X instead"      # interrupt the running turn (when the harness supports it)
+acpmux send NAME --no-wait "…"                     # queue and return; prints queued, says what it is behind
+acpmux send NAME --no-wait --steer "…"             # into the running turn when the harness steers (prints steered), else queues
 acpmux last NAME [-n 3]                            # last reply text
 acpmux history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
 acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v]

@@ -104,7 +104,7 @@
   background: color-mix(in srgb, var(--agent-text) 13%, var(--acpmux-base));
 }
 
-/* The images a prompt sent, above its bubble: thumbnails on a checker, so a dark screenshot reads. */
+/* The images a prompt sent, above its bubble. */
 .cv-user__images {
   display: flex;
   flex-wrap: wrap;
@@ -116,39 +116,51 @@
 .cv-user__images button {
   padding: 0;
   border: 0;
-  border-radius: 10px;
+  border-radius: 12px;
   background: none;
   cursor: zoom-in;
 }
+/* Each a rounded thumbnail of one fixed height, cropped to fill (UserBubble.tsx sets its width from
+   the image's shape, within bounds), as Claude and ChatGPT show a sent image. A neutral backing
+   under it, so a transparent image still shows its content. */
 .cv-user__images img {
   display: block;
-  width: auto;
-  height: 72px;
-  max-width: 160px;
+  width: 120px;
+  height: 120px;
   object-fit: cover;
-  border-radius: 10px;
+  border-radius: 12px;
   outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
   outline-offset: -1px;
-  background: repeating-conic-gradient(
-      color-mix(in srgb, var(--agent-text) 10%, transparent) 0 25%,
-      transparent 0 50%
-    )
-    0 0 / 12px 12px;
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
 }
+/* The slot a thumbnail holds while acpmux reads it: its height, square until the image's shape is known. */
 .cv-user__image-placeholder {
   display: block;
-  flex: 0 0 72px;
-  width: 72px;
-  height: 72px;
-  border-radius: 10px;
-  outline: 1px solid color-mix(in srgb, var(--agent-text) 24%, transparent);
+  flex: 0 0 120px;
+  width: 120px;
+  height: 120px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+/* An image that cannot be drawn: the same slot, a picture glyph over a short note. */
+.cv-user__image-failed {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 120px;
+  height: 120px;
+  padding: 0 10px;
+  border-radius: 12px;
+  outline: 1px dashed color-mix(in srgb, var(--agent-text) 24%, transparent);
   outline-offset: -1px;
-  background: repeating-conic-gradient(
-      color-mix(in srgb, var(--agent-text) 10%, transparent) 0 25%,
-      transparent 0 50%
-    )
-    0 0 / 12px 12px;
-  opacity: 0.55;
+  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: 1.25;
+  text-align: center;
 }
 
 /* A Chief subagent's first message: the Chief's view as one collapsed line above the task. */
@@ -361,6 +373,7 @@
    reached them, as Claude's. */
 .cv-user__actions {
   display: flex;
+  align-items: center;
   gap: 2px;
   margin-top: 4px;
   padding-right: 2px;
@@ -368,9 +381,26 @@
   transition: opacity 120ms ease-out;
 }
 .cv-user:hover .cv-user__actions,
+.acpmux-row[data-last-prompt] .cv-user__actions,
 .cv-user__actions:focus-within,
 .cv-user__actions--versions {
   opacity: 1;
+}
+/* The prompt's age and its two ticks lead the row, quiet, as Claude Code desktop's. */
+.cv-user__time {
+  margin-inline-end: 4px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cv-user__read {
+  display: inline-flex;
+  margin-inline-end: 4px;
+  color: var(--cv-text-dim);
+}
+.cv-user__read.is-unread {
+  opacity: 0.5;
 }
 /* < n/m > between a prompt's versions (cx-ncc.61), before Copy and Edit, as Claude's. */
 .cv-user__versions {
@@ -1369,6 +1399,17 @@ pre.cv-math-source {
   padding-left: 14.5px;
   border-left: 1px solid var(--cv-rule);
 }
+/* Commands, reads and searches list flush under their line, one glyph and line per call, as the
+   Codex desktop app lists "Ran commands". */
+.cv-tool-group.is-flat {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: 0;
+}
+/* "+K more" lines up with the calls' text, past their glyphs. */
+.cv-tool-group.is-flat .cv-tool-group__more {
+  padding-left: 22.5px;
+}
 .cv-tool__counts {
   display: inline-flex;
   gap: 4px;
@@ -1379,13 +1420,15 @@ pre.cv-math-source {
 .cv-command__failed {
   color: var(--agent-danger);
 }
-/* "npm test  ✓ 4.2s": the command fills the row, its status and time sit at the right edge. */
-.cv-command__line {
+/* "Ran npm test  ✓ 4.2s": the command fills the row, its status and time sit at the right edge. */
+.cv-command__text {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.cv-command__line {
   font: 12.5px/20px var(--cv-mono);
 }
 .cv-command__meta {
@@ -1536,6 +1579,16 @@ pre.cv-math-source {
   gap: 6px;
   margin: 2px 0 8px;
 }
+/* The call's machine name (`mcp__<server>__<tool>`) over its request, quiet and copyable. */
+.cv-mcp-call__name {
+  display: block;
+  margin: 0 0 4px 2px;
+  color: var(--cv-text-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-caption);
+  line-height: 14px;
+  overflow-wrap: anywhere;
+}
 .cv-mcp-call__head {
   margin: 0 0 2px 2px;
   color: var(--cv-text-muted);
@@ -1599,29 +1652,24 @@ pre.cv-math-source {
   margin: 0 10px 8px 32.5px;
 }
 
-/* Copy under an answer; the row's height is reserved. One quiet line at the column's right edge,
-   as a prompt's actions under its bubble (2px in, .cv-user__actions). */
+/* The answer's action row; its height is reserved. One quiet line under the answer, where its text
+   starts, as Claude Code desktop's: the time, then Copy, Retry and Fork. */
 .cv-turn-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 8px;
   min-height: 28px;
-  padding-right: 2px;
+  padding-inline-start: 2px;
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
   font-size: 13px;
 }
-/* Debug Settings `agentPane.debug.turnActionsPlacement`: keep the default desktop placement on
-   the right, while allowing a left action rail for people who scan the footer from the transcript
-   edge. The action group leads the row when left, followed by the quiet time label. */
-:root[data-turn-actions-placement="left"] .cv-turn-actions {
-  justify-content: flex-start;
-  padding-right: 0;
-  padding-left: 2px;
-}
-:root[data-turn-actions-placement="left"] .cv-turn-actions .cv-turn-action-group {
-  order: -1;
+/* Debug Settings `agentPane.debug.turnActionsPlacement` "right": the earlier row at the column's
+   right edge, the actions after the time. */
+:root[data-turn-actions-placement="right"] .cv-turn-actions {
+  justify-content: flex-end;
+  padding-inline: 0 2px;
 }
 .cv-turn-action-group {
   display: inline-flex;
@@ -1824,40 +1872,6 @@ pre.cv-math-source {
  * compositor. The text holds its final layout while transparent, so no line ever reflows. */
 .cv-fresh {
   animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
-}
-
-/* R104: the live edge, a soft bar after the newest character while a reply streams. It takes no
- * width (the bar is absolutely placed), so the text never reflows when it leaves. It pulses only
- * while the reveal has caught up and waits for more. */
-.cv-caret {
-  position: relative;
-  display: inline-block;
-  width: 0;
-  height: 1em;
-  vertical-align: -0.12em;
-}
-.cv-caret::after {
-  content: "";
-  position: absolute;
-  left: 2px;
-  top: 0.05em;
-  width: 0.5em;
-  height: 0.9em;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--cv-text) 55%, transparent);
-}
-@keyframes cv-caret-wait {
-  50% {
-    opacity: 0.35;
-  }
-}
-@media (prefers-reduced-motion: no-preference) {
-  .cv-md.is-waiting .cv-caret::after {
-    animation: cv-caret-wait 1s ease-in-out infinite;
-  }
-}
-:root[data-status-indicators="static"] .cv-md.is-waiting .cv-caret::after {
-  animation: none;
 }
 
 /* Footnotes (Markdown.tsx): a superscript number that scrolls to its note, and the notes

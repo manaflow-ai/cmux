@@ -141,9 +141,11 @@ final class CloseUndoToasts {
         let user = isUserClose, services = first.services, daemon = first.daemon
         let tabs = parts.flatMap { part in part.ids.compactMap(part.pane.tab) }
         let closes = parts.map { part in { @MainActor [weak pane = part.pane, ids = part.ids] (undo: CloseUndoToasts?, costly: Bool) in
-            guard let pane else { return }
-            undo?.expectGroup(ids, in: pane, costly: costly)
-            pane.close(ids)
+            // A person's close of a live page runs its beforeunload first (`BrowserUserClosing`): that tab is not
+            // announced or closed now; the page decides, and its own close (after Leave) closes it then.
+            guard let pane, case let closing = user ? ids.filter({ pane.services.cache.browsers[$0.rawValue]?.tab.pageDecidesUserClose() != true }) : ids else { return }
+            undo?.expectGroup(closing, in: pane, costly: costly)
+            pane.close(closing)
         } }
         TabCloseGuard.close(tabs, on: daemon, services: services, window: first.view.window) { [weak services] asked in
             guard user, let undo = services?.closedTabs?.undoToasts else { return closes.forEach { $0(nil, false) } }
