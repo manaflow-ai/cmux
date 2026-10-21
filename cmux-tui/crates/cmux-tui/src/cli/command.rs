@@ -1222,6 +1222,27 @@ fn parse_terminal(
 
 use browser::parse_browser;
 
+/// `--terminal <term_id>` or `--workspace <ws_id>` of `notification create|clear`.
+fn notification_scope(
+    params: &mut Map<String, Value>,
+    flags: &mut Flags,
+) -> Result<(), UsageError> {
+    let terminal = flags.take("terminal");
+    let workspace = flags.take("workspace");
+    if terminal.is_some() && workspace.is_some() {
+        return Err(UsageError::new("give --terminal or --workspace, not both"));
+    }
+    if let Some(terminal) = terminal {
+        validate_prefixed_id("terminal", "term", &terminal)?;
+        params.insert("terminal_id".into(), Value::String(terminal));
+    }
+    if let Some(workspace) = workspace {
+        validate_prefixed_id("workspace", "ws", &workspace)?;
+        params.insert("workspace_id".into(), Value::String(workspace));
+    }
+    Ok(())
+}
+
 fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     match strs(words).as_slice() {
@@ -1247,18 +1268,12 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
                 validate_one_of("--level", &level, &["info", "warning", "error"])?;
                 params.insert("level".into(), Value::String(level));
             }
-            if let Some(terminal) = flags.take("terminal") {
-                validate_prefixed_id("terminal", "term", &terminal)?;
-                params.insert("terminal_id".into(), Value::String(terminal));
-            }
+            notification_scope(&mut params, flags)?;
             request(ResourceOperation::NotificationCreate, &selectors, flags, params)
         }
         ["clear"] => {
             let mut params = Map::new();
-            if let Some(terminal) = flags.take("terminal") {
-                validate_prefixed_id("terminal", "term", &terminal)?;
-                params.insert("terminal_id".into(), Value::String(terminal));
-            }
+            notification_scope(&mut params, flags)?;
             request(ResourceOperation::NotificationClear, &selectors, flags, params)
         }
         ["ack", ids @ ..] => {
@@ -1298,7 +1313,8 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
 /// agent hook written for a local terminal works unchanged inside a machine.
 /// The target is the caller's own terminal (`CMUX_TUI_TERMINAL_ID`, injected
 /// into every daemon PTY) unless `--surface` names another terminal of this
-/// session or `--workspace` asks for a session-level row; a machine cannot
+/// session or `--workspace` names a workspace (`current`: a session-level
+/// row); a machine cannot
 /// address anything outside its own session. `--reply` asks the app for a
 /// banner that takes a typed reply for the target terminal (only it).
 /// `--window` and `--id-format` are accepted for signature
@@ -1337,7 +1353,18 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
     if let Some(surface) = &surface {
         validate_prefixed_id("terminal", "term", surface)?;
     }
+    // `--workspace ws_…` scopes the row (and a clear) to that workspace;
+    // `current` keeps its session-level meaning.
+    let workspace_id = workspace.as_ref().filter(|workspace| *workspace != "current").cloned();
+    if workspace_id.is_some() && surface.is_some() {
+        return Err(UsageError::new(
+            "--workspace <ws_id> and --surface are one scope or the other: a terminal's notification already belongs to its workspace",
+        ));
+    }
     let mut params = Map::new();
+    if let Some(workspace_id) = workspace_id {
+        params.insert("workspace_id".into(), Value::String(workspace_id));
+    }
     if flags.boolean("clear") {
         if flags.take("title").is_some()
             || flags.take("subtitle").is_some()
@@ -3569,6 +3596,38 @@ mod tests {
             assert!(
                 parse(&strings(&args), super::super::Surface::CmuxTui).is_err(),
                 "accepted invalid source {invalid:?}"
+            );
+        }
+    }
+
+    /// `notify --workspace ws_…` and `notification create|clear --workspace`
+    /// scope the row to that workspace (`workspace_id`), never the session.
+    #[test]
+    fn notify_workspace_sends_the_workspace_scope() {
+        const WS: &str = "ws_00000000000000000000000000000042";
+        const TERMINAL: &str = "term_00000000000000000000000000000041";
+        let create = protocol(&["notify", "--workspace", WS, "--title", "x"]);
+        assert_eq!(create.operation.name().unwrap(), "notification.create");
+        assert_eq!(create.params["workspace_id"], WS);
+        assert!(create.params.get("terminal_id").is_none());
+        let clear = protocol(&["notify", "--clear", "--workspace", WS]);
+        assert_eq!(clear.operation.name().unwrap(), "notification.clear");
+        assert_eq!(clear.params["workspace_id"], WS);
+        // `current` keeps its session-level meaning.
+        let session = protocol(&["notify", "--clear", "--workspace", "current"]);
+        assert!(session.params.get("workspace_id").is_none());
+        let resource =
+            protocol(&["notification", "create", "--title", "t", "--body", "", "--workspace", WS]);
+        assert_eq!(resource.params["workspace_id"], WS);
+        let resource_clear = protocol(&["notification", "clear", "--workspace", WS]);
+        assert_eq!(resource_clear.params["workspace_id"], WS);
+        for both in [
+            &["notify", "--workspace", WS, "--surface", TERMINAL][..],
+            &["notification", "clear", "--workspace", WS, "--terminal", TERMINAL],
+        ] {
+            assert!(
+                parse(&strings(both), super::super::Surface::CmuxTui).is_err(),
+                "{both:?}: a workspace and a terminal scope together"
             );
         }
     }

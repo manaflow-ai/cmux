@@ -1,6 +1,8 @@
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextSidebar
 import Foundation
 
 /// `agent.openSessionWorkspace`: a new workspace whose selected tab is the
@@ -16,7 +18,10 @@ import Foundation
 /// Arguments: `session` (required, the acpmux session id), `name` (the
 /// workspace name), `key` (a caller-chosen workspace key, a lowercase UUID,
 /// so the caller can rename the workspace later), `cwd` (the terminal's), `host`
-/// (`chief:<home id>`: the session runs in this app's Chief home's acpmux).
+/// (`chief:<home id>`: the session runs in this app's Chief home's acpmux),
+/// `group` (the name of the sidebar group it goes in, made when no group has
+/// that name; `acpmux new --group` sends it). A `key` that names a listed
+/// workspace opens nothing: a launcher run again finds its row.
 enum AgentSessionWorkspace {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agent.openSessionWorkspace", run: { invocation in
@@ -33,7 +38,8 @@ enum AgentSessionWorkspace {
         let cwd = invocation["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
         let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, services: context.services)
+        let group = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, group: group, services: context.services)
         context.services.registry.track(task)
     }
 
@@ -43,20 +49,26 @@ enum AgentSessionWorkspace {
     /// daemon is offline.
     @discardableResult
     static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
-                     services: AppServices) throws -> ActionWork {
+                     group: String? = nil, services: AppServices) throws -> ActionWork {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let daemon = services.daemon
         guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
         }
         let logger = daemon.logger
+        // A caller's key that names a listed workspace already shows the
+        // session (a launcher run again): nothing is opened twice.
+        if services.machines.workspace(id: key.rawValue) != nil { return Task { nil } }
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
-        // workspace the window shows, when it is in one (cx-caoh). A caller's
-        // key that names a listed workspace leaves that workspace where it is.
+        // workspace the window shows, when it is in one (cx-caoh), then into
+        // the named `group`.
         let windows = services.windows
-        if services.machines.workspace(id: key.rawValue) == nil {
-            NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)
+        var join: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
+        if let group {
+            join = { id, sidebar in AgentSessionWorkspace.join(id, group: group, sidebar: sidebar) }
         }
+        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows),
+                                      then: join, windows: windows)
         return Task { @MainActor in
             do {
                 _ = try await WorkspaceCreation.create(key, name: name, on: connection, repair: repair) { workspace in
@@ -64,7 +76,7 @@ enum AgentSessionWorkspace {
                 }
                 // The workspace's first pane once the store mirrors it, found
                 // by the key chosen here (as CloudHandlers finds its anchor).
-                guard let pane = await mirroredPane(of: key, in: daemon.store) else {
+                guard let pane = await daemon.store.firstPane(mirroring: key) else {
                     logger.error("agent.openSessionWorkspace: the pane of workspace \(key.rawValue, privacy: .public) did not appear")
                     return ActionWorkFailure("agent.openSessionWorkspace: the new workspace's pane did not appear")
                 }
@@ -87,29 +99,19 @@ enum AgentSessionWorkspace {
         }
     }
 
-    /// The first pane of workspace `key` once the store mirrors it (10 s at most).
-    @MainActor static func mirroredPane(of key: WorkspaceKey, in store: DaemonStore) async -> PaneModel? {
-        if let pane = firstPane(of: key, in: store) { return pane }
-        // concurrency-allow: the observation task exits on cancellation; this bounds a daemon mirror race
-        let mirrored = await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask { await waitForPane(of: key, in: store) }
-            group.addTask {
-                // wakeup-allow: one-shot ten-second daemon mirror deadline
-                try? await Task.sleep(for: .seconds(10))
-                return false
+    /// Moves workspace `id` into the sidebar group named `name`, or into a new
+    /// group of that name when none has it: the path of a row drag and of
+    /// New Group, so it is one undoable sidebar edit.
+    @MainActor static func join(_ id: String, group name: String, sidebar: SidebarBridge) {
+        let ids = [SidebarWorkspaceID(id)]
+        if let existing = sidebar.services.machines.local.store.personal.groups.first(where: { $0.name == name }) {
+            let target = sidebar.model.groupID(personal: existing.id.rawValue)
+            // The drag's rule (SidebarEdits.canMove): a group holds one machine row's workspaces.
+            if SidebarEdits.canMove(ids, toGroup: target, in: sidebar.model.sections) {
+                sidebar.handle(.move(ids, toGroup: target))
+                return
             }
-            defer { group.cancelAll() }
-            return await group.next() ?? false
         }
-        return mirrored ? firstPane(of: key, in: store) : nil
-    }
-
-    @MainActor private static func firstPane(of key: WorkspaceKey, in store: DaemonStore) -> PaneModel? {
-        store.workspaces.first { $0.key == key }?.screens.first?.panes.first
-    }
-
-    @MainActor private static func waitForPane(of key: WorkspaceKey, in store: DaemonStore) async -> Bool {
-        for await ready in ObservationStream({ firstPane(of: key, in: store) != nil }) where ready { return true }
-        return false
+        sidebar.groupFlow.newGroup(of: ids, name: name, byUser: false)
     }
 }
