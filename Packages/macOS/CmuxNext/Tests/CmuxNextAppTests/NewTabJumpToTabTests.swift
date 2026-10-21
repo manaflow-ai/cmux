@@ -30,8 +30,9 @@ struct NewTabJumpToTabTests {
             let b = try #require(Self.shown(controller, workspace: id).first { $0 !== a })
             let before = Set(b.orderedIDs.map(\.rawValue))
             #expect(services.registry.perform("newSurface", invocation: Self.at(b)))
-            try await PinnedPageTests.until({ b.orderedIDs.count == before.count + 1 }, report: { Self.describe(controller) })
-            let target = try #require(b.orderedIDs.map(\.rawValue).first { !before.contains($0) })
+            // The daemon's tab, not the stand-in `newSurface` shows until the daemon's takes its place.
+            try await PinnedPageTests.until({ Self.daemonTab(in: b, beyond: before) != nil }, report: { Self.describe(controller) })
+            let target = try #require(Self.daemonTab(in: b, beyond: before))
             let other = try #require(before.first)
             b.select(CmuxNextTabs.TabID(other), source: .programmatic)
             controller.focus.send(.focusPane(a.paneKey, source: .intent))
@@ -57,6 +58,15 @@ struct NewTabJumpToTabTests {
                                             report: { "the tab's pane did not take the focus\n" + Self.describe(controller) })
             #expect(controller.workspaceContent?.focusedPane?.paneKey == pane)
         }
+    }
+
+    /// The one tab `pane` lists beyond `known`, once it is the daemon's: `newSurface` shows a
+    /// stand-in first (`pending_tab_…`, ctrl-backtick-instant) whose id goes when the daemon's
+    /// tab takes its place, and the New Tab page lists the daemon's tab.
+    private static func daemonTab(in pane: PaneController, beyond known: Set<String>) -> String? {
+        let fresh = pane.orderedIDs.map(\.rawValue).filter { !known.contains($0) }
+        guard fresh.count == 1, let tab = fresh.first, !ProvisionalTab.isProvisional(tab) else { return nil }
+        return tab
     }
 
     private static func at(_ pane: PaneController) -> ActionInvocation {
