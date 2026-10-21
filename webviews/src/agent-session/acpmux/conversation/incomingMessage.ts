@@ -4,9 +4,10 @@
 // the prompt, which reaches the pane only in an adopted Claude session's history (acpmux records
 // those prompts with `client: "adopt"`, hub/adoption.rs): a `<cross-session-message>` from another
 // session, a `<task-notification>` when a background task ends, and reminders and caveats the
-// person never typed. The transcript draws a message as a card from its sender
-// (IncomingMessageCard.tsx), a notification as one quiet line, and bookkeeping not at all; a typed
-// prompt behind bookkeeping draws without it. A live prompt's text is the person's as typed.
+// person never typed. The transcript draws a message as one line naming its sender, which opens to
+// the message (IncomingMessageCard.tsx), a notification as one quiet line, and bookkeeping not at
+// all; a typed prompt behind bookkeeping draws without it. A live prompt's text is the person's as
+// typed, but for a Claude Code envelope at its start, which is another session's message.
 // A message within a family of sub-sessions (kind `subsession_message`, hub/subsessions.rs
 // `send_family_prompt`: a parent's message to its child, the child's first prompt from
 // `start_session`, and a child's report to its parent) names its sender as the receiver's chat
@@ -74,8 +75,10 @@ export function incomingPrompt(
       message: { name, ...(sessionId && { sessionId }), text: (body ?? text).trim(), raw: text },
     };
   }
-  if (msg?.client !== "adopt") return undefined;
-  // Claude Code's envelopes start the prompt; one quoted later in it is the person's text.
+  // Claude Code's envelope starts the prompt; one quoted later in it is the person's text. It comes
+  // in a live Claude session too (another session's SendMessage reaches this one as a user turn), so
+  // it is read whatever client recorded the prompt: an agent's message never draws as the person's
+  // bubble.
   const rest = withoutBookkeeping(text);
   const envelope = CROSS_SESSION.exec(rest);
   if (envelope) {
@@ -84,6 +87,7 @@ export function incomingPrompt(
     // What follows the envelope is Claude Code's note to the agent about it.
     if (name) return { kind: "message", message: { name, text: decodeXml(envelope[2]!).trim(), raw: text } };
   }
+  if (msg?.client !== "adopt") return undefined;
   const notification = NOTIFICATION.exec(rest);
   if (notification && !withoutBookkeeping(rest.slice(notification[0].length))) {
     const summary = tag(notification[0], "summary") || tag(notification[0], "status");

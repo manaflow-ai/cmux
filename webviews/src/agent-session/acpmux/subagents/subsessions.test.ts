@@ -103,21 +103,23 @@ test("what a sub-session waits on the person for, in one line", () => {
   );
 });
 
-test("the store follows sub-sessions only, and tells its readers only when one's view changes", () => {
+test("the store follows every listed chat, and tells its readers only when one's view changes", () => {
   const store = new SubsessionStore();
   let calls = 0;
   store.subscribe(() => (calls += 1));
+  const chat = summary("chat");
   const a = summary("a", { shortName: "a", startedBy: "chat" });
-  store.set([summary("chat"), a]);
+  store.set([chat, a]);
   expect(calls).toBe(1);
-  expect(store.get("chat")).toBeUndefined();
+  // A chat no one started is there too: a message row names it.
+  expect(store.get("chat")?.sessionId).toBe("chat");
   const first = store.get("a");
   // The same entry, or a new one that reads the same, keeps its view and tells no one.
-  store.set([a]);
-  store.set([summary("a", { shortName: "a", startedBy: "chat", updatedAt: 9 })]);
+  store.set([chat, a]);
+  store.set([chat, summary("a", { shortName: "a", startedBy: "chat", updatedAt: 9 })]);
   expect(calls).toBe(1);
   expect(store.get("a")).toBe(first!);
-  store.set([summary("a", { shortName: "a", startedBy: "chat", lane: { state: "working" } })]);
+  store.set([chat, summary("a", { shortName: "a", startedBy: "chat", lane: { state: "working" } })]);
   expect(calls).toBe(2);
   expect(store.get("a")?.state).toBe("working");
   store.set([]);

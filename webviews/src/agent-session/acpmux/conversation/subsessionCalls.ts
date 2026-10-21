@@ -1,6 +1,6 @@
 // l10n-allow-file: it matches the cmux-subsessions server's own text (subsession_mcp.rs) and shows none.
 // Calls to the cmux-subsessions MCP server's tools (acpmux subsession_mcp.rs) that the transcript
-// draws as sub-session cards (SubsessionCallCard.tsx) instead of the generic MCP row: a
+// draws as sub-session rows (SubsessionCallCard.tsx) instead of the generic MCP row: a
 // `start_session` as the sub-session it started, a `send_message` as the message and how it was
 // delivered, a `wait_for_sessions` as each sub-session's reply. The server answers with a line of
 // text for the agent and the same facts as `structuredContent`; a harness hands the pane the text
@@ -28,7 +28,8 @@ export type SubsessionReply = {
 };
 
 export type SubsessionCall =
-  | { tool: "start"; running: boolean; sessionId?: string; name?: string }
+  /// `prompt`: its first message, the task the call gave it.
+  | { tool: "start"; running: boolean; sessionId?: string; name?: string; prompt?: string }
   | { tool: "send"; running: boolean; sessionId: string; text: string; delivery?: SubsessionDelivery }
   | { tool: "wait"; running: boolean; timedOut: boolean; sessions: SubsessionReply[] };
 
@@ -48,13 +49,14 @@ export function subsessionCall(tool: Tool, call: McpCall | undefined = mcpCall(t
   switch (call.tool) {
     case "start_session": {
       const askedName = text(args.name);
-      if (running) return { tool: "start", running, ...(askedName && { name: askedName }) };
+      const prompt = text(args.prompt);
+      if (running) return { tool: "start", running, ...(askedName && { name: askedName }), ...(prompt && { prompt }) };
       // "Started sub-session tests (sessionId 0199…, depth 1). …"
       const said = /^Started sub-session (.*?) \(sessionId ([^,\s)]+)/.exec(result?.text ?? "");
       const sessionId = text(result?.value?.sessionId) ?? said?.[2];
       if (!sessionId) return undefined;
       const name = text(result?.value?.shortName) ?? text(result?.value?.name) ?? text(said?.[1]) ?? askedName;
-      return { tool: "start", running, sessionId, ...(name && { name }) };
+      return { tool: "start", running, sessionId, ...(name && { name }), ...(prompt && { prompt }) };
     }
     case "send_message": {
       const sessionId = text(args.sessionId);

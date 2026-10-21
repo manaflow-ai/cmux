@@ -2859,7 +2859,7 @@ pre.cv-math-source {
 .cv-user__steer[data-steer="waiting"] .cv-user__steer-label {
   color: var(--agent-accent);
 }
-/* A steer's read state under another agent's message, in line with its text (App.tsx). */
+/* A steer's read state under another agent's message line, at its start (App.tsx). */
 .cv-incoming > .cv-user__steer {
-  padding-left: 32.5px;
+  padding-left: 0;
 }

@@ -124,16 +124,16 @@ export class SubsessionStore {
 
   private entries = new Map<string, AcpmuxSessionEntry>();
 
-  /// Replaces the views with those of the sub-sessions among `sessions`; one whose content did not
-  /// change keeps its object. The pane sends the list with every snapshot, reusing the entry of a
-  /// session that did not change, so an entry seen last time is not read again.
+  /// Replaces the views with those of `sessions` (a message row names any chat it went to, not only
+  /// a sub-session); one whose content did not change keeps its object. The pane sends the list
+  /// with every snapshot, reusing the entry of a session that did not change, so an entry seen last
+  /// time is not read again.
   set(sessions: readonly AcpmuxSessionEntry[]): void {
     const infos = new Map<string, SubsessionInfo>();
     const keys = new Map<string, string>();
     const entries = new Map<string, AcpmuxSessionEntry>();
     let changed = false;
     for (const entry of sessions) {
-      if (!entry.startedBy) continue;
       const id = entry.sessionId;
       const before = this.infos.get(id);
       let info: SubsessionInfo;

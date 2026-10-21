@@ -135,10 +135,14 @@ test("a typed prompt behind a reminder draws without it; a notification with mor
   });
 });
 
-test("a live prompt's text is the person's, envelope or not", () => {
+test("a live prompt's text is the person's, but for another session's envelope at its start", () => {
+  // Another Claude session's SendMessage reaches a live session as a user turn: never the person's bubble.
   const envelope = '<cross-session-message from-name="leoli-fb">hi</cross-session-message>';
-  expect(incomingPrompt(envelope, undefined)).toBeUndefined();
-  expect(incomingPrompt(envelope, { client: "acpmux" })).toBeUndefined();
+  const message = { kind: "message", message: { name: "leoli-fb", text: "hi", raw: envelope } };
+  expect(incomingPrompt(envelope, undefined)).toEqual(message);
+  expect(incomingPrompt(envelope, { client: "acpmux" })).toEqual(message);
+  // Quoted after the person's own words it stays theirs, and so does bookkeeping in a live prompt.
+  expect(incomingPrompt(`Look: ${envelope}`, { client: "acpmux" })).toBeUndefined();
   expect(incomingPrompt("<system-reminder>r</system-reminder>", { client: "web" })).toBeUndefined();
 });
 

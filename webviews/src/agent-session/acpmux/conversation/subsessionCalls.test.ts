@@ -43,6 +43,7 @@ test("start_session names the sub-session it started, from its text or its struc
     running: false,
     sessionId: "0199a-child",
     name: "tests",
+    prompt: "Run the tests",
   });
   const structured = { sessionId: "0199b-child", name: "claude-sr2/lint", shortName: "lint", depth: 1 };
   expect(subsessionCall(codex("start_session", { prompt: "Lint" }, structured, said))).toEqual({
@@ -50,12 +51,14 @@ test("start_session names the sub-session it started, from its text or its struc
     running: false,
     sessionId: "0199b-child",
     name: "lint",
+    prompt: "Lint",
   });
   // Still running: the name it asked for, if any.
   expect(subsessionCall(claude("start_session", { prompt: "x", name: "docs" }, undefined, "in_progress"))).toEqual({
     tool: "start",
     running: true,
     name: "docs",
+    prompt: "x",
   });
 });
 

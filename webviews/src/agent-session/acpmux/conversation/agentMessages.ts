@@ -1,7 +1,8 @@
 // Tool calls that send a message to another agent: `tell-coordinator`, `cmux send`, a write
 // into a coordinator mailbox (`coordinator-inbox/<name>.jsonl`), Claude Code's SendMessage and
-// cmux-sessions' send_to_session. The transcript draws
-// them as message cards (MessageCard.tsx) instead of raw shell or JSON.
+// cmux-sessions' send_to_session. The transcript draws a shell or mailbox message as a message card
+// (MessageCard.tsx), and a message to an agent (SendMessage, send_to_session) as a row among the
+// run's tool rows (SubsessionCallCard.tsx), as Claude Code desktop does, instead of raw shell or JSON.
 import type { AcpmuxActivity } from "../model";
 
 /// How the message went out, for the card's quiet label.
@@ -13,8 +14,12 @@ export type AgentMessage = {
   from?: string;
   /// The recipient: a session, a terminal surface or workspace, or a mailbox.
   to?: string;
+  /// The recipient chat's session id, when the call names one (send_to_session).
+  session?: string;
   /// The message, or its summary when the tool carries one; empty when it came from stdin.
   text: string;
+  /// The sender's one-line summary of it, when the tool carries one (SendMessage `summary`).
+  summary?: string;
 };
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -28,7 +33,8 @@ export function agentMessage(tool: Tool): AgentMessage | undefined {
   if (input && /^send ?message$/i.test(tool.title.trim()) && typeof input.to === "string") {
     const body = input.message ?? input.summary ?? input.content;
     const text = typeof body === "string" ? body : body === undefined ? "" : JSON.stringify(body, null, 2);
-    return { channel: "agent", to: input.to, text: oneMessage(text) };
+    const summary = typeof input.summary === "string" ? input.summary.trim() : "";
+    return { channel: "agent", to: input.to, text: oneMessage(text), ...(summary && { summary }) };
   }
   // The cmux-sessions MCP server's message to a chat (session_mcp.rs, #21858), as a harness names
   // an MCP tool: `mcp__cmux-sessions__send_to_session`, `cmux-sessions.send_to_session` or bare.
@@ -37,7 +43,12 @@ export function agentMessage(tool: Tool): AgentMessage | undefined {
     /^(?:(?:mcp__)?cmux-sessions(?:__|\.))?send_to_session$/.test(tool.title.trim()) &&
     typeof input.session === "string"
   )
-    return { channel: "agent", to: input.session, text: oneMessage(typeof input.text === "string" ? input.text : "") };
+    return {
+      channel: "agent",
+      to: input.session,
+      session: input.session,
+      text: oneMessage(typeof input.text === "string" ? input.text : ""),
+    };
   // A file tool that creates or appends to a message in a mailbox. A rewrite of an existing
   // file is an edit, whatever folder it is in.
   const diffs = tool.diffs ?? [];

@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixtures.
-// Tool calls that message another agent draw as message cards (agentMessages.ts): Claude Code's
+// Tool calls that message another agent (agentMessages.ts): Claude Code's
 // SendMessage, and the cmux-sessions MCP server's send_to_session (#21858) under the names a
 // harness gives MCP tools.
 import { expect, test } from "bun:test";
@@ -18,6 +18,13 @@ test("Claude Code's SendMessage", () => {
     to: "leoli-fb",
     text: "Done.",
   });
+  // Its summary, which the row shows after the name.
+  expect(agentMessage(call("SendMessage", { to: "tests", message: "All green.", summary: " CI result " }))).toEqual({
+    channel: "agent",
+    to: "tests",
+    text: "All green.",
+    summary: "CI result",
+  });
 });
 
 test("send_to_session, as Claude Code and other harnesses name MCP tools", () => {
@@ -25,6 +32,7 @@ test("send_to_session, as Claude Code and other harnesses name MCP tools", () =>
     expect(agentMessage(call(title, { session: "child-3", text: "Rebase on main." }))).toEqual({
       channel: "agent",
       to: "child-3",
+      session: "child-3",
       text: "Rebase on main.",
     });
   // Another server's tool of a similar name is not this one.

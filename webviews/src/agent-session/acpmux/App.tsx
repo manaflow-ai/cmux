@@ -150,6 +150,7 @@ import { PlanList } from "./conversation/PlanList";
 import { ActivityLine } from "./conversation/ActivityLine";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import { IncomingMessageCard, IncomingNotice } from "./conversation/IncomingMessageCard";
+import { TranscriptDisclosureProvider } from "./conversation/transcriptDisclosure";
 import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
 import { AgentPairNote } from "./conversation/AgentPairNote";
 import { SessionStartNote } from "./conversation/SessionStartNote";
@@ -617,20 +618,27 @@ const openChangedFile = (path: string, where: "tab" | "editor") => callNative("f
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
-  function MessageRow({ row, githubRepository }: RowProps) {
+  function MessageRow({ row, sessionId, githubRepository }: RowProps) {
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
-    // Another agent's message as a card from it; a task notification as one quiet line
-    // (conversation/incomingMessage.ts).
-    // Its images and a steer's read state show with it, as under a bubble.
+    // Another agent's message as one line from it that opens to the message, never the person's
+    // bubble; a task notification as one quiet line (conversation/incomingMessage.ts). Whether it
+    // is open is the chat's, kept across reloads. Its images and a steer's read state show with it.
     if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
     if (row.kind === "user" && row.incoming?.kind === "message")
       return (
-        <div className="cv-incoming">
-          <IncomingMessageCard message={row.incoming.message} images={row.images} onOpen={openOfferChat} />
-          {row.steer && <SteerMark steer={row.steer} />}
-        </div>
+        <TranscriptDisclosureProvider sessionId={sessionId}>
+          <div className="cv-incoming">
+            <IncomingMessageCard
+              message={row.incoming.message}
+              images={row.images}
+              onOpen={openOfferChat}
+              disclosureKey={`incoming:${row.id}`}
+            />
+            {row.steer && <SteerMark steer={row.steer} />}
+          </div>
+        </TranscriptDisclosureProvider>
       );
     if (row.kind === "user" && row.incoming?.kind === "hidden") return null;
     if (row.kind === "user") {
@@ -678,6 +686,7 @@ const MessageRow = memo(
   (previous, next) =>
     previous.row.id === next.row.id &&
     previous.row.version === next.row.version &&
+    previous.sessionId === next.sessionId &&
     previous.githubRepository === next.githubRepository,
 );
 

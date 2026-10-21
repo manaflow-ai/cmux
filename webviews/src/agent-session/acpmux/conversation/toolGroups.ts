@@ -1,6 +1,7 @@
 // A run of tool calls split into what the transcript draws: consecutive calls of one kind
 // under one line ("Ran 3 commands", "Read 4 files", "Edited App.tsx +12 -3"), messages to
-// other agents and calls to the cmux-subsessions tools as cards, and everything else as its own row.
+// other agents by shell or mailbox as cards, messages to agents and calls to the cmux-subsessions
+// tools as their own rows (SubsessionCallCard.tsx), and everything else as its own row.
 import type { AcpmuxActivity } from "../model";
 import type { Translate } from "../i18n";
 import { agentMessage, type AgentMessage } from "./agentMessages";
@@ -12,7 +13,11 @@ export type ToolGroupKind = "commands" | "reads" | "edits" | "searches";
 
 export type ToolGroup =
   | { type: "group"; kind: ToolGroupKind; items: AcpmuxActivity[] }
+  /// A message sent through a shell command or a mailbox, a card of its own (MessageCard.tsx).
   | { type: "message"; item: AcpmuxActivity; message: AgentMessage }
+  /// A message to an agent (SendMessage, send_to_session): a tool row like a sub-session's call,
+  /// folding with the run's other rows.
+  | { type: "sent"; item: AcpmuxActivity; message: AgentMessage }
   /// A sub-session started, sent a message or waited on (subsessionCalls.ts), each its own card.
   | { type: "subsession"; item: AcpmuxActivity; call: SubsessionCall }
   /// Consecutive calls to one MCP server's tool (mcpCalls.ts), one or more.
@@ -76,7 +81,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       continue;
     }
     close();
-    if (message) groups.push({ type: "message", item, message });
+    if (message) groups.push({ type: message.channel === "agent" ? "sent" : "message", item, message });
     else if (subsession) groups.push({ type: "subsession", item, call: subsession });
     else if (key) mcp = { key, items: [item] };
     else if (kind) run = { kind, items: [item] };

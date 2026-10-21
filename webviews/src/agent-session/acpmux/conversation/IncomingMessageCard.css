@@ -1,0 +1,69 @@
+/* Another agent's message (IncomingMessageCard.tsx), as Claude Code desktop draws one: a quiet
+   line in the transcript's text size, its words muted, the sender in the text colour, underlined
+   when it opens a chat, and a chevron; opened, the message as plain text under it, with no bubble,
+   border or fill. Nothing shows on hover (Leo 2026-10-13); keyboard focus underlines. */
+.cv-received {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.cv-received__line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  line-height: 24px;
+}
+.cv-received__words,
+.cv-received__sender,
+.cv-received__chevron {
+  all: unset;
+  flex: none;
+  color: var(--cv-text-muted);
+}
+.cv-received__words:not(.is-text),
+.cv-received__chevron,
+.cv-received__sender.is-link {
+  cursor: pointer;
+}
+.cv-received__sender {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-text);
+}
+.cv-received__sender.is-link {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.cv-received__chevron {
+  display: inline-flex;
+  align-self: center;
+  margin-left: -2px;
+}
+.cv-received__words:focus-visible,
+.cv-received__sender:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.cv-received__chevron:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--cv-text) 40%, transparent);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+.cv-received__body {
+  margin: 4px 0 6px;
+  color: var(--cv-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.cv-received__images {
+  justify-content: flex-start;
+  max-width: none;
+  margin-top: 8px;
+}

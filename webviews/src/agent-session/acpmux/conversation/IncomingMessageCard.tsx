@@ -1,14 +1,17 @@
-// Another agent's message to this chat (incomingMessage.ts) as MessageCard draws one this agent
-// sent: sender to this agent, the message's first two lines, and the whole message once opened.
-// Opened, a Claude Code envelope also shows the prompt as the agent got it; a sender that is a
-// chat here opens beside this one. A sub-session family's sender reads with who it is to this
-// chat: "Parent · coordinator → This agent".
-import { useId, useLayoutEffect, useRef, useState } from "react";
+// Another agent's message to this chat (incomingMessage.ts), as Claude Code desktop draws one: a
+// quiet line, "Received message from <sender> ›", the words muted and the sender underlined when it
+// is a chat here, which opens beside this one. Folded by default; opened (the chevron turns ⌄) the
+// message follows as plain text, with no bubble, border or fill. Whether it is open is kept for the
+// chat across reloads (transcriptDisclosure.tsx). A sub-session family's sender says who it is to
+// this chat in its tooltip ("Parent · coordinator").
+import { useId } from "react";
 import { useT, type StringKey } from "../i18n";
 import type { PromptImage } from "../model";
 import type { IncomingMessage, IncomingRelation } from "./incomingMessage";
 import { SentImages } from "./UserBubble";
-import { ArrowRight, ChevronDown, ChevronRight, Envelope, TerminalSquare } from "./icons";
+import { ChevronRight, TerminalSquare } from "./icons";
+import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import "./IncomingMessageCard.css";
 
 /// A family sender's label, its relation before its name.
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -18,87 +21,79 @@ const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
   descendant: "message.from.descendant",
 };
 
+/// Stands in for the sender in the translated line, so the sender can be drawn as its link.
+const NAME = "\u2063name\u2063";
+
 export function IncomingMessageCard({
   message,
   images,
   onOpen,
+  disclosureKey,
 }: {
   message: IncomingMessage;
   /// The images the message sent the agent (direct.ts `promptImages`).
   images?: readonly PromptImage[];
   onOpen(sessionId: string): void;
+  /// Where its open state is kept in the chat's transcript state (the row's id).
+  disclosureKey: string;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
-  const to = t("message.self");
-  // A sub-session family's sender says who it is to this chat: "Parent · coordinator".
-  const from = message.relation ? t(RELATION_LABEL[message.relation], { name: message.name }) : message.name;
-  // As MessageCard: a first guess, then the clamped body measures itself.
-  const [long, setLong] = useState(() => message.text.split("\n").length > 2 || message.text.length > 140);
-  const body = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
   const bodyId = useId();
-  useLayoutEffect(() => {
-    const node = body.current;
-    if (!node || open) return;
-    const measure = () => setLong(node.scrollHeight > node.clientHeight + 1);
-    measure();
-    if (typeof ResizeObserver !== "function") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [open, message.text]);
-  const raw = message.raw.trim() === message.text ? undefined : message.raw;
+  const line = t("message.received", { name: NAME });
+  const at = line.indexOf(NAME);
+  const before = at < 0 ? line : line.slice(0, at);
+  const after = at < 0 ? "" : line.slice(at + NAME.length);
+  const relation = message.relation ? t(RELATION_LABEL[message.relation], { name: message.name }) : undefined;
   const sessionId = message.sessionId;
+  const toggle = () => setOpen((value) => !value);
   return (
-    <div className="cv-message is-incoming">
-      <button
-        type="button"
-        className="cv-message__head"
-        aria-expanded={open}
-        aria-controls={bodyId}
-        aria-label={t("message.label", { from, to })}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <span className="cv-message__route">
-          <span className="cv-tool__icon">
-            <Envelope />
+    <div className="cv-received">
+      <div className="cv-received__line">
+        <button
+          type="button"
+          className="cv-received__words"
+          aria-expanded={open}
+          aria-controls={open ? bodyId : undefined}
+          onClick={toggle}
+        >
+          {before.trimEnd()}
+        </button>
+        {sessionId ? (
+          <button
+            type="button"
+            className="cv-received__sender is-link"
+            aria-label={t("subagents.open", { name: message.name })}
+            /* tooltip-allow: the line names the sender; who it is to this chat shows nowhere else */
+            title={relation}
+            onClick={() => onOpen(sessionId)}
+          >
+            {message.name}
+          </button>
+        ) : (
+          /* tooltip-allow: the line names the sender; who it is to this chat shows nowhere else */
+          <span className="cv-received__sender" title={relation}>
+            {message.name}
           </span>
-          <span className="cv-message__party">{from}</span>
-          <ArrowRight size={12} className="cv-message__arrow" />
-          <span className="cv-message__party is-to">{to}</span>
-          <ChevronRight
-            size={14}
-            strokeWidth={1.2}
-            className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-          />
-        </span>
-      </button>
-      <div ref={body} id={bodyId} className={`cv-message__body selectable${open ? "" : " is-clamped"}`}>
-        {message.text || t("message.noText")}
+        )}
+        {after.trim() && <span className="cv-received__words is-text">{after.trim()}</span>}
+        <button
+          type="button"
+          className="cv-received__chevron"
+          aria-expanded={open}
+          aria-controls={open ? bodyId : undefined}
+          aria-label={t(open ? "message.less" : "message.more")}
+          onClick={toggle}
+        >
+          <ChevronRight size={14} strokeWidth={1.2} className={`cv-rotor${open ? " is-open" : ""}`} />
+        </button>
       </div>
-      {images && images.length > 0 && <SentImages images={images} className="cv-message__images" />}
-      {(long || raw !== undefined || sessionId) && (
-        <div className="cv-message__foot">
-          {(long || raw !== undefined) && (
-            <button
-              type="button"
-              className="cv-message__more"
-              aria-expanded={open}
-              aria-controls={bodyId}
-              onClick={() => setOpen((value) => !value)}
-            >
-              {t(open ? "message.less" : "message.more")}
-              <ChevronDown size={12} className={`cv-rotor${open ? " is-flipped" : ""}`} />
-            </button>
-          )}
-          {sessionId && (
-            <button type="button" className="cv-message__more" onClick={() => onOpen(sessionId)}>
-              {t("subagents.open", { name: message.name })}
-            </button>
-          )}
+      {open && (
+        <div id={bodyId} className="cv-received__body selectable">
+          {message.text || t("message.noText")}
+          {images && images.length > 0 && <SentImages images={images} className="cv-received__images" />}
         </div>
       )}
-      {open && raw !== undefined && <pre className="cv-tool-output selectable">{raw}</pre>}
     </div>
   );
 }
