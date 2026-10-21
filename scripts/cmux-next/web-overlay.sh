@@ -10,9 +10,9 @@
 #                        # a remote slot declared in web-dev.json ("slot": {"host": H, "port": N}):
 #                        # tunnel to it; when it does not answer, fall back to --local
 #   web-overlay.sh server URL | off   # any loopback server; off also stops what `server` started
-#   web-overlay.sh fleet [--ref SHA | --working-tree] [--submitter LOGIN] [--workspace PR_URL]
-#                        # build the app on the fleet (cmux-ci; the Linux pool for cmux-next) and
-#                        # install its web bundles as the overlay
+#   web-overlay.sh fleet [--ref SHA | --working-tree] [--tag T] [--workspace ID] [--submitter LOGIN]
+#                        # build the app on the fleet (cmux-ci; the Linux pool for cmux-next; tag
+#                        # web-overlay, workspace web-overlay:$USER) and install its web bundles
 #   web-overlay.sh build              # build the web bundles in this checkout and install them
 #   web-overlay.sh install DIR        # install a build-web-bundles.sh --out-root DIR
 #   web-overlay.sh install-app APP    # install the web bundles of a built cmux .app
@@ -41,7 +41,7 @@ PANE="Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
 PAGES="Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
 APP="Resources/markdown-viewer/webviews-app"
 
-usage() { sed -n 2,31p "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n 2,30p "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 # What `server --local` and `server --slot` started (pid files, the dev server's log).
 state="${CMUX_WEB_SLOT_STATE_DIR:-$HOME/Library/Caches/cmux-next/web-slot}"
 DEFAULT_PORT=4200
@@ -141,15 +141,27 @@ answers() {
     "http://127.0.0.1:$1/agent-pane/index.html" 2>/dev/null
 }
 
+# The pid in state file $1 (dev-server, tunnel) while that process still runs the program it
+# started (bun, ssh), else empty: a pid file that outlived a reboot never names another process.
+live_pid() {
+  local file="$state/$1.pid" program pid
+  case "$1" in dev-server) program=bun ;; tunnel) program=ssh ;; *) return 0 ;; esac
+  [[ -f "$file" ]] || return 0
+  pid="$(cat "$file")"
+  [[ "$pid" =~ ^[0-9]+$ ]] && [[ "$(basename "$(ps -o comm= -p "$pid" 2>/dev/null)")" == "$program" ]] && echo "$pid"
+  return 0
+}
+
 # Stops what `server` started (the local dev server, the slot tunnel).
 stop_started() {
-  local file pid
-  for file in "$state"/*.pid; do
-    [[ -f "$file" ]] || continue
-    pid="$(cat "$file")"
-    # The dev server's process group (bun and its children), else the tunnel itself.
-    kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
-    rm -f "$file"
+  local name pid
+  for name in dev-server tunnel; do
+    pid="$(live_pid "$name")"
+    if [[ -n "$pid" ]]; then
+      # The dev server leads its own process group (bun and its children); the tunnel is one ssh.
+      if [[ "$name" == dev-server ]]; then kill -- "-$pid" 2>/dev/null || true; else kill "$pid" 2>/dev/null || true; fi
+    fi
+    rm -f "$state/$name.pid"
   done
 }
 
@@ -174,6 +186,8 @@ start_local() {
     echo "a dev server already answers on 127.0.0.1:$port; using it"
     return
   fi
+  # One dev server at a time: a new port or checkout replaces the one started before.
+  stop_started
   mkdir -p "$state"
   [[ -d "$tree/webviews/node_modules" ]] || (cd "$tree/webviews" && bun install --frozen-lockfile >/dev/null)
   # The generated string tables are gitignored; the dev server imports them.
@@ -222,7 +236,7 @@ case "$cmd" in
         else
           # The same port on both ends: the Vite client opens its HMR socket on the server's port.
           mkdir -p "$state"
-          ssh -N -o ExitOnForwardFailure=yes -o ConnectTimeout=10 -L "$port:127.0.0.1:$port" "$host" </dev/null >"$state/tunnel.log" 2>&1 &
+          ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o ConnectTimeout=10 -L "$port:127.0.0.1:$port" "$host" </dev/null >"$state/tunnel.log" 2>&1 &
           echo $! >"$state/tunnel.pid"
           if answers "$port" 15; then
             echo "slot: $host:$port through a tunnel"
@@ -262,27 +276,40 @@ case "$cmd" in
   fleet)
     # The fleet builds the app (cmux-ci; the Linux pool for cmux-next) and the overlay takes its web
     # bundles: nothing builds on this Mac, and the job is also a dev build of the whole app.
-    ref="" args=()
+    # The tag names the build (cmux DEV <tag>.app); a build of a pushed ref needs a workspace, and
+    # a later build with the same tag and workspace supersedes a queued one.
+    ref="" tag="web-overlay" workspace="web-overlay:$(id -un)" working_tree="" args=()
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --ref) ref="$2"; shift 2 ;;
-        --working-tree) args+=(--working-tree); shift ;;
-        --submitter|--workspace) args+=("$1" "$2"); shift 2 ;;
+        --working-tree) working_tree=1; shift ;;
+        --tag) tag="$2"; shift 2 ;;
+        --workspace) workspace="$2"; shift 2 ;;
+        --submitter) args+=("$1" "$2"); shift 2 ;;
         *) usage 1 ;;
       esac
     done
+    args+=(--tag "$tag")
     ci="${CMUX_CI:-$HOME/.local/bin/cmux-ci}"
     [[ -x "$ci" ]] || { echo "no cmux-ci client at $ci (CMUX_CI names another)" >&2; exit 1; }
-    if [[ " ${args[*]-} " != *" --working-tree "* ]]; then
-      args+=(--ref "${ref:-$(git -C "$ROOT" rev-parse HEAD)}")
+    if [[ -n "$working_tree" ]]; then
+      args+=(--working-tree)
+    else
+      args+=(--ref "${ref:-$(git -C "$ROOT" rev-parse HEAD)}" --workspace "$workspace")
     fi
     out="$(mktemp -d "${TMPDIR:-/tmp}/web-overlay-fleet.XXXXXX")"
     trap 'rm -rf "$out"' EXIT
     job_json="$(cd "$ROOT" && "$ci" build cmux --builder linux "${args[@]}")"
     job="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$job_json")"
     echo "fleet job $job" >&2
-    "$ci" wait "$job" >&2
-    "$ci" artifact "$job" "$out/bundle" --bundle >&2
+    "$ci" wait "$job" >&2 || { echo "job $job is not done; \`cmux-ci wait $job\` resumes, then \`web-overlay.sh install-app\`" >&2; exit 1; }
+    # The per-file bundle, else the zip (artifact --bundle exits 3 when the store has no bundle).
+    if "$ci" artifact "$job" "$out/bundle" --bundle >&2; then :
+    else
+      [[ $? -eq 3 ]] || exit 1
+      "$ci" artifact "$job" "$out/app.zip" >&2
+      mkdir -p "$out/bundle" && ditto -x -k "$out/app.zip" "$out/bundle"
+    fi
     app="$(find "$out/bundle" -maxdepth 2 -name '*.app' -type d | head -1)"
     [[ -n "$app" ]] || { echo "job $job returned no app bundle" >&2; exit 1; }
     install_app "$app"
@@ -291,8 +318,9 @@ case "$cmd" in
     set_key enabled false
     ;;
   status)
-    for file in "$state"/*.pid; do
-      [[ -f "$file" ]] && kill -0 "$(cat "$file")" 2>/dev/null && echo "running: $(basename "$file" .pid) (pid $(cat "$file"))"
+    for name in dev-server tunnel; do
+      pid="$(live_pid "$name")"
+      [[ -n "$pid" ]] && echo "running: $name (pid $pid)"
     done
     echo "web-dev.json: $web_dev"
     cat "$web_dev" 2>/dev/null || echo "(none: the app serves its bundled pages)"

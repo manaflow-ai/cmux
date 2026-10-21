@@ -57,7 +57,8 @@ server and restores the bundled pages; `web-overlay.sh status` shows what runs.
   same number, since the Vite client opens its HMR socket on it) and falls back to `--local` when
   the slot does not answer.
 - **No dev server: built bundles.** `web-overlay.sh fleet [--ref SHA | --working-tree]` builds the
-  app on the fleet (`cmux-ci build cmux`, the Linux pool) and installs its web bundles as the
+  app on the fleet (`cmux-ci build cmux --tag web-overlay`, the Linux pool; a pushed ref builds under
+  the workspace `web-overlay:$USER`, so a newer request supersedes a queued one) and installs its web bundles as the
   overlay. `web-overlay.sh build` does the same from this checkout's own web build, and
   `install-app APP` takes the bundles of any built cmux app.
 - **Back to the shipped pages:** `web-overlay.sh off`, or Debug Settings > Pages > "Live web reload".
