@@ -215,12 +215,12 @@
   overflow: auto;
 }
 .acpmux-location-menu .acpmux-menu-item { width: 100%; text-align: left; }
-.acpmux-location-menu .ui-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); }
+.acpmux-location-menu .ui-menu-item[data-highlighted] { background: var(--acpmux-menu-highlight); }
 .acpmux-location-menu .acpmux-menu-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-location-menu .ui-separator { flex: none; height: 1px; border: 0; margin: 4px 6px; background: color-mix(in srgb, var(--agent-text) 12%, transparent); }
 /* A started chat's Choose folder… under the folder field's rows (dogfood 09): a plain row, not a button face. */
 .acpmux-location-choose { border: 0; background: none; color: inherit; font: inherit; }
-.acpmux-location-choose:hover, .acpmux-location-choose:focus-visible { background: var(--acpmux-menu-hover); outline: none; }
+.acpmux-location-choose:hover, .acpmux-location-choose:focus-visible { background: var(--acpmux-menu-highlight); outline: none; }
 
 /* The controls row's rhythm (Leo 2026-10-14: "one consistent gap, group related controls, and
    right-align the trailing cluster"). Its groups: [+] [model · effort] [permission mode · Plan]
@@ -286,7 +286,7 @@
   border-radius: var(--ui-row-radius);
   color: var(--agent-text);
 }
-.ui-menu-item.acpmux-access-item[data-highlighted] { background: var(--acpmux-menu-hover); }
+.ui-menu-item.acpmux-access-item[data-highlighted] { background: var(--acpmux-menu-highlight); }
 .acpmux-access-item .ui-menu-check { grid-row: 1; grid-column: 3; display: inline-flex; width: 16px; justify-content: center; margin: 0; color: var(--agent-text); font-weight: 600; }
 .acpmux-access-item-icon { display: inline-flex; align-items: center; color: var(--agent-muted); }
 .acpmux-access-item-icon .acpmux-icon { width: 16px; height: 16px; }
@@ -319,7 +319,7 @@
   padding: 2px 8px 2px 10px;
   border-radius: var(--ui-row-radius);
 }
-.acpmux-access-grant:hover { background: var(--acpmux-menu-hover); }
+.acpmux-access-grant:hover { background: var(--acpmux-menu-highlight); }
 .acpmux-access-grant-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--agent-soft); font-size: var(--text-detail); }
 .acpmux-access-grant-remove {
   flex: none;
@@ -1029,7 +1029,7 @@
   height: 1px;
   background: color-mix(in srgb, var(--agent-text) 12%, transparent);
 }
-.acpmux-folder-popover .acpmux-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); }
+.acpmux-folder-popover .acpmux-menu-item[data-highlighted] { background: var(--acpmux-menu-highlight); }
 .acpmux-location-check { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; min-height: 16px; margin-left: auto; color: var(--agent-text); }
 /* The name and its suffix on one line, cut at the end: "cmux · cg-lane-adopt". */
 .acpmux-menu-text.acpmux-location-name { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

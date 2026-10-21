@@ -53,9 +53,11 @@
   backdrop-filter: none;
 }
 
+/* The pill drops a few points from the top edge it sits under (directional motion, Leo 2026-10-20). */
 @keyframes find-pill-in {
   from {
     opacity: 0;
+    translate: 0 -4px;
   }
 }
 

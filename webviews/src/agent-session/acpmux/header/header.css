@@ -31,7 +31,7 @@
 @container (min-width:1160px){
   .acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{visibility:visible}
   .acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{margin-right:56%}
-  .acpmux-reviewing>.acpmux-diff-panel{left:44%;border-left:.5px solid var(--agent-border);background:var(--agent-page-bg)}
+  .acpmux-reviewing>.acpmux-diff-panel{left:44%;border-left:.5px solid var(--agent-border);background:var(--agent-page-bg);--ui-enter-distance:100%}
 }
 
 /* Keep status text out of sizing: long translations and error details never move the tools. */

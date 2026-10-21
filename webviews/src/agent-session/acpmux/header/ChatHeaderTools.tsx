@@ -138,7 +138,7 @@ export function ChatHeaderTools({
   menu: () => ChatMenuItem[];
   /// Runs before the menu opens; the menu shows once it settles.
   onMenuOpen?: () => Promise<unknown>;
-  /// A row with children to show open (the palette's Continue in…); `onExpanded` clears it.
+  /// A row with children to show open (the palette's Continue In…); `onExpanded` clears it.
   expand?: string;
   onExpanded?: () => void;
   /// The pull request chip (default on); a subagent's own pane draws none: the pull request is the chat's.
@@ -550,7 +550,7 @@ function ChatMenu({
   const t = useT();
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<ChatMenuItem[]>([]);
-  // Set when the palette asks for one row's children (Continue in…): the menu lists only those.
+  // Set when the palette asks for one row's children (Continue In…): the menu lists only those.
   const [only, setOnly] = useState<string>();
   const opening = useRef(0);
   const show = (row?: string) => {
