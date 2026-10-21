@@ -2430,6 +2430,12 @@
           "minimum": 0,
           "type": "integer"
         },
+        "children": {
+          "description": "Its sub-sessions that are not closed.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
         "configOptions": true,
         "createdAt": {
           "format": "uint64",
@@ -2445,6 +2451,12 @@
         "cwd": {
           "description": "Lossy when the path is not UTF-8.",
           "type": "string"
+        },
+        "depth": {
+          "description": "0 for a root session, 1 for its sub-sessions, and so on.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
         },
         "enforcement": {
           "$ref": "#/types/Enforcement"
@@ -2535,6 +2547,27 @@
             }
           ]
         },
+        "lifecycleReceipt": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LifecycleReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An optional controller/daemon lifecycle receipt. It is absent until a\nproducer supplies a validated receipt; clients must not infer one from\nstatus or placement fields."
+        },
+        "mcpServers": {
+          "description": "The MCP servers the harness says it loaded, from its own report (Claude\nCode's system/init); null when it reports none (every ACP harness).",
+          "items": {
+            "$ref": "#/types/McpServerSummary"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "model": {
           "type": [
             "string",
@@ -2587,6 +2620,14 @@
             "null"
           ]
         },
+        "pullRequests": {
+          "default": [],
+          "description": "The pull request URLs its `gh pr create` calls printed, oldest first;\nabsent from a peer on an older acpmux.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "queue": {
           "items": {
             "$ref": "#/types/QueuedPromptSummary"
@@ -2612,9 +2653,30 @@
         "sessionId": {
           "type": "string"
         },
+        "shortName": {
+          "description": "Its name among its parent's sub-sessions; null for a root.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "shown": {
           "description": "Some attached client shows the chat.",
           "type": "boolean"
+        },
+        "spawnedBy": {
+          "description": "The session whose agent started this one (its `spawnedBy` tag), kept\nonly while that parent is listed; one level.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "startedBy": {
+          "description": "The session whose agent started this one with its `start_session`\ntool (`hub/subsessions.rs`); null for a session a person or client\nstarted. Kept when the parent is closed or gone, so a client draws\nthe tree from these links at any depth.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "stateSeq": {
           "format": "uint64",
@@ -2689,6 +2751,8 @@
         "lastSeq",
         "eventCount",
         "turnCount",
+        "depth",
+        "children",
         "queued",
         "queuePaused",
         "moving",

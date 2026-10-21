@@ -445,11 +445,15 @@ export type SessionDetail = {
   agentSessionId?: (string | null);
   /** Attached clients. */
   attached: number;
+  /** Its sub-sessions that are not closed. */
+  children: number;
   configOptions?: unknown;
   createdAt: number;
   currentModeId?: (string | null);
   /** Lossy when the path is not UTF-8. */
   cwd: string;
+  /** 0 for a root session, 1 for its sub-sessions, and so on. */
+  depth: number;
   enforcement: Enforcement;
   eventCount: number;
   family?: (string | null);
@@ -467,6 +471,17 @@ export type SessionDetail = {
   lastPrompt?: (string | null);
   lastSeq: number;
   lastTurn?: (LastTurn | null);
+  /**
+   * An optional controller/daemon lifecycle receipt. It is absent until a
+   * producer supplies a validated receipt; clients must not infer one from
+   * status or placement fields.
+   */
+  lifecycleReceipt?: (LifecycleReceipt | null);
+  /**
+   * The MCP servers the harness says it loaded, from its own report (Claude
+   * Code's system/init); null when it reports none (every ACP harness).
+   */
+  mcpServers?: (McpServerSummary[] | null);
   model?: (string | null);
   models?: unknown;
   /** The agent's ACP session modes. */
@@ -482,6 +497,11 @@ export type SessionDetail = {
   pendingPermissions: number;
   policy?: (string | null);
   preview?: (string | null);
+  /**
+   * The pull request URLs its `gh pr create` calls printed, oldest first;
+   * absent from a peer on an older acpmux.
+   */
+  pullRequests?: string[];
   queue: QueuedPromptSummary[];
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
@@ -491,8 +511,22 @@ export type SessionDetail = {
   /** The session's permission rules. */
   rulesJson?: unknown;
   sessionId: string;
+  /** Its name among its parent's sub-sessions; null for a root. */
+  shortName?: (string | null);
   /** Some attached client shows the chat. */
   shown: boolean;
+  /**
+   * The session whose agent started this one (its `spawnedBy` tag), kept
+   * only while that parent is listed; one level.
+   */
+  spawnedBy?: (string | null);
+  /**
+   * The session whose agent started this one with its `start_session`
+   * tool (`hub/subsessions.rs`); null for a session a person or client
+   * started. Kept when the parent is closed or gone, so a client draws
+   * the tree from these links at any depth.
+   */
+  startedBy?: (string | null);
   stateSeq: number;
   /**
    * `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
