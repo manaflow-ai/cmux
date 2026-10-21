@@ -273,6 +273,8 @@ extension SettingsSchema {
         "browser.urlsToAlwaysOpenExternally": .privacy,
         // Whether attached photos and videos send their location.
         "home.attachments.keepLocation": .privacy,
+        // Where the person's direct messages and group chats go: an agent must not move them to another server.
+        "home.server": .privacy,
         // A reply's file link outside the project, and a reply's web image (D4, D5).
         "agentPane.links.outsideRoots": .privacy,
         "agentPane.images.remote": .network,

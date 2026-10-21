@@ -24,7 +24,18 @@ public nonisolated struct HomeServerSetting {
 
     /// The server; a value that names none is cmux Cloud plus a diagnostic.
     static func parse(_ root: JSONValue) -> (Value, SettingsDiagnostic?) {
-        _ = root
-        return (.hosted, nil)
+        guard let value = root.value(at: configPath) else { return (.hosted, nil) }
+        if let parsed = Self.value(value) { return (parsed, nil) }
+        return (.hosted, SettingsDiagnostic(kind: .invalidValue, path: key,
+                                            message: "expected \"hosted\" or {\"selfHosted\": \"http://<name>.<tailnet>.ts.net:7320\"}"))
+    }
+
+    /// The server `value` names, or nil when it names none: `"hosted"`, or an
+    /// object whose only member is `selfHosted` with an http(s) origin.
+    static func value(_ value: JSONValue) -> Value? {
+        if value.stringValue == hosted { return .hosted }
+        guard let members = value.objectValue, members.count == 1, let text = members[selfHostedKey]?.stringValue,
+              let origin = SettingDescriptor.httpOrigin(text) else { return nil }
+        return .selfHosted(origin)
     }
 }
