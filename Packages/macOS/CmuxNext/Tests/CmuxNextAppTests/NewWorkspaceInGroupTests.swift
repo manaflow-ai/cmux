@@ -61,7 +61,8 @@ struct NewWorkspaceInGroupTests {
         let first = try #require(services.windows.states[window]?.workspaceID)
 
         // Group Workspace on the window's workspace.
-        _ = services.registry.perform("newWorkspaceGroup", invocation: ActionInvocation(arguments: ["name": .string("keep-group")]))
+        _ = services.registry.perform("newWorkspaceGroup", invocation: ActionInvocation(
+            target: ActionTargetRef(kind: .workspace, id: first), arguments: ["name": .string("keep-group")]))
         func header() -> CmuxNextSidebar.GroupID? {
             guard let group = personal.groups.first(where: { $0.name == "keep-group" }) else { return nil }
             let shown = sidebar.groupID(personal: group.id.rawValue)
@@ -69,6 +70,13 @@ struct NewWorkspaceInGroupTests {
         }
         func members() -> [String] { header().flatMap { sidebar.group($0)?.workspaces.map(\.id.rawValue) } ?? [] }
         await Self.wait(within: .seconds(30)) { members() == [first] }
+        try #require(members() == [first], "the group lists \(members())")
+        let group = try #require(personal.groups.first { $0.name == "keep-group" }?.id)
+        /// The group the home session's personal state files workspace `id` under.
+        func filed(_ id: String) -> WorkspaceGroupID? {
+            guard let qualified = WindowProfiles.qualified(id, machines: services.machines) else { return nil }
+            return personal.workspace(session: qualified.session, key: qualified.key)?.group
+        }
 
         var failures: [String] = []
         /// Runs `action` on `anchor` and expects one new workspace listed right below it in the group.
@@ -78,7 +86,7 @@ struct NewWorkspaceInGroupTests {
             func created() -> String? { store.workspaces.first { !before.contains($0.id) }?.id }
             func placed() -> Bool {
                 guard let made = created(), let at = members().firstIndex(of: anchor) else { return false }
-                return members().firstIndex(of: made) == at + 1
+                return members().firstIndex(of: made) == at + 1 && filed(made) == group
             }
             await Self.wait(within: .seconds(30)) { placed() }
             if !placed() { failures.append("\(action) from \(anchor): made \(created() ?? "nothing"); the group lists \(members())") }
