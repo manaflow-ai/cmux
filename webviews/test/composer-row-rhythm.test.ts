@@ -3,7 +3,7 @@
 // chat's…'. Use one consistent gap, group related controls, and right-align the trailing cluster").
 //
 // The controls sit in two rows (Leo 2026-10-19, Claude Code's split): the box holds [+] beside the
-// prompt and [mic · ↵ · Stop] after it, on the prompt's last line (Leo 2026-10-20, the Claude desktop
+// prompt and [↵ · Stop · mic] after it, on the prompt's last line (Leo 2026-10-20, the Claude desktop
 // composer); the quiet row under it is [permission mode · Plan] ……… [model · effort].
 // Each row keeps the rhythm on its own.
 // What a person sees between two controls is the space between what each draws (its text, its

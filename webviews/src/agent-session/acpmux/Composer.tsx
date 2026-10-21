@@ -944,7 +944,7 @@ export function Composer({
       escapeStop.press(event.repeat);
       return;
     }
-    // Esc in an idle prompt lets go of the keyboard, as Claude desktop's does: the caret goes, and a
+    // Esc with nothing to stop lets go of the keyboard, as Claude desktop's does: the caret goes, and a
     // printed key or a click brings it back (composerFocus.ts). Menus and pickers took theirs above.
     if (event.key === "Escape" && plain && !open && !quick) {
       const focused = document.activeElement;
@@ -1500,13 +1500,12 @@ export function Composer({
                   {accessory}
                 </span>
               )}
-              {running ? (
-                plainFooter ? null : (
-                  stopButton
-                )
-              ) : remote.canSend && (shell || !plainFooter || hasDraft) ? (
+              {!plainFooter && stop ? (
+                stopButton
+              ) : remote.canSend && (!plainFooter || shell || (hasDraft && !(running && steerable))) ? (
                 // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, the mic
-                // alone on the right; Send comes in after it with the first letter.
+                // alone on the right; Send comes in after it with the first letter. Mid-turn it
+                // queues the draft, unless the ↵ control is there to put it into the turn.
                 <button
                   key="send"
                   ref={sendButton}
