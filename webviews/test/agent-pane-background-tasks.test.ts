@@ -71,6 +71,8 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     ["mux", "turn_started", {}],
     ...background("bg1", "npm run dev"),
     ...background("bg2", "cargo watch -x test"),
+    // acpmux reports a shell that went on in the background as running (claude_stdio `running()`).
+    ended("bg2", "cargo watch -x test", "running"),
     ["in", "agent_message_chunk", say("Both are running.")],
     ["mux", "turn_result", { status: "completed" }],
     ["mux", "user_message", { text: "Stop the dev server" }],
