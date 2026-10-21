@@ -186,6 +186,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var cmdWClosesPinnedTabs: Bool = CmdWClosesPinnedTabsSetting.fallback
     /// `tabs.overflow`; shrink when unset or invalid.
     public var tabOverflow: TabOverflow = TabOverflowSetting.fallback
+    /// `tabs.verticalTabs`; off when unset or invalid.
+    public var verticalTabs: Bool = VerticalTabsSetting.fallback
+    /// `tabs.verticalTabsExpandOnHover`; on when unset or invalid.
+    public var verticalTabsExpandOnHover: Bool = VerticalTabsSetting.expandOnHoverFallback
     /// `tabs.swapCmdTAndCmdN`; off when unset or invalid.
     public var swapCmdTAndCmdN: Bool = SwapCmdTAndCmdNSetting.fallback
     /// `palette.scopes.<scope>.prefix`: user-assigned palette scope prefixes.
@@ -362,6 +366,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.cmdWClosesPinnedTabs = cmdWClosesPinnedTabs
         if let cmdWClosesPinnedTabsDiagnostic { snapshot.diagnostics.append(cmdWClosesPinnedTabsDiagnostic) }
         snapshot.take(TabOverflowSetting.parse(root), \.tabOverflow)
+        snapshot.take(VerticalTabsSetting.parse(root), \.verticalTabs)
+        snapshot.take(VerticalTabsSetting.parseExpandOnHover(root), \.verticalTabsExpandOnHover)
         let (swapCmdTAndCmdN, swapCmdTAndCmdNDiagnostic) = SwapCmdTAndCmdNSetting.parse(root)
         snapshot.swapCmdTAndCmdN = swapCmdTAndCmdN
         if let swapCmdTAndCmdNDiagnostic { snapshot.diagnostics.append(swapCmdTAndCmdNDiagnostic) }
