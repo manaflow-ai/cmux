@@ -106,3 +106,21 @@ test("once the checkpoint loads, a failed Write lists after the repository's cou
     [NOTES, "failed"],
   ]);
 });
+
+test("once the checkpoint loads, a failed Write under a path alias of the repository lists no row of its own", async () => {
+  // The agent wrote /tmp/repo/notes.txt; git names the repository by its real path, /private/tmp/repo.
+  const path = "/tmp/repo/notes.txt";
+  const row = activity("turn-f8", [
+    await translatorWrite("write-8", path, "failed"),
+    await editWithDiff("edit-4", path, "step 1\n", "step one\n"),
+  ]);
+  const load = checkpoint(
+    [{ path: "notes.txt", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-step 1\n+step one\n" }],
+    "/private/tmp/repo",
+  );
+  await dom.render(await editedCard(row, load));
+  expect(dom.text(".acpmux-edited-title > div")).toBe("Edited notes.txt");
+  expect(dom.text(".acpmux-edited-sub")).toBe("+1-1");
+  expect(rows()).toEqual([]);
+  expect(dom.host().querySelector(".acpmux-edited-failed")).toBeNull();
+});

@@ -150,15 +150,17 @@ export function useDom() {
   };
 }
 
-/// The turn's checkpoint, loaded: the repository at FOLDER, with `files` (paths from FOLDER) changed.
+/// The turn's checkpoint, loaded: the repository at `root` (FOLDER), with `files` (paths from the
+/// root) changed.
 export const checkpoint = (
   files: { path: string; additions: number; deletions: number; patch: string }[] = [],
+  root = FOLDER,
 ): TurnCheckpointLoad => ({
   state: "loaded",
   checkpointId: "checkpoint-1",
   changeSet: {
     scope: "lastTurn",
-    root: FOLDER,
+    root,
     files: files.map((file) => ({ ...file, status: "modified" as const })),
   },
 });
