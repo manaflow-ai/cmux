@@ -124,6 +124,14 @@ final class CEFRuntime {
         OffTheRecordProfiles.shared.observeEnd { [weak self] profile in self?.releaseOffTheRecordContexts(of: profile) }
     }
 
+    /// A runtime over `shim` that never loads or starts Chromium, its profiles under `storage`
+    /// (tests drive panes against a spy shim).
+    init(shim: CEFShimLibrary, storage: CEFProfileStorage) {
+        self.shim = shim
+        self.storage = storage
+        state = .ready
+    }
+
     /// `cef_log_severity_t` LOGSEVERITY_WARNING for cef.log and every helper.
     /// At Chromium's default (INFO), each console call of a page or an
     /// extension that no handler takes became an `INFO:CONSOLE` line in
@@ -239,7 +247,9 @@ final class CEFRuntime {
             let started = clock.now
             try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
             state = .ready
-            CEFStartSteps.shared.timed("ready_hooks") { startChildMonitor(); windowGuard.start(); onReady?() }
+            CEFStartSteps.shared.timed("ready_hooks") {
+                startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install(); onReady?()
+            }
             self.trigger = trigger
             loadDuration = library.loadDuration
             initializeDuration = clock.now - started

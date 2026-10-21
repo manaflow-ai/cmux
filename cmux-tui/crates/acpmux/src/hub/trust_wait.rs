@@ -89,7 +89,7 @@ fn refused(reason: &str, message: String, cwd: &str) -> RpcError {
 
 /// The card's request: `toolCall._meta.acpmux.trust` marks it for the daemon (only a person
 /// answers; a Web client cannot), `question` (harness `acp`) is what the chat draws.
-fn card(cwd: &str, short: &str) -> Value {
+pub(super) fn card(cwd: &str, short: &str) -> Value {
     let name = if short.is_empty() { "A sub-session" } else { short };
     json!({
         "toolCall": {

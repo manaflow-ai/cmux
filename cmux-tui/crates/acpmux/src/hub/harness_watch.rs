@@ -73,6 +73,8 @@ impl Hub {
         // The settings file too: a start-mode setting change reaches the
         // watchers (`settings_watch.rs`).
         self.start_settings_watch();
+        // And each attached session's HEAD, so its branch stays live (`git_watch.rs`).
+        self.start_git_watch();
         let Ok(handle) = tokio::runtime::Handle::try_current() else {
             tracing::warn!("harness watch: no async runtime");
             return;

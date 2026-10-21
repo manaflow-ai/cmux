@@ -20,7 +20,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.clearWorkspaceDescription", "markWorkspaceDone", "palette.workspaceStatus",
         "palette.addWorkspaceChecklistItem", "palette.openWorkspaceTodoPane", "toggleChecklistItemComplete",
         "checklistEditItem", "checklistMarkInProgress", "checklistCompleteItem", "checklistRemoveItem", "checklistOpenAsPane",
-        "checklistAttachImages", "palette.openVaultPane", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove",
+        "checklistAttachImages", "palette.openVaultPane", "palette.openFilesPane", "palette.openFindPane", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove",
         "workspace.closeAll", "workspace.closeAllInAllWindows", "workspaceGroup.closeOthers", "workspaceGroup.duplicate",
         "window.closeOthers", "closeAllWindows",
         "palette.toggleWorkspacePin", "palette.markWorkspaceRead", "palette.markWorkspaceUnread",
@@ -96,7 +96,7 @@ nonisolated extension ActionSurfaceCatalog {
         "notifications.dismissal.timeout", "notifications.dismissal.never", "palette.newAgentChat", "palette.quickAgentChat",
         "palette.launchClaudeTeams", "palette.launchCodexTeams", "palette.forkAgentConversationRight",
         "palette.forkAgentConversationLeft", "palette.forkAgentConversationTop", "palette.forkAgentConversationBottom",
-        "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace", "computerUseStop",
+        "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace", "palette.forkAgentConversationNewWindow", "computerUseStop",
         "newCloudWorkspace", "newCloudMachine", "palette.cloud.fork", "palette.cloud.snapshot",
         "palette.cloud.restore", "palette.cloud.promoteTemplate", "palette.cloud.status", "palette.cloud.ports",
         "palette.cloud.handoff", "cloudMove", "cloudBringBack", "cloudSSH", "cloudExec", "cloudFilesList", "cloudFileRead", "cloudFileWrite",
@@ -130,6 +130,7 @@ nonisolated extension ActionSurfaceCatalog {
         "bookmark.open", "bookmark.openInNewTab", "bookmark.openInBackgroundTab", "bookmark.openAll", "bookmark.edit",
         "bookmark.move", "bookmark.remove", "bookmark.import", "bookmark.importFromBrowser", "bookmark.export",
         "bookmark.setIcon", "bookmark.clearIcon", "machine.setIcon", "machine.clearIcon",
+        "agentChat.toggleNotificationMute",
     ]
 
     /// Why the CLI has no verb for an action (`cmux action run <id>` still runs it).
@@ -153,11 +154,6 @@ nonisolated extension ActionSurfaceCatalog {
     static let cliExemption: [ActionID: SurfaceExemption] = byReason(cliExemptionsByReason)
     static let cliExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .ownerVerb: ownerVerbActions,
-        .unimplemented: [
-            "agentChat.toggleNotificationMute",
-            "palette.openFindPane",
-            "palette.openFilesPane",
-        ],
         .guiOnly: [
             "agentHistory.show", "music.open", "music.stop",
             "notifications.dismissHighlight", "openSettings", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",

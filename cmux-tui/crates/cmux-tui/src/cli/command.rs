@@ -177,7 +177,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
             parse_screen(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?
         }
         "pane" => parse_pane(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?,
-        "tab" => parse_tab(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
+        "tab" => parse_tab(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?,
         "terminal" => parse_terminal(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "browser" => parse_browser(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "notification" => parse_notification(&tokens.words[1..], &mut tokens.flags)?,
@@ -291,17 +291,22 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
     Ok(Tokens { words, flags, argv })
 }
 
-/// Whether the command `scope words…` reads the words after `--`: workspace
-/// create and run, pane split and run (also under a workspace or screen
-/// path), the workspace status/progress/log and checklist commands (which
-/// check their own verbs), and agent messages. Every other command would drop
+/// Whether the command `scope words…` reads the words after `--`: workspace,
+/// screen, pane and terminal-tab create, workspace and pane run, pane split
+/// (also under a workspace, screen or pane path), the workspace
+/// status/progress/log and checklist commands (which check their own verbs),
+/// and agent messages. Every other command would drop
 /// them, so the caller is told instead.
 fn takes_argv(scope: &str, words: &[&str]) -> bool {
+    fn tab(words: &[&str]) -> bool {
+        matches!(words, ["create", "terminal"])
+    }
     fn pane(words: &[&str]) -> bool {
-        matches!(words, [_, "split"] | [_, "run", ..])
+        matches!(words, ["create"] | [_, "split"] | [_, "run", ..])
+            || matches!(words, [_, "tab", tail @ ..] if tab(tail))
     }
     fn screen(words: &[&str]) -> bool {
-        matches!(words, [_, "pane", tail @ ..] if pane(tail))
+        matches!(words, ["create"]) || matches!(words, [_, "pane", tail @ ..] if pane(tail))
     }
     fn workspace(words: &[&str]) -> bool {
         let area = |word: &&str| state::STATUS_AREAS.contains(word) || *word == "checklist";
@@ -317,8 +322,30 @@ fn takes_argv(scope: &str, words: &[&str]) -> bool {
         "workspace" => workspace(words),
         "screen" => screen(words),
         "pane" => pane(words),
+        "tab" => tab(words),
         "agent" => matches!(words, ["message", ..]),
         _ => false,
+    }
+}
+
+/// `argv` (the words after `--`) or `--shell SCRIPT` for a command that
+/// creates a terminal: the new terminal runs it instead of a plain shell.
+fn insert_creation_command(
+    params: &mut Map<String, Value>,
+    argv: Option<Vec<String>>,
+    flags: &mut Flags,
+) -> Result<(), UsageError> {
+    match (argv, flags.take("shell")) {
+        (None, None) => Ok(()),
+        (Some(argv), None) if argv.first().is_some_and(|program| !program.is_empty()) => {
+            params.insert("argv".into(), json!(argv));
+            Ok(())
+        }
+        (None, Some(script)) if !script.is_empty() => {
+            params.insert("shell".into(), Value::String(script));
+            Ok(())
+        }
+        _ => Err(UsageError::new("give exact argv after -- or one --shell script")),
     }
 }
 
@@ -728,6 +755,7 @@ fn parse_pane_strings(
             let mut params = Map::new();
             add_size(&mut params, flags)?;
             insert_optional_string(&mut params, flags, "cwd", "cwd");
+            insert_creation_command(&mut params, argv, flags)?;
             request(ResourceOperation::PaneCreate, selectors, flags, params)
         }
         [selector, "show"] => {
@@ -756,16 +784,7 @@ fn parse_pane_strings(
             insert_optional_string(&mut params, flags, "cwd", "cwd");
             // The new pane runs this instead of a shell, so no empty shell
             // tab is left beside the command's (agent evals, mode 3).
-            match (argv, flags.take("shell")) {
-                (None, None) => {}
-                (Some(argv), None) if argv.first().is_some_and(|program| !program.is_empty()) => {
-                    params.insert("argv".into(), json!(argv));
-                }
-                (None, Some(script)) if !script.is_empty() => {
-                    params.insert("shell".into(), Value::String(script));
-                }
-                _ => return Err(UsageError::new("give exact argv after -- or one --shell script")),
-            }
+            insert_creation_command(&mut params, argv, flags)?;
             // A script's split keeps the user's focus unless it asks.
             if flags.boolean("focus") {
                 params.insert("focus".into(), Value::Bool(true));
@@ -849,7 +868,7 @@ fn parse_pane_strings(
         }
         [selector, "tab", tail @ ..] => {
             selectors.insert("pane", "pane", selector)?;
-            parse_tab_strings(tail, selectors, flags)
+            parse_tab_strings(tail, selectors, flags, argv)
         }
         _ => usage("pane action"),
     }
@@ -859,15 +878,17 @@ fn parse_tab(
     words: &[String],
     selectors: &mut Selectors,
     flags: &mut Flags,
+    argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     let refs = strs(words);
-    parse_tab_strings(&refs, selectors, flags)
+    parse_tab_strings(&refs, selectors, flags, argv)
 }
 
 fn parse_tab_strings(
     words: &[&str],
     selectors: &mut Selectors,
     flags: &mut Flags,
+    argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     match words {
         ["group", rest @ ..] => state::parse_tab_group(rest, flags),
@@ -884,6 +905,7 @@ fn parse_tab_strings(
             let mut params = Map::new();
             insert_optional_string(&mut params, flags, "cwd", "cwd");
             insert_optional_string(&mut params, flags, "name", "name");
+            insert_creation_command(&mut params, argv, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_size(&mut params, flags)?;
             request(ResourceOperation::TabCreateTerminal, selectors, flags, params)
@@ -1222,6 +1244,27 @@ fn parse_terminal(
 
 use browser::parse_browser;
 
+/// `--terminal <term_id>` or `--workspace <ws_id>` of `notification create|clear`.
+fn notification_scope(
+    params: &mut Map<String, Value>,
+    flags: &mut Flags,
+) -> Result<(), UsageError> {
+    let terminal = flags.take("terminal");
+    let workspace = flags.take("workspace");
+    if terminal.is_some() && workspace.is_some() {
+        return Err(UsageError::new("give --terminal or --workspace, not both"));
+    }
+    if let Some(terminal) = terminal {
+        validate_prefixed_id("terminal", "term", &terminal)?;
+        params.insert("terminal_id".into(), Value::String(terminal));
+    }
+    if let Some(workspace) = workspace {
+        validate_prefixed_id("workspace", "ws", &workspace)?;
+        params.insert("workspace_id".into(), Value::String(workspace));
+    }
+    Ok(())
+}
+
 fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     match strs(words).as_slice() {
@@ -1247,18 +1290,12 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
                 validate_one_of("--level", &level, &["info", "warning", "error"])?;
                 params.insert("level".into(), Value::String(level));
             }
-            if let Some(terminal) = flags.take("terminal") {
-                validate_prefixed_id("terminal", "term", &terminal)?;
-                params.insert("terminal_id".into(), Value::String(terminal));
-            }
+            notification_scope(&mut params, flags)?;
             request(ResourceOperation::NotificationCreate, &selectors, flags, params)
         }
         ["clear"] => {
             let mut params = Map::new();
-            if let Some(terminal) = flags.take("terminal") {
-                validate_prefixed_id("terminal", "term", &terminal)?;
-                params.insert("terminal_id".into(), Value::String(terminal));
-            }
+            notification_scope(&mut params, flags)?;
             request(ResourceOperation::NotificationClear, &selectors, flags, params)
         }
         ["ack", ids @ ..] => {
@@ -1298,7 +1335,8 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
 /// agent hook written for a local terminal works unchanged inside a machine.
 /// The target is the caller's own terminal (`CMUX_TUI_TERMINAL_ID`, injected
 /// into every daemon PTY) unless `--surface` names another terminal of this
-/// session or `--workspace` asks for a session-level row; a machine cannot
+/// session or `--workspace` names a workspace (`current`: a session-level
+/// row); a machine cannot
 /// address anything outside its own session. `--reply` asks the app for a
 /// banner that takes a typed reply for the target terminal (only it).
 /// `--window` and `--id-format` are accepted for signature
@@ -1337,7 +1375,18 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
     if let Some(surface) = &surface {
         validate_prefixed_id("terminal", "term", surface)?;
     }
+    // `--workspace ws_…` scopes the row (and a clear) to that workspace;
+    // `current` keeps its session-level meaning.
+    let workspace_id = workspace.as_ref().filter(|workspace| *workspace != "current").cloned();
+    if workspace_id.is_some() && surface.is_some() {
+        return Err(UsageError::new(
+            "--workspace <ws_id> and --surface are one scope or the other: a terminal's notification already belongs to its workspace",
+        ));
+    }
     let mut params = Map::new();
+    if let Some(workspace_id) = workspace_id {
+        params.insert("workspace_id".into(), Value::String(workspace_id));
+    }
     if flags.boolean("clear") {
         if flags.take("title").is_some()
             || flags.take("subtitle").is_some()
@@ -3569,6 +3618,38 @@ mod tests {
             assert!(
                 parse(&strings(&args), super::super::Surface::CmuxTui).is_err(),
                 "accepted invalid source {invalid:?}"
+            );
+        }
+    }
+
+    /// `notify --workspace ws_…` and `notification create|clear --workspace`
+    /// scope the row to that workspace (`workspace_id`), never the session.
+    #[test]
+    fn notify_workspace_sends_the_workspace_scope() {
+        const WS: &str = "ws_00000000000000000000000000000042";
+        const TERMINAL: &str = "term_00000000000000000000000000000041";
+        let create = protocol(&["notify", "--workspace", WS, "--title", "x"]);
+        assert_eq!(create.operation.name().unwrap(), "notification.create");
+        assert_eq!(create.params["workspace_id"], WS);
+        assert!(create.params.get("terminal_id").is_none());
+        let clear = protocol(&["notify", "--clear", "--workspace", WS]);
+        assert_eq!(clear.operation.name().unwrap(), "notification.clear");
+        assert_eq!(clear.params["workspace_id"], WS);
+        // `current` keeps its session-level meaning.
+        let session = protocol(&["notify", "--clear", "--workspace", "current"]);
+        assert!(session.params.get("workspace_id").is_none());
+        let resource =
+            protocol(&["notification", "create", "--title", "t", "--body", "", "--workspace", WS]);
+        assert_eq!(resource.params["workspace_id"], WS);
+        let resource_clear = protocol(&["notification", "clear", "--workspace", WS]);
+        assert_eq!(resource_clear.params["workspace_id"], WS);
+        for both in [
+            &["notify", "--workspace", WS, "--surface", TERMINAL][..],
+            &["notification", "clear", "--workspace", WS, "--terminal", TERMINAL],
+        ] {
+            assert!(
+                parse(&strings(both), super::super::Surface::CmuxTui).is_err(),
+                "{both:?}: a workspace and a terminal scope together"
             );
         }
     }
