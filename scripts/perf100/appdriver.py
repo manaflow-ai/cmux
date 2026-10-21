@@ -93,6 +93,11 @@ class App:
         self.tmp = os.path.join(self.scratch, "tmp")
         os.makedirs(os.path.join(self.home, "Library"), exist_ok=True)
         os.makedirs(self.tmp, exist_ok=True)
+        # Empty shell profiles: zsh's new-user menu would otherwise wait for (and eat) typed keys.
+        for name in (".zshrc", ".zprofile", ".bashrc", ".profile", ".hushlogin"):
+            path = os.path.join(self.home, name)
+            if not os.path.exists(path):
+                open(path, "w").close()
         self.config = os.path.join(self.scratch, "cmux.json")
         if not os.path.exists(self.config):
             with open(self.config, "w") as handle:

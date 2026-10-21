@@ -10,7 +10,9 @@ recorded offsets divided by `speed`, then ends the turn. With marks=n, n chunks 
 over the reply start with a marker `[pm:<tag>:<k>]`, and the agent appends
 `{"mark": "[pm:<tag>:<k>]", "t": <time.time()>}` to `log` right before it writes that chunk,
 so a reader can time token-to-screen (or token-to-client) per marker. Any other prompt gets the
-one-chunk reply "ok" (a session's first turn). session/cancel stops a running stream.
+one-chunk reply "ok" (a session's first turn). With done=<fifo>, the agent writes one line to
+that FIFO after the turn ends (a reader blocks on it: no polling). session/cancel stops a
+running stream.
 """
 from __future__ import annotations
 
@@ -83,6 +85,12 @@ def stream(rid, sid: str, opts: dict):
     finally:
         if log:
             log.close()
+        if opts.get("done"):
+            try:
+                with open(opts["done"], "w") as fifo:  # blocks until the harness reads it
+                    fifo.write("done\n")
+            except OSError:
+                pass
 
 
 def main():

@@ -148,7 +148,7 @@ def s0(args, run, rng):
     app = _launch(args, run)
     run.metric("setup.terminals", args.terminals)
     for _ in range(args.terminals - 1):
-        app.act("newSurface")
+        app.act("newSurface", focus=True)  # shown once, as Cmd-T does, so its terminal starts
     for i in range(args.agent_tuis):
         app.act("newSurface", focus=True)
         app.send_text(f"exec {_python()} {os.path.join(FIXTURES, 'idle_tui.py')} {rng.randrange(1000)}\n")
@@ -244,17 +244,20 @@ def s2(args, run, rng):
     _idle_window(run, app, "idle", min(args.idle, 30), args.settle,
                  per=[("session", len(sessions), ("cmux", "acpmux", "browser", "agents"))])
     fixtures = ["prose-8k", "mixed-24k", "code-48k"]
+    done = []
+    for i in range(len(sessions)):
+        done.append(os.path.join(app.scratch, f"done-{i}"))
+        os.mkfifo(done[-1])
     window = procstat.Tracker(app.discover).start()
     t0 = time.monotonic()
     for i, s in enumerate(sessions):
         fixture = fixtures[rng.randrange(len(fixtures))] if args.stream == "seeded" else args.stream
-        acp("send", "--no-wait", s["sid"], f"perf100 stream={fixture} speed={args.speed} tag={i}")
-    waited = acp("wait", "--all", "--timeout", str(int(args.stream_timeout)), *[s["sid"] for s in sessions],
-                 timeout=args.stream_timeout + 60)
+        acp("send", "--no-wait", s["sid"], f"perf100 stream={fixture} speed={args.speed} tag={i} done={done[i]}")
+    ended = _fifo_wait(done, timeout=args.stream_timeout)
+    run.metric("stream.sessions_ended", sum(1 for e in ended if e is not None))
     wall = time.monotonic() - t0
     entry = run.phase("stream", window.stop())
     run.metric("stream.wall_s", round(wall, 2))
-    run.metric("stream.wait_rc", waited.returncode)
     cmux = entry["groups"].get("cmux", {})
     run.metric("stream.cmux_cpu_s_per_session", round(cmux.get("cpu_s", 0) / max(len(sessions), 1), 4))
     run.metric("stream.cmux_disk_written_mb_per_session",
@@ -262,8 +265,10 @@ def s2(args, run, rng):
     # Token-to-screen on the visible agent pane, apart from the resource window (its reads cost app CPU).
     if sessions:
         log = os.path.join(app.scratch, "marks.jsonl")
+        probe_done = os.path.join(app.scratch, "done-probe")
+        os.mkfifo(probe_done)
         acp("send", "--no-wait", sessions[-1]["sid"],
-            f"perf100 stream=prose-8k speed={args.speed} marks={args.marks} tag=probe log={log}")
+            f"perf100 stream=prose-8k speed={args.speed} marks={args.marks} tag=probe log={log} done={probe_done}")
         seen = _watch_page_for_marks(app, args.marks, timeout=60)
         emitted = {}
         try:
@@ -278,7 +283,7 @@ def s2(args, run, rng):
             run.note(f"token_to_screen: {len(seen)} of {len(emitted)} markers seen on the agent page")
             run.unverified("token_to_screen reads the agent page text with debug.page state; a page whose "
                            "text it cannot read leaves the metric empty")
-        acp("wait", "--timeout", "120", sessions[-1]["sid"], timeout=180)
+        _fifo_wait([probe_done], timeout=120)
     return app
 
 
@@ -332,7 +337,7 @@ def _build_scale(app, run, args) -> int:
         if w:
             app.new_workspace()
         for _ in range(per - 1):
-            app.act("newSurface")
+            app.act("newSurface", focus=True)
     create_s = time.monotonic() - t0
     run.phase("create", window.stop())
     total = workspaces * per
