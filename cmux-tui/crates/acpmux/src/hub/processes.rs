@@ -12,6 +12,9 @@
 //! (`hosts.rs`); a harness that exited or was replaced took its processes
 //! with it, so those still running then are `lost`.
 //!
+//! `_acpmux/process/background` is Ctrl-B: Claude Code moves the chat's
+//! foreground work to the background, which then arrives here as above.
+//!
 //! Claude Code writes each shell's output to a file it names
 //! (`output_file`), which `_acpmux/process/tail` reads. The agent host runs
 //! on this machine, so the daemon reads the file itself.
@@ -22,7 +25,8 @@ use serde::{Deserialize, Serialize};
 /// The reason of a process that ended with its harness.
 pub(super) const HARNESS_EXIT: &str = "harness_exit";
 
-/// How long a kill waits for Claude Code's `stop_task` or Codex's terminate.
+/// How long a kill waits for Claude Code's `stop_task` or Codex's terminate,
+/// and Ctrl-B for Claude Code's `background_tasks`.
 const STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// What a tail without `maxBytes` reads: the last 64 KiB.
@@ -71,7 +75,8 @@ pub(super) struct Process {
     reason: Option<String>,
     /// The harness's own words on its end (Claude's reason or summary).
     detail: Option<String>,
-    /// `background` (started there) or `auto_backgrounded` (moved there).
+    /// `background` (started there), `auto_backgrounded` (Claude Code moved
+    /// it there) or `user_backgrounded` (the person did, Ctrl-B).
     origin: String,
     /// The length of its output file when it was listed; null while
     /// Claude Code has named no file.
@@ -523,6 +528,51 @@ impl Hub {
             self.process_table(&session).stopping.remove(id);
         }
         Err(refused)
+    }
+
+    /// `_acpmux/process/background` (Ctrl-B): asks Claude Code to move the
+    /// chat's running work to the background (`background_tasks`): the task
+    /// tool call `tool` started, or every foreground task. What moved
+    /// arrives as `process_update`s with origin `user_backgrounded`. Codex
+    /// moves long commands there itself, and other agents have no such
+    /// request: refused. With no turn running, nothing runs in the
+    /// foreground: `backgrounded: false`, and Claude Code is not asked.
+    pub async fn background_work(&self, key: &str, tool: Option<&str>) -> Result<Value, RpcError> {
+        let session = self.resolve(key)?;
+        let harness = session.meta().harness;
+        let claude = self
+            .config
+            .read()
+            .await
+            .profile(&harness)
+            .is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio);
+        if !claude {
+            return Err(RpcError::invalid_params(
+                "only Claude Code can move running work to the background",
+            ));
+        }
+        let nothing = json!({"backgrounded": false});
+        if session.turn().is_none() {
+            return Ok(nothing);
+        }
+        let child = session.child.lock().await.clone();
+        let alive = match &child {
+            Some(child) => child.is_alive().await,
+            None => false,
+        };
+        let Some(child) = child.filter(|_| alive) else { return Ok(nothing) };
+        let params = json!({"sessionId": session.meta().agent_session_id, "toolCallId": tool});
+        let ask = child.request(crate::claude_stdio::BACKGROUND_TASKS, params);
+        match tokio::time::timeout(STOP_TIMEOUT, ask).await {
+            Ok(Ok(answer)) => {
+                let moved = answer.get("backgrounded").and_then(Value::as_bool).unwrap_or(true);
+                Ok(json!({"backgrounded": moved}))
+            }
+            Ok(Err(e)) => Err(e),
+            Err(_) => {
+                Err(RpcError::internal("Claude Code did not answer background_tasks in time"))
+            }
+        }
     }
 }
 
