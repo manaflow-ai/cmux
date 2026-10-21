@@ -40,7 +40,8 @@ export type ListRow = {
 
 export type Diagnostic = { path: string | string[]; message: string; kind?: string };
 
-export type Domains = { themes: string[]; font_families: string[]; sounds: string[] };
+/** `recent_fonts`: font families written lately to any font setting, newest first (RecentFonts.swift). */
+export type Domains = { themes: string[]; font_families: string[]; sounds: string[]; recent_fonts: string[] };
 
 /** Published value domains; `null` for a domain the app never published. */
 export type PublishedDomains = { [K in keyof Domains]: string[] | null };

@@ -47,6 +47,7 @@ mod model_hint;
 mod models_view;
 mod paging;
 mod personal_stats;
+mod policy_mode;
 mod pool;
 mod prompt_images;
 mod prompt_ledger;
@@ -68,6 +69,7 @@ mod seen;
 mod session;
 pub(crate) mod session_pages;
 mod settings_watch;
+mod silent_turn;
 pub use session::{Session, live_tags};
 pub(super) use session::{prompt_text, short_text};
 mod shutdown;
@@ -720,6 +722,7 @@ impl Hub {
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),
+            heard: AtomicU64::new(0),
             last_active: AtomicU64::new(self.clock_now()),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),

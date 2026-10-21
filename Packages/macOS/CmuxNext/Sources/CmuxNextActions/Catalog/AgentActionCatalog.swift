@@ -394,6 +394,16 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "dollarsign.circle", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
+            // The Chief view gallery: experimental views beside the Chief (where every agent is,
+            // an agent board, the CI fleet, landing PRs, today's timeline), as a page tab in Home's
+            // right column. Debug Settings > Home > "Chief view gallery"; DEV and NIGHTLY only.
+            ActionDescriptor(
+                id: "chief.openViews",
+                title: String(localized: "action.chief.openViews", defaultValue: "Chief View Gallery", bundle: .module),
+                keywords: ["chief", "views", "gallery", "agents", "where", "everybody", "board", "fleet", "landing", "timeline"],
+                category: .agents, symbol: "square.grid.2x2", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "agentActivity.open",
                 title: String(localized: "action.agentActivity.open", defaultValue: "Agent Activity", bundle: .module),

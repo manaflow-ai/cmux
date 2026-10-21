@@ -502,7 +502,7 @@ impl Session {
         let mut endpoints = host_endpoints(port, &self.options);
         self.announce(offered(endpoints.iter().copied(), &self.options), Vec::new(), Vec::new());
         // On the transport the new network allows: UDP, else TLS.
-        let keeps_turn = self.keeps_turn.load(Ordering::Relaxed);
+        let mut keeps_turn = self.keeps_turn.load(Ordering::Relaxed);
         let turn = async { if keeps_turn { TurnCarrier::allocate(&self.options).await } else { None } };
         let reflexive = async {
             let deadline = Instant::now() + STUN_WAIT;
@@ -518,11 +518,11 @@ impl Session {
         let (mut turn, reflexive) = tokio::join!(turn, reflexive);
         if turn.is_none() && !keeps_turn && asked > 0 && reflexive.is_empty() {
             // A Mac roamed onto a network that answers no STUN (it drops
-            // UDP): from now on it keeps a TURN allocation.
+            // UDP): from now on it keeps a TURN allocation, and keeps asking
+            // below when this one misses.
+            keeps_turn = true;
+            self.keeps_turn.store(true, Ordering::Relaxed);
             turn = TurnCarrier::allocate(&self.options).await;
-            if turn.is_some() {
-                self.keeps_turn.store(true, Ordering::Relaxed);
-            }
         }
         let known = endpoints.len();
         for address in reflexive {
@@ -546,7 +546,7 @@ impl Session {
             // (a relay-only roam above announced nothing in its place).
             let (old, _) = std::mem::take(&mut *lock(&self.relayed));
             lock(&self.endpoints).retain(|endpoint| !old.contains(endpoint));
-            if keeps_turn && super::super::turn::turn_servers(&self.options.ice_servers) != (None, None) {
+            if missed_turn(keeps_turn, None, &self.options) {
                 // The new network's TURN server did not answer in time: keep
                 // asking (this also replaces a retry started on the old one).
                 self.retry_turn("roam took no TURN allocation; taking one", async { true });

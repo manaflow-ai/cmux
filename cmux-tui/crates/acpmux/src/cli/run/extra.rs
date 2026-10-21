@@ -402,8 +402,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Setup { host, name, port } => {
                     return crate::cli::hosts::setup(client, &host, name, port, json_out).await;
                 }
-                PeerCmd::Update { name, all } => {
-                    return crate::cli::hosts::update(client, name, all, json_out).await;
+                PeerCmd::Update { name, all, binary_dir, if_idle } => {
+                    let opts = crate::cli::hosts::UpdateOptions { binary_dir, if_idle };
+                    return crate::cli::hosts::update(client, name, all, opts, json_out).await;
                 }
                 PeerCmd::Enroll { host, name, harnesses, remote_binary, reverse } => {
                     let plan = crate::cli::host_enroll::Plan {

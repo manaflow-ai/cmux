@@ -5,6 +5,5 @@
 #   EXPIRES  YYYY-MM-DD, UTC, the review date; after it the skip still applies and each run warns
 #   OS       any, macos or linux: where the skip applies
 # Remove the line in the same push as the fix. Never extend an expiry without the bead owner.
-protocol::tests::protocol_registry_names_every_served_method	cx-mvd3t	2026-10-18	any	protocol::registry() lacks _acpmux/approvers, approvers_set (9d7c894e662), new_chat_picks_set (35a1c8a3897), workspace_roots_set (e0f1c3bf6b2); red at 43a988d49d3 (fleet 2026-10-20)
-the_allowlist_is_what_the_page_sends	cx-c0wvp	2026-10-18	any	the page sends _acpmux/process/*, _acpmux/route/* and _acpmux/chat/route.set with this.request, and policy.json lists none of them; the test's parser does not read this.typed( calls (_acpmux/events, _acpmux/attach, _acpmux/markUnread)
+the_allowlist_is_what_the_page_sends	cx-c0wvp	2026-10-18	any	the page sends _acpmux/process/{list,tail,kill,background} (228b3eafb53), _acpmux/route/list and _acpmux/chat/route.set (c61789058e3) with this.request, and policy.json lists none of them; adding them to the pane allowlist needs the protocol/origin lead review (policy.json, ad349). The parser reads this.typed now (2026-10-21)
 every_safe_transport_operation_has_a_noun_first_path	cx-2fi09	2026-10-18	any	closed.reopen fields fallback_pane and tab (f03a19a2580) have no CLI case; red at 43a988d49d3 (fleet 2026-10-20)

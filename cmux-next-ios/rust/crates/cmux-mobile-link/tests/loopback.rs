@@ -370,6 +370,47 @@ async fn wireguard_mac_with_udp_blocked_takes_its_own_turn_over_tls() {
     assert_eq!(turn.stream_connections(), 1);
 }
 
+/// Once a client's `connect` returns, the fake routes signals to it: a dial
+/// sent right then is never refused as `not_owner` (on a loaded runner
+/// `wireguard_mac_with_udp_blocked_takes_its_own_turn_over_tls` once lost
+/// that race). Here the server stalls while the Mac connects, so `connect`
+/// must wait out the stall until the Mac is recorded.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fake_signaling_records_a_device_before_its_connect_returns() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let connect = |device: String| {
+        let base_url = server.base_url.clone();
+        async move { SignalingClient::connect(&base_url, "user:alice", "team", &device).await.unwrap() }
+    };
+    let phone = connect(uuid::Uuid::new_v4().to_string()).await;
+    // The stall blocks a runtime worker, which can hold up tokio's timers:
+    // time `connect` on the wall clock, not with `tokio::time::timeout`, from
+    // before the stall so a late wake-up here cannot shorten it.
+    let started = std::time::Instant::now();
+    server.stall_for(Duration::from_millis(600));
+    connect(uuid::Uuid::new_v4().to_string()).await.close();
+    let took = started.elapsed();
+    assert!(
+        took >= Duration::from_millis(500),
+        "connect returned after {took:?}, before the server recorded the device"
+    );
+    // And after the stall, a Mac that just connected gets the dial.
+    let mut refusals = phone.events();
+    for round in 0..50 {
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let mac = connect(mac_id.clone()).await;
+        let offer = cmux_mobile_link::signaling::SignalPayload::WebrtcOffer {
+            sdp: String::new(),
+            lanes: Vec::new(),
+            media_for: None,
+        };
+        phone.send_signal(&mac_id, &format!("round-{round}"), offer).unwrap();
+        let reached = tokio::time::timeout(Duration::from_secs(2), mac.next_session()).await;
+        assert!(matches!(reached, Ok(Some(_))), "round {round}: {:?}", refusals.try_recv());
+        mac.close();
+    }
+}
+
 /// Without any TURN server, relay only and UDP blocked have no path: the
 /// dial fails at once instead of waiting for the backend relay that is gone.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

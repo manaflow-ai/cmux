@@ -15,7 +15,8 @@
 //! `cmux mcp serve` answers a client outside a cmux chat only when the
 //! settings file says `"mcp": {"enabled": true}`, the person's opt-in, which
 //! is not a key agents set. Until it is on, setup writes nothing and the
-//! result is `needs_user` naming that switch.
+//! result is `needs_user` naming that switch. With neither harness installed
+//! (and none named) there is nothing to wire: `ok`, switch or not.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -230,18 +231,21 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
         if request.clients.is_empty() { CLIENTS.to_vec() } else { request.clients.clone() };
     let mut rows = Vec::new();
     let mut undo = Vec::new();
-    let mut user_action = match &enabled {
-        Ok(true) => Value::Null,
-        Ok(false) => switch(&settings, None),
-        Err(error) => switch(&settings, Some(error.as_str())),
+    let off = match &enabled {
+        Ok(true) => None,
+        Ok(false) => Some(switch(&settings, None)),
+        Err(error) => Some(switch(&settings, Some(error.as_str()))),
     };
-    let (mut failed, mut planned, mut changed) = (false, false, false);
+    let mut user_action = Value::Null;
+    let (mut failed, mut planned, mut changed, mut installed) = (false, false, false, false);
     for client in clients {
         let (next, found) = plan(client, request.clients.contains(&client), path.as_deref());
+        let here = on_path(path.as_deref(), client.id()).is_some();
+        installed |= here;
         let mut row = json!({
             "id": client.id(),
             "name": client.name(),
-            "installed": on_path(path.as_deref(), client.id()).is_some(),
+            "installed": here,
             "config": client.config(),
             "entry": found.as_ref().map(Entry::json),
             "undo": Value::Null,
@@ -288,6 +292,11 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
         row["state"] = json!(state);
         rows.push(row);
     }
+    // The switch comes first, but only when a harness is there to wire:
+    // with none installed there is nothing to do, or the install comes first.
+    if let Some(action) = off.filter(|_| installed) {
+        user_action = action;
+    }
     let state = if failed {
         "failed"
     } else if !user_action.is_null() {
@@ -315,7 +324,8 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
 }
 
 /// The check `cmux setup status` reports: the switch, and whether each
-/// installed harness gives the cmux server outside cmux.
+/// installed harness gives the cmux server outside cmux. With none
+/// installed it is `ok`, as `run` is: the switch has nothing to serve.
 pub(super) fn status() -> Value {
     let (settings, enabled) = super::super::mcp::outside_chats();
     let path = std::env::var_os("PATH");
@@ -333,7 +343,8 @@ pub(super) fn status() -> Value {
             Some(json!({"id": client.id(), "state": state, "entry": found.as_ref().map(Entry::json)}))
         })
         .collect();
-    let ready = enabled == Ok(true) && clients.iter().all(|client| client["state"] == "ok");
+    let ready = (clients.is_empty() || enabled == Ok(true))
+        && clients.iter().all(|client| client["state"] == "ok");
     json!({
         "task": TASK,
         "state": if ready { "ok" } else { "needs_setup" },
@@ -484,7 +495,12 @@ fn run_cli(client: Client, args: &[String]) -> Result<(), String> {
                 let _ = child.wait();
                 return Err(format!("`{line}` did not finish in {}s", CLI_TIMEOUT.as_secs()));
             }
-            Err(error) => return Err(format!("`{line}`: {error}")),
+            // The child may still run: stop it before reporting, as on a timeout.
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("`{line}`: {error}"));
+            }
         }
     };
     if status.success() {

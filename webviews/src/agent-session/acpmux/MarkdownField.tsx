@@ -111,6 +111,9 @@ export type MarkdownFieldProps = {
   className?: string;
   /// Attributes for the editable element (aria-label, role=combobox, aria-expanded...).
   attributes?: Record<string, string | undefined>;
+  /// Whose selection the field keeps for a focus with no click (the composer's chat session): a
+  /// selection kept under one key never comes back under another, even over the same text.
+  selectionKey?: string;
 };
 
 /** Markdown without the serializer's trailing newline, and empty for an empty document.
@@ -234,6 +237,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     placeholderKey,
     className,
     attributes,
+    selectionKey,
   },
   ref,
 ) {
@@ -268,7 +272,10 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   const pendingFocus = useRef(false);
   // The selection to put back when the field gets focus again without a click, and until when the
   // browser's own placement right after that focus is overruled (see `keepCaret`).
-  const refocus = useRef<{ doc: ProseNode; selection: Selection; until: number } | null>(null);
+  // It belongs to the `selectionKey` it was kept under, not to the text: two chats can hold the same draft.
+  const refocus = useRef<{ doc: ProseNode; selection: Selection; until: number; owner?: string } | null>(null);
+  const owner = useRef(selectionKey);
+  owner.current = selectionKey;
   const surfacePlugins = useRef(plugins);
   const lines = useRef(multiline);
   const empty = useRef<HTMLSpanElement>(null);
@@ -426,14 +433,14 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     const keepCaret = $prose(() => {
       const kept = (state: EditorState) => {
         const saved = refocus.current;
-        if (!saved || !state.doc.eq(saved.doc)) return null;
+        if (!saved || saved.owner !== owner.current || !state.doc.eq(saved.doc)) return null;
         // The same document: the saved selection (text, node or all) holds as it was.
         const selection = Selection.fromJSON(state.doc, saved.selection.toJSON());
         return selection.eq(state.selection) ? null : selection;
       };
       const leave = (editorView: EditorView) => {
         const { doc, selection } = editorView.state;
-        refocus.current = { doc, selection, until: 0 };
+        refocus.current = { doc, selection, until: 0, owner: owner.current };
       };
       const enter = (editorView: EditorView) => {
         if (!refocus.current) return;
