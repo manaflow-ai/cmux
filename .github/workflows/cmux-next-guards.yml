@@ -322,6 +322,11 @@ jobs:
       - name: The crash-class rules fast gate fails only on findings the pull request adds
         run: python3 tests/test_crash_class_fast_gate.py
 
+      # A test no feat-cmux-next pull request runs lands red unseen: a2d6b35 broke
+      # tests/test_webviews_tests_per_file.py, which only main pushes and the nightly ran (#23430).
+      - name: Every Python test runs on a pull request lane, or is a reviewed exemption
+        run: python3 tests/test_pr_lane_coverage.py
+
   # Every web bundle build runs gen-strings.mjs strict, but only pull requests
   # that touch webviews/ run its tests. 2c661dec960b renamed a setting in Swift
   # and the catalogs, the committed settings schema kept the old keys, and the
