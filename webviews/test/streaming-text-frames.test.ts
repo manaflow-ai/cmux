@@ -7,8 +7,13 @@
 // 5,000-character Markdown reply (paragraphs, headings, lists, a code block, a table) at Claude's
 // cadence and at Codex's, sampling every display frame. Each run prints its whole report.
 //
-// Both engines the app uses (WebKit draws the pane in cmux NEXT); one not installed skips. Frame
-// timing is held to its budget in Chromium only; WebKit's is reported.
+// Both engines the app uses (WebKit draws the pane in cmux NEXT); one not installed skips. The
+// frame budget is the main thread's work per frame: React's render, and the style and layout of
+// what it changed. Frame intervals are reported, not held: they measure the host as much as the
+// page, and CI runs the dev-server browser files side by side (one frame in twelve came 33 ms apart
+// there, job 119122855521). A frame that waited on Pierre highlighting a closed fence
+// (100 ms in Chromium, 1 s in WebKit on cmux16) is reported apart: this dev page has no highlight
+// worker, and the app's page highlights in one (highlightPool.ts).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType } from "playwright";
@@ -21,10 +26,11 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
   setDefaultTimeout(180_000);
   /// The budget a streaming reply keeps.
   const BUDGET = {
-    /// Chromium only: no frame interval longer than this while the reply streams.
-    maxFrameMs: 50,
-    /// Chromium only: the 95th percentile frame interval.
-    p95FrameMs: 20,
+    /// The 95th percentile of a frame's work while the reply streams, and the most any frame takes
+    /// (the first, which draws the row, is the heaviest). On cmux16: 7 and 15-19 ms in Chromium,
+    /// 4 and 9 ms in WebKit.
+    p95WorkMs: 16.7,
+    maxWorkMs: 50,
     /// Blocks above the one being written that move or change height.
     layoutShifts: 0,
     /// Blocks drawn as one kind, then another (a paragraph that becomes a list or a heading).
@@ -87,12 +93,12 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
   }
 
   /// What the report breaks of the budget, one line each.
-  function overBudget(name: string, report: StreamReport): string[] {
+  function overBudget(report: StreamReport): string[] {
     const over: string[] = [];
-    if (name === "chromium" && report.frames.intervalMs.max > BUDGET.maxFrameMs)
-      over.push(`a frame took ${report.frames.intervalMs.max} ms (budget ${BUDGET.maxFrameMs})`);
-    if (name === "chromium" && report.frames.intervalMs.p95 > BUDGET.p95FrameMs)
-      over.push(`p95 frame interval ${report.frames.intervalMs.p95} ms (budget ${BUDGET.p95FrameMs})`);
+    const { totalMs, heaviest } = report.work;
+    if (totalMs.max > BUDGET.maxWorkMs)
+      over.push(`a frame's work took ${totalMs.max} ms (budget ${BUDGET.maxWorkMs}): ${JSON.stringify(heaviest)}`);
+    if (totalMs.p95 > BUDGET.p95WorkMs) over.push(`p95 frame work ${totalMs.p95} ms (budget ${BUDGET.p95WorkMs})`);
     if (report.layout.shifts > BUDGET.layoutShifts)
       over.push(
         `${report.layout.shifts} layout shifts above the tail: ${report.layout.shiftEvents
@@ -118,7 +124,7 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
       const [name, cadence] = label.split(" ") as [string, Cadence];
       const report = await stream(name, cadence);
       console.log(`streaming-text-frames ${label}: ${JSON.stringify(report, null, 2)}`);
-      expect(overBudget(name, report)).toEqual([]);
+      expect(overBudget(report)).toEqual([]);
     },
   );
 });
