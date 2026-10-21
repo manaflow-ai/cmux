@@ -42,6 +42,8 @@
 .acpmux-summary-autoopen>input{flex:none;margin:0;accent-color:var(--agent-text)}
 .acpmux-summary-agent[data-status=waiting] .acpmux-summary-agent__state{color:var(--acpmux-warning)}
 .acpmux-summary-agent[data-status=failed] .acpmux-summary-agent__state{color:var(--agent-danger)}
+/* A sub-session's row (SubagentStatusList.tsx SubsessionStatusRow): its unread dot in the text colour, as the sidebar's, and its queue count muted. */
+.acpmux-summary-subsession__unread{flex:none;width:6px;height:6px;border-radius:50%;background:var(--agent-text)}
 .acpmux-summary-section+.acpmux-summary-section{margin-top:4px;padding-top:4px;border-top:.5px solid var(--agent-border)}
 .acpmux-summary-title{margin:0;padding:8px 8px 4px;color:var(--agent-muted);font-size:var(--text-detail);font-weight:500;line-height:16px}
 /* A section title with a control at its end (Sources' +): the title keeps its padding, the button its close button's look. */
