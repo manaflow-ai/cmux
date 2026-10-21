@@ -123,12 +123,10 @@
 .acpmux-context-compact:hover:not(:disabled){background:var(--acpmux-menu-press)}
 .acpmux-context-compact:disabled{opacity:.5}
 .acpmux-context-compact:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
-/* Send is the row's height, not taller: a 28px circle with a 16px arrow. */
-/* Send is iMessage's send button on every theme: Messages' measured blue with a white arrow (theme/messages.css, the Home sent bubble's colors). */
-/* Send, Stop and ↵ are plain glyphs in the text color, as the mic is (Leo 2026-10-21: "WHY ARE THERE CIRCLES ... no solid discs", Claude Code desktop's): no fill, no ring; hover takes the mic's soft pill (composerStates.css). */
-.acpmux-send{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--agent-text)}
+/* Send, Stop and ↵ are plain line glyphs in the secondary text color (--agent-muted), as the mic is (Leo 2026-10-21: "WHY ARE THERE CIRCLES ... no solid discs", Claude Code desktop's; then: the secondary text color, only a hover background): no fill, no ring; hover takes the mic's soft pill and keeps the glyph's color (composerStates.css). */
+.acpmux-send{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--agent-muted)}
 .acpmux-send .acpmux-icon{width:16px;height:16px}
-/* The one off look, for an empty draft and for Send turned off (composerStates.css): the same glyph, dimmed to 45% of the text. A draft brings the full text color back (.acpmux-send-ready). */
+/* The one off look, for an empty draft and for Send turned off (composerStates.css): the same glyph, dimmed to 45% of the text. A draft brings the secondary text color back (.acpmux-send-ready). */
 .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel){color:var(--acpmux-send-off-fg)}
 /* The picker menus open above the field at their chip (useUiAnchor). The chip is their containing block, so the width comes from the rows and the viewport, never the chip. */
 /* A picker on the dropdown layer (ui/README.md, "Layers and transparency"): above a field's suggestions on the New Tab page (Leo 10-15: the model menu opened under them). */

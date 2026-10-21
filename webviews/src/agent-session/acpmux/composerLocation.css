@@ -735,11 +735,12 @@
 .acpmux-composer-box:has(:focus-visible) {
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
-/* Send, Stop and ↵ are the bar's 28 px, plain glyphs in the text color as the mic is (Leo
-   2026-10-21: no discs). Stop's square is in the full text color, so a running turn never reads as an
-   empty draft's dimmed Send. Their hover pill is composerStates.css's. */
+/* Send, Stop and ↵ are the bar's 28 px, plain line glyphs in the secondary text color, as the mic is
+   (Leo 2026-10-21: no discs; the secondary text color, only a hover background). Stop's square and a
+   ready Send are the secondary color, a step above an empty draft's 45% Send. Their hover pill is
+   composerStates.css's. */
 .acpmux-composer-bar .acpmux-send { width: 28px; height: 28px; }
-.acpmux-composer-bar .acpmux-send:is(.acpmux-send-ready, .acpmux-cancel) { color: var(--agent-text); }
+.acpmux-composer-bar .acpmux-send:is(.acpmux-send-ready, .acpmux-cancel) { color: var(--agent-muted); }
 
 /* Permission cards use the same quiet material language as the composer: the composer's hairline,
    clear under appearance.borders = none, and the floating step of the elevation scale. The icon and title form

@@ -2,7 +2,9 @@
 // CIRCLES. Use plain glyphs like the mic ... A hover state is fine, but no solid discs."). No rule
 // of the pane's sheets fills them at rest, pressed, ready or off: only hover (and keyboard focus,
 // which shows the hover) takes the composer's soft pill. The off Send (an empty draft, or Send
-// turned off while the folder's trust question is open) is the same glyph, dimmed.
+// turned off while the folder's trust question is open) is the same glyph, dimmed. Every one draws in
+// the pane's secondary text color (--agent-muted, the mic's), never the full text color, and hover
+// changes only the background.
 // test/composer-plain-glyphs.test.ts measures the same in Chromium and WebKit.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -95,4 +97,29 @@ test("the disc's colors are gone, and the off Send is the dimmed text color", ()
   );
   expect(offRules.length).toBeGreaterThan(0);
   for (const { body } of offRules) expect(body).toMatch(/color: ?var\(--acpmux-send-off-fg\)/);
+});
+
+const color = (body: string) => /(?:^|;)\s*color\s*:\s*([^;]+)/.exec(body)?.[1]?.trim();
+
+test("Send, Stop and ↵ draw in the secondary text color, the off Send's dim, or the armed Stop's accent", () => {
+  const inks: string[] = [];
+  let base = false;
+  for (const [name, css] of SHEETS)
+    for (const { selector, body } of rules(css)) {
+      const ink = color(body);
+      if (ink === undefined) continue;
+      for (const part of namesSend(selector)) {
+        const at = part.trim();
+        if (at === ".acpmux-send" && ink === "var(--agent-muted)") base = true;
+        if (ink === "var(--agent-muted)" || ink === "var(--acpmux-send-off-fg)") {
+          // Hover keeps the glyph's color: only the background changes.
+          if (/:hover/.test(at)) inks.push(`${name}: ${at} { color: ${ink} }`);
+          continue;
+        }
+        if (/\[data-escape-armed\]/.test(at) && /--agent-(?:lit-glyph|accent)/.test(ink)) continue;
+        inks.push(`${name}: ${at} { color: ${ink} }`);
+      }
+    }
+  expect(inks).toEqual([]);
+  expect(base).toBe(true);
 });

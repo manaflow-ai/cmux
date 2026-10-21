@@ -3,9 +3,10 @@
 // Queue buttons are drawn as filled light circles right now. WHAT IS THIS STYLING? WHY ARE THERE
 // CIRCLES. Use plain glyphs like the mic ... Match Claude Code desktop. A hover state is fine, but no
 // solid discs."). In the chat composer and on the New Tab page:
-//   - at rest each is its glyph alone, in the text color (dimmed while there is nothing to send), with
-//     no fill, no ring and no shadow; the glyph has the mic's size and stroke;
-//   - hovered it takes the mic's soft pill, and a press changes nothing more;
+//   - at rest each is its glyph alone, in the secondary text color (--agent-muted, the mic's; dimmed
+//     further while there is nothing to send), with no fill, no ring and no shadow; the glyph has the
+//     mic's size and stroke;
+//   - hovered it takes the mic's soft pill and keeps its color, and a press changes nothing more;
 //   - the Esc-armed Stop keeps its glyph and footprint and says so in its color, never a pill;
 //   - mid-turn every control sits inside the box, and none is filled in a blue.
 //
@@ -97,6 +98,7 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
     outline: string;
     color: string;
     text: string;
+    muted: string;
     width: number;
     glyph: { width: number; height: number; stroke: string } | null;
     inBox: boolean;
@@ -107,11 +109,16 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
       ({ selector, box }): Look => {
         const control = document.querySelector<HTMLElement>(selector)!;
         const style = getComputedStyle(control);
-        const probe = document.createElement("span");
-        probe.style.color = "var(--agent-text)";
-        control.parentElement!.appendChild(probe);
-        const text = getComputedStyle(probe).color;
-        probe.remove();
+        const ink = (token: string) => {
+          const probe = document.createElement("span");
+          probe.style.color = `var(${token})`;
+          control.parentElement!.appendChild(probe);
+          const color = getComputedStyle(probe).color;
+          probe.remove();
+          return color;
+        };
+        const text = ink("--agent-text");
+        const muted = ink("--agent-muted");
         const svg = control.querySelector("svg");
         const stroke = svg?.querySelector("path, rect");
         const r = control.getBoundingClientRect();
@@ -122,6 +129,7 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
           outline: style.outlineStyle,
           color: style.color,
           text,
+          muted,
           width: r.width,
           glyph: svg
             ? {
@@ -140,6 +148,8 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
   /** A plain glyph at rest: no disc, no ring, no shadow, and the mic's glyph. */
   const plain = (name: string, at: Look, mic: Look) => {
     const problems: string[] = [];
+    // The secondary text color is its own token, a step below the text (else the color checks prove nothing).
+    if (at.muted === at.text) problems.push(`the secondary text color ${at.muted} is the text color`);
     if (!clear(at.fill)) problems.push(`${name} is filled ${at.fill}`);
     if (at.shadow !== "none") problems.push(`${name} draws a shadow or ring ${at.shadow}`);
     if (!at.glyph) problems.push(`${name} draws no glyph`);
@@ -161,13 +171,15 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
   const NEW_TAB_BOX = ".nt-box";
 
   for (const [engine] of engines) {
-    test(`${engine}: the chat's Send is the mic's plain glyph in the text color; hover is the mic's pill, a press adds nothing`, async () => {
+    test(`${engine}: the chat's Send is the mic's plain glyph in the secondary text color; hover is the mic's pill, a press adds nothing`, async () => {
       const page = await open(engine, "agent-pane.composer", "quiet-chips");
       await type(page, CHAT_BOX, ".acpmux-send");
       const mic = await look(page, `${CHAT_BOX} .acpmux-mic`, CHAT_BOX);
       const send = await look(page, `${CHAT_BOX} .acpmux-send`, CHAT_BOX);
       const problems = plain("Send", send, mic);
-      if (send.color !== send.text) problems.push(`Send with a draft is ${send.color}, not the text ${send.text}`);
+      if (send.color !== send.muted)
+        problems.push(`Send with a draft is ${send.color}, not the secondary text ${send.muted}`);
+      if (mic.color !== mic.muted) problems.push(`the mic is ${mic.color}, not the secondary text ${mic.muted}`);
       if (send.glyph?.stroke !== mic.glyph?.stroke)
         problems.push(`Send's stroke is ${send.glyph?.stroke}, the mic's ${mic.glyph?.stroke}`);
       const pill = await micPill(page, CHAT_BOX);
@@ -175,6 +187,7 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
       await eased(page);
       const hovered = await look(page, `${CHAT_BOX} .acpmux-send`, CHAT_BOX);
       if (hovered.fill !== pill) problems.push(`hovered Send is ${hovered.fill}, the mic's pill is ${pill}`);
+      if (hovered.color !== send.color) problems.push(`hovered Send turns ${hovered.color}, at rest ${send.color}`);
       await page.mouse.down();
       await eased(page);
       const pressed = await look(page, `${CHAT_BOX} .acpmux-send`, CHAT_BOX);
@@ -197,7 +210,7 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
       ] as const) {
         const at = await look(page, selector, CHAT_BOX);
         problems.push(...plain(name, at, mic));
-        if (at.color !== at.text) problems.push(`${name} is ${at.color}, not the text ${at.text}`);
+        if (at.color !== at.muted) problems.push(`${name} is ${at.color}, not the secondary text ${at.muted}`);
         if (!at.inBox) problems.push(`${name} pokes out of the box`);
       }
       const steer = await look(page, `${CHAT_BOX} .acpmux-steer-now`, CHAT_BOX);
@@ -213,6 +226,8 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
       const mic = await look(page, `${CHAT_BOX} .acpmux-mic`, CHAT_BOX);
       const queue = await look(page, `${CHAT_BOX} .acpmux-send:not(.acpmux-cancel)`, CHAT_BOX);
       const problems = plain("the queue's Send", queue, mic);
+      if (queue.color !== queue.muted)
+        problems.push(`the queue's Send is ${queue.color}, not the secondary text ${queue.muted}`);
       if (!queue.inBox) problems.push("the queue's Send pokes out of the box");
       // No control of the composer is filled in a blue (the theme's accent or a system blue).
       const blue = await page.evaluate(() =>
@@ -247,7 +262,7 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
       expect(problems).toEqual([]);
     });
 
-    test(`${engine}: the New Tab Send is a dim glyph with nothing to send and the text color with a draft, never a disc`, async () => {
+    test(`${engine}: the New Tab Send is a dim glyph with nothing to send and the secondary text color with a draft, never a disc`, async () => {
       const page = await open(engine, "agent-pane.new-tab", "composer-mic");
       const mic = await look(page, `${NEW_TAB_BOX} .acpmux-mic`, NEW_TAB_BOX);
       const off = await look(page, `${NEW_TAB_BOX} .acpmux-send`, NEW_TAB_BOX);
@@ -255,8 +270,9 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
       const ready = await look(page, `${NEW_TAB_BOX} .acpmux-send`, NEW_TAB_BOX);
       await page.close();
       const problems = [...plain("the off Send", off, mic), ...plain("Send", ready, mic)];
-      if (off.color === off.text) problems.push("the off Send is as bright as the text");
-      if (ready.color !== ready.text) problems.push(`Send with a draft is ${ready.color}, not the text ${ready.text}`);
+      if (off.color === off.text || off.color === off.muted) problems.push("the off Send is as bright as a ready Send");
+      if (ready.color !== ready.muted)
+        problems.push(`Send with a draft is ${ready.color}, not the secondary text ${ready.muted}`);
       expect(problems).toEqual([]);
     });
   }
