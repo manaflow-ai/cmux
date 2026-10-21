@@ -16,6 +16,8 @@ final class FileExplorerCell: NSTableCellView {
         self.identifier = identifier
         name.font = Typography.body
         name.lineBreakMode = .byTruncatingMiddle
+        // Rename makes the name editable; its caret shows focus, not a ring.
+        name.focusRingType = .none
         badge.font = Typography.caption
         badge.alignment = .right
         for view in [arrow, icon, name, badge] as [NSView] {
@@ -62,7 +64,7 @@ final class FileExplorerCell: NSTableCellView {
     /// Makes the name editable (Rename); `delegate` gets the end of editing.
     func beginEditing(delegate: any NSTextFieldDelegate) {
         name.isEditable = true
-        name.isSelectable = true
+        name.isSelectable = true // text-focus-allow: the rename field in a sidebar row; the ring shows where typing goes (accessibility).
         name.delegate = delegate
         window?.makeFirstResponder(name)
         name.currentEditor()?.selectedRange = NSRange(location: 0, length: ((name.stringValue as NSString).deletingPathExtension as NSString).length)

@@ -38,7 +38,7 @@ extension SidebarListViewComponents {
         for key in [oldKey, newKey] { if case let .workspace(id)? = key { touched.insert(id) } }
         for id in touched {
             guard let view = rowViews[.workspace(id)] as? WorkspaceRowView else { continue }
-            view.isSecondarySelected = model.selection.contains(id) && !view.isSelected
+            paintSecondaryFills(view, id)
         }
         revealPatchedSelection()
         return true
