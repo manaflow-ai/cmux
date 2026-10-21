@@ -207,7 +207,6 @@ export function ImageViewer({
             type="button"
             className="acpmux-image-viewer-action"
             aria-label={copyLabel}
-            title={copyLabel}
             onClick={() => {
               // The result belongs to the image copied; the viewer may have moved on by then.
               const copiedSrc = image.src;

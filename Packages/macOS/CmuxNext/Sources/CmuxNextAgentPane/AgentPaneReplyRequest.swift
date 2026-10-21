@@ -15,6 +15,9 @@ public import Foundation
 /// - `browser.list {}`: the installed browsers, by opaque id. Passive.
 /// - `browser.openIn {url, browserId}`: open a validated http(s) URL in one of them. Spends a
 ///   user gesture.
+/// - `pr.inspect {url}`: what the user's GitHub CLI says about a GitHub pull request a reply or
+///   the pull request bars link to (its hover card). Only a plain
+///   `https://github.com/<owner>/<repo>/pull/<n>` is taken (``pullRequestURL(_:)``). Passive.
 public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case inspect(paths: [String], urls: [String])
     case openPath(String)
@@ -22,9 +25,10 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case loadMedia(String)
     case listBrowsers
     case openIn(url: URL, browserId: String)
+    case inspectPullRequest(URL)
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
-    public static let methods: Set<String> = ["link.inspect", "link.openPath", "image.load", "media.load", "browser.list", "browser.openIn"]
+    public static let methods: Set<String> = ["link.inspect", "link.openPath", "image.load", "media.load", "browser.list", "browser.openIn", "pr.inspect"]
 
     /// Each method's exact param keys (all required; `link.inspect` takes either list).
     static let knownParams: [String: Set<String>] = [
@@ -34,6 +38,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         "media.load": ["src"],
         "browser.list": [],
         "browser.openIn": ["url", "browserId"],
+        "pr.inspect": ["url"],
     ]
 
     /// Most paths or URLs in one `link.inspect` (one reply's chips).
@@ -44,7 +49,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     /// Whether the request only reads (it does not count as the page being touched).
     var isPassive: Bool {
         switch self {
-        case .inspect, .listBrowsers, .loadImage, .loadMedia: true
+        case .inspect, .listBrowsers, .loadImage, .loadMedia, .inspectPullRequest: true
         case .openPath, .openIn: false
         }
     }
@@ -87,6 +92,9 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
             guard let raw = text("url", Self.maximumURL), let url = Self.webURL(raw),
                   let id = text("browserId", 64) else { return nil }
             self = .openIn(url: url, browserId: id)
+        case "pr.inspect":
+            guard let raw = text("url", Self.maximumURL), let url = Self.pullRequestURL(raw) else { return nil }
+            self = .inspectPullRequest(url)
         default:
             return nil
         }
@@ -100,5 +108,27 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
               url.user == nil, url.password == nil,
               let host = url.host(percentEncoded: false), !host.isEmpty else { return nil }
         return url
+    }
+
+    /// `text` as a GitHub pull request, `https://github.com/<owner>/<repo>/pull/<n>` (a trailing
+    /// slash or one of its tabs, as `/files`, names the same one), rebuilt from its parts. Nil for
+    /// anything else, so nothing but that URL ever reaches `gh`: no other host, no user info, no
+    /// query or fragment, and no part that starts with `-`.
+    static func pullRequestURL(_ text: String) -> URL? {
+        guard text.utf8.count <= maximumURL, let url = URL(string: text), url.scheme == "https",
+              url.host(percentEncoded: false)?.lowercased() == "github.com", url.port == nil,
+              url.user == nil, url.password == nil, url.query == nil, url.fragment == nil else { return nil }
+        let parts = url.path(percentEncoded: true).split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard parts.count == 4 || parts.count == 5, parts[2] == "pull", !parts[0].allSatisfy({ $0 == "." }),
+              !parts[1].allSatisfy({ $0 == "." }) else { return nil }
+        func only(_ part: String, _ allowed: (Unicode.Scalar) -> Bool, max: Int) -> Bool {
+            !part.isEmpty && part.unicodeScalars.count <= max && part.unicodeScalars.allSatisfy(allowed)
+        }
+        let name: (Unicode.Scalar) -> Bool = { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || "_.-".unicodeScalars.contains($0)) }
+        let digit: (Unicode.Scalar) -> Bool = { ("0"..."9").contains($0) }
+        guard only(parts[0], name, max: 100), only(parts[1], name, max: 100), !parts[0].hasPrefix("-"), !parts[1].hasPrefix("-"),
+              only(parts[3], digit, max: 10), !parts[3].hasPrefix("0") else { return nil }
+        if parts.count == 5, !only(parts[4], { ("a"..."z").contains($0) }, max: 20) { return nil }
+        return URL(string: "https://github.com/\(parts[0])/\(parts[1])/pull/\(parts[3])")
     }
 }
