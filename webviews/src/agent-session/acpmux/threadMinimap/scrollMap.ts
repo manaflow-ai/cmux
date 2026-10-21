@@ -74,7 +74,6 @@ export function mapMarks(
     if (row.kind === "user") {
       while (turn + 1 < turns.length && turns[turn + 1]!.index <= index) turn += 1;
       marks.push({ kind: "user", row: index, turn, y: mapY(layout.tops[index] ?? 0, layout.totalHeight, height) });
-      lastAgent = -Infinity;
     } else if (row.kind === "assistant" && row.text) {
       const y = mapY(layout.tops[index] ?? 0, layout.totalHeight, height);
       if (y - lastAgent < MERGE_PX) continue;
