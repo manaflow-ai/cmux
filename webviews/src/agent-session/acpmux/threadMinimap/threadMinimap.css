@@ -303,6 +303,7 @@
   opacity: 1;
 }
 /* A bookmarked prompt's tick stays at full opacity on the full map too. */
-.acpmux-scrollmap__mark[data-bookmarked] .acpmux-minimap__bar {
+.acpmux-scrollmap__mark[data-bookmarked] .acpmux-minimap__bar,
+.acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-bookmarked] .acpmux-minimap__bar {
   opacity: 1;
 }
