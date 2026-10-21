@@ -26,6 +26,29 @@ struct ChatColumnPlacementTests {
         #expect((chat != nil) == expected)
     }
 
+    @Test(arguments: [
+        (Tab.chat, true),
+        (Tab.newTab, true),
+        (Tab.terminal, false),
+        (Tab.browser, false),
+        (Tab.file, false),
+        (Tab.diff, false),
+    ])
+    func chatDockAcceptsChatsAndNewTabPages(tab: Tab, expected: Bool) {
+        #expect(ChatDockRules.accepts(tab, isChat: { $0 == .chat }, isNewTabPage: { $0 == .newTab }) == expected)
+    }
+
+    @Test(arguments: [
+        (["chat", "new-1"], ["new-1"]),
+        (["new-1", "chat"], ["new-1"]),
+        (["chat", "new-1", "new-2"], ["new-1", "new-2"]),
+        (["chat"], []),
+        (["chat", "terminal", "new-1", "browser", "file", "diff"], ["new-1"]),
+    ])
+    func newTabPagesFollowTheChatInTheirOriginalOrder(tabs: [String], expected: [String]) {
+        #expect(ChatColumnPlacement.newTabPages(in: tabs, isNewTabPage: { $0.hasPrefix("new-") }) == expected)
+    }
+
     @Test func aNewTabPageBeforeTheChatDoesNotBecomeTheDockedTab() throws {
         let tabs: [Tab] = [.newTab, .chat]
         let chat = ChatColumnPlacement.loneChat(in: tabs, isChat: { $0 == .chat }, isNewTabPage: { $0 == .newTab })
