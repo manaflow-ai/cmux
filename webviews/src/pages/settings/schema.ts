@@ -21,8 +21,8 @@ export type SettingKind =
   | "text"
   // Numbers as tokens (`editor.rulers`).
   | "number_list"
-  // Keyed values; the page lists none (SectionView, search.ts): `appearance.themeEdits` is the
-  // theme studio's, `browser.siteEngines` is edited in cmux.json.
+  // Keyed values (`browser.siteEngines`: site to engine); `appearance.themeEdits` is the theme
+  // studio's and never a row.
   | "string_map"
   // Ordered choices (`row.choices`) or free-text tokens (`browser.urlsToAlwaysOpenExternally`).
   | "string_list";
