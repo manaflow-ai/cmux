@@ -182,6 +182,7 @@
 :where(button).acpmux-plan:active,
 .acpmux-steer:active,
 .acpmux-mic:active,
+.acpmux-fast:active,
 .acpmux-location-button:active {
   transition-duration: 0s;
 }
@@ -302,7 +303,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   .acpmux-send {
     transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
   }
-  .acpmux-mic {
+  .acpmux-mic,
+  .acpmux-fast {
     transition:
       background-color var(--agent-motion-hover) var(--agent-ease-out),
       color var(--agent-motion-hover) var(--agent-ease-out);
@@ -469,6 +471,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-queued:focus-visible .acpmux-queued-actions {
   opacity: 1;
 }
+/* The edit field draws no ring of its own (Leo, 2026-10-21: no thick focus ring): the shared hairline
+   focus style and the caret show focus. */
 .acpmux-queued-edit {
   grid-column: 2 / -1;
   min-width: 0;
@@ -480,11 +484,29 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   line-height: 18px;
   border: 0;
   border-radius: 6px;
-  outline: 1.5px solid var(--agent-text);
-  outline-offset: -1px;
+  outline: none;
+  /* The field's own edge, a hairline at rest and in focus alike. */
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);
   background: var(--acpmux-base);
   color: var(--agent-text);
   font: inherit;
+}
+
+/* The row's actions, as ChatGPT and Codex show them (ComposerQueue.tsx): Steer is its ↪ glyph and its
+   word, then the trash can and ⋯, plain glyphs with the soft pill on hover only (styles.css
+   .acpmux-queued-action). The ⋯ menu wears the composer menus' look (modelPicker.css). */
+.acpmux-queued-action.acpmux-queued-steer {
+  width: auto;
+  gap: 4px;
+  padding: 0 6px 0 4px;
+  font: inherit;
+  font-size: var(--text-detail);
+  line-height: 18px;
+  white-space: nowrap;
+}
+.acpmux-queued-more .ui-menu-shortcut {
+  margin-inline-start: auto;
+  padding-inline-start: 20px;
 }
 
 /* What the strip holds: "Queued" over prompts that wait for the turn to end, "Steering" on a

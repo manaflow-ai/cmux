@@ -51,6 +51,7 @@ mod policy_mode;
 mod pool;
 mod prompt_images;
 mod prompt_ledger;
+mod prompt_line;
 mod queue;
 mod queue_edit;
 pub use digest::declared_sender;
@@ -722,6 +723,7 @@ impl Hub {
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),
             purged: AtomicBool::new(false),
+            replaced: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),

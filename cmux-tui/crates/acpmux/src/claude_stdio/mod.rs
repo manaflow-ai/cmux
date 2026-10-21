@@ -31,21 +31,23 @@ pub fn steers_by_info(info: Option<&Value>) -> bool {
     info.and_then(|i| i.get("name")).and_then(Value::as_str) == Some(AGENT_NAME)
 }
 
-/// Claude mode ids, offered as ACP session modes.
-/// Claude's own modes. acceptEdits is not offered: acpmux's policy answers
-/// permission prompts itself, so `perms approve-edits` covers it for every
-/// harness. Plan and auto change what Claude does, so they stay.
-/// bypassPermissions ("Full access") is the mode a new chat starts in
+/// Claude Code's own permission modes, offered as ACP session modes: id
+/// (Claude Code's `--permission-mode` value), label and one-line description,
+/// in the order Claude Code's mode menu lists them. acpmux names none of its
+/// own: the menu reads these as they come. Auto is the one Claude Code
+/// recommends.
+/// bypassPermissions is the mode a new chat starts in
 /// (`hub/start_mode.rs`, cx-wx93i): Claude Code itself skips every
 /// permission check, so nothing asks. Claude Code accepts it only from a
 /// process launched with `--allow-dangerously-skip-permissions`
 /// (`spawn_plan`, `bypass_allowed`); elsewhere the switch is refused and
 /// the chat keeps its mode.
-pub(crate) const MODES: [(&str, &str); 4] = [
-    ("default", "Normal"),
-    ("plan", "Plan"),
-    ("auto", "Auto"),
-    ("bypassPermissions", "Full access"),
+pub(crate) const MODES: [(&str, &str, &str); 5] = [
+    ("auto", "Auto", "Claude handles permission decisions"),
+    ("default", "Manual", "Always ask before making changes"),
+    ("acceptEdits", "Accept edits", "Automatically accept all file edits"),
+    ("plan", "Plan", "Create a plan before making changes"),
+    ("bypassPermissions", "Bypass permissions", "Accepts all permissions"),
 ];
 
 /// The launch flag that lets a running Claude Code switch to
@@ -285,7 +287,7 @@ pub fn spawn_plan(
         args.push("--model".into());
         args.push(m.into());
     }
-    // Lets the chat switch to bypassPermissions ("Full access") later; a
+    // Lets the chat switch to bypassPermissions ("Bypass permissions") later; a
     // process that cannot take it is never given bypassPermissions at spawn.
     let bypass = bypass_allowed(profile);
     if bypass {
@@ -592,7 +594,7 @@ impl Translator {
     pub async fn modes_value(&self) -> Value {
         json!({
             "currentModeId": *self.mode.lock().await,
-            "availableModes": MODES.iter().map(|(id, name)| json!({"id": id, "name": name})).collect::<Vec<_>>(),
+            "availableModes": MODES.iter().map(|(id, name, description)| json!({"id": id, "name": name, "description": description})).collect::<Vec<_>>(),
         })
     }
 
@@ -602,7 +604,7 @@ impl Translator {
             {"id": "model", "name": "Model", "type": "select", "category": "model", "currentValue": *self.model.lock().await,
              "options": models().iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
             {"id": "mode", "name": "Permission mode", "type": "select", "category": "mode", "currentValue": *self.mode.lock().await,
-             "options": MODES.iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
+             "options": MODES.iter().map(|(v, n, d)| json!({"value": v, "name": n, "description": d})).collect::<Vec<_>>()},
             {"id": "effort", "name": "Reasoning", "type": "select", "category": "thought_level", "currentValue": shown_level(&effort),
              "options": EFFORTS.iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
             {"id": ULTRACODE_OPTION, "name": "Ultracode", "type": "select", "category": "model_config",
