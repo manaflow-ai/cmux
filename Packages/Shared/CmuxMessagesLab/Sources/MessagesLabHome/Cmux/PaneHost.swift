@@ -60,6 +60,8 @@ final class HostView: NSView {
     let headerBackdrop = HeaderBackdropView(frame: .zero)
     /// cmux: the in-pane header controls (HeaderBar's avatar and name pill).
     let paneHeader = PaneHeaderView(frame: .zero)
+    /// cmux: Home's glass band under the header controls (HeaderGlass.swift); nil until Home asks for it.
+    var headerGlass: HeaderGlassView?
     /// cmux: Reply to Selection's quote over the message box (HostView+QuoteCard.swift); nil when none shows.
     var quoteCard: ReplyQuoteCardView?
     private(set) var demo: MessagesWindowView?
@@ -172,8 +174,7 @@ final class HostView: NSView {
         if headerBackdrop.frame != hb { headerBackdrop.frame = hb }
         let ph = CGRect(x: 0, y: 0, width: bounds.width, height: Fixture.headerHeight)
         if paneHeader.frame != ph { paneHeader.frame = ph }
-        if headerZoneArea?.rect.width != bounds.width { updateHeaderZone() }
-        placeRowsUnderHeaderMask()
+        placeHeaderGlass()
         controller?.placeSendButton(animated: false)
         fieldChrome.place(field: demo.compose.fieldRect, plus: demo.compose.plusRect,
                           emoji: CGRect(x: bounds.width - Fixture.windowWidth + 586.5, y: demo.compose.plusRect.minY, width: 31, height: 30))
@@ -254,12 +255,8 @@ final class HostView: NSView {
     // button. The tracking area exists only while the field holds attachments,
     // covers only the field, and only for the key window (no wake-up per mouse move).
     private var hoverArea: NSTrackingArea?
-    /// cmux: the top zone that shows the header's fade (HeaderFade.swift).
-    var headerZoneArea: NSTrackingArea?
-    let headerZone = HeaderZoneTracker()
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        updateHeaderZone()
         if let t = hoverArea { removeTrackingArea(t); hoverArea = nil }
         guard let demo, !demo.compose.strip.tiles.isEmpty else { return }
         let t = NSTrackingArea(rect: demo.compose.fieldRect, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow], owner: self)

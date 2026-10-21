@@ -238,6 +238,11 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
 
+      - name: Cache Playwright's apt packages
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
+
       - name: Install browser for instant navigation tests
         run: bunx playwright install --with-deps chromium
 
@@ -385,6 +390,11 @@ jobs:
 
       # The browser-lane suites (test/support/requireBrowserLane.ts) fail in CI
       # without these engines; before, they skipped themselves and passed.
+      - name: Cache Playwright's apt packages
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium-webkit
+
       - name: Install headless engines
         working-directory: webviews
         run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit

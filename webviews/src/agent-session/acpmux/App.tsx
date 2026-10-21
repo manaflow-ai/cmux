@@ -95,6 +95,7 @@ import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
+import { parseProjectRepos } from "./projectRepos";
 import { HomeLists } from "./HomeLists";
 import { endsTurn, turnFiles, turnRows, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
@@ -121,6 +122,7 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { runningBackgroundTasks } from "./summary/sessionSummary";
 import { useSessionRail } from "./summary/SessionRail";
+import type { ProcessSource } from "./summary/sessionProcesses";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
 import { AgentTonesContext, agentTones } from "./subagents/agentTones";
@@ -146,6 +148,7 @@ import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
 import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
+import { transcriptRepositories, type RepositoryCache } from "./conversation/transcriptRepositories";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
@@ -193,7 +196,8 @@ import {
   type TurnView,
   turnViewFrom,
 } from "./conversation/turns";
-import { ArrowDown, Copy } from "./conversation/icons";
+import { ArrowDown, ChevronRight, Copy } from "./conversation/icons";
+import { CopyButton } from "./conversation/CopyButton";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
@@ -207,6 +211,7 @@ import {
   setMessageMenuSource,
 } from "./conversation/messageMenu";
 import { callChipHost } from "./chips/host";
+import { pullRequestRef } from "./chips/PullRequestCard";
 import { RenderCard, canRender } from "./conversation/RenderCard";
 import { ArtifactPanel, type SaveDocument } from "./conversation/ArtifactPanel";
 import { branchesFromKey, branchesKey, forkAnchor, messageBranches } from "./conversation/branches";
@@ -656,10 +661,24 @@ const MessageRow = memo(
       return (
         <div className="cv-user">
           {envelope && (
-            <details className="cv-user__context">
-              <summary>{t("transcript.chiefContext", { count: envelope.lines })}</summary>
-              <pre className="cv-user__context-text selectable">{envelope.context}</pre>
-            </details>
+            // The view's Copy sits outside the disclosure, over the space the summary keeps free at
+            // its trailing end, so it never covers the label; a long label ends in an ellipsis.
+            <div className="cv-user__context">
+              <details>
+                <summary>
+                  <ChevronRight size={10} className="cv-user__context-chevron" />
+                  <span className="cv-user__context-label">
+                    {t("transcript.chiefContext", { count: envelope.lines })}
+                  </span>
+                </summary>
+                <pre className="cv-user__context-text selectable">{envelope.context}</pre>
+              </details>
+              <CopyButton
+                text={envelope.context}
+                label={t("turn.copy")}
+                className="cv-iconbtn cv-iconbtn--compact cv-user__context-copy"
+              />
+            </div>
           )}
           {envelope || row.from === "chief" ? (
             <ChiefPromptBubble text={envelope ? envelope.task : (row.text ?? "")} />
@@ -1487,6 +1506,7 @@ export function VirtualTranscript({
   canLoadOlder = false,
   historyFrom,
   githubRepository,
+  fallbackRepository,
   find,
   reveal,
   working = false,
@@ -1531,6 +1551,9 @@ export function VirtualTranscript({
   /// Pages older history in (canLoadOlder): asked once per loaded page while the view is near the top.
   onLoadOlder?: () => Promise<void>;
   githubRepository?: string;
+  /// The repository a bare `#N` means when `githubRepository` is unknown and the transcript names
+  /// none before it (the header pull request's).
+  fallbackRepository?: string;
   /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
   find?: ChatFind;
   /// A row to bring into view (a count on the running line, WorkingFor.tsx); a new `key` asks again.
@@ -1546,6 +1569,13 @@ export function VirtualTranscript({
   /// when it does not and the latest message is more than JUMP_LATEST_DISTANCE below, read each render,
   /// so a reply growing below or a session switch updates it without a scroll.
   const [following, setFollowing] = useState(true);
+  // Without the folder's GitHub remote, a bare `#N` in a row means the repository the transcript
+  // mentioned last (conversation/transcriptRepositories.ts); each row's text is read once per change.
+  const repositoryCache = useRef<RepositoryCache>(new Map());
+  const rowRepositories = useMemo(
+    () => (githubRepository ? undefined : transcriptRepositories(rows, fallbackRepository, repositoryCache.current)),
+    [githubRepository, fallbackRepository, rows],
+  );
   // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
@@ -2807,7 +2837,7 @@ export function VirtualTranscript({
                       controls={controls}
                       onToggleActivity={onToggleActivity}
                       onOpenDiff={onOpenDiff}
-                      githubRepository={githubRepository}
+                      githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
                     >
                       <Component
                         row={row}
@@ -2816,7 +2846,7 @@ export function VirtualTranscript({
                         onOpenDiff={onOpenDiff}
                         expanded={isExpanded}
                         controls={controls}
-                        githubRepository={githubRepository}
+                        githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
                       />
                     </RowFrame>
                   );
@@ -3740,7 +3770,29 @@ function AcpmuxPane() {
     [snapshot.rows, openDiff],
   );
   // The session side rail (Debug Settings `agent.sessionRail`): its button in the header, the rail beside the chat.
-  const sessionRail = useSessionRail({ snapshot, machineName, onOpenOutput: openOutput });
+  // The rail's Background tasks read acpmux's process registry through the pane's client. A
+  // reconnect makes a new client, so the source changes with it and the rail lists again.
+  const [clientEpoch, setClientEpoch] = useState(0);
+  const processSource = useMemo<ProcessSource>(
+    () => ({
+      listProcesses: (sessionId) => directClient.current?.listProcesses(sessionId) ?? Promise.reject(new Error()),
+      watchProcesses: (listener) => directClient.current?.watchProcesses(listener) ?? (() => undefined),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new client is a new source
+    [clientEpoch],
+  );
+  const stopProcess = useCallback(
+    (id: string) => directClient.current?.killProcess(id) ?? Promise.reject(new Error()),
+    [],
+  );
+  const sessionRail = useSessionRail({
+    snapshot,
+    machineName,
+    onOpenOutput: openOutput,
+    processSource,
+    sessionId: shownSessionId,
+    onStopProcess: stopProcess,
+  });
   // The palette's Commit and Push reach the open changes view, or open it on the newest turn of
   // the selected chat. A chat with no turn yet has no changes view to open.
   const gitIntents = useRef(0);
@@ -3847,14 +3899,14 @@ function AcpmuxPane() {
     )?.models ?? []
   )
     .filter((model) => !model.unavailable && !isDefaultChoice(model))
-    .map((model) => `${model.id}\t${model.name || model.id}`)
+    .map((model) => `${model.id}\t${model.name || model.id}\t${model.release ?? ""}`)
     .join("\n");
   const retryModels = useMemo(
     () =>
       retryModelsKey
         ? retryModelsKey.split("\n").map((line) => {
-            const [id = "", name = ""] = line.split("\t");
-            return { id, name: name || id };
+            const [id = "", name = "", release = ""] = line.split("\t");
+            return { id, name: name || id, ...(release ? { release } : {}) };
           })
         : [],
     [retryModelsKey],
@@ -4892,6 +4944,7 @@ function AcpmuxPane() {
           return;
         }
         directClient.current = client;
+        setClientEpoch((epoch) => epoch + 1);
         // The minimap's prompt bookmarks live in acpmux's session (threadMinimap/bookmarks.ts).
         setBookmarkTransport({
           get: (id) => client.readBookmarks(id),
@@ -5072,14 +5125,15 @@ function AcpmuxPane() {
               });
             }
             harnessSwitch.cancel();
-            return persistSession(
-              await client.create(
-                harness ? String(harness) : undefined,
-                folder,
-                peer ? String(peer) : undefined,
-                noProject === true,
-              ),
+            // Resolves to the chat it started (none: nothing started), so a caller can hold a prompt.
+            const started = await client.create(
+              harness ? String(harness) : undefined,
+              folder,
+              peer ? String(peer) : undefined,
+              noProject === true,
             );
+            await persistSession(started);
+            return started;
           },
           "chat.harness.hint": async ({ harness }) => harnessSwitch.hint(harness ? String(harness) : undefined),
           "chat.harness.retry": async () => harnessSwitch.retry(),
@@ -5469,7 +5523,7 @@ function AcpmuxPane() {
   // The header's state from the chat's tab (header/headerState.ts): read when a chat opens, then pushed
   // by the App on every change. Whether the panes beside the chat show ([+] New tab reads Hide tabs) also
   // follows the App's answer to the click.
-  const { sideTabs } = useHeaderState();
+  const { sideTabs, pullRequest: headerPullRequest } = useHeaderState();
   const toggleSideTabs = () =>
     ignoreFailure(
       callNative<{ shown?: boolean }>("pane.action", { id: "sideTabs" }).then((result) =>
@@ -5800,12 +5854,17 @@ function AcpmuxPane() {
   };
   const loadNewTabProjects = useCallback(
     () =>
-      callNative<{ projects?: string[] }>("project.list").then((result) =>
-        (result?.projects ?? []).map((cwd) => ({ cwd, label: projectName(cwd) ?? cwd })),
-      ),
+      callNative<{ projects?: string[]; repos?: unknown }>("project.list").then((result) => {
+        // Each folder's repository (projectRepos.ts): the pickers fold worktrees under it.
+        const repos = parseProjectRepos(result?.repos);
+        return (result?.projects ?? []).map((cwd): Project => {
+          const repo = repos[cwd];
+          return { cwd, label: projectName(cwd) ?? cwd, ...(repo ? { repo } : {}) };
+        });
+      }),
     [],
   );
-  const [directProjects, setDirectProjects] = useState<{ cwd: string; label: string }[]>([]);
+  const [directProjects, setDirectProjects] = useState<Project[]>([]);
   const onNewTab = Boolean(newTab);
   useEffect(() => {
     // Start Agent's folder picker lists them too (cx-hkat), and so does the New Tab page: the
@@ -5857,15 +5916,20 @@ function AcpmuxPane() {
     [directProjects, newTab?.projects],
   );
   const newTabProjects = useMemo(() => {
-    const byPath = new Map<string, { cwd: string; label: string }>();
+    const byPath = new Map<string, Project>();
+    // A folder the host listed keeps its repository (projectRepos.ts) when a chat names it again.
+    const listed = (cwd: string): Project => {
+      const repo = byPath.get(cwd)?.repo;
+      return { cwd, label: projectLabel(cwd), ...(repo ? { repo } : {}) };
+    };
     for (const project of directProjects) byPath.set(project.cwd, project);
-    for (const path of newTab?.projects ?? []) byPath.set(path, { cwd: path, label: projectLabel(path) });
+    for (const path of newTab?.projects ?? []) byPath.set(path, listed(path));
     for (const session of newTabSnapshot.sessions) {
       if (typeof session.cwd !== "string" || !session.cwd) continue;
       if (session.host && session.hostKind !== "local") continue;
-      byPath.set(session.cwd, { cwd: session.cwd, label: projectLabel(session.cwd) });
+      byPath.set(session.cwd, listed(session.cwd));
     }
-    if (newTab?.cwd) byPath.set(newTab.cwd, { cwd: newTab.cwd, label: projectLabel(newTab.cwd) });
+    if (newTab?.cwd) byPath.set(newTab.cwd, listed(newTab.cwd));
     return [...byPath.values()];
   }, [newTabSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
   // The new chat's hero picker (cx-9g0w): this Mac's projects, then other machines' folders from
@@ -5991,6 +6055,7 @@ function AcpmuxPane() {
                                           reveal={childRows ? undefined : revealRow}
                                           registry={registry}
                                           githubRepository={githubRepository}
+                                          fallbackRepository={pullRequestRef(headerPullRequest?.url ?? "")?.repo}
                                           // The Quick Composer has no room for the changes view; its file rows stay plain.
                                           onOpenDiff={quick ? undefined : openDiff}
                                           onToggleActivity={toggleActivity}
