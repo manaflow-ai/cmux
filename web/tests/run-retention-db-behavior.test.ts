@@ -86,6 +86,48 @@ describe("cloud Run terminal retention and cancellation", () => {
     }
   });
 
+  dbTest("reaps the VM of an attempt on its own ephemeral runtime", async () => {
+    // launchCloudVmAttempt (dogfood.ts) gives every attempt an ephemeral runtime before its VM
+    // exists, so the reaper must still claim those; only a persistent (promoted) runtime keeps it.
+    const userId = `retention-ephemeral-${randomUUID()}`;
+    try {
+      const created = await repo().createRun(input(userId));
+      const attempt = created.attempts[0];
+      if (!attempt) throw new Error("run did not create an attempt");
+      const lease = await repo().claimAttemptLease({ runId: created.run.id, attemptId: attempt.id, workerId: "ephemeral-worker" });
+      await repo().recordAttemptProviderHandle({
+        runId: created.run.id,
+        attemptId: attempt.id,
+        leaseToken: lease.leaseToken,
+        leaseGeneration: lease.leaseGeneration,
+        providerVmId: "vm-ephemeral",
+        providerWorkspaceId: "workspace-ephemeral",
+        providerTerminalId: "terminal-ephemeral",
+      });
+      await repo().ingestRunEvent({
+        runId: created.run.id,
+        attemptId: attempt.id,
+        leaseToken: lease.leaseToken,
+        leaseGeneration: lease.leaseGeneration,
+        externalId: "ephemeral-succeeded",
+        attemptSequence: 1,
+        kind: "attempt.succeeded",
+        payload: { providerVmId: "vm-ephemeral" },
+      });
+      const [runtime] = await sql!`insert into cloud_runtimes (owner_team_id, runtime_kind) values (${userId}, 'ephemeral') returning id`;
+      await sql!`update run_attempts set runtime_id = ${runtime!.id} where id = ${attempt.id}`;
+
+      const claims = await repo().claimExpiredAttemptCleanups({ now: new Date(Date.now() + 60 * 60 * 1000), limit: 100 });
+      expect(claims.some((claim) => claim.attempt.id === attempt.id)).toBe(true);
+      for (const claim of claims) {
+        await repo().finishAttemptCleanup({ attemptId: claim.attempt.id, cleanupLeaseToken: claim.cleanupLeaseToken, succeeded: false });
+      }
+    } finally {
+      await removeRuns(userId);
+      await sql!`delete from cloud_runtimes where owner_team_id = ${userId}`;
+    }
+  });
+
   dbTest("never reaps the VM of an attempt promoted to a persistent runtime", async () => {
     const userId = `retention-promoted-${randomUUID()}`;
     try {
@@ -114,7 +156,7 @@ describe("cloud Run terminal retention and cancellation", () => {
       });
       // Promotion (runtimeRepository.promoteAttemptToRuntime) links the attempt to the runtime
       // that now owns this VM and leaves terminal_retain_until as it was.
-      const [runtime] = await sql!`insert into cloud_runtimes (owner_team_id) values (${userId}) returning id`;
+      const [runtime] = await sql!`insert into cloud_runtimes (owner_team_id, runtime_kind) values (${userId}, 'persistent') returning id`;
       await sql!`update run_attempts set runtime_id = ${runtime!.id} where id = ${attempt.id}`;
 
       const claims = await repo().claimExpiredAttemptCleanups({ now: new Date(Date.now() + 60 * 60 * 1000), limit: 100 });
