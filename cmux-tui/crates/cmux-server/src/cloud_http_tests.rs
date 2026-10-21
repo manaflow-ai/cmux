@@ -134,3 +134,40 @@ fn vm_receiver_client_http_can_retry_after_cancelling_a_body() {
     assert_eq!(status, 200);
     assert_eq!(bytes, b"{}");
 }
+
+#[tokio::test]
+async fn vm_receiver_client_http_from_a_blocking_executor_thread() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let url = format!("http://{address}/test");
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(4))).unwrap();
+        let mut headers = Vec::new();
+        let mut byte = [0; 1];
+        while !headers.ends_with(b"\r\n\r\n") && headers.len() < 8192 {
+            if stream.read(&mut byte).ok() != Some(1) {
+                return;
+            }
+            headers.push(byte[0]);
+        }
+        let _ = stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
+    });
+    let answer = tokio::task::spawn_blocking(move || {
+        JsonPoster::allowing_http().unwrap().request_until(
+            &url,
+            None,
+            None,
+            Instant::now() + Duration::from_secs(3),
+        )
+    })
+    .await;
+    // Also unblock accept if the client refused before connecting. Both owned
+    // threads finish before the test reports the behavioral failure.
+    let _ = std::net::TcpStream::connect(address);
+    server.join().unwrap();
+    let (status, bytes) = answer.unwrap().expect("HTTP refused a blocking executor thread");
+    assert_eq!(status, 200);
+    assert_eq!(bytes, b"{}");
+}
