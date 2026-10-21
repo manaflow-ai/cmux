@@ -148,7 +148,7 @@ struct CloudGitHubSetupTests {
     func aRunThatIsNotThePersonsNeedsAMachineTarget(origin: ActionOrigin) {
         let f = CloudCLITargetTests.fixture()
         let registry = ActionRegistry(catalog: f.services.registry.descriptors)
-        CloudHandlers.bindGitHubSetup(into: registry, context: f.context, reason: { nil })
+        CloudGitHubHandlers.bind(into: registry, context: f.context, reason: { nil })
         #expect(f.services.machines.cloud.count == 1)
         let refusal = registry.capturingRefusal {
             _ = registry.perform("cloudSetupGitHub", invocation: ActionInvocation(origin: origin))
@@ -162,6 +162,130 @@ struct CloudGitHubSetupTests {
         #expect(descriptor.cliName == "cloud setup-github")
         #expect(descriptor.targets == [.machine])
         #expect(descriptor.waitsForResult)
+    }
+
+    // MARK: Stopping an earlier sign-in
+
+    /// Shells the stop runs under: /bin/sh, and dash (Debian's and Ubuntu's /bin/sh) when present.
+    nonisolated static let shells = ["/bin/sh", "/bin/dash"].filter { FileManager.default.isExecutableFile(atPath: $0) }
+
+    /// A scratch pid-file directory and fake proc filesystem. `kill` is a shell function that
+    /// records its arguments, so the stop signals nothing real (`-0` would be this test's group).
+    struct StopWorld {
+        let root: URL
+        var dir: URL { root.appendingPathComponent("d") }
+        var proc: URL { root.appendingPathComponent("proc") }
+        var killed: URL { root.appendingPathComponent("killed") }
+
+        init(boot: String?) throws {
+            root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-gh-stop-\(UUID().uuidString.prefix(8))")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let random = proc.appendingPathComponent("sys/kernel/random")
+            try FileManager.default.createDirectory(at: random, withIntermediateDirectories: true)
+            if let boot { try Data((boot + "\n").utf8).write(to: random.appendingPathComponent("boot_id")) }
+        }
+
+        /// `/proc/<pid>/cmdline`: the arguments, each ended by NUL.
+        func process(_ pid: String, _ argv: [String]) throws {
+            let folder = proc.appendingPathComponent(pid)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data(argv.map { $0 + "\0" }.joined().utf8).write(to: folder.appendingPathComponent("cmdline"))
+        }
+
+        func record(_ name: String, _ lines: [String]) throws {
+            try Data(lines.map { $0 + "\n" }.joined().utf8).write(to: dir.appendingPathComponent(name))
+        }
+
+        func stop(shell: String) throws -> [String] {
+            let script = #"kill() { echo "$*" >>"$KILLED"; }"# + "\nproc=\"$PROC\"; d=\"$D\"\n" + CloudGitHubSetup.stopPreviousCommand
+            let ran = try CloudGitHubSetupTests.run(shell, ["-c", script], environment: [
+                "PATH": "/usr/bin:/bin", "PROC": proc.path, "D": dir.path, "KILLED": killed.path,
+            ])
+            #expect(ran.status == 0)
+            let text = (try? String(contentsOf: killed, encoding: .utf8)) ?? ""
+            return text.split(separator: "\n").map(String.init)
+        }
+
+        var leftFiles: [String] { (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [] }
+    }
+
+    static let shellArgv = ["sh", "-c", "f=...", "cmux-gh-login", "/home/cmux/.cache/cmux"]
+    static let ghArgv = ["gh", "auth", "login", "--hostname", "github.com", "--web"]
+
+    @Test(arguments: shells)
+    func aRunFromThisBootStopsItsShellsGroupAndGh(shell: String) throws {
+        let world = try StopWorld(boot: "boot-a")
+        defer { try? FileManager.default.removeItem(at: world.root) }
+        try world.process("4242", Self.shellArgv)
+        try world.process("4243", Self.ghArgv)
+        try world.record("gh-login.4242.pid", ["boot-a", "4242", "4243"])
+        #expect(try world.stop(shell: shell) == ["-TERM -4242", "-TERM 4243"])
+        #expect(world.leftFiles.isEmpty)
+    }
+
+    /// A pid reused by an unrelated process (acpmux, tmux) after the sign-in ended without
+    /// removing its file is never signalled.
+    @Test(arguments: shells)
+    func aStaleFileNamingAnUnrelatedProcessSignalsNothing(shell: String) throws {
+        let world = try StopWorld(boot: "boot-a")
+        defer { try? FileManager.default.removeItem(at: world.root) }
+        try world.process("4242", ["tmux", "new-session", "-s", "work"])
+        try world.process("4243", ["/opt/cmux/agent-tools/bin/acpmux", "daemon", "start"])
+        try world.record("gh-login.4242.pid", ["boot-a", "4242", "4243"])
+        #expect(try world.stop(shell: shell).isEmpty)
+        #expect(world.leftFiles.isEmpty, "the stale file stays")
+    }
+
+    @Test(arguments: shells)
+    func aFileFromAnotherBootSignalsNothing(shell: String) throws {
+        let world = try StopWorld(boot: "boot-b")
+        defer { try? FileManager.default.removeItem(at: world.root) }
+        try world.process("4242", Self.shellArgv)
+        try world.process("4243", Self.ghArgv)
+        try world.record("gh-login.4242.pid", ["boot-a", "4242", "4243"])
+        #expect(try world.stop(shell: shell).isEmpty)
+    }
+
+    @Test(arguments: shells)
+    func anUnknownBootSignalsNothing(shell: String) throws {
+        let world = try StopWorld(boot: nil)
+        defer { try? FileManager.default.removeItem(at: world.root) }
+        try world.process("4242", Self.shellArgv)
+        try world.record("gh-login.4242.pid", ["", "4242", ""])
+        #expect(try world.stop(shell: shell).isEmpty)
+    }
+
+    /// `kill -TERM -0` is the caller's own group and `-1` or `-0001` every process the user owns:
+    /// zero, one and any leading zero are refused even when the fake proc names them ours.
+    @Test(arguments: shells)
+    func zeroOneAndLeadingZerosAreNeverSignalled(shell: String) throws {
+        let world = try StopWorld(boot: "boot-a")
+        defer { try? FileManager.default.removeItem(at: world.root) }
+        let pids = ["0", "1", "0001", "01", "00", "-5", "42x", "4 2"]
+        for pid in pids where !pid.contains(" ") && !pid.hasPrefix("-") { try world.process(pid, Self.shellArgv) }
+        for (index, pid) in pids.enumerated() { try world.record("gh-login.\(index).pid", ["boot-a", pid, pid]) }
+        #expect(try world.stop(shell: shell).isEmpty)
+    }
+
+    /// The detached sign-in removes its own file when it ends, so no file outlives its run.
+    @Test(arguments: shells)
+    func theSignInRemovesItsFileWhenItEnds(shell: String) throws {
+        let world = try StopWorld(boot: nil)
+        defer { try? FileManager.default.removeItem(at: world.root) }
+        let bin = world.root.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let gh = bin.appendingPathComponent("gh")
+        // gh copies the run's record while it runs, then signs in.
+        try Data("#!/bin/sh\ncase \"$2\" in login) cat \"$D\"/gh-login.*.pid >\"$SEEN\" ;; esac\nexit 0\n".utf8).write(to: gh)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: gh.path)
+        let seen = world.root.appendingPathComponent("seen")
+        let ran = try Self.run(shell, ["-c", CloudGitHubSetup.signInBody, CloudGitHubSetup.signInMarker, world.dir.path], environment: [
+            "PATH": bin.path + ":/usr/bin:/bin", "D": world.dir.path, "SEEN": seen.path,
+        ])
+        #expect(ran.status == 0)
+        let record = try String(contentsOf: seen, encoding: .utf8).split(separator: "\n", omittingEmptySubsequences: false)
+        #expect(record.count >= 2 && Int(record[1]) != nil, "the record names the shell")
+        #expect(world.leftFiles.isEmpty)
     }
 
     // MARK: Helpers
@@ -187,7 +311,7 @@ struct CloudGitHubSetupTests {
         return String(ran.output.dropLast())
     }
 
-    static func run(_ executable: String, _ arguments: [String], environment: [String: String]) throws -> (status: Int32, output: String) {
+    nonisolated static func run(_ executable: String, _ arguments: [String], environment: [String: String]) throws -> (status: Int32, output: String) {
         let process = Process()
         let output = Pipe()
         process.executableURL = URL(fileURLWithPath: executable)

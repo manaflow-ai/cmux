@@ -100,7 +100,7 @@ nonisolated enum CloudGitHubSetup {
 
     /// The one exec script. It prints `cmux-git: set|skipped|failed` and then
     /// `cmux-gh: logged_in|missing|failed|pending <code>`, and nothing that came from gh except
-    /// the code. A rerun stops the previous sign-in (its process group, from the pid file) first.
+    /// the code. A rerun stops the previous sign-in first (``stopPreviousCommand``).
     static func command(_ identity: GitIdentity) -> String {
         var lines = [
             "umask 077",
@@ -112,23 +112,68 @@ nonisolated enum CloudGitHubSetup {
         lines += [
             "if ! command -v gh >/dev/null 2>&1; then echo 'cmux-gh: missing'; exit 0; fi",
             "if gh auth status --hostname github.com >/dev/null 2>&1; then echo 'cmux-gh: logged_in'; exit 0; fi",
-            #"d="$HOME/.cache/cmux"; log="$d/gh-login.log"; pidf="$d/gh-login.pid""#,
+            #"proc=/proc; d="$HOME/.cache/cmux"; log="$d/gh-login.log""#,
             #"mkdir -p "$d" || { echo 'cmux-gh: failed'; exit 0; }"#,
-            #"if [ -f "$pidf" ]; then while read -r p; do case "$p" in ''|*[!0-9]*) ;; *) kill -TERM "-$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null ;; esac; done <"$pidf"; fi"#,
-            #"rm -f "$log" "$pidf""#,
+            stopPreviousCommand,
+            #"rm -f "$log""#,
             "s=; command -v setsid >/dev/null 2>&1 && s=setsid",
-            // Detached from the exec (its own session) so the sign-in outlives it; git then uses
-            // gh as its credential helper. The detached shell writes its own pid (the session's
-            // process group when setsid ran; `$!` would be setsid's, which may fork and exit) and
-            // gh's, so a rerun stops both even without setsid. `kill -TERM -- -pid` is not dash's
-            // syntax (dash is /bin/sh on Debian and Ubuntu): the stop above uses `kill -TERM -pid`.
-            #"$s nohup sh -c 'echo $$ >"$1"; gh auth login --hostname github.com --git-protocol https --web --skip-ssh-key & echo $! >>"$1"; wait $! && gh auth setup-git --hostname github.com' sh "$pidf" </dev/null >"$log" 2>&1 &"#,
+            // Detached from the exec (its own session, when setsid exists) so the sign-in
+            // outlives it; git then uses gh as its credential helper.
+            #"$s nohup sh -c \#(signInScript) \#(signInMarker) "$d" </dev/null >"$log" 2>&1 &"#,
             "i=0; code=",
             #"while [ $i -lt 60 ]; do code=$(sed -n 's/.*one-time code: \([A-Z0-9][A-Z0-9]*-[A-Z0-9][A-Z0-9]*\).*/\1/p' "$log" 2>/dev/null | head -n 1); [ -n "$code" ] && break; sleep 0.25; i=$((i+1)); done"#,
             #"if [ -n "$code" ]; then echo "cmux-gh: pending $code"; else echo 'cmux-gh: failed'; fi"#,
         ]
         return lines.joined(separator: "\n")
     }
+
+    /// The detached sign-in's `$0`: the stop below signals only a shell whose command line has it.
+    static let signInMarker = "cmux-gh-login"
+
+    /// The detached sign-in, run as `sh -c SCRIPT cmux-gh-login DIR`. It records itself in its own
+    /// file `DIR/gh-login.<its pid>.pid` (this boot's id, its pid, then gh's pid) and removes that
+    /// file when it ends, however it ends, so no file outlives the run it names. Each run removes
+    /// only its own file: a stopped run's exit can never take a newer run's record.
+    static let signInBody = [
+        #"f="$1/gh-login.$$.pid""#,
+        #"trap 'rm -f "$f"' EXIT"#,
+        "trap 'exit 143' HUP INT TERM",
+        #"printf '%s\n%s\n' "$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)" "$$" >"$f""#,
+        "gh auth login --hostname github.com --git-protocol https --web --skip-ssh-key & g=$!",
+        #"echo "$g" >>"$f""#,
+        "wait $g && gh auth setup-git --hostname github.com",
+    ].joined(separator: "\n")
+
+    static var signInScript: String { shellQuote(signInBody) }
+
+    /// Stops the sign-ins earlier runs started, from their files in `$d`; `$proc` is the proc
+    /// filesystem (`/proc`; a test passes a fake one). A pid is signalled only when all of these
+    /// hold, so a stale file (a reboot, a restored snapshot, a reused pid) signals nothing:
+    /// - it is a canonical decimal above 1 (never `0`, `1` or a leading zero: in dash
+    ///   `kill -TERM -0` is the caller's own group and `-01` every process the user owns);
+    /// - the file was written this boot (its first line is this boot's id, and the id is known);
+    /// - the process's command line is the detached sign-in shell (``signInMarker``) or
+    ///   `gh auth login`.
+    /// The shell is signalled as a process group (setsid made it a group leader; without setsid
+    /// the group does not exist and only the pid is signalled), gh by its pid.
+    static let stopPreviousCommand = [
+        #"boot=$(cat "$proc/sys/kernel/random/boot_id" 2>/dev/null)"#,
+        #"for f in "$d"/gh-login.*.pid; do"#,
+        #"  [ -f "$f" ] || continue"#,
+        #"  { read -r b; read -r sp; read -r gp; } <"$f""#,
+        #"  if [ -n "$boot" ] && [ "$b" = "$boot" ]; then"#,
+        #"    for p in "$sp" "$gp"; do"#,
+        #"      case "$p" in ''|*[!0-9]*|0*|1) continue ;; esac"#,
+        #"      c=$(tr '\000' ' ' <"$proc/$p/cmdline" 2>/dev/null)"#,
+        #"      case "$c" in"#,
+        "        *' \(signInMarker) '*) kill -TERM \"-$p\" 2>/dev/null || kill -TERM \"$p\" 2>/dev/null ;;",
+        #"        'gh auth login '*|*'/gh auth login '*) kill -TERM "$p" 2>/dev/null ;;"#,
+        #"      esac"#,
+        #"    done"#,
+        #"  fi"#,
+        #"  rm -f "$f""#,
+        #"done"#,
+    ].joined(separator: "\n")
 
     /// The line that sets the identity and prints `cmux-git: set|skipped|failed`. The values from
     /// this Mac appear only here, each as one single-quoted word.
