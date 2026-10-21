@@ -108,9 +108,11 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         NEXT + "CmuxNextUpdater/UpdatePreferences.swift",
     )),
     # Shipping. A broken updater also breaks the safety net every other tier relies on: nightly
-    # auto-update is how a fix forward reaches users.
+    # auto-update is how a fix forward reaches users. CmuxUpdater holds the Sparkle driver, the
+    # install code, the feed resolver and the channel switch's signature check.
     ("high", "release, signing, notarization or update path", (
-        ".github/workflows/nightly*.yml", RELEASE_WORDS, NEXT + "CmuxNextUpdater/*", "scripts/ci/lib/*",
+        ".github/workflows/nightly*.yml", RELEASE_WORDS, NEXT + "CmuxNextUpdater/*", "Packages/macOS/CmuxUpdater/*",
+        "scripts/ci/lib/*",
     )),
     # The gate grades every other pull request, so a change to it gets a person.
     ("high", "the risk gate itself", (
