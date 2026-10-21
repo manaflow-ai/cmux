@@ -67,7 +67,8 @@ import Testing
     }
 
     @Test func theReplysTableIsAPlanCard() throws {
-        let card = try #require(HomePlanCard(try #require(Self.table(Self.reply))))
+        let table = try #require(Self.table(Self.reply))
+        let card = try #require(HomePlanCard(table))
         #expect(card.rows.map(\.owner) == ["a12", "a7", "a4", "a13", "a14"])
         #expect(card.rows.map(\.key) == ["1 + 2", "3", "4", "5", "6"])
         #expect(card.rows[0].title.hasPrefix("Lasting canary results"))
@@ -80,7 +81,8 @@ import Testing
     }
 
     @Test func theLivePlanGivesEachOwnersState() throws {
-        let card = try #require(HomePlanCard(try #require(Self.table(Self.reply))))
+        let table = try #require(Self.table(Self.reply))
+        let card = try #require(HomePlanCard(table))
         let plan = ChiefPlan(steps: [
             ChiefPlanStep(id: "a12", title: "Nightly train", owner: "a12", state: .working),
             ChiefPlanStep(id: "a4", title: "Updates", owner: "a4", state: .waitingOnCI,
