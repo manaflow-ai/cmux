@@ -150369,127 +150369,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The most saved output all terminals keep on disk together, in bytes, from 1 MiB to 100 GiB. Empty uses the mode's limit: 50 MiB in Snapshot, 2 GiB in Full Scrollback. The oldest saved output goes first."
+            "value": "The most saved output all terminals keep on disk together, in bytes, from 1 MiB to 100 GiB. Empty uses the mode's limit: 50 MiB in Snapshot, 2 GiB in Full Scrollback. The oldest saved output goes first. In Full Scrollback, the screen snapshots (up to 50 MiB) come in addition to this limit."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أقصى قدر من المخرجات المحفوظة تبقيه كل الطرفيات معًا على القرص، بالبايت، من 1 MiB إلى 100 GiB. القيمة الفارغة تستخدم حد الوضع: 50 MiB في اللقطة، و2 GiB في سجل التمرير الكامل. تُحذف أقدم المخرجات المحفوظة أولًا."
+            "value": "أقصى قدر من المخرجات المحفوظة تبقيه كل الطرفيات معًا على القرص، بالبايت، من 1 MiB إلى 100 GiB. القيمة الفارغة تستخدم حد الوضع: 50 MiB في اللقطة، و2 GiB في سجل التمرير الكامل. تُحذف أقدم المخرجات المحفوظة أولًا. في سجل التمرير الكامل، تُضاف لقطات الشاشة (حتى 50 MiB) فوق هذا الحد."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Najviše sačuvanog izlaza koji svi terminali zajedno čuvaju na disku, u bajtovima, od 1 MiB do 100 GiB. Prazno koristi ograničenje načina: 50 MiB u snimku, 2 GiB u cijeloj historiji pomicanja. Najstariji sačuvani izlaz ide prvi."
+            "value": "Najviše sačuvanog izlaza koji svi terminali zajedno čuvaju na disku, u bajtovima, od 1 MiB do 100 GiB. Prazno koristi ograničenje načina: 50 MiB u snimku, 2 GiB u cijeloj historiji pomicanja. Najstariji sačuvani izlaz ide prvi. U cijeloj historiji pomicanja snimci ekrana (do 50 MiB) dolaze uz ovo ograničenje."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Det største gemte output, alle terminaler tilsammen beholder på disken, i byte, fra 1 MiB til 100 GiB. Tom bruger tilstandens grænse: 50 MiB ved øjebliksbillede, 2 GiB ved fuld rullehistorik. Det ældste gemte output fjernes først."
+            "value": "Det største gemte output, alle terminaler tilsammen beholder på disken, i byte, fra 1 MiB til 100 GiB. Tom bruger tilstandens grænse: 50 MiB ved øjebliksbillede, 2 GiB ved fuld rullehistorik. Det ældste gemte output fjernes først. Ved fuld rullehistorik kommer skærmbillederne (op til 50 MiB) oven i denne grænse."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Die größte gespeicherte Ausgabe, die alle Terminals zusammen behalten, in Byte, von 1 MiB bis 100 GiB. Leer verwendet das Limit des Modus: 50 MiB bei Momentaufnahme, 2 GiB bei gesamtem Scrollback. Die älteste gespeicherte Ausgabe wird zuerst entfernt."
+            "value": "Die größte gespeicherte Ausgabe, die alle Terminals zusammen behalten, in Byte, von 1 MiB bis 100 GiB. Leer verwendet das Limit des Modus: 50 MiB bei Momentaufnahme, 2 GiB bei gesamtem Scrollback. Die älteste gespeicherte Ausgabe wird zuerst entfernt. Bei gesamtem Scrollback kommen die Bildschirm-Momentaufnahmen (bis zu 50 MiB) zu diesem Limit hinzu."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La mayor cantidad de salida guardada que todos los terminales conservan juntos en el disco, en bytes, de 1 MiB a 100 GiB. Vacío usa el límite del modo: 50 MiB en Instantánea, 2 GiB en Historial completo. La salida guardada más antigua se borra primero."
+            "value": "La mayor cantidad de salida guardada que todos los terminales conservan juntos en el disco, en bytes, de 1 MiB a 100 GiB. Vacío usa el límite del modo: 50 MiB en Instantánea, 2 GiB en Historial completo. La salida guardada más antigua se borra primero. En Historial completo, las instantáneas de pantalla (hasta 50 MiB) se suman a este límite."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La plus grande quantité de sortie enregistrée que tous les terminaux gardent ensemble sur le disque, en octets, de 1 Mio à 100 Gio. Vide utilise la limite du mode : 50 Mio en Instantané, 2 Gio en Historique complet. La sortie enregistrée la plus ancienne part en premier."
+            "value": "La plus grande quantité de sortie enregistrée que tous les terminaux gardent ensemble sur le disque, en octets, de 1 Mio à 100 Gio. Vide utilise la limite du mode : 50 Mio en Instantané, 2 Gio en Historique complet. La sortie enregistrée la plus ancienne part en premier. En Historique complet, les instantanés d'écran (jusqu'à 50 Mio) s'ajoutent à cette limite."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La quantità massima di output salvato che tutti i terminali tengono insieme su disco, in byte, da 1 MiB a 100 GiB. Vuoto usa il limite della modalità: 50 MiB in Istantanea, 2 GiB in Cronologia completa. L'output salvato più vecchio viene rimosso per primo."
+            "value": "La quantità massima di output salvato che tutti i terminali tengono insieme su disco, in byte, da 1 MiB a 100 GiB. Vuoto usa il limite della modalità: 50 MiB in Istantanea, 2 GiB in Cronologia completa. L'output salvato più vecchio viene rimosso per primo. In Cronologia completa, le istantanee dello schermo (fino a 50 MiB) si aggiungono a questo limite."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "すべてのターミナルが合計でディスクに保存する出力の上限（バイト、1 MiB〜100 GiB）。空欄の場合はモードの上限を使います: スナップショットでは 50 MiB、スクロールバック全体では 2 GiB。古い保存出力から削除されます。"
+            "value": "すべてのターミナルが合計でディスクに保存する出力の上限（バイト、1 MiB〜100 GiB）。空欄の場合はモードの上限を使います: スナップショットでは 50 MiB、スクロールバック全体では 2 GiB。古い保存出力から削除されます。スクロールバック全体では、画面のスナップショット（最大 50 MiB）はこの上限とは別に保存されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "លទ្ធផលដែលបានរក្សាទុកច្រើនបំផុតដែលទែមីណាល់ទាំងអស់រក្សារួមគ្នានៅលើថាស គិតជាបៃ ពី 1 MiB ដល់ 100 GiB។ ទទេប្រើដែនកំណត់របស់របៀប៖ 50 MiB ក្នុងរូបថតស្ថានភាព 2 GiB ក្នុងប្រវត្តិរំកិលពេញលេញ។ លទ្ធផលដែលបានរក្សាទុកចាស់បំផុតត្រូវលុបមុន។"
+            "value": "លទ្ធផលដែលបានរក្សាទុកច្រើនបំផុតដែលទែមីណាល់ទាំងអស់រក្សារួមគ្នានៅលើថាស គិតជាបៃ ពី 1 MiB ដល់ 100 GiB។ ទទេប្រើដែនកំណត់របស់របៀប៖ 50 MiB ក្នុងរូបថតស្ថានភាព 2 GiB ក្នុងប្រវត្តិរំកិលពេញលេញ។ លទ្ធផលដែលបានរក្សាទុកចាស់បំផុតត្រូវលុបមុន។ ក្នុងប្រវត្តិរំកិលពេញលេញ រូបថតអេក្រង់ (រហូតដល់ 50 MiB) គឺបន្ថែមលើដែនកំណត់នេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "모든 터미널이 합쳐서 디스크에 보관하는 저장 출력의 최대 크기(바이트, 1MiB~100GiB). 비워 두면 모드의 한도를 사용합니다. 스냅숏은 50MiB, 전체 스크롤백은 2GiB입니다. 가장 오래된 저장 출력부터 삭제됩니다."
+            "value": "모든 터미널이 합쳐서 디스크에 보관하는 저장 출력의 최대 크기(바이트, 1MiB~100GiB). 비워 두면 모드의 한도를 사용합니다. 스냅숏은 50MiB, 전체 스크롤백은 2GiB입니다. 가장 오래된 저장 출력부터 삭제됩니다. 전체 스크롤백에서는 화면 스냅숏(최대 50MiB)이 이 한도에 더해집니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mest lagrede utdata alle terminaler til sammen beholder på disken, i byte, fra 1 MiB til 100 GiB. Tom bruker modusens grense: 50 MiB ved øyeblikksbilde, 2 GiB ved full rullehistorikk. De eldste lagrede utdataene fjernes først."
+            "value": "Mest lagrede utdata alle terminaler til sammen beholder på disken, i byte, fra 1 MiB til 100 GiB. Tom bruker modusens grense: 50 MiB ved øyeblikksbilde, 2 GiB ved full rullehistorikk. De eldste lagrede utdataene fjernes først. Ved full rullehistorikk kommer skjermbildene (opptil 50 MiB) i tillegg til denne grensen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Największa ilość zapisanego wyjścia, którą wszystkie terminale razem trzymają na dysku, w bajtach, od 1 MiB do 100 GiB. Puste używa limitu trybu: 50 MiB w migawce, 2 GiB w pełnej historii przewijania. Najstarsze zapisane wyjście jest usuwane najpierw."
+            "value": "Największa ilość zapisanego wyjścia, którą wszystkie terminale razem trzymają na dysku, w bajtach, od 1 MiB do 100 GiB. Puste używa limitu trybu: 50 MiB w migawce, 2 GiB w pełnej historii przewijania. Najstarsze zapisane wyjście jest usuwane najpierw. W pełnej historii przewijania migawki ekranu (do 50 MiB) są dodatkiem do tego limitu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O máximo de saída salva que todos os terminais mantêm juntos no disco, em bytes, de 1 MiB a 100 GiB. Vazio usa o limite do modo: 50 MiB no Instantâneo, 2 GiB no Histórico completo. A saída salva mais antiga sai primeiro."
+            "value": "O máximo de saída salva que todos os terminais mantêm juntos no disco, em bytes, de 1 MiB a 100 GiB. Vazio usa o limite do modo: 50 MiB no Instantâneo, 2 GiB no Histórico completo. A saída salva mais antiga sai primeiro. No Histórico completo, os instantâneos de tela (até 50 MiB) se somam a esse limite."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Наибольший объём сохранённого вывода, который все терминалы вместе хранят на диске, в байтах, от 1 МиБ до 100 ГиБ. Пусто — лимит режима: 50 МиБ для снимка, 2 ГиБ для всей прокрутки. Самый старый сохранённый вывод удаляется первым."
+            "value": "Наибольший объём сохранённого вывода, который все терминалы вместе хранят на диске, в байтах, от 1 МиБ до 100 ГиБ. Пусто — лимит режима: 50 МиБ для снимка, 2 ГиБ для всей прокрутки. Самый старый сохранённый вывод удаляется первым. В режиме «Вся прокрутка» снимки экрана (до 50 МиБ) добавляются к этому лимиту."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ปริมาณเอาต์พุตที่บันทึกไว้สูงสุดที่ทุกเทอร์มินัลรวมกันเก็บบนดิสก์ เป็นไบต์ ตั้งแต่ 1 MiB ถึง 100 GiB ค่าว่างใช้ขีดจำกัดของโหมด: 50 MiB สำหรับสแนปช็อต 2 GiB สำหรับประวัติการเลื่อนทั้งหมด เอาต์พุตที่บันทึกไว้เก่าที่สุดจะถูกลบก่อน"
+            "value": "ปริมาณเอาต์พุตที่บันทึกไว้สูงสุดที่ทุกเทอร์มินัลรวมกันเก็บบนดิสก์ เป็นไบต์ ตั้งแต่ 1 MiB ถึง 100 GiB ค่าว่างใช้ขีดจำกัดของโหมด: 50 MiB สำหรับสแนปช็อต 2 GiB สำหรับประวัติการเลื่อนทั้งหมด เอาต์พุตที่บันทึกไว้เก่าที่สุดจะถูกลบก่อน ในประวัติการเลื่อนทั้งหมด สแนปช็อตหน้าจอ (สูงสุด 50 MiB) จะเพิ่มจากขีดจำกัดนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tüm terminallerin birlikte diskte tuttuğu en fazla kayıtlı çıktı, bayt olarak, 1 MiB ile 100 GiB arası. Boş bırakılırsa modun sınırı kullanılır: anlık görüntüde 50 MiB, tüm kaydırma geçmişinde 2 GiB. En eski kayıtlı çıktı önce silinir."
+            "value": "Tüm terminallerin birlikte diskte tuttuğu en fazla kayıtlı çıktı, bayt olarak, 1 MiB ile 100 GiB arası. Boş bırakılırsa modun sınırı kullanılır: anlık görüntüde 50 MiB, tüm kaydırma geçmişinde 2 GiB. En eski kayıtlı çıktı önce silinir. Tüm kaydırma geçmişinde ekran anlık görüntüleri (en fazla 50 MiB) bu sınıra ek olarak gelir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Найбільший обсяг збереженого виводу, який усі термінали разом зберігають на диску, у байтах, від 1 МіБ до 100 ГіБ. Порожнє — ліміт режиму: 50 МіБ для знімка, 2 ГіБ для всієї історії прокручування. Найстаріший збережений вивід видаляється першим."
+            "value": "Найбільший обсяг збереженого виводу, який усі термінали разом зберігають на диску, у байтах, від 1 МіБ до 100 ГіБ. Порожнє — ліміт режиму: 50 МіБ для знімка, 2 ГіБ для всієї історії прокручування. Найстаріший збережений вивід видаляється першим. У режимі «Уся історія прокручування» знімки екрана (до 50 МіБ) додаються до цього ліміту."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lượng đầu ra đã lưu tối đa mà mọi terminal cùng giữ trên ổ đĩa, tính bằng byte, từ 1 MiB đến 100 GiB. Để trống dùng giới hạn của chế độ: 50 MiB với Ảnh chụp nhanh, 2 GiB với Toàn bộ lịch sử cuộn. Đầu ra đã lưu cũ nhất bị xóa trước."
+            "value": "Lượng đầu ra đã lưu tối đa mà mọi terminal cùng giữ trên ổ đĩa, tính bằng byte, từ 1 MiB đến 100 GiB. Để trống dùng giới hạn của chế độ: 50 MiB với Ảnh chụp nhanh, 2 GiB với Toàn bộ lịch sử cuộn. Đầu ra đã lưu cũ nhất bị xóa trước. Với Toàn bộ lịch sử cuộn, các ảnh chụp màn hình (tối đa 50 MiB) được tính thêm ngoài giới hạn này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "所有终端合计在磁盘上保存输出的上限，单位为字节，范围 1 MiB 至 100 GiB。留空则使用模式的上限：快照为 50 MiB，完整回滚缓冲为 2 GiB。最早保存的输出先被删除。"
+            "value": "所有终端合计在磁盘上保存输出的上限，单位为字节，范围 1 MiB 至 100 GiB。留空则使用模式的上限：快照为 50 MiB，完整回滚缓冲为 2 GiB。最早保存的输出先被删除。在完整回滚缓冲模式下，屏幕快照（最多 50 MiB）不计入此上限，另外占用空间。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "所有終端機合計在磁碟上保留輸出的上限，單位為位元組，範圍 1 MiB 至 100 GiB。留空則使用模式的上限：快照為 50 MiB，完整回捲緩衝為 2 GiB。最早儲存的輸出先被刪除。"
+            "value": "所有終端機合計在磁碟上保留輸出的上限，單位為位元組，範圍 1 MiB 至 100 GiB。留空則使用模式的上限：快照為 50 MiB，完整回捲緩衝為 2 GiB。最早儲存的輸出先被刪除。在完整回捲緩衝模式下，畫面快照（最多 50 MiB）不計入此上限，另外佔用空間。"
           }
         }
       }
@@ -150765,127 +150765,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Memory Only: nothing is written to disk. A restart of the Mac loses terminal output; a restart of cmux reconnects to the running terminals. Snapshot: each terminal saves one compressed screen and its recent lines, only when they changed (at most every 30 seconds, and at quit). Full Scrollback: each terminal saves all of its output, compressed, every few seconds. After a restart or a lost terminal, the terminal gets its saved output back; terminal.output_read can read all of it."
+            "value": "Memory Only: nothing is written to disk. A restart of the Mac loses terminal output; a restart of cmux reconnects to the running terminals. Snapshot: each terminal saves one compressed screen and its recent lines, written when the screen changed: at most every 30 seconds, at a session checkpoint, when you clear the terminal's history, and at quit. In this mode, terminal.output_read reads only the last 64 KiB in memory. Full Scrollback: each terminal saves all of its output, compressed, every few seconds. After a restart or a lost terminal, the terminal gets its saved output back; in Full Scrollback only, terminal.output_read can read all of it."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الذاكرة فقط: لا يُكتب أي شيء على القرص. إعادة تشغيل الـ Mac تُفقد مخرجات الطرفية؛ وإعادة تشغيل cmux تعيد الاتصال بالطرفيات العاملة. لقطة: تحفظ كل طرفية شاشة مضغوطة واحدة وأسطرها الأخيرة، فقط عند تغيّرها (كل 30 ثانية على الأكثر، وعند الإنهاء). سجل التمرير الكامل: تحفظ كل طرفية كل مخرجاتها مضغوطة كل بضع ثوانٍ. بعد إعادة التشغيل أو فقدان طرفية، تستعيد الطرفية مخرجاتها المحفوظة؛ ويمكن لـ terminal.output_read قراءتها كلها."
+            "value": "الذاكرة فقط: لا يُكتب أي شيء على القرص. إعادة تشغيل الـ Mac تُفقد مخرجات الطرفية؛ وإعادة تشغيل cmux تعيد الاتصال بالطرفيات العاملة. لقطة: تحفظ كل طرفية شاشة مضغوطة واحدة وأسطرها الأخيرة، وتُكتب عندما تتغير الشاشة: كل 30 ثانية على الأكثر، وعند نقطة حفظ الجلسة، وعند مسح سجل الطرفية، وعند الإنهاء. في هذا الوضع، يقرأ terminal.output_read آخر 64 KiB في الذاكرة فقط. سجل التمرير الكامل: تحفظ كل طرفية كل مخرجاتها مضغوطة كل بضع ثوانٍ. بعد إعادة التشغيل أو فقدان طرفية، تستعيد الطرفية مخرجاتها المحفوظة؛ وفي سجل التمرير الكامل فقط يمكن لـ terminal.output_read قراءتها كلها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Samo memorija: ništa se ne upisuje na disk. Ponovno pokretanje Maca gubi izlaz terminala; ponovno pokretanje cmuxa se ponovo povezuje s pokrenutim terminalima. Snimak: svaki terminal čuva jedan komprimirani ekran i nedavne redove, samo kada su se promijenili (najviše svakih 30 sekundi i pri izlasku). Cijela historija pomicanja: svaki terminal čuva sav svoj izlaz, komprimiran, svakih nekoliko sekundi. Nakon ponovnog pokretanja ili izgubljenog terminala, terminal dobija nazad sačuvani izlaz; terminal.output_read može pročitati sav."
+            "value": "Samo memorija: ništa se ne upisuje na disk. Ponovno pokretanje Maca gubi izlaz terminala; ponovno pokretanje cmuxa se ponovo povezuje s pokrenutim terminalima. Snimak: svaki terminal čuva jedan komprimirani ekran i nedavne redove, upisane kada se ekran promijenio: najviše svakih 30 sekundi, na kontrolnoj tački sesije, kada obrišete historiju terminala i pri izlasku. U ovom načinu terminal.output_read čita samo zadnjih 64 KiB u memoriji. Cijela historija pomicanja: svaki terminal čuva sav svoj izlaz, komprimiran, svakih nekoliko sekundi. Nakon ponovnog pokretanja ili izgubljenog terminala, terminal dobija nazad sačuvani izlaz; samo u cijeloj historiji pomicanja terminal.output_read može pročitati sav."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kun hukommelse: intet skrives til disken. En genstart af Mac'en mister terminaloutput; en genstart af cmux genforbinder til de kørende terminaler. Øjebliksbillede: hver terminal gemmer én komprimeret skærm og de seneste linjer, kun når de er ændret (højst hvert 30. sekund og ved afslutning). Fuld rullehistorik: hver terminal gemmer alt sit output, komprimeret, med få sekunders mellemrum. Efter en genstart eller en mistet terminal får terminalen sit gemte output tilbage; terminal.output_read kan læse det hele."
+            "value": "Kun hukommelse: intet skrives til disken. En genstart af Mac'en mister terminaloutput; en genstart af cmux genforbinder til de kørende terminaler. Øjebliksbillede: hver terminal gemmer én komprimeret skærm og de seneste linjer, skrevet når skærmen er ændret: højst hvert 30. sekund, ved et sessionskontrolpunkt, når du rydder terminalens historik, og ved afslutning. I denne tilstand læser terminal.output_read kun de sidste 64 KiB i hukommelsen. Fuld rullehistorik: hver terminal gemmer alt sit output, komprimeret, med få sekunders mellemrum. Efter en genstart eller en mistet terminal får terminalen sit gemte output tilbage; kun ved fuld rullehistorik kan terminal.output_read læse det hele."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nur Arbeitsspeicher: Nichts wird auf das Volume geschrieben. Ein Neustart des Mac verliert die Terminalausgabe; ein Neustart von cmux verbindet sich wieder mit den laufenden Terminals. Momentaufnahme: Jedes Terminal speichert einen komprimierten Bildschirm und seine letzten Zeilen, nur wenn sie sich geändert haben (höchstens alle 30 Sekunden und beim Beenden). Gesamter Scrollback: Jedes Terminal speichert seine gesamte Ausgabe komprimiert alle paar Sekunden. Nach einem Neustart oder einem verlorenen Terminal erhält das Terminal seine gespeicherte Ausgabe zurück; terminal.output_read kann sie vollständig lesen."
+            "value": "Nur Arbeitsspeicher: Nichts wird auf das Volume geschrieben. Ein Neustart des Mac verliert die Terminalausgabe; ein Neustart von cmux verbindet sich wieder mit den laufenden Terminals. Momentaufnahme: Jedes Terminal speichert einen komprimierten Bildschirm und seine letzten Zeilen, geschrieben wenn sich der Bildschirm geändert hat: höchstens alle 30 Sekunden, an einem Sitzungsprüfpunkt, wenn du den Verlauf des Terminals löschst, und beim Beenden. In diesem Modus liest terminal.output_read nur die letzten 64 KiB im Arbeitsspeicher. Gesamter Scrollback: Jedes Terminal speichert seine gesamte Ausgabe komprimiert alle paar Sekunden. Nach einem Neustart oder einem verlorenen Terminal erhält das Terminal seine gespeicherte Ausgabe zurück; nur bei gesamtem Scrollback kann terminal.output_read sie vollständig lesen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Solo memoria: no se escribe nada en el disco. Al reiniciar el Mac se pierde la salida del terminal; al reiniciar cmux se vuelve a conectar a los terminales en ejecución. Instantánea: cada terminal guarda una pantalla comprimida y sus líneas recientes, solo cuando cambian (como mucho cada 30 segundos, y al salir). Historial completo: cada terminal guarda toda su salida, comprimida, cada pocos segundos. Tras un reinicio o un terminal perdido, el terminal recupera su salida guardada; terminal.output_read puede leerla entera."
+            "value": "Solo memoria: no se escribe nada en el disco. Al reiniciar el Mac se pierde la salida del terminal; al reiniciar cmux se vuelve a conectar a los terminales en ejecución. Instantánea: cada terminal guarda una pantalla comprimida y sus líneas recientes, escritas cuando la pantalla cambió: como mucho cada 30 segundos, en un punto de control de la sesión, al borrar el historial del terminal y al salir. En este modo, terminal.output_read solo lee los últimos 64 KiB en memoria. Historial completo: cada terminal guarda toda su salida, comprimida, cada pocos segundos. Tras un reinicio o un terminal perdido, el terminal recupera su salida guardada; solo en Historial completo terminal.output_read puede leerla entera."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mémoire seulement : rien n'est écrit sur le disque. Un redémarrage du Mac perd la sortie du terminal ; un redémarrage de cmux se reconnecte aux terminaux en cours. Instantané : chaque terminal enregistre un écran compressé et ses lignes récentes, seulement quand ils ont changé (au plus toutes les 30 secondes, et à la fermeture). Historique complet : chaque terminal enregistre toute sa sortie, compressée, toutes les quelques secondes. Après un redémarrage ou un terminal perdu, le terminal récupère sa sortie enregistrée ; terminal.output_read peut la lire en entier."
+            "value": "Mémoire seulement : rien n'est écrit sur le disque. Un redémarrage du Mac perd la sortie du terminal ; un redémarrage de cmux se reconnecte aux terminaux en cours. Instantané : chaque terminal enregistre un écran compressé et ses lignes récentes, écrits quand l'écran a changé : au plus toutes les 30 secondes, à un point de contrôle de session, quand vous effacez l'historique du terminal, et à la fermeture. Dans ce mode, terminal.output_read lit seulement les derniers 64 Kio en mémoire. Historique complet : chaque terminal enregistre toute sa sortie, compressée, toutes les quelques secondes. Après un redémarrage ou un terminal perdu, le terminal récupère sa sortie enregistrée ; en Historique complet seulement, terminal.output_read peut la lire en entier."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Solo memoria: non viene scritto nulla su disco. Un riavvio del Mac perde l'output del terminale; un riavvio di cmux si ricollega ai terminali in esecuzione. Istantanea: ogni terminale salva una schermata compressa e le righe recenti, solo quando sono cambiate (al massimo ogni 30 secondi, e all'uscita). Cronologia completa: ogni terminale salva tutto il suo output, compresso, ogni pochi secondi. Dopo un riavvio o un terminale perso, il terminale recupera l'output salvato; terminal.output_read può leggerlo tutto."
+            "value": "Solo memoria: non viene scritto nulla su disco. Un riavvio del Mac perde l'output del terminale; un riavvio di cmux si ricollega ai terminali in esecuzione. Istantanea: ogni terminale salva una schermata compressa e le righe recenti, scritte quando la schermata è cambiata: al massimo ogni 30 secondi, a un checkpoint di sessione, quando cancelli la cronologia del terminale e all'uscita. In questa modalità, terminal.output_read legge solo gli ultimi 64 KiB in memoria. Cronologia completa: ogni terminale salva tutto il suo output, compresso, ogni pochi secondi. Dopo un riavvio o un terminale perso, il terminale recupera l'output salvato; solo in Cronologia completa terminal.output_read può leggerlo tutto."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "メモリのみ: ディスクには何も書き込みません。Mac を再起動するとターミナル出力は失われます。cmux を再起動すると実行中のターミナルに再接続します。スナップショット: 各ターミナルが圧縮した画面 1 枚と最近の行を、変化したときだけ保存します（最大 30 秒ごとと終了時）。スクロールバック全体: 各ターミナルがすべての出力を圧縮して数秒ごとに保存します。再起動後やターミナルが失われた後、ターミナルは保存した出力を取り戻します。terminal.output_read で全体を読み取れます。"
+            "value": "メモリのみ: ディスクには何も書き込みません。Mac を再起動するとターミナル出力は失われます。cmux を再起動すると実行中のターミナルに再接続します。スナップショット: 各ターミナルが圧縮した画面 1 枚と最近の行を、画面が変化したときに書き込みます（最大 30 秒ごと、セッションのチェックポイント時、ターミナルの履歴を消去したとき、終了時）。このモードでは terminal.output_read はメモリ上の最後の 64 KiB だけを読み取ります。スクロールバック全体: 各ターミナルがすべての出力を圧縮して数秒ごとに保存します。再起動後やターミナルが失われた後、ターミナルは保存した出力を取り戻します。スクロールバック全体でのみ、terminal.output_read で全体を読み取れます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "តែអង្គចងចាំ៖ គ្មានអ្វីត្រូវបានសរសេរទៅថាសទេ។ ការចាប់ផ្ដើម Mac ឡើងវិញធ្វើឱ្យបាត់លទ្ធផលទែមីណាល់ ការចាប់ផ្ដើម cmux ឡើងវិញភ្ជាប់ទៅទែមីណាល់ដែលកំពុងដំណើរការវិញ។ រូបថតស្ថានភាព៖ ទែមីណាល់នីមួយៗរក្សាទុកអេក្រង់បង្ហាប់មួយ និងបន្ទាត់ថ្មីៗ តែនៅពេលវាផ្លាស់ប្ដូរ (យ៉ាងច្រើនរៀងរាល់ 30 វិនាទី និងនៅពេលចាកចេញ)។ ប្រវត្តិរំកិលពេញលេញ៖ ទែមីណាល់នីមួយៗរក្សាទុកលទ្ធផលទាំងអស់ ដោយបង្ហាប់ រៀងរាល់ពីរបីវិនាទី។ បន្ទាប់ពីចាប់ផ្ដើមឡើងវិញ ឬបាត់ទែមីណាល់ ទែមីណាល់ទទួលបានលទ្ធផលដែលបានរក្សាទុកវិញ ហើយ terminal.output_read អាចអានវាទាំងអស់។"
+            "value": "តែអង្គចងចាំ៖ គ្មានអ្វីត្រូវបានសរសេរទៅថាសទេ។ ការចាប់ផ្ដើម Mac ឡើងវិញធ្វើឱ្យបាត់លទ្ធផលទែមីណាល់ ការចាប់ផ្ដើម cmux ឡើងវិញភ្ជាប់ទៅទែមីណាល់ដែលកំពុងដំណើរការវិញ។ រូបថតស្ថានភាព៖ ទែមីណាល់នីមួយៗរក្សាទុកអេក្រង់បង្ហាប់មួយ និងបន្ទាត់ថ្មីៗ ដែលសរសេរនៅពេលអេក្រង់ផ្លាស់ប្ដូរ៖ យ៉ាងច្រើនរៀងរាល់ 30 វិនាទី នៅចំណុចត្រួតពិនិត្យសម័យ នៅពេលអ្នកសម្អាតប្រវត្តិទែមីណាល់ និងនៅពេលចាកចេញ។ ក្នុងរបៀបនេះ terminal.output_read អានតែ 64 KiB ចុងក្រោយក្នុងអង្គចងចាំប៉ុណ្ណោះ។ ប្រវត្តិរំកិលពេញលេញ៖ ទែមីណាល់នីមួយៗរក្សាទុកលទ្ធផលទាំងអស់ ដោយបង្ហាប់ រៀងរាល់ពីរបីវិនាទី។ បន្ទាប់ពីចាប់ផ្ដើមឡើងវិញ ឬបាត់ទែមីណាល់ ទែមីណាល់ទទួលបានលទ្ធផលដែលបានរក្សាទុកវិញ ហើយតែក្នុងប្រវត្តិរំកិលពេញលេញទេ ដែល terminal.output_read អាចអានវាទាំងអស់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "메모리만: 디스크에 아무것도 쓰지 않습니다. Mac을 재시동하면 터미널 출력이 사라지고, cmux를 다시 시작하면 실행 중인 터미널에 다시 연결됩니다. 스냅숏: 각 터미널이 압축된 화면 하나와 최근 줄을 변경되었을 때만 저장합니다(최대 30초마다, 그리고 종료할 때). 전체 스크롤백: 각 터미널이 모든 출력을 압축해 몇 초마다 저장합니다. 재시작하거나 터미널이 사라진 뒤에도 터미널은 저장된 출력을 되찾으며, terminal.output_read로 전체를 읽을 수 있습니다."
+            "value": "메모리만: 디스크에 아무것도 쓰지 않습니다. Mac을 재시동하면 터미널 출력이 사라지고, cmux를 다시 시작하면 실행 중인 터미널에 다시 연결됩니다. 스냅숏: 각 터미널이 압축된 화면 하나와 최근 줄을 화면이 바뀌었을 때 씁니다(최대 30초마다, 세션 체크포인트에서, 터미널 기록을 지울 때, 종료할 때). 이 모드에서 terminal.output_read는 메모리의 마지막 64KiB만 읽습니다. 전체 스크롤백: 각 터미널이 모든 출력을 압축해 몇 초마다 저장합니다. 재시작하거나 터미널이 사라진 뒤에도 터미널은 저장된 출력을 되찾으며, 전체 스크롤백에서만 terminal.output_read로 전체를 읽을 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bare minne: ingenting skrives til disken. En omstart av Mac-en mister terminalutdata; en omstart av cmux kobler til de kjørende terminalene igjen. Øyeblikksbilde: hver terminal lagrer én komprimert skjerm og de siste linjene, bare når de er endret (høyst hvert 30. sekund og ved avslutning). Full rullehistorikk: hver terminal lagrer alle utdataene sine, komprimert, med noen sekunders mellomrom. Etter en omstart eller en tapt terminal får terminalen de lagrede utdataene tilbake; terminal.output_read kan lese alt."
+            "value": "Bare minne: ingenting skrives til disken. En omstart av Mac-en mister terminalutdata; en omstart av cmux kobler til de kjørende terminalene igjen. Øyeblikksbilde: hver terminal lagrer én komprimert skjerm og de siste linjene, skrevet når skjermen er endret: høyst hvert 30. sekund, ved et sjekkpunkt for økten, når du tømmer terminalens historikk, og ved avslutning. I denne modusen leser terminal.output_read bare de siste 64 KiB i minnet. Full rullehistorikk: hver terminal lagrer alle utdataene sine, komprimert, med noen sekunders mellomrom. Etter en omstart eller en tapt terminal får terminalen de lagrede utdataene tilbake; bare ved full rullehistorikk kan terminal.output_read lese alt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tylko pamięć: nic nie jest zapisywane na dysku. Ponowne uruchomienie Maca traci wyjście terminala; ponowne uruchomienie cmux łączy się znowu z działającymi terminalami. Migawka: każdy terminal zapisuje jeden skompresowany ekran i ostatnie wiersze, tylko gdy się zmieniły (najwyżej co 30 sekund i przy zamykaniu). Pełna historia przewijania: każdy terminal zapisuje całe swoje wyjście, skompresowane, co kilka sekund. Po ponownym uruchomieniu lub utracie terminala terminal odzyskuje zapisane wyjście; terminal.output_read może odczytać je w całości."
+            "value": "Tylko pamięć: nic nie jest zapisywane na dysku. Ponowne uruchomienie Maca traci wyjście terminala; ponowne uruchomienie cmux łączy się znowu z działającymi terminalami. Migawka: każdy terminal zapisuje jeden skompresowany ekran i ostatnie wiersze, gdy ekran się zmienił: najwyżej co 30 sekund, w punkcie kontrolnym sesji, gdy wyczyścisz historię terminala, i przy zamykaniu. W tym trybie terminal.output_read odczytuje tylko ostatnie 64 KiB w pamięci. Pełna historia przewijania: każdy terminal zapisuje całe swoje wyjście, skompresowane, co kilka sekund. Po ponownym uruchomieniu lub utracie terminala terminal odzyskuje zapisane wyjście; tylko w pełnej historii przewijania terminal.output_read może odczytać je w całości."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Somente memória: nada é gravado no disco. Reiniciar o Mac perde a saída do terminal; reiniciar o cmux reconecta aos terminais em execução. Instantâneo: cada terminal salva uma tela compactada e suas linhas recentes, somente quando mudam (no máximo a cada 30 segundos, e ao sair). Histórico completo: cada terminal salva toda a sua saída, compactada, a cada poucos segundos. Depois de um reinício ou de um terminal perdido, o terminal recupera a saída salva; terminal.output_read pode ler tudo."
+            "value": "Somente memória: nada é gravado no disco. Reiniciar o Mac perde a saída do terminal; reiniciar o cmux reconecta aos terminais em execução. Instantâneo: cada terminal salva uma tela compactada e suas linhas recentes, gravadas quando a tela mudou: no máximo a cada 30 segundos, em um ponto de verificação da sessão, quando você limpa o histórico do terminal e ao sair. Neste modo, terminal.output_read lê só os últimos 64 KiB na memória. Histórico completo: cada terminal salva toda a sua saída, compactada, a cada poucos segundos. Depois de um reinício ou de um terminal perdido, o terminal recupera a saída salva; só no Histórico completo terminal.output_read pode ler tudo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Только память: на диск ничего не записывается. Перезагрузка Mac теряет вывод терминала; перезапуск cmux снова подключается к работающим терминалам. Снимок: каждый терминал сохраняет один сжатый экран и последние строки, только когда они изменились (не чаще чем раз в 30 секунд и при выходе). Вся прокрутка: каждый терминал сохраняет весь свой вывод в сжатом виде каждые несколько секунд. После перезапуска или потери терминала терминал получает сохранённый вывод обратно; terminal.output_read может прочитать его целиком."
+            "value": "Только память: на диск ничего не записывается. Перезагрузка Mac теряет вывод терминала; перезапуск cmux снова подключается к работающим терминалам. Снимок: каждый терминал сохраняет один сжатый экран и последние строки, которые записываются, когда экран изменился: не чаще чем раз в 30 секунд, в контрольной точке сеанса, при очистке истории терминала и при выходе. В этом режиме terminal.output_read читает только последние 64 КиБ в памяти. Вся прокрутка: каждый терминал сохраняет весь свой вывод в сжатом виде каждые несколько секунд. После перезапуска или потери терминала терминал получает сохранённый вывод обратно; только в режиме «Вся прокрутка» terminal.output_read может прочитать его целиком."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน่วยความจำเท่านั้น: ไม่มีการเขียนสิ่งใดลงดิสก์ การรีสตาร์ท Mac จะทำให้เอาต์พุตเทอร์มินัลหายไป การรีสตาร์ท cmux จะเชื่อมต่อกับเทอร์มินัลที่ทำงานอยู่อีกครั้ง สแนปช็อต: แต่ละเทอร์มินัลบันทึกหน้าจอที่บีบอัดหนึ่งหน้าและบรรทัดล่าสุด เฉพาะเมื่อมีการเปลี่ยนแปลง (อย่างมากทุก 30 วินาที และเมื่อออก) ประวัติการเลื่อนทั้งหมด: แต่ละเทอร์มินัลบันทึกเอาต์พุตทั้งหมดแบบบีบอัดทุกไม่กี่วินาที หลังการรีสตาร์ทหรือเมื่อเทอร์มินัลหายไป เทอร์มินัลจะได้เอาต์พุตที่บันทึกไว้คืน และ terminal.output_read อ่านได้ทั้งหมด"
+            "value": "หน่วยความจำเท่านั้น: ไม่มีการเขียนสิ่งใดลงดิสก์ การรีสตาร์ท Mac จะทำให้เอาต์พุตเทอร์มินัลหายไป การรีสตาร์ท cmux จะเชื่อมต่อกับเทอร์มินัลที่ทำงานอยู่อีกครั้ง สแนปช็อต: แต่ละเทอร์มินัลบันทึกหน้าจอที่บีบอัดหนึ่งหน้าและบรรทัดล่าสุด โดยเขียนเมื่อหน้าจอเปลี่ยน: อย่างมากทุก 30 วินาที ที่จุดตรวจสอบของเซสชัน เมื่อคุณล้างประวัติของเทอร์มินัล และเมื่อออก ในโหมดนี้ terminal.output_read อ่านได้เฉพาะ 64 KiB สุดท้ายในหน่วยความจำ ประวัติการเลื่อนทั้งหมด: แต่ละเทอร์มินัลบันทึกเอาต์พุตทั้งหมดแบบบีบอัดทุกไม่กี่วินาที หลังการรีสตาร์ทหรือเมื่อเทอร์มินัลหายไป เทอร์มินัลจะได้เอาต์พุตที่บันทึกไว้คืน และเฉพาะในประวัติการเลื่อนทั้งหมดเท่านั้นที่ terminal.output_read อ่านได้ทั้งหมด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yalnızca bellek: diske hiçbir şey yazılmaz. Mac'i yeniden başlatmak terminal çıktısını kaybettirir; cmux'u yeniden başlatmak çalışan terminallere yeniden bağlanır. Anlık görüntü: her terminal sıkıştırılmış bir ekranı ve son satırlarını yalnızca değiştiklerinde kaydeder (en fazla 30 saniyede bir ve çıkışta). Tüm kaydırma geçmişi: her terminal tüm çıktısını sıkıştırarak birkaç saniyede bir kaydeder. Yeniden başlatmadan veya kaybolan bir terminalden sonra terminal kayıtlı çıktısını geri alır; terminal.output_read tamamını okuyabilir."
+            "value": "Yalnızca bellek: diske hiçbir şey yazılmaz. Mac'i yeniden başlatmak terminal çıktısını kaybettirir; cmux'u yeniden başlatmak çalışan terminallere yeniden bağlanır. Anlık görüntü: her terminal sıkıştırılmış bir ekranı ve son satırlarını ekran değiştiğinde yazar: en fazla 30 saniyede bir, bir oturum denetim noktasında, terminalin geçmişini temizlediğinizde ve çıkışta. Bu modda terminal.output_read yalnızca bellekteki son 64 KiB'ı okur. Tüm kaydırma geçmişi: her terminal tüm çıktısını sıkıştırarak birkaç saniyede bir kaydeder. Yeniden başlatmadan veya kaybolan bir terminalden sonra terminal kayıtlı çıktısını geri alır; yalnızca tüm kaydırma geçmişinde terminal.output_read tamamını okuyabilir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Лише пам'ять: на диск нічого не записується. Перезавантаження Mac втрачає вивід термінала; перезапуск cmux знову підключається до запущених терміналів. Знімок: кожен термінал зберігає один стиснений екран і останні рядки, лише коли вони змінилися (не частіше ніж раз на 30 секунд і під час виходу). Уся історія прокручування: кожен термінал зберігає весь свій вивід у стисненому вигляді кожні кілька секунд. Після перезапуску або втрати термінала термінал отримує збережений вивід назад; terminal.output_read може прочитати його повністю."
+            "value": "Лише пам'ять: на диск нічого не записується. Перезавантаження Mac втрачає вивід термінала; перезапуск cmux знову підключається до запущених терміналів. Знімок: кожен термінал зберігає один стиснений екран і останні рядки, які записуються, коли екран змінився: не частіше ніж раз на 30 секунд, у контрольній точці сеансу, коли ви очищуєте історію термінала, і під час виходу. У цьому режимі terminal.output_read читає лише останні 64 КіБ у пам'яті. Уся історія прокручування: кожен термінал зберігає весь свій вивід у стисненому вигляді кожні кілька секунд. Після перезапуску або втрати термінала термінал отримує збережений вивід назад; лише в режимі «Уся історія прокручування» terminal.output_read може прочитати його повністю."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chỉ bộ nhớ: không có gì được ghi ra ổ đĩa. Khởi động lại Mac sẽ mất đầu ra terminal; khởi động lại cmux sẽ kết nối lại với các terminal đang chạy. Ảnh chụp nhanh: mỗi terminal lưu một màn hình đã nén và các dòng gần đây, chỉ khi chúng thay đổi (tối đa mỗi 30 giây, và khi thoát). Toàn bộ lịch sử cuộn: mỗi terminal lưu toàn bộ đầu ra, đã nén, vài giây một lần. Sau khi khởi động lại hoặc mất một terminal, terminal lấy lại đầu ra đã lưu; terminal.output_read có thể đọc toàn bộ."
+            "value": "Chỉ bộ nhớ: không có gì được ghi ra ổ đĩa. Khởi động lại Mac sẽ mất đầu ra terminal; khởi động lại cmux sẽ kết nối lại với các terminal đang chạy. Ảnh chụp nhanh: mỗi terminal lưu một màn hình đã nén và các dòng gần đây, được ghi khi màn hình thay đổi: tối đa mỗi 30 giây, tại điểm kiểm tra phiên, khi bạn xóa lịch sử terminal, và khi thoát. Ở chế độ này, terminal.output_read chỉ đọc 64 KiB cuối trong bộ nhớ. Toàn bộ lịch sử cuộn: mỗi terminal lưu toàn bộ đầu ra, đã nén, vài giây một lần. Sau khi khởi động lại hoặc mất một terminal, terminal lấy lại đầu ra đã lưu; chỉ với Toàn bộ lịch sử cuộn, terminal.output_read mới đọc được toàn bộ."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "仅内存：不向磁盘写入任何内容。重启 Mac 会丢失终端输出；重启 cmux 会重新连接到正在运行的终端。快照：每个终端仅在内容变化时保存一个压缩的屏幕及其最近的行（最多每 30 秒一次，以及退出时）。完整回滚缓冲：每个终端每隔几秒压缩保存其全部输出。重启或终端丢失后，终端会取回已保存的输出；terminal.output_read 可以读取全部内容。"
+            "value": "仅内存：不向磁盘写入任何内容。重启 Mac 会丢失终端输出；重启 cmux 会重新连接到正在运行的终端。快照：每个终端保存一个压缩的屏幕及其最近的行，在屏幕变化时写入：最多每 30 秒一次、在会话检查点、在你清除终端历史时，以及退出时。此模式下，terminal.output_read 只读取内存中最后 64 KiB。完整回滚缓冲：每个终端每隔几秒压缩保存其全部输出。重启或终端丢失后，终端会取回已保存的输出；仅在完整回滚缓冲模式下，terminal.output_read 可以读取全部内容。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "僅記憶體：不會寫入任何內容到磁碟。重新啟動 Mac 會遺失終端機輸出；重新啟動 cmux 會重新連接到執行中的終端機。快照：每個終端機只在內容變更時儲存一個壓縮的畫面及最近的行（最多每 30 秒一次，以及結束時）。完整回捲緩衝：每個終端機每隔幾秒壓縮儲存其全部輸出。重新啟動或終端機遺失後，終端機會取回已儲存的輸出；terminal.output_read 可以讀取全部內容。"
+            "value": "僅記憶體：不會寫入任何內容到磁碟。重新啟動 Mac 會遺失終端機輸出；重新啟動 cmux 會重新連接到執行中的終端機。快照：每個終端機儲存一個壓縮的畫面及最近的行，在畫面變更時寫入：最多每 30 秒一次、在工作階段檢查點、在你清除終端機歷史時，以及結束時。此模式下，terminal.output_read 只讀取記憶體中最後 64 KiB。完整回捲緩衝：每個終端機每隔幾秒壓縮儲存其全部輸出。重新啟動或終端機遺失後，終端機會取回已儲存的輸出；僅在完整回捲緩衝模式下，terminal.output_read 可以讀取全部內容。"
           }
         }
       }

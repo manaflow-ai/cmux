@@ -27,7 +27,7 @@ nonisolated enum TerminalOutputSettingsSchema {
                 TerminalOutputSetting.modePath, section: .terminal, group: group,
                 title: SettingsText.keyed("settings.terminal.persistence.mode", "Terminal Output on Disk"),
                 help: SettingsText.keyed("settings.terminal.persistence.mode.help",
-                                         "Memory Only: nothing is written to disk. A restart of the Mac loses terminal output; a restart of cmux reconnects to the running terminals. Snapshot: each terminal saves one compressed screen and its recent lines, only when they changed (at most every 30 seconds, and at quit). Full Scrollback: each terminal saves all of its output, compressed, every few seconds. After a restart or a lost terminal, the terminal gets its saved output back; terminal.output_read can read all of it."),
+                                         "Memory Only: nothing is written to disk. A restart of the Mac loses terminal output; a restart of cmux reconnects to the running terminals. Snapshot: each terminal saves one compressed screen and its recent lines, written when the screen changed: at most every 30 seconds, at a session checkpoint, when you clear the terminal's history, and at quit. In this mode, terminal.output_read reads only the last 64 KiB in memory. Full Scrollback: each terminal saves all of its output, compressed, every few seconds. After a restart or a lost terminal, the terminal gets its saved output back; in Full Scrollback only, terminal.output_read can read all of it."),
                 summary: SettingsText.keyed("settings.terminal.persistence.mode.summary", "What terminal output cmux keeps on disk"),
                 kind: .choice([
                     SettingChoice("memory", SettingsText.keyed("settings.terminal.persistence.mode.memory", "Memory Only")),
@@ -50,7 +50,7 @@ nonisolated enum TerminalOutputSettingsSchema {
                 TerminalOutputSetting.maxTotalBytesPath, section: .terminal, group: group,
                 title: SettingsText.keyed("settings.terminal.persistence.maxTotalBytes", "Disk Limit for All Terminals (Bytes)"),
                 help: SettingsText.keyed("settings.terminal.persistence.maxTotalBytes.help",
-                                         "The most saved output all terminals keep on disk together, in bytes, from 1 MiB to 100 GiB. Empty uses the mode's limit: 50 MiB in Snapshot, 2 GiB in Full Scrollback. The oldest saved output goes first."),
+                                         "The most saved output all terminals keep on disk together, in bytes, from 1 MiB to 100 GiB. Empty uses the mode's limit: 50 MiB in Snapshot, 2 GiB in Full Scrollback. The oldest saved output goes first. In Full Scrollback, the screen snapshots (up to 50 MiB) come in addition to this limit."),
                 kind: .number(SettingNumber(TerminalOutputSetting.diskBytesRange, step: TerminalOutputSetting.byteStep, unit: .count)),
                 default: nil, defaultLabel: modeDefault,
                 keywords: ["persistence", "scrollback", "disk", "limit", "size", "bytes", "storage", "total"]
