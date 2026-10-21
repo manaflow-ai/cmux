@@ -678,7 +678,7 @@ export default agentPaneEntry({
       }),
     },
     "steer-marks": {
-      note: "Under a steer's bubble: Steering while the agent has not read it, with a faint clock and Send now (stops the agent's current step so it reads the steer at once; the turn goes on), and Steered once it has. A prompt sent now to an agent that cannot steer goes on with the turn and carries no mark.",
+      note: "Under a steer's bubble: while the agent has not read it, no label (it shows as any sent prompt), only a faint clock and Send now (stops the agent's current step so it reads the steer at once; the turn goes on); Steered once it has. A prompt sent now to an agent that cannot steer goes on with the turn and carries no mark.",
       snapshot: chat(
         [
           user("Add retries", 6),
