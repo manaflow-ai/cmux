@@ -16,7 +16,7 @@ struct PageWindowKeepsOwnerMainTests {
     }
 
     @Test func anOwnedWindowThatMayBeMainSettlesMainItself() {
-        // A sheet: AppKit keeps its parent main.
+        // AppKit makes such a window main itself when it takes key.
         #expect(!FocusEffectApplier.ownerTakesMain(ownedCanBecomeMain: true, ownerIsMain: false, ownerCanBecomeMain: true))
     }
 

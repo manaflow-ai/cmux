@@ -273,7 +273,9 @@ final class FocusEffectApplier: FocusEffectApplying {
         // A Chromium page window or a panel takes key but never main, and
         // AppKit does not hand main to a child's parent: a click into the page
         // of a cmux window that is not main would leave another cmux window
-        // main, looking active while this one looks inactive.
+        // main, looking active while this one looks inactive. Main follows
+        // the keyboard even when this window sits behind another one (the
+        // palette over an explicit window).
         if let window = controller.window,
            Self.ownerTakesMain(ownedCanBecomeMain: owned.canBecomeMain, ownerIsMain: window.isMainWindow,
                                ownerCanBecomeMain: window.canBecomeMain) {
