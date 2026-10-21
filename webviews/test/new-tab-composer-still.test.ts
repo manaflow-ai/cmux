@@ -14,6 +14,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -98,6 +99,7 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
   /// card's rect and the field's top and left edge, labelled with the step that was running.
   async function load(name: string, template: string, height: number): Promise<Page> {
     const page = await browsers.get(name)!.newPage({ viewport: { width: 1000, height } });
+    await installPaintedFrames(page);
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     const context = { kind: "agent", hotkeys: {}, home: HOME, projects: [ATLAS], host: "cosmic-gray", template };
     await page.addInitScript(
@@ -157,11 +159,7 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
           characterData: true,
           attributes: true,
         });
-        const frame = () => {
-          read();
-          requestAnimationFrame(frame);
-        };
-        requestAnimationFrame(frame);
+        window.cmuxAfterPaint(read);
       },
       { endpoint, context, device },
     );

@@ -15,6 +15,9 @@ extension AgentPaneView {
     /// then opens its model picker, or the composer's file search (a pick mentions the file).
     public func showModelPicker() { showWithKeyboard("openModelPicker") }
     public func showFileSearch() { showWithKeyboard("searchFiles") }
+    /// A chat that just opened from a fork (``AgentForkDestination``): the keyboard goes to its
+    /// composer, so the next words go to the fork.
+    public func focusComposer() { showWithKeyboard("focusComposer") }
     private func showWithKeyboard(_ command: String) {
         if webView.window?.firstResponder !== webView { webView.window?.makeFirstResponder(webView) }
         send(command)
