@@ -909,10 +909,10 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 :root[data-borders="none"] .nt-screen[data-template="cards"] .nt-card {
   box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
 }
-/* The plain page (pageWidgets.ts; Leo 2026-10-20, the default): a quiet greeting and the composer,
-   nothing else. The composer sits about the window's middle at a fixed place, as the composer
-   template's does (a pasted image or a long draft grows it downward, never moves it); the greeting
-   sits a little over it. */
+/* The Minimal layout with no widgets on (pageWidgets.ts; Leo 2026-10-20, the default): a quiet
+   greeting and the composer, nothing else. The composer sits about the window's middle at a fixed
+   place (a pasted image or a long draft grows it downward, never moves it); the greeting sits a
+   little over it. */
 .nt-screen[data-minimal] {
   padding-top: max(32px, calc(50vh - 150px));
 }
@@ -925,36 +925,6 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   font-weight: 500;
   color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 55%, transparent));
   user-select: none;
-}
-/* With nothing over the box, the project strip is the left of the box's bottom row and the agent's
-   chips, the mic and Send its right (NewTabScreen inlineLocation). */
-.nt-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  min-height: 34px;
-  padding: 0 10px 6px 6px;
-  box-sizing: border-box;
-}
-.nt-composer .nt-bar .acpmux-composer-strip {
-  flex: 1 1 0;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border-radius: 0;
-  background: none;
-  box-shadow: none;
-}
-.nt-bar .acpmux-chrome-area {
-  flex: none;
-  min-width: 0;
-}
-.nt-bar .nt-pickers {
-  flex-wrap: nowrap;
-  justify-content: flex-end;
-  min-height: 0;
-  padding: 0;
 }
 /* Without the Search | Ask switch: its hint and the mode, for screen readers only. */
 .nt-mode-quiet {

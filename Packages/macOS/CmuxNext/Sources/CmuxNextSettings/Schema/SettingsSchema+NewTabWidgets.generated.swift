@@ -5,13 +5,13 @@ extension NewTabWidgetSettings {
     /// `tabs.newTabWidgets.greeting`: On by default: a short greeting by the time of day over the composer.
     public nonisolated static let greetingPath = ["tabs", "newTabWidgets", "greeting"]
     public nonisolated static let greetingDefault = true
-    /// `tabs.newTabWidgets.projects`: Off by default. On: the Default template's card of this Mac and its recent projects. The composer's project strip picks a folder either way.
+    /// `tabs.newTabWidgets.projects`: Off by default. On: Default's card of this Mac and its recent projects, with the page in Default's stage. The composer's project strip picks a folder either way.
     public nonisolated static let projectsPath = ["tabs", "newTabWidgets", "projects"]
     public nonisolated static let projectsDefault = false
     /// `tabs.newTabWidgets.actions`: Off by default. On: the chats that need you, New Terminal, New Browser Tab and New Chat. The palette and the pane's + menu have them either way.
     public nonisolated static let actionsPath = ["tabs", "newTabWidgets", "actions"]
     public nonisolated static let actionsDefault = false
-    /// `tabs.newTabWidgets.chats`: Off by default. On: the template's recent chats (cards, rows or All Chats) and Recently Closed. The palette (Cmd-P) finds a chat either way.
+    /// `tabs.newTabWidgets.chats`: Off by default. On: the recent chats as rows under the composer. The palette (Cmd-P) finds a chat either way.
     public nonisolated static let chatsPath = ["tabs", "newTabWidgets", "chats"]
     public nonisolated static let chatsDefault = false
     /// `tabs.newTabWidgets.modeSwitch`: Off by default. Tab still switches between asking the agent and searching the web; the field's placeholder says which.
@@ -24,7 +24,7 @@ extension NewTabWidgetSettings {
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum NewTabWidgetSettingsSchema {
-    /// The New Tab page's widgets (Leo 2026-10-20: "only do the composer for the default"): the page is a greeting and the composer; each other part is a widget, off by default. The app sends the ones on as the page's pageWidgets (webviews newtab/pageWidgets.ts).
+    /// The Minimal New Tab layout's widgets (Leo 2026-10-20: "only do the composer for the default"): Minimal, the default tabs.newTabTemplate, is a greeting and the composer; each other part is a widget, off by default. The other layouts draw what they always drew. The app sends the ones on as the page's pageWidgets (webviews newtab/pageWidgets.ts).
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.tabs", "Tabs")
         return [

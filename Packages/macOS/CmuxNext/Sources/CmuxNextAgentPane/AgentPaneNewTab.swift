@@ -37,8 +37,8 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var projects: [String]
     /// The design to show; nil is the page's default (B).
     public var layout: AgentPaneNewTabLayout?
-    /// The template (`tabs.newTabTemplate`: "cards", "default", "composer", "threads", "console",
-    /// "classic" or "terminal"); nil follows `layout`. The page validates it.
+    /// The template (`tabs.newTabTemplate`: "minimal", "cards", "default", "composer", "threads",
+    /// "console", "classic" or "terminal"); nil follows `layout`. The page validates it.
     public var template: String?
     /// The agent last picked.
     public var lastAgent: String?
@@ -63,9 +63,10 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// true: the page shows the widget view under its composer (Debug Settings `newTab.widgets`,
     /// ``AgentPaneTunables/newTabWidgets``); nil shows none.
     public var widgets: Bool?
-    /// The page's widgets the user turned on (`tabs.newTabWidgets.*`: "greeting", "projects",
-    /// "actions", "chats", "modeSwitch", "styleDots"); the page draws the greeting and the composer
-    /// and only these besides. nil (a host from before them) shows every one. The page validates it.
+    /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`: "greeting",
+    /// "projects", "actions", "chats", "modeSwitch", "styleDots"); Minimal draws the composer and
+    /// only these besides. nil is Settings' defaults (the greeting). The other layouts ignore it.
+    /// The page validates it.
     public var pageWidgets: [String]?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,

@@ -8,7 +8,7 @@
         "key": "settings.group.tabs",
         "text": "Tabs"
       },
-      "note": "The New Tab page's widgets (Leo 2026-10-20: \"only do the composer for the default\"): the page is a greeting and the composer; each other part is a widget, off by default. The app sends the ones on as the page's pageWidgets (webviews newtab/pageWidgets.ts).",
+      "note": "The Minimal New Tab layout's widgets (Leo 2026-10-20: \"only do the composer for the default\"): Minimal, the default tabs.newTabTemplate, is a greeting and the composer; each other part is a widget, off by default. The other layouts draw what they always drew. The app sends the ones on as the page's pageWidgets (webviews newtab/pageWidgets.ts).",
       "rows": [
         {
           "key": "tabs.newTabWidgets.greeting",
@@ -27,7 +27,7 @@
         },
         {
           "key": "tabs.newTabWidgets.projects",
-          "note": "Off by default. On: the Default template's card of this Mac and its recent projects. The composer's project strip picks a folder either way.",
+          "note": "Off by default. On: Default's card of this Mac and its recent projects, with the page in Default's stage. The composer's project strip picks a folder either way.",
           "title": {
             "key": "settings.tabs.newTabWidgets.projects",
             "text": "Show Projects on New Tab"
@@ -57,7 +57,7 @@
         },
         {
           "key": "tabs.newTabWidgets.chats",
-          "note": "Off by default. On: the template's recent chats (cards, rows or All Chats) and Recently Closed. The palette (Cmd-P) finds a chat either way.",
+          "note": "Off by default. On: the recent chats as rows under the composer. The palette (Cmd-P) finds a chat either way.",
           "title": {
             "key": "settings.tabs.newTabWidgets.chats",
             "text": "Show Recent Chats on New Tab"

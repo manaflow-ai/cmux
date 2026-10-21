@@ -190,7 +190,7 @@ To put one new tab in a specific place, whatever the setting, use these commands
 
 ## `tabs.newTabTemplate`
 
-The layout of the New Tab page. The template dots under the page (a widget, see `tabs.newTabWidgets` below) switch it in place and save the choice here.
+The layout of the New Tab page. The template dots under the page switch it in place and save the choice here (on `minimal` they are a widget, see `tabs.newTabWidgets` below).
 
 ```json
 {
@@ -198,7 +198,8 @@ The layout of the New Tab page. The template dots under the page (a widget, see 
 }
 ```
 
-- `cards` (the default): one rounded field with the Search and Ask switch (Tab switches), the project and agent chips under it, and three recent chats as tall cards.
+- `minimal` (the default): a short greeting and the composer. Everything else is a widget you turn on, see `tabs.newTabWidgets`.
+- `cards`: one rounded field with the Search and Ask switch (Tab switches), the project and agent chips under it, and three recent chats as tall cards.
 - `default`: one field with agent rows, recent chats as cards, and Tools.
 - `composer`: one large prompt field, with nothing else.
 - `threads`: the field and the recent chats as a list.
@@ -210,7 +211,7 @@ Cmd-T and the + button always open the New Tab page. Change the template in **Se
 
 ## `tabs.newTabWidgets`
 
-By default the New Tab page shows a short greeting and the composer, with the project and machine in the composer's bottom row. Everything else on the page is a widget you turn on. Each template draws its widgets its own way: recent chats are cards on `cards` and rows on `threads`.
+The `minimal` template, the default, shows a short greeting and the composer, which keeps its folder and machine. Everything else on it is a widget you turn on; with the project card, the actions or the chats on, the page takes the `default` template's layout around the composer. The other templates ignore these keys and draw what they always drew.
 
 ```json
 {
@@ -221,9 +222,9 @@ By default the New Tab page shows a short greeting and the composer, with the pr
 | Key | Default | Shows |
 | --- | --- | --- |
 | `greeting` | `true` | A short greeting by the time of day over the composer. |
-| `projects` | `false` | The `default` template's card of this Mac and its recent projects. |
+| `projects` | `false` | A card of this Mac and its recent projects. |
 | `actions` | `false` | The chats that need you, and New Terminal, New Browser Tab and New Chat. |
-| `chats` | `false` | The recent chats (cards, rows or All Chats, by template) and Recently Closed. |
+| `chats` | `false` | The recent chats, as rows under the composer. |
 | `modeSwitch` | `false` | The Search and Ask switch over the composer. Tab switches modes either way. |
 | `styleDots` | `false` | The template dots under the page. |
 

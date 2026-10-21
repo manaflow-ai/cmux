@@ -1,8 +1,9 @@
-// The New Tab page is minimal by default (Leo 2026-10-20: "only do the composer for the default"):
-// a quiet greeting and the composer, the project strip in the composer's bottom row. The project
-// card, the quick actions, the recent chats, the Search | Ask switch and the template dots are
-// widgets (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts), off until the user turns them on; Tab
-// still switches Search and Ask without the switch.
+// New Tab opens on Minimal (Leo 2026-10-20: "only do the composer for the default"), a layout of
+// its own beside the others: a quiet greeting and the composer, which keeps its project strip. The
+// project card, the quick actions, the recent chats, the Search | Ask switch and the template dots
+// are Minimal's widgets (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts), off until the user turns
+// them on; Tab still switches Search and Ask without the switch. The other layouts draw what they
+// always drew.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -10,10 +11,16 @@ import type { Root } from "react-dom/client";
 import { manySessions, noChat } from "../src/gallery/fixtures/acpmux";
 import { newTabHost } from "../src/agent-session/acpmux/NewTabPage";
 import {
+  DEFAULT_NEW_TAB_TEMPLATE,
+  PAGE_STYLES,
+  shownTemplate,
+  type ScreenTemplate,
+} from "../src/agent-session/acpmux/newtab/templates";
+import {
   PAGE_WIDGETS,
   greetingKey,
-  pageWidgetSet,
   parsePageWidgets,
+  shownPageWidgets,
   type PageWidget,
 } from "../src/agent-session/acpmux/newtab/pageWidgets";
 
@@ -69,7 +76,7 @@ const noop = () => {};
 // 9:30 local time: the morning greeting.
 const MORNING = new Date(2026, 9, 20, 9, 30).getTime();
 
-async function render(template: "default" | "cards" | "threads", widgets: readonly PageWidget[] | undefined) {
+async function render(template: ScreenTemplate, widgets: readonly PageWidget[] | undefined) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const root: Root = createRoot(host);
@@ -77,7 +84,7 @@ async function render(template: "default" | "cards" | "threads", widgets: readon
     root.render(
       <NewTabScreen
         template={template}
-        pageWidgets={pageWidgetSet(widgets)}
+        pageWidgets={shownPageWidgets(template, widgets)}
         now={MORNING}
         snapshot={noChat(manySessions(12))}
         lastAgent="claude"
@@ -107,11 +114,17 @@ const parts = () => ({
   actions: host.querySelectorAll(".nt-suggest, .nt-create").length,
   chats: host.querySelectorAll(".nt-cards, .nt-all, .nt-closed").length,
   modeSwitch: host.querySelectorAll(".nt-mode-track").length,
-  stripInBox: host.querySelectorAll(".nt-box .nt-bar .acpmux-composer-strip").length,
+  strip: host.querySelectorAll(".acpmux-composer-strip").length,
 });
 
-test("the default page is the greeting and the composer, the project strip in its bottom row", async () => {
-  const root = await render("default", ["greeting"]);
+test("Minimal is the default layout and the first dot; no other layout is gone", () => {
+  expect(DEFAULT_NEW_TAB_TEMPLATE).toBe("minimal");
+  expect(shownTemplate({ layout: "b" })).toBe("minimal");
+  expect(PAGE_STYLES).toEqual(["minimal", "cards", "default", "composer", "threads", "console", "classic"]);
+});
+
+test("Minimal is the greeting and the composer, with its project strip", async () => {
+  const root = await render("minimal", ["greeting"]);
   try {
     expect(parts()).toEqual({
       minimal: true,
@@ -121,7 +134,7 @@ test("the default page is the greeting and the composer, the project strip in it
       actions: 0,
       chats: 0,
       modeSwitch: 0,
-      stripInBox: 1,
+      strip: 1,
     });
     // Without the switch Tab still flips Search | Ask: the placeholder says which, and a screen
     // reader still hears the hint the field points at.
@@ -137,40 +150,46 @@ test("the default page is the greeting and the composer, the project strip in it
   }
 });
 
-test("each widget turned on comes back; every widget on is the page as it was", async () => {
-  let root = await render("default", [...PAGE_WIDGETS]);
+test("Minimal's widgets turned on take Default's stage around the composer", async () => {
+  let root = await render("minimal", [...PAGE_WIDGETS]);
   try {
-    expect(parts()).toMatchObject({ minimal: false, stage: 1, projects: 1, modeSwitch: 1, stripInBox: 0 });
+    expect(parts()).toMatchObject({ minimal: false, stage: 1, projects: 1, modeSwitch: 1 });
     expect(parts().actions).toBeGreaterThan(0);
     expect(parts().chats).toBeGreaterThan(0);
   } finally {
     await act(async () => root.unmount());
   }
-  root = await render("threads", ["chats"]);
+  root = await render("minimal", ["chats"]);
   try {
-    expect(parts()).toMatchObject({ minimal: false, greeting: null, stage: 0, actions: 0, modeSwitch: 0 });
-    expect(parts().chats).toBeGreaterThan(0);
-  } finally {
-    await act(async () => root.unmount());
-  }
-  // A host that sends no list (from before the widgets) shows every one.
-  root = await render("cards", undefined);
-  try {
-    expect(parts()).toMatchObject({ minimal: false, modeSwitch: 1 });
+    expect(parts()).toMatchObject({ minimal: false, greeting: null, stage: 1, projects: 0, actions: 0, modeSwitch: 0 });
     expect(parts().chats).toBeGreaterThan(0);
   } finally {
     await act(async () => root.unmount());
   }
 });
 
-test("the handshake's pageWidgets: known names in order, nothing when absent", () => {
+test("the other layouts ignore Minimal's widgets and draw what they always drew", async () => {
+  for (const template of ["cards", "threads", "default"] as const) {
+    const root = await render(template, ["greeting"]);
+    try {
+      expect(parts(), template).toMatchObject({ minimal: false, greeting: null });
+      expect(parts().chats, template).toBeGreaterThan(0);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  }
+});
+
+test("the handshake's pageWidgets: known names in order, Settings' defaults when absent", () => {
   expect(parsePageWidgets(["styleDots", "bogus", "greeting", 3])).toEqual(["greeting", "styleDots"]);
   expect(parsePageWidgets([])).toEqual([]);
   expect(parsePageWidgets(undefined)).toBeUndefined();
   expect(newTabHost({ newTab: { pageWidgets: ["chats"] } })?.pageWidgets).toEqual(["chats"]);
   expect(newTabHost({ newTab: { pageWidgets: [] } })?.pageWidgets).toEqual([]);
   expect(newTabHost({ newTab: {} })?.pageWidgets).toBeUndefined();
-  expect([...pageWidgetSet(undefined)]).toEqual([...PAGE_WIDGETS]);
+  expect([...shownPageWidgets("minimal")]).toEqual(["greeting"]);
+  expect([...shownPageWidgets("minimal", [])]).toEqual([]);
+  expect([...shownPageWidgets("cards", ["greeting"])]).toEqual(PAGE_WIDGETS.filter((widget) => widget !== "greeting"));
 });
 
 test("the greeting follows the hour", () => {

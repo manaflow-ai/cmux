@@ -38,7 +38,7 @@ import {
 } from "./screenModel";
 import { RowGlyph } from "./RowGlyph";
 import { WidgetCards } from "./WidgetCards";
-import { greetingKey, pageWidgetSet, type PageWidgets } from "./pageWidgets";
+import { greetingKey, shownPageWidgets, type PageWidgets } from "./pageWidgets";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
@@ -146,8 +146,8 @@ type Props = NewTabScreenActions & {
   template?: ScreenTemplate;
   /// The widget view (Debug Settings `newTab.widgets`): the Projects and Needs you cards.
   widgets?: boolean;
-  /// The page's widgets (`tabs.newTabWidgets.*`, pageWidgets.ts): without them the page is the
-  /// greeting and the composer. Unset shows every one.
+  /// The page's widgets (`tabs.newTabWidgets.*`, pageWidgets.ts): on Minimal, without them the page
+  /// is the greeting and the composer. Unset shows the template's own (shownPageWidgets).
   pageWidgets?: PageWidgets;
   /// Buttons before Send, such as the dictation mic (DictationMic).
   accessory?: React.ReactNode;
@@ -175,13 +175,13 @@ export function NewTabScreen(props: Props) {
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, inputToken } = props;
   const template = props.template ?? "default";
   const sections = screenSections(template);
-  const widgets = props.pageWidgets ?? pageWidgetSet(undefined);
+  const widgets = props.pageWidgets ?? shownPageWidgets(template);
   // Claude Code desktop's new-session page (templates.ts stage, the Default template): the composer
-  // at the foot, the environment and suggestions cards over it. With none of the stage's widgets on,
-  // the page is the plain one: the greeting and the composer.
+  // at the foot, the environment and suggestions cards over it. On Minimal with none of the stage's
+  // widgets on, the page is the plain one: the greeting and the composer.
   const stage = sections.stage && (widgets.has("projects") || widgets.has("actions") || widgets.has("chats"));
-  // Nothing but the greeting and the composer (Leo 2026-10-20, the default): the composer sits about
-  // the window's middle and the project strip moves into its bottom row.
+  // Nothing but the greeting and the composer (Minimal, Leo 2026-10-20): the composer sits about the
+  // window's middle.
   const minimal = !stage && !widgets.has("actions") && !widgets.has("chats");
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: no rows for it.
@@ -790,9 +790,6 @@ export function NewTabScreen(props: Props) {
   const pill = template === "cards" && !split;
   // The Search | Ask switch is a widget (off by default); Tab flips the mode without it.
   const modeShown = widgets.has("modeSwitch");
-  // With nothing else over the box, the project strip sits in the box's bottom row, left of the
-  // agent's chips (Leo 2026-10-20: folder and machine "reachable but compact").
-  const inlineLocation = !pill && !split && !modeShown;
   // Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent composer's
   // location strip; never the home ~ the tab inherited (cx-7fje0).
   const folderStrip = (
@@ -948,7 +945,7 @@ export function NewTabScreen(props: Props) {
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
         {/* Above the box: the project strip on the left (Cards draws it under the field) and the
             Search | Ask switch at the box's right edge. */}
-        {!inlineLocation && (!pill || (modeShown && modeRow)) && (
+        {(!pill || (modeShown && modeRow)) && (
           <div className="nt-above">
             {!pill && folderStrip}
             {modeShown && modeRow}
@@ -1013,15 +1010,7 @@ export function NewTabScreen(props: Props) {
               field.current?.focus();
             }}
           />
-          {!pill &&
-            (inlineLocation ? (
-              <div className="nt-bar">
-                {folderStrip}
-                {pickers}
-              </div>
-            ) : (
-              pickers
-            ))}
+          {!pill && pickers}
         </div>
         {/* Claude Code's split, the chat composer's (ComposerFoot.tsx): the mode, model and effort in
             a quiet row under the box; the box keeps the prompt, the mic and Send. */}

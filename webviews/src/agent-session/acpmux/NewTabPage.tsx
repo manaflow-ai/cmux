@@ -99,8 +99,8 @@ export type NewTabHost = {
   history?: boolean;
   /// The widget view under the composer (Debug Settings `newTab.widgets`, newtab/WidgetCards.tsx).
   widgets?: boolean;
-  /// The page's widgets the user turned on (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts); unset
-  /// shows every one, as a host from before them did.
+  /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts);
+  /// unset is Settings' defaults (the greeting).
   pageWidgets?: PageWidget[];
 };
 
