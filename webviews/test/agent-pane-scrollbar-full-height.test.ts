@@ -134,6 +134,36 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     return page;
   }
 
+  /// Resolves after `count` painted frames (a task queued from the last one's animation frame).
+  const painted = (page: Page, count: number) =>
+    page.evaluate(
+      (count) =>
+        new Promise<void>((done) => {
+          let left = count;
+          const tick = () => (--left <= 0 ? setTimeout(done, 0) : requestAnimationFrame(tick));
+          requestAnimationFrame(tick);
+        }),
+      count,
+    );
+  /// Resolves once the scroller's offset has held for 12 painted frames (a wheel's scroll can run
+  /// over several frames).
+  const restingScroll = (page: Page) =>
+    page.evaluate(
+      () =>
+        new Promise<void>((done) => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          let last = scroller.scrollTop;
+          let still = 0;
+          const tick = () => {
+            still = scroller.scrollTop === last ? still + 1 : 0;
+            last = scroller.scrollTop;
+            if (still >= 12) done();
+            else requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
+
   /// The pane, the scroller (whose height is its scrollbar's track) and the composer's card, and
   /// how far the last row's bottom sits above the card's top (negative: under the card).
   const measure = (page: Page) =>
@@ -456,6 +486,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
   // the composer make the scrollbar jump"). Before: each line grew the room under the last row, so
   // the offset was written to the new end and the overlay thumb showed and shrank on every line.
   test("a composer that grows and shrinks at the latest row keeps the scrollbar still on every frame", async () => {
+    // fixed-wait: open() rests 500ms for rows to place by drawn height, as every test in this file does.
     const page = await open();
     await page.locator(".acpmux-md").click();
     const before = await measure(page);
@@ -498,7 +529,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     for (let line = 1; line <= 5; line++) {
       await page.keyboard.type(`Line ${line} of a longer prompt`);
       await page.keyboard.press("Shift+Enter");
-      await page.waitForTimeout(60);
+      await painted(page, 3);
     }
     // And back: the lines removed one at a time, then the rest of the draft at once.
     for (let line = 1; line <= 3; line++) {
@@ -507,7 +538,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       await page.keyboard.press("Home");
       await page.keyboard.up("Shift");
       await page.keyboard.press("Backspace");
-      await page.waitForTimeout(60);
+      await painted(page, 3);
     }
     await page.keyboard.press("ControlOrMeta+A");
     await page.keyboard.press("Backspace");
@@ -559,14 +590,15 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
   // by the wheel's distance, in its direction, on every painted frame. Without that, the rows dropped
   // by the growth (five lines, about 100px) in the frame the view stopped following.
   test("a reader who scrolls up from a grown composer sees the rows move only by the wheel", async () => {
+    // fixed-wait: open() rests 500ms for rows to place by drawn height, as every test in this file does.
     const page = await open();
     await page.locator(".acpmux-md").click();
     for (let line = 1; line <= 5; line++) {
       await page.keyboard.type(`Line ${line} of a longer prompt`);
       await page.keyboard.press("Shift+Enter");
-      await page.waitForTimeout(60);
+      await painted(page, 3);
     }
-    await page.waitForTimeout(300);
+    await painted(page, 12);
     const grown = await measure(page);
     expect({ fromEnd: grown.fromEnd, lastIsLatest: grown.lastIsLatest }).toEqual({ fromEnd: 0, lastIsLatest: true });
     // A row in the lower half of the view, which stays mounted through the wheel's distance.
@@ -596,9 +628,9 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     }, posinset);
     const view = (await page.locator(".acpmux-scroll").boundingBox())!;
     await page.mouse.move(view.x + view.width / 2, view.y + 120);
-    await page.waitForTimeout(100);
+    await painted(page, 2);
     await page.mouse.wheel(0, -300);
-    await page.waitForTimeout(600);
+    await restingScroll(page);
     const frames = await page.evaluate(() => {
       const holder = window as unknown as { __frames?: number[] };
       const frames = holder.__frames ?? [];
@@ -635,7 +667,11 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
         view: document.querySelector<HTMLElement>(".acpmux-scroll")!.clientHeight,
       }));
       await page.setViewportSize({ width: 900, height: 700 - (fit.view - (Math.floor(fit.total) - 2)) });
-      await page.waitForTimeout(500);
+      await page.waitForFunction(
+        (view) => document.querySelector<HTMLElement>(".acpmux-scroll")!.clientHeight < view,
+        fit.view,
+      );
+      await painted(page, 12);
       const opened = await page.evaluate(() => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         return { top: scroller.scrollTop, end: scroller.scrollHeight - scroller.clientHeight };
@@ -647,9 +683,9 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       for (let line = 1; line <= 5; line++) {
         await page.keyboard.type(`Line ${line} of a longer prompt`);
         await page.keyboard.press("Shift+Enter");
-        await page.waitForTimeout(60);
+        await painted(page, 3);
       }
-      await page.waitForTimeout(300);
+      await painted(page, 12);
       // The latest row is above the grown card.
       const grown = await measure(page);
       expect(grown.lastIsLatest).toBe(true);
@@ -659,7 +695,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       await page.mouse.move(view.x + view.width / 2, view.y + 60);
       for (let step = 0; step < 3; step++) {
         await page.mouse.wheel(0, -600);
-        await page.waitForTimeout(300);
+        await restingScroll(page);
       }
       const first = await page.evaluate(() => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;

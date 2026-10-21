@@ -239,6 +239,17 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       w.__stop = true;
       return w.__frames;
     });
+  /// Resolves after `count` painted frames (a task queued from the last one's animation frame).
+  const painted = (page: Page, count: number) =>
+    page.evaluate(
+      (count) =>
+        new Promise<void>((done) => {
+          let left = count;
+          const tick = () => (--left <= 0 ? setTimeout(done, 0) : requestAnimationFrame(tick));
+          requestAnimationFrame(tick);
+        }),
+      count,
+    );
   /// Frames where the marked text moved down (it only ever moves up while followed).
   const drops = (frames: Frame[]) =>
     frames.flatMap((frame, index) => {
@@ -348,27 +359,32 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
   test.each(engines.map(([name]) => name))(
     "%s: a queued prompt sent while the composer is grown moves the view up only",
     async (name) => {
+      // fixed-wait: open() rests 500ms for rows to place by drawn height, as every test in this file does.
       const page = await open(name);
       const turn = events.length;
       const marker = `Grown marker ${turn}`;
+      // fixed-wait: stream() paces the reply's chunks as acpmux sends them; the cadence is the behavior.
       await stream(`p-${turn}`, `Grown turn ${turn}`, marker, 40, (index) => {
         if (index === 10) enqueue(`q-${turn}`, "then write the changelog line for it");
       });
-      await page.waitForTimeout(400);
+      await page.locator(".acpmux-queued").first().waitFor();
+      await painted(page, 12);
       await page.locator(".acpmux-md-field").first().click();
       for (let line = 1; line <= 5; line++) {
         await page.keyboard.type(`Line ${line} of a draft`);
         await page.keyboard.press("Shift+Enter");
-        await page.waitForTimeout(60);
+        await painted(page, 3);
       }
-      await page.waitForTimeout(400);
+      await painted(page, 12);
       await sample(page, marker);
       endTurn();
       // acpmux sends the queued prompt as the turn ends: its card leaves as its bubble arrives.
       unqueue("dequeued", `q-${turn}`);
+      // fixed-wait: stream() paces the reply's chunks as acpmux sends them; the cadence is the behavior.
       await stream(`q-${turn}`, "then write the changelog line for it", `Next grown marker ${turn}`, 30);
       endTurn();
-      await page.waitForTimeout(800);
+      await page.getByText(`Next grown marker ${turn}`).waitFor();
+      await painted(page, 40);
       const frames = await stop(page);
       expect(frames.filter((frame) => frame.marker !== undefined).length).toBeGreaterThan(5);
       expect({ drops: drops(frames), atEnd: (await fromEnd(page)) <= 4 }).toEqual({ drops: [], atEnd: true });
