@@ -44,6 +44,13 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public internal(set) var engineDecision: PageEngineDecision
     /// The Chromium page while one shows the document (PageWebView+Chromium.swift).
     var chromiumSession: PageChromiumSession?
+    /// The file of the last drag from outside that entered the Chromium page and that ``fileDrop``
+    /// takes, with when it entered; the page's drop opens it once.
+    var chromiumDragFile: (url: URL, at: Date)?
+    /// Shows the Chromium page's context menu at a point of this view (tests capture it).
+    var chromiumMenuPresenter: @MainActor (NSMenu, NSPoint, NSView) -> Void = { menu, point, view in
+        menu.popUp(positioning: nil, at: point, in: view)
+    }
     /// Making the Chromium page (cancelled when the view closes or falls back).
     var chromiumStart: Task<Void, Never>?
     /// How long a Chromium page may take to reach the host before the view falls back to WebKit.
@@ -109,16 +116,25 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         get { (webView as? PageWKWebView)?.fileDrop }
         set { (webView as? PageWKWebView)?.fileDrop = newValue }
     }
-    /// Called when files are dropped on the page itself (not a ``fileDrop`` the host opens): a real
-    /// gesture page script can't make.
-    public var onFilesDropped: (@MainActor () -> Void)? {
+    /// Called with their file URLs when files are dropped on the page itself (not a ``fileDrop`` the
+    /// host opens): a real gesture page script can't make.
+    public var onFilesDropped: (@MainActor ([URL]) -> Void)? {
         get { (webView as? PageWKWebView)?.onFilesDropped }
         set { (webView as? PageWKWebView)?.onFilesDropped = newValue }
+    }
+    /// Called when a paste (Cmd-V, Edit > Paste) is about to reach the page, before WebKit pastes.
+    public var onPaste: (@MainActor () -> Void)? {
+        get { (webView as? PageWKWebView)?.onPaste }
+        set { (webView as? PageWKWebView)?.onPaste = newValue }
     }
     /// When a real key or mouse event last reached the page (`systemUptime`; page script cannot set
     /// it), the event behind `PageCallContext.userGesture`. A host that grants one action per
     /// gesture (a file page's "Open <path>?" sheet) records the value it used.
-    public var lastUserEventUptime: TimeInterval? { (webView as? PageWKWebView)?.lastUserEventUptime }
+    public var lastUserEventUptime: TimeInterval? {
+        chromiumSession != nil ? chromiumUserEventUptime : (webView as? PageWKWebView)?.lastUserEventUptime
+    }
+    /// When a real key or mouse event last reached the Chromium page (``PageChromiumEvent/userInput(_:)``).
+    var chromiumUserEventUptime: TimeInterval?
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
@@ -261,7 +277,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
         router.titleBarDoubleClick = { [weak self] in self?.performTitleBarDoubleClick() }
         router.popup = { [weak self] op, params in self?.popup(op, params: params) ?? .object(["shown": .bool(false)]) }
-        router.userGestureEvent = { [weak self] in (self?.webView as? PageWKWebView)?.recentUserGestureEvent() }
+        router.userGestureEvent = { [weak self] in self?.recentUserGestureEvent() }
         #if DEBUG
         // Automation launches (no activation, a GUI host whose windows macOS reports occluded):
         // WebKit stops drawing an occluded window, so captures saw an empty page. DEBUG only;

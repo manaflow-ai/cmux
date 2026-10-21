@@ -1,10 +1,11 @@
 // The transcript's last row while background work outlives its turn: "Running in background ·
 // 2 commands · 3 sessions" (commands from the process registry, chats the agent started, subagents
-// still running; summary/backgroundWork.ts). The running turn's line counts the same work
+// still running; backgroundWork.ts). The running turn's line counts the same work
 // (WorkingFor.tsx), so it shows only between turns. It is drawn as a tool row, in their font,
 // height and rhythm, like a background task's end (BackgroundTaskNote.tsx), with the running
-// rows' spinner. A click opens the summary card, which lists each with Stop. Find skips it: it is
-// status, not transcript. Its counts come with the running line's (WorkingFor.tsx `WorkingCounts`).
+// rows' spinner. A click opens the Inspector (the summary card with it off), which lists each
+// with Stop. Find skips it: it is status, not transcript. Its counts come with the running line's
+// (WorkingFor.tsx `WorkingCounts`).
 import { useContext } from "react";
 import { useT } from "../i18n";
 import { WorkingCountsContext } from "./WorkingFor";

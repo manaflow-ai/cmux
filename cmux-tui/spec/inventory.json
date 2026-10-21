@@ -573,6 +573,7 @@
       "ws-listen",
       "cloud-inbox-list",
       "cloud-requests-list",
+      "cloud-selfhost-info",
       "cloud-conversation-snapshot",
       "cloud-conversation-history",
       "cloud-conversation-thread",

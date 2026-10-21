@@ -14,6 +14,13 @@ struct PageEnginePolicyTests {
         #expect(decision.webKitReason == nil)
     }
 
+    /// Chromium asks the host for a page's generated files (``PageChromiumPage/resources``), so a
+    /// page with dynamic prefixes shows there too.
+    @Test func aPageWithGeneratedFilesFollowsTheChromiumDefault() {
+        let decision = PageEnginePolicy(preference: .chromium, chromiumAvailable: true).decide(for: Self.dynamic, options: .standard)
+        #expect(decision == .chromium)
+    }
+
     @Test func thePersonsWebKitChoiceWinsForEveryPage() {
         for page in [Self.plain, Self.dynamic, Self.agent] {
             let decision = PageEnginePolicy(preference: .webkit, chromiumAvailable: true).decide(for: page, options: .standard)
@@ -23,7 +30,6 @@ struct PageEnginePolicyTests {
 
     @Test func aPageThatCannotRunInChromiumNamesItsReason() {
         let policy = PageEnginePolicy(preference: .chromium, chromiumAvailable: true)
-        #expect(policy.decide(for: Self.dynamic, options: .standard) == .webKit(.runtimeResources))
         #expect(policy.decide(for: Self.agent, options: .standard) == .webKit(.agentChat))
         #expect(policy.decide(for: Self.plain, options: PageEngineOptions(requiresWebKit: .transparentOverlay))
             == .webKit(.transparentOverlay))
@@ -52,11 +58,11 @@ struct PageEnginePolicyTests {
 
     @Test func aPooledSpareIsWebKitWhateverThePolicySays() {
         #expect(PageEngineDecision.chromium.webKitOnly == PageEngineDecision(engine: .webKit))
-        #expect(PageEngineDecision.webKit(.runtimeResources).webKitOnly == .webKit(.runtimeResources))
+        #expect(PageEngineDecision.webKit(.nativeHooks).webKitOnly == .webKit(.nativeHooks))
     }
 
     @Test func withoutAChromiumHostAPageIsOnWebKitForThatReason() {
         #expect(PageWebView.engineDecision(for: Self.plain, options: .standard, hosting: nil) == .webKit(.chromiumUnavailable))
-        #expect(PageWebView.engineDecision(for: Self.dynamic, options: .standard, hosting: nil) == .webKit(.runtimeResources))
+        #expect(PageWebView.engineDecision(for: Self.dynamic, options: .standard, hosting: nil) == .webKit(.chromiumUnavailable))
     }
 }

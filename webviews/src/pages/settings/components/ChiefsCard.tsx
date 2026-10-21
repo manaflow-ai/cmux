@@ -1,4 +1,4 @@
-// Settings > Agents > Chiefs (u2586): every Chief (picture, name, role, backend, locked), each row
+// Settings > Chief > Chiefs (u2586): every Chief (picture, name, role, backend, locked), each row
 // opening the same editor Home shows (home-channels/ChiefPage.tsx), and New Chief. The card has
 // no daemon connection of its own: it reads and writes through the host's page relay to the Chief
 // owner (`cmux.chief.profile.*`) and the host's harness center (`cmux.chief.backend.*`), as Home's
