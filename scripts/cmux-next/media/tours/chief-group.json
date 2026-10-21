@@ -1,9 +1,44 @@
 {
   "title": "The Chief's workspaces",
   "steps": [
-    {"title": "Launch", "wait": 3},
-    {"title": "Two Chief workspaces and a card", "rpc": {"method": "debug.chief_workspaces", "params": {"open": ["Native workflows runtime", "Sidebar group drag"], "card": 0}}, "wait": 3},
-    {"title": "The Chief group, folded", "rpc": {"method": "debug.chief_workspaces", "params": {"collapse": true}}, "wait": 2},
-    {"title": "The Chief group, open", "rpc": {"method": "debug.chief_workspaces", "params": {"collapse": false}}, "wait": 2}
+    {
+      "title": "Launch",
+      "wait": 3
+    },
+    {
+      "title": "Two Chief workspaces and a card",
+      "rpc": {
+        "method": "debug.chief_workspaces",
+        "params": {
+          "open": [
+            "Native workflows runtime",
+            "Sidebar group drag"
+          ],
+          "card": 0,
+          "command": "cat"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "The Chief group, folded",
+      "rpc": {
+        "method": "debug.chief_workspaces",
+        "params": {
+          "collapse": true
+        }
+      },
+      "wait": 2
+    },
+    {
+      "title": "The Chief group, open",
+      "rpc": {
+        "method": "debug.chief_workspaces",
+        "params": {
+          "collapse": false
+        }
+      },
+      "wait": 2
+    }
   ]
 }
