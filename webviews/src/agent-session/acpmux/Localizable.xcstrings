@@ -173293,7 +173293,7 @@
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{agent} はこのチャットの権限ポリシー（{policy}）を守れません。何を確認するかは {agent} 自身の設定で決まります"
+            "value": "{agent} はこのチャットの権限ポリシー（{policy}）を守れません。何を確認するかはそれ自身の設定で決まります"
           }
         },
         "km": {
