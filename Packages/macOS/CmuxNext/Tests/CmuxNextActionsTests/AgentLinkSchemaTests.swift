@@ -56,8 +56,8 @@ struct AgentLinkSchemaTests {
         #expect(Self.schema()["nativeHost"] as? String == "agent")
         #expect(Self.schema()["pathParams"] as? [String] == ["harness", "session"])
         #expect(Self.schema()["queryParams"] as? [String] == ["host", "name", "message", "machine"])
-        #expect(Self.vectors.count >= 15)
-        #expect(Self.vectors.filter { $0.link != nil }.count >= 10)
+        #expect(Self.vectors.count >= 20)
+        #expect(Self.vectors.filter { $0.link != nil }.count >= 15)
     }
 
     /// The parameters the parser reads are the schema's.
@@ -159,6 +159,9 @@ struct AgentLinkSchemaTests {
         ("cmux://agent/claude/s1?cwd=%2Fhome%2Fleo", ["cwd"]),
         ("cmux://agent/claude/s1?cwd=x&cwd=y", ["cwd"]),
         ("cmux://agent/claude/s1?machine=not-a-resource-id", ["machine"]),
+        // The page cannot tell `?machine` from `?machine=`, so neither reader does.
+        ("cmux://agent/claude/s1?machine", ["machine"]),
+        ("cmux://agent/claude/s1?machine=", ["machine"]),
         ("cmux://agent/claude/s1?machine=machine_0123456789abcdef0123456789abcdef"
             + "&machine=machine_fedcba9876543210fedcba9876543210", ["machine"]),
         ("cmux://agent/claude/s1?host=a&host=b", ["host"]),
