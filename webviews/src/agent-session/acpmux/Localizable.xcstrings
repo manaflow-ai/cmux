@@ -47718,6 +47718,138 @@
         }
       }
     },
+    "transport.personRequired": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن الموافقة على هذا إلا من تطبيق cmux. وافق عليه في cmux على جهاز Mac الذي يشغّل هذه المحادثة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovo se može odobriti samo u aplikaciji cmux. Odobrite to u cmuxu na Macu na kojem radi ovaj chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun cmux-appen kan godkende dette. Godkend det i cmux på den Mac, der kører denne chat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur die cmux-App kann das genehmigen. Genehmige es in cmux auf dem Mac, auf dem dieser Chat läuft."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only the cmux app can approve this. Approve it in cmux on the Mac that runs this chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo la app cmux puede aprobar esto. Apruébalo en cmux en el Mac que ejecuta este chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seule l’app cmux peut approuver ceci. Approuvez-le dans cmux sur le Mac qui exécute ce chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo l’app cmux può approvarlo. Approvalo in cmux sul Mac che esegue questa chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "これを承認できるのは cmux アプリだけです。このチャットを実行している Mac の cmux で承認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានតែកម្មវិធី cmux ទេដែលអាចអនុម័តការនេះបាន។ សូមអនុម័តវានៅក្នុង cmux លើ Mac ដែលដំណើរការការជជែកនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 항목은 cmux 앱에서만 승인할 수 있습니다. 이 채팅을 실행하는 Mac의 cmux에서 승인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare cmux-appen kan godkjenne dette. Godkjenn det i cmux på Macen som kjører denne chatten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko aplikacja cmux może to zatwierdzić. Zatwierdź to w cmux na Macu, na którym działa ten czat."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só o app cmux pode aprovar isto. Aprove no cmux no Mac que executa este chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Одобрить это можно только в приложении cmux. Одобрите в cmux на Mac, где работает этот чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มีเพียงแอป cmux เท่านั้นที่อนุมัติสิ่งนี้ได้ อนุมัติใน cmux บน Mac ที่เรียกใช้แชทนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bunu yalnızca cmux uygulaması onaylayabilir. Bu sohbeti çalıştıran Mac'teki cmux'ta onaylayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Схвалити це можна лише в застосунку cmux. Схваліть у cmux на Mac, де працює цей чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ ứng dụng cmux mới có thể phê duyệt việc này. Hãy phê duyệt trong cmux trên máy Mac đang chạy cuộc trò chuyện này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有 cmux 应用可以批准此操作。请在运行此聊天的 Mac 上的 cmux 中批准。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有 cmux App 可以核准此操作。請在執行此聊天的 Mac 上的 cmux 中核准。"
+          }
+        }
+      }
+    },
     "transport.sessionNotInPane": {
       "comment": "Agent pane",
       "extractionState": "manual",
