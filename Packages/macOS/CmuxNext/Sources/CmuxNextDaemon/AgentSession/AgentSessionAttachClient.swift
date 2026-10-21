@@ -15,9 +15,44 @@ public actor AgentSessionAttachClient {
     /// the line's JSON object.
     public typealias EventHandler = @Sendable (_ event: String, _ line: Data) -> Void
 
+    /// How the daemon attachment is used. Observation has its own capability and command so a
+    /// missing observer feature can never silently fall back to a writable attach.
+    public enum Mode: Sendable, Equatable {
+        case attach
+        case observe
+
+        var capability: String {
+            switch self {
+            case .attach: return DaemonCapabilities.shared.agentSessionAttach
+            case .observe: return DaemonCapabilities.shared.agentSessionObserve
+            }
+        }
+
+        var command: String {
+            switch self {
+            case .attach: return "agent-session-attach"
+            case .observe: return "agent-session-observe"
+            }
+        }
+
+        var clientInfoKind: String { command }
+        var clientInfoName: String {
+            switch self {
+            case .attach: return "cmux-next agent attach"
+            case .observe: return "cmux-next agent observer"
+            }
+        }
+
+        var unsupportedMessage: String {
+            let feature = self == .observe ? "agent session observation" : "agent session attach"
+            return "the daemon does not serve \(feature)"
+        }
+    }
+
     public static let capability = DaemonCapabilities.shared.agentSessionAttach
 
     private let surface: UInt64
+    private let mode: Mode
     private let endpoint: EndpointProvider
     private let requestTimeout: Duration
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-attach")
@@ -42,8 +77,10 @@ public actor AgentSessionAttachClient {
     }
 
     /// `surface`: the tab's surface id in the daemon's store.
-    public init(surface: UInt64, requestTimeout: Duration = .seconds(10), endpoint: @escaping EndpointProvider) {
+    public init(surface: UInt64, requestTimeout: Duration = .seconds(10), mode: Mode = .attach,
+                endpoint: @escaping EndpointProvider) {
         self.surface = surface
+        self.mode = mode
         self.endpoint = endpoint
         self.requestTimeout = requestTimeout
     }
@@ -52,7 +89,7 @@ public actor AgentSessionAttachClient {
     public func attach(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?,
                        events: @escaping EventHandler) async throws -> Data {
         handler.set(events)
-        return try await call("agent-session-attach", page(afterSeq, beforeSeq, limit, kinds))
+        return try await call(mode.command, page(afterSeq, beforeSeq, limit, kinds))
     }
 
     public func events(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?) async throws -> Data {
@@ -68,6 +105,9 @@ public actor AgentSessionAttachClient {
     /// `agent_session.needs_keyed_start` and its facts in ``AgentSessionAttachError/details``. A
     /// daemon without `agent-session-start-keyed-reason-v1` gets no such param (it would refuse it).
     public func start(cwd: String, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil) async throws -> String {
+        guard mode == .attach else {
+            throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot start a chat")
+        }
         _ = try await liveTransport()
         guard servesStart else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session start")
@@ -91,6 +131,9 @@ public actor AgentSessionAttachClient {
     /// (acpmux's `acp.trust.get` reply), or with `level` the person's answer recorded there
     /// (`acp.trust.set`). Only the person's own answer is ever sent (the pane's relay).
     public func trust(cwd: String, level: String?, homeConfirmed: Bool = false) async throws -> Data {
+        guard mode == .attach else {
+            throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot change trust")
+        }
         _ = try await liveTransport()
         guard servesTrust else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session trust")
@@ -212,16 +255,16 @@ public actor AgentSessionAttachClient {
             })
         do {
             let identity = try await DaemonConnection.perform(IdentifyRequest(), on: transport, timeout: requestTimeout)
-            guard identity.supports(Self.capability) else {
+            guard identity.supports(mode.capability) else {
                 transport.close()
-                throw AgentSessionAttachError(code: "agent_session.unsupported", message: "the daemon does not serve agent session attach")
+                throw AgentSessionAttachError(code: "agent_session.unsupported", message: mode.unsupportedMessage)
             }
             servesStart = identity.supports(DaemonCapabilities.shared.agentSessionStart)
             servesTrust = identity.supports(DaemonCapabilities.shared.agentSessionTrust)
             servesKeyedReason = identity.supports(DaemonCapabilities.shared.agentSessionStartKeyedReason)
             servesChildren = identity.supports(DaemonCapabilities.shared.agentSessionChildren)
             _ = try await DaemonConnection.perform(
-                SetClientInfoRequest(name: "cmux-next agent attach", kind: "agent-session-attach", capabilities: []),
+                SetClientInfoRequest(name: mode.clientInfoName, kind: mode.clientInfoKind, capabilities: []),
                 on: transport, timeout: requestTimeout)
         } catch {
             transport.close()

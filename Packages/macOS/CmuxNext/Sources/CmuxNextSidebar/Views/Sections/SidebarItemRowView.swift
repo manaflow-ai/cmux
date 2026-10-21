@@ -42,6 +42,12 @@ class SidebarItemRowView: NSView {
     var activatesOnPress = false
     /// The current press already ran the action on mouse-down; its release does not run it again.
     private var activatedOnPress = false
+    /// The sidebar's edit mode (`SidebarItemRowView+Editing`): the item wiggles and shows its ✕
+    /// (`onRemove`), and a press only drags it.
+    var isEditing = false { didSet { if isEditing != oldValue { editingChanged() } } }
+    var onRemove: (() -> Void)?
+    var removeButton: SidebarIconButton?
+    var wiggleSize: CGSize = .zero
 
     private(set) var info = SidebarItemInfo(title: "", symbol: "circle")
     private(set) var style = Style.builtIn
@@ -134,8 +140,8 @@ class SidebarItemRowView: NSView {
         setAccessibilityValue(info.unreadDot ? Strings.unreadDot : info.badge.map { String($0) })
         // An icon names itself (and its shortcut) in its tooltip; a tile's
         // caption can truncate, so it keeps the full title.
-        // The profile chip's name can truncate too, so it keeps the profile's.
-        themedToolTip = style.isIconOnly || (info.avatar != nil && style == .chip) ? info.toolTip : style == .favorite ? info.title : nil
+        // The profile control draws no name, so its tooltip names who it is.
+        themedToolTip = style.isIconOnly || info.avatar != nil ? info.toolTip : style == .favorite ? info.title : nil
         setAccessibilityLabel(info.title)
         applyAvatar()
         setAccessibilitySelected(info.isActive)
@@ -161,9 +167,8 @@ class SidebarItemRowView: NSView {
             title.textColor = Palette.textPrimary
             // An icon is secondary at rest and full strength under the pointer
             // or keyboard focus (the footer's avatar and gear).
-            let strong = (style == .icon || isProfileChip) && (isHovered || isPressed || showsMenu || showsKeyFocus)
-            // The chip's avatar sits beside its name at full strength, as the name does.
-            avatarView.isStrong = strong || isProfileChip
+            let strong = (style == .icon || showsAvatar) && (isHovered || isPressed || showsMenu || showsKeyFocus)
+            avatarView.isStrong = strong
             pin.contentTintColor = Palette.textSecondary
             icon.contentTintColor = wells && info.color != nil ? Palette.textOnPrimary
                 : style == .favorite ? Palette.textPrimary
@@ -196,6 +201,7 @@ class SidebarItemRowView: NSView {
     override func layout() {
         super.layout()
         let b = bounds
+        layoutEditing()
         if style == .favorite { return layoutFavorite(b) }
         defer { layoutActivity(in: b) }
         let inset = SidebarStyle.horizontalInset
@@ -320,31 +326,6 @@ class SidebarItemRowView: NSView {
         }
     }
 
-    /// `emoji` drawn as a text glyph filling a `side` square (in color, not a template).
-    static func emojiImage(_ emoji: String, side: CGFloat) -> NSImage {
-        NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
-            let text = NSAttributedString(string: emoji, attributes: [.font: Typography.system(size: side * 0.85)])
-            let size = text.size()
-            text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
-            return true
-        }
-    }
-
-    /// The first letter of `title` as a template glyph filling a `side` square (it takes the
-    /// glyph tint); nil for an empty title.
-    static func initialImage(_ title: String, side: CGFloat) -> NSImage? {
-        guard let first = title.trimmingCharacters(in: .whitespacesAndNewlines).first else { return nil }
-        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
-            let font = Typography.system(size: side * 0.72, weight: .semibold)
-            let text = NSAttributedString(string: String(first).localizedUppercase, attributes: [.font: font, .foregroundColor: NSColor.black])
-            let size = text.size()
-            text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
-            return true
-        }
-        image.isTemplate = true
-        return image
-    }
-
     /// An icon-only item's glyph (the footer's avatar and gear): drawn so its
     /// ink, not its image box, is `iconInkSize` across and centered in `box`.
     /// Icons leave different margins in their square, so equal image boxes
@@ -398,8 +379,8 @@ class SidebarItemRowView: NSView {
         pressLocation = event.locationInWindow
         pressModifiers = event.modifierFlags
         didDrag = false
-        activatedOnPress = activatesOnPress
-        guard activatesOnPress else { return }
+        activatedOnPress = activatesOnPress && !isEditing
+        guard activatedOnPress else { return }
         activate(with: pressModifiers)
         // The profile control's menu runs its own tracking loop and takes the release: no mouseUp
         // follows, so the pressed fill must not stay.
@@ -425,7 +406,7 @@ class SidebarItemRowView: NSView {
         activatedOnPress = false
         guard isPressed else { return super.mouseUp(with: event) }
         isPressed = false
-        guard !dragged, !activated, pill.frame.contains(convert(event.locationInWindow, from: nil)) else { return }
+        guard !dragged, !activated, !isEditing, pill.frame.contains(convert(event.locationInWindow, from: nil)) else { return }
         activate(with: pressModifiers)
     }
 
@@ -444,6 +425,7 @@ class SidebarItemRowView: NSView {
     }
 
     override func accessibilityPerformPress() -> Bool {
+        if isEditing { return false }
         if let onPressWithModifiers { onPressWithModifiers([]) } else { onPress?() }
         return true
     }
@@ -477,6 +459,7 @@ class SidebarItemRowView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if editingKeyDown(event) { return }
         guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.function).isEmpty,
               [" ", "\r", "\u{3}"].contains(event.charactersIgnoringModifiers ?? "") else { return super.keyDown(with: event) }
         _ = accessibilityPerformPress()

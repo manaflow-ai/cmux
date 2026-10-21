@@ -120,16 +120,10 @@ const checkPrQueue: Play = async (ctx) => {
   geometry(ctx);
   await ctx.click({ selector: ".acpmux-queued" });
   geometry(ctx);
-  const scope = ctx.find({ selector: ".acpmux-composer-context" });
-  const composer = ctx.find({ selector: ".acpmux-composer-box" });
-  const style = ctx.document.defaultView!.getComputedStyle(scope);
-  const composerStyle = ctx.document.defaultView!.getComputedStyle(composer);
-  if (
-    style.backgroundColor !== composerStyle.backgroundColor ||
-    style.boxShadow !== "none" ||
-    parseFloat(style.borderTopWidth) !== 0
-  )
-    throw new Error("The folder/host strip paints a separate surface");
+  // A started chat has no folder/host strip (#20869, locationRow.ts): the queue is the composer's
+  // top strip, and no hidden slot for the strip may hold space above it.
+  if (ctx.document.querySelector(".acpmux-composer-context, .acpmux-composer-strip-placeholder"))
+    throw new Error("A started chat with a queue still draws the folder/host strip");
 };
 async function samplePinned(ctx: PlayContext, frames = 8) {
   const scroller = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
