@@ -147,26 +147,10 @@ public struct Palette {
     /// accent stays in the theme's grays.
     public static var accent: NSColor { focusRing }
 
-    /// A lit (on) control's glyph, beside the same controls at rest in `textSecondary` (a pane's
-    /// zoomed ⋮ and pinned buttons, the find pill's toggles): the accent, lifted toward the primary
-    /// text just far enough to contrast at least as much as the rest ink, so the theme's hue stays
-    /// (Clay Orange's orange) and a lit control is never less visible than at rest. A theme with no
-    /// accent lights in the primary text (``ThemeTokens/accent``), not `focusRing`'s 40% of it.
-    public static var litGlyph: NSColor { litGlyph(in: ThemeContext.active ?? ThemeScope.app.tokens).nsColor }
-
-    static func litGlyph(in tokens: ThemeTokens) -> ThemeRGB {
-        let surface = tokens.windowBackground.withAlpha(1)
-        let accent = tokens.accent.composited(over: surface), primary = tokens.textPrimary.composited(over: surface)
-        let floor = tokens.textSecondary.composited(over: surface).contrast(with: surface)
-        if accent.contrast(with: surface) >= floor { return accent }
-        // The least lift that reaches the floor; a primary text fainter than the floor is still the brightest ink.
-        var low = 0.0, high = 1.0
-        for _ in 0..<12 {
-            let mid = (low + high) / 2
-            if accent.mixed(toward: primary, mid).contrast(with: surface) >= floor { high = mid } else { low = mid }
-        }
-        return accent.mixed(toward: primary, high)
-    }
+    /// A lit (on, chosen, done) control's glyph or label (``ThemeTokens/litGlyph``): the accent,
+    /// lifted to contrast at least as much as the rest ink. Never the raw `accent`, `accentFill` or
+    /// `focusRing` for a lit glyph (`no-raw-accent-lit-glyph`).
+    public static var litGlyph: NSColor { color(\.litGlyph, dynamic: PaletteDynamic.litGlyph) }
 
     /// Text on top of `textPrimary` fills (inverted badges).
     public static var textOnPrimary: NSColor { color(\.contentBackground, opaque: true, dynamic: PaletteDynamic.textOnPrimary) }

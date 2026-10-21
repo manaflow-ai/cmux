@@ -514,7 +514,7 @@
 /* Plan on is accent ink with no pill at rest; hovered it takes the same soft pill as every chip
    and keeps its accent ink. */
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-plan[aria-pressed="true"]:is(:hover, :focus-visible) {
-  color: var(--agent-accent, var(--agent-text));
+  color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
 }
 .acpmux-composer-bar .acpmux-picker-button > .acpmux-icon:last-child,
 .acpmux-composer-bar .acpmux-access-trigger > .acpmux-icon:last-child {
@@ -1083,7 +1083,7 @@
 .acpmux-fast:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
 .acpmux-fast:hover { background: var(--acpmux-row-hover, var(--acpmux-composer-hover)); color: var(--agent-text); }
 .acpmux-fast[aria-pressed="true"],
-.acpmux-fast[aria-pressed="true"]:hover { color: var(--agent-accent); }
+.acpmux-fast[aria-pressed="true"]:hover { color: var(--agent-lit-glyph, var(--agent-accent)); }
 /* A narrow composer lays the bolt out of the row (composerRowFit.ts speedHidden, the
    `[data-fit-part="speed"]` rules above): the reasoning menu's speed rows still set it. Its hover
    ease is the other chips' (composerStates.css). */

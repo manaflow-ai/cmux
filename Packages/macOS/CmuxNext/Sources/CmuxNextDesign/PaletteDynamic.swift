@@ -38,6 +38,7 @@ enum PaletteDynamic {
     static let highlightText = token(\.highlightText)
     static let textOnPrimary = token(\.contentBackground, opaque: true)
     static let accentFill = token(\.accent, opaque: true)
+    static let litGlyph = token(\.litGlyph)
     static let onAccent = token(\.onAccent, opaque: true)
     static let popupSurface = overlayFill()
 
