@@ -123,7 +123,7 @@ public final class StatusIndicatorLayer {
 
     /// The animation running now (tests, diagnostics).
     public var runningAnimation: StatusIndicatorPlan.Animation? {
-        for (sublayer, key) in [(glyphLayer as CALayer?, "spin"), (nativeLayer, "step"), (glyphLayer, "pulse"), (markLayer, "pulse"), (brailleLayer?.mask, "frames"), (dotsLayer?.sublayers?.first, "wave")] {
+        for (sublayer, key) in [(glyphLayer as CALayer?, "spin"), (markLayer, "spin"), (nativeLayer, "step"), (glyphLayer, "pulse"), (markLayer, "pulse"), (brailleLayer?.mask, "frames"), (dotsLayer?.sublayers?.first, "wave")] {
             if let sublayer, sublayer.animation(forKey: key) != nil {
                 return StatusIndicatorPlan.Animation(key: key)
             }
@@ -131,9 +131,14 @@ public final class StatusIndicatorLayer {
         return nil
     }
 
-    /// Show `plan` with `config`. Cheap when nothing changed.
+    /// Show `plan` with `config`. Cheap when nothing changed; even then a loop the plan wants but
+    /// the layer lacks (refused while loops were off, or lost) starts again, so a host that applies
+    /// again repairs a still spinner (Leo 2026-10-20: rows whose spinners had stopped for a while).
     public func apply(_ plan: StatusIndicatorPlan, config: StatusIndicatorConfig) {
-        guard plan != self.plan || config != self.config else { return }
+        guard plan != self.plan || config != self.config else {
+            updateAnimation()
+            return
+        }
         let configChanged = config != self.config
         let glyphChanged = plan.glyph != self.plan.glyph || configChanged
         self.plan = plan

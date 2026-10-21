@@ -43,6 +43,7 @@ class PreflightTrustTests(unittest.TestCase):
         for relative in (
             "scripts/git-hooks",
             "scripts/install-git-hooks.sh",
+            "scripts/ci/base_merge_warning.py",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
             "scripts/ci/merge_main_resolver.py",
