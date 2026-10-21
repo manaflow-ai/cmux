@@ -7,8 +7,8 @@ extension Strings {
     static var priorityShow: String { String(localized: "sidebar.priority.show", defaultValue: "Show Priority View", bundle: .module) }
     static var priorityHide: String { String(localized: "sidebar.priority.hide", defaultValue: "Hide Priority View", bundle: .module) }
     /// After the bell's label while its dot shows: how many chats the dot stands for
-    /// (`SidebarPriorityPanel.attentionCount`: waiting on the person, finished unseen, failed or
-    /// lost), so not "Needs you", which is only one of those states.
+    /// (`SidebarPriorityPanel.attentionCount`: waiting on the person, finished unseen, failed,
+    /// lost or Red CI), so not "Needs you", which is only one of those states.
     static func priorityAttentionCount(_ count: Int) -> String {
         String(localized: "sidebar.priority.attentionCount", defaultValue: "Needs attention: \(count)", bundle: .module)
     }
@@ -19,6 +19,10 @@ extension Strings {
     static var priorityDone: String { String(localized: "sidebar.priority.state.done", defaultValue: "Done", bundle: .module) }
     static var priorityFailed: String { String(localized: "sidebar.priority.state.failed", defaultValue: "Failed", bundle: .module) }
     static var priorityLost: String { String(localized: "sidebar.priority.state.lost", defaultValue: "Lost", bundle: .module) }
+    /// Red CI: a pull request of the chat's has failing checks.
+    static var priorityCIFailing: String {
+        String(localized: "sidebar.priority.state.ciFailing", defaultValue: "CI failing", bundle: .module)
+    }
     static var priorityWorking: String { String(localized: "sidebar.priority.state.working", defaultValue: "Working", bundle: .module) }
     /// A working chip with how long the turn has run, e.g. "Working 5m".
     static func priorityWorking(for duration: String) -> String {
