@@ -29,11 +29,9 @@
             "key" : "settings.group.tabs",
             "rows" : [
               "tabs.newTabTemplate",
-              "tabs.terminalFirst",
               "tabs.newTabPosition",
               "tabs.plusButton",
               "tabs.barPosition",
-              "browser.toolbarPosition",
               "tabs.barOrder",
               "tabs.overflow",
               "appearance.metrics.tabMaxWidth",
@@ -359,7 +357,8 @@
               "appearance.paneBackgrounds",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur",
-              "appearance.inactiveWindowDim"
+              "appearance.inactiveWindowDim",
+              "appearance.wallpaperTint"
             ],
             "title" : {
               "key" : "settings.group.windowBackground",
@@ -785,8 +784,7 @@
             "rows" : [
               "sessions.keepAwake",
               "sessions.resumeAgents",
-              "sessions.allowFullAccess",
-              "sessions.promptSuggestions"
+              "sessions.allowFullAccess"
             ],
             "title" : {
               "key" : "settings.group.sessions",
@@ -2135,57 +2133,6 @@
     },
     {
       "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.terminalFirst.help",
-        "text" : "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.terminalFirst",
-      "keywords" : [
-        "terminal",
-        "classic",
-        "new tab",
-        "split",
-        "cmd-t",
-        "cmd-d",
-        "new tab page",
-        "default"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "terminalFirst"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.terminalFirst",
-        "text" : "New Tabs and Splits Open a Terminal"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "afterCurrent",
         "end",
         "start"
@@ -2396,75 +2343,6 @@
     },
     {
       "accepts" : [
-        "top",
-        "bottom"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.top",
-            "text" : "Top"
-          },
-          "value" : "top"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.bottom",
-            "text" : "Bottom"
-          },
-          "value" : "bottom"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "top",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.browser.toolbarPosition.help",
-        "text" : "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "browser.toolbarPosition",
-      "keywords" : [
-        "omnibar",
-        "address bar",
-        "toolbar",
-        "url bar",
-        "browser",
-        "markdown",
-        "top",
-        "bottom",
-        "position",
-        "layout"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "browser",
-        "toolbarPosition"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.browser.toolbarPosition",
-        "text" : "Browser Toolbar Position"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "aboveToolbar",
         "belowToolbar"
       ],
@@ -2497,7 +2375,7 @@
       },
       "help" : {
         "key" : "settings.tabs.barOrder.help",
-        "text" : "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it."
+        "text" : "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.barOrder",
@@ -4549,55 +4427,6 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sessions",
-        "text" : "Agent Sessions"
-      },
-      "help" : {
-        "key" : "settings.sessions.promptSuggestions.help",
-        "text" : "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sessions.promptSuggestions",
-      "keywords" : [
-        "suggestions",
-        "prompt",
-        "follow-up",
-        "tasks",
-        "child chats",
-        "subagents"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "sessions",
-        "promptSuggestions"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.sessions.promptSuggestions",
-        "text" : "Suggest Follow-Up Tasks"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -6021,7 +5850,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "afterCurrent",
+      "default" : "top",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -11341,6 +11170,58 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.wallpaperTint.help",
+        "text" : "The glass takes the colors of your desktop picture and follows it when the picture or Space changes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.wallpaperTint",
+      "keywords" : [
+        "wallpaper",
+        "desktop",
+        "tint",
+        "tinting",
+        "glass",
+        "color",
+        "colour",
+        "space",
+        "background"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "wallpaperTint"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.wallpaperTint",
+        "text" : "Tint with Desktop Wallpaper"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         0,
         1,
         0.5
@@ -12247,7 +12128,7 @@
       },
       "help" : {
         "key" : "settings.focus.inactiveTabStyle.help",
-        "text" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."
+        "text" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill."
       },
       "kept_on_reset_all" : false,
       "key" : "focus.inactiveTabStyle",
@@ -31099,7 +30980,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "click",
+      "default" : "focus",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.dismissal",
@@ -32107,7 +31988,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "steady",
+      "default" : "blink",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.attention",
