@@ -1539,7 +1539,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-codex": {
-      note: "Play: open Codex's model button menu and check Fast mode (Codex's Fast service tier), its one place; Effort lists Low to Ultra (Xhigh reads Extra High).",
+      note: "Play: Codex keeps its bolt just left of the mic (Leo 2026-10-21), an outline glyph; the model button's menu has no Fast mode row; a click on the bolt sends Fast.",
       snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex reasoning" }), {
         configOptions: [
           {
@@ -1560,11 +1560,17 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
+        const bolt = { selector: ".acpmux-composer-actions .acpmux-fast" };
+        await ctx.waitFor(() => ctx.document.querySelector(bolt.selector));
+        if (ctx.find(bolt).getAttribute("aria-pressed") !== "false") throw new Error("the bolt must start off");
+        if (!ctx.find(bolt).nextElementSibling?.querySelector(".acpmux-mic"))
+          throw new Error("the bolt must sit just left of the mic");
         await openModelMenu(ctx);
-        const fast = { selector: ".acpmux-quick-menu .acpmux-quick-fast" };
-        await ctx.waitFor(() => ctx.document.querySelector(fast.selector));
-        if (ctx.find(fast).getAttribute("aria-checked") !== "false") throw new Error("Fast mode must start unchecked");
-        await ctx.click(fast);
+        if (ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast"))
+          throw new Error("Codex's Fast mode is the bolt, not a menu row as well");
+        await ctx.press("Escape");
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-quick-menu"));
+        await ctx.click(bolt);
       },
     },
     "model-menu-keyboard": {
