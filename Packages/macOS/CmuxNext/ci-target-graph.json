@@ -862,9 +862,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHome",
       "targets": [
-        "CmuxNextCompat",
         "CmuxNextDesign",
-        "CmuxNextDictation",
         "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
