@@ -5,7 +5,7 @@ import Foundation
 
 /// The Chief in the sidebar (Leo 2026-10-20: talk to the Chief from the left side, next to the
 /// workspaces, not only through Home). The Chief item is the `chief` built-in (off by default; Add
-/// to Sidebar or the App Store adds it, and it drags like any item); this reads its status from
+/// to Sidebar adds it, and it drags like any item); this reads its status from
 /// the Chief home's acpmux and draws its subagents in client-only indented rows right under it.
 ///
 /// The Chief's acpmux (`ChatsFeed.chiefTurnStates`) names its sessions by role: a turn is
@@ -75,19 +75,25 @@ nonisolated enum ChiefSessionRole: Equatable {
         let parts = name.split(separator: "-", omittingEmptySubsequences: false)
         guard parts.first == "optchat", parts.count >= 3 else { self = .other; return }
         if parts[1] == "sub" { self = .subagent; return }
-        // `optchat-<home>-<n>`: a turn; `optchat-compact-…` and the rest are not.
-        self = parts.count == 3 && parts[1] != "compact" && Int(parts[2]) != nil ? .turn : .other
+        // `optchat-<home>-<n>`, or `-<n>-<m>` when acpmux deduped a taken name (optchat-chief's
+        // `is_turn_name`): a turn; `optchat-compact-…` and the rest are not.
+        let numbers = parts.dropFirst(2)
+        self = parts[1] != "compact" && numbers.count <= 2 && numbers.allSatisfy { Int($0) != nil } ? .turn : .other
     }
 }
 
 extension AgentActivityLane {
-    /// A turn session's number (`optchat-<home>-<n>`).
-    nonisolated var turnNumber: Int? { name.split(separator: "-").last.flatMap { Int($0) } }
+    /// A turn session's number (`optchat-<home>-<n>`, `-<m>` after it when acpmux deduped the name).
+    nonisolated var turnNumber: Int? {
+        let parts = name.split(separator: "-")
+        return parts.count > 2 ? Int(parts[2]) : nil
+    }
 
-    /// A subagent's number (`optchat-sub-<home>-a<n>`).
+    /// A subagent's number (`optchat-sub-<home>-a<n>`, `-<m>` after it when acpmux deduped the name).
     nonisolated var subagentNumber: Int? {
-        guard let last = name.split(separator: "-").last, last.first == "a" else { return nil }
-        return Int(last.dropFirst())
+        let parts = name.split(separator: "-")
+        guard parts.count > 3, parts[3].first == "a" else { return nil }
+        return Int(parts[3].dropFirst())
     }
 
     /// The subagent's short name (`a7`), with acpmux's title when it has one of its own.

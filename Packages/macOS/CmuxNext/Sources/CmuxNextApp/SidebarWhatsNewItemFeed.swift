@@ -27,7 +27,7 @@ enum SidebarWhatsNewItemFeed {
     }
 
     /// The items the feed shows now. Read inside an observation scope, so a change re-yields.
-    /// The Chief's subagent rows draw only under the Chief item, wherever it is.
+    /// The Chief's subagent rows draw only under the Chief item, in the top band.
     static func items(settings: SettingsController?, lanes: AgentLaneStore,
                       chiefLanes: AgentLaneStore = ChatsFeed.chiefLanes) -> [SidebarTransientItem] {
         [SidebarTransientItem.lanes(lanes),

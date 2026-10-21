@@ -52,6 +52,13 @@ struct ChiefSidebarItemTests {
         #expect(status.badge == 1)
     }
 
+    /// acpmux appends `-<m>` to a name already taken (optchat-chief's `is_turn_name`).
+    @Test func dedupedSessionNamesKeepTheirRoleAndNumber() {
+        #expect(Self.status([Self.lane("optchat-6b68ac4a-191-2", .input)]) == .waiting)
+        let rows = Self.rows([Self.lane("optchat-sub-6b68ac4a-a10", .working), Self.lane("optchat-sub-6b68ac4a-a3-2", .working)])
+        #expect(rows.map(\.info.title) == ["a3", "a10"])
+    }
+
     @Test func theChiefItemCarriesItsStatusAndIsOffByDefault() {
         let layout = SidebarLayoutDocument(sections: [LayoutSection(id: LayoutSectionID("sec_top"), region: .top, items: [Self.chiefItem])])
         var status = SidebarBridge.ChiefItemStatus()

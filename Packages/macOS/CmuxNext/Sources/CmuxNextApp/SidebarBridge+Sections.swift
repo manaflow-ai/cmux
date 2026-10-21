@@ -94,7 +94,7 @@ extension SidebarBridge {
                 _ = apps.apps
                 return (service.document, NotificationCenterService.unreadCount(store), Self.builtInShortcuts(registry),
                         SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs),
-                        ChiefItemStatus(SidebarTransientItem.chiefStatus(lanes: ChatsFeed.chiefLanes.lanes.values)))
+                        SidebarChiefItem.shared.status)
             }) {
                 // The window closed: the bridge is gone, stop observing.
                 guard self != nil else { return }
@@ -111,7 +111,8 @@ extension SidebarBridge {
         }
     }
 
-    /// The Chief item's indicator and badge (`SidebarTransientItem.chiefStatus`).
+    /// The Chief item's indicator and badge (`SidebarTransientItem.chiefStatus`, kept by
+    /// `SidebarChiefItem.status`).
     struct ChiefItemStatus: Equatable, Sendable {
         var activity: StatusIndicatorState = .idle
         var badge: Int?

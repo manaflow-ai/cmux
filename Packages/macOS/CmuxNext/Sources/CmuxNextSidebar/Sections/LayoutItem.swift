@@ -22,7 +22,7 @@ public nonisolated enum SidebarBuiltIn: String, Hashable, Sendable, CaseIterable
     /// Search Chats: the command palette's agent chats page.
     case searchChats = "search_chats"
     /// The Chief (Leo 2026-10-20): its conversation, its status and its subagents under it. Not in
-    /// the default layout; Add to Sidebar or the App Store adds it.
+    /// the default layout; Add to Sidebar adds it.
     case chief
 }
 
