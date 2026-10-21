@@ -1,14 +1,18 @@
-//! `cmux setup browser-import --browser BROWSER [--cookies [--domain D]
-//! [--reason TEXT]] [--dry-run]`: brings the person's bookmarks, or with
-//! `--cookies` their sign-ins, from another browser on this Mac into cmux.
+//! `cmux setup browser-import --browser BROWSER[:PROFILE] [--cookies
+//! [--domain D] [--reason TEXT]] [--dry-run]`: brings the person's
+//! bookmarks, or with `--cookies` their sign-ins, from another browser on
+//! this Mac into cmux. Both read `--browser` the way the app's cookie import
+//! does: a browser, then optionally `:` and one profile.
 //!
 //! Bookmarks are not secrets: the app's `bookmark.importFromBrowser` reads
-//! every readable profile of the browser into one "Imported from ..." folder
-//! on the Bookmarks Bar per profile, tagged with `source_key`
-//! `<browser id>/<profile folder>`. The state is `bookmark.list`: a folder
-//! of that browser there is `ok` and nothing runs; otherwise setup imports,
-//! reads the list again, and the undo removes each new folder
-//! (`cmux bookmark remove --target bookmark:<id>`).
+//! every readable profile of the browser (or the one named) into one
+//! "Imported from ..." folder on the Bookmarks Bar per profile, tagged with
+//! `source_key` `<browser id>/<profile folder>`. The state is
+//! `bookmark.list`: a folder of that browser there (of that profile, when
+//! one is named) is `ok` and nothing runs; otherwise setup imports, reads
+//! the list again, and the undo removes each folder the run added
+//! (`cmux bookmark remove --target bookmark:<id>`). The app may stop waiting
+//! for the import while it still runs; setup then reads the list anyway.
 //!
 //! Cookies are the person's: `browser.importCookies` shows them a consent
 //! panel that names the reason, then macOS asks for the browser's Keychain
@@ -101,7 +105,7 @@ pub(super) fn status(global: &GlobalArgs) -> Value {
     }
     match list(global, None) {
         Ok(listed) => {
-            let browsers = imported(&listed, None)
+            let browsers = imported(&listed, None, None)
                 .iter()
                 .filter_map(|folder| folder["browser"].as_str().map(str::to_owned))
                 .collect::<std::collections::BTreeSet<_>>();
@@ -159,8 +163,18 @@ fn applies(global: &GlobalArgs) -> bool {
         || std::env::var_os("CMUX_SOCKET_PATH").is_some_and(|path| !path.is_empty())
 }
 
+/// `--browser` split into the browser and the profile it may name
+/// (`chrome:Work`, `brave:Profile 2`), as the app's cookie import reads it.
+fn split(browser: &str) -> (&str, Option<&str>) {
+    match browser.split_once(':') {
+        Some((name, profile)) => (name.trim(), Some(profile.trim()).filter(|p| !p.is_empty())),
+        None => (browser.trim(), None),
+    }
+}
+
 fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value) -> Value {
-    let id = registry_id(browser);
+    let (name, source) = split(browser);
+    let id = registry_id(name);
     let listed = match list(global, None) {
         Ok(listed) => listed,
         Err(action) => return needs_user(report, action),
@@ -168,7 +182,7 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
     // The profile the app chose for this run; every later call names it, so
     // a tab focused in between cannot move the import elsewhere.
     let profile = listed["profile"].as_str().unwrap_or("default").to_owned();
-    let before = imported(&listed, Some(&id));
+    let before = imported(&listed, Some(&id), source);
     report["before"] = json!({"profile": profile, "folders": before});
     if !before.is_empty() {
         report["after"] = report["before"].clone();
@@ -179,26 +193,51 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
         report["state"] = json!("planned");
         return report;
     }
+    // Every folder of this browser already there: the undo names only the
+    // ones this run adds, never the person's own or another import's.
+    let known =
+        imported(&listed, Some(&id), None).into_iter().map(|f| f["id"].clone()).collect::<Vec<_>>();
+    let mut arguments = json!({"browser": id, "profile": profile});
+    if let Some(source) = source {
+        arguments["source"] = json!(source);
+    }
     let mut params =
         action_run_params("bookmark.importFromBrowser", ActionName::Any, action_origin());
-    params.insert("args".into(), json!({"browser": browser, "profile": profile}));
-    let failure = match app_call(
-        global,
-        "action.run",
-        Value::Object(params),
-        super::super::app::waiting_run_timeout("bookmark.importFromBrowser"),
-    ) {
-        Ok(_) => None,
-        Err(error) if error["code"] == "daemon_error" => Some(why(&error)),
+    params.insert("args".into(), arguments);
+    let timeout = super::super::app::waiting_run_timeout("bookmark.importFromBrowser");
+    let (failure, running) = match app_call(global, "action.run", Value::Object(params), timeout) {
+        Ok(_) => (None, false),
+        Err(error) if error["code"] == "daemon_error" => (Some(why(&error)), false),
+        // The app stopped waiting, or its answer was lost: the import may still run.
+        Err(error) if matches!(error["code"].as_str(), Some("timeout" | "app.transport")) => {
+            (None, true)
+        }
         Err(error) => return needs_user(report, app_problem(&error)),
     };
     let listed = match list(global, Some(&profile)) {
         Ok(listed) => listed,
         Err(action) => return needs_user(report, action),
     };
-    let after = imported(&listed, Some(&id));
-    report["after"] = json!({"profile": profile, "folders": after});
-    if after.is_empty() {
+    let added = imported(&listed, Some(&id), None)
+        .into_iter()
+        .filter(|folder| !known.contains(&folder["id"]))
+        .collect::<Vec<_>>();
+    report["after"] = json!({"profile": profile, "folders": added});
+    if added.is_empty() && running {
+        return needs_user(
+            report,
+            json!({
+                "kind": "wait",
+                "text": format!(
+                    "The import from {browser:?} is still running in cmux; run `cmux setup \
+                     browser-import --browser {browser:?}` again in a few seconds"
+                ),
+                "command": Value::Null,
+                "url": Value::Null,
+            }),
+        );
+    }
+    if added.is_empty() {
         let why = failure.unwrap_or_else(|| "no bookmarks came in.".into());
         return needs_user(
             report,
@@ -213,7 +252,7 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
             }),
         );
     }
-    let undo = after
+    let undo = added
         .iter()
         .filter_map(|folder| folder["id"].as_str())
         .map(|id| format!("cmux bookmark remove --target bookmark:{id}"))
@@ -264,6 +303,20 @@ fn cookies(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value) -
                 "url": Value::Null,
             }),
         ),
+        // The panel was up and the answer is lost: the person may have allowed it.
+        Err(error) if matches!(error["code"].as_str(), Some("timeout" | "app.transport")) => {
+            needs_user(
+                report,
+                json!({
+                    "kind": "app",
+                    "text": "cmux did not say how the cookie import ended: the person may have \
+                             allowed it and it may have run. Do not run --cookies again without \
+                             asking the person first",
+                    "command": Value::Null,
+                    "url": Value::Null,
+                }),
+            )
+        }
         Err(error) if error["code"] == "daemon_error" => needs_user(
             report,
             json!({
@@ -283,9 +336,15 @@ fn needs_user(mut report: Value, action: Value) -> Value {
     report
 }
 
-/// The browser's registry id for a registry id or product name (any case);
-/// a name the registry does not know is kept, and the app judges it.
+/// The browser's registry id for a registry id or product name, ignoring
+/// case, spaces and punctuation as the app's cookie import does (`chrome`,
+/// `Google Chrome`, `google-chrome`); a name the registry does not know is
+/// kept, and the app judges it.
 fn registry_id(browser: &str) -> String {
+    let key = |text: &str| {
+        text.chars().filter(char::is_ascii_alphanumeric).collect::<String>().to_ascii_lowercase()
+    };
+    let wanted = key(browser);
     let registry: Value = serde_json::from_str(REGISTRY).unwrap_or(Value::Null);
     registry["browsers"]
         .as_array()
@@ -294,7 +353,7 @@ fn registry_id(browser: &str) -> String {
         .find(|row| {
             [&row["id"], &row["name"]]
                 .iter()
-                .any(|name| name.as_str().is_some_and(|name| name.eq_ignore_ascii_case(browser)))
+                .any(|name| name.as_str().is_some_and(|name| key(name) == wanted))
         })
         .and_then(|row| row["id"].as_str())
         .unwrap_or(browser)
@@ -310,8 +369,11 @@ fn list(global: &GlobalArgs, profile: Option<&str>) -> Result<Value, Value> {
     app_call(global, "bookmark.list", params, READ_TIMEOUT).map_err(|error| app_problem(&error))
 }
 
-/// The imported folders of `bookmark.list`, of one browser id or of all.
-fn imported(listed: &Value, browser: Option<&str>) -> Vec<Value> {
+/// The imported folders of `bookmark.list`: of one browser id or of all,
+/// and of one profile when `source` names it, by its folder (`source_key`
+/// `<id>/<folder>`) or the name the folder's title shows ("Imported from
+/// Google Chrome (Work)").
+fn imported(listed: &Value, browser: Option<&str>, source: Option<&str>) -> Vec<Value> {
     listed["bookmarks"]
         .as_array()
         .into_iter()
@@ -319,8 +381,13 @@ fn imported(listed: &Value, browser: Option<&str>) -> Vec<Value> {
         .filter(|node| node["kind"] == "folder")
         .filter_map(|node| {
             let key = node["source_key"].as_str()?;
-            let id = key.split_once('/').map_or(key, |(id, _)| id);
-            browser.is_none_or(|browser| id.eq_ignore_ascii_case(browser)).then(|| {
+            let (id, folder) = key.split_once('/').unwrap_or((key, ""));
+            let title = node["title"].as_str().unwrap_or_default().to_lowercase();
+            let profile = source.is_none_or(|source| {
+                folder.eq_ignore_ascii_case(source)
+                    || title.ends_with(&format!("({})", source.to_lowercase()))
+            });
+            (profile && browser.is_none_or(|browser| id.eq_ignore_ascii_case(browser))).then(|| {
                 json!({"id": node["id"], "title": node["title"], "source_key": key, "browser": id})
             })
         })

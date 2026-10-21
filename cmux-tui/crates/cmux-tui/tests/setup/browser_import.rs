@@ -9,13 +9,23 @@ use serde_json::{Value, json};
 
 use super::{World, serve_app, shell_words};
 
+/// The app's answer when it stops waiting for a run that goes on.
+fn timed_out() -> Value {
+    json!({"code": "timeout", "message": "action.run did not finish within 2 s"})
+}
+
 /// A fake cmux app that serves what `cmux setup browser-import` and its undo
-/// ask: `bookmark.list` of the profile's bar, `bookmark.importFromBrowser`
-/// (Chrome, by id or name, adds one "Imported from" folder tagged
-/// `chrome/Default`; any other browser is the app's `daemon_error`),
-/// `bookmark remove --target bookmark:ID`, and `browser.importCookies`,
-/// whose consent panel the person allows while `allow` is set. Every
-/// request is kept.
+/// ask: `bookmark.list` of the profile's bar (starting with `bookmarks`),
+/// `bookmark.importFromBrowser`, `bookmark remove --target bookmark:ID` (the
+/// node and its children), and `browser.importCookies`, whose consent panel
+/// the person allows while `allow` is set. The import puts one "Imported
+/// from" folder per browser on the bar, replacing that browser's folder,
+/// and answers as the app does: `chrome` at once; `arc` lands but the app
+/// stops waiting first (`timeout`); `zen` times out with nothing landed
+/// yet; `brave` lands one profile and could not read another
+/// (`daemon_error`); anything else is the app's unknown-browser
+/// `daemon_error`. Cookies from `arc` lose the answer after the panel
+/// (`timeout`). Every request is kept.
 struct FakeBrowserApp {
     bookmarks: Arc<Mutex<Vec<Value>>>,
     allow: Arc<std::sync::atomic::AtomicBool>,
@@ -23,18 +33,26 @@ struct FakeBrowserApp {
 }
 
 impl FakeBrowserApp {
-    fn start(world: &mut World) -> Self {
+    fn start(world: &mut World, bookmarks: Vec<Value>) -> Self {
         let socket = world.home.parent().unwrap().join("app.sock");
         let listener = UnixListener::bind(&socket).unwrap();
         world.app = Some(socket);
         let app = Self {
-            bookmarks: Arc::new(Mutex::new(Vec::new())),
+            bookmarks: Arc::new(Mutex::new(bookmarks)),
             allow: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             requests: Arc::new(Mutex::new(Vec::new())),
         };
         let (bookmarks, allow) = (app.bookmarks.clone(), app.allow.clone());
         serve_app(listener, app.requests.clone(), move |method, params| {
             let ran = json!({"action": params["action"], "ran": true, "waited": true});
+            let land = |id: &str, key: &str, title: &str| {
+                let mut nodes = bookmarks.lock().unwrap();
+                nodes.retain(|node| node["source_key"] != key);
+                nodes.push(json!({"id": id, "kind": "folder", "parent": "bar", "title": title,
+                    "source_key": key}));
+                nodes.push(json!({"id": format!("{id}_1"), "kind": "bookmark", "parent": id,
+                    "title": "cmux", "url": "https://cmux.com/"}));
+            };
             Some(match (method, params["action"].as_str()) {
                 ("bookmark.list", _) => Ok(json!({
                     "profile": params["profile"].as_str().unwrap_or("default"),
@@ -42,21 +60,32 @@ impl FakeBrowserApp {
                     "bookmarks": *bookmarks.lock().unwrap(),
                 })),
                 ("action.run", Some("bookmark.importFromBrowser")) => {
-                    let browser = params["args"]["browser"].as_str().unwrap_or_default();
-                    if ["chrome", "google chrome"].contains(&browser.to_lowercase().as_str()) {
-                        *bookmarks.lock().unwrap() = vec![
-                            json!({"id": "bm_1", "kind": "folder", "parent": "bar",
-                                "title": "Imported from Google Chrome",
-                                "source_key": "chrome/Default"}),
-                            json!({"id": "bm_2", "kind": "bookmark", "parent": "bm_1",
-                                "title": "cmux", "url": "https://cmux.com/"}),
-                        ];
-                        Ok(ran)
-                    } else {
-                        let message =
-                            format!("No browser profile with bookmarks matches “{browser}”.");
-                        Err(json!({"code": "daemon_error", "message": message,
-                            "data": {"action": "bookmark.importFromBrowser"}}))
+                    match params["args"]["browser"].as_str().unwrap_or_default() {
+                        "chrome" => {
+                            land(
+                                "bm_1",
+                                "chrome/Default",
+                                "Imported from Google Chrome (Person 1)",
+                            );
+                            Ok(ran)
+                        }
+                        "arc" => {
+                            land("bm_arc", "arc/Default", "Imported from Arc (Personal)");
+                            Err(timed_out())
+                        }
+                        "zen" => Err(timed_out()),
+                        "brave" => {
+                            land("bm_brave", "brave/Default", "Imported from Brave (Person 1)");
+                            Err(json!({"code": "daemon_error",
+                                "message": "Could not read: Brave (Work).",
+                                "data": {"action": "bookmark.importFromBrowser"}}))
+                        }
+                        browser => {
+                            let message =
+                                format!("No browser profile with bookmarks matches “{browser}”.");
+                            Err(json!({"code": "daemon_error", "message": message,
+                                "data": {"action": "bookmark.importFromBrowser"}}))
+                        }
                     }
                 }
                 ("action.run", Some("bookmark remove")) => {
@@ -67,7 +96,9 @@ impl FakeBrowserApp {
                     Ok(ran)
                 }
                 ("action.run", Some("browser.importCookies")) => {
-                    if allow.load(Ordering::SeqCst) {
+                    if params["args"]["from"] == "arc" {
+                        Err(timed_out())
+                    } else if allow.load(Ordering::SeqCst) {
                         Ok(ran)
                     } else {
                         let reason = "The person denied the cookie import. Nothing was read.";
@@ -100,7 +131,7 @@ impl FakeBrowserApp {
 #[test]
 fn cmux_setup_browser_import_brings_bookmarks_in_and_its_undo_takes_them_out() {
     let mut world = World::new("bi");
-    let app = FakeBrowserApp::start(&mut world);
+    let app = FakeBrowserApp::start(&mut world, Vec::new());
 
     let status = world.json(&["setup", "status"]);
     let check = &status["checks"][6];
@@ -128,6 +159,7 @@ fn cmux_setup_browser_import_brings_bookmarks_in_and_its_undo_takes_them_out() {
     assert_eq!(runs.len(), 1, "{runs:?}");
     assert_eq!(runs[0]["action"], "bookmark.importFromBrowser");
     assert_eq!(runs[0]["args"], json!({"browser": "chrome", "profile": "default"}));
+    assert_ne!(runs[0]["origin"], "user", "{runs:?}");
 
     let again = world.json(&["setup", "browser-import", "--browser", "Google Chrome"]);
     assert_eq!(again["state"], "ok", "{again}");
@@ -167,7 +199,7 @@ fn cmux_setup_browser_import_brings_bookmarks_in_and_its_undo_takes_them_out() {
 #[test]
 fn cmux_setup_browser_import_asks_the_person_before_cookies() {
     let mut world = World::new("bicookie");
-    let app = FakeBrowserApp::start(&mut world);
+    let app = FakeBrowserApp::start(&mut world, Vec::new());
     let cookies = ["setup", "browser-import", "--browser", "chrome", "--cookies"];
 
     let planned = world.json(&[&cookies[..], &["--dry-run"][..]].concat());
@@ -184,6 +216,8 @@ fn cmux_setup_browser_import_asks_the_person_before_cookies() {
     assert_eq!(run["args"]["from"], "chrome");
     assert_eq!(run["args"]["domain"], "github.com");
     assert!(run["args"]["reason"].as_str().is_some_and(|reason| !reason.is_empty()), "{run}");
+    // From an agent or a script, so the app always shows the person its panel.
+    assert!(matches!(run["origin"].as_str(), Some(origin) if origin != "user"), "{run}");
 
     app.allow.store(true, Ordering::SeqCst);
     let allowed = world.json(&[&cookies[..], &["--reason", "sign in to GitHub"][..]].concat());
@@ -191,4 +225,66 @@ fn cmux_setup_browser_import_asks_the_person_before_cookies() {
     assert_eq!(allowed["undo"], Value::Null);
     assert!(allowed["undo_note"].is_string(), "{allowed}");
     assert_eq!(app.runs()[1]["args"]["reason"], "sign in to GitHub");
+
+    // The answer is lost after the panel: it may have run, so the agent must
+    // not show the person a second panel without asking them.
+    let unknown = world.json(&["setup", "browser-import", "--browser", "arc", "--cookies"]);
+    assert_eq!(unknown["state"], "needs_user", "{unknown}");
+    assert_eq!(unknown["user_action"]["kind"], "app", "{unknown}");
+    let text = unknown["user_action"]["text"].as_str().unwrap();
+    assert!(text.contains("may have run") && text.contains("without asking"), "{text}");
+}
+
+/// The undo names only the folders the run added: the person's own folder
+/// and another browser's import stay out of it. A profile named with
+/// `BROWSER:PROFILE` goes to the app and decides `ok`; an import the app
+/// stops waiting for is read back (or `wait`), and a profile it could not
+/// read is named in `failed`.
+#[test]
+fn cmux_setup_browser_import_undoes_only_what_it_imported() {
+    let mut world = World::new("biown");
+    let own = json!({"id": "own", "kind": "folder", "parent": "bar", "title": "Work"});
+    let firefox = json!({"id": "ff", "kind": "folder", "parent": "bar",
+        "title": "Imported from Firefox (default-release)",
+        "source_key": "firefox/abcd.default-release"});
+    let app = FakeBrowserApp::start(&mut world, vec![own.clone(), firefox.clone()]);
+    let run = |args: &[&str]| world.json(&[&["setup", "browser-import"][..], args].concat());
+
+    let check = &world.json(&["setup", "status"])["checks"][6];
+    assert_eq!((&check["state"], &check["imported"]), (&json!("ok"), &json!(["firefox"])));
+    assert_eq!(run(&["--browser", "Firefox"])["state"], "ok");
+
+    let changed = run(&["--browser", "Google Chrome:Default"]);
+    assert_eq!(changed["state"], "changed", "{changed}");
+    assert_eq!(changed["undo"], "cmux bookmark remove --target bookmark:bm_1", "{changed}");
+    let runs = app.runs();
+    assert_eq!(
+        runs[0]["args"],
+        json!({"browser": "chrome", "source": "Default", "profile": "default"})
+    );
+    // The profile matches by folder or by the name the title shows.
+    assert_eq!(run(&["--browser", "chrome:default"])["state"], "ok");
+    assert_eq!(run(&["--browser", "chrome:Person 1"])["state"], "ok");
+    assert_eq!(run(&["--browser", "chrome:Work", "--dry-run"])["state"], "planned");
+    assert_eq!(app.runs().len(), 1, "an ok run imported again");
+
+    // The app stops waiting, the folder lands anyway: the run still owns it.
+    let late = run(&["--browser", "arc"]);
+    assert_eq!(late["state"], "changed", "{late}");
+    assert_eq!(late["undo"], "cmux bookmark remove --target bookmark:bm_arc", "{late}");
+    let pending = run(&["--browser", "zen"]);
+    assert_eq!(pending["state"], "needs_user", "{pending}");
+    assert_eq!(pending["user_action"]["kind"], "wait", "{pending}");
+
+    let partial = run(&["--browser", "brave"]);
+    assert_eq!(partial["state"], "changed", "{partial}");
+    assert_eq!(partial["undo"], "cmux bookmark remove --target bookmark:bm_brave");
+    assert_eq!(partial["failed"], "Could not read: Brave (Work).", "{partial}");
+
+    for undo in [&changed["undo"], &late["undo"], &partial["undo"]] {
+        let words = shell_words(undo.as_str().unwrap());
+        let output = world.run(&words[1..].iter().map(String::as_str).collect::<Vec<_>>());
+        assert!(output.status.success(), "{undo}: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    assert_eq!(*app.bookmarks.lock().unwrap(), vec![own, firefox]);
 }

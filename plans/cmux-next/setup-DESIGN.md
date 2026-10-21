@@ -291,30 +291,49 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    would send a create, also one sent again with its key). When cloud-team-ready's `cloud
    list-machines` lands (owner personal|team), setup reads it instead of
    `cloud.machines`.
-7. `browser-import --browser BROWSER [--cookies [--domain D] [--reason
-   TEXT]]`: brings another browser's bookmarks, or its sign-ins, into
-   cmux. Without `--browser` it is `needs_user` (`kind` `choose`): the
-   agent asks which browser, or runs `cmux action run
-   bookmark.importFromBrowser` to show the person the app's picker of the
-   browsers it found. Bookmarks are not secrets, so setup does them: the
-   state is `bookmark.list`, where each imported profile is one Bookmarks
-   Bar folder with `source_key` `<browser id>/<profile folder>` (the
-   browser named by its registry id or product name, any case; the
-   registry is the app's `browser-sources.json`, compiled in). A folder of
-   that browser is `ok` and nothing runs; otherwise setup runs
-   `bookmark.importFromBrowser {browser, profile}` and reads the list
-   again: `changed`, with `after.folders` and the `undo` `cmux bookmark
-   remove --target bookmark:<id>` per new folder. A browser the app does
-   not find, or with no readable profile, is `needs_user` (`kind`
-   `browser`); profiles that could not be read next to ones that came in
-   are named in `failed`. Cookies are the person's: `--cookies` runs
-   `browser.importCookies {from, domain?, reason}`, and the app asks the
-   person on its consent panel (then macOS asks for the browser's Keychain
-   key). Allowed is `changed`; denied, timed out or another request
-   waiting is `needs_user` (`kind` `declined`), and the agent asks before
-   trying again. The app reads no imported cookies back, so a cookie run is
-   never `ok` and running it again asks again; it has no `undo` (clearing
-   the profile's cookies clears every cookie), and `undo_note` says so.
-   History and passwords are person-only (Import from Browser... in cmux);
-   every result names that in `person`. `cmux setup status` adds a
-   `browser_import` check: the browsers whose bookmarks are in.
+7. `browser-import --browser BROWSER[:PROFILE] [--cookies [--domain D]
+   [--reason TEXT]]`: brings another browser's bookmarks, or its sign-ins,
+   into cmux. `--browser` reads the way the app's cookie import reads
+   `--from`: a browser (registry id or product name, ignoring case, spaces
+   and punctuation; the registry is the app's `browser-sources.json`,
+   compiled in), then optionally `:` and one profile (its folder or the
+   name the browser shows), for bookmarks and cookies alike. Without
+   `--browser` it is `needs_user` (`kind` `choose`): the agent asks which
+   browser, or runs `cmux action run bookmark.importFromBrowser` to show
+   the person the app's picker of the browsers it found.
+
+   Bookmarks are not secrets, so setup does them. The state is
+   `bookmark.list`, where each imported profile is one Bookmarks Bar folder
+   with `source_key` `<browser id>/<profile folder>` and the title
+   "Imported from <Browser> (<profile name>)". The check is per browser: a
+   browser any profile of which was imported counts as done (`ok`, nothing
+   runs); import another profile with `--browser ID:PROFILE`, which is
+   `ok` only when that profile's folder is there (matched by folder or by
+   the name in the title). Otherwise setup runs `bookmark.importFromBrowser
+   {browser, source?, profile}` (`profile` is the cmux browser profile
+   `bookmark.list` answered for) and reads the list again: `changed`, with
+   `after.folders` the folders of that browser that were not there before
+   and the `undo` `cmux bookmark remove --target bookmark:<id>` for each;
+   the person's own folders and other imports never enter it. The app may
+   stop waiting before the import ends (`timeout`, or a lost answer): setup
+   reads the list anyway, and the folders that came in are `changed` as
+   above; none yet is `needs_user` (`kind` `wait`: run it again in a few
+   seconds). A browser the app does not find, or with no readable profile,
+   is `needs_user` (`kind` `browser`); profiles that could not be read next
+   to ones that came in are named in `failed`.
+
+   Cookies are the person's: `--cookies` runs `browser.importCookies
+   {from, domain?, reason}` (from an agent or script, never origin `user`),
+   and the app asks the person on its consent panel (then macOS asks for
+   the browser's Keychain key). Allowed is `changed`. Denied, timed out, or
+   another request already waiting is `needs_user` (`kind` `declined`):
+   nothing was read, and the agent asks before trying again. An answer lost
+   after the panel (`timeout` or a dropped connection) is `kind` `app`
+   saying the outcome is unknown: the agent must not run `--cookies` again
+   without asking the person. The app reads no imported cookies back, so a
+   cookie run is never `ok` and running it again asks again; it has no
+   `undo` (clearing the profile's cookies clears every cookie), and
+   `undo_note` says so. History and passwords are person-only (Import from
+   Browser... in cmux); every result names that in `person`. `cmux setup
+   status` adds a `browser_import` check: the browsers whose bookmarks are
+   in.

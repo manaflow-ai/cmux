@@ -142,14 +142,15 @@ pub(super) const GUIDES: &[Guide] = &[
         kind many_machines means setup claims none, inferred: true means check the machine \
         with the person before the undo, and its undo is `cmux cloud kill-machine --target \
         machine:ID --confirm && cmux setup cloud-machine --forget` (--forget drops setup's \
-        record so it may ask again). `cmux setup browser-import --browser BROWSER` imports that \
-        browser's bookmarks (ok when they are in; the undo removes the new folders); with \
+        record so it may ask again). `cmux setup browser-import --browser BROWSER[:PROFILE]` \
+        imports that browser's bookmarks (ok when any profile of it is in, or the named one; \
+        the undo removes the folders the run added); with \
         --cookies it imports its sign-ins once the person allows it on the panel cmux shows, \
         and that has no undo. History and passwords come in only from Import from Browser... \
         in cmux. `cmux setup status` lists every peer with connected and outdated, every \
         harness, the MCP wiring, Computer Use, the Cloud machine and the imported browsers. \
         Every `cmux setup` command prints one JSON object: state is ok, changed, planned, \
-        needs_user or failed.",
+        needs_user, failed or not_applicable.",
     },
 ];
 

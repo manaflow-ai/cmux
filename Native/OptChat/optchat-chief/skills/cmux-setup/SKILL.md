@@ -124,14 +124,19 @@ one.
   --forget` only after the machine was killed, or once the user says no
   machine is on its way (a `wait` on an empty list ends that way).
 - Browser import: `cmux setup browser-import --browser BROWSER` (a name
-  like Chrome or Arc) imports its bookmarks into cmux; `ok` means they are
-  already in, and `undo` removes the new folders. Without `--browser` the
-  result is kind `choose`: ask the user which browser, or run its
-  `command` to show them cmux's list. Cookies (their sign-ins) are theirs:
-  ask the user first, then run it with `--cookies` and a `--reason` they
-  will read (`--domain` keeps it to some sites); cmux shows them a panel
-  to allow it, then macOS asks for the browser's Keychain password. It has
-  no undo and running it again asks them again. Kind `declined` means it
-  was not allowed (they said no or did not answer in time): ask them before
-  running it again. History and passwords only the user imports, from
-  Import from Browser... in cmux.
+  like Chrome or Arc; `chrome:Work` names one profile) imports its
+  bookmarks into cmux; `ok` means that browser's bookmarks are already in
+  (any profile of it, or the one named), and `undo` removes only the
+  folders this run added. Kind `wait` means the import is still running:
+  run it again in a few seconds. Without `--browser` the result is kind
+  `choose`: ask the user which browser, or run its `command` to show them
+  cmux's list. Cookies (their sign-ins) are theirs: ask the user first,
+  then run it with `--cookies` and a `--reason` they will read
+  (`--domain` keeps it to some sites); cmux shows them a panel to allow
+  it, then macOS asks for the browser's Keychain password. It has no undo
+  and running it again asks them again. Kind `declined` means it was not
+  allowed (they said no, did not answer in time, or another request was
+  already waiting): ask them before running it again. Kind `app` after
+  `--cookies` may mean it ran: never run `--cookies` again without asking
+  them. History and passwords only the user imports, from Import from
+  Browser... in cmux.
