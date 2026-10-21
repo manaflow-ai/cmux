@@ -25,8 +25,9 @@ public final class AgentSubagentPanes {
     public static let focusBound: Duration = .seconds(2)
     private var queue: [Request] = []
 
-    /// A waiting request: the subagent, whether it takes focus, and the chat tab that asked.
-    public struct Request: Sendable { public var agent: String; public var focus: Bool; public var chat: String }
+    /// A waiting request: the subagent, whether it takes focus, the chat tab that asked, and when
+    /// focus was asked for (a focus owed like ``focusOnceOpen``).
+    public struct Request: Sendable { public var agent: String; public var focus: Bool; public var chat: String; public var at: ContinuousClock.Instant }
 
     public init() {}
 
@@ -54,16 +55,21 @@ public final class AgentSubagentPanes {
             return true
         }
         if opening == agent, focus { focusOnceOpen = (agent, now) }
-        if let index = queue.firstIndex(where: { $0.agent == agent }) { queue[index].focus = queue[index].focus || focus }
-        else if opening != agent { queue.append(Request(agent: agent, focus: focus, chat: chat)) }
+        if let index = queue.firstIndex(where: { $0.agent == agent }) {
+            if focus { (queue[index].focus, queue[index].at) = (true, now) }
+        } else if opening != agent { queue.append(Request(agent: agent, focus: focus, chat: chat, at: now)) }
         return false
     }
 
-    /// Ends the open that runs; returns the next waiting request, if any.
-    public func finish() -> Request? {
+    /// Ends the open that runs; returns the next waiting request, if any, without focus once its
+    /// ``focusBound`` has passed at `now`.
+    public func finish(now: ContinuousClock.Instant = .now) -> Request? {
         opening = nil
-        dropOwedFocus()
-        return queue.isEmpty ? nil : queue.removeFirst()
+        focusOnceOpen = nil
+        guard !queue.isEmpty else { return settled(nil) }
+        var next = queue.removeFirst()
+        if next.focus, now - next.at > Self.focusBound { next.focus = false }
+        return settled(next)
     }
 
     /// Whether subagent `agent`'s running open still owes the person focus at `now`
@@ -75,12 +81,19 @@ public final class AgentSubagentPanes {
 
     /// The person clicked, pressed a key or moved focus after asking: their latest action wins, so
     /// no owed focus lands.
-    public func userActed() { dropOwedFocus() }
-
-    private func dropOwedFocus() {
+    public func userActed() {
         focusOnceOpen = nil
-        stopWatching?()
-        stopWatching = nil
+        for index in queue.indices { queue[index].focus = false }
+        _ = settled(nil)
+    }
+
+    /// Stops watching for the person's next action once no focus is owed; returns `request`.
+    private func settled(_ request: Request?) -> Request? {
+        if focusOnceOpen == nil, !queue.contains(where: { $0.focus }) {
+            stopWatching?()
+            stopWatching = nil
+        }
+        return request
     }
 
     /// What ``open(_:focus:chat:hooks:)`` asks the app for.
@@ -123,7 +136,7 @@ public final class AgentSubagentPanes {
             return true
         }
         guard begin(agent, focus: focus, chat: chat, now: hooks.now()) else {
-            if owesFocus(agent, now: hooks.now()), stopWatching == nil {
+            if focus, stopWatching == nil {
                 stopWatching = hooks.watchUser { [weak self] in self?.userActed() }
             }
             return true
@@ -133,7 +146,7 @@ public final class AgentSubagentPanes {
             // A click that came while this pane opened without focus, with nothing done since and
             // not too long ago: the pane takes it now.
             if !focus, self.owesFocus(agent, now: hooks.now()), let key = self.tab(for: agent, isOpen: hooks.isOpen) { hooks.focus(key, false) }
-            if let request = self.finish() { hooks.again(request) }
+            if let request = self.finish(now: hooks.now()) { hooks.again(request) }
         }
         let stack = stackAnchor(isOpen: hooks.isOpen)
         let created: @MainActor (String) -> Void = { [weak self] key in self?.record(agent, tab: key) }

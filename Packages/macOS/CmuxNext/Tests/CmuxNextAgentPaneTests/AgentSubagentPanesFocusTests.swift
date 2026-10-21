@@ -21,6 +21,7 @@ struct AgentSubagentPanesFocusTests {
         /// What a click, key press or focus change calls while an owed focus waits; nil when no one watches.
         var acted: (@MainActor () -> Void)?
         var stops = 0
+        var again: [AgentSubagentPanes.Request] = []
 
         var hooks: AgentSubagentPanes.Hooks {
             AgentSubagentPanes.Hooks(
@@ -31,7 +32,7 @@ struct AgentSubagentPanesFocusTests {
                     self.finished = finished
                     return true
                 },
-                again: { _ in },
+                again: { [unowned self] request in self.again.append(request) },
                 now: { [unowned self] in self.now },
                 watchUser: { [unowned self] acted in
                     self.acted = acted
@@ -110,10 +111,42 @@ struct AgentSubagentPanesFocusTests {
         #expect(panes.open("explore", focus: false, chat: "chat", hooks: recorder.hooks))
         #expect(panes.open("explore", focus: true, chat: "chat", hooks: recorder.hooks))
         recorder.now += .seconds(1.5)
-        recorder.acted?()
         #expect(panes.open("explore", focus: true, chat: "chat", hooks: recorder.hooks))
         recorder.now += .seconds(1.5)
         recorder.land("tab-explore")
         #expect(recorder.focused.map({ $0.key }) == ["tab-explore"], "the latest click is the one that counts")
+    }
+
+    @Test func aWaitingFocusedRequestYieldsToALaterAction() {
+        let panes = AgentSubagentPanes()
+        let recorder = Recorder()
+        #expect(panes.open("explore", focus: false, chat: "chat", hooks: recorder.hooks))
+        #expect(panes.open("plan", focus: true, chat: "chat", hooks: recorder.hooks))
+        #expect(recorder.acted != nil, "a focus that waits its turn is owed too")
+        recorder.acted?()
+        recorder.land("tab-explore")
+        #expect(recorder.again.map({ $0.agent }) == ["plan"])
+        #expect(recorder.again.first?.focus == false, "the person's latest action wins")
+    }
+
+    @Test func aWaitingFocusedRequestExpiresAfterItsBound() {
+        let panes = AgentSubagentPanes()
+        let recorder = Recorder()
+        #expect(panes.open("explore", focus: false, chat: "chat", hooks: recorder.hooks))
+        #expect(panes.open("plan", focus: true, chat: "chat", hooks: recorder.hooks))
+        recorder.now += AgentSubagentPanes.focusBound + .milliseconds(1)
+        recorder.land("tab-explore")
+        #expect(recorder.again.first?.focus == false, "a pane whose turn comes late opens without focus")
+        #expect(recorder.acted == nil, "nothing is owed any more, so nothing watches")
+    }
+
+    @Test func aWaitingFocusedRequestWithinItsBoundKeepsFocus() {
+        let panes = AgentSubagentPanes()
+        let recorder = Recorder()
+        #expect(panes.open("explore", focus: false, chat: "chat", hooks: recorder.hooks))
+        #expect(panes.open("plan", focus: true, chat: "chat", hooks: recorder.hooks))
+        recorder.now += AgentSubagentPanes.focusBound
+        recorder.land("tab-explore")
+        #expect(recorder.again.first?.focus == true)
     }
 }
