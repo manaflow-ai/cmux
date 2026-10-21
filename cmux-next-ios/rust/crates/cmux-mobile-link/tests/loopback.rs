@@ -388,7 +388,7 @@ async fn over_tls_repeats() {
 /// sent right then is never refused as `not_owner` (on a loaded runner
 /// `wireguard_mac_with_udp_blocked_takes_its_own_turn_over_tls` once lost
 /// that race). Here the server stalls while the Mac connects, so `connect`
-/// must wait until the Mac is recorded.
+/// must wait out the stall until the Mac is recorded.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fake_signaling_records_a_device_before_its_connect_returns() {
     let server = FakeSignaling::start(FakeOptions::default()).await;
@@ -397,11 +397,16 @@ async fn fake_signaling_records_a_device_before_its_connect_returns() {
         async move { SignalingClient::connect(&base_url, "user:alice", "team", &device).await.unwrap() }
     };
     let phone = connect(uuid::Uuid::new_v4().to_string()).await;
+    // The stall blocks a runtime worker, which can hold up tokio's timers:
+    // time `connect` on the wall clock, not with `tokio::time::timeout`.
     server.stall_for(Duration::from_millis(600));
-    let early =
-        tokio::time::timeout(Duration::from_millis(300), connect(uuid::Uuid::new_v4().to_string())).await;
-    assert!(early.is_err(), "connect returned while the server had not recorded the device");
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    let started = std::time::Instant::now();
+    connect(uuid::Uuid::new_v4().to_string()).await.close();
+    let took = started.elapsed();
+    assert!(
+        took >= Duration::from_millis(500),
+        "connect returned after {took:?}, before the server recorded the device"
+    );
     // And after the stall, a Mac that just connected gets the dial.
     let mut refusals = phone.events();
     for round in 0..50 {
