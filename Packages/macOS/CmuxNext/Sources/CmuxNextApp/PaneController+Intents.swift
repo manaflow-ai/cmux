@@ -204,6 +204,7 @@ extension PaneController {
     /// daemon refused the close (tab-spam-race).
     func close(_ ids: [StripTabID]) {
         guard !ids.isEmpty else { return }
+        let userClose = CloseUndoToasts.isUserClose // a refused user close shows RefusedCloseNotice
         var commands: [(label: String, run: DaemonCommandBody)] = []
         var surfaces: [SurfaceID] = []
         var keys: [String] = []
@@ -215,7 +216,9 @@ extension PaneController {
             }
             if BenchSpans.measure("closeLocalTab", { services.closeLocalTab(id.rawValue) }) { continue }
             if daemon.cancelCreation(tab: id.rawValue) { services.keyRouter.creationInputCoordinator.drop(tab: id.rawValue, in: view.window); services.keyRouter.newTabInputCoordinator.drop(tab: id.rawValue, in: view.window); continue }
-            guard let tab = tab(id) else { continue }
+            // A person's close of a live page runs its beforeunload first (`BrowserUserClosing`):
+            // the page decides, and its own close ends the tab later.
+            guard let tab = tab(id), !(userClose && (services.cache.browsers[tab.id]?.tab as? any BrowserUserClosing)?.beginUserClose() == true) else { continue }
             surfaces.append(tab.surface)
             keys.append(tab.id)
             commands.append(daemon.closeCommand(for: tab))
@@ -231,7 +234,6 @@ extension PaneController {
         // Its last tab closes: the whole pane leaves now, its neighbours springing into its space
         // (close-animation DESIGN.md); the strip has nothing left to animate.
         let paneClose = stripModel.tabs.isEmpty ? showPaneClose() : nil
-        let userClose = CloseUndoToasts.isUserClose // a refused user close shows RefusedCloseNotice
         services.registry.track(Task { [services] in
             let (failed, unknown, codes) = await daemon.runReportingOutcomes(runs)
             if failed, userClose { RefusedCloseNotice(services: services).show(codes: codes, in: view.window) }
