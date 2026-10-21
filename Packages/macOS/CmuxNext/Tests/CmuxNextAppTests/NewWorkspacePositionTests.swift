@@ -121,7 +121,10 @@ struct NewWorkspacePositionTests {
         var frames: [[String]] = []
         func sample() {
             let rows = launched.rows()
-            if rows.contains(where: { !before.contains($0) }), frames.last != rows { frames.append(rows) }
+            if rows.contains(where: { !before.contains($0) }), frames.last != rows {
+                frames.append(rows)
+                print("new-workspace-position frame \(frames.count): \(describe(rows, in: launched))")
+            }
         }
         await press()
         var settledAt: ContinuousClock.Instant?
@@ -139,6 +142,24 @@ struct NewWorkspacePositionTests {
             try? await Task.sleep(for: .milliseconds(3))
         }
         return (frames, launched.rows().filter { !before.contains($0) })
+    }
+
+    /// `rows` by name, each new one with its row state, whether its press row (`press`) and its pending
+    /// placement (`placing`) are still there, and whether the store calls it provisional.
+    private static func describe(_ rows: [String], in launched: Launched) -> String {
+        let services = launched.services, window = launched.window.id
+        let pressRows = Set(PendingWorkspaceRows.shared.rows(in: window).map(\.id))
+        return rows.map { id in
+            let model = services.machines.workspace(id: id)?.0
+            var name = model?.name ?? launched.sidebar.allWorkspaces.first { $0.id.rawValue == id }?.title ?? id
+            if id == launched.window.workspaceID { name = "*" + name }
+            let state = launched.sidebar.allWorkspaces.first { $0.id.rawValue == id }.map { "\($0.rowState)" } ?? "?"
+            var flags = [state]
+            if pressRows.contains(id) { flags.append("press") }
+            if services.windows.pendingPlacements[id] != nil { flags.append("placing") }
+            if model?.isProvisional == true { flags.append("provisional") }
+            return flags == ["live"] ? name : "\(name)[\(flags.joined(separator: ","))]"
+        }.joined(separator: " ")
     }
 
     /// The rows of `frame` that follow `anchor`, `count` of them.
