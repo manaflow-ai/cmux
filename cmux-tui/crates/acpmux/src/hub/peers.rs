@@ -230,16 +230,8 @@ impl Hub {
                 msg: Value::Null,
                 host_seq: None,
             },
-            remote: Some(RemoteRef { peer: peer.to_owned(), summary: Some(summary) }),
+            remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
         });
-    }
-
-    /// The current summary of peer `peer`'s session `mux_id`.
-    pub(crate) fn remote_summary_of(&self, peer: &str, mux_id: &str) -> Option<Value> {
-        let map = self.remote_sessions.lock().unwrap();
-        map.values()
-            .find(|r| r.peer == peer && r.receipt.mux_session_id == mux_id)
-            .map(|r| r.summary.clone())
     }
 
     pub(super) async fn peer_notice_loop(self: Arc<Self>) {
@@ -340,9 +332,7 @@ impl Hub {
                             },
                             remote: Some(RemoteRef {
                                 peer: peer.clone(),
-                                summary: Some(
-                                    removed.unwrap_or_else(|| json!({"sessionId": mux_id})),
-                                ),
+                                summary: removed.unwrap_or_else(|| json!({"sessionId": mux_id})),
                             }),
                         });
                         return;
@@ -361,7 +351,7 @@ impl Hub {
                         }
                         map.insert(
                             id.clone(),
-                            RemoteSession { peer: peer.clone(), summary, receipt },
+                            RemoteSession { peer: peer.clone(), summary: summary.clone(), receipt },
                         );
                     }
                     let _ = self.events.send(HubEvent {
@@ -374,7 +364,7 @@ impl Hub {
                             msg: Value::Null,
                             host_seq: None,
                         },
-                        remote: Some(RemoteRef { peer: peer.clone(), summary: None }),
+                        remote: Some(RemoteRef { peer: peer.clone(), summary }),
                     });
                 }
                 PeerNotice::Notification { method: m, params } => {
@@ -383,6 +373,14 @@ impl Hub {
                     else {
                         return;
                     };
+                    let summary = self
+                        .remote_sessions
+                        .lock()
+                        .unwrap()
+                        .values()
+                        .find(|r| r.peer == peer && r.receipt.mux_session_id == id)
+                        .map(|r| r.summary.clone())
+                        .unwrap_or(Value::Null);
                     let record = match m.as_str() {
                         method::SESSION_UPDATE => EventRecord {
                             seq: params
@@ -444,7 +442,7 @@ impl Hub {
                     let _ = self.events.send(HubEvent {
                         session_id: id,
                         record,
-                        remote: Some(RemoteRef { peer: peer.clone(), summary: None }),
+                        remote: Some(RemoteRef { peer: peer.clone(), summary }),
                     });
                 }
             }
@@ -527,6 +525,32 @@ impl Hub {
         // Newest first, ties by sessionId: the order session list pages keep.
         super::session_pages::sort_session_summaries(&mut v);
         v
+    }
+
+    /// Adds each connected peer's harnesses, labelled `peer/agent`, to the
+    /// models catalog `cat`. A daemon asking a peer says so (`peers: false`)
+    /// and is answered with that peer's own harnesses only: asked onward, the
+    /// request went round the peer mesh without end, each hop holding a whole
+    /// catalog for up to 600 s (huge-blue and cosmic-gray, 2026-10-21: ~1 GB
+    /// an hour). The marker, not the link's origin, says it: a link without
+    /// the peer token is served as a Web client.
+    pub async fn add_peer_models(&self, cat: &mut Value) {
+        for peer in self.connected_peers() {
+            let Ok(remote) = peer.request("_acpmux/models", json!({"peers": false})).await else {
+                continue;
+            };
+            let Some(hs) = remote.get("harnesses").and_then(Value::as_array) else { continue };
+            for h in hs {
+                let mut h = h.clone();
+                let agent = h.get("harness").and_then(Value::as_str).unwrap_or("").to_owned();
+                h["harness"] = Value::String(format!("{}/{}", peer.name, agent));
+                h["peer"] = Value::String(peer.name.clone());
+                h["isDefault"] = Value::Bool(false);
+                if let Some(arr) = cat.get_mut("harnesses").and_then(Value::as_array_mut) {
+                    arr.push(h);
+                }
+            }
+        }
     }
 }
 

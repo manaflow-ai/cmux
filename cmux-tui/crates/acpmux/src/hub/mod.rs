@@ -134,7 +134,7 @@ pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(5 * 6
 pub const BUILD: &str = env!("ACPMUX_BUILD");
 
 /// Fan-out item: one appended record for one session. `remote` carries the
-/// peer name when the session lives elsewhere.
+/// peer name and the peer's session summary when the session lives elsewhere.
 #[derive(Debug, Clone)]
 pub struct HubEvent {
     pub session_id: String,
@@ -145,13 +145,7 @@ pub struct HubEvent {
 #[derive(Debug, Clone)]
 pub struct RemoteRef {
     pub peer: String,
-    /// The summary a session change announces when the session is no longer
-    /// in the peer's list (purged, gone after a reconnect). None: delivery
-    /// reads the session's current summary. The event ring keeps all 8192 of
-    /// its slots until they are overwritten, so a summary here (13 KB of JSON
-    /// at the median, up to 25 KB) is held that many times over: mirroring a
-    /// busy peer took huge-blue past its 8 GiB memory.high (2026-10-21).
-    pub summary: Option<Value>,
+    pub summary: Value,
 }
 
 /// A session that lives on a peer daemon.

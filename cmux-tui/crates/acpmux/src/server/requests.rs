@@ -669,33 +669,9 @@ async fn dispatch_request(
                 hub.refresh_models().await;
             }
             let mut cat = hub.models_catalog().await;
-            // Remote harnesses, labelled peer/agent, from each connected peer,
-            // for this daemon's own clients only: a peer asking gets this
-            // daemon's harnesses. Asked for a peer too, the request went round
-            // the peer mesh without end, each hop holding a whole catalog for
-            // up to 600 s (huge-blue and cosmic-gray, 2026-10-21: ~1 GB an hour).
-            // A link without the peer token is served as a Web client, so a
-            // daemon asking says so (`peers: false`); it only takes harnesses
-            // away, so it is honoured from any client.
-            let own_only = conn.origin == Origin::Peer
-                || params.get("peers").and_then(Value::as_bool) == Some(false);
-            let peers = if own_only { Vec::new() } else { hub.connected_peers() };
-            for peer in peers {
-                if let Ok(remote) = peer.request("_acpmux/models", json!({"peers": false})).await
-                    && let Some(hs) = remote.get("harnesses").and_then(Value::as_array)
-                {
-                    for h in hs {
-                        let mut h = h.clone();
-                        let agent =
-                            h.get("harness").and_then(Value::as_str).unwrap_or("").to_owned();
-                        h["harness"] = Value::String(format!("{}/{}", peer.name, agent));
-                        h["peer"] = Value::String(peer.name.clone());
-                        h["isDefault"] = Value::Bool(false);
-                        if let Some(arr) = cat.get_mut("harnesses").and_then(Value::as_array_mut) {
-                            arr.push(h);
-                        }
-                    }
-                }
+            // A peer, or a daemon asking as one, gets this daemon's own only.
+            if conn.origin != Origin::Peer && params.get("peers") != Some(&Value::Bool(false)) {
+                hub.add_peer_models(&mut cat).await;
             }
             Ok(cat)
         }
