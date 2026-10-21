@@ -373,6 +373,7 @@ import { contextAttachment, floatingStatus, type QuickFloating } from "./Floatin
 import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
 import { DeliveryFailure } from "./conversation/PromptDelivery";
+import { RetryGateContext } from "./promptFailureCause";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { useSideSessions } from "./aside/sideSessions";
@@ -6767,6 +6768,10 @@ function AcpmuxPane() {
     cards: toolCards,
     silent: snapshot.silentTurn,
   });
+  // Whether a failed prompt's held cause cleared, for its Retry (promptFailureCause.ts): the trust
+  // question answered Trust, the pane connected again.
+  const trustHolds = Boolean(trustAsk.blocked);
+  const retryGate = useMemo(() => ({ trustBlocked: trustHolds, connected }), [trustHolds, connected]);
   const transcript = (
     // Quick Chat's panel has no room beside it: its fences have no Open preview.
     <ArtifactContext.Provider value={quick ? undefined : openArtifact}>
@@ -7855,7 +7860,7 @@ function AcpmuxPane() {
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>
                     <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-                      {transcript}
+                      <RetryGateContext.Provider value={retryGate}>{transcript}</RetryGateContext.Provider>
                     </BackgroundTaskOutputContext.Provider>
                   </AgentTonesContext.Provider>
                 )}
