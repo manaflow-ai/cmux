@@ -178,6 +178,7 @@
           {
             "key" : "settings.group.updates",
             "rows" : [
+              "updates.channel",
               "updates.checkAutomatically",
               "updates.checkIntervalSeconds",
               "updates.downloadAutomatically",
@@ -3428,6 +3429,90 @@
       "title" : {
         "key" : "settings.shortcuts.showModifierHoldHints",
         "text" : "Show Shortcuts When Holding a Modifier"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "stable",
+        "nightly",
+        "canary",
+        "dev"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.updatesChannelStable",
+            "text" : "Stable"
+          },
+          "value" : "stable"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesChannelNightly",
+            "text" : "Nightly"
+          },
+          "value" : "nightly"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesChannelCanary",
+            "text" : "Canary"
+          },
+          "value" : "canary"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesChannelDev",
+            "text" : "Dev"
+          },
+          "value" : "dev"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "nightly",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.channel.help",
+        "text" : "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.channel",
+      "keywords" : [
+        "update",
+        "channel",
+        "ring",
+        "release",
+        "stable",
+        "nightly",
+        "canary",
+        "beta",
+        "dev"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "channel"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.updates.channel",
+        "text" : "Update Channel"
       },
       "validation" : "portable"
     },
