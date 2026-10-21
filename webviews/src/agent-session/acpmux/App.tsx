@@ -33,6 +33,7 @@ import {
   type AcpmuxRow,
   type AcpmuxSnapshot,
   type QueueEdit,
+  nextDrawnRow,
 } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
@@ -1072,6 +1073,8 @@ const RowFrame = React.memo(function RowFrame({
   kind,
   joinsPrevious,
   joinsNext,
+  beforeFooter,
+  lastFooter,
   index,
   setSize,
   top,
@@ -1098,6 +1101,10 @@ const RowFrame = React.memo(function RowFrame({
   joinsPrevious: boolean;
   /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
   joinsNext: boolean;
+  /// A reply right over its turn's footer: the footer hugs it (`--cv-meta-gap`), as a meta row.
+  beforeFooter: boolean;
+  /// The chat's last footer: it ends at the message gap, so no band sits over the composer.
+  lastFooter: boolean;
   index: number;
   setSize: number;
   top: number;
@@ -1165,14 +1172,14 @@ const RowFrame = React.memo(function RowFrame({
         row.version,
         acpmuxPerf.timed("row.measure", () => node.getBoundingClientRect().height),
       );
-  }, [row.id, row.version, rowWidth, expanded, joinsPrevious, joinsNext, report]);
+  }, [row.id, row.version, rowWidth, expanded, joinsPrevious, joinsNext, beforeFooter, lastFooter, report]);
   return (
     <article
       ref={ref}
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
+      className={`acpmux-row acpmux-${kind}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -1340,6 +1347,9 @@ const READER_SCROLL_MS = 1000;
 const STRAY_SCROLL_PX = 24;
 /// How long a followed view keeps the room a queued prompt's card left, for the prompt to arrive.
 const FLOOR_HOLD_MS = 1000;
+/// How long it keeps the room a withdrawn prompt's card left after the reply last grew: a reply
+/// streaming fills it, and a turn in a tool call or thinking brings nothing to fill it with.
+const WITHDRAWN_HOLD_MS = 250;
 /// How long a reopened chat stays unseen while older pages bring back the row the reader left it on
 /// (cx-odzaz): each page must land within OPEN_AT_PAGE_MS and the whole walk within OPEN_AT_SEEK_MS,
 /// else the chat opens at its latest message.
@@ -1479,6 +1489,7 @@ export function VirtualTranscript({
   working = false,
   jumpButton = false,
   dock,
+  queueWithdrawn,
   focusComposer,
   openAt,
   onAnchor,
@@ -1502,6 +1513,9 @@ export function VirtualTranscript({
   /// it, the scrollbar's track to the pane's bottom as in the Claude and Codex apps, and its end sits
   /// above it. Its height is room under the last row, followed as it changes before the frame paints.
   dock?: HTMLElement | null;
+  /// Prompts withdrawn from the queue (snapshot `queueWithdrawn`): no row comes for one whose card
+  /// leaves the stack, so the view keeps no room for it.
+  queueWithdrawn?: readonly string[];
   /// Where a keyboard Jump to latest leaves focus, since the button hides (inert) once there.
   focusComposer?: () => void;
   onToggleActivity: (id: string) => void;
@@ -1545,21 +1559,33 @@ export function VirtualTranscript({
   const [dockSpace, setDockSpace] = useState(0);
   const dockSpaceRef = useRef(0);
   dockSpaceRef.current = dockSpace;
-  /// A queued prompt left the bottom stack this frame: it is about to come in as the latest row.
+  /// A queued prompt left the bottom stack this frame: a sent one is about to come in as the latest
+  /// row; a withdrawn one (deleted from the queue) never does.
   const queueLeft = useRef(false);
-  const queueCount = useRef(0);
+  const queuedIds = useRef(new Set<string>());
+  /// The prompts whose cards left, which the room under the last row is kept for (`floor`).
+  const heldFor = useRef(new Set<string>());
+  const withdrawnSet = useMemo(() => new Set(queueWithdrawn), [queueWithdrawn]);
+  const withdrawn = useRef(withdrawnSet);
+  withdrawn.current = withdrawnSet;
   const dockRef = useRef(dock);
   dockRef.current = dock;
-  /// Counts the stack's queued prompts; called first by each size observer (the stack's, and the
+  /// Notes the stack's queued prompts; called first by each size observer (the stack's, and the
   /// view's, for a stack laid out under the transcript), so the render a size change makes knows.
   const noteQueue = useCallback(() => {
-    const count = dockRef.current?.querySelectorAll(".acpmux-queued").length ?? 0;
-    if (count < queueCount.current && !queueLeft.current) {
-      queueLeft.current = true;
-      // Only the size change of this frame is the card leaving.
-      requestAnimationFrame(() => requestAnimationFrame(() => (queueLeft.current = false)));
-    }
-    queueCount.current = count;
+    const now = new Set(
+      [...(dockRef.current?.querySelectorAll<HTMLElement>(".acpmux-queued") ?? [])].map(
+        (card) => card.dataset.promptId ?? "",
+      ),
+    );
+    const left = [...queuedIds.current].filter((id) => !now.has(id));
+    queuedIds.current = now;
+    if (!left.length) return;
+    for (const id of left) heldFor.current.add(id);
+    if (queueLeft.current) return;
+    queueLeft.current = true;
+    // Only the size change of this frame is the card leaving.
+    requestAnimationFrame(() => requestAnimationFrame(() => (queueLeft.current = false)));
   }, []);
   useLayoutEffect(() => {
     if (!dock) {
@@ -1954,7 +1980,11 @@ export function VirtualTranscript({
   const [, releaseFloor] = useReducer((count: number) => count + 1, 0);
   const floorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(floorTimer.current), []);
-  const kept = following && floor.current.width === width && floor.current.sessionId === sessionId;
+  // Kept for a prompt that was sent, or while the reply streams, which fills it. A prompt withdrawn
+  // with nothing streaming brings nothing: the room goes now (the queue's update can come before
+  // acpmux's `queue_removed`, which then lets it go).
+  const keptFor = working || [...heldFor.current].some((id) => !withdrawn.current.has(id));
+  const kept = following && keptFor && floor.current.width === width && floor.current.sessionId === sessionId;
   const box = previousViewport.current;
   const footDropped = height - dockSpace > box.height - box.dockSpace;
   const floorHeight = !kept
@@ -2304,14 +2334,21 @@ export function VirtualTranscript({
     previousViewport.current = { height, width, dockSpace };
     // The room a followed view keeps (`floor` above), until the rows fill it or it stops following.
     const holding = didOpenAtLatest.current && followingRef.current && floorHeight > rowsHeight;
-    if (holding && !floor.current.height) {
+    // Held for a sent prompt: once, for the prompt to arrive. Held only for a withdrawn one (the
+    // reply was working): again at each pass, so it lasts while the reply grows and goes soon after.
+    const forSent = [...heldFor.current].some((id) => !withdrawn.current.has(id));
+    if (holding && (!floor.current.height || !forSent)) {
       clearTimeout(floorTimer.current);
-      floorTimer.current = setTimeout(() => {
-        floor.current = { ...floor.current, height: 0 };
-        releaseFloor();
-      }, FLOOR_HOLD_MS);
+      floorTimer.current = setTimeout(
+        () => {
+          floor.current = { ...floor.current, height: 0 };
+          releaseFloor();
+        },
+        forSent ? FLOOR_HOLD_MS : WITHDRAWN_HOLD_MS,
+      );
     } else if (!holding) clearTimeout(floorTimer.current);
     floor.current = { height: holding ? floorHeight : 0, width, sessionId };
+    if (!holding && !queueLeft.current) heldFor.current.clear();
     if (node && node.clientHeight > 0 && didOpenAtLatest.current) {
       scrolledTo.current = scrollPosition(node, layout.totalHeight);
       seenAnchor.current = restingAnchor(node.scrollTop, scrolledTo.current.atLatest, layout, rows);
@@ -2745,6 +2782,8 @@ export function VirtualTranscript({
                       kind={kind}
                       joinsPrevious={isStepRow(row) && isStepRow(rows[absoluteIndex - 1])}
                       joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
+                      beforeFooter={row.kind === "assistant" && rows[absoluteIndex + 1]?.kind === "turnSummary"}
+                      lastFooter={row.kind === "turnSummary" && !nextDrawnRow(rows, absoluteIndex)}
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
                       top={layout.tops[absoluteIndex]}
@@ -5914,6 +5953,7 @@ function AcpmuxPane() {
                                         focusComposer={() => composerHandle.current?.focus()}
                                         // Quick Chat's panel stacks its composer below the transcript.
                                         dock={quick ? undefined : dock}
+                                        queueWithdrawn={snapshot.queueWithdrawn}
                                         find={quick ? undefined : find}
                                         sessionId={
                                           childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId
