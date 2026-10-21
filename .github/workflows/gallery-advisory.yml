@@ -244,7 +244,11 @@ jobs:
           cd scripts/gallery-matrix
           [ -d node_modules ] || bun install --frozen-lockfile
           bun test frames.test.ts
-          bun frames.ts --dir "$evidence/head" --dir "$evidence/base" --out "$evidence/frames.json" --require || {
+          # The head's frames decide; only a PR that removes every sampled state
+          # (an empty head sample) is judged on its base frames.
+          stage="head"
+          if [ "$(jq length "$evidence/head/results.json" 2>/dev/null || echo 0)" = 0 ]; then stage="base"; fi
+          bun frames.ts --dir "$evidence/$stage" --out "$evidence/frames.json" --require || {
             echo "::error::gallery advisory: zero real frames ($(jq -c 'del(.dirs)' "$evidence/frames.json"))"
             exit 1
           }
