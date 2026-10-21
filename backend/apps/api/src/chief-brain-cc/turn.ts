@@ -6,7 +6,8 @@ import { liveOf } from "../chief-brain/brain-stream.ts"
 import { typing } from "../chief-brain/brain-io.ts"
 import { systemPrompt } from "../chief-brain/prompts.ts"
 import { isClaude, OPUS } from "../model-gateway/routes.ts"
-import { BOOT_MS, CcError, createVm, execRoot, mintTailnetKey, removeVm, vmName } from "./vm.ts"
+import { netScript, patchNet, readNet } from "./net.ts"
+import { BOOT_MS, CcError, createVm, execRoot, mintTailnetKey, removeVm, vmName, vmNetwork } from "./vm.ts"
 
 /**
  * One Cloud Chief turn as Claude Code (the personal route, vm.ts): the conversation brain (ChiefBrainDO
@@ -37,7 +38,14 @@ export const CC_ADDENDUM = `## This route
 You run as Claude Code in a fresh Linux machine that is deleted after this turn: nothing you write there
 is kept. The view's zoom and date tools are not available here; answer from the view and the new
 messages. Your last message is posted as your reply, so it must be the reply itself. Say in it what you
-learned that will matter later: the view is your only memory.`
+learned that will matter later: the view is your only memory.
+
+Network: by default you reach the public Internet over IPv4 and IPv6, with DNS (git clone, package
+installs, a userspace tailscaled); the tailnet, private addresses and other local ports are closed. The
+\`chief-net\` command shows and changes this for your machine, at once and for your next turns:
+\`chief-net show\`, \`chief-net set internet=on|off dns=on|off tailnet=on|off local=on|off\`,
+\`chief-net allow|deny|unallow|undeny HOST-OR-RANGE...\`, \`chief-net reset\`. No GitHub account is
+signed in here; ask the person to approve a device sign-in (\`gh auth login\`) when you need one.`
 
 export interface CcResult {
   readonly status: "done" | "failed"
@@ -135,6 +143,10 @@ export async function ccTurn(b: ChiefBrainDO, id: string, blocks: ReadonlyArray<
       const key = await mintTailnetKey(env)
       const boot = await execRoot(env, vm, `/opt/chief-cc/boot.sh ${name}`, key, BOOT_MS)
       if (boot.exit !== 0 || !boot.stdout.includes("ready")) throw new CcError(`the turn machine did not join the network (exit ${boot.exit})`)
+      // The agent stays closed (boot.sh) until the Chief's network settings are applied here.
+      const net = readNet(cfgOf(b, "cc_net"))
+      const applied = await execRoot(env, vm, "bash -s", enc.encode(netScript(net)), 30_000)
+      if (applied.exit !== 0 || !applied.stdout.includes("net ok")) throw new CcError(`the turn machine's network settings did not apply (exit ${applied.exit})`)
       mark("vm_ready")
       const token = await notesToken(env, agent, conversation, id)
       writeConfig(b.sql, { [`cc_token:${id}`]: await sha(token) })
@@ -145,7 +157,9 @@ export async function ccTurn(b: ChiefBrainDO, id: string, blocks: ReadonlyArray<
         model: isClaude(model) ? model : OPUS,
         system: clipBytes(`${systemPrompt(cfg)}\n\n${CC_ADDENDUM}`, SYSTEM_BYTES),
         prompt: "",
-        max_ms: RUN_MS
+        max_ms: RUN_MS,
+        net,
+        provider: await vmNetwork(env, vm)
       }
       input.prompt = tail(blocks.join("\n\n"), STDIN_BYTES - enc.encode(JSON.stringify(input)).length)
       const started = await execRoot(env, vm, `/opt/chief-cc/start.sh ${id}`, enc.encode(JSON.stringify(input)), 30_000)
@@ -212,10 +226,17 @@ const finishTurn = (b: ChiefBrainDO, id: string, r: CcResult): { ok: boolean; re
  * The turn machine's stream (the Worker routed POST .../notes here): a token made for the running turn only;
  * events become live frames (BrainStream, as a pi model stream) and tool steps; the result ends the wait.
  */
-export async function ccNotes(b: ChiefBrainDO, token: string, body: { run?: unknown; events?: unknown; result?: unknown }): Promise<{ status: number }> {
+export async function ccNotes(b: ChiefBrainDO, token: string, body: { run?: unknown; events?: unknown; result?: unknown; net?: unknown }): Promise<{ status: number; json?: unknown }> {
   const run = typeof body.run === "string" ? body.run : ""
   const want = /^run_[0-9]{1,15}$/.test(run) ? cfgOf(b, `cc_token:${run}`) : undefined
   if (!want || !token || want !== (await sha(token)) || b.turnId !== run) return { status: 401 }
+  // The Chief's `chief-net` (run.mjs): kept for its next turns, and the script its machine applies now.
+  if (body.net !== undefined) {
+    const r = patchNet(readNet(cfgOf(b, "cc_net")), body.net)
+    if (!r.ok) return { status: 400, json: { error: r.error } }
+    writeConfig(b.sql, { cc_net: JSON.stringify(r.net) })
+    return { status: 200, json: { net: r.net, script: netScript(r.net) } }
+  }
   const live = liveOf(b.doCtx)
   const g = genOf(b)
   for (const e of Array.isArray(body.events) ? (body.events as Array<Ev>).slice(0, 2000) : []) {
