@@ -463,11 +463,9 @@ jobs:
           echo "::add-mask::$auth"
           remote="https://github.com/$GITHUB_REPOSITORY.git"
           with_auth=(env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth")
-          # Lands the repair on the newest tip, even when the tip changed its inputs (the exports carry
-          # their own freshness stamp, and the newer run regenerates what moved); only a file a newer
-          # commit wrote waits, and then the run fails, which keeps it out of the next run's "since".
-          # Leaving the whole area to the next run whenever its inputs moved meant the settings exports
-          # never landed while merges kept coming (run 39553409406).
+          # Lands the repair on the newest tip file by file: a file whose input areas the tip changed,
+          # or that a newer commit wrote, waits (with its export and what is built from it), and then
+          # the run fails, which keeps it out of the next run's "since".
           "${with_auth[@]}" scripts/cmux-next/base-autofix-push.sh "$remote" feat-cmux-next "$HEAD_SHA" 2>&1 \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
