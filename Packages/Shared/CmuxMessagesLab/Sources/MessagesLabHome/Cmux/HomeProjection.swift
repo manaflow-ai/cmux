@@ -128,6 +128,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         controller.intents = self
         liveLine.dispatch = { [weak controller] text in if controller?.store != nil { controller?.dispatch(.setNotice(text)) } }
         liveLine.onTick = { [weak self] in self?.turnPopover?.refresh() }
+        liveLine.isShown = { [weak controller] in controller?.host.isShownOnScreen ?? false }
         liveLine.onClose = { [weak self] in self?.turnPopover?.close() }
         video.controller = controller
         media.onReady = { [weak self] _ in self?.refreshAttachments() }
@@ -697,6 +698,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func rowsPlaced() {
         video.place()
+    }
+
+    /// cmux (perf100): the live line's seconds run only while the pane shows.
+    func shownChanged() {
+        liveLine.shownChanged()
     }
 
     func scrolled() {
