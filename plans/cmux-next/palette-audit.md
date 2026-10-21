@@ -17,7 +17,7 @@ Every action the command palette offered on feat-cmux-next 55a6a413c5c8, with th
 | c. duplicate | 3 | folded into the row people know, same name | matches, −120 |
 | total | 1082 | | |
 
-Daily: Change Background…, Check for Updates…, Close Pane, Close Tab, Close Workspace, Connect to Machine…, Customize Appearance…, Decrease Font Size, Equalize Splits, Find in Directory…, Find…, Go to Workspace…, Increase Font Size, Jump to Latest Unread, New Agent Chat, New Browser Tab, New Cloud Workspace, New Tab, New Window, New Workspace, New Workspace on Machine…, Open Diff Viewer, Open File…, Open Folder…, Open Keyboard Shortcuts, Recently Closed…, Reload Configuration, Rename Tab…, Rename Workspace…, Reopen Closed Workspace, Reopen Last Closed Tab, Search All Windows…, Search Chats & Agents…, Search Tabs…, Set Terminal Theme…, Settings…, Split Down, Split Right, Start Agent…, Toggle Left Sidebar, Toggle Pane Zoom, Toggle Right Sidebar, Toggle Setting…
+Daily: Change Background…, Check for Updates…, Close Pane, Close Tab, Close Workspace, Connect to Machine…, Customize Appearance…, Decrease Font Size, Equalize Splits, Find in Directory…, Find…, Go to Workspace…, Increase Font Size, Jump to Latest Unread, New Agent Chat, New Browser Tab, New Cloud Workspace, New Tab, New Window, New Workspace, New Workspace on Machine…, Open Diff Viewer, Open File…, Open Folder…, Open Keyboard Shortcuts, Recently Closed…, Reload Configuration, Rename Tab…, Rename Workspace…, Reopen Closed Workspace, Reopen Last Closed Tab, Search All Windows…, Search Everything…, Search Tabs…, Set Terminal Theme…, Settings…, Split Down, Split Right, Start Agent…, Toggle Left Sidebar, Toggle Pane Zoom, Toggle Right Sidebar, Toggle Setting…
 
 | Family row | Opens | Members |
 |---|---|---|
@@ -137,7 +137,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Window | `quitKeepSessions` | Quit and Keep Sessions |  | c. niche | last in its section, −120 while typing |
 | Window | `recentlyClosed` | Recently Closed… |  | a. daily | first in its section, +120 while typing |
 | Window | `recentlyFocused` | Location History… |  | b. standard | its section, catalog order |
-| Window | `search.chats` | Search Chats & Agents… | ⇧⌘A | a. daily | first in its section, +120 while typing |
+| Window | `search.chats` | Search Everything… | ⇧⌘A | a. daily | first in its section, +120 while typing |
 | Window | `selectNextWindow` | Select Next Window |  | b. standard | its section, catalog order |
 | Window | `selectPreviousWindow` | Select Previous Window |  | b. standard | its section, catalog order |
 | Window | `showHideAllWindows` | Show/Hide All Windows | ⌃⌥⌘. | b. standard | its section, catalog order |
