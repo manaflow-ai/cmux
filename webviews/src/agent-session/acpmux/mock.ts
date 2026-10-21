@@ -418,7 +418,11 @@ export class MockAcpmuxSocket {
             ...this.sessions.find((entry) => entry.sessionId === target),
             enforcement: { policy: "default", label: "native_policy", isolation: "unverified", detail: null },
           },
-          events: this.events.filter((event) => event.sessionId === target),
+          // The newest page, as acpmux pages an attach (hub/paging.rs): at most `limit` records
+          // and `maxBytes` of them, `hasMore` when older ones remain. Answering the whole log made
+          // a long mock chat open as slowly as its history is long (perf100).
+          ...this.page(target, params, true),
+          lastSeq: this.lastSeqOf(target),
         };
       }
       case "_acpmux/archive": {
@@ -700,19 +704,48 @@ export class MockAcpmuxSocket {
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "updated", session: changed } });
   }
 
-  /// A page of a session's events, as `_acpmux/events` returns it: after `afterSeq`, or the
-  /// newest `limit` before `beforeSeq`; `kinds` keeps the commands or the transcript.
-  private page(target: string, params: Record<string, any>): { events: EventRecord[]; hasMore: boolean } {
+  /// The newest record's seq in `target`'s log, 0 when it has none.
+  private lastSeqOf(target: string): number {
+    for (let index = this.events.length - 1; index >= 0; index -= 1)
+      if (this.events[index]!.sessionId === target) return this.events[index]!.seq;
+    return 0;
+  }
+
+  /// A page of a session's events, as acpmux's `_acpmux/events` and `_acpmux/attach` return it
+  /// (hub/paging.rs): after `afterSeq` oldest first, or (`beforeSeq`, or an attach without
+  /// `afterSeq`) the newest `limit` before `beforeSeq`; a page also ends before its records pass
+  /// `maxBytes` and always holds one. `kinds` keeps the commands, other exact kinds, or the transcript.
+  private page(
+    target: string,
+    params: Record<string, any>,
+    attach = false,
+  ): { events: EventRecord[]; hasMore: boolean } {
     const kinds: string[] = Array.isArray(params.kinds) ? params.kinds : [];
     const wanted = (event: EventRecord) =>
       kinds.length === 0 ||
-      (event.kind === "available_commands_update" ? kinds.includes(event.kind) : kinds.includes("transcript"));
-    const own = this.events.filter((event) => event.sessionId === target && wanted(event));
-    if (params.beforeSeq === undefined)
-      return { events: own.filter((event) => event.seq > Number(params.afterSeq ?? 0)), hasMore: false };
-    const older = own.filter((event) => event.seq < Number(params.beforeSeq));
-    const limit = Math.max(1, Number(params.limit ?? older.length));
-    return { events: older.slice(-limit), hasMore: older.length > limit };
+      kinds.includes(event.kind) ||
+      (event.kind !== "available_commands_update" && kinds.includes("transcript"));
+    const after = Number(params.afterSeq ?? 0);
+    const before = params.beforeSeq === undefined ? Infinity : Number(params.beforeSeq);
+    const newest = params.beforeSeq !== undefined || (attach && params.afterSeq === undefined);
+    const limit = params.limit === undefined ? (attach ? 2000 : Infinity) : Math.max(1, Number(params.limit));
+    const maxBytes = params.maxBytes === undefined ? Infinity : Number(params.maxBytes);
+    const events: EventRecord[] = [];
+    let bytes = 0;
+    let hasMore = false;
+    const take = (event: EventRecord) => {
+      if (event.sessionId !== target || event.seq <= after || event.seq >= before || !wanted(event)) return true;
+      if (events.length >= limit) return !(hasMore = true);
+      bytes += JSON.stringify(event.msg).length + event.kind.length + 120;
+      if (events.length > 0 && bytes > maxBytes) return !(hasMore = true);
+      events.push(event);
+      return true;
+    };
+    if (newest) {
+      for (let index = this.events.length - 1; index >= 0 && take(this.events[index]!); index -= 1);
+      events.reverse();
+    } else for (let index = 0; index < this.events.length && take(this.events[index]!); index += 1);
+    return { events, hasMore };
   }
 
   private record(target: string, step: Step, at = Date.now()): EventRecord {
