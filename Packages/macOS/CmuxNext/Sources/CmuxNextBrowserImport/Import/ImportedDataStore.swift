@@ -31,18 +31,18 @@ public actor ImportedDataStore {
             .appending(path: String(safe) + ".json")
     }
 
-    /// Saves `batch`, replacing its source's earlier one. The source's Clear History
-    /// fences stay: pages last visited in them are left out, so a re-import does not
-    /// bring cleared history back. Returns the batch as saved, and the earlier batch
+    /// Saves `batch`, replacing its source's earlier one. The source's fences stay
+    /// (Clear History ranges, removed pages and sites; ``ImportSourceRecord/keeps(_:)``):
+    /// pages they cover are left out, so a re-import does not bring them back. Returns the batch as saved, and the earlier batch
     /// when it was in another profile (a re-import moved the source): its file is
     /// gone, and the caller takes its bookmarks and pages out of that profile.
     @discardableResult
     public func save(_ batch: ImportBatch) throws -> (saved: ImportBatch, displaced: ImportBatch?) {
         var batch = batch
-        let earlier = sources().first { $0.sourceKey == batch.source.sourceKey }?.clearedRanges ?? []
-        let cleared = Self.coalesced(earlier + (batch.source.clearedRanges ?? []))
-        batch.source.clearedRanges = cleared.isEmpty ? nil : cleared
-        batch.history = batch.history.filter { page in !cleared.contains { $0.contains(page.lastVisit) } }
+        if let earlier = sources().first(where: { $0.sourceKey == batch.source.sourceKey }) {
+            batch.source = batch.source.fences(adding: earlier)
+        }
+        batch.history = batch.history.filter(batch.source.keeps)
         let file = batchFile(batch.source)
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try encoder.encode(batch).write(to: file, options: .atomic)
@@ -106,15 +106,14 @@ public actor ImportedDataStore {
     }
 
     /// Keep in Sync: replaces one source's saved pages with a fresh read
-    /// (less any a Clear History removed) and returns its record and the pages
+    /// (less any its fences cover) and returns its record and the pages
     /// that are new or changed since the last read; nil when the source is
     /// unknown, no longer synced or its data was removed (nothing is written then).
     public func replaceHistory(_ sourceKey: String, with read: [ImportedHistoryEntry]) throws
         -> (record: ImportSourceRecord, changed: [ImportedHistoryEntry])? {
         guard let record = sources().first(where: { $0.sourceKey == sourceKey && $0.syncedHistoryFile != nil }),
               let data = try? Data(contentsOf: batchFile(record)), var batch = try? decoder.decode(ImportBatch.self, from: data) else { return nil }
-        let cleared = record.clearedRanges ?? []
-        let pages = read.filter { page in !cleared.contains { $0.contains(page.lastVisit) } }
+        let pages = read.filter(record.keeps)
         let old = Set(batch.history)
         let changed = pages.filter { !old.contains($0) }
         guard !changed.isEmpty || pages.count != batch.history.count else { return (record, []) }
@@ -151,12 +150,33 @@ public actor ImportedDataStore {
     /// later Keep in Sync reads.
     public func forgetHistory(profile: String?, since: Date?) throws {
         let range = DateInterval(start: since ?? .distantPast, end: Date())
+        try fence(profile: profile) { $0.clearedRanges = Self.coalesced(($0.clearedRanges ?? []) + [range]) }
+    }
+
+    /// Remove from History of one page in `profile`: its saved imported copy goes
+    /// (it would come back at the next launch) and later reads and re-imports leave
+    /// out its visits up to now.
+    public func forgetPage(_ url: URL, profile: String) throws {
+        let now = Date()
+        try fence(profile: profile) { $0.removedPages = ($0.removedPages ?? [:]).merging([ImportSourceRecord.pageKey(url): now], uniquingKeysWith: max) }
+    }
+
+    /// Remove Site: every profile's saved imported pages of `host` go, fenced the same way.
+    public func forgetSite(host: String) throws {
+        let now = Date()
+        try fence(profile: nil) { $0.removedSites = ($0.removedSites ?? [:]).merging([host.lowercased(): now], uniquingKeysWith: max) }
+    }
+
+    /// Adds a fence to every source in `profile` (nil: every profile) and drops the
+    /// saved pages it now covers.
+    private func fence(profile: String?, _ add: (inout ImportSourceRecord) -> Void) throws {
         var records = sources()
         for index in records.indices where profile == nil || records[index].targetProfileID == profile {
-            records[index].clearedRanges = Self.coalesced((records[index].clearedRanges ?? []) + [range])
+            add(&records[index])
+            records[index] = records[index].compacted()
             guard let data = try? Data(contentsOf: batchFile(records[index])),
                   var batch = try? decoder.decode(ImportBatch.self, from: data) else { continue }
-            let kept = batch.history.filter { !range.contains($0.lastVisit) }
+            let kept = batch.history.filter(records[index].keeps)
             guard kept.count != batch.history.count else { continue }
             batch.history = kept
             try encoder.encode(batch).write(to: batchFile(records[index]), options: .atomic)

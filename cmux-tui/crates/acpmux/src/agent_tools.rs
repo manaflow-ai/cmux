@@ -189,14 +189,11 @@ pub struct Inputs {
     /// The helper v2 endpoint folder, only while the helper v2 runs
     /// (`endpoint.json` exists): sessions then get `acpmux cua-mcp`.
     pub cua_v2: Option<PathBuf>,
-    /// This acpmux executable (the `cua-mcp` bridge command).
-    pub acpmux: Option<PathBuf>,
-    /// The arguments before an acpmux command word when [`Self::acpmux`]
-    /// is the cmux multicall binary: this daemon's own prefix
-    /// (`daemon::daemon_prefix`, `acp` there). On Linux `current_exe`
-    /// resolves an `acpmux` symlink to `cmux-tui`, which runs acpmux only
-    /// as `cmux-tui acp …`, so `<cmux-tui> subsession-mcp` would not start.
-    pub acpmux_prefix: Vec<String>,
+    /// This acpmux binary (`self_command.rs`): the `cua-mcp` bridge and the
+    /// secret, offer and sub-session servers are its subcommands, under its
+    /// prefix (`acp` inside cmux-tui, whose `current_exe` a Linux `acpmux`
+    /// link resolves to).
+    pub acpmux: Option<crate::self_command::SelfCommand>,
     /// The app shows the secret card ([`SECRET_TOOLS_ENV`] is `1`): sessions
     /// get `request_secret` (`secret_mcp.rs`). Without the card an ask would
     /// wait with nothing to answer it.
@@ -241,11 +238,7 @@ impl Inputs {
             state_dir: crate::config::home().join("agent-tools"),
             cua: crate::cua_socket::from_env(),
             cua_v2: crate::cua_v2::active_dir(crate::cua_v2::dir_from_env()),
-            acpmux: std::env::current_exe().ok(),
-            acpmux_prefix: crate::daemon::daemon_prefix()
-                .into_iter()
-                .map(|arg| arg.to_string_lossy().into_owned())
-                .collect(),
+            acpmux: crate::self_command::SelfCommand::current().ok(),
             secrets: var(SECRET_TOOLS_ENV).is_some_and(|v| v == "1"),
             offers: var(OFFER_TOOLS_ENV).is_some_and(|v| v == "1"),
             subsessions: crate::hub::subsessions::enabled(),
@@ -448,18 +441,14 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
     let executable = |name: &str| {
         inputs.bin_dir.as_ref().map(|dir| dir.join(name)).filter(|path| is_executable(path))
     };
-    // `<acpmux> [prefix…] <word>`: this acpmux's own MCP servers.
-    let acpmux_args = |word: &str| -> Vec<String> {
-        inputs.acpmux_prefix.iter().cloned().chain([word.to_owned()]).collect()
-    };
     if let (Some(dir), Some(acpmux)) = (&inputs.cua_v2, &inputs.acpmux) {
         // The helper v2: this acpmux as the agent's MCP server. Only the
         // folder goes in its env; the bridge reads the socket and secret
         // from endpoint.json there when it connects.
         servers.push(McpServer {
             name: crate::cua_v2::SERVER_NAME.into(),
-            command: acpmux.clone(),
-            args: acpmux_args(CUA_BRIDGE_ARG),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&[CUA_BRIDGE_ARG]),
             env: vec![(crate::cua_v2::ENDPOINT_DIR_ENV.into(), dir.to_string_lossy().into_owned())],
         });
     } else if let Some(cua) = executable("cmux-cua").or_else(|| nested_cua_helper(inputs)) {
@@ -497,8 +486,8 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
         // names the session and this daemon's socket in its env.
         servers.push(McpServer {
             name: crate::secret_mcp::SERVER_NAME.into(),
-            command: acpmux.clone(),
-            args: acpmux_args("secret-mcp"),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["secret-mcp"]),
             env: vec![],
         });
     }
@@ -506,8 +495,8 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
         // offer_session (`offer_mcp.rs`): `for_session` names the session.
         servers.push(McpServer {
             name: crate::offer_mcp::SERVER_NAME.into(),
-            command: acpmux.clone(),
-            args: acpmux_args("offer-mcp"),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["offer-mcp"]),
             env: vec![],
         });
     }
@@ -516,8 +505,18 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
         // gives it the session's id, caller token and this daemon's socket.
         servers.push(McpServer {
             name: crate::subsession_mcp::SERVER_NAME.into(),
-            command: acpmux.clone(),
-            args: acpmux_args("subsession-mcp"),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["subsession-mcp"]),
+            env: vec![],
+        });
+    }
+    if let Some(acpmux) = &inputs.acpmux {
+        // announce, rules and ack (`forum_mcp.rs`, hq#2570): acts as the
+        // session with its caller token, like the sub-session server.
+        servers.push(McpServer {
+            name: crate::forum_mcp::SERVER_NAME.into(),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["forum-mcp"]),
             env: vec![],
         });
     }
@@ -641,7 +640,9 @@ impl AgentTools {
             // and the one socket the CLI sends it to (`hub/person.rs` (a)).
             // The harness already holds the same token in its env; a Claude
             // Code config with it is a 0600 file (`claude_args`).
-            if server.name == crate::subsession_mcp::SERVER_NAME {
+            if server.name == crate::subsession_mcp::SERVER_NAME
+                || server.name == crate::forum_mcp::SERVER_NAME
+            {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
                 server.env = vec![
                     (crate::subsession_mcp::SESSION_ENV.to_owned(), session_id.to_owned()),

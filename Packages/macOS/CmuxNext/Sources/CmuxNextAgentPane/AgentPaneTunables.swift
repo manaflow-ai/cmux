@@ -135,13 +135,14 @@ public nonisolated struct AgentPaneTunables {
         "agent.chromium", PageTunables.section, "Agent chat in Chromium (spike)",
         help: "New agent tabs show in Chromium instead of WebKit, on the page host, when the browser engine is Chromium.",
         default: false, code: "AgentPaneTunables.chromium")
-    /// The session side rail beside the chat (cx-ncc.101): Environment, Context and Outputs, with a
-    /// header button that shows and hides it. Off until it is promoted to a real setting. Listed in
-    /// TunableCatalog on its own line, outside `all`, so it does not churn with that list.
-    public static let sessionRail = Tunable<Bool>.toggle(
-        "agent.sessionRail", PageTunables.section, "Session side rail",
-        help: "A header button opens a rail beside the chat with its environment, context use and changed files.",
-        default: false, code: "AgentPaneTunables.sessionRail")
+    /// The Inspector at the right of every agent chat, Chief included (cx-ncc.101; Leo 2026-10-20):
+    /// Environment, Context, Connectors, Changes, Servers, Subagents, Background tasks and Outputs,
+    /// with a header toggle that shows and hides it. On by default; off brings back the summary card.
+    /// Listed in TunableCatalog on its own line, outside `all`, so it does not churn with that list.
+    public static let inspector = Tunable<Bool>.toggle(
+        "agent.inspector", PageTunables.section, "Inspector",
+        help: "A header toggle opens the Inspector at the right of the chat: its environment, context, pull requests, subagents, background tasks and outputs.",
+        default: true, code: "AgentPaneTunables.inspector")
 
     /// Leo 2026-10-15: "Terminal: maybe not a toggle. Clicking the terminal button adds another
     /// terminal on the right each time." On, the chat header's Terminal opens a split on every
@@ -258,27 +259,31 @@ public nonisolated struct AgentPaneTunables {
         help: "The composer's model, effort and mode chips draw as plain text until hovered, focused or open.",
         default: true, code: "AgentPaneTunables.composerPlainFooter")
 
-    /// Tool runs fold as the Codex desktop app folds them while a turn runs (webviews
-    /// conversation/turns.ts `codexRuns`, cx-ncc.108): the run in flight is one line naming its
-    /// newest call, and a run any later row follows settles into its summary line. Off keeps every
-    /// call's row. The page gets it with the theme (`AgentPaneTheme`, `codexToolRuns`), again on
-    /// each change. Off by default: a running turn lists each call as it lands, as the Codex and
-    /// Claude Code desktop apps do (Leo 2026-10-20: "we're swallowing up a few too many of these").
-    /// The toggle stays for comparing the folded presentation.
+    /// Tool runs fold as the Codex desktop app folds them (webviews conversation/turns.ts
+    /// `codexRuns`, cx-ncc.108): each finished run is one summary line between the paragraphs
+    /// ("Read files, ran commands", "Ran 3 commands") that opens on a click, in a running turn and
+    /// in an open "Worked for" alike, and the call in flight is the turn's live line, which each
+    /// step replaces in place. Off keeps every call's row. The page gets it with the theme
+    /// (`AgentPaneTheme`, `codexToolRuns`), again on each change. On by default (Leo and Lawrence
+    /// 2026-10-21: the turn should look and behave like the ChatGPT/Codex app). The earlier "we're
+    /// swallowing up a few too many of these" (Leo 2026-10-20) was the run in flight shrinking to
+    /// its newest call; finished work now stays one click away and nothing live is hidden.
     public static let codexToolRuns = Tunable<Bool>.toggle(
         "agentPane.debug.codexToolRuns", PageTunables.section, "Codex-style tool runs in the agent pane",
-        help: "While a turn runs, each run of tool calls is one line: the newest call, then a summary once text follows.",
-        default: false, code: "AgentPaneTunables.codexToolRuns")
+        help: "Each finished run of tool calls is one summary line that opens on a click; the call in flight is the turn's live line.",
+        default: true, code: "AgentPaneTunables.codexToolRuns")
 
-    /// Repaints every window when ``codexToolRuns`` changes, so open agent pages get it with the
-    /// theme at once (as AppServices.observeBorders does for ``chatWidth``). The first theme push
-    /// starts it (``AgentPaneTheme/values(_:motion:surface:)``).
+    /// Repaints every window when ``codexToolRuns``, ``turnActionsPlacement`` or ``liveLineBelow``
+    /// changes, so open agent pages get it with the theme at once (as AppServices.observeBorders
+    /// does for ``chatWidth``). The first theme push starts it
+    /// (``AgentPaneTheme/values(_:motion:surface:)``).
     @MainActor static func followCodexToolRuns() {
         guard codexToolRunsFollow == nil else { return }
         // task-owner: lives as long as the app; event-driven (Observation)
         codexToolRunsFollow = Task {
-            var last = (codexToolRuns.value, turnActionsPlacement.value)
-            for await on in ObservationStream({ (codexToolRuns.value, turnActionsPlacement.value) }) where on != last {
+            var last = (codexToolRuns.value, turnActionsPlacement.value, liveLineBelow.value)
+            for await on in ObservationStream({ (codexToolRuns.value, turnActionsPlacement.value, liveLineBelow.value) })
+            where on != last {
                 last = on
                 ThemeStore.shared.repaintAll()
             }
@@ -380,6 +385,7 @@ public nonisolated struct AgentPaneTunables {
             escapeStopDoublePress.descriptor,
             foldLongThoughts.descriptor,
             harnessSwitchInStartedChat.descriptor,
+            liveLineBelow.descriptor,
             liveThoughtViewport.descriptor,
             modelMenu.descriptor,
             pagesFollowLinkPlacement.descriptor,
@@ -392,6 +398,7 @@ public nonisolated struct AgentPaneTunables {
             sidebarPreviewVariant.descriptor,
             sideSessions.descriptor,
             suggestedTasks.descriptor,
+            systemDictation.descriptor,
             terminalButtonAdds.descriptor,
             browserOpensPreview.descriptor,
             thoughtFoldThreshold.descriptor,

@@ -1098,6 +1098,28 @@ mark {
   text-overflow: ellipsis;
 }
 
+/* Key and value lists (browser.siteEngines). */
+.string-map {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.string-map-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.string-map-key {
+  max-width: 220px;
+  overflow: hidden;
+  font-size: var(--text-detail);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 /* Folder lists (picker.pinned, files.roots). */
 .folder-list {
   display: inline-flex;
