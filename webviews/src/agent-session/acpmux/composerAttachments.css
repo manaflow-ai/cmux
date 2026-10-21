@@ -117,6 +117,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A file that goes as its path: its name, then what happens to it in the caption's color. */
+.acpmux-attachment-link { gap: 6px; }
+.acpmux-attachment-link .acpmux-attachment-link-note {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+}
 .acpmux-attachment-document {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr);

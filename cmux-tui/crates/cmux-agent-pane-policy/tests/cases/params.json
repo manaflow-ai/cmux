@@ -423,7 +423,8 @@
       "promptId": 1,
       "steer": 1,
       "interrupt": 1,
-      "context": 1
+      "context": 1,
+      "surface": 1
      }
     }
    }
@@ -1155,6 +1156,53 @@
     "sessionId": "a",
     "subagentSessionId": "t",
     "command": "ls"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/btw every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/btw",
+   "params": {
+    "sessionId": 1,
+    "question": 1,
+    "model": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/btw refuses an unknown param (a command, a cwd)",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/btw",
+   "params": {
+    "sessionId": "s",
+    "question": "q",
+    "cwd": "/"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/btw refuses _meta",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/btw",
+   "params": {
+    "sessionId": "s",
+    "question": "q",
+    "_meta": {
+     "acpmux": {}
+    }
    }
   },
   "mode_fields": null,

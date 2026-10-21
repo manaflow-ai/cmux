@@ -141,6 +141,14 @@ export function promptSeq(rowId: string): number | undefined {
   return Number.isSafeInteger(seq) && seq > 0 ? seq : undefined;
 }
 
+/// The seq a row's pin is kept under: a prompt's (`user-<seq>`) or an answer's, its turn's
+/// `turn_result` record (`summary-<seq>`); undefined for a row acpmux has not logged.
+export function markSeq(rowId: string): number | undefined {
+  const match = /^(?:user|summary)-(\d+)$/.exec(rowId);
+  const seq = match ? Number(match[1]) : NaN;
+  return Number.isSafeInteger(seq) && seq > 0 ? seq : undefined;
+}
+
 /// The session's marks and their toggle; the caller re-renders when they change.
 export function useBookmarks(sessionId: string | undefined): {
   marks: ReadonlySet<number>;
