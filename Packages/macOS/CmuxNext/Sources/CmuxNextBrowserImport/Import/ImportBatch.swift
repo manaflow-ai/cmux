@@ -153,7 +153,7 @@ public struct ImportSourceRecord: Sendable, Codable, Equatable, Hashable {
         var record = self
         let allTime = clearedRanges?.filter { $0.start <= .distantPast }.map(\.end).max()
         let kept = { (fences: [String: Date]) -> [String: Date]? in
-            let live = fences.filter { allTime.map { end in $0.value > end } ?? true }
+            let live = fences.filter { fence in allTime.map { fence.value > $0 } ?? true }
             let newest = live.count <= Self.fenceLimit ? live
                 : Dictionary(uniqueKeysWithValues: live.sorted { $0.value > $1.value }.prefix(Self.fenceLimit).map { ($0.key, $0.value) })
             return newest.isEmpty ? nil : newest
