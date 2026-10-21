@@ -51,7 +51,8 @@ const passes = (kinds: string[] | undefined, event: Recorded) =>
   !kinds || kinds.some((kind) => (kind === "transcript" ? event.kind !== "usage_update" : kind === event.kind));
 
 /// A daemon over a fake socket: attach answers with `history` from `attachFrom` on (older records
-/// load as pages); `push` sends live events.
+/// load as pages); `push` sends live events. `liveOnAttach` records go out live as the attach
+/// subscribes, before its reply (acpmux subscribes the event stream before it reads the page).
 function fakeDaemon(
   history: Recorded[],
   {
@@ -61,6 +62,8 @@ function fakeDaemon(
   }: { harness?: string; family?: string; attachFrom?: number } = {},
 ) {
   let socket: any;
+  let liveOnAttach: Recorded[] = [];
+  let gapFails = false;
   const session = { sessionId: CHAT, cwd: "/Users/dev/app", title: "x", harness, family, status: "running" };
   const lastSeq = () => history.at(-1)?.seq ?? 0;
   const answer = (method: string, params: any) => {
@@ -74,6 +77,9 @@ function fakeDaemon(
         return { session, lastSeq: lastSeq(), events, hasMore: history.some((event) => event.seq < attachFrom) };
       }
       case "_acpmux/events": {
+        // The reconnect's gap read: every kind after the held events.
+        if (gapFails && params?.afterSeq !== undefined && params?.kinds === undefined)
+          throw new Error("events unavailable");
         const before = params?.beforeSeq ?? Infinity;
         const after = params?.afterSeq ?? 0;
         const events = history.filter(
@@ -90,12 +96,21 @@ function fakeDaemon(
       readyState: 1,
       send(raw: string) {
         const message = JSON.parse(raw);
+        if (message.method === "_acpmux/attach") {
+          const live = liveOnAttach;
+          liveOnAttach = [];
+          push(live);
+        }
         if (message.id !== undefined)
-          queueMicrotask(() =>
-            socket.onmessage?.({
-              data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }),
-            }),
-          );
+          queueMicrotask(() => {
+            let reply: Record<string, unknown>;
+            try {
+              reply = { result: answer(message.method, message.params) };
+            } catch (error) {
+              reply = { error: { code: -32000, message: (error as Error).message } };
+            }
+            socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, ...reply }) });
+          });
       },
       close() {},
     };
@@ -115,7 +130,11 @@ function fakeDaemon(
   const drop = () => socket.onclose?.({ code: 1006, reason: "", wasClean: false });
   /// Where the next attach page starts (a long turn outgrows the page).
   const pageFrom = (seq: number) => (attachFrom = seq);
-  return { open, push, notify, drop, pageFrom };
+  /// Records the next attach's subscription delivers live before the page.
+  const onAttach = (events: Recorded[]) => (liveOnAttach = events);
+  /// Whether the reconnect's gap read fails.
+  const failGap = (fails: boolean) => (gapFails = fails);
+  return { open, push, notify, drop, pageFrom, onAttach, failGap };
 }
 
 async function connect(daemon: ReturnType<typeof fakeDaemon>) {
@@ -278,6 +297,51 @@ test("a reconnect whose page starts after the turn began keeps the count it held
     await new Promise((resolve) => setTimeout(resolve, 800));
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBe(131_000);
+  } finally {
+    client.close();
+    if (!hadWindow) delete scope.window;
+  }
+});
+
+test("a live call that lands before a mid-turn attach's reply does not make it a reconnect", async () => {
+  // acpmux subscribes the attach's event stream before it reads the page, so a live call can land
+  // before the reply. The client then holds an event, but only from this attach: the turn's first
+  // calls are older than the page, and an older page bringing its start must not count from it.
+  const history = record([prompt("fix the build"), started, call(41_200), call(43_800), call(46_000)]);
+  const daemon = fakeDaemon(history, { attachFrom: 4 });
+  daemon.onAttach(record([call(9_000)], 6));
+  const { client, snapshot } = await connect(daemon);
+  try {
+    expect(snapshot().isWorking).toBe(true);
+    expect(snapshot().turnTokens).toBeUndefined();
+    await client.loadOlder();
+    await settle();
+    expect(snapshot().rows.some((row: AcpmuxRow) => row.kind === "user")).toBe(true);
+    expect(snapshot().turnTokens).toBeUndefined();
+  } finally {
+    client.close();
+  }
+});
+
+test("a reconnect whose gap read fails hides the count it can no longer add up", async () => {
+  // The chat was read whole; while the socket is down the turn makes calls past the next page's
+  // start, and reading the gap fails. The calls in the gap are missing, so the count hides.
+  const history = record([prompt("fix the build"), started, call(41_200), call(43_800)]);
+  const daemon = fakeDaemon(history);
+  const { client, snapshot } = await connect(daemon);
+  const scope = globalThis as { window?: unknown };
+  const hadWindow = "window" in scope;
+  // The client schedules its reconnect on `window`; this test has no DOM.
+  if (!hadWindow) scope.window = globalThis;
+  try {
+    expect(snapshot().turnTokens).toBe(85_000);
+    history.push(...record([call(46_000), call(1_000), call(2_000), call(3_000)], 5));
+    daemon.pageFrom(7);
+    daemon.failGap(true);
+    daemon.drop();
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    expect(snapshot().isWorking).toBe(true);
+    expect(snapshot().turnTokens).toBeUndefined();
   } finally {
     client.close();
     if (!hadWindow) delete scope.window;
