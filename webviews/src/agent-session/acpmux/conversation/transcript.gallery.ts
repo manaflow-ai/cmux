@@ -780,6 +780,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         // The step draws its calls (a live run may show only its newest), and nothing else.
         await ctx.waitFor(() => ctx.document.querySelector(".cv-tools .cv-tool"));
+        await ctx.hover({ selector: ".cv-tools .cv-tool" });
         if (ctx.document.querySelector(".cv-thought")) throw new Error("a quiet thought draws a row");
         if (ctx.document.body.textContent?.includes("I am here")) throw new Error("a quiet thought shows its text");
       },
