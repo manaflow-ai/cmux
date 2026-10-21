@@ -15,7 +15,7 @@ extension ChatColumnPlacement {
     /// tracked run; optional page moves cannot fail the tool open or move keyboard focus.
     @MainActor static func moveNewTabPages(_ pages: [TabModel], with chat: TabModel, from source: PaneModel,
                                            in content: WorkspaceContentController, services: AppServices,
-                                           whenDocked: @MainActor (PaneModel) -> Void = { _ in }) async {
+                                           generation: UInt64, whenDocked: @MainActor (PaneModel) -> Void = { _ in }) async {
         let daemon = services.machines.daemon(forTab: chat)
         let appeared = await waitForDockUpdate {
             services.locateTab(chat.id).map { $0.1 !== source } ?? false
@@ -24,14 +24,18 @@ extension ChatColumnPlacement {
             daemon.logger.error("chat dock: the moved chat's pane did not appear; New Tab pages stayed in their pane")
             return
         }
-        // Seed the window's selection before the first page arrives, even if its new pane's
-        // controller has not mounted yet. Daemon active-tab defaults must not select a page.
-        content.state.selection.select(chat.id, in: dock.id)
-        whenDocked(dock)
-        var index = 1
-        for page in pages {
+        await followNewTabPages(pages, focus: content.focus, generation: generation, isDockCurrent: {
+            services.locateTab(chat.id)?.1 === dock
+                && content.workspace.screens.contains { $0.panes.contains { $0 === dock } }
+                && ChatDockRules.isChatDock(dock, in: daemon.store)
+        }, prepare: {
+            // Only the run's original intent may seed selection or restore focus. Newer
+            // keyboard/mouse selections bump this existing FocusCoordinator generation.
+            content.state.selection.select(chat.id, in: dock.id)
+            whenDocked(dock)
+        }) { page, index in
             guard services.locateTab(page.id)?.1 === source,
-                  services.agentTabs.isNewTabPage(page.id) else { continue }
+                  services.agentTabs.isNewTabPage(page.id) else { return false }
             let transaction = ClientTransactionID.generate()
             // The enclosing tracked task still awaits these moves. Their daemon errors are
             // logged, but must not become failures of the tool's action.run command scope.
@@ -43,7 +47,7 @@ extension ChatColumnPlacement {
             }
             guard moved else {
                 daemon.logger.error("chat dock: a New Tab page could not follow the chat; leaving it in its pane")
-                continue
+                return false
             }
             // A move's optimistic intent is visible before its echo. Wait for settlement too,
             // so the run answers with the final layout, rather than a pending move overlay.
@@ -57,13 +61,25 @@ extension ChatColumnPlacement {
             var echo = applied.makeAsyncIterator()
             let settled = await echo.next() == true
             bound.cancel()
-            if settled, services.locateTab(page.id)?.1 === dock {
-                index += 1
-            } else {
+            guard settled, services.locateTab(page.id)?.1 === dock else {
                 daemon.logger.error("chat dock: a New Tab page's move was not reported in the dock")
+                return false
             }
+            return true
         }
-        content.paneController(key: dock.id)?.selectWhenReportedKeepingFocus(surface: chat.surface)
+    }
+
+    /// Prepares selection before any optional moves, revalidating the destination between awaits.
+    /// A failed move leaves its slot available to the next page and never fails the tool open.
+    @MainActor static func followNewTabPages<Page>(_ pages: [Page], focus: FocusCoordinator, generation: UInt64, isDockCurrent: @MainActor () -> Bool,
+                                                   prepare: @MainActor () -> Void, move: @MainActor (Page, Int) async -> Bool) async {
+        guard isDockCurrent() else { return }
+        if focus.currentState().generation == generation { prepare() }
+        var index = 1
+        for page in pages {
+            guard isDockCurrent() else { return }
+            if await move(page, index) { index += 1 }
+        }
     }
 
     /// A bounded event-driven wait, using the same deadline as the beside-caller placement.

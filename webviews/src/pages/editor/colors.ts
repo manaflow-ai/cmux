@@ -48,3 +48,10 @@ export function cssColorToHex(value: string, scope: HTMLElement): string | null 
     probe.remove();
   }
 }
+
+/** Chooses the sticky header color from resolved Monaco hex colors. */
+export function editorStickyBackground(background: string | null, sticky: string | null): string | null {
+  return background && /^(?:#[0-9a-f]{3}|#[0-9a-f]{3}f|#[0-9a-f]{6}|#[0-9a-f]{6}ff)$/i.test(background)
+    ? background
+    : sticky;
+}

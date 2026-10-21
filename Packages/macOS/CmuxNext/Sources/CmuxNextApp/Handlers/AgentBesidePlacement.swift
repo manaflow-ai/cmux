@@ -44,6 +44,7 @@ enum AgentBesidePlacement {
         let lone = controller.flatMap { ChatColumnPlacement.resolve(from: $0, services: services) == .dockChat ? $0 : nil }
         let chat = lone?.pane.tabs.first { ChatColumnPlacement.isChat($0, services: services) }
         let newTabPages = ChatColumnPlacement.newTabPages(in: anchor.tabs) { services.agentTabs.isNewTabPage($0.id) }
+        let intent = lone?.workspace?.focus.currentState().generation
         let chatHadFocus = lone.map { $0.workspace?.focusedPane === $0 } ?? false
         let (surfaces, sink) = AsyncStream<SurfaceID>.makeStream(bufferingPolicy: .bufferingNewest(1))
         services.registry.track(Task { @MainActor in
@@ -67,7 +68,7 @@ enum AgentBesidePlacement {
             guard let surface, let tab = services.locateTab(surface: surface) else {
                 return "beside-caller: the new tab did not open"
             }
-            if let chat, let content = lone?.workspace {
+            if let chat, let content = lone?.workspace, let intent {
                 // The new tab is in the chat's pane, unselected: the chat docks, the tab stays.
                 let docked = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                     TabMoves.toNewDockColumn(chat, anchor: anchor, edge: .left, role: .agentChat, services: services) {
@@ -76,7 +77,8 @@ enum AgentBesidePlacement {
                 }
                 guard docked else { return "beside-caller: the chat did not dock (see the app log)" }
                 await ChatColumnPlacement.moveNewTabPages(newTabPages, with: chat, from: anchor,
-                                                          in: content, services: services) { dock in
+                                                          in: content, services: services, generation: intent) { dock in
+                    services.paneController(for: anchor)?.selectWhenReportedKeepingFocus(surface: surface)
                     // Keyboard focus stays in the chat before any New Tab pages follow it.
                     guard chatHadFocus || content.focusedPane?.pane === anchor else { return }
                     // Not a view change of the run: the run moved the focused chat out of its
@@ -86,7 +88,6 @@ enum AgentBesidePlacement {
                         PaneHandlers.focus(LayoutPaneID(dock.id), in: content)
                     }
                 }
-                services.paneController(for: anchor)?.selectWhenReportedKeepingFocus(surface: surface)
                 return nil
             }
             // Home's pinned dock alone takes no tab: the daemon made it in a new column right of

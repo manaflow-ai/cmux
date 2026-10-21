@@ -37,15 +37,19 @@ export class LineReveal {
         options: { isWholeLine: true, className: "ed-line-reveal" },
       },
     ]);
-    this.timer = setTimeout(() => this.clear(), 1500);
+    this.timer = setTimeout(() => this.clearHighlight(), 1500);
+  }
+
+  private clearHighlight(): void {
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    this.decorations?.clear();
+    this.decorations = null;
   }
 
   clear(): void {
-    clearTimeout(this.timer);
-    this.timer = undefined;
+    this.clearHighlight();
     this.layout?.dispose();
     this.layout = undefined;
-    this.decorations?.clear();
-    this.decorations = null;
   }
 }

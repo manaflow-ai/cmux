@@ -99,7 +99,7 @@ struct FileOpenRequest: Sendable, Equatable {
         }
         if let value = params["line"], !value.isNull {
             guard let argument = value.stringValue, let line = FileLineLocation(argument) else {
-                throw ControlError.invalidParams(ControlStrings.format("control.error.mustBeString", "%@ must be a string", "line (1...10000000, optionally :column or -endLine)"))
+                throw ControlError.invalidParams(ControlStrings.text("control.error.invalidLine", "Line must be a number from 1 to 10,000,000, optionally followed by :column or -endLine."))
             }
             self.line = line
         }

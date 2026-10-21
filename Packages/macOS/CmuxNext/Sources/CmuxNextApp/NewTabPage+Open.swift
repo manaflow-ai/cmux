@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextLayout
 import CmuxNextOnboarding
 import CmuxNextPalette
 import CmuxNextSettings
@@ -110,6 +111,9 @@ extension NewTabPage {
         if case .terminal = request.kind, request.run, command(request.text) == nil { return } // opens nothing
         // The pick takes the page's place, like a browser's new tab (Leo 2026-10-20); the Debug toggle
         // `links.pagesFollowPlacement` lands it where Cmd-clicked links go (LinkOpener).
+        if Self.pickOpensInStrip(request.kind, inChatDock: ChatDockRules.isChatDock(pane.pane, services: services)) {
+            return Self.openBeside(key, with: request, cwd: cwd, from: pane, outsideChatDock: true, keep: keep)
+        }
         if !keep, Self.opensBeside(key, in: pane) { return Self.openBeside(key, with: request, cwd: cwd, from: pane) }
         let closePage = keep ? close : NewTabSlot.placing(replacing: key, services: services, then: close) ?? close // the page's slot
         switch request.kind {
@@ -137,6 +141,11 @@ extension NewTabPage {
         }
     }
 
+    /// Tools picked in a chat dock open in the strip; a new chat keeps its page's pane.
+    nonisolated static func pickOpensInStrip(_ kind: AgentPaneTabKind, inChatDock: Bool) -> Bool {
+        inChatDock && kind != .agent
+    }
+
     /// Whether what New Tab page `key` in `pane` opens goes beside it: ``LinkOpener`` puts it beside
     /// the page (the Debug toggle `links.pagesFollowPlacement` on, the link placement not Same Pane), the page shares its pane
     /// with another tab (a lone page has nothing to keep in view, so it is replaced in place), and it is no split's (a split's page, which lists Open
@@ -149,10 +158,20 @@ extension NewTabPage {
 
     /// ``replace(_:with:cwd:in:keep:)`` beside the page: the terminal or browser opens through
     /// ``LinkOpener`` (the pane on the right, else a new split), then the page closes.
-    private static func openBeside(_ key: String, with request: AgentPaneOpenTab, cwd: String?, from pane: PaneController) {
+    private static func openBeside(_ key: String, with request: AgentPaneOpenTab, cwd: String?, from pane: PaneController, outsideChatDock: Bool = false, keep: Bool = false) {
         let services = pane.services
-        let closePage = closingPage(key, in: pane)
-        services.linkOpener.open(from: pane) { target, placed in
+        let closePage: @MainActor () -> Void = keep ? {} : closingPage(key, in: pane)
+        let placement: LinkOpenPlacement<LayoutPaneID>.Target?
+        if outsideChatDock {
+            switch ChatColumnPlacement.resolve(from: pane, services: services) {
+            case .tab(let id): placement = .pane(id)
+            // A dock alone still needs a strip column, regardless of its takes-tabs flag.
+            default: placement = .newColumn
+            }
+        } else {
+            placement = nil
+        }
+        services.linkOpener.open(from: pane, target: placement) { target, placed in
             let landed: @MainActor (SurfaceID) -> Void = { surface in
                 placed?(surface)
                 closePage()

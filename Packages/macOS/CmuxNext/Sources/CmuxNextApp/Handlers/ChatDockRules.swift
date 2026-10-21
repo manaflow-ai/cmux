@@ -25,6 +25,12 @@ enum ChatDockRules {
         return isChatDock(layoutPane, ChatColumnPlacement.columns(of: screen, containing: layoutPane))
     }
 
+    /// The daemon's current dock, including a pane whose controller has not mounted yet.
+    @MainActor static func isChatDock(_ pane: PaneModel, in store: DaemonStore) -> Bool {
+        guard let screen = store.workspace(containing: pane.handle)?.screens.first(where: { $0.panes.contains { $0 === pane } }) else { return false }
+        return screen.columns.first { $0.layout.paneIDs.contains(pane.handle) }?.dock?.role == .agentChat
+    }
+
     /// Refuses (and reports) a tool tab moving into the chat dock. A
     /// reorder inside the dock is not a move into it.
     @MainActor static func refusesMove(_ tab: TabModel, to pane: PaneModel, services: AppServices) -> Bool {

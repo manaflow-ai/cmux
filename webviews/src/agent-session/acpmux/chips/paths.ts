@@ -31,7 +31,7 @@ export function linkReplyPath(href: string): ReplyPath | undefined {
   const pathname = (hash < 0 ? href : href.slice(0, hash)).split("?")[0]!;
   const fragment = hash < 0 ? "" : href.slice(hash);
   const target = pathLocation(safeDecode(pathname) + (/^#L\d+(?:C\d+|-L\d+)?$/.test(fragment) ? fragment : ""));
-  if (target.location && !target.path.includes("/") && !isPathShape(target.path)) return { path: href };
+  if (target.location && !isFileLocation(target)) return undefined;
   return target.path ? target : undefined;
 }
 
@@ -51,14 +51,19 @@ export function codeReplyPath(text: string): ReplyPath | undefined {
   }
   if (/^[\w+.-]+:\/\//.test(value) || /[\t\n`'"<>|*?$;&(){}[\]]| -/.test(value)) return undefined;
   const target = pathLocation(value);
-  return isPathShape(target.path) ? target : undefined;
+  return isFileLocation(target) && (target.path.includes("/") || target.location) ? target : undefined;
 }
 
 /// A file name with an extension, optionally inside a relative, absolute or home folder, or
 /// a folder with a trailing slash. `/usr`, `and/or` and `~/notes` stay text.
 export function isPathShape(path: string): boolean {
-  if (!/^(?:~|\.{1,2})?\//.test(path) && !/^[\w@+-]+\//.test(path) && !/^[\w@+-]+\.[A-Za-z0-9]{1,12}$/.test(path))
+  if (
+    !/^(?:~|\.{1,2})?\//.test(path) &&
+    !/^[\w@+-]+\//.test(path) &&
+    !/^[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}$/.test(path)
+  )
     return false;
+  if (!path.includes("/") && !/\.[A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*$/.test(path)) return false;
   const relative = /^\.{1,2}\//.test(path);
   const parts = path.split("/").filter((part) => part && part !== "~" && part !== "." && part !== "..");
   if (parts.length < (relative || (!path.startsWith("/") && !path.startsWith("~/")) ? 1 : 2)) return false;
@@ -97,10 +102,24 @@ export function textLinks(text: string): TextLink[] {
       continue;
     }
     const target = match[1] ? linkReplyPath(value) : pathLocation(value);
-    if (target && isPathShape(target.path) && (target.path.includes("/") || target.location))
+    if (target && isFileLocation(target) && (target.path.includes("/") || target.location))
       out.push({ kind: "path", start, end, value, ...target });
   }
   return out;
+}
+
+// A bare host:port is not a file location. Folder-qualified names remain unambiguous files.
+function isFileLocation(target: ReplyPath): boolean {
+  return (
+    isPathShape(target.path) &&
+    !(
+      target.suffix?.startsWith(":") &&
+      !target.path.includes("/") &&
+      /\.(?:com|org|net|edu|gov|mil|int|io|dev|app|co|uk|au|nz|info|biz|me|tv|xyz|online|site|tech|ai|local)$/i.test(
+        target.path,
+      )
+    )
+  );
 }
 
 function safeDecode(text: string): string {

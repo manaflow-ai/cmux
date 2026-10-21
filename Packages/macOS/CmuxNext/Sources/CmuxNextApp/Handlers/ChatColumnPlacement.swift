@@ -62,9 +62,9 @@ extension ChatColumnPlacement {
                   let chat = loneChat(in: controller.pane.tabs, isChat: { isChat($0, services: services) },
                                       isNewTabPage: { services.agentTabs.isNewTabPage($0.id) }) else { return controller }
             // The new tab left in the pane takes focus, not the docked chat.
-            let pane = controller.layoutPaneID
             let source = controller.pane
             let originalSurfaces = Set(source.tabs.map(\.surface))
+            let intent = content.beginFocusIntent()
             let pages = newTabPages(in: source.tabs) { services.agentTabs.isNewTabPage($0.id) }
             services.registry.track(Task { @MainActor [weak content, weak controller] in
                 let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
@@ -73,12 +73,13 @@ extension ChatColumnPlacement {
                 }
                 guard moved else { return "move-tab-to-column failed (see the app log)" }
                 if let content {
-                    await moveNewTabPages(pages, with: chat, from: source, in: content, services: services)
-                    // A page whose optional move failed must not stay selected over the respawn.
-                    if let respawned = source.tabs.first(where: { !originalSurfaces.contains($0.surface) }) {
-                        controller?.selectWhenReportedKeepingFocus(surface: respawned.surface)
+                    await moveNewTabPages(pages, with: chat, from: source, in: content, services: services,
+                                          generation: intent) { _ in
+                        // Land focus as soon as the dock is listed, before optional page moves.
+                        if let respawned = source.tabs.first(where: { !originalSurfaces.contains($0.surface) }) {
+                            content.expectFocus(on: respawned.surface, generation: intent)
+                        }
                     }
-                    PaneHandlers.focus(pane, in: content)
                 }
                 // A hidden tab bar was the chat's choice: the tab left in the pane shows its tab bar again.
                 if let controller, services.paneTabBars.choice(for: controller.paneKey) == false {

@@ -35,7 +35,7 @@ import {
   settingsForLanguage,
   type EditorSettings,
 } from "./settings";
-import { cssColorToHex } from "./colors";
+import { cssColorToHex, editorStickyBackground } from "./colors";
 import { markScrolling, onScrollerStyleChange, scrollerStyle } from "../../scrollers";
 
 declare global {
@@ -488,6 +488,14 @@ export class MonacoView implements CodeView {
     for (const [variable, keys] of MONACO_THEME_VARIABLES) {
       const color = cssColorToHex(style.getPropertyValue(variable), this.container);
       if (color) for (const key of keys) chrome[key] = color;
+    }
+    const sticky = editorStickyBackground(
+      chrome["editor.background"] ?? null,
+      chrome["editorStickyScroll.background"] ?? null,
+    );
+    if (sticky) {
+      chrome["editorStickyScroll.background"] = sticky;
+      chrome["editorStickyScrollGutter.background"] = sticky;
     }
     this.chrome = chrome;
   }
