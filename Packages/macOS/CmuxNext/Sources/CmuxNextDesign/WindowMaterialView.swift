@@ -134,16 +134,12 @@ public final class WindowMaterialView: NSView {
     var inactiveTintAlpha: CGFloat { inactiveTintTarget }
 
     /// How strongly the theme tint at full alpha covers glass that is not key so the window
-    /// composites as it did while key: Liquid Glass with a tint of alpha `tintAlpha` shows the tint
-    /// at about ``glassTintStrength`` of that alpha over its own material, and the grey material
-    /// of an inactive window is that same material (measured on macOS 26, GlassWashMeasureTests).
+    /// composites as it did while key: the tint Liquid Glass dropped, at its own alpha (the
+    /// Opacity), over the material it covered. Not measured against the render server yet: CI and
+    /// fleet test hosts have no window server to capture glass with.
     static func matchedGlassWash(tintAlpha: CGFloat) -> CGFloat {
-        min(max(tintAlpha * glassTintStrength, 0), 1)
+        min(max(tintAlpha, 0), 1)
     }
-
-    /// The share of a tint's alpha Liquid Glass shows over its material (measured, see
-    /// ``matchedGlassWash(tintAlpha:)``).
-    static let glassTintStrength: CGFloat = 1
 
     /// The wash over a window that is not key: none while it is key or opaque; over glass the
     /// match for the key look (``matchedGlassWash(tintAlpha:)``); then `dim` of what still shows

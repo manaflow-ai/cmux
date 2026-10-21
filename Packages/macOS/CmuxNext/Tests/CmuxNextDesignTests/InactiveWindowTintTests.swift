@@ -32,9 +32,10 @@ import Testing
             }
             #expect(WindowMaterialView.inactiveTintAlpha(material: material, isKeyWindow: false, tintAlpha: 0, dim: 0) == 0)
         }
-        // Leo's setup, Opacity 0.55 with Glass: the old wash was 0.85 of the tint over a dark theme.
+        // Leo's setup, Opacity 0.55 with Glass: the old wash was 0.85 of the tint over a dark theme;
+        // now the inactive window shows the tint at the Opacity it showed while key.
         let leo = WindowMaterialView.inactiveTintAlpha(material: .glass(.regular), isKeyWindow: false, tintAlpha: 0.55, dim: 0)
-        #expect(abs(leo - WindowMaterialView.matchedGlassWash(tintAlpha: 0.55)) < 0.0001)
+        #expect(abs(leo - 0.55) < 0.0001)
     }
 
     /// Materials whose tint does not depend on the key state get no wash unless the person asks
