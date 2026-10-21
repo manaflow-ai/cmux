@@ -1,5 +1,8 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextActions
+@testable import CmuxNextAgentPane
+import CmuxNextPages
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextSettings
@@ -61,4 +64,40 @@ import Testing
         defer { pane.teardown() }
         #expect(!services.linkOpener.open(from: pane) { _, _ in false })
     }
+
+    @Test func aReplyLineReachesTheEditorConfigAndASecondOpenReusesTheTab() async throws {
+        let (services, pane) = try Self.pane()
+        defer { pane.teardown() }
+        services.linkOpener.placement = { .samePane }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("line-jump-\(UUID().uuidString).txt")
+        try Data("one\ntwo\n".utf8).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let request = try #require(AgentPaneReplyRequest(method: "link.openPath", params: ["path": url.path, "line": "42:7"]))
+        guard case .openPath(let path, let line) = request else { Issue.record("not an open request"); return }
+        #expect(services.linkOpener.openFile(URL(fileURLWithPath: path), from: pane, line: line))
+        let pages = services.viewers.editorPages
+        let key = try #require(pages.openKeys.first)
+        _ = pages.makeView(for: key, in: nil)
+        let provider = try #require(pages.provider(key))
+        defer { provider.close() }
+        let context = PageCallContext(page: "cmux.editor")
+        let config = try await provider.call("cmux.editor.config", params: .object([:]), context: context)
+        #expect(config["location"] == ["line": 42, "column": 7])
+        #expect(services.linkOpener.openFile(url, from: pane, line: FileLineLocation("2-3")))
+        #expect(pages.openKeys == [key])
+        let next = try await provider.call("cmux.editor.config", params: .object([:]), context: context)
+        #expect(next["location"] == ["line": 2, "endLine": 3])
+        #expect(services.viewers.openFile(url, in: pane, userChose: false, line: FileLineLocation("1")) == nil)
+        let background = try await provider.call("cmux.editor.config", params: .object([:]), context: context)
+        #expect(background["location"] == nil, "automation without focus intent must not scroll an existing tab")
+    }
+
+
+    @Test func replyRequestsRevalidateLocationsAndRejectExtraData() {
+        for value: Any in ["0", "-1", "42:0", "10000001", "42;command", 42, true] {
+            #expect(AgentPaneReplyRequest(method: "link.openPath", params: ["path": "/repo/app.ts", "line": value]) == nil)
+        }
+        #expect(AgentPaneReplyRequest(method: "link.openPath", params: ["path": "/repo/app.ts", "line": "42", "command": "bad"]) == nil)
+    }
+
 }

@@ -1,0 +1,200 @@
+import { expect, test } from "bun:test";
+import { textLinks } from "../src/agent-session/acpmux/chips/paths";
+
+for (const [suffix, location] of [
+  [":42", { line: 42 }],
+  [":42:7", { line: 42, column: 7 }],
+  ["#L42", { line: 42 }],
+  ["#L42C7", { line: 42, column: 7 }],
+  ["#L42-L50", { line: 42, endLine: 50 }],
+  [":42-50", { line: 42, endLine: 50 }],
+] as const) {
+  test(`prose preserves ${suffix}`, () => {
+    const [link] = textLinks(`See src/app.ts${suffix}.`);
+    expect(link?.path).toBe("src/app.ts");
+    expect(link?.location).toEqual(location);
+    expect(link?.value).toBe(`src/app.ts${suffix}`);
+  });
+}
+
+import {
+  codeReplyPath,
+  linkReplyPath,
+  codePath,
+  linkPath,
+  isDeniedPath,
+} from "../src/agent-session/acpmux/chips/paths";
+import { renderToStaticMarkup } from "react-dom/server";
+import { renderInline } from "../src/agent-session/acpmux/conversation/Markdown";
+
+const forms = [":42", ":42:7", "#L42", "#L42C7", "#L42-L50", ":42-50"];
+for (const suffix of forms) {
+  for (const path of ["src/app.ts", "./app.ts", "/repo/src/app.ts", "~/repo/app.ts", "app.ts"]) {
+    test(`code and markdown links keep ${path}${suffix}`, () => {
+      const expected = linkReplyPath(`file:///repo/src/app.ts${suffix}`)?.location;
+      expect(expected?.line).toBe(42);
+      expect(codeReplyPath(`${path}${suffix}`)?.location).toEqual(expected);
+      expect(linkReplyPath(`${path}${suffix}`)?.location).toEqual(expected);
+      expect(codePath(`${path}${suffix}`)).toBe(path);
+      expect(linkPath(`${path}${suffix}`)).toBe(path);
+    });
+  }
+  test(`chips show the written line ${suffix} in prose, code and markdown links`, () => {
+    for (const source of [
+      `src/app.ts${suffix}`,
+      `\`src/app.ts${suffix}\``,
+      `[source](src/app.ts${suffix})`,
+      `file:///repo/src/app.ts${suffix}`,
+    ]) {
+      const html = renderToStaticMarkup(<>{renderInline(source)}</>);
+      expect(html).toContain("cv-chip is-path");
+      expect(html).toContain(suffix);
+      expect(html).toContain(source.startsWith("file:") ? 'data-path="/repo/src/app.ts"' : 'data-path="src/app.ts"');
+    }
+  });
+}
+
+for (const value of [
+  "foo:bar",
+  "12:30",
+  "http://localhost:3000/app.ts:42",
+  "https://example.com:42",
+  "https://example.com/app.ts#L42",
+]) {
+  test(`non-file reference has no line: ${value}`, () => {
+    expect(codeReplyPath(value)?.location).toBeUndefined();
+    expect(linkReplyPath(value)?.location).toBeUndefined();
+    expect(textLinks(value).some((link) => link.location)).toBe(false);
+  });
+}
+
+for (const suffix of [":0", ":-1", ":1.5", ":10000001", ":42:0", "#L0", "#L42-L2", ":42-10000001", ":42:7oops"]) {
+  test(`invalid location is never sent: ${suffix}`, () => {
+    expect(codeReplyPath(`src/app.ts${suffix}`)?.location).toBeUndefined();
+    expect(linkReplyPath(`src/app.ts${suffix}`)?.location).toBeUndefined();
+  });
+}
+
+test("folders ignore positions, encoded file URLs work, denied files remain denied", () => {
+  expect(linkReplyPath("src/:42")).toEqual({ path: "src/" });
+  expect(linkReplyPath("file:///repo/a%20b.ts#L42C7")).toMatchObject({
+    path: "/repo/a b.ts",
+    location: { line: 42, column: 7 },
+  });
+  expect(linkReplyPath("file://evil/repo/app.ts#L42")).toBeUndefined();
+  expect(isDeniedPath(linkPath("/repo/private.pem:42")!)).toBe(true);
+  expect(isDeniedPath(linkPath("/repo/.env#L42")!)).toBe(true);
+});
+
+test("ordinary prose and code keep their existing non-path treatment", () => {
+  expect(textLinks("At 12:30 visit example.com; foo:bar and/or /usr stay text.")).toEqual([]);
+  for (const source of ["cat /tmp/app.ts", "./src/*.ts", "--file=./src/app.ts"])
+    expect(codePath(source)).toBeUndefined();
+  for (const source of ["/tmp/app.ts", "~/repo/src/", "./app.ts", "../src/app.ts"])
+    expect(codePath(source)).toBe(source);
+  expect(linkPath("file:///repo/app.ts#section")).toBe("/repo/app.ts");
+});
+
+import { menuPartAt } from "../src/agent-session/acpmux/conversation/menuParts";
+test("the context menu keeps the same position as the path chip", () => {
+  const element = {
+    parentElement: null,
+    getAttribute: (name: string) => ({ "data-path": "src/app.ts", "data-line": "42:7" })[name] ?? null,
+  } as unknown as Element;
+  expect(menuPartAt(element)).toEqual({ path: "src/app.ts", line: "42:7" });
+});
+
+test("Windows drive paths never become relative prose chips", () => {
+  for (const path of [String.raw`C:\repo\app.ts:42`, String.raw`C:\repo\src/app.ts:42`, "C:/repo/app.ts:42"]) {
+    expect(textLinks(`See ${path}.`)).toEqual([]);
+    expect(codeReplyPath(path)).toBeUndefined();
+    expect(linkReplyPath(path)).toBeUndefined();
+  }
+});
+
+test("fractional line continuations never become truncated prose locations", () => {
+  for (const suffix of [":1.5", ":42:7.5", ":42-50.5", "#L42.5", "#L42C7.5", "#L42-L50.5"]) {
+    expect(textLinks(`See src/app.ts${suffix}.`)).toEqual([]);
+  }
+});
+
+test("sentence punctuation still bounds a prose line suffix", () => {
+  for (const punctuation of [".", ",", ")", ":", ": "]) {
+    expect(textLinks(`See src/app.ts:42${punctuation}`)).toEqual([
+      {
+        kind: "path",
+        start: 4,
+        end: 17,
+        value: "src/app.ts:42",
+        path: "src/app.ts",
+        location: { line: 42 },
+        suffix: ":42",
+      },
+    ]);
+  }
+});
+
+test("only supported line fragments supply a markdown link location", () => {
+  for (const path of ["src/app.ts", "./app.ts", "/repo/app.ts", "file:///repo/app.ts"]) {
+    const pathname = path.replace(/^file:\/\//, "");
+    for (const fragment of [
+      "section:42",
+      "section:42:7",
+      "section:42-50",
+      "section#L42",
+      "L42oops",
+      "L42#section",
+      "L42?section",
+    ]) {
+      expect(linkReplyPath(`${path}#${fragment}`)).toEqual({ path: pathname });
+      expect(linkReplyPath(`${path}:7#${fragment}`)).toEqual({ path: pathname, location: { line: 7 }, suffix: ":7" });
+    }
+  }
+});
+
+test("one click on a formatted path link label opens only its href", async () => {
+  const { JSDOM } = await import("jsdom");
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const { resetLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
+  const dom = new JSDOM("<!doctype html><div id=root></div>");
+  const scope = globalThis as Record<string, unknown>;
+  const globals = { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true };
+  const saved = Object.keys(globals).map((key) => [key, key in scope, scope[key]] as const);
+  Object.assign(scope, globals);
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const opens: Record<string, unknown>[] = [];
+  setChipHost(async (method, params) => {
+    if (method === "link.openPath") opens.push(params);
+    return undefined;
+  });
+  try {
+    for (const [label, selector, href, expected] of [
+      ["app.ts:42", ".cv-chip__label", "src/app.ts:42", { path: "src/app.ts", line: "42" }],
+      ["/repo/app.ts", ".cv-chip__label", "src/app.ts", { path: "src/app.ts" }],
+      ["**src/app.ts:42**", "strong", "src/app.ts:42", { path: "src/app.ts", line: "42" }],
+      ["*src/app.ts:42*", "em", "src/app.ts:42", { path: "src/app.ts", line: "42" }],
+      ["~~src/app.ts:42~~", "del", "src/app.ts:42", { path: "src/app.ts", line: "42" }],
+      ["`/repo/app.ts`", "code", "src/app.ts:42", { path: "src/app.ts", line: "42" }],
+    ] as const) {
+      opens.length = 0;
+      await act(async () => root.render(<>{renderInline(`[${label}](${href})`)}</>));
+      const target = Array.from(container.querySelectorAll<HTMLElement>(selector)).at(-1)!;
+      expect(target).not.toBeNull();
+      await act(async () => target.click());
+      expect(opens).toEqual([expected]);
+      expect(container.querySelectorAll("button")).toHaveLength(1);
+    }
+  } finally {
+    await act(async () => root.unmount());
+    setChipHost(undefined);
+    resetLinkStore();
+    for (const [key, had, value] of saved) {
+      if (had) scope[key] = value;
+      else delete scope[key];
+    }
+    dom.window.close();
+  }
+});
