@@ -17,7 +17,9 @@ which then found cmux#22988. A receipt, for the exact head, is one of:
 Only people (author __typename User) with OWNER, MEMBER or COLLABORATOR association count. The newest verdict
 naming the head decides, so a later BLOCK beats an earlier SHIP. Before that, as next-autoland's review_state()
 judges it, the newest review-like word on any head must not say wait: a change request, "Review (codex): BLOCK",
-"Verdict: BLOCK", or a comment starting "Hold..." refuses even after a SHIP on the head. Comments starting `<!--`
+"Verdict: BLOCK", a bare first line "BLOCK at <sha>", "NOT SHIP" or "Do not merge", or a comment starting
+"Hold..." refuses even after a SHIP on the head. When the 30-review or 40-comment window comes back full and reaches
+back no further than the SHIP, something newer may be cut off, so that refuses too. Comments starting `<!--`
 are tools' marked comments, not reviews. Nothing waives a refusal. A base merge (merge-main.sh, update-branch)
 makes a new head, which needs its own receipt.
 
@@ -40,6 +42,11 @@ TRUSTED = {"OWNER", "MEMBER", "COLLABORATOR"}
 # "Verdict: BLOCK" counts too (autoland reads only lines that say "review"; review of cmux#23067).
 REVIEW_LINE = re.compile(r"review|\bverdict\b", re.I)
 HOLD_LINE = re.compile(r"^\W*hold(?:ing)?\b", re.I)  # "**Holding this PR. ...**"
+# A first line that is only a wait verdict, with or without a sha: "BLOCK at <sha>", "**BLOCK at <sha>**", "NOT SHIP",
+# "Do not merge". It names no review, so REVIEW_LINE misses it; it still says wait (re-review of cmux#23067).
+WAIT_LINE = re.compile(r"^\W*(?:BLOCK|NOT SHIP|HOLD|DO NOT MERGE)\b", re.I)
+# The read's windows, next-autoland's: the newest 30 reviews and 40 comments.
+REVIEWS_WINDOW, COMMENTS_WINDOW = 30, 40
 # A review-like comment counts only with an explicit verdict in a label near its top (next_autoland.py).
 LABELLED = r"(?:\breview[^:\n]{0,160}|\bverdict\W{0,4}):\W{0,8}"
 SHIPS = re.compile(LABELLED + r"(?:ship|approved?|lgtm|merge|nothing blocking|no (?:defects|findings|blocking issues))\b",
@@ -51,8 +58,10 @@ SHA_TOKEN = re.compile(r"\b[0-9a-f]{7,40}\b")
 RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])", re.I)
 QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){"
          "headRefOid "
-         "reviews(last:30){nodes{state submittedAt body authorAssociation author{__typename login} commit{oid}}} "
-         "comments(last:40){nodes{createdAt body authorAssociation author{__typename login}}}}}}")
+         f"reviews(last:{REVIEWS_WINDOW})"
+         "{nodes{state submittedAt body authorAssociation author{__typename login} commit{oid}}} "
+         f"comments(last:{COMMENTS_WINDOW})"
+         "{nodes{createdAt body authorAssociation author{__typename login}}}}}}")
 
 Runner = Callable[[list[str]], tuple[int, str, str]]
 
@@ -103,6 +112,8 @@ def review_state(pr: dict) -> tuple[str, str]:
             found.append((at, "reviewed", f"approved by {login}"))
         elif item.get("state") == "CHANGES_REQUESTED":
             found.append((at, "blocked", f"changes requested by {login}"))
+        elif WAIT_LINE.search(first):
+            found.append((at, "blocked", first.strip()[:80]))
         elif REVIEW_LINE.search(first) and review_verdict(body):
             found.append((at, review_verdict(body), first.strip()[:80]))
     for item in (pr.get("comments") or {}).get("nodes") or []:
@@ -114,6 +125,8 @@ def review_state(pr: dict) -> tuple[str, str]:
             continue  # a tool's marked comment (base-red-watch, previews), not a person's review
         if HOLD_LINE.search(first):
             found.append((item.get("createdAt") or "", "held", first.strip()[:80]))
+        elif WAIT_LINE.search(first):
+            found.append((item.get("createdAt") or "", "blocked", first.strip()[:80]))
         elif REVIEW_LINE.search(first) and review_verdict(body):
             found.append((item.get("createdAt") or "", review_verdict(body), first.strip()[:80]))
     if not found:
@@ -156,13 +169,25 @@ def head_verdicts(pr: dict, head: str) -> list[tuple[str, str, str]]:
     return found
 
 
+def newest_verdict(pr: dict, head: str) -> tuple[str, str, str] | None:
+    found = head_verdicts(pr, head)
+    return max(found, key=lambda f: f[0]) if found else None
+
+
 def receipt(pr: dict, head: str) -> str:
     """Who passed the head, or "": the newest verdict naming it must be a SHIP."""
-    found = head_verdicts(pr, head)
-    if not found:
-        return ""
-    _, kind, detail = max(found, key=lambda f: f[0])
-    return detail if kind == "ship" else ""
+    newest = newest_verdict(pr, head)
+    return newest[2] if newest and newest[1] == "ship" else ""
+
+
+def window_cut_off(pr: dict, since: str) -> str:
+    """The list ("reviews" or "comments") that came back full and reaches back no further than `since`, so items
+    newer than `since` may have been cut off from it; "" when both lists reach past it."""
+    for key, cap, stamp in (("reviews", REVIEWS_WINDOW, "submittedAt"), ("comments", COMMENTS_WINDOW, "createdAt")):
+        nodes = [node for node in (pr.get(key) or {}).get("nodes") or [] if node]
+        if len(nodes) >= cap and min((node.get(stamp) or "") for node in nodes) >= since:
+            return key
+    return ""
 
 
 def decide(pr: dict, head: str) -> tuple[str, str]:
@@ -170,10 +195,15 @@ def decide(pr: dict, head: str) -> tuple[str, str]:
     state, detail = review_state(pr)
     if state in ("blocked", "held"):
         return "", f"no SHIP review receipt on {head} can merge while the newest review says wait: {detail}"
-    who = receipt(pr, head)
-    if not who:
+    newest = newest_verdict(pr, head)
+    if not newest or newest[1] != "ship":
         return "", f"no SHIP review receipt on {head}"
-    return who, ""
+    cut = window_cut_off(pr, newest[0])
+    if cut:
+        return "", (f"no SHIP review receipt on {head} can be confirmed: the {cut} window is full (the newest "
+                    f"{REVIEWS_WINDOW if cut == 'reviews' else COMMENTS_WINDOW}) and reaches back only to the SHIP, so "
+                    "the gate can't confirm nothing newer says wait; post the receipt again")
+    return newest[2], ""
 
 
 def _gh(args: list[str]) -> tuple[int, str, str]:
