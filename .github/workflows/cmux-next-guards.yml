@@ -47,6 +47,27 @@ jobs:
       linux_guard_cli: ${{ 'false' }}
       linux_guard_source: ${{ 'false' }}
 
+  # ci-guards.yml's `ci` group (workflow lints, hook trust, runner and cache policy: scripts/ci/guards-local.sh's
+  # default set) ran only in ci.yml's "CI fast guards", which skips feat-cmux-next pull requests, and ci.yml never
+  # runs on its pushes. Nothing ran it for the branch: tests/test_preflight_trust.py errored there unseen until
+  # #23006 (tests/test_feat_ci_guard_group.py).
+  ci-guard-group:
+    name: cmux-next CI guard group
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Run the ci guard group
+        env:
+          CMUX_GUARDS_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+        run: scripts/ci/guards-local.sh --no-stamp --jobs 8
+
   vt-link-graph:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
