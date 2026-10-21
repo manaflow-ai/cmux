@@ -2,7 +2,9 @@
 //! bytes are kept once, named by their SHA-256, under `<ACPMUX_HOME>/attachments`, and the
 //! prompt's `user_message` names them (`images: [{id, mimeType, name}]`), so a chat shows its
 //! images after it is sent, after a restart, and in a fork (which copies the log).
-//! `_acpmux/attachment` reads one back for a session whose log names it.
+//! A queued prompt's `queued` and `queue_updated` records name its images the same way, so its
+//! row shows them before it runs. `_acpmux/attachment` reads one back for a session whose log
+//! names it.
 
 use super::{EventFilter, Hub, Session};
 use crate::rpc::RpcError;
@@ -18,20 +20,46 @@ fn valid_id(id: &str) -> bool {
     id.len() == 64 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-/// Keeps the bytes of each `image` block in `blocks` and returns what `user_message` records of
-/// them. An image that cannot be read or kept is left out: the prompt still goes.
-fn keep(blocks: &[Value]) -> Vec<Value> {
+/// An `image` block's bytes, and what a record names it by (`{id, mimeType, name?}`, the id
+/// the SHA-256 of the bytes). `None` for any other block, or image data that is not base64.
+fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
     use base64::Engine;
     use sha2::Digest;
+    if block.get("type").and_then(Value::as_str) != Some("image") {
+        return None;
+    }
+    let data = block.get("data").and_then(Value::as_str)?;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data).ok()?;
+    let id: String = sha2::Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+    let mime = block.get("mimeType").and_then(Value::as_str).unwrap_or("image/png");
+    let mut named = json!({"id": id, "mimeType": mime});
+    if let Some(name) = block.get("name").and_then(Value::as_str) {
+        named["name"] = json!(name);
+    }
+    Some((bytes, named))
+}
+
+/// The id an `image` block's bytes are kept under; `None` for any other block.
+pub(super) fn id_of(block: &Value) -> Option<String> {
+    decode(block).and_then(|(_, named)| named["id"].as_str().map(str::to_owned))
+}
+
+/// What `keep` would record of `blocks`' images, without keeping them (a queued prompt's row,
+/// `views.rs`).
+pub(super) fn named(blocks: &[Value]) -> Vec<Value> {
+    blocks.iter().filter_map(decode).map(|(_, named)| named).collect()
+}
+
+/// Keeps the bytes of each `image` block in `blocks` and returns what `user_message` (and a
+/// queued prompt's `queued` and `queue_updated`) records of them. An image that cannot be read
+/// or kept is left out: the prompt still goes.
+pub(super) fn keep(blocks: &[Value]) -> Vec<Value> {
     blocks
         .iter()
-        .filter(|block| block.get("type").and_then(Value::as_str) == Some("image"))
-        .filter_map(|block| {
-            let data = block.get("data").and_then(Value::as_str)?;
-            let bytes = base64::engine::general_purpose::STANDARD.decode(data).ok()?;
-            let id: String =
-                sha2::Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
-            let path = dir().join(&id);
+        .filter_map(decode)
+        .filter_map(|(bytes, named)| {
+            let id = named["id"].as_str()?;
+            let path = dir().join(id);
             if !path.is_file() {
                 let written = std::fs::create_dir_all(dir()).and_then(|()| {
                     // Written aside and renamed, so a reader never sees half an image.
@@ -44,12 +72,7 @@ fn keep(blocks: &[Value]) -> Vec<Value> {
                     return None;
                 }
             }
-            let mime = block.get("mimeType").and_then(Value::as_str).unwrap_or("image/png");
-            let mut kept = json!({"id": id, "mimeType": mime});
-            if let Some(name) = block.get("name").and_then(Value::as_str) {
-                kept["name"] = json!(name);
-            }
-            Some(kept)
+            Some(named)
         })
         .collect()
 }
@@ -64,14 +87,15 @@ impl Hub {
         self.append(session, "mux", "user_message", msg);
     }
 
-    /// `_acpmux/attachment`: the image `id` one of session `session`'s prompts sent, as
-    /// `{mimeType, data}` (base64). Only an image the session's own log names is read.
+    /// `_acpmux/attachment`: the image `id` one of session `session`'s prompts sent or queued
+    /// (so a queued prompt's row shows it before it runs), as `{mimeType, data}` (base64). Only
+    /// an image the session's own log names is read.
     pub fn prompt_image(&self, session: &str, id: &str) -> Result<Value, RpcError> {
         let missing = || RpcError::not_found(format!("no image {id} in this chat"));
         if !valid_id(id) {
             return Err(missing());
         }
-        let filter = EventFilter::parse(Some(&json!(["user_message"])))?;
+        let filter = EventFilter::parse(Some(&json!(["user_message", "queued", "queue_updated"])))?;
         let page = self
             .events_page(session, 0, None, usize::MAX, None, false, &filter)
             .map_err(|e| RpcError::internal(e.to_string()))?;
