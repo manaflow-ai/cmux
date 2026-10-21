@@ -62,6 +62,22 @@ pub(super) fn set_fallback_title(m: &mut SessionMeta, text: &str) {
     m.title_prompt = Some(short_text(gist.body.trim(), 2000));
 }
 
+/// A rename of a chat no title has settled yet (by its prompt, or by a request that came back
+/// empty and may ask again, `wants_title`) makes it `NAMED`: no title is generated after it.
+pub(super) fn title_renamed(m: &mut SessionMeta) {
+    if renamed_source(&mut m.title_source) {
+        m.title_prompt = None;
+    }
+}
+
+fn renamed_source(source: &mut Option<String>) -> bool {
+    if !matches!(source.as_deref(), None | Some(PROMPT) | Some(ASKED)) {
+        return false;
+    }
+    *source = Some(NAMED.to_owned());
+    true
+}
+
 /// A sub-session's title as it starts (2026-10-20: seven sub-sessions all read
 /// "Read /Users/…/COMMON.md fi…", their prompts' shared first line). Its
 /// session name (`parent/short`) is the mux's, not the person's, so it is not
@@ -383,6 +399,23 @@ mod tests {
             assert!(!wants_title(Some(done), false, 0), "{done} keeps its title");
         }
         assert!(!wants_title(None, false, 0), "a chat titled before generated titles is kept");
+    }
+
+    #[test]
+    fn a_rename_after_an_empty_title_request_stops_title_requests() {
+        for unsettled in [None, Some(PROMPT), Some(ASKED)] {
+            let mut source = unsettled.map(str::to_owned);
+            assert!(renamed_source(&mut source));
+            assert!(
+                !wants_title(source.as_deref(), false, 0),
+                "{unsettled:?} renamed asks no title"
+            );
+        }
+        for done in [GENERATED, HARNESS, ADOPTED] {
+            let mut source = Some(done.to_owned());
+            assert!(!renamed_source(&mut source));
+            assert_eq!(source.as_deref(), Some(done));
+        }
     }
 
     #[test]
