@@ -73,14 +73,16 @@ test("URL chips expose a safe hover card with a browser Open action", async () =
   await act(async () => link.focus());
   const card = rootElement.querySelector<HTMLElement>(".cv-link-preview")!;
   expect(card.getAttribute("role")).toBe("dialog");
-  expect(card.getAttribute("aria-label")).toBe("GitHub");
-  expect(card.textContent).toContain("GitHub");
+  // A pull request's card names the host: its page title only repeats the pull request's own title.
+  expect(card.getAttribute("aria-label")).toBe("github.com");
   expect(card.textContent).toContain("github.com");
   expect(card.querySelector("button")?.textContent).toContain("Open");
   await act(async () => card.querySelector<HTMLButtonElement>("button")!.focus());
   expect(rootElement.querySelector(".cv-link-preview")).not.toBeNull();
   await act(async () => card.querySelector<HTMLButtonElement>("button")!.click());
+  // A pull request link's card also asked gh about it (chips/PullRequestCard.tsx).
   expect(calls).toEqual([
+    { method: "pr.inspect", params: { url: "https://github.com/manaflow-ai/cmux/pull/21180" } },
     { method: "browser.open", params: { url: "https://github.com/manaflow-ai/cmux/pull/21180" } },
   ]);
   await act(async () => {
