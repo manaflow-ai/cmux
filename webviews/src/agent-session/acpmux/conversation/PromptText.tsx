@@ -36,8 +36,11 @@ export function PromptText({
   const parts = useMemo(() => promptParts(text, pasted ?? []), [text, pasted]);
   const [open, setOpen] = useTranscriptDisclosure(`prompt:${rowId}`);
   // Whether the prompt is taller than the collapsed lines: guessed from its text until laid out,
-  // then measured against its line height (open or closed), again when its width changes.
-  const [long, setLong] = useState(() => looksLongPrompt(pasted?.length ? "" : text) || parts.length > 3);
+  // then measured against its line height (open or closed), again when its width changes. A
+  // measure is of one text: a bubble drawn again with another prompt guesses again.
+  const guess = looksLongPrompt(pasted?.length ? "" : text) || parts.length > 3;
+  const [measured, setMeasured] = useState<{ parts: typeof parts; long: boolean }>();
+  const long = measured?.parts === parts ? measured.long : guess;
   const body = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const node = body.current;
@@ -46,14 +49,15 @@ export function PromptText({
       const lineHeight = parseFloat(getComputedStyle(node).lineHeight);
       // No layout (a test DOM) keeps the guess.
       if (!node.scrollHeight || !Number.isFinite(lineHeight)) return;
-      setLong(node.scrollHeight > COLLAPSED_PROMPT_LINES * lineHeight + 1);
+      const next = node.scrollHeight > COLLAPSED_PROMPT_LINES * lineHeight + 1;
+      setMeasured((last) => (last?.parts === parts && last.long === next ? last : { parts, long: next }));
     };
     measure();
     if (typeof ResizeObserver !== "function") return;
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [text, pasted]);
+  }, [parts]);
   const collapsed = long && !open;
   // Find's current match in this prompt opens it; one in a typed part past the fold, or in a paste,
   // needs it open to draw.

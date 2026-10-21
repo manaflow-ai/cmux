@@ -167,7 +167,8 @@ try {
     const text = `${typed}\n${paste}`;
     const start = typed.length + 1;
     const row = prompt("user-6", text, { pasted: [{ start, end: start + paste.length }] });
-    render(row);
+    // A fresh mount: the last test's Copy still shows its check.
+    remount(row);
     const chip = host.querySelector<HTMLButtonElement>(".cv-user__paste")!;
     expect(chip).not.toBeNull();
     // The composer's attachment chip look (#23100), without its remove button.
