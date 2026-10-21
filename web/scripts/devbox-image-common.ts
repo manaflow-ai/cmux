@@ -1528,7 +1528,7 @@ export const DEVBOX_AWAITING_REBAKE = [
     layers: "desktop",
     schema: 2,
     baked: "28fce1e49495",
-    current: "3ab33749f10a851adc63efef11138a1fb8e3c525ea17543f29a9058c3f707130",
+    current: "8fc6bdb6c96777ef0c304682b4170488d8baf60a9d673cec0408be5bbb299df7",
   },
 ] as const;
 
