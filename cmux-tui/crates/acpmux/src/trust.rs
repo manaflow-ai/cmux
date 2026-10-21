@@ -225,7 +225,38 @@ fn made_by_cmux(root: &Path, cwd: &str) -> bool {
 /// same rule from `get` (`decided`, `harnesses`), so its question and the
 /// trust gate (`server/trust_gate.rs`) agree.
 pub fn session_level(paths: &Paths, cwd: &str, family: &str) -> Result<(String, Level), Failure> {
-    let reply = get(paths, cwd)?;
+    level_for(paths, cwd, family, true)
+}
+
+/// `session_level` for a Web client (or a peer forwarding for one): an auto-trust rule
+/// (`trust_auto.rs`) is no answer here. A Web client cannot answer the question itself, so a
+/// folder it starts in needs a decision a person made: in the app, the CLI, or an agent's own.
+pub fn web_session_level(
+    paths: &Paths,
+    cwd: &str,
+    family: &str,
+) -> Result<(String, Level), Failure> {
+    level_for(paths, cwd, family, false)
+}
+
+fn level_for(
+    paths: &Paths,
+    cwd: &str,
+    family: &str,
+    auto_answers: bool,
+) -> Result<(String, Level), Failure> {
+    let mut reply = get(paths, cwd)?;
+    if !auto_answers && reply["auto"].is_string() {
+        // Without the rule nothing decided: each agent's own level answers.
+        let agents = Level::parse(reply["harnesses"]["claude"].as_str().unwrap_or_default())
+            .unwrap_or(Level::Unknown)
+            .stricter(
+                Level::parse(reply["harnesses"]["codex"].as_str().unwrap_or_default())
+                    .unwrap_or(Level::Unknown),
+            );
+        reply["decided"] = Value::Bool(false);
+        reply["level"] = Value::from(agents.as_str());
+    }
     let cwd = reply["cwd"].as_str().unwrap_or_default().to_owned();
     let level_at =
         |pointer: &str| reply.pointer(pointer).and_then(Value::as_str).and_then(Level::parse);

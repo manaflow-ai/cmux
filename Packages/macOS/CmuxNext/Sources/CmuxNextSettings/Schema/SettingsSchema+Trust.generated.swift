@@ -4,18 +4,18 @@
 extension TrustSettings {
     /// `agents.trust.autoTrust`: Off: every folder without an answer asks, whatever the project roots and organizations below say.
     public nonisolated static let trustAutoTrustPath = ["agents", "trust", "autoTrust"]
-    public nonisolated static let trustAutoTrustDefault = true
+    public nonisolated static let trustAutoTrustDefault = false
     /// `agents.trust.projectRoots`: Folders whose contents are trusted without a question: absolute or ~/ paths. Symlinks are resolved first, so a link out of a root is not trusted.
     public nonisolated static let trustProjectRootsPath = ["agents", "trust", "projectRoots"]
-    public nonisolated static let trustProjectRootsDefault: [String] = ["~/Projects"]
+    public nonisolated static let trustProjectRootsDefault: [String] = []
     /// `agents.trust.ownOrgs`: GitHub users and organizations whose repositories are trusted without a question. Every remote of the repository must belong to one of them.
     public nonisolated static let trustOwnOrgsPath = ["agents", "trust", "ownOrgs"]
-    public nonisolated static let trustOwnOrgsDefault: [String] = ["teamleaderleo", "manaflow-ai"]
+    public nonisolated static let trustOwnOrgsDefault: [String] = []
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum TrustSettingsSchema {
-    /// Settings > Agents > Folder Trust: folders that need no trust question. The daemon reads the file at each check, so a change applies at once. An explicit Don't trust still wins.
+    /// Settings > Agents > Folder Trust: folders that need no trust question. The daemon reads the file at each check, so a change applies at once. An explicit Don't trust still wins. Off by default with empty lists: nobody's folders are trusted by a rule until the person turns it on and names their own roots and owners.
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.folderTrust", "Folder Trust")
         return [

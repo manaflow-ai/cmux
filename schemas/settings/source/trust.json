@@ -8,7 +8,7 @@
         "key": "settings.group.folderTrust",
         "text": "Folder Trust"
       },
-      "note": "Settings > Agents > Folder Trust: folders that need no trust question. The daemon reads the file at each check, so a change applies at once. An explicit Don't trust still wins.",
+      "note": "Settings > Agents > Folder Trust: folders that need no trust question. The daemon reads the file at each check, so a change applies at once. An explicit Don't trust still wins. Off by default with empty lists: nobody's folders are trusted by a rule until the person turns it on and names their own roots and owners.",
       "rows": [
         {
           "key": "agents.trust.autoTrust",
@@ -23,7 +23,7 @@
             "text": "Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "trust",
             "folder",
@@ -45,9 +45,7 @@
             "text": "Everything inside these folders is trusted. Use full paths or ~/ paths."
           },
           "kind": "folder_list",
-          "default": [
-            "~/Projects"
-          ],
+          "default": [],
           "keywords": [
             "trust",
             "project",
@@ -69,10 +67,7 @@
             "text": "A repository is trusted when all of its GitHub remotes belong to these users or organizations."
           },
           "kind": "string_list",
-          "default": [
-            "teamleaderleo",
-            "manaflow-ai"
-          ],
+          "default": [],
           "keywords": [
             "trust",
             "github",

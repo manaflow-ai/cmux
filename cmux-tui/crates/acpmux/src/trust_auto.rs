@@ -7,9 +7,9 @@
 //! (`trust::get`), and `agents.trust.autoTrust` turns both rules off.
 //!
 //! The settings file is read at each use, like the other daemon-read settings
-//! (`user_settings.rs`). A file that cannot be read turns the rules off: a default that widens
-//! trust must not apply to a file nobody could read. The defaults live in
-//! `schemas/settings/source/trust.json`, the one definition the app's Settings shares.
+//! (`user_settings.rs`). A file that cannot be read turns the rules off. The defaults live in
+//! `schemas/settings/source/trust.json`, the one definition the app's Settings shares: off, with
+//! no roots and no owners, so nothing is trusted by a rule until the person names their own.
 
 use std::path::{Path, PathBuf};
 
@@ -121,7 +121,7 @@ impl AutoTrust {
         if !self.home.as_deref().is_some_and(|home| cwd.starts_with(home)) {
             return None;
         }
-        let owners = remote_owners(&cwd)?;
+        let owners = remote_owners(&cwd, self.home.as_deref()?)?;
         let first = owners.first()?;
         owners.iter().all(|owner| self.orgs.contains(owner)).then(|| Reason::Org(first.clone()))
     }
@@ -146,9 +146,9 @@ fn defaults() -> &'static Defaults {
     static DEFAULTS: std::sync::OnceLock<Defaults> = std::sync::OnceLock::new();
     DEFAULTS.get_or_init(|| {
         parse_defaults(CATALOG_SOURCE).unwrap_or(Defaults {
-            enabled: true,
-            roots: vec!["~/Projects".to_owned()],
-            orgs: vec!["teamleaderleo".to_owned(), "manaflow-ai".to_owned()],
+            enabled: false,
+            roots: Vec::new(),
+            orgs: Vec::new(),
         })
     })
 }
@@ -176,8 +176,8 @@ fn parse_defaults(source: &str) -> Option<Defaults> {
 
 /// The lowercase GitHub owners of every remote of the repository that holds `cwd`: None when
 /// there is no repository, no remote, or a remote that is not on github.com.
-fn remote_owners(cwd: &Path) -> Option<Vec<String>> {
-    let config = std::fs::read_to_string(git_config_path(cwd)?).ok()?;
+fn remote_owners(cwd: &Path, home: &Path) -> Option<Vec<String>> {
+    let config = std::fs::read_to_string(git_config_path(cwd, home)?).ok()?;
     let mut owners = Vec::new();
     let mut in_remote = false;
     for line in config.lines() {
@@ -196,8 +196,11 @@ fn remote_owners(cwd: &Path) -> Option<Vec<String>> {
 
 /// The `config` file of the repository holding `cwd`: its `.git` folder's, or for a linked
 /// worktree (`.git` is a file naming a gitdir with a `commondir`) the main repository's.
-fn git_config_path(cwd: &Path) -> Option<PathBuf> {
-    for folder in cwd.ancestors() {
+/// Only a repository strictly inside `home` counts: a dotfiles repository at the home folder
+/// (or above it) holds most of home, and must not make every folder in it the person's own.
+fn git_config_path(cwd: &Path, home: &Path) -> Option<PathBuf> {
+    let below_home = |folder: &&Path| *folder != home && folder.starts_with(home);
+    for folder in cwd.ancestors().take_while(below_home) {
         let dot_git = folder.join(".git");
         let Ok(meta) = std::fs::symlink_metadata(&dot_git) else { continue };
         if meta.is_dir() {
@@ -289,12 +292,38 @@ mod tests {
         }
     }
 
+    /// The person's rules: on, no roots, these owners.
+    fn owners(orgs: &[&str]) -> Value {
+        json!({"agents": {"trust": {"autoTrust": true, "projectRoots": [], "ownOrgs": orgs}}})
+    }
+
     #[test]
-    fn the_catalog_defaults_name_both_orgs_and_a_projects_root() {
+    fn by_default_nothing_is_trusted_by_a_rule() {
         let auto = rules(Value::Null);
-        assert!(auto.enabled);
-        assert_eq!(auto.orgs, ["teamleaderleo", "manaflow-ai"]);
-        assert_eq!(auto.roots, [PathBuf::from("/nonexistent-home/Projects")]);
+        assert!(!auto.enabled);
+        assert!(auto.orgs.is_empty());
+        assert!(auto.roots.is_empty());
+        // Turned on without naming anything, still nothing.
+        let d = scratch("defaults");
+        repo(&d.join("r"), &[("origin", "git@github.com:manaflow-ai/x.git")]);
+        let on = rules_at(&d, json!({"agents": {"trust": {"autoTrust": true}}}));
+        assert_eq!(on.reason(d.join("r").to_str().unwrap()), None);
+    }
+
+    #[test]
+    fn a_dotfiles_repository_at_home_trusts_nothing_in_home() {
+        let d = scratch("dotfiles");
+        repo(&d, &[("origin", "git@github.com:teamleaderleo/dotfiles.git")]);
+        std::fs::create_dir_all(d.join("Downloads/tarball")).unwrap();
+        let auto = rules_at(&d, owners(&["teamleaderleo"]));
+        assert_eq!(auto.reason(d.join("Downloads/tarball").to_str().unwrap()), None);
+        assert_eq!(auto.reason(d.to_str().unwrap()), None);
+        // A repository of its own inside home still counts.
+        repo(&d.join("code/app"), &[("origin", "git@github.com:teamleaderleo/app.git")]);
+        assert_eq!(
+            auto.reason(d.join("code/app").to_str().unwrap()),
+            Some(Reason::Org("teamleaderleo".into()))
+        );
     }
 
     #[test]
@@ -304,7 +333,9 @@ mod tests {
         std::fs::create_dir_all(root.join("app/src")).unwrap();
         std::fs::create_dir_all(d.join("elsewhere")).unwrap();
         std::os::unix::fs::symlink(d.join("elsewhere"), root.join("link")).unwrap();
-        let auto = rules(json!({"agents": {"trust": {"projectRoots": [root.to_string_lossy()]}}}));
+        let auto = rules(
+            json!({"agents": {"trust": {"autoTrust": true, "projectRoots": [root.to_string_lossy()]}}}),
+        );
         assert_eq!(
             auto.reason(root.join("app/src").to_str().unwrap()),
             Some(Reason::Root(root.clone()))
@@ -328,7 +359,7 @@ mod tests {
             ],
         );
         repo(&none, &[]);
-        let auto = rules_at(&d, json!({"agents": {"trust": {"projectRoots": []}}}));
+        let auto = rules_at(&d, owners(&["teamleaderleo", "manaflow-ai"]));
         assert_eq!(auto.reason(own.to_str().unwrap()), Some(Reason::Org("teamleaderleo".into())));
         assert_eq!(auto.reason(mixed.to_str().unwrap()), None);
         assert_eq!(auto.reason(none.to_str().unwrap()), None);
@@ -349,7 +380,7 @@ mod tests {
         let tree = d.join("w");
         std::fs::create_dir_all(&tree).unwrap();
         std::fs::write(tree.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
-        let auto = rules_at(&d, json!({"agents": {"trust": {"projectRoots": []}}}));
+        let auto = rules_at(&d, owners(&["manaflow-ai"]));
         // The repository does not name this folder back: a `.git` file written by hand.
         assert_eq!(auto.reason(tree.to_str().unwrap()), None);
         std::fs::write(gitdir.join("gitdir"), format!("{}\n", tree.join(".git").display()))
@@ -361,17 +392,26 @@ mod tests {
     fn the_switch_turns_both_rules_off_and_a_broken_file_never_widens() {
         let d = scratch("off");
         repo(&d.join("r"), &[("origin", "git@github.com:manaflow-ai/x.git")]);
-        let off = rules_at(&d, json!({"agents": {"trust": {"autoTrust": false}}}));
+        let off = rules_at(
+            &d,
+            json!({"agents": {"trust": {"autoTrust": false, "ownOrgs": ["manaflow-ai"]}}}),
+        );
         assert_eq!(off.reason(d.join("r").to_str().unwrap()), None);
         // A value of the wrong type turns the rules off rather than falling back to the default.
-        let typo = rules_at(&d, json!({"agents": {"trust": {"autoTrust": "false"}}}));
+        let typo = rules_at(
+            &d,
+            json!({"agents": {"trust": {"autoTrust": "false", "ownOrgs": ["manaflow-ai"]}}}),
+        );
         assert_eq!(typo.reason(d.join("r").to_str().unwrap()), None);
-        let on = rules_at(&d, json!({}));
+        let on = rules_at(&d, owners(&["manaflow-ai"]));
         assert_eq!(
             on.reason(d.join("r").to_str().unwrap()),
             Some(Reason::Org("manaflow-ai".into()))
         );
-        let bad_orgs = rules_at(&d, json!({"agents": {"trust": {"ownOrgs": "manaflow-ai"}}}));
+        let bad_orgs = rules_at(
+            &d,
+            json!({"agents": {"trust": {"autoTrust": true, "ownOrgs": "manaflow-ai"}}}),
+        );
         assert_eq!(bad_orgs.reason(d.join("r").to_str().unwrap()), None);
         assert_eq!(AutoTrust::default().reason(d.join("r").to_str().unwrap()), None);
     }
@@ -380,7 +420,9 @@ mod tests {
     fn the_home_folder_is_no_project_root() {
         let d = scratch("home");
         std::fs::create_dir_all(d.join("work")).unwrap();
-        let doc = json!({"agents": {"trust": {"projectRoots": [d.to_string_lossy(), "~/work"]}}});
+        let doc = json!({"agents": {"trust": {
+            "autoTrust": true, "projectRoots": [d.to_string_lossy(), "~/work"]
+        }}});
         let auto = AutoTrust::from_doc(&doc, Some(&d));
         assert_eq!(auto.roots, [d.join("work")]);
         assert_eq!(
@@ -393,7 +435,7 @@ mod tests {
     #[test]
     fn a_root_that_is_the_filesystem_root_trusts_nothing_extra() {
         let d = scratch("slash");
-        let auto = rules(json!({"agents": {"trust": {"projectRoots": ["/"]}}}));
+        let auto = rules(json!({"agents": {"trust": {"autoTrust": true, "projectRoots": ["/"]}}}));
         assert_eq!(auto.reason(d.to_str().unwrap()), None);
     }
 }

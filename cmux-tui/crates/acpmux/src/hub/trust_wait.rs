@@ -37,6 +37,9 @@ pub(crate) struct Waits {
     declined: StdMutex<HashMap<String, Instant>>,
     /// Fired when a folder's trust may have changed (`acp.trust.set`, a Trust on a card).
     changed: Notify,
+    /// Starts waiting under each (session, tag): two starts with one name share the tag, which
+    /// goes when the last of them ends.
+    tagged: StdMutex<HashMap<(String, String), usize>>,
 }
 
 impl Waits {
@@ -55,6 +58,24 @@ impl Waits {
 
     fn forget(&self, key: &str) {
         self.declined.lock().unwrap_or_else(|e| e.into_inner()).remove(key);
+    }
+
+    fn tag_held(&self, session: &str, tag: &str) {
+        let mut tagged = self.tagged.lock().unwrap_or_else(|e| e.into_inner());
+        *tagged.entry((session.to_owned(), tag.to_owned())).or_default() += 1;
+    }
+
+    /// Whether this was the last start holding the tag.
+    fn tag_released(&self, session: &str, tag: &str) -> bool {
+        let mut tagged = self.tagged.lock().unwrap_or_else(|e| e.into_inner());
+        let key = (session.to_owned(), tag.to_owned());
+        let left = tagged.get(&key).map_or(0, |n| n.saturating_sub(1));
+        if left == 0 {
+            tagged.remove(&key);
+        } else {
+            tagged.insert(key, left);
+        }
+        left == 0
     }
 }
 
@@ -106,19 +127,35 @@ fn card(cwd: &str, short: &str) -> Value {
     })
 }
 
-/// Takes the card and the tag away when the wait ends in any way, also when the start itself is
-/// dropped (the agent's tool call went away).
-struct Wait<'a> {
-    hub: &'a Hub,
-    session: &'a Session,
-    key: String,
+/// Takes this start's card and the tag away when the wait ends in any way, also when the start
+/// itself is dropped (the agent's tool call went away). Only this start's card: another start
+/// waiting on the same folder keeps its own.
+struct Wait {
+    hub: Arc<Hub>,
+    session: Arc<Session>,
+    /// The card's `toolCallId`, which names this start's card among the session's questions.
+    call: String,
     tag: String,
+    /// The task that raises the card and waits for its answer.
+    task: Option<tokio::task::JoinHandle<Value>>,
 }
 
-impl Drop for Wait<'_> {
+impl Drop for Wait {
     fn drop(&mut self) {
-        self.hub.cancel_trust_cards(self.session, &self.key);
-        self.hub.set_tags(self.session, None, std::slice::from_ref(&self.tag), None);
+        if self.hub.trust_waits.tag_released(&self.session.id, &self.tag) {
+            self.hub.set_tags(&self.session, None, std::slice::from_ref(&self.tag), None);
+        }
+        self.hub.cancel_trust_card(&self.session, &self.call);
+        let Some(task) = self.task.take() else { return };
+        task.abort();
+        // The task may raise the card after the cancel above: once it has ended, the card goes.
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            let (hub, session, call) = (self.hub.clone(), self.session.clone(), self.call.clone());
+            runtime.spawn(async move {
+                let _ = task.await;
+                hub.cancel_trust_card(&session, &call);
+            });
+        }
     }
 }
 
@@ -186,23 +223,28 @@ impl Hub {
         if self.trust_waits.declined_recently(&key) {
             return Err(declined(&key));
         }
-        let guard = Wait {
-            hub: self,
-            session: parent,
-            key: key.clone(),
-            tag: format!("{TAG_PREFIX}{short}"),
-        };
-        let tag = serde_json::Map::from_iter([(guard.tag.clone(), json!(key))]);
-        self.set_tags(parent, Some(&tag), &[], Some(WAIT.as_secs() + 60));
+        let request = card(&key, short);
+        let call = card_call(&request).unwrap_or_default().to_owned();
+        let tag = format!("{TAG_PREFIX}{short}");
+        self.trust_waits.tag_held(&parent.id, &tag);
+        self.set_tags(
+            parent,
+            Some(&serde_json::Map::from_iter([(tag.clone(), json!(key))])),
+            &[],
+            Some(WAIT.as_secs() + 60),
+        );
         let (epoch, turn_id) = (
             parent.permission_epoch.load(std::sync::atomic::Ordering::SeqCst),
             parent.turn().map(|t| t.turn_id),
         );
-        let mut answer = {
-            let (hub, parent, request, turn) =
-                (self.clone(), parent.clone(), card(&key, short), turn_id);
-            tokio::spawn(async move { hub.handle_permission(&parent, request, epoch, turn).await })
+        let task = {
+            let (hub, parent) = (self.clone(), parent.clone());
+            tokio::spawn(
+                async move { hub.handle_permission(&parent, request, epoch, turn_id).await },
+            )
         };
+        let mut guard = Wait { hub: self.clone(), session: parent.clone(), call, tag, task: None };
+        let answer = guard.task.insert(task);
         let deadline = tokio::time::sleep(WAIT);
         tokio::pin!(deadline);
         loop {
@@ -211,12 +253,12 @@ impl Hub {
             tokio::pin!(changed);
             changed.as_mut().enable();
             if self.trusted_now(&paths, &key, &family).await {
-                // Trusted elsewhere (the pane's question, another card): this card is moot.
-                self.cancel_trust_cards(parent, &key);
+                // Trusted elsewhere (the pane's question, another card): this card is moot, and
+                // the guard takes it away.
                 return Ok(());
             }
             tokio::select! {
-                outcome = &mut answer => {
+                outcome = &mut *answer => {
                     let outcome = outcome.unwrap_or_else(|_| json!({"outcome": {"outcome": "cancelled"}}));
                     // A card withdrawn because another start trusted the folder still lets this
                     // one go on; one withdrawn after Not now is declined too.
@@ -299,14 +341,17 @@ impl Hub {
         }
     }
 
-    /// Withdraws the trust cards `session` shows for `key`; their waits see a cancel.
-    pub(super) fn cancel_trust_cards(&self, session: &Session, key: &str) {
+    /// Withdraws the trust card `session` shows with the tool call `call`; its wait sees a cancel.
+    pub(super) fn cancel_trust_card(&self, session: &Session, call: &str) {
         let drained: Vec<_> = {
             let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
             let ids: Vec<String> = state
                 .pending
                 .iter()
-                .filter(|(_, p)| super::questions::trust_cwd(&p.request) == Some(key))
+                .filter(|(_, p)| {
+                    super::questions::trust_cwd(&p.request).is_some()
+                        && card_call(&p.request) == Some(call)
+                })
                 .map(|(id, _)| id.clone())
                 .collect();
             ids.into_iter().filter_map(|id| state.pending.remove(&id).map(|p| (id, p))).collect()
@@ -315,6 +360,11 @@ impl Hub {
             let _ = pending.reply.send(json!({"outcome": "cancelled"}));
         }
     }
+}
+
+/// The `toolCallId` of a card's request.
+fn card_call(request: &Value) -> Option<&str> {
+    request.pointer("/toolCall/toolCallId").and_then(Value::as_str)
 }
 
 fn declined(key: &str) -> RpcError {
