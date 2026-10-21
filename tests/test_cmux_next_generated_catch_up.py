@@ -193,7 +193,8 @@ class KeyWiseDrivers(unittest.TestCase):
                 self.assertIn(path, trusted)
                 self.assertIn(f"merge.{driver}.driver", script)
                 # Never the pull request's own copy: it runs with the merge's files.
-                self.assertIn(f"../trusted/{path}", script)
+                self.assertIn(f"$trusted/{path}", script)
+        self.assertIn('trusted="$(cd ../trusted && pwd)"', script)
 
     def git(self, cwd: Path, *args: str) -> str:
         return subprocess.run(["git", "-C", str(cwd), "-c", "user.name=t", "-c", "user.email=t@t",

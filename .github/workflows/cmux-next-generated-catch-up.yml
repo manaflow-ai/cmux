@@ -7,7 +7,9 @@ name: cmux-next generated catch-up
 # On each feat-cmux-next move this merges the base into every same-repository
 # PR whose only conflicts are those files, rebuilds them
 # (scripts/cmux-next/regenerate-web-bundles.sh) and pushes the merge. A PR with
-# any authored conflict is left to its author. It pushes only to Leo's agent
+# any authored conflict is left to its author. The merge uses the base's
+# key-wise drivers too (string catalogs, ratchet baselines, the Xcode project,
+# daemon capabilities), so entries both sides added are no conflict. It pushes only to Leo's agent
 # PRs (author teamleaderleo) and to PRs labeled generated-catch-up: never to a
 # teammate's PR they did not opt in.
 #
@@ -80,6 +82,10 @@ jobs:
           sparse-checkout: |
             scripts/cmux-next/generated_catch_up.py
             .gitattributes
+            scripts/merge-xcstrings.py
+            scripts/merge-pbxproj.py
+            scripts/merge-baseline.py
+            scripts/merge-daemon-capabilities.py
           sparse-checkout-cone-mode: false
 
       - name: Check out the pull request
@@ -103,6 +109,15 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config merge.cmux-generated-v1.name "keep this branch's generated file"
           git config merge.cmux-generated-v1.driver true
+          # The key-wise drivers (.gitattributes; scripts/install-git-hooks.sh registers the
+          # same per clone), from the base's copy: GitHub ignores them, so a catalog or a
+          # baseline both sides added entries to conflicts on every PR. Each one still
+          # leaves a real conflict (the same key changed on both sides) for the author.
+          trusted="$(cd ../trusted && pwd)"
+          git config merge.xcstrings-v2.driver "python3 -I $trusted/scripts/merge-xcstrings.py %O %A %B %P %L"
+          git config merge.pbxproj-v1.driver "python3 -I $trusted/scripts/merge-pbxproj.py %O %A %B %P"
+          git config merge.cmux-baseline-v1.driver "python3 -I $trusted/scripts/merge-baseline.py %O %A %B %P"
+          git config merge.cmux-capabilities-v1.driver "python3 -I $trusted/scripts/merge-daemon-capabilities.py %O %A %B %P"
           git fetch --quiet origin "$BASE_SHA"
           if git merge --no-commit --no-ff "$BASE_SHA" >/dev/null 2>&1; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
