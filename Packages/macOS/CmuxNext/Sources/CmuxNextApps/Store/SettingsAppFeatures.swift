@@ -65,8 +65,12 @@ public final class SettingsAppFeatures: AppFeatureSettings {
         let value = Self.value(feature, on: on, default: descriptor.defaultValue)
         try await settings.setSetting(descriptor, to: value, by: .user)
         // A cleared key lets what is under the file apply (an MDM recommended value, a team default);
-        // when that disagrees with the press, the file says what the person asked for.
-        if case .none = value, isOn(feature) != on, let explicit = Self.explicitValue(feature, on: on, default: descriptor.defaultValue) {
+        // when that disagrees with the press, the file says what the person asked for. A key with no
+        // value to say it (Glass Window has no default) refuses the press, so the card shows why.
+        if case .none = value, isOn(feature) != on {
+            guard let explicit = Self.explicitValue(feature, on: on, default: descriptor.defaultValue) else {
+                throw AppFeatureKeptOn(key: feature.setting)
+            }
             try await settings.setSetting(descriptor, to: explicit, by: .user)
         }
     }
