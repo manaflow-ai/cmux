@@ -48,6 +48,27 @@ def readable(c,surf,m):
     while step<1 and cand.contrast(surf)<m:
         step+=READABLE_STEP; cand=c.mixed(pole,step)
     return cand
+def readable_over(c,surfs,pole,m):
+    """ThemeTokens.readable(_:over:toward:minimum:): c walked toward pole until it reads on every surface."""
+    step=0.0; cand=c
+    while step<1 and not all(cand.contrast(x)>=m for x in surfs):
+        step+=READABLE_STEP; cand=c.mixed(pole,step)
+    return cand
+def inks(fg,rows,see_through,bg):
+    """ThemeTokens.inks: primary, secondary and tertiary text read on every surface in rows (the
+    strongest row fill and the bare background). fg is walked toward white and toward black (the pole
+    that reads better on rows[0] first); the candidate whose primary and secondary keep the higher
+    least contrast over rows wins, capped at 4.5 (a tie keeps the first)."""
+    least=lambda ink: min(ink.contrast(r) for r in rows)
+    poles=sorted([WHITE,BLACK],key=lambda p: p.contrast(rows[0]),reverse=True)
+    chosen=None
+    for pole in poles:
+        primary=readable_over(fg,rows,pole,4.5)
+        ink=min(rows+see_through,key=lambda c: primary.contrast(c))
+        secondary=muted(primary,bg,0.38,ink,4.5); tertiary=muted(primary,bg,0.55,ink,3.0)
+        score=min(least(primary),least(secondary),4.5)
+        if chosen is None or score>chosen[0]: chosen=(score,(primary,secondary,tertiary))
+    return chosen[1]
 def muted(c,target,limit,surf,m):
     f=limit
     while f>0:
@@ -159,9 +180,7 @@ def derive(bg,fg,pal,sel=None,opacity=1.0,accent='neutral',cursor=None,accent_co
     if opacity<1:
         tint=bg.wa(opacity).comp(WHITE if dark else BLACK)
         see=[tint,pressed.comp(tint),selection.comp(tint)]
-    primary=readable(fg,worst,4.5)
-    ink=min([worst]+see,key=lambda c: primary.contrast(c))
-    secondary=muted(primary,bg,0.38,ink,4.5); tertiary=muted(primary,bg,0.55,ink,3.0)
+    primary,secondary,tertiary=inks(fg,[worst,bg],see,bg)
     status=lambda i: readable(pal[i],bg,3.0)
     hl=acc if acc else status(4)
     best=lambda cs: max(cs,key=lambda c:c.contrast(hl))

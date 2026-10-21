@@ -247,17 +247,12 @@ impl ThemeTokens {
             .into_iter()
             .min_by(|a, b| fg.contrast(*a).total_cmp(&fg.contrast(*b)))
             .unwrap_or(bg);
-        let primary = readable(fg, worst_surface, text_minimum);
         // In a see-through window the quieter inks also hold over the tint
         // on the worst desktop for the theme; the tint stays the opacity.
         let see_through =
             see_through_surfaces(bg, input.background_opacity, is_dark, &[pressed, selection]);
-        let ink_surface = std::iter::once(worst_surface)
-            .chain(see_through)
-            .min_by(|a, b| primary.contrast(*a).total_cmp(&primary.contrast(*b)))
-            .unwrap_or(worst_surface);
-        let secondary = muted(primary, bg, 0.38, ink_surface, text_minimum);
-        let tertiary = muted(primary, bg, 0.55, ink_surface, mark_minimum);
+        let (primary, secondary, tertiary) =
+            inks(fg, [worst_surface, bg], &see_through, bg, text_minimum, mark_minimum);
         // The config's selection fill, when text reads on it (an
         // inverse-video selection keeps the derived one).
         let config_selection = input
@@ -366,6 +361,61 @@ pub fn readable(color: Rgb, surface: Rgb, minimum: f64) -> Rgb {
     let mut step = 0.0;
     let mut candidate = color;
     while step < 1.0 && candidate.contrast(surface) < minimum {
+        step += 0.02;
+        candidate = color.mixed(pole, step);
+    }
+    candidate
+}
+
+/// The primary, secondary and tertiary text for `foreground`, read on both
+/// `rows` (the strongest row fill and the bare background; port of Swift
+/// `ThemeTokens.inks`). A foreground that already reads keeps its color.
+/// Otherwise it is walked toward white and toward black (the pole that reads
+/// better on the row fill first), and the candidate whose primary and
+/// secondary keep the higher least contrast over `rows` wins, capped at
+/// `text_minimum` (a tie keeps the first). Hot Dog Stand's white on red
+/// reaches only 4.20:1, so it takes the dark ink; Grass's dark ink drops to
+/// 3.73:1 on its background, so it takes white.
+pub fn inks(
+    foreground: Rgb,
+    rows: [Rgb; 2],
+    see_through: &[Rgb],
+    bg: Rgb,
+    text_minimum: f64,
+    mark_minimum: f64,
+) -> (Rgb, Rgb, Rgb) {
+    let least = |ink: Rgb| rows.iter().map(|row| ink.contrast(*row)).fold(f64::INFINITY, f64::min);
+    let poles = if Rgb::BLACK.contrast(rows[0]) > Rgb::WHITE.contrast(rows[0]) {
+        [Rgb::BLACK, Rgb::WHITE]
+    } else {
+        [Rgb::WHITE, Rgb::BLACK]
+    };
+    let mut chosen: Option<(f64, (Rgb, Rgb, Rgb))> = None;
+    for pole in poles {
+        let primary = readable_over(foreground, &rows, pole, text_minimum);
+        let ink_surface = rows
+            .iter()
+            .chain(see_through)
+            .copied()
+            .min_by(|a, b| primary.contrast(*a).total_cmp(&primary.contrast(*b)))
+            .unwrap_or(bg);
+        let secondary = muted(primary, bg, 0.38, ink_surface, text_minimum);
+        let tertiary = muted(primary, bg, 0.55, ink_surface, mark_minimum);
+        let score = least(primary).min(least(secondary)).min(text_minimum);
+        if chosen.is_none_or(|(best, _)| score > best) {
+            chosen = Some((score, (primary, secondary, tertiary)));
+        }
+    }
+    chosen.map_or((foreground, foreground, foreground), |(_, inks)| inks)
+}
+
+/// `color` walked toward `pole` until it reaches `minimum` contrast over
+/// every surface (or `pole`); port of Swift `ThemeTokens.readable(_:over:toward:minimum:)`.
+pub fn readable_over(color: Rgb, surfaces: &[Rgb], pole: Rgb, minimum: f64) -> Rgb {
+    let reads = |ink: Rgb| surfaces.iter().all(|surface| ink.contrast(*surface) >= minimum);
+    let mut step = 0.0;
+    let mut candidate = color;
+    while step < 1.0 && !reads(candidate) {
         step += 0.02;
         candidate = color.mixed(pole, step);
     }
