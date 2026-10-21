@@ -403,7 +403,9 @@ fn run_app<B: Backend>(
 ) -> Result<(Value, Option<String>), AgentFailure> {
     let (method, params, timeout) = match action {
         "palette.open" => {
-            let mut params = app::action_run_params("palette.open", ActionName::Any, origin);
+            // The app takes cli, mcp, script or remote; `agents` is only the receipt's label.
+            let app_origin = if origin == "mcp" { "mcp" } else { "cli" };
+            let mut params = app::action_run_params("palette.open", ActionName::Any, app_origin);
             params.insert("focus".into(), json!(true));
             ("action.run", Value::Object(params), app::WAITING_RUN_TIMEOUT)
         }

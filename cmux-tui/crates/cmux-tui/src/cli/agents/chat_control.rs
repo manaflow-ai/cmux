@@ -275,7 +275,9 @@ pub(in crate::cli) fn new(global: &GlobalArgs, chat: &NewChat, origin: &str) -> 
     });
 
     // The tab, in the background: `agent.openSessionWorkspace` never takes focus.
-    let mut params = app::action_run_params("agent.openSessionWorkspace", ActionName::Any, origin);
+    // The app takes cli, mcp, script or remote; `agents` is this surface's receipt label.
+    let app_origin = if origin == "mcp" { "mcp" } else { "cli" };
+    let mut params = app::action_run_params("agent.openSessionWorkspace", ActionName::Any, app_origin);
     let new_workspace = place.new_workspace;
     let mut arguments = place.arguments;
     arguments.insert("session".into(), json!(session));
@@ -290,6 +292,12 @@ pub(in crate::cli) fn new(global: &GlobalArgs, chat: &NewChat, origin: &str) -> 
                     result[field] = value.clone();
                 }
             }
+        }
+        // The app took the run but did not answer in time: the tab may still come (a slow
+        // agent tab create), so the chat stays and the receipt says so.
+        Err(error) if matches!(error["code"].as_str(), Some("timeout" | "app.transport")) => {
+            result["opened"] = json!("pending");
+            result["open_error"] = error;
         }
         Err(error) if new_workspace => {
             // No workspace has the chat's key, so no chat verb could ever reach it: it ends.
