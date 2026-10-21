@@ -50,6 +50,15 @@ final class LawmuxGlobalHotkey {
         } else {
             logger.notice("summon: nothing revealed")
         }
+        // Some apps (Chrome, notably) kept activation after the reveal, so the
+        // next press looked like another summon. The hotkey press is a user
+        // action, so forcing activation is permitted; upstream uses the same
+        // call elsewhere. Activation is asynchronous: log the outcome shortly
+        // after instead of checking it here.
+        NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [logger] in
+            logger.notice("summon: active after 0.5s = \(NSApp.isActive)")
+        }
     }
 
     private func returnToPreviousApp() {
