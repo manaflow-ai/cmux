@@ -1699,6 +1699,7 @@ class Nightly(unittest.TestCase):
             self.assertNotIn("rerun-failed", api.calls, branch)
             self.assertIn(f"waiting for the runner reserved for it", summary)
             self.assertIn("watch limit reached", summary)
+            self.assertIn(f"::warning::build-nightly-app was still waiting for its reserved runner {label}", summary)
 
     def test_a_build_held_in_its_reserved_runner_s_setup_is_never_cancelled(self):
         clock = Clock()

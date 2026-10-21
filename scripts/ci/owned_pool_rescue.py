@@ -1128,6 +1128,13 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                     # A side lane's jobs are all created by now, and none can be refused any more.
                     return "stop", "the fleet accepted the side-lane jobs"
         if now() >= deadline:
+            if target.nightly:
+                # Never moved (assess(reserved=True)); say so, without claiming why it did not start.
+                for job in jobs:
+                    runner = reserved_runner(job)
+                    if runner and job_pool(job) and (waiting_for_runner(job) or in_setup(job)):
+                        log(f"::warning::{job.get('name') or job.get('id')} was still waiting for its reserved "
+                            f"runner {runner} at the watch limit")
             return "stop", "watch limit reached"
         sleep(interval)
 
