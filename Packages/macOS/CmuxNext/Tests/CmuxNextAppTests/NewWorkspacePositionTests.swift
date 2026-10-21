@@ -52,17 +52,19 @@ struct NewWorkspacePositionTests {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-newpos-\(UUID().uuidString.prefix(8))")
         let session = "cn-newpos-\(UUID().uuidString.prefix(8).lowercased())"
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let config = root.appendingPathComponent("cmux.json")
+        try Data(#"{"workspaces":{"newPlacement":"\#(placement)"}}"#.utf8).write(to: config)
+        // The daemon places a new workspace by the same file (`CMUX_NEXT_CONFIG_FILE`), not the runner's own settings.
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
-            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color",
+                            "CMUX_NEXT_CONFIG_FILE": config.path] })
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         services.palette.bindRegistryActions()
         services.windows.ordersWindowsIn = false
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let config = root.appendingPathComponent("cmux.json")
-        try Data(#"{"workspaces":{"newPlacement":"\#(placement)"}}"#.utf8).write(to: config)
         let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: config,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
@@ -116,7 +118,7 @@ struct NewWorkspacePositionTests {
 
     /// Every frame the sidebar draws while `press` runs and the new workspaces settle: each sampled row order that
     /// lists a new row (one not in `before`). Ends a second after every new row is live.
-    private static func frames(in launched: Launched, count: Int, press: () async -> Void) async -> (frames: [[String]], new: [String]) {
+    private static func frames(in launched: Launched, count: Int, press: (_ sample: () -> Void) async -> Void) async -> (frames: [[String]], new: [String]) {
         let before = Set(launched.rows()).union(launched.services.daemon.store.workspaces.map(\.id))
         var frames: [[String]] = []
         func sample() {
@@ -126,7 +128,7 @@ struct NewWorkspacePositionTests {
                 print("new-workspace-position frame \(frames.count): \(describe(rows, in: launched))")
             }
         }
-        await press()
+        await press(sample)
         var settledAt: ContinuousClock.Instant?
         let deadline = ContinuousClock.now + .seconds(30)
         while ContinuousClock.now < deadline {
@@ -171,7 +173,7 @@ struct NewWorkspacePositionTests {
     @Test func afterCurrentDrawsCmdNRightBelowTheSelectedWorkspaceInEveryFrame() async throws {
         let launched = try await Self.launch("afterCurrent")
         let middle = try await Self.selectMiddle(in: launched)
-        let (frames, new) = await Self.frames(in: launched, count: 1) {
+        let (frames, new) = await Self.frames(in: launched, count: 1) { _ in
             _ = launched.services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string("new")]))
         }
         await launched.stop()
@@ -188,13 +190,15 @@ struct NewWorkspacePositionTests {
         let middle = try await Self.selectMiddle(in: launched)
         var keys: [String] = []
         var selectedAtPress: [Bool] = []
-        let (frames, new) = await Self.frames(in: launched, count: 3) {
+        let (frames, new) = await Self.frames(in: launched, count: 3) { sample in
             for press in 1...3 {
                 _ = launched.services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string("quick-\(press)")]))
                 for row in PendingWorkspaceRows.shared.rows(in: launched.window.id) where !keys.contains(row.id) { keys.append(row.id) }
                 // The press selects its workspace, so the next press anchors on it.
                 selectedAtPress.append(launched.window.workspaceID == keys.last)
-                try? await Task.sleep(for: .milliseconds(33)) // key repeat
+                // Key repeat, sampling meanwhile: the earlier presses' workspaces land in this time.
+                let next = ContinuousClock.now + .milliseconds(33)
+                while ContinuousClock.now < next { sample(); try? await Task.sleep(for: .milliseconds(3)) }
             }
         }
         await launched.stop()
@@ -216,7 +220,7 @@ struct NewWorkspacePositionTests {
     @Test func afterCurrentPlacesACreateThatWaitsForTheDaemonRightBelowTheSelectedWorkspace() async throws {
         let launched = try await Self.launch("afterCurrent")
         let middle = try await Self.selectMiddle(in: launched)
-        let (frames, new) = await Self.frames(in: launched, count: 1) {
+        let (frames, new) = await Self.frames(in: launched, count: 1) { _ in
             WorkspaceHandlers.createAndShow(services: launched.services, name: "opened")
         }
         await launched.stop()
@@ -230,7 +234,7 @@ struct NewWorkspacePositionTests {
     @Test func beforeCurrentDrawsCmdNRightAboveTheSelectedWorkspaceInEveryFrame() async throws {
         let launched = try await Self.launch("beforeCurrent")
         let middle = try await Self.selectMiddle(in: launched)
-        let (frames, new) = await Self.frames(in: launched, count: 1) {
+        let (frames, new) = await Self.frames(in: launched, count: 1) { _ in
             _ = launched.services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string("new")]))
         }
         await launched.stop()
@@ -252,7 +256,7 @@ struct NewWorkspacePositionTests {
         try #require(TopPages.show(page, services: launched.services, in: launched.window) != nil, "History did not show")
         try #require(launched.window.page == page && launched.window.workspaceID == middle)
         let home = NewWorkspacePlacements.home(launched.services.machines)
-        let (frames, new) = await Self.frames(in: launched, count: 1) {
+        let (frames, new) = await Self.frames(in: launched, count: 1) { _ in
             _ = launched.services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string("new")]))
         }
         await launched.stop()
@@ -267,7 +271,7 @@ struct NewWorkspacePositionTests {
         let launched = try await Self.launch("top")
         _ = try await Self.selectMiddle(in: launched)
         let home = NewWorkspacePlacements.home(launched.services.machines)
-        let (frames, new) = await Self.frames(in: launched, count: 1) {
+        let (frames, new) = await Self.frames(in: launched, count: 1) { _ in
             _ = launched.services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string("new")]))
         }
         await launched.stop()
