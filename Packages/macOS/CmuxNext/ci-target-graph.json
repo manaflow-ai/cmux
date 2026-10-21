@@ -96,11 +96,8 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextAgentActivity",
-        "CmuxNextAgentPane",
-        "CmuxNextApps",
         "CmuxNextBridge",
         "CmuxNextCompat",
-        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
