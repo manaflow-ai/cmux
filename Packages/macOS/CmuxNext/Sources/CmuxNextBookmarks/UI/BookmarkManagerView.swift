@@ -36,20 +36,16 @@ struct BookmarkManagerView: View {
             ThemedField(text: $model.query, placeholder: BookmarkStrings.searchPlaceholder, focusOnAppear: true,
                         identifier: "cmux.bookmarks.manager.search")
                 .frame(maxWidth: Metrics.paletteWidth / 2)
-            Menu {
-                Button(BookmarkStrings.addBookmark) { model.startAddBookmark() }
-                Button(BookmarkStrings.addFolder) { model.startAddFolder() }
-                Divider()
-                Button(BookmarkStrings.importFromBrowser) { model.source?.importFromBrowser() }
-                Button(BookmarkStrings.importHTML) { model.source?.importHTML() }
-                Button(BookmarkStrings.exportHTML) { model.source?.exportHTML() }
-            } label: {
-                Icon(.actionMore, size: 14)
-            }
-            .menuStyle(.borderlessButton)
+            // The app's one more button (⋮, OverflowButton): its glyph, size and hover.
+            OverflowMenuButton(label: BookmarkStrings.more, identifier: "cmux.bookmarks.manager.menu", items: [
+                .action(BookmarkStrings.addBookmark) { model.startAddBookmark() },
+                .action(BookmarkStrings.addFolder) { model.startAddFolder() },
+                .separator,
+                .action(BookmarkStrings.importFromBrowser) { model.source?.importFromBrowser() },
+                .action(BookmarkStrings.importHTML) { model.source?.importHTML() },
+                .action(BookmarkStrings.exportHTML) { model.source?.exportHTML() },
+            ])
             .fixedSize()
-            .accessibilityIdentifier("cmux.bookmarks.manager.menu")
-            .accessibilityLabel(BookmarkStrings.more)
         }
         .padding(.horizontal, Metrics.space6)
         .padding(.vertical, Metrics.space4)
