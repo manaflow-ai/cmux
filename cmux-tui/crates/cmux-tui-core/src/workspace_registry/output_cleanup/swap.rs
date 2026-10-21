@@ -53,6 +53,7 @@ struct SwapStats {
     pruned_ranges: u64,
     abandoned_deliveries: usize,
     tables: usize,
+    steps: String,
 }
 
 /// Runs Phase B when Phase A finished for this registry. True when the
@@ -78,7 +79,7 @@ pub(crate) fn swap_at_open(db_path: &Path) -> bool {
             eprintln!(
                 "cmux-tui: output cleanup: swapped the registry in {:.2} s: {} -> {}; \
                  {} records kept in {} segments, {} pruned ranges, {} tables copied, \
-                 {} pending hook deliveries of removed output abandoned; previous file at {}",
+                 {} pending hook deliveries of removed output abandoned ({}); previous file at {}",
                 started.elapsed().as_secs_f64(),
                 mebibytes(stats.before_bytes),
                 mebibytes(stats.after_bytes),
@@ -87,6 +88,7 @@ pub(crate) fn swap_at_open(db_path: &Path) -> bool {
                 stats.pruned_ranges,
                 stats.tables,
                 stats.abandoned_deliveries,
+                stats.steps,
                 previous_path(db_path).display()
             );
             true
@@ -181,6 +183,7 @@ fn restore_interrupted_swap(db_path: &Path) {
 }
 
 fn build_and_swap(db_path: &Path) -> anyhow::Result<Swap> {
+    let mut steps = Steps { last: Some(Instant::now()), done: Vec::new() };
     let before_bytes = file_len(db_path) + file_len(&sidecar_path(db_path, "-wal"));
     // Fold a WAL left by a killed owner into the registry, so the copy
     // below reads everything and the rename leaves no WAL behind.
@@ -195,6 +198,7 @@ fn build_and_swap(db_path: &Path) -> anyhow::Result<Swap> {
         anyhow::ensure!(busy == 0, "the registry WAL could not be checkpointed");
         required_meta(&source, "registry_id")?
     };
+    steps.mark("checkpoint");
     // A staging file of another registry, or one a kill left between the
     // build commit and the rename (its state table is gone): Phase A runs
     // again at a later start.
@@ -221,11 +225,13 @@ fn build_and_swap(db_path: &Path) -> anyhow::Result<Swap> {
             }
         }
     }
-    let built = build(&staged, db_path)?;
-    verify(&staged, &registry_id, &built)?;
+    steps.mark("stage tail");
+    let built = build(&staged, db_path, &mut steps)?;
+    verify(&staged, &registry_id, &built, &mut steps)?;
     drop(staged);
     finish_staged_file(db_path)?;
     install(db_path)?;
+    steps.mark("sync and rename");
     Ok(Swap::Done(SwapStats {
         before_bytes,
         after_bytes: file_len(db_path),
@@ -234,6 +240,7 @@ fn build_and_swap(db_path: &Path) -> anyhow::Result<Swap> {
         pruned_ranges: built.pruned_ranges,
         abandoned_deliveries: built.abandoned_deliveries,
         tables: built.tables,
+        steps: steps.line(),
     }))
 }
 
@@ -254,6 +261,29 @@ fn check_staged_prefix(source: &Connection, staged: &Connection) -> anyhow::Resu
     Ok(())
 }
 
+/// Wall time of each Phase B step, for the swap log line.
+#[derive(Default)]
+struct Steps {
+    last: Option<Instant>,
+    done: Vec<(&'static str, Duration)>,
+}
+
+impl Steps {
+    fn mark(&mut self, name: &'static str) {
+        let now = Instant::now();
+        let since = self.last.replace(now).map_or(Duration::ZERO, |last| now - last);
+        self.done.push((name, since));
+    }
+
+    fn line(&self) -> String {
+        self.done
+            .iter()
+            .map(|(name, time)| format!("{name} {:.2} s", time.as_secs_f64()))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
 struct Built {
     kept: u64,
     segments: u64,
@@ -265,7 +295,7 @@ struct Built {
 
 /// Writes the new registry into the staging file in one transaction: a
 /// crash before its commit leaves the Phase A state.
-fn build(staged: &Connection, db_path: &Path) -> anyhow::Result<Built> {
+fn build(staged: &Connection, db_path: &Path, steps: &mut Steps) -> anyhow::Result<Built> {
     // A rollback journal: the new pages need no copy, unlike a WAL.
     let mode: String = staged.query_row("PRAGMA journal_mode=DELETE", [], |row| row.get(0))?;
     anyhow::ensure!(mode.eq_ignore_ascii_case("delete"), "staging file kept journal mode {mode}");
@@ -275,17 +305,19 @@ fn build(staged: &Connection, db_path: &Path) -> anyhow::Result<Built> {
     staged.execute("ATTACH DATABASE ?1 AS src", [source])?;
     let built = (|| -> anyhow::Result<Built> {
         let tx = staged.unchecked_transaction()?;
-        let built = build_in(&tx)?;
+        let built = build_in(&tx, steps)?;
         tx.commit()?;
+        steps.mark("commit");
         Ok(built)
     })();
     staged.execute_batch("DETACH DATABASE src")?;
     let built = built?;
     staged.execute_batch("PRAGMA incremental_vacuum;")?;
+    steps.mark("vacuum");
     Ok(built)
 }
 
-fn build_in(tx: &Transaction<'_>) -> anyhow::Result<Built> {
+fn build_in(tx: &Transaction<'_>, steps: &mut Steps) -> anyhow::Result<Built> {
     let objects = {
         let mut statement = tx.prepare(
             "SELECT type, name, sql FROM src.sqlite_master
@@ -341,12 +373,15 @@ fn build_in(tx: &Transaction<'_>) -> anyhow::Result<Built> {
             "table {table} has {main_count} rows in the new registry, {src_count} before"
         );
     }
+    steps.mark("copy tables");
     stage_live_rows(tx)?;
+    steps.mark("live rows");
     let (lo, head) = journal_range(tx)?;
     let kept: i64 =
         tx.query_row("SELECT COUNT(*) FROM main.output_cleanup_records", [], |row| row.get(0))?;
     anyhow::ensure!(kept > 0, "the journal holds no record other than terminal output");
     let (segments, pruned_ranges) = pack_segments(tx, lo, head)?;
+    steps.mark("pack segments");
 
     tx.execute(
         "INSERT INTO main.journal_subject_index(sequence, kind, id)
@@ -368,6 +403,7 @@ fn build_in(tx: &Transaction<'_>) -> anyhow::Result<Built> {
         ),
         [],
     )?;
+    steps.mark("index rows");
     let abandoned_deliveries = if table_exists(tx, "main", "journal_hook_deliveries")? {
         tx.execute(
             "UPDATE main.journal_hook_deliveries
@@ -396,6 +432,7 @@ fn build_in(tx: &Transaction<'_>) -> anyhow::Result<Built> {
             [key, value],
         )?;
     }
+    steps.mark("meta");
     // Indexes after the rows; triggers last, so none fired on the copy.
     for wanted in ["index", "view", "trigger"] {
         for (_, _, sql) in objects.iter().filter(|(kind, _, _)| kind == wanted) {
@@ -454,10 +491,14 @@ fn stage_live_rows(tx: &Transaction<'_>) -> anyhow::Result<()> {
 /// The first and last sequence the registry's journal covers.
 fn journal_range(tx: &Transaction<'_>) -> anyhow::Result<(u64, u64)> {
     let (lo, hi): (Option<i64>, Option<i64>) = tx.query_row(
-        "SELECT MIN(first), MAX(last) FROM (
-           SELECT MIN(start_sequence) AS first, MAX(end_sequence) AS last FROM src.journal_segments
-           UNION ALL
-           SELECT MIN(sequence), MAX(sequence) FROM src.session_journal)",
+        // One aggregate per subquery: SQLite answers a lone MIN or MAX from
+        // the index, but two in one SELECT scan the whole table.
+        "SELECT MIN(COALESCE((SELECT MIN(start_sequence) FROM src.journal_segments),
+                             (SELECT MIN(sequence) FROM src.session_journal)),
+                    COALESCE((SELECT MIN(sequence) FROM src.session_journal),
+                             (SELECT MIN(start_sequence) FROM src.journal_segments))),
+                MAX(COALESCE((SELECT MAX(end_sequence) FROM src.journal_segments), 0),
+                    COALESCE((SELECT MAX(sequence) FROM src.session_journal), 0))",
         [],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
@@ -594,8 +635,14 @@ impl OpenSegment {
 }
 
 /// Checks the committed new registry before it replaces the old one.
-fn verify(staged: &Connection, registry_id: &str, built: &Built) -> anyhow::Result<()> {
+fn verify(
+    staged: &Connection,
+    registry_id: &str,
+    built: &Built,
+    steps: &mut Steps,
+) -> anyhow::Result<()> {
     let integrity: String = staged.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
+    steps.mark("integrity check");
     anyhow::ensure!(integrity == "ok", "the new registry failed integrity_check: {integrity}");
     anyhow::ensure!(
         required_meta(staged, "registry_id")? == registry_id,
@@ -627,6 +674,7 @@ fn verify(staged: &Connection, registry_id: &str, built: &Built) -> anyhow::Resu
         built.kept
     );
     anyhow::ensure!(query_journal_head(staged)? == built.head, "the new journal head moved");
+    steps.mark("read back");
     Ok(())
 }
 

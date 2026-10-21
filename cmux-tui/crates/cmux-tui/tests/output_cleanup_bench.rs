@@ -64,6 +64,19 @@ impl Owner {
             .stderr(File::create(&log).unwrap())
             .spawn()
             .unwrap();
+        // Samples the start of this owner (CMUX_OUTPUT_CLEANUP_BENCH_PERF=<label>).
+        let perf = (std::env::var("CMUX_OUTPUT_CLEANUP_BENCH_PERF").ok().as_deref() == Some(label))
+            .then(|| {
+                Command::new("perf")
+                    .args(["record", "-F", "199", "-g", "-o"])
+                    .arg(dir.join(format!("{label}.perf")))
+                    .args(["-p", &child.id().to_string()])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .ok()
+            })
+            .flatten();
         let mut owner =
             Self { child, dir: dir.to_path_buf(), log, started, answered: Duration::ZERO };
         let deadline = Instant::now() + Duration::from_secs(1800);
@@ -77,6 +90,20 @@ impl Owner {
             std::thread::sleep(Duration::from_millis(100));
         }
         owner.answered = owner.started.elapsed();
+        if let Some(mut perf) = perf {
+            // SIGINT lets perf write its file.
+            unsafe { libc::kill(perf.id() as i32, libc::SIGINT) };
+            let _ = perf.wait();
+            let report = Command::new("perf")
+                .args(["report", "--stdio", "--no-children", "--percent-limit", "2", "-i"])
+                .arg(dir.join(format!("{label}.perf")))
+                .output();
+            if let Ok(report) = report {
+                for line in String::from_utf8_lossy(&report.stdout).lines().take(150) {
+                    eprintln!("bench: PERF {line}");
+                }
+            }
+        }
         owner
     }
 
@@ -346,17 +373,45 @@ fn measure_output_cleanup_on_a_synthetic_registry() {
     fs::create_dir_all(dir.join("state").join("sessions")).unwrap();
     let sealed_rows = (SEALED_ROWS * scale) as u64;
     let live_rows = (LIVE_ROWS * scale) as u64;
+    let cache = std::env::var("CMUX_OUTPUT_CLEANUP_BENCH_CACHE").ok().map(PathBuf::from);
+    let cached = cache.as_ref().filter(|cache| cache.join("done").is_file());
+    let registry = if let Some(cache) = cached {
+        let copied = Instant::now();
+        let status =
+            Command::new("cp").arg("-a").arg(cache.join("state")).arg(&dir).status().unwrap();
+        assert!(status.success());
+        eprintln!("bench: copied the cached registry in {:.0} s", copied.elapsed().as_secs_f64());
+        registry_path(&dir)
+    } else {
+        generate(&dir, sealed_rows, live_rows)
+    };
+    if let Some(cache) = cache.as_ref().filter(|_| cached.is_none()) {
+        fs::create_dir_all(cache).unwrap();
+        let status =
+            Command::new("cp").arg("-a").arg(dir.join("state")).arg(cache).status().unwrap();
+        assert!(status.success());
+        fs::write(cache.join("done"), b"").unwrap();
+    }
+    let before = file_bytes(&registry);
+
+    // A start with the old file present, before any cleanup.
+    let owner = Owner::start(&dir, "plain-start", NEVER);
+    let plain_start = owner.answered;
+    owner.stop();
+    finish(&dir, &registry, scale, before, plain_start);
+}
+
+fn generate(dir: &Path, sealed_rows: u64, live_rows: u64) -> PathBuf {
     let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
     let mut offsets = vec![0_u64; TERMINALS as usize];
-
-    let owner = Owner::start(&dir, "create", NEVER);
+    let owner = Owner::start(dir, "create", NEVER);
     owner.stop();
-    let registry = registry_path(&dir);
+    let registry = registry_path(dir);
     let generated = Instant::now();
     let mut structural = bulk_append(&registry, sealed_rows, &mut rng, &mut offsets);
 
     // The owner seals the first part into segments, as maintenance did.
-    let owner = Owner::start(&dir, "seal", NEVER);
+    let owner = Owner::start(dir, "seal", NEVER);
     let socket = dir.join("mux.sock");
     let scope = serde_json::json!({"machine":"current","session":"current"});
     let checkpoint = resource_request(
@@ -396,27 +451,24 @@ fn measure_output_cleanup_on_a_synthetic_registry() {
         let db = Connection::open(&registry).unwrap();
         db.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").unwrap();
     }
-    let before = file_bytes(&registry);
+    registry
+}
 
-    // A start with the old file present, before any cleanup.
-    let owner = Owner::start(&dir, "plain-start", NEVER);
-    let plain_start = owner.answered;
-    owner.stop();
-
-    let owner = Owner::start(&dir, "phase-a", "0");
+fn finish(dir: &Path, registry: &Path, scale: f64, before: u64, plain_start: Duration) {
+    let owner = Owner::start(dir, "phase-a", "0");
     let phase_a = owner.wait_for_log("output cleanup: phase A complete");
     let phase_a_rss = owner.peak_rss_kib();
     owner.stop();
     let staged = file_bytes(&registry.with_file_name(format!("{REGISTRY}.output-cleanup")));
 
-    let owner = Owner::start(&dir, "phase-b", NEVER);
+    let owner = Owner::start(dir, "phase-b", NEVER);
     let swap = owner.wait_for_log("output cleanup: swapped the registry");
     let swap_start = owner.answered;
     let phase_b_rss = owner.peak_rss_kib();
     owner.stop();
-    let after = file_bytes(&registry);
+    let after = file_bytes(registry);
 
-    let owner = Owner::start(&dir, "after", NEVER);
+    let owner = Owner::start(dir, "after", NEVER);
     let after_start = owner.answered;
     owner.stop();
 
@@ -440,5 +492,5 @@ fn measure_output_cleanup_on_a_synthetic_registry() {
     );
     eprintln!("bench: RESULT phase B owner peak RSS {} MiB", phase_b_rss / 1024);
     eprintln!("bench: RESULT start after the swap {:.2} s", after_start.as_secs_f64());
-    fs::remove_dir_all(&dir).unwrap();
+    fs::remove_dir_all(dir).unwrap();
 }
