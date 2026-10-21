@@ -100,6 +100,42 @@ class GuardsRunFromTheBase(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(out["hookSpecificOutput"]["additionalContext"], "base merge warning base v1")
 
+    def test_a_stale_origin_is_fetched_before_a_merge(self):
+        """A clone last fetched before the launcher landed has no origin/feat-cmux-next:scripts/ci/guards-from-base.sh;
+        the hook fetches first, so the merge is still judged by the base guard."""
+        git(self.lane, "update-ref", "refs/remotes/origin/feat-cmux-next", self.old_base())
+        code, out, err = self.hook("gh pr merge 5 --squash")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecisionReason"], "merge guard base v1")
+
+    def test_a_merge_whose_guards_cannot_be_read_is_refused(self):
+        """The merge guard fails closed (it refuses when it can't read GitHub), so the hook does too: a merge it can't
+        judge is denied, never let through with only a stderr line."""
+        old = self.old_base()
+        git(self.lane, "remote", "set-url", "origin", str(self.tmp / "gone.git"))
+        git(self.lane, "update-ref", "refs/remotes/origin/feat-cmux-next", old)
+        code, out, err = self.hook("gh pr merge 5 --squash")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("merge guards did not run", out["hookSpecificOutput"]["permissionDecisionReason"])
+        # The update-branch warning only warns: unreadable, it does not block.
+        code, out, err = self.hook("gh api -X PUT repos/manaflow-ai/cmux/pulls/5/update-branch")
+        self.assertIsNone(out)
+        self.assertNotEqual(code, 2)
+
+    def old_base(self) -> str:
+        """A commit on the base from before the launcher existed."""
+        old = self.tmp / "old"
+        git(self.tmp, "clone", "-q", "-b", "feat-cmux-next", "remote.git", "old")
+        git(old, "checkout", "-q", "--orphan", "before")
+        git(old, "rm", "-rq", "--cached", ".")
+        (old / "README.md").write_text("before the guards ran from the base\n")
+        git(old, "add", "README.md")
+        git(old, "commit", "-qm", "before")
+        git(old, "push", "-q", "origin", "before")
+        git(self.lane, "fetch", "-q", "origin", "before")
+        return git(old, "rev-parse", "HEAD")
+
     def test_other_commands_pass_without_a_guard(self):
         code, out, err = self.hook("ls -la")
         self.assertEqual((code, out), (0, None), err)
