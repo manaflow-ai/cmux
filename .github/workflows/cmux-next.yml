@@ -1007,12 +1007,17 @@ jobs:
           echo '{}' > "$marker"
           echo "path=$marker" >> "$GITHUB_OUTPUT"
 
+      # With no free overflow slot a bot re-run takes the same side label
+      # (retry_runner is empty), so the rescue's cancel and re-run would only
+      # send the run to the back of that queue: run 39615562861 went round
+      # twice on 2026-10-21. The refusals marker has the sweeper re-run what a
+      # mini refuses and leave a long queue alone.
       - name: Upload the owned-pool watch marker
         if: ${{ steps.marker.outputs.path != '' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: owned-pool-watch
+          name: ${{ steps.place.outputs.free_retry_runner == '' && 'owned-pool-watch-refusals' || 'owned-pool-watch' }}
           path: ${{ steps.marker.outputs.path }}
           retention-days: 1
 
@@ -1331,6 +1336,7 @@ jobs:
             bash scripts/cmux-next/tests/ublock-pin.test.sh
             bash scripts/cmux-next/tests/base-autofix-push.test.sh
             bash scripts/cmux-next/tests/base-autofix-land.test.sh
+            bash scripts/cmux-next/tests/base-autofix-action-exports.test.sh
             bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
             bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
             bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh

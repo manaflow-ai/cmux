@@ -22236,6 +22236,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "agent open-tab",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agent.openSessionTab",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "noObject",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Agent Session in Tab",
+      "title_key" : "action.agent.openSessionTab",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "action home-toggle-chief-settings",
       "context_menu" : "noObject",
@@ -24334,6 +24362,62 @@
       "palette_suggested" : null,
       "title" : "Connect to Machine…",
       "title_key" : "action.remote.connect",
+      "title_table" : "RemoteActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "machine add",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "machine.add",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "Add Machine…",
+      "title_key" : "action.machine.add",
+      "title_table" : "RemoteActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "machine doctor",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sshMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "machine.doctor",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "Check Machine",
+      "title_key" : "action.machine.doctor",
       "title_table" : "RemoteActions"
     },
     {
@@ -38352,25 +38436,25 @@
               }
             },
             {
-              "kind" : "separator",
-              "order" : 10
-            },
-            {
               "enabled_when" : "can_perform",
-              "id" : "sidebar.home.add",
+              "id" : "machine.add",
               "kind" : "action",
-              "order" : 11,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
-                "feature" : null,
+                "feature" : "remoteHosts",
                 "requires" : [
 
                 ]
               }
             },
             {
+              "kind" : "separator",
+              "order" : 11
+            },
+            {
               "enabled_when" : "can_perform",
-              "id" : "sidebar.item.add",
+              "id" : "sidebar.home.add",
               "kind" : "action",
               "order" : 12,
               "visible_when" : {
@@ -38383,9 +38467,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "sidebar.section.add",
+              "id" : "sidebar.item.add",
               "kind" : "action",
               "order" : 13,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.section.add",
+              "kind" : "action",
+              "order" : 14,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -39716,14 +39813,10 @@
           }
         },
         {
-          "kind" : "separator",
-          "order" : 5
-        },
-        {
           "enabled_when" : "can_perform",
-          "id" : "remote.copyError",
+          "id" : "machine.doctor",
           "kind" : "action",
-          "order" : 6,
+          "order" : 5,
           "visible_when" : {
             "debug_only" : false,
             "feature" : "remoteHosts",
@@ -39734,13 +39827,30 @@
         },
         {
           "kind" : "separator",
-          "order" : 7
+          "order" : 6
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "remote.copyError",
+          "kind" : "action",
+          "order" : 7,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : "remoteHosts",
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 8
         },
         {
           "enabled_when" : "can_perform",
           "id" : "remote.forget",
           "kind" : "action",
-          "order" : 8,
+          "order" : 9,
           "visible_when" : {
             "debug_only" : false,
             "feature" : "remoteHosts",

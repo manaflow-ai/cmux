@@ -61,7 +61,7 @@ extension ActionRegistry {
         switch context {
         case .browserPage, .browserLink, .browserImage, .browserSelection: .browserFocused
         case .terminalSelection: .terminalFocused
-        case .agentChat: .agentPaneFocused
+        case .agentChat, .priorityRow: .agentPaneFocused
         // A right-clicked row is the explorer's even while another view has the keyboard.
         case .fileExplorerRow: .fileExplorerFocused
         default: []

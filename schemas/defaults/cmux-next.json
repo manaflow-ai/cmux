@@ -245,6 +245,7 @@
     "setting.agents.chats.enabled": true,
     "setting.agents.chats.roots": [],
     "setting.agents.defaultPermissionMode": "fullAccess",
+    "setting.agents.subsessions.answerQuestions": false,
     "setting.agents.subsessions.enabled": true,
     "setting.agents.subsessions.maxChildren": 50,
     "setting.agents.subsessions.maxDepth": 10,
