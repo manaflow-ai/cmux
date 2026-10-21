@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxAgentJournal
 import CmuxControlSocket
 import Foundation
 import Testing
@@ -235,5 +236,95 @@ struct ClaudeDroppedLaunchCaptureAccountTests {
         #expect(result.saved.agent?.launchCommand?.environment?["CLAUDE_CONFIG_DIR"] == configDirectory.path)
         #expect(result.record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"] == configDirectory.path)
         expectBareClaudeResume(result.record, sessionID: sessionID)
+    }
+
+    /// Crash recovery reopens a lost Claude session from the hook store by the
+    /// same rule, so a dropped capture keeps its account there too.
+    private func recoveredLaunchCommand(
+        _ fixture: Fixture,
+        launchCommand: (URL) -> AgentLaunchCommand
+    ) throws -> (launch: AgentLaunchCommand?, configDirectory: URL) {
+        let sessionID = UUID().uuidString.lowercased()
+        let configDirectory = fixture.root.appendingPathComponent("claude-work", isDirectory: true)
+        let transcript = fixture.transcriptURL(configDirectory: configDirectory, sessionID: sessionID)
+        try FileManager.default.createDirectory(
+            at: transcript.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("{}\n".utf8).write(to: transcript)
+        let now = Date()
+        let journalURL = fixture.root.appendingPathComponent("journal.sqlite3")
+        let store = try AgentJournalStore(databaseURL: journalURL)
+        _ = try store.append(AgentJournalEventDraft(
+            kind: .sessionStarted,
+            occurredAtMs: Int64(now.addingTimeInterval(-60).timeIntervalSince1970 * 1000),
+            source: "claude",
+            agentKey: "claude_code",
+            sessionId: sessionID,
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString
+        ))
+        store.close()
+        var file = RestorableAgentHookSessionStoreFile()
+        file.sessions[sessionID] = RestorableAgentHookSessionRecord(
+            sessionId: sessionID,
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            cwd: fixture.workingDirectory.path,
+            transcriptPath: transcript.path,
+            pid: nil,
+            launchCommand: launchCommand(configDirectory),
+            isRestorable: true,
+            updatedAt: now.timeIntervalSince1970
+        )
+        try JSONEncoder().encode(file).write(
+            to: RestorableAgentKind.claude.hookStoreFileURL(
+                homeDirectory: fixture.root.path,
+                environment: fixture.environment
+            )
+        )
+        let recovered = AgentSessionRecovery(
+            journalURL: journalURL,
+            homeDirectory: fixture.root.path,
+            environment: fixture.environment
+        ).candidates(openSessionIds: [], activeSince: now.addingTimeInterval(-600), now: now)
+        let candidate = try #require(recovered.first { $0.sessionId == sessionID })
+        return (candidate.launchCommand, configDirectory)
+    }
+
+    @Test("Crash recovery keeps the account of a Claude capture with another agent's launcher")
+    func recoveryKeepsForeignLauncherAccount() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let result = try recoveredLaunchCommand(fixture) { configDirectory in
+            AgentLaunchCommand(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex"],
+                environment: ["CLAUDE_CONFIG_DIR": configDirectory.path]
+            )
+        }
+
+        #expect(result.launch?.environment?["CLAUDE_CONFIG_DIR"] == result.configDirectory.path)
+        #expect(result.launch?.arguments.isEmpty == true)
+        #expect(result.launch?.launcher == "claude")
+    }
+
+    @Test("Crash recovery restores a shell-dispatcher Claude capture under the transcript's account")
+    func recoveryNamesTranscriptAccountForShellWrapperCapture() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+
+        let result = try recoveredLaunchCommand(fixture) { _ in
+            AgentLaunchCommand(
+                launcher: "claude",
+                executablePath: "/bin/zsh",
+                arguments: ["/bin/zsh", "-lc", "claude"]
+            )
+        }
+
+        #expect(result.launch?.environment?["CLAUDE_CONFIG_DIR"] == result.configDirectory.path)
+        #expect(result.launch?.arguments.isEmpty == true)
     }
 }
