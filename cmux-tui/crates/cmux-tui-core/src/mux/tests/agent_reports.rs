@@ -361,6 +361,37 @@ fn committed_agent_hook_events_drive_the_terminal_agent_record() {
     assert_eq!(records[0].state, AgentState::Idle);
 }
 
+/// A failed tool call (Claude's `PostToolUseFailure`, e.g. a Bash command
+/// that exits 1) is ordinary mid-turn progress: the agent reads the error and
+/// keeps working. It must not mark the terminal blocked (the tab's "needs
+/// you" dot) or post a "reported an error" notification.
+#[test]
+fn failed_tool_call_keeps_the_agent_working() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let surface_id = surface.id;
+    let terminal_id = surface.terminal_public_id().cloned().unwrap();
+    let append = |event: &str, key: &str, native: Value| {
+        mux.append_journal_ingress(&claude_hook(&terminal_id, event, native), "test", key).unwrap();
+    };
+    let session = || serde_json::json!({"session_id":"native-1"});
+
+    append("SessionStart", "hook-1", session());
+    append("UserPromptSubmit", "hook-2", session());
+    append("PreToolUse", "hook-3", serde_json::json!({"session_id":"native-1","tool_name":"Bash"}));
+    append(
+        "PostToolUseFailure",
+        "hook-4",
+        serde_json::json!({"session_id":"native-1","tool_name":"Bash","error":"Exit code 1"}),
+    );
+    assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Working);
+    assert!(mux.resource_notifications(16).is_empty(), "a failed tool call needs no attention");
+
+    // A real wait on the user still blocks.
+    append("PermissionRequest", "hook-5", session());
+    assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Blocked);
+}
+
 #[test]
 fn stale_same_terminal_hook_sequence_cannot_overwrite_newer_state() {
     let mux = test_mux();
