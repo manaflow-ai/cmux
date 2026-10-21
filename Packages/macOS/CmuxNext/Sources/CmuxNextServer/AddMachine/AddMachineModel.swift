@@ -73,6 +73,15 @@ public struct AddMachineServices {
     public nonisolated enum Installed: Equatable, Sendable {
         case installed(machineID: String)
         case failed(String)
+
+        /// Runs an install that returns the machine's id; a thrown error fails with its own words.
+        public static func attempt(_ install: () async throws -> String) async -> Installed {
+            do {
+                return .installed(machineID: try await install())
+            } catch {
+                return .failed((error as? any LocalizedError)?.errorDescription ?? String(describing: error))
+            }
+        }
     }
 
     /// Reads the field (`SSHDestination`); nil when ssh cannot take it.
@@ -81,10 +90,11 @@ public struct AddMachineServices {
     public var candidates: () async -> [HostCandidate]?
     /// The stdout lines of one CLI run; a run that ends without its report throws why.
     public var run: (HostCommand) -> AsyncThrowingStream<String, any Error>
-    /// `remote.connect`'s install path: connects `host` in the app and installs this app's cmux-tui on it.
-    public var install: (_ host: String) async -> Installed
-    /// Connects `host` in the app once it is added: the machine's id, nil when it could not.
-    public var connect: (_ host: String) -> String?
+    /// `remote.connect`'s install path: connects `host` in the app under `name` and installs this app's
+    /// cmux-tui on it.
+    public var install: (_ host: String, _ name: String) async -> Installed
+    /// Connects `host` in the app under `name` once it is added: the machine's id, nil when it could not.
+    public var connect: (_ host: String, _ name: String) -> String?
     /// The last enroll or doctor report of a machine (the Machines section's status).
     public var record: (_ machineID: String, _ report: HostReport) -> Void
     public var openWorkspace: (_ machineID: String) -> Void
@@ -92,7 +102,7 @@ public struct AddMachineServices {
 
     public init(parse: @escaping (String) -> HostDestination?, candidates: @escaping () async -> [HostCandidate]?,
                 run: @escaping (HostCommand) -> AsyncThrowingStream<String, any Error>,
-                install: @escaping (String) async -> Installed, connect: @escaping (String) -> String?,
+                install: @escaping (String, String) async -> Installed, connect: @escaping (String, String) -> String?,
                 record: @escaping (String, HostReport) -> Void, openWorkspace: @escaping (String) -> Void,
                 copy: @escaping (String) -> Void) {
         self.parse = parse
@@ -288,7 +298,7 @@ public final class AddMachineModel {
                 // build on the host; enroll then runs again from the top.
                 installingAppBuild = true
                 checklist.run(.install)
-                let installed = await services.install(host)
+                let installed = await services.install(host, name)
                 installingAppBuild = false
                 guard !Task.isCancelled else { return }
                 switch installed {
@@ -303,7 +313,7 @@ public final class AddMachineModel {
             }
             guard !Task.isCancelled else { return }
             guard let report else { phase = .failed(nil); return }
-            if report.ok, machineID == nil { machineID = services.connect(host) }
+            if report.ok, machineID == nil { machineID = services.connect(host, name) }
             if let machineID { services.record(machineID, report) }
             phase = report.ok ? .ready(report) : .failed(report)
         }

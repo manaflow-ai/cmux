@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextRemote
 @testable import CmuxNextServer
 import Foundation
 import Testing
@@ -18,6 +19,7 @@ import Testing
         var stops: [(any Error)?] = []
         var commands: [HostCommand] = []
         var installs: [String] = []
+        var names: [String] = []
         var installAnswer: AddMachineServices.Installed = .installed(machineID: "ssh-installed")
         var connected: [String] = []
         var recorded: [(String, HostReport)] = []
@@ -50,8 +52,8 @@ import Testing
                         continuation.finish(throwing: stop)
                     }
                 },
-                install: { [self] host in installs.append(host); return installAnswer },
-                connect: { [self] host in connected.append(host); return "ssh-\(host)" },
+                install: { [self] host, name in installs.append(host); names.append(name); return installAnswer },
+                connect: { [self] host, name in connected.append(host); names.append(name); return "ssh-\(host)" },
                 record: { [self] id, report in recorded.append((id, report)) },
                 openWorkspace: { [self] id in opened.append(id) },
                 copy: { [self] text in copied.append(text) })
@@ -199,6 +201,7 @@ import Testing
         model.perform(.add)
         _ = await model.finished()
         #expect(host.commands == [.enroll(host: "huge-blue", name: "lab")])
+        #expect(host.names == ["lab"], "the app connects it under the Name field's name")
         #expect(HostCommand.enroll(host: "huge-blue", name: "lab").arguments == ["acp", "host", "enroll", "huge-blue", "--name", "lab", "--json"])
     }
 
@@ -243,6 +246,7 @@ import Testing
         model.begin(destination: "hb")
         _ = await model.finished()
         #expect(host.installs == ["hb"])
+        #expect(host.names == ["hb"], "the install connects it under the default name, the short host")
         #expect(host.commands.count == 2)
         #expect(model.machineID == "ssh-installed")
         #expect(host.connected.isEmpty, "the install connected it already")
@@ -383,6 +387,20 @@ import Testing
         #expect(row.health == .failing)
         #expect(row.healthHelp == AddMachineStrings.healthFailing(AddMachineStrings.step(.daemon)))
         #expect(MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true).healthHelp == nil)
+    }
+
+    // MARK: - The machine's name
+
+    @Test func theNameFieldBecomesTheSidebarLabelAndSurvivesTheTransport() throws {
+        let host = try SSHHost(destination: SSHDestination(parsing: "leo@huge-blue.tail1.ts.net"))
+        #expect(host.label == "huge-blue")
+        let named = host.named(" lab \nsecond line")
+        #expect(named.label == "lab")
+        #expect(named.machineID == host.machineID, "a name never changes the route or the id")
+        #expect(named.transportFields["name"] == "lab")
+        #expect(SSHHost(transportFields: named.transportFields) == named)
+        #expect(named.named("  ").label == "huge-blue")
+        #expect(host.transportFields["name"] == nil)
     }
 
     /// Waits for main-actor state another task sets; no clock, a bounded number of yields.

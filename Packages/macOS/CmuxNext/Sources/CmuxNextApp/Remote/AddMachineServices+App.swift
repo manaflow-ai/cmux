@@ -11,23 +11,21 @@ extension AddMachineServices {
     static func app(_ services: AppServices) -> AddMachineServices {
         let ssh = services.ssh, health = services.machineHealth, registry = services.registry
         // The app's own cmux-tui, the one SSH machines and the agent daemon run.
-        let cli = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment))
-            .map { HostCLI(binary: $0, environment: SSHService.environment) }
-        let connect = { (host: String) in try ssh.connect(destination: host, session: nil, offerInstall: false) }
+        let cli = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)).map { HostCLI(binary: $0, environment: SSHService.environment) }
+        // Connected in the app under the Name field's name (the sidebar's label, saved in its transport).
+        let connect = { (host: String, name: String) throws -> SSHMachineSession in
+            let session = try ssh.connect(destination: host, session: nil, offerInstall: false)
+            if session.host.label != name { session.host = session.host.named(name); ssh.rememberHost(session) }
+            return session
+        }
         return AddMachineServices(
             parse: { text in (try? SSHDestination(parsing: text)).map { HostDestination(host: $0.description, shortName: $0.displayName) } },
             candidates: { await cli?.candidates().flatMap { try? HostCandidate.parseList($0) } },
             run: { command in cli?.lines(command.arguments) ?? AsyncThrowingStream { $0.finish(throwing: ActionFailure(message: RemoteStrings.noClient)) } },
-            install: { host in
-                do {
-                    let session = try connect(host)
-                    try await ssh.install(session)
-                    return .installed(machineID: session.machineID)
-                } catch {
-                    return .failed((error as? ActionFailure)?.message ?? error.localizedDescription)
-                }
+            install: { host, name in
+                await .attempt { let session = try connect(host, name); try await ssh.install(session); return session.machineID }
             },
-            connect: { host in (try? connect(host))?.machineID },
+            connect: { host, name in (try? connect(host, name))?.machineID },
             record: { health.record($0, $1) },
             openWorkspace: { id in registry.perform("remote.newWorkspace", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: id))) },
             copy: { CloudPresenter.copy($0) })
