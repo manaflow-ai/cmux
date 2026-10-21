@@ -14,6 +14,7 @@ tree cmux-tui
 gitlink ghostty
 gitlink ghostty-next
 blob scripts/cmux-next/build-layout-reducer-ffi.sh
+blob scripts/ci/cargo-groups.sh
 blob scripts/ci/cmux-tui-darwin-builder
 blob scripts/ci/macos-cross.sh
 blob scripts/ci/macos_stubs.py

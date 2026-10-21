@@ -546,6 +546,9 @@ class GeneratedClientMixin:
     def pane_neighbor(self, pane: Id, dir: PaneDirection) -> PaneNeighborResult:
         return self._invoke_command('pane-neighbor', PaneNeighborRequest(pane=pane, dir=dir))
 
+    def park_tabs(self, surfaces: List[TabRef]) -> JsonValue:
+        return self._invoke_command('park-tabs', ParkTabsRequest(surfaces=surfaces))
+
     def paste_image(self, surface: Id, terminal_id: str, lease: str, op: str, upload_id: str, *, data: Union[str, None, MissingType] = MISSING, mime: Union[str, None, MissingType] = MISSING, offset: Union[int, None, MissingType] = MISSING, size: Union[int, None, MissingType] = MISSING) -> PasteImageResult:
         return self._invoke_command('paste-image', PasteImageRequest(surface=surface, terminal_id=terminal_id, lease=lease, op=op, upload_id=upload_id, data=data, mime=mime, offset=offset, size=size))
 
@@ -1031,6 +1034,7 @@ GeneratedClientMixin.notify.__cmux_command__ = COMMANDS['notify']
 GeneratedClientMixin.page_credential.__cmux_command__ = COMMANDS['page-credential']
 GeneratedClientMixin.pairing_response.__cmux_command__ = COMMANDS['pairing-response']
 GeneratedClientMixin.pane_neighbor.__cmux_command__ = COMMANDS['pane-neighbor']
+GeneratedClientMixin.park_tabs.__cmux_command__ = COMMANDS['park-tabs']
 GeneratedClientMixin.paste_image.__cmux_command__ = COMMANDS['paste-image']
 GeneratedClientMixin.pin_workspace.__cmux_command__ = COMMANDS['pin-workspace']
 GeneratedClientMixin.ping.__cmux_command__ = COMMANDS['ping']

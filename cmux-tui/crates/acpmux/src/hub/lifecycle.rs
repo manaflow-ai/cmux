@@ -72,6 +72,11 @@ impl Hub {
         } else {
             (None, None)
         };
+        // A catalog default (not a saved pick) is skipped when the harness doesn't offer it.
+        let model_from_catalog = !model_pinned
+            && start_model
+                .as_ref()
+                .is_some_and(|s| s.source == super::start_defaults::StartSource::Catalog);
         let (model, model_soft) = match (model_pinned, start_model) {
             (true, _) | (false, None) => (pinned_model, false),
             (false, Some(start)) => (Some(start.value), true),
@@ -254,7 +259,12 @@ impl Hub {
                     let catalog = self.catalog_ids(agent).await;
                     let full = format!("{head}/{m}");
                     let m = if !catalog.is_empty() && !catalog.iter().any(|id| id == m) && catalog.contains(&full) { full } else { m.clone() };
-                    if let Err(e) = self.set_model(&session, &m).await {
+                    // A start value this session's harness does not list (its account
+                    // lacks it): the harness accepts set_model, then fails every prompt.
+                    if model_from_catalog && !self.harness_offers(agent, &profile, &m) {
+                        tracing::warn!(harness = agent, model = %m, "start model skipped: not offered by the harness");
+                        self.append(&session, "mux", "start_default_skipped", json!({"modelId": m, "error": "the harness does not offer this model"}));
+                    } else if let Err(e) = self.set_model(&session, &m).await {
                         // A start value the harness refuses (start_defaults.rs): the
                         // chat runs the harness's own default instead.
                         if model_soft {
@@ -377,7 +387,7 @@ impl Hub {
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed(&session.id) {
             match self.adopt_pooled(session, pooled).await {
-                Ok(child) => return Ok(child),
+                Ok(child) => return Ok(self.keep_account_home(session, profile, child)),
                 // Not promotable: it was ended; start cold below.
                 Err(e) => tracing::warn!(session = %session.id, "pooled session not taken: {e:#}"),
             }
@@ -390,7 +400,7 @@ impl Hub {
         // own bounds: they serve agents that may be mid-turn.
         let budget = self.config.read().await.agent_start_timeout();
         match tokio::time::timeout(budget, self.cold_start(session, profile)).await {
-            Ok(result) => result,
+            Ok(result) => result.map(|child| self.keep_account_home(session, profile, child)),
             Err(_) => {
                 self.abandon_cold_start(session, budget).await;
                 Err(RpcError::deadline_exceeded("agent_start", budget))
@@ -614,6 +624,7 @@ impl Hub {
             let mut m = session.meta.lock().unwrap();
             m.agent_info = init.get("agentInfo").cloned();
             m.agent_capabilities = init.get("agentCapabilities").cloned();
+            m.steering = steering;
         }
 
         if is_claude {
@@ -674,7 +685,7 @@ impl Hub {
                 let res = child
                     .request(
                         method::SESSION_LOAD,
-                        self.acp_params(&session.id, &meta, profile, Some(&sid)),
+                        self.acp_params(&session.id, &meta, profile, Some(&sid), &child),
                     )
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
@@ -697,7 +708,10 @@ impl Hub {
         if !loaded {
             let had_history = session.meta().agent_session_id.is_some();
             let res = match child
-                .request(method::SESSION_NEW, self.acp_params(&session.id, &meta, profile, None))
+                .request(
+                    method::SESSION_NEW,
+                    self.acp_params(&session.id, &meta, profile, None, &child),
+                )
                 .await
             {
                 Ok(v) => v,

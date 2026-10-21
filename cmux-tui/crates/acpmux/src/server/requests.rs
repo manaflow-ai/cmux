@@ -277,6 +277,45 @@ async fn dispatch_request(
             };
             hub.person.enroll(key, verified)
         }
+        method::MUX_COMPUTER_USE_ENROLL => {
+            // Private lifecycle RPC: no CLI/MCP/palette/WebSocket/remote-relay
+            // surface. It carries a per-launch credential only on a local
+            // socket whose peer is the signed app containing this daemon.
+            if conn.origin != Origin::Local {
+                return Err(RpcError::invalid_params(
+                    "_acpmux/computer_use_enroll is accepted only over the local unix socket",
+                ));
+            }
+            if !cmux_link::app_caller::signed_app_build() {
+                return Err(RpcError::invalid_params(
+                    "an unsigned daemon takes Computer Use credentials only at spawn",
+                ));
+            }
+            let Some(token) = conn.peer.as_ref() else {
+                return Err(RpcError::invalid_params("the peer's audit token is unknown"));
+            };
+            if let Err(why) = cmux_link::app_caller::verify_containing_app(token) {
+                tracing::warn!("computer_use_enroll refused: {why}");
+                return Err(RpcError::invalid_params(
+                    "only the cmux app that contains this daemon may enroll Computer Use",
+                ));
+            }
+            let socket = params
+                .get("socket")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("socket must be a string"))?;
+            let agent_token = params
+                .get("agentToken")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("agentToken must be a string"))?;
+            if socket.len() > 4096 || agent_token.len() > 4096 {
+                return Err(RpcError::invalid_params(
+                    "the Computer Use socket and agent token must each be at most 4096 bytes",
+                ));
+            }
+            crate::cua_socket::enroll(socket.to_owned(), agent_token.to_owned());
+            Ok(json!({"enrolled": true}))
+        }
         method::SESSION_NEW => {
             // A peer name in _meta.acpmux.peer creates the session on that daemon.
             if let Some(peer_name) =

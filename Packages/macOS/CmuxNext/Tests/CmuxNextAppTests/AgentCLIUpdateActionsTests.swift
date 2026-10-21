@@ -21,11 +21,15 @@ import Testing
         var loseReply = false
         var outcome = "pending"
         var refuse: Set<AgentCLIFamily> = []
+        var refuseCode = "agent_cli_job.refused"
+        var observeError: DaemonError?
         /// The owner answers busy for this family (its key's original request still runs).
         var busy: Set<AgentCLIFamily> = []
         /// The owner answers this family's start with a coded failure (`failCode`).
         var fail: Set<AgentCLIFamily> = []
         var failCode = "operation.failed"
+        /// When set, the owner answers a journal read (`resolve`) with this for every key.
+        var resolution: AgentCLIJobResolution?
         var claudeChannel = "native"
         /// A reconnect advances the epoch; routes captured before it retire.
         var epoch = 0
@@ -39,6 +43,8 @@ import Testing
 
         func route() -> AgentCLIUpdateActions.Route {
             captures += 1
+            var resolve: (@MainActor (AgentCLIFamily, String) async throws -> AgentCLIJobResolution)?
+            if let answer = resolution { resolve = { _, _ in answer } }
             let epoch = self.epoch
             return .init(machine: machine, session: session, isCurrent: { self.current && self.epoch == epoch }, inventory: {
                 self.reads += 1
@@ -51,7 +57,7 @@ import Testing
                 }
                 if self.refuse.contains(cli) {
                     throw DaemonError.command(cmd: "agent-cli-update-job", message: "The owner could not start the update job",
-                                              code: "agent_cli_job.refused")
+                                              code: self.refuseCode)
                 }
                 if self.busy.contains(cli) {
                     throw DaemonError.command(cmd: "agent-cli-update-job", message: "Another agent CLI update is running",
@@ -65,15 +71,16 @@ import Testing
                 return try self.receipt(cli)
             }, observe: { receipt in
                 self.observations += 1
+                if let error = self.observeError { throw error }
                 let result = switch self.outcome {
                 case "pending": #"{"state":"pending","lifecycle":"running","revision":"7"}"#
-                case "unknown": #"{"state":"exited","lifecycle":"exited","revision":"8","exited_at":"1","outcome":{"kind":"unknown"}}"#
+                case "unknown", "lost": #"{"state":"exited","lifecycle":"exited","revision":"8","exited_at":"1","outcome":{"kind":"\#(self.outcome)"}}"#
                 default: #"{"state":"exited","lifecycle":"exited","revision":"8","exited_at":"1","outcome":{"kind":"exit","code":23}}"#
                 }
                 var value = try JSONValue.parse(Data(result.utf8)).objectValue ?? [:]
                 value["terminal_id"] = .string(receipt.path.terminalID.rawValue)
                 return try JSONDecoder().decode(AgentCLIJobStatus.self, from: Data(JSONValue.object(value).compactText.utf8))
-            })
+            }, resolve: resolve)
         }
 
         func receipt(_ cli: AgentCLIFamily) throws -> AgentCLIJobReceipt {
@@ -93,7 +100,8 @@ import Testing
 
     private func make() -> (Owner, AgentCLIUpdateActions, ActionRegistry) {
         let owner = Owner()
-        let updates = AgentCLIUpdateActions(capture: { _ in owner.route() })
+        let ledger = AgentCLIUpdateRecoveryTests.Ledger()
+        let updates = AgentCLIUpdateActions(capture: { _ in owner.route() }, persistence: ledger.port)
         let registry = ActionRegistry.standard()
         updates.bind(into: registry)
         return (owner, updates, registry)
@@ -238,14 +246,26 @@ import Testing
         #expect(owner.starts.count == 2 && owner.starts.last?.1 == "after-reconnect")
     }
 
-    @Test func aNewDaemonSessionRetiresTheOldJobInsteadOfBlockingTheCLI() async throws {
+    /// A new daemon session cannot reach the old job, so its in-memory job neither shows nor
+    /// blocks. Its ledger row still blocks the CLI on that machine (the old session may be a live
+    /// second server still running the updater), shown and dismissable instead of invisible.
+    @Test func aNewDaemonSessionRetiresTheOldJobAndShowsItsBlockingRowUntilDismissed() async throws {
         let (owner, updates, registry) = make()
         _ = try await updates.runSettings(id: "work-profile", context: page("first-session"), registry: registry)
         owner.session = "session_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
         owner.epoch += 1
-        _ = try await updates.runSettings(id: "work-profile", context: page("second-session"), registry: registry)
-        #expect(owner.starts.count == 2 && owner.starts.last?.1 == "second-session")
-        #expect(updates.state.arrayValue?.map { $0["session"] } == [.string(owner.session.rawValue)])
+        do {
+            _ = try await updates.runSettings(id: "work-profile", context: page("second-session"), registry: registry)
+            Issue.record("another session's recorded update did not block")
+        } catch {}
+        #expect(owner.starts.count == 1)
+        #expect(updates.state.arrayValue?.contains { $0["terminal"] == "term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } == false)
+        // The row that blocks is shown, and a person may dismiss it.
+        let blocking = try #require(updates.state.arrayValue?.first { $0["intent_key"] == "first-session" })
+        #expect(blocking["session"] == "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" && blocking["can_dismiss"] == true)
+        _ = try await updates.runPage(["action": "dismissUpdate", "intent": "first-session"], context: page("dismiss"), registry: registry)
+        _ = try await updates.runSettings(id: "work-profile", context: page("after-dismiss"), registry: registry)
+        #expect(owner.starts.count == 2 && owner.starts.last?.1 == "after-dismiss")
     }
 
     @Test func anExitWithAnUnknownOutcomeSettlesTheJobWithoutBlockingTheCLI() async throws {
@@ -356,21 +376,24 @@ import Testing
         #expect(updates.state.arrayValue?.first?["terminal"]?.stringValue != nil)
     }
 
-    /// A first start sends a fresh key, so an owner answer of any code means nothing runs for
-    /// it (a failed creation, or a request the owner turned away, such as during a handoff):
-    /// the job settles instead of staying unknown, blocking the CLI, and being replayed.
-    @Test(arguments: ["operation.failed", "daemon_shutdown_pending"])
-    func aFirstStartTheOwnerAnswersWithAFailureLeavesNoBlockingJob(code: String) async throws {
+    /// A coded failure other than an `agent_cli_job.*` refusal can follow a durable creation
+    /// (a launch activation failing after the commit), so a first start keeps its ledger row
+    /// instead of deleting it. The next recovery reads the owner's journal: a failed creation
+    /// settles, so the CLI is not blocked for good, and the key is never replayed.
+    @Test func aFirstStartTheOwnerAnswersWithAFailureSettlesThroughTheJournal() async throws {
         let (owner, updates, registry) = make()
         owner.fail = [.codex]
-        owner.failCode = code
+        owner.failCode = "operation.failed"
+        owner.resolution = .failed(code: "operation.failed")
         do {
             _ = try await updates.runSettings(id: "work-profile", context: page("failed-start"), registry: registry)
             Issue.record("a failed start reported success")
         } catch let error as PageError { #expect(error.message.contains("codex")) }
-        #expect(updates.state.arrayValue?.isEmpty == true)
+        #expect(updates.state.arrayValue?.first?["state"] == "unknown")
         await updates.refresh()
+        #expect(updates.state.arrayValue?.isEmpty == true)
         #expect(owner.starts.count == 1)
+        owner.resolution = nil
         owner.fail = []
         _ = try await updates.runSettings(id: "work-profile", context: page("after-failed-start"), registry: registry)
         #expect(owner.starts.count == 2 && owner.starts.last?.1 == "after-failed-start")

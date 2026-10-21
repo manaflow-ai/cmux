@@ -76,15 +76,21 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette], cliName: "app minimize-window"
             ),
             // A PNG of the window as on screen, never focusing or raising it
-            // (agents read the app without Screen Recording; ScreenshotHandlers).
-            ActionDescriptor(
-                id: "window.screenshot",
-                title: String(localized: "action.window.screenshot", defaultValue: "Screenshot Window", bundle: .module),
-                keywords: ["screenshot", "capture", "image", "png", "picture"], category: .window, symbol: "camera",
-                surfaces: [.palette], arguments: [CatalogArgument.screenshotOut], targets: [.window],
-                cliName: "window screenshot",
-                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
-            ),
+            // (a person copies it without Screen Recording; ScreenshotHandlers).
+            {
+                var screenshot = ActionDescriptor(
+                    id: "window.screenshot",
+                    title: String(localized: "action.window.screenshot", defaultValue: "Screenshot Window", bundle: .module),
+                    keywords: ["screenshot", "capture", "image", "png", "picture"], category: .window, symbol: "camera",
+                    surfaces: [.palette], arguments: [CatalogArgument.screenshotOut], targets: [.window],
+                    cliName: "window screenshot",
+                    surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+                )
+                // A window can contain browser pixels. Automation must use the browser host's
+                // guarded capture, which masks cross-session secrets before it returns pixels.
+                screenshot.isPersonOnly = true
+                return screenshot
+            }(),
             ActionDescriptor(
                 id: "toggleFullScreen",
                 title: String(localized: "action.toggleFullScreen", defaultValue: "Toggle Full Screen", bundle: .module),

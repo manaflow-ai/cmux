@@ -160,6 +160,16 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 symbol: "antenna.radiowaves.left.and.right.circle", surfaces: [.palette, .menu],
                 arguments: [CatalogArgument.channelChoice], cliName: "settings switch-update-channel", mainMenu: .app
             ),
+            // Drop back to the build before the last update (kept by `updates.keepPreviousVersions`):
+            // refused, with the reason, when nothing is kept or a store holds data the kept build
+            // cannot read. Relaunches, so every entrypoint confirms first.
+            ActionDescriptor(
+                id: "updates.rollback",
+                title: String(localized: "action.updates.rollback", defaultValue: "Roll Back to Previous Version…", bundle: .module),
+                keywords: ["rollback", "roll back", "downgrade", "previous", "revert", "update", "nightly", "drop back"],
+                category: .settings, symbol: "arrow.uturn.backward.circle", surfaces: [.palette, .menu],
+                cliName: "settings rollback-update", mainMenu: .app, destructive: true
+            ),
             ActionDescriptor(
                 id: "palette.pro.upgrade",
                 title: String(localized: "action.palette.pro.upgrade", defaultValue: "Upgrade to cmux Pro", bundle: .module),

@@ -122,17 +122,17 @@ final class SettingsHarnesses {
     }
 
     /// One page gesture (`cmux.settings.harnesses.run`): `refresh` (`recheck`: the daemon checks
-    /// health again), `signIn` / `check` / `update` with a listed harness `id`, `updateAll`, or
-    /// `registry`.
+    /// health again), `signIn` / `check` / `update` with a listed harness `id`, `updateAll`,
+    /// `resumeUpdate` / `dismissUpdate` with a retained `intent` key, or `registry`.
     func run(_ params: JSONValue, context: PageCallContext?) async throws -> JSONValue {
         let action = params["action"]?.stringValue ?? ""
-        // Anything that runs an update (now, or after acpmux's next check) needs the person.
-        let updates = action == "update" || action == "updateAll" || (action == "autoUpdate" && params["on"]?.boolValue == true)
+        // Anything that runs an update (now, or after acpmux's next check) or settles one needs the person.
+        let updates = ["update", "updateAll", "resumeUpdate", "dismissUpdate"].contains(action) || (action == "autoUpdate" && params["on"]?.boolValue == true)
         guard !updates || context?.userGesture == true || context?.isConfirmedUser == true else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
         switch action {
         case "refresh":
             await refresh(recheck: params["recheck"]?.boolValue ?? false)
-        case "update", "updateAll":
+        case "update", "updateAll", "resumeUpdate", "dismissUpdate":
             guard action != "update" || rows.contains(where: { $0.id == params["id"]?.stringValue }) else { throw PageError.invalidParams("id must be a listed harness") }
             guard let runUpdate, let context else { throw PageError.unavailable(AgentHarnessStrings.unsupported) }
             return try await runUpdate(params, context)

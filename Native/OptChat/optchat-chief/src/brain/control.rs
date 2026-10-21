@@ -455,13 +455,13 @@ impl Brain {
         };
         let (_, options) = prompt_parts(&p.request);
         let deny = option.eq_ignore_ascii_case("deny");
-        // Spawned under the ask floor (a remote-origin turn): a person
-        // answers its prompts, never the Chief.
+        // Spawned under the spawn floor (a turn another person started):
+        // its local effects are refused, never allowed by the Chief.
         if !deny && sub.policy.as_deref() == Some(crate::approval::ASK) {
             return outcome(
                 "refused",
                 format!(
-                    "{id} runs under the ask floor: a person answers its prompts in the Chief chat; you may deny or steer it"
+                    "{id} runs under the spawn floor of another person's turn: its local effects are refused; you may deny or steer it"
                 ),
             );
         }
@@ -999,6 +999,26 @@ impl Brain {
             None,
         );
     }
+}
+
+/// How often the host checks its cloud VMs for idle ones: a VM pauses at
+/// most this long after `cloud.autoPauseIdleSeconds`.
+pub(super) const CLOUD_TICK: Duration = Duration::from_secs(5);
+
+/// Sends `CloudTick` to the brain every [`CLOUD_TICK`] until it is gone.
+pub(super) fn start_cloud_ticker(tx: std::sync::mpsc::Sender<super::Input>) {
+    let _ = std::thread::Builder::new()
+        .name("cloud-tick".into())
+        .spawn(move || {
+            loop {
+                // A fixed, intended interval (idle VM check), not a poll for
+                // a result.
+                std::thread::sleep(CLOUD_TICK);
+                if tx.send(super::Input::CloudTick).is_err() {
+                    return;
+                }
+            }
+        });
 }
 
 /// Sends `SubTick` to the brain every [`TICK`] until the brain is gone.

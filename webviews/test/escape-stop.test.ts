@@ -28,9 +28,8 @@ describe("escapeStopPress", () => {
     expect(escapeStopPress(undefined, 1_000, false)).toEqual({ stop: true });
   });
 
-  test("the window is a short one, as in Claude Code", () => {
-    expect(ESCAPE_STOP_WINDOW_MS).toBeGreaterThanOrEqual(500);
-    expect(ESCAPE_STOP_WINDOW_MS).toBeLessThanOrEqual(1_000);
+  test("the window is browser focus mode's Esc Esc window, 1.6 s (plans/cmux-next/focus.md)", () => {
+    expect(ESCAPE_STOP_WINDOW_MS).toBe(1_600);
   });
 });
 
