@@ -161,24 +161,33 @@ try:
     def group_of(order, title):
         return next((g for t, g in order if t == title), None)
 
-    step("1 before a workspace: Golf above Beta", "Golf", "Beta", 0.2,
-         lambda o: index(o, "Golf") == index(o, "Beta") - 1)
-    step("2 after a workspace: Alpha below Gamma", "Alpha", "Gamma", 0.8,
-         lambda o: index(o, "Alpha") == index(o, "Gamma") + 1)
-    header = group_header()
-    step("3 into a group: Delta onto the group header", "Delta", (header or {}).get("window_frame"), 0.5,
-         lambda o: group_of(o, "Delta") is not None and group_of(o, "Delta") == group_of(o, "Echo"))
-    step("4 out of a group: Echo above Beta", "Echo", "Beta", 0.2,
-         lambda o: group_of(o, "Echo") is None and index(o, "Echo") == index(o, "Beta") - 1)
-    first = titles()[0]
-    step("5 to the top: Gamma above the first row", "Gamma", first, 0.1, lambda o: index(o, "Gamma") == 0)
+    # A dragged row swaps by its edges (b334adfcf4d1): dragged up, it goes before a row once its top passes that
+    # row's middle; dragged down, after a row once its bottom passes it. So "before" drags come from below and
+    # "after" drags from above.
     ungrouped = [t for t, g in listed() if g is None]
-    last = ungrouped[-1]
-    step("6 to the bottom: Beta below the last row", "Beta", last, 0.9,
-         lambda o: index(o, "Beta") == max(index(o, t) for t, g in o if g is None))
+    before_target, before_moving = ungrouped[1], ungrouped[-1]
+    step(f"1 before a workspace: {before_moving} above {before_target}", before_moving, before_target, 0.3,
+         lambda o: index(o, before_moving) == index(o, before_target) - 1)
+    ungrouped = [t for t, g in listed() if g is None]
+    after_moving, after_target = ungrouped[0], ungrouped[-2]
+    step(f"2 after a workspace: {after_moving} below {after_target}", after_moving, after_target, 0.7,
+         lambda o: index(o, after_moving) == index(o, after_target) + 1)
+    header = group_header()
+    joining = [t for t, g in listed() if g is None][0]
+    step(f"3 into a group: {joining} onto the group header", joining, (header or {}).get("window_frame"), 0.5,
+         lambda o: group_of(o, joining) is not None and group_of(o, joining) == group_of(o, "Foxtrot"))
+    member = [t for t, g in listed() if g is not None][-1]
+    first = titles()[0]
+    step(f"4 out of a group and 5 to the top: {member} above {first}", member, first, 0.1,
+         lambda o: group_of(o, member) is None and index(o, member) == 0)
+    rows_now = [r for r in window().get("rows", []) if r.get("title") or str(r.get("key", "")).startswith("group")]
+    last = max(rows_now, key=lambda r: r["window_frame"]["y"])["window_frame"]
+    below = dict(last, y=last["y"] + last["height"] * 3)
+    moving = [t for t, g in listed() if g is None][0]
+    step(f"6 to the bottom: {moving} below every row", moving, below, 0.5, lambda o: index(o, moving) == len(o) - 1)
     shot("9-end")
 finally:
-    rpc("action.run", {"action": "quit", "origin": "script"})
+    rpc("action.run", {"action": "quitEndSessions", "origin": "script"})  # also ends its daemons
     try:
         app.wait(timeout=20)
     except subprocess.TimeoutExpired:
