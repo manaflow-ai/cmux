@@ -70,7 +70,7 @@ public final class HomeSidebarSource {
     @ObservationIgnored private let defaultChiefAvatar: @MainActor () -> HomeChiefAvatar?
     /// Each local Chief's engine by participant id (`HomeChiefHarnesses`), for the rows' badges.
     @ObservationIgnored private let chiefHarnesses: @MainActor () -> [String: String]
-    /// The main Chief, its merged hosts and where each Chief runs (``HomeChiefRoster``).
+    /// The main Chief and where each Chief runs (``HomeChiefRoster``).
     @ObservationIgnored private let chiefRoster: @MainActor () -> HomeChiefRoster
     public var query = ""
     public private(set) var pins = HomePins()
@@ -140,6 +140,11 @@ public final class HomeSidebarSource {
     /// The owner whose rows list `id` (its pins and marks are that owner's).
     private func owner(of id: ConversationID) -> HomeInboxSource? {
         inboxes.first { $0.rows?.contains { $0.id == id.rawValue } == true }
+    }
+
+    /// Whether `id` shows in the pinned grid.
+    public func isPinned(_ id: ConversationID) -> Bool {
+        model(query: "", now: Date()).pinned.contains { $0.id == id }
     }
 
     /// Pins or unpins `id`: with the owner when it lists `id`, else for this account on this Mac.

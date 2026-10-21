@@ -1,15 +1,18 @@
 // The pieces every changelog design shares (cx-urd.61): release meta, the hero, the grouped
-// change rows and the folded commit list. Colors are theme tokens, sizes the type scale
+// change rows and the folded commit list by area. Colors are theme tokens, sizes the type scale
 // (styles.css); nothing here knows which design it sits in.
 import { useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
-import { formatReleaseDate, type MediaRef, type ReleaseItem, type ReleaseView } from "./model";
+import { byArea } from "./areas";
+import { formatReleaseDate, type AreaChange, type MediaRef, type ReleaseItem, type ReleaseView } from "./model";
 import type { ChangeItem, WhatsNewCategory } from "./types";
 
 export interface PartsContext {
   strings: Strings;
   onTry: (action: string) => void;
+  /** Each change with a picture shows it under its row (the Ledger: a visual per feature). */
+  rowMedia?: boolean;
 }
 
 export function categoryLabel(strings: Strings, category: WhatsNewCategory): string {
@@ -61,11 +64,26 @@ export function ItemActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContex
 }
 
 /** The lead change: headline, one paragraph, media, its action. */
-export function Hero({ item, ctx, level = 2 }: { item: ReleaseItem; ctx: PartsContext; level?: 1 | 2 }) {
+export function Hero({
+  item,
+  ctx,
+  level = 2,
+  titled = true,
+}: {
+  item: ReleaseItem;
+  ctx: PartsContext;
+  level?: 1 | 2;
+  /** False when the release title above already says it (the Ledger). */
+  titled?: boolean;
+}) {
   const Heading = level === 1 ? "h1" : "h2";
   return (
     <>
-      <Heading className="cl-headline">{item.title}</Heading>
+      {titled ? (
+        <Heading className="cl-headline">{item.title}</Heading>
+      ) : (
+        <h3 className="cl-row-title cll-lead">{item.title}</h3>
+      )}
       {item.summary
         .split(/\n{2,}/)
         .filter(Boolean)
@@ -106,6 +124,7 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
             <span className="cl-row-text">
               <span className="cl-row-title">{item.title}</span>
               {item.summary && <span className="cl-row-summary"> {item.summary.split(/\n{2,}/)[0]}</span>}
+              {ctx.rowMedia && item.media && <Media media={item.media} className="cl-row-media" />}
             </span>
             {item.action && (
               <button type="button" className="cl-row-action" onClick={() => ctx.onTry(item.action!.id)}>
@@ -125,52 +144,70 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
 }
 
 /** Every change a person would notice, folded: readable titles with their pull request linked,
-    20 at a time, and under them one quiet line for the internal ones. A release of internal work
-    alone shows no fold: the page already says "Maintenance and fixes". */
+    under the app area each names ("Sidebar", …, then "Other"), 20 at a time, and under them the
+    internal ones, folded again: "Under the hood". A release of internal work alone shows no fold:
+    the page already says "Maintenance and fixes". */
 export function ChangesFold({
   changes,
-  internal = 0,
+  hidden = [],
   strings,
   open,
 }: {
-  changes: ChangeItem[];
-  internal?: number;
+  changes: AreaChange[];
+  hidden?: ChangeItem[];
   strings: Strings;
   open?: boolean;
 }) {
   const [shown, setShown] = useState(CHANGES_PAGE);
   if (changes.length === 0) return null;
+  const ordered = byArea(changes).flatMap((group) => group.items);
   return (
     <details className="cl-changes" open={open}>
       <summary>
         {strings.t("changelog.page.allChanges")}
         <span className="cl-count">{changes.length}</span>
       </summary>
-      <ul>
-        {changes.slice(0, shown).map((c, i) => (
-          <li key={c.pr ?? `t${i}`}>
-            <span>{c.title}</span>
-            {c.pr !== undefined && (
-              <a className="cl-pr" href={`https://github.com/manaflow-ai/cmux/pull/${c.pr}`} rel="noreferrer">
-                #{c.pr}
-              </a>
-            )}
-          </li>
-        ))}
-      </ul>
+      {byArea(ordered.slice(0, shown)).map((group) => {
+        const label = group.area ? strings.t(`updates.area.${group.area}`) : strings.t("changelog.page.otherArea");
+        return (
+          <section key={group.area ?? ""} className="cl-area" aria-label={label}>
+            <h4>{label}</h4>
+            <ChangeList changes={group.items} />
+          </section>
+        );
+      })}
       {shown < changes.length && (
         <button type="button" className="cl-more" onClick={() => setShown((n) => n + CHANGES_PAGE * 2)}>
           {strings.t("changelog.page.showMore")}
         </button>
       )}
-      {internal > 0 && (
-        <p className="cl-changes-internal">
-          {internal === 1
-            ? strings.t("changelog.page.internalChange")
-            : strings.format("changelog.page.internalChanges", String(internal))}
-        </p>
+      {hidden.length > 0 && (
+        <details className="cl-hood">
+          <summary>
+            {strings.t("changelog.page.underTheHood")}
+            <span className="cl-count">{hidden.length}</span>
+          </summary>
+          <ChangeList changes={hidden} />
+        </details>
       )}
     </details>
+  );
+}
+
+function ChangeList({ changes }: { changes: ChangeItem[] }) {
+  return (
+    <ul>
+      {changes.map((c, i) => (
+        <li key={c.pr ?? `t${i}`}>
+          <span>{c.title}</span>
+          {c.pr !== undefined && (
+            <a className="cl-pr" href={`https://github.com/manaflow-ai/cmux/pull/${c.pr}`} rel="noreferrer">
+              #{c.pr}
+            </a>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }
 

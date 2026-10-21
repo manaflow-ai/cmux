@@ -364,10 +364,10 @@ public final class StatusIndicatorLayer {
         removeAllAnimations()
         guard let wanted, let target = animationTarget(for: wanted) else { return }
         let animation: CAAnimation? = switch wanted {
-        case .spin: Motion.spinAnimation()
-        case .step: Motion.stepAnimation(steps: config.nativeSteps)
-        case .pulse: Motion.pulseAnimation(low: Float(config.pulseLow))
-        case .frames: Motion.framesAnimation(brailleFrames)
+        case .spin: Motion.indicators.spinAnimation()
+        case .step: Motion.indicators.stepAnimation(steps: config.nativeSteps)
+        case .pulse: Motion.indicators.pulseAnimation(low: Float(config.pulseLow))
+        case .frames: Motion.indicators.framesAnimation(brailleFrames)
         case .wave: waveAnimation()
         }
         guard let animation else { return }

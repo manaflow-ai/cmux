@@ -35,7 +35,8 @@ fi
 
 GATE="$HOOK_DIR/cmux_next_prepush_gate.py"
 if [[ -f "$GATE" ]]; then
-    printf '%s\n' "$PUSHED_REFS" | "$PYTHON3_BIN" -I "$GATE" --pre-push --repo "$REPO_ROOT"
+    printf '%s\n' "$PUSHED_REFS" | "$PYTHON3_BIN" -I "$GATE" --pre-push --repo "$REPO_ROOT" \
+        --trusted-scripts-dir "$HOOK_DIR/cmux-next-checks"
 else
     echo "pre-push: cmux-next checks gate is missing; rerun scripts/install-git-hooks.sh." >&2
     exit 1

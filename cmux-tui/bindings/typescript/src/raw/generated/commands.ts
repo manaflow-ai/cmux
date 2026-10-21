@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 799b8337576dcd8bee3b1fe1fd6fd45ca0838886c6e828df95369ebbfa1dd913. */
+/* cmux-tui mux protocol 12, IR 618580395ad650b750fb7be122cdc20524f93ba299cc62b7afebb68b22ff6b12. */
 
 
 import type * as T from "./types.js";
@@ -1877,6 +1877,13 @@ export interface PaneNeighborRequest extends CmuxRequestBase {
 }
 
 /** Protocol v12; authority: control. */
+export interface ParkTabsRequest extends CmuxRequestBase {
+  cmd: "park-tabs";
+  "surfaces": Array<T.TabRef>;
+}
+export type ParkTabsResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
 export interface PasteImageRequest extends CmuxRequestBase {
   cmd: "paste-image";
   "data"?: (string) | null;
@@ -2605,6 +2612,14 @@ export interface TerminalResourcesRequest extends CmuxRequestBase {
   "surfaces"?: (Array<T.Id>) | null;
 }
 
+/** Protocol v12; authority: control. */
+export interface TerminalResumeCommandRequest extends CmuxRequestBase {
+  cmd: "terminal-resume-command";
+  "command"?: (string) | null;
+  "surface"?: (T.Id) | null;
+  "terminal_id"?: (string) | null;
+}
+
 /** Protocol v9; authority: control. */
 export interface UndoLayoutRequest extends CmuxRequestBase {
   cmd: "undo-layout";
@@ -3009,6 +3024,7 @@ export type CmuxRequest =
   | PageCredentialRequest
   | PairingResponseRequest
   | PaneNeighborRequest
+  | ParkTabsRequest
   | PasteImageRequest
   | PinWorkspaceRequest
   | PingRequest
@@ -3086,6 +3102,7 @@ export type CmuxRequest =
   | TerminalHistoryRequest
   | TerminalReadRangeRequest
   | TerminalResourcesRequest
+  | TerminalResumeCommandRequest
   | UndoLayoutRequest
   | UngroupScreenGroupRequest
   | UngroupTabGroupRequest
@@ -4537,6 +4554,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "park-tabs": {
+    request: ParkTabsRequest;
+    result: ParkTabsResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-park-v1";
+    stream: null;
+  };
   "paste-image": {
     request: PasteImageRequest;
     result: PasteImageResult;
@@ -5151,6 +5176,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "terminal-resources-v1";
+    stream: null;
+  };
+  "terminal-resume-command": {
+    request: TerminalResumeCommandRequest;
+    result: T.TerminalResumeCommandResult;
+    authority: "control";
+    since: 12;
+    capability: "resume-command";
     stream: null;
   };
   "undo-layout": {

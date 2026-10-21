@@ -31,6 +31,7 @@ export function inboxHarness(inbox: HexclaveInboxStore = new MemoryInbox()) {
     revokeTeamMemberAccess: async () => {},
     revokeTeamAccess: async () => {},
     invalidateUser: async (id) => { invalidated.push(id); },
+    markTeamSeatsDirty: async () => {},
   };
   const post = (type: string, data: unknown, svixId: string) => {
     const body = JSON.stringify({ type, data });

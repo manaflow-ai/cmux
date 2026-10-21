@@ -295,6 +295,10 @@ CEF pre-key hook, which run tier 2 only, so nothing runs twice. Only Command or
 Control chords are candidates, so typing, Option characters and IME input pass):
 1. Tier 0 registry actions.
 2. Browser focus mode on the focused page: stop, the page gets the key (then AppKit menus).
+   Esc Esc leaves it (classic cmux parity, `KeyRouter.routesFocusModeEscape`): the first
+   plain Escape still reaches the page and arms the exit (the omnibar badge reads "Esc
+   again to exit"), a second within 1.6 s leaves and is consumed; a held Escape's repeats
+   never count. Toggling focus mode on moves the keyboard into the page.
 3. Tier 1 registry actions. When the registry has no action for the chord and no
    terminal has the keyboard, the user's Ghostty keybinds for window, tab and split
    actions (`cmd+ctrl+h=goto_split:left`, read with `ghostty_config_trigger`, one chord

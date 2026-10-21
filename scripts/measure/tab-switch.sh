@@ -20,6 +20,17 @@ if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
   ./scripts/download-prebuilt-ghosttykit.sh
 fi
 out="$(mktemp -d)"
+# Steps run with a per-step HOME; the account's user-level tools (bun and node for the Debug
+# build's web bundles) live under its real home (as perf-bench.sh).
+account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+for tool_dir in "$account_home/.bun/bin" "$account_home/.local/node/bin"; do
+  [ -n "$account_home" ] && [ -d "$tool_dir" ] && export PATH="$tool_dir:$PATH"
+done
+# The web bundles need the bun webviews/package.json pins; a bench host's shared ~/.bun may hold
+# another version (cmux20-bench: none). The step gets its own checked copy, first on PATH.
+RUNNER_TEMP="$out" GITHUB_PATH="$out/bun-path" ./scripts/cmux-next/private-bun.sh
+PATH="$(tail -n 1 "$out/bun-path"):$PATH"
+export PATH
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" 2>&1 | tee "$out/reload.log" | tail -n 40
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
 if [[ -z "$app" || ! -d "$app" ]]; then

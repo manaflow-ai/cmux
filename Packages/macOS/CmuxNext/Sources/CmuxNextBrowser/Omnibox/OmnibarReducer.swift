@@ -37,6 +37,7 @@ nonisolated struct OmnibarStep {
         case .fieldChanged(let field, let kind): fieldChanged(field, kind)
         case .key(let pressed): key(pressed)
         case .fieldMouseDown(let clicks, let button, let word): fieldMouseDown(clicks, button, word: word)
+        case .fieldMouseDragged: state.mouse?.dragged = true
         case .fieldMouseUp: fieldMouseUp()
         case .rowHover(let row, let pointer): rowHover(row, pointer: pointer)
         case .rowClick(let row, let disposition): rowClick(row, disposition)

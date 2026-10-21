@@ -45,8 +45,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var roomBrowserProfileObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
     private(set) var connectingView: DaemonConnectingView?
+    /// What the window shows, for `debug.daemon`: `content` (a workspace), `connecting` (the connecting view) or `none`.
+    var recoveryShows: String { content != nil ? "content" : connectingView != nil ? "connecting" : "none" }
     /// Agent cursors on this window's cursor layer (made on the first input it draws).
     private(set) lazy var agentCursor = AgentCursorWiring.slot(for: self)
+    /// This window's clickable agent cursor tags (the overlay host holds it weakly).
+    private(set) lazy var agentCursorTags = AgentCursorWindowTags(links: services.agentCursorTagLinks) { [weak self] in
+        self?.agentCursor.stack?.host
+    }
     /// This window's right sidebar (`WindowController+RightSidebar`).
     let rightSidebar: RightSidebarModel
     /// Its view, made the first time it shows.
@@ -61,6 +67,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         self.sidebar = sidebar
         rightSidebar = RightSidebarModel(defaults: services.rightSidebarDefaults)
         SidebarProfileControl(services: services, state: state).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
+        // The footer's Search button runs the one palette.open path (plans/cmux-next/sidebar-search.md).
+        sidebar.container.sidebarView.onSearch = { [weak registry = services.registry] _ in
+            _ = registry?.perform("palette.open", invocation: ActionInvocation(arguments: ["scope": .string("search")], origin: .user))
+        }
         root = WindowRootView(sidebar: sidebar.container)
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
@@ -168,6 +178,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         workspaceObservation = Task { [weak self] in
             for await _ in ObservationStream({ Self.readShowInputs(state, cloud: cloud, machines: machines, windows: windows) }) {
                 self?.showWorkspace(requested: state.workspaceID)
+                // A parked terminal (the classic migration's background workspaces) starts on its first show.
+                if let id = state.workspaceID, let (workspace, daemon) = machines.workspace(id: id) { daemon.wakeParkedTabs(in: workspace) }
             }
         }
     }

@@ -39,6 +39,9 @@ final class NotificationCenterService {
     /// (Mark Tab Unread) clears when it comes into view, not while it stays.
     @ObservationIgnored var viewedTabIDs: Set<String> = []
     @ObservationIgnored let desktop = DesktopNotifier()
+    /// A passkey request's banner was clicked (its request id): the passkey hand-off answers it
+    /// (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.2).
+    @ObservationIgnored var onPasskeyBanner: ((String) -> Void)?
     /// Pages' click handlers of their web notifications' banners.
     @ObservationIgnored let webNotificationClicks = WebNotificationClicks()
     @ObservationIgnored private var lastKeystroke: [String: ContinuousClock.Instant] = [:]
@@ -107,6 +110,7 @@ final class NotificationCenterService {
         tasks.append(followPermissionBridge(services, principal: principal))
         desktop.onOpen = { [weak self] id, surface in
             if id == IPhonePairNotices.id { try? self?.services?.settingsWindow.show(section: nil, route: IPhonePairNotices.settingsRoute); return }
+            if let request = AppBrowserPasskeyHost.requestID(banner: id) { self?.onPasskeyBanner?(request); return }
             self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
             self?.webNotificationClicks.run(bannerID: id)
         }

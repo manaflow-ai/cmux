@@ -38,6 +38,9 @@ export const EDITOR_OPEN_LINK_OP = "cmux.editor.openLink";
  * dispatcher lets the next key reach the editor until `pending` is false (or 5 s pass). */
 export const EDITOR_KEY_SEQUENCE_OP = "cmux.editor.keySequence";
 export const EDITOR_FLUSH_OP = "cmux.editor.flush";
+/** Host to page: the selection's text and lines, `{text, startLine, endLine}`, or null with nothing
+ * selected (a viewer comment, viewer-comments-DESIGN.md). */
+export const EDITOR_SELECTION_OP = "cmux.editor.selection";
 /** Page to host: `{action: "commandPalette"}` runs the app's native command palette (Monaco's F1 and
  * its context menu's Command Palette). The editor descriptor admits only that action. */
 export const APP_ACTION_RUN_OP = "cmux.app.action.run";

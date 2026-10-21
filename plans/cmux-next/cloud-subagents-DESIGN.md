@@ -103,9 +103,10 @@ cloud subagents, for these reasons.
 | B4 | One VM, no pool. No least-loaded choice, no auto-create, no auto-pause. The VM bills while it runs (about 0.26 USD/h). | this task (after B2) | A peer list in the same saved setting; pick the peer with the fewest live sessions; `deploy.sh pause` from the host when no cloud subagent lives. |
 | B5 | `zoom` and `date` (the Chief's memory) are not on the VM; the optchat MCP server is a local socket. | this task (later) | The view goes in the first message today. Next: serve the tool socket over the acpmux peer tunnel. |
 | B6 | Peer acpmux build is older than the Mac's (`acpmux host ls`: outdated). | a242 tooling | `deploy.sh up` (or `acpmux host update chief-subagents-1`) after each nightly. |
-| B7 | Cloud Chief (the Chief itself on a VM) loses its app tools on redeploy. | a235 | Separate path: not needed for cloud subagents of the Mac Chief. |
+| B7 | Cloud Chief (the Chief itself on a VM) loses its app tools on redeploy. | a235 | Done 2026-10-20: cmuxterm-hq [#2620](https://github.com/manaflow-ai/cmuxterm-hq/pull/2620) makes `deploy.sh up` write the relay unit and `CMUX_CHIEF_APP_SOCKET`. A real redeploy of 222a8d4f41f kept 491 app tools. Not needed for cloud subagents of the Mac Chief. |
 | B8 | Moving a whole Chief between hosts. | a284 | Separate: a moved Chief keeps `control cloud` because it lives in state.json. |
 | B9 | Tenant (non-HQ) VMs through the cmux Cloud VM API need acpmux in the devbox image. | a205 | After B2: same `place: "cloud"` with a tenant peer. |
+| B11 | The pool VM has a 32 GB disk with about 7 GB free. A full `cargo test` of optchat-chief filled it (2026-10-20). The fleet queue is also slow: two optchat-chief steps waited over 30 min without a worker. | this task / build-fleet owners | Cloud subagents send Rust and Swift tests to the fleet (as their first message says); the next `deploy.sh up` makes the disk 64 GB; a shared sccache is later. |
 | B10 | A browser for cloud subagents. | a302 | The streamed browser is the remote browser of a cloud subagent; no work here until a302 has a prototype. |
 
 Why it was slow: each piece had its own owner (a184, a196, a235, a205, a242,
@@ -122,5 +123,58 @@ change, and its credential question (B3) had no default.
    `control cloud off` turns it off; `control cloud` (no peer) shows it.
 3. Failing-first tests in `tests/cloud_subagents.rs`: placement per spawn, and
    the saved setting survives a host restart.
-4. Proof: after the nightly, `control cloud chief-subagents-1` and one real
+4. Status (2026-10-20): red 667c8558434 fails the 2 new tests on the VM;
+   fix 1ccfbdce15f passes all 5 in `cloud_subagents` on the VM (Linux).
+   Full crate, clippy and fmt on macOS: fleet step `cloudsub-green2-1ccfbdc`.
+5. Proof: after the nightly, `control cloud chief-subagents-1` and one real
    spawn that reports back.
+
+### B4 and B11 slice (2026-10-20)
+
+- `control cloud cloud1,cloud2` lists peers. Each new cloud subagent goes to
+  the peer with the fewest live (starting or running) cloud subagents,
+  counting the ones of the same spawn; ties go to the first listed.
+- `CloudVms` (optchat-chief `cloud_vms.rs`): before a cloud subagent starts,
+  the host resumes its peer's VM (a no-op when it runs). The host's minute
+  tick pauses a peer's VM once after 10 minutes with no live cloud subagent
+  on it; a `tell` to a finished subagent on a paused VM resumes it first.
+- The command is cmuxterm-hq `tools/cloud-subagents/deploy.sh`, named in
+  `~/.config/cloud-subagents/vm-cmd`, which `deploy.sh up` writes. No file:
+  the host leaves VMs alone. Everything stays behind the same opt-in: with
+  `control cloud` off and no `OPTCHAT_SUBAGENT_PEER`, subagents run local.
+- B11: `deploy.sh up` grows the VM disk to 64 GB (Freestyle resize is
+  grow-only, needs a running VM) and grows the guest file system.
+- Tests: two new tests in `tests/cloud_subagents.rs` (least busy peer and
+  resume; idle pause once, then resume).
+
+### Aggressive auto-pause (2026-10-20)
+
+User: "For subagents in the cloud we need to have aggressive auto-pausing
+behavior."
+
+- `cloud.autoPauseIdleSeconds` (Chief settings, default 60; `optchat-chief
+  settings set cloud.autoPauseIdleSeconds N`): a VM pauses this long after its
+  last cloud subagent stops being live. Live = starting or running: a turn, a
+  tool, a permission prompt or a held tell. The host checks every 5 s, so a
+  VM pauses 60-65 s after it went idle.
+- The pool tool also guards: `deploy.sh pause` exits 3 (busy) while a
+  session on the VM is running or at a prompt, or an agent's background
+  process runs; the host tries again later (`CloudPauseFailed`). So a turn
+  is never frozen, even when the host's view is stale.
+- The host stopping (SIGTERM, update) pauses its idle VMs at once. A VM with
+  a subagent mid-turn keeps running; its report waits in acpmux. A host that
+  crashes pauses idle VMs within 65 s of its next start. A VM-side watchdog
+  for a Chief that never comes back is not built (it needs a Freestyle key
+  on the VM).
+- Wake: spawn and tell resume the VM first; the host logs each resume time.
+
+Measured on a temporary 4 vCPU / 8 GiB Freestyle VM with 2 GiB of memory
+in use, 3 runs (Freestyle API): pause 258-549 ms, resume until a command
+runs 209-241 ms. `deploy.sh pause` with its busy check took 1.2 s on
+chief-subagents-1. The acpmux peer reconnect after a resume is not measured.
+
+Idle cost per VM (about 0.26 USD per running hour): before, a VM ran 10-11
+minutes after its last subagent (about 0.045 USD per idle period), and never
+paused when its host was gone. After: 60-65 s (about 0.0045 USD), 10 times
+less; a host that stops pauses its idle VMs at once. The paused price is
+storage only (64 GB); Freestyle's storage price was not checked.

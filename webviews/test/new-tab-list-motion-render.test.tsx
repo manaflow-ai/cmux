@@ -1,4 +1,3 @@
-/// <reference types="bun-types" />
 // New Tab list motion should measure on list changes, not on every unrelated render. Layout-only
 // changes still arrive through ResizeObserver; this keeps the render path cheap without leaving a
 // stale place when the cards grid changes columns.

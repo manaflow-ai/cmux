@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import Foundation
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextNowPlaying
 import CmuxNextPages
 import CmuxNextSettings
@@ -13,7 +14,10 @@ extension SidebarBridge {
         cardsObservation?.cancel()
         let requests = services.cache.pageRequests
         let nowPlaying = model.followNowPlaying(requests.sidebarSources, dismissal: requests.nowPlayingCard, settings: { [weak services] in services?.settings }, registry: services.registry)
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry, settings: services.settings).cancelling(nowPlaying)
+        // The Priority view (`sidebar.priorityView.*`) ends with the cards.
+        let priority = SidebarPriorityFeed(services: services).start(container.sidebarView)
+        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry, settings: services.settings)
+            .cancelling(nowPlaying).cancelling(priority)
     }
 }
 
@@ -33,14 +37,14 @@ enum SidebarCardFeed {
     /// Announcement cards are `announcement:<id>`.
     static let announcementPrefix = "announcement:"
 
-    /// The cards, and with `window` its What's New item (SidebarWhatsNewItemFeed):
+    /// The cards, and with `window` its top items (`SidebarModel.followTopItems`):
     /// one task, so the bridge cancels both together. `registry` gives the
     /// tip card its action's shortcut.
     static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?, registry: ActionRegistry? = nil,
                       settings: SettingsController? = nil) -> Task<Void, Never> {
         let cards = start(model: model, updater: updater, registry: registry)
         guard window != nil else { return cards }
-        let whatsNew = SidebarWhatsNewItemFeed.start(model: model, settings: settings)
+        let whatsNew = model.followTopItems()
         return Task { await withTaskCancellationHandler { await cards.value } onCancel: { cards.cancel(); whatsNew.cancel() } }
     }
 

@@ -185,6 +185,15 @@ public nonisolated enum SettingsSchema {
                 default: .bool(CmuxConfigSnapshot.startAgentGlobalHotKeyFallback),
                 keywords: ["global", "hotkey", "hot key", "summon", "start agent", "agent", "quick", "chat", "launcher", "system-wide"]
             ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.hideDockIconWithoutWindowsPath, section: .general, group: window,
+                title: SettingsText.keyed("settings.app.hideDockIconWithoutWindows", "Hide Dock Icon When No Windows Are Open"),
+                help: SettingsText.keyed("settings.app.hideDockIconWithoutWindows.help",
+                                        "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback),
+                keywords: ["dock", "icon", "menu bar", "background", "app switcher", "command tab", "accessory", "windows"]
+            ),
             TabSettingsSchema.newTabTemplate(group: tabs),
             TabSettingsSchema.newTabPosition(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),
@@ -255,7 +264,7 @@ public nonisolated enum SettingsSchema {
     // MARK: Appearance
 
     static var appearance: [SettingDescriptor] {
-        AppearanceSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors
+        AppearanceSettingsSchema.descriptors + MotionSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors
             + DiffViewerSettingsSchema.descriptors + MarkdownViewerSettingsSchema.descriptors + AgentPaneDisplaySettingsSchema.descriptors
     }
 

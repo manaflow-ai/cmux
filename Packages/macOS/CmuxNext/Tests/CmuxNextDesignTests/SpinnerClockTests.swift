@@ -16,7 +16,7 @@ import Testing
     @Test func twoSpinnersStartedApartShareOnePhase() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
-        let period = try #require(Motion.period(.spinner))
+        let period = try #require(Motion.indicators.period(.spinner))
         // The media clock runs `offset` behind Unix time; the second spinner starts 0.37 s later.
         let offset = 1_760_000_000.123
         let early = StatusIndicatorLayer(clock: SpinnerClock(mediaTime: { 500 }, unixTime: { 500 + offset }))
@@ -41,7 +41,7 @@ import Testing
     @Test func spinnersTurnClockwise() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
-        let spin = try #require(Motion.spinAnimation() as? CABasicAnimation)
+        let spin = try #require(Motion.indicators.spinAnimation() as? CABasicAnimation)
         // Sublayers draw unflipped (`StatusIndicatorLayer.relayout`), where a negative angle is clockwise.
         let to = try #require(spin.toValue as? CGFloat)
         #expect(to < 0)

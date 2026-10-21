@@ -388,6 +388,14 @@ final class WindowOverlayLayer {
 
     /// The window's agent cursor layer (`WindowOverlayHost.agentCursorLayer`): y-down, content-view coordinates.
     var agentCursorLayer: CALayer { host.agentCursorLayer }
+    /// The mask of the agent cursor's behind-window glass (`WindowOverlayHost.agentCursorGlassLayer`).
+    var agentCursorGlassLayer: CALayer { host.agentCursorGlassLayer }
+    /// The window's clickable agent cursor tags (`WindowOverlayHost.agentCursorTags`, held weakly).
+    func setAgentCursorTags(_ tags: AgentCursorWindowTags) {
+        if host.agentCursorTags !== tags { host.agentCursorTags = tags }
+    }
+    /// The window's agent cursors changed: the overlay takes the mouse over their tags.
+    func agentCursorTagsDidChange() { host.agentCursorTagsDidChange() }
 
     var overlayPanel: NSWindow? { WindowOverlayHost.existingHost(for: window).flatMap { $0.isPanelAttached ? $0.panel : nil } }
     var adoptedPlanes: [OverlayPlane] { planes }

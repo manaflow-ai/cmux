@@ -176,38 +176,51 @@ launch.
 ### 6.1 What moves out of the app
 
 The **runtime pack** holds everything `embed-cef.sh` puts in
-`Contents/Frameworks` for Chromium, already signed by `sign-cef.sh`:
+`Contents/Frameworks` for Chromium, already signed by `sign-cef.sh`, in one
+flat folder:
 
-    <Product> Chromium.app/                       the wrapper (no executable)
-      Contents/Info.plist                         CFBundleIdentifier = the app's id
-      Contents/Frameworks/Chromium Embedded Framework.framework
-      Contents/Frameworks/libcmux_cef_shim.dylib
-      Contents/Frameworks/<Product> Helper{, (GPU), (Renderer), (Plugin), (Alerts)}.app
+    <Product> Chromium/                           the runtime folder (not a bundle)
+      Chromium Embedded Framework.framework
+      libcmux_cef_shim.dylib
+      <Product> Helper{, (GPU), (Renderer), (Plugin), (Alerts)}.app
     cef-runtime.json                              the pack's own metadata
 
 uBlock Origin (`Resources/Extensions`, 3.3 MB DMG) stays in the app for now:
 it is not part of the engine and it has its own cap.
 
-Why a wrapper `.app`, and not the framework alone:
+Why this shape:
 - The helpers load the framework through `CefScopedLibraryLoader::LoadInHelper`,
   which takes the path `../../../Chromium Embedded Framework.framework`
   relative to the helper. The helpers must sit beside the framework.
 - Chromium finds the (GPU)/(Renderer)/(Plugin)/(Alerts) helper variants beside
   the base helper (`browser_subprocess_path`).
-- The helper sandbox (`no_sandbox = false`) lets a helper read the main bundle
-  path (`main_bundle_path`, Chromium's `bundle-path` sandbox parameter). The
-  helper enters the sandbox before it loads the framework, so the framework
-  must sit under `main_bundle_path`. With the wrapper as `main_bundle_path`,
-  the on-disk shape is exactly the in-bundle shape Chromium is tested with.
-- `CEFRuntimeLayout.locate` already supports it: for a Frameworks directory
-  outside the app, "the main bundle is the app that holds it".
-- The wrapper's `CFBundleIdentifier` equals the app's id, so Chromium's base
-  bundle id (Mach rendezvous names, notification identity) does not change.
-  Profile data is under `CEFProfileStorage` (an explicit root, keyed by the
+- The helper sandbox (`no_sandbox = false`) starts before the helper loads the
+  framework. It lets a helper read the `bundle-path` parameter, which is
+  `base::apple::MainBundlePath()`: the real app, not CEF's `main_bundle_path`.
+  **Finding (DEV experiment, 2026-10-19):** with the runtime outside the app,
+  every helper failed with "file system sandbox blocked open()" and the browser
+  hit FATAL "GPU process isn't usable". Fix: the CEF fork patch
+  `cmux_runtime_outside_bundle` (manaflow-ai/cef, branch
+  `cmux/8037-cmux28-ondemand`) sets the `component-path` parameter, which
+  `common.sb` already allows to read, to the framework's parent folder when
+  that folder is outside the main bundle. Inside the bundle nothing changes.
+- **Second finding (same day, patched CEF):** a wrapper `.app` around the
+  runtime (`<Product> Chromium.app/Contents/Frameworks`) as CEF's main bundle
+  fails: the helper reads the wrapper's `Contents/Info.plist`, which is outside
+  the readable folder ("Failed to load the bundle"). The flat folder with the
+  app as the main bundle works: Chromium reached `ready`, renderers ran from
+  the folder and a page loaded, with no sandbox errors. So the app stays
+  Chromium's main bundle (bundle id, Mach rendezvous names and notification
+  identity do not change) and the pack has no wrapper.
+- `CEFRuntimeLayout.at(_:fallbackMainBundle:)` builds the layout: for a folder
+  that is not inside an `.app`, the main bundle is the app itself.
+- Profile data is under `CEFProfileStorage` (an explicit root, keyed by the
   app's bundle id), so cookies, logins and extensions stay where they are.
 - Library validation: every cmux entitlements file has
   `com.apple.security.cs.disable-library-validation`, and the pack is signed by
   the same team anyway.
+- The app can use on-demand Chromium only with a CEF artifact that has the
+  patch (the fleet build `cef-154-0-28-cmux-28-ondemand` has it).
 
 ### 6.2 Identity, pin and reuse
 
@@ -219,7 +232,7 @@ Why a wrapper `.app`, and not the framework alone:
   downloads the published pin, checks it, and does not upload anything.
   Users therefore download Chromium again only when the engine changed.
 - **Pin**: `Contents/Resources/cef-runtime.json` in the signed app:
-  `{schema, key, cef, chromium, shim_abi, sha256, size, url, team_id, wrapper}`.
+  `{schema, key, cef, chromium, shim_abi, sha256, size, url, team_id, folder}`.
   The pin is inside the app's code signature, so the sha256 it names is as
   trusted as the app. This is the "signature" of the pack.
 - **Hosting**: the existing cmux-next nightly R2 bucket and domain
@@ -236,7 +249,7 @@ Why a wrapper `.app`, and not the framework alone:
 UI) owns it. `ChromiumRuntimeInstaller` is an `actor`:
 
 1. **Where**: `~/Library/Application Support/<bundle id>/ChromiumRuntime/<key>/`
-   holds the wrapper and `installed.json` (the pin it was checked against).
+   holds the runtime folder and `installed.json` (the pin it was checked against).
    An install is complete only when `installed.json` exists; it is written
    last, after an atomic `rename` of the staging folder.
 2. **Download**: `<root>/.downloads/<key>.tar.xz.partial`. A retry sends
@@ -246,8 +259,9 @@ UI) owns it. `ChromiumRuntimeInstaller` is an `actor`:
 3. **Verify**: size and sha256 of the whole file must match the pin, else the
    partial file is deleted and the attempt counts as failed.
 4. **Unpack**: `/usr/bin/tar -xJf` into `<root>/.staging-<uuid>`; any entry
-   with an absolute path or `..`, any symlink that points outside the pack, or
-   a missing wrapper fails the install. Then the code signature of the
+   with an absolute path or `..`, any entry outside the runtime folder, any
+   symlink that points outside the pack, or a missing framework, shim or base
+   helper fails the install. Then the code signature of the
    framework, the shim and every helper is checked
    (`SecStaticCodeCheckValidity`, strict, nested code) against
    `anchor apple generic and certificate leaf[subject.OU] = "<team_id>"` when
@@ -283,17 +297,19 @@ Chromium in this process. No relaunch.
 
 - New tabs with the default engine (Chromium) open in WebKit while the engine
   is missing. The first such tab shows the existing one-time notice, now
-  "Chromium is downloading (42%). This tab uses WebKit until it’s ready."
-- When the install finishes, the app shows one notice on the next new tab:
-  "Chromium is ready. New tabs open in Chromium." New tabs then use Chromium.
+  "Chromium is downloading, so this tab uses WebKit. New tabs use Chromium
+  when it’s ready."
+- When the install finishes, new tabs use Chromium. (A "Chromium is ready"
+  notice is not built yet.)
 - A tab that explicitly asks for Chromium ("Open in Chromium", `--engine
-  chromium`) is refused, as today, with the download state as the reason, and
-  the request starts the download at user priority.
-- Failure: "Chromium couldn’t download, so this tab uses WebKit. cmux will
+  chromium`) is refused, as today, with "Chromium is downloading (42%). Try
+  again when it’s ready." Every check that finds the download pending (a
+  new tab, the palette, the CLI) starts the download at user priority.
+- Failure: "Chromium couldn’t download yet, so this tab uses WebKit. cmux will
   try again." The reason (offline, checksum, signature, disk full) is in
-  `debug.cef` (`runtime` object) and in the log.
-- `debug.cef` reports `runtime`: `{source: bundled|installed|compatible|none,
-  key, state, fraction, bytes, error}`.
+  `debug.cef`.
+- `debug.cef` reports `runtime`: `{origin: bundled|installed|compatible|downloading|none,
+  pinned_key, install, fraction, frameworks, error}`.
 
 ### 6.6 Release flow
 
@@ -302,7 +318,7 @@ Chromium in this process. No relaunch.
 - `scripts/cmux-next/cef-runtime-pack.sh split <app> <out dir> --base-url URL`
   runs inside `sign-cmux-bundle.sh` after `sign-cef.sh` and before the outer
   app is signed, when `CMUX_NEXT_CEF_ON_DEMAND=1`. It moves the signed engine
-  into the wrapper, writes the pin into the app, and writes the pack (or, when
+  into the runtime folder, writes the pin into the app, and writes the pack (or, when
   the key is already published, deletes the engine and reuses the published
   pin).
 - `scripts/cmux-next/publish-cef-runtime.sh <out dir>` uploads the pack and its
@@ -317,11 +333,13 @@ Chromium in this process. No relaunch.
 
 ### 6.7 Risks and what stays open
 
-- Sandbox: the wrapper keeps the in-bundle shape, but a Chromium start from a
-  folder outside the app is checked only by hand on a DEV build so far.
+- Sandbox: a Chromium start from a folder outside the app needs the
+  `cmux_runtime_outside_bundle` CEF patch (6.1). The pin bump to a CEF
+  artifact with the patch belongs to the browser lane; until then the nightly
+  flag stays off.
 - Notarization: the pack is not notarized. It is never quarantined (the app
   downloads it, not a browser), so Gatekeeper does not assess it; its pin is
-  inside the notarized app. Notarizing the wrapper zip is a later hardening.
+  inside the notarized app. Notarizing the pack is a later hardening.
 - First Chromium tab on a slow link waits for about 100 MB. WebKit covers the
   gap; the prefetch starts 20 s after launch to make that rare.
 - Disk: two engines can be on disk for one launch after an update.

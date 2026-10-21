@@ -64,6 +64,10 @@ public nonisolated enum ActionWorkRefusal: Sendable, Hashable {
 /// tasks the handlers reported with `track(_:)`. Keyboard, menu, and
 /// palette runs capture nothing, so tracking costs them nothing.
 extension ActionRegistry {
+    /// Whether a caller awaits the work handlers report (`capturingWork`). A handler whose
+    /// failure would otherwise go unseen (a palette run) shows it itself when this is false.
+    public var isCapturingWork: Bool { capturedWork != nil }
+
     /// Reports a task a handler started. Ignored unless a caller is capturing.
     public func track(_ task: ActionWork) {
         if capturedWork != nil { capturedWork?.append(task) }

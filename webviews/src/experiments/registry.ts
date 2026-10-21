@@ -5,6 +5,8 @@ import { diffTreeDisclosure, treeNameFade } from "../agent-session/acpmux/change
 import { sessionReplay } from "../agent-session/acpmux/replay/replay.experiment";
 import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
+import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
+import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -13,6 +15,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   sessionReplay,
   chiefDock,
   hoverActions,
+  startedSessionCards,
+  threadMinimapLayout,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

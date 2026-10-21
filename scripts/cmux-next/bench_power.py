@@ -18,9 +18,17 @@ acpmux). It needs no root. GPU and display energy are not in it; with
 
 Usage (a fleet mini, never a laptop; launches the app with a scratch HOME):
   bench_power.py --app BUNDLE [--settle 120] [--measure 60]
-      [--scenarios terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,title,scroll,video,switch,minimized]
+      [--scenarios terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,title,scroll,video,switch,neighbors,minimized]
       [--out FILE.json]
 Prints one PERF-POWER line per scenario and kind, plus a total line.
+
+`neighbors` (browser.keepNeighborTabsAwake, plans/cmux-next/neighbor-tabs-DESIGN.md)
+times switches among the 20 tabs: to the next tab (a neighbor) and to a tab 10
+away (far), each after `--neighbor-gap` seconds so far pages are frozen again.
+Run it with "browser": {"freezeHiddenTabs": 5} and once each with
+"keepNeighborTabsAwake": 0 (before) and 1 (after). Prints PERF-NEIGHBOR lines:
+the app's own switch time (debug.tab_switch) and the time until the page runs
+script again (live_ms), plus the app's cold-show and prewarm counts.
 """
 from __future__ import annotations
 
@@ -119,17 +127,27 @@ def powermetrics(seconds: float):
     return found
 
 
-def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None):
+def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None, sample_idle: bool = False):
     """Energy, CPU and wakeups of every owned process over `seconds`."""
     start = {pid: (kind, counters(pid)) for pid, (kind, _cmd) in bm.owned(app_pid, bundle).items()}
     started = time.monotonic()
     pm_result = {}
     pm = threading.Thread(target=lambda: pm_result.update(powermetrics(seconds) or {}), daemon=True)
     pm.start()
+    sampler = None
     if during:
         during(seconds)
-    else:
+    elif not sample_idle:
         time.sleep(seconds)  # test script: the measured window
+    else:
+        # --sample-idle (sampling interrupts the app, so normal runs leave it off): a stack sample
+        # inside the window. The app's energy rises for a while, then drops, so a sample after the
+        # window shows it idle. Kept only when the window ends above the guard.
+        time.sleep(seconds / 2)  # test script: first half of the measured window
+        sample_path = os.path.abspath(f"app-{label}.sample")
+        sampler = subprocess.Popen(["sample", str(app_pid), str(int(min(10, seconds / 3))), "-mayDie", "-file", sample_path],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(seconds / 2)  # test script: second half of the measured window
     pm.join(timeout=seconds + 40)
     elapsed = time.monotonic() - started
     kinds: dict[str, dict] = {}
@@ -155,11 +173,13 @@ def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None):
     print(f"PERF-POWER-TOTAL {label} mw={total['mw']} cpu_pct={total['cpu_pct']} wakeups_per_s={total['wakeups_per_s']} "
           f"footprint_mb={round(total['footprint_mb'], 1)} powermetrics={json.dumps(pm_result)}", flush=True)
     app_mw = result["kinds"].get("app", {}).get("mw", 0.0)
-    if not during and app_mw > IDLE_APP_MW_GUARD:
-        # An idle app above the guard (20 hidden tabs once read 2.6 to 4.4 mW against 0.24): keep its stacks.
-        out = os.path.abspath(f"app-{label}.sample")
-        subprocess.run(["sample", str(app_pid), "10", "-mayDie", "-file", out], capture_output=True, timeout=60)
-        print(f"PERF-POWER-GUARD {label} app_mw={app_mw} above {IDLE_APP_MW_GUARD}: sample {out}", flush=True)
+    if sampler:
+        sampler.wait(timeout=60)
+        if app_mw > IDLE_APP_MW_GUARD:
+            # An idle app above the guard (20 hidden tabs once read 2.6 to 4.4 mW against 0.24): keep its stacks.
+            print(f"PERF-POWER-GUARD {label} app_mw={app_mw} above {IDLE_APP_MW_GUARD}: sample {sample_path}", flush=True)
+        else:
+            os.remove(sample_path) if os.path.exists(sample_path) else None
     return result
 
 
@@ -188,6 +208,68 @@ def wipe_state(bundle: str):
     shutil.rmtree(os.path.join(library, "Application Support/cmux/tags", tag), ignore_errors=True)
 
 
+def rpc(sock: str, method: str, params: dict | None = None, timeout: float = 30):
+    """One control-socket call; the result, or {"error": ...}."""
+    import socket as socketlib
+    reply = b""
+    try:
+        with socketlib.socket(socketlib.AF_UNIX, socketlib.SOCK_STREAM) as stream:
+            stream.settimeout(timeout)
+            stream.connect(sock)
+            stream.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
+            while not reply.endswith(b"\n"):
+                chunk = stream.recv(65536)
+                if not chunk:
+                    break
+                reply += chunk
+        answer = json.loads(reply or b"{}")
+    except (OSError, ValueError) as error:
+        return {"error": str(error)}
+    return {"error": answer["error"]} if answer.get("error") else answer.get("result") or {}
+
+
+def neighbor_switches(app, sock: str, tabs: list[str], start: int, gap: float, rounds: int):
+    """Switch latency to a neighbor (next tab) and to a far tab (10 away), alternating."""
+    def percentile(values, q):
+        values = sorted(values)
+        return round(values[min(len(values) - 1, int(len(values) * q))], 2) if values else None
+    rpc(sock, "debug.tab_switch", {"action": "start"})
+    rows, index = [], start
+    for step in range(rounds * 2):
+        kind = "neighbor" if step % 2 == 0 else "far"
+        index = (index + (1 if kind == "neighbor" else len(tabs) // 2)) % len(tabs)
+        time.sleep(gap)  # test script: let non-neighbors freeze again (freezeHiddenTabs)
+        before = len((rpc(sock, "debug.tab_switch") or {}).get("switches") or [])
+        started = time.monotonic()
+        app.run("tab.focus", target=tabs[index])
+        # The page answers script once it runs again (a frozen page thaws on show first).
+        live = None
+        while time.monotonic() - started < 10:
+            if (rpc(sock, "browser.page.eval", {"tab": tabs[index], "script": "1"}) or {}).get("value") == 1:
+                live = (time.monotonic() - started) * 1000
+                break
+        switches = (rpc(sock, "debug.tab_switch") or {}).get("switches") or []
+        own = switches[before] if len(switches) > before else {}
+        rows.append({"kind": kind, "live_ms": live, "own": own})
+    rpc(sock, "debug.tab_switch", {"action": "stop"})
+    hibernation = (rpc(sock, "debug.surfaces") or {}).get("hibernation") or {}
+    result = {"cold_shows_total": hibernation.get("cold_shows_total"), "prewarmed_total": hibernation.get("prewarmed_total"),
+              "neighbor_radius": hibernation.get("neighbor_radius")}
+    for kind in ("neighbor", "far"):
+        picked = [row for row in rows if row["kind"] == kind]
+        live = [row["live_ms"] for row in picked if row["live_ms"] is not None]
+        commit = [row["own"].get("commit_ms") or row["own"].get("total_ms") for row in picked if row["own"]]
+        commit = [value for value in commit if value is not None]
+        result[kind] = {"n": len(picked), "live_p50_ms": percentile(live, 0.5), "live_p90_ms": percentile(live, 0.9),
+                        "switch_p50_ms": percentile(commit, 0.5), "switch_p90_ms": percentile(commit, 0.9)}
+        print(f"PERF-NEIGHBOR {kind} radius={result['neighbor_radius']} n={len(picked)} live_p50_ms={result[kind]['live_p50_ms']} "
+              f"live_p90_ms={result[kind]['live_p90_ms']} switch_p50_ms={result[kind]['switch_p50_ms']} "
+              f"switch_p90_ms={result[kind]['switch_p90_ms']}", flush=True)
+    print(f"PERF-NEIGHBOR-COUNTS cold_shows={result['cold_shows_total']} prewarmed={result['prewarmed_total']}", flush=True)
+    result["rows"] = rows
+    return result
+
+
 def refused(response: dict) -> str | None:
     return response.get("error") or (response.get("message") if response.get("code") else None)
 
@@ -203,6 +285,10 @@ def main():
     parser.add_argument("--config", default="{}", help="extra cmux.json settings (JSON)")
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
                         help="extra app environment, e.g. CMUX_NEXT_CEF_EXTRA_SWITCHES=... (repeatable)")
+    parser.add_argument("--neighbor-gap", type=float, default=7, help="seconds before each neighbors-scenario switch")
+    parser.add_argument("--neighbor-rounds", type=int, default=10)
+    parser.add_argument("--sample-idle", action="store_true",
+                        help="sample the app's stacks inside each idle window; keep the sample when the app is above 1 mW")
     parser.add_argument("--out")
     args = parser.parse_args()
     scenarios = args.scenarios.split(",")
@@ -235,7 +321,7 @@ def main():
 
     def settle_measure(label: str, during=None, settle: float | None = None):
         time.sleep(args.settle if settle is None else settle)  # test script: let the app settle
-        results.append(measure(pid, args.app, label, args.measure, during))
+        results.append(measure(pid, args.app, label, args.measure, during, sample_idle=args.sample_idle))
 
     try:
         print(f"PERF-POWER-MACHINE sudo_powermetrics={powermetrics(1) is not None}", flush=True)
@@ -275,6 +361,10 @@ def main():
                     index += 1
                     time.sleep(0.5)  # test script: two tab switches a second
             settle_measure("switch", during=switch, settle=10)
+        if "neighbors" in scenarios and len(opened) >= 4:
+            time.sleep(args.settle)  # test script: hidden pages freeze before the first switch
+            results.append({"label": "neighbors", **neighbor_switches(app, sock, opened, len(opened) - 1,
+                                                                    args.neighbor_gap, args.neighbor_rounds)})
         if "title" in scenarios:
             # A page in view that changes its title every frame (a timer, a counter).
             open_tab("/busy.html?n=0")

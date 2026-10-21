@@ -68,6 +68,7 @@ class SshDaemonAttestation(unittest.TestCase):
         publish = JOBS['publish-nightly']
         self.assertIn('attest-nightly-ssh-daemon', publish['needs'])
         fresh = ("needs.verify-signed-nightly.result == 'success' && "
+                 "needs.verify-final-dmg-nightly.result == 'success' && "
                  "needs.attest-nightly-ssh-daemon.result == 'success')")
         self.assertIn(fresh, publish['if'])
         self.assertIn('attest-nightly-ssh-daemon', JOBS['report-nightly-failure']['needs'])
