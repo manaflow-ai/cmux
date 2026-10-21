@@ -1170,9 +1170,14 @@ export function ContextRing({
   );
 }
 
-/// Modes that skip approvals (such as "Full access") draw in the theme's warning color.
+// The markers of cmux-tui/spec/full-access-modes.json, the rule acpmux and the app enforce.
+const FULL_ACCESS_MARKERS = ["bypass", "fullaccess", "yolo", "dangerous", "autoapprove", "skippermissions"];
+
+/// Modes that skip approvals (such as "Full access") draw in the theme's warning color: lowercased,
+/// without `-`, `_` or spaces, the id contains a full-access marker.
 export function unrestricted(modeId: string): boolean {
-  return /bypass|full|yolo|dangerous|auto[-_ ]?approve/i.test(modeId);
+  const folded = modeId.toLowerCase().replace(/[-_ ]/g, "");
+  return FULL_ACCESS_MARKERS.some((marker) => folded.includes(marker));
 }
 
 /// A pick that returns "keep" leaves the menu open (e.g. a row that expands the menu).
@@ -1191,7 +1196,6 @@ export function Picker({
   warnUnrestricted = false,
   returnFocus = true,
   heading,
-  tooltip,
 }: {
   label: string;
   className: string;
@@ -1203,9 +1207,6 @@ export function Picker({
   returnFocus?: boolean;
   /// A question over the choices, as an approval menu asks it.
   heading?: string;
-  /// The shared tooltip (ui/titleTooltips.ts) for a button that draws only a glyph, as Claude Code's
-  /// + shows "Add" after the hover delay.
-  tooltip?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -1340,8 +1341,6 @@ export function Picker({
         className="acpmux-picker-button"
         data-menu={label}
         aria-label={label}
-        /* tooltip-allow: a glyph-only menu button (+) names itself on hover, as Claude Code's does */
-        title={tooltip}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}

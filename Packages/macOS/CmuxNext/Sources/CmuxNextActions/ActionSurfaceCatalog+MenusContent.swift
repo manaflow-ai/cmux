@@ -110,6 +110,7 @@ nonisolated extension ActionSurfaceCatalog {
         "browserProfile.setIcon": [p(.browserProfile, .identity, 103, label: IconMenuLabels.setIcon)],
         "browserProfile.clearIcon": [p(.browserProfile, .identity, 104, label: IconMenuLabels.removeIcon)],
         "browserProfile.clearBrowsingData": [p(.browserProfile, .close, 399)],
+        "browserProfile.removeImportedData": [p(.browserProfile, .close, 398)],
         "browserProfile.delete": [p(.browserProfile, .close, 400)],
         "browserProfile.newTab": [p(.newTab, .create, 3), p(.browserProfile, .create, 0)],
         "browserProfile.newWindow": [p(.browserProfile, .create, 1)],

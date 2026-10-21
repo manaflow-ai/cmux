@@ -91,7 +91,7 @@ public struct MachineSectionListView: View {
                         Text(verbatim: row.isConnected ? AddMachineStrings.connected : AddMachineStrings.offline)
                             .font(Font(Typography.caption)).foregroundStyle(.secondary)
                     }
-                    .help(row.healthHelp ?? "")
+                    .themedHelp(row.healthHelp ?? "")
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel(Text(verbatim: [row.name, row.isConnected ? AddMachineStrings.connected : AddMachineStrings.offline,
                                                         row.healthHelp ?? ""].filter { !$0.isEmpty }.joined(separator: ", ")))
@@ -102,7 +102,6 @@ public struct MachineSectionListView: View {
                         Image(systemName: "plus")
                     }
                     .buttonStyle(.borderless)
-                    .help(AddMachineStrings.newWorkspace)
                     .accessibilityLabel(Text(AddMachineStrings.newWorkspace))
                     .disabled(!row.isConnected)
                 }

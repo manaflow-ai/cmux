@@ -54,7 +54,6 @@ final class ExtensionsMenuView: NSView {
         titleLabel.font = style.titleFont
         titleLabel.themeColor = { Palette.textPrimary }
         titleLabel.setAccessibilityRole(.staticText)
-        closeButton.themedToolTip = Strings.extensionMenuClose
         closeButton.setAccessibilityLabel(Strings.extensionMenuClose)
         closeButton.setAccessibilityIdentifier("\(ExtensionsMenu.menuIdentifier).close")
         closeButton.onPress = { [weak self] in self?.actions.close() }

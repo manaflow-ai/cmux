@@ -35,6 +35,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     var downloadsInBackground = true
     /// Replaces the baked feed when set (``UpdateController/feedOverride``).
     var feedOverride: String?
+    /// The release ring whose `sparkle:channel` tags are accepted (``UpdateController/ring``).
+    var ring: UpdateRing = .nightly
     /// Builds at or below this are not offered (``UpdateController/skipsBuildsThrough``).
     var skipsBuildsThrough: String?
     /// The update a background check accepted, and its held install once it is ready.
@@ -43,6 +45,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// Cancels the held installer (Skip on the ready prompt: no skipped version is recorded).
     var stagedCancel: (() -> Void)?
     var installsWhenStaged = false
+    /// The update Sparkle's own silent driver staged (`willInstallUpdateOnQuit`), which never
+    /// reaches ``backgroundItem``; read only while its "Restart to Complete Update" state holds.
+    var quitInstallItem: SUAppcastItem?
     /// Holds a ready update's relaunch while agents are mid-turn or commands are running.
     let relaunchGate: UpdateRelaunchGate
 
@@ -100,7 +105,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         }
         let available = UpdateState.UpdateAvailable(appcastItem: appcastItem) { choice in reply(choice) }
         available.reply.onConsumed = { [weak self] reply, choice, source in
-            self?.handlePromptReply(reply, choice: choice, source: source)
+            self?.handlePromptReply(reply, choice: choice, source: source, item: appcastItem)
         }
         if installsInBackground && downloadsInBackground { return acceptInBackground(available) }
         setState(.updateAvailable(available))
@@ -278,8 +283,13 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func handlePromptReply(_ reply: UpdatePromptReply,
                            choice: SPUUserUpdateChoice,
-                           source: UpdatePromptReplySource) {
+                           source: UpdatePromptReplySource,
+                           item: SUAppcastItem? = nil) {
         log.append("update prompt reply consumed (choice=\(choice.rawValue), source=\(source.rawValue))")
+        // Whoever answered Install (a background accept, an Install Update click that
+        // confirmed a fresh check, the user), the download that follows stages this
+        // item, so ``stagedItem`` always names the build this driver downloaded.
+        if choice == .install, let item { backgroundItem = item }
         guard source == .user, choice == .dismiss || choice == .skip else { return }
 
         guard case .updateAvailable(let available) = model.state,

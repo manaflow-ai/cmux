@@ -36,6 +36,11 @@ extension HomeService {
         return line
     }
 
+    /// The cloud Chief whose main conversation is `conversation` (``HomeCloudChiefs/placement(of:records:)``).
+    func cloudChiefPlacement(of conversation: String) -> (id: String, placed: Bool)? {
+        cloudChiefs.placement(of: conversation, records: directory.chiefs)
+    }
+
     /// The paired server's name for a placed Chief (its host id while the server is not paired here).
     func serverName(of chief: CloudChief?) -> String? {
         guard let host = chief?.brainPlace?.host else { return nil }

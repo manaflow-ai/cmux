@@ -255,6 +255,14 @@ pub struct SpawnRecord {
     pub answers: Vec<String>,
 }
 
+impl SubRecord {
+    /// Starting or running and not cancelled: a cancelled one whose session
+    /// never ends its turn is not at work (#7).
+    pub fn at_work(&self) -> bool {
+        matches!(self.status, SubStatus::Starting | SubStatus::Running) && !self.cancelled
+    }
+}
+
 impl SpawnRecord {
     /// A subagent still works or has a report waiting that starts a turn.
     pub fn working(&self) -> bool {
@@ -337,6 +345,14 @@ pub struct SubRecord {
     /// 0 again after a run that ends with a real report.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub resume_attempts: u32,
+    /// The harness it moves to (its account hit a usage limit) once the
+    /// brain takes the move; saved, so a restart still moves it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moving: Option<String>,
+    /// It was moved off a harness whose account hit a usage limit, and has
+    /// not ended a run with a real report since: it is not moved again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub moved: bool,
     /// Messages the Chief sent it that it has not got yet (queued or
     /// starting, or held while paused), oldest first. Saved, so a restart
     /// never drops one.
@@ -430,6 +446,10 @@ pub struct QueuedLaunch {
     pub effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub floor: Option<String>,
+    /// The harness it starts on (a subagent moved off a harness whose
+    /// account hit a usage limit); None: the engine of now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -629,6 +649,28 @@ impl HostState {
                 }
             }
         }
+    }
+
+    /// Subagents whose automatic continue (auto_resume.rs) was planned but
+    /// not sent, with the planned attempt: the run ended, `resume_attempts`
+    /// is set, and the Chief has not paused or cancelled it. The plan's
+    /// backoff or network wait is a thread that dies with the host, so a
+    /// restarted host re-arms these.
+    pub fn pending_auto_resumes(&self) -> Vec<(String, u32)> {
+        let mut pending: Vec<(String, u32)> = self
+            .spawns
+            .values()
+            .flat_map(|r| &r.subs)
+            .filter(|s| {
+                s.resume_attempts > 0
+                    && matches!(s.status, SubStatus::Done | SubStatus::Reported)
+                    && !s.paused
+                    && !s.cancelled
+            })
+            .map(|s| (s.id.clone(), s.resume_attempts))
+            .collect();
+        pending.sort();
+        pending
     }
 
     /// The subagent `id` and its spawn id.
@@ -995,6 +1037,49 @@ impl FrozenRecord {
             cuts: self.cuts.clone(),
             starts: self.starts.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod auto_resume_tests {
+    use super::{HostState, SpawnRecord, SubRecord, SubStatus};
+
+    fn sub(id: &str, status: SubStatus, attempts: u32) -> SubRecord {
+        SubRecord {
+            id: id.to_owned(),
+            status,
+            resume_attempts: attempts,
+            ..SubRecord::default()
+        }
+    }
+
+    #[test]
+    fn a_planned_continue_survives_a_host_restart() {
+        let mut state = HostState::default();
+        let mut paused = sub("a5", SubStatus::Done, 1);
+        paused.paused = true;
+        let mut cancelled = sub("a6", SubStatus::Reported, 1);
+        cancelled.cancelled = true;
+        state.spawns.insert(
+            "spawn-1".to_owned(),
+            SpawnRecord {
+                subs: vec![
+                    sub("a1", SubStatus::Done, 2),
+                    sub("a2", SubStatus::Reported, 1),
+                    sub("a3", SubStatus::Running, 1),
+                    sub("a4", SubStatus::Done, 0),
+                    paused,
+                    cancelled,
+                ],
+                ..SpawnRecord::default()
+            },
+        );
+        let saved = serde_json::to_vec(&state).unwrap();
+        let restarted: HostState = serde_json::from_slice(&saved).unwrap();
+        assert_eq!(
+            restarted.pending_auto_resumes(),
+            vec![("a1".to_owned(), 2), ("a2".to_owned(), 1)]
+        );
     }
 }
 

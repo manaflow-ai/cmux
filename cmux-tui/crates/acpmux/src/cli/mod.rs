@@ -30,3 +30,4 @@ pub mod session_folder;
 pub mod shutdown;
 pub mod stdio;
 pub mod uniichat_agent;
+pub mod worktree;
