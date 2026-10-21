@@ -4,6 +4,10 @@
 //!   before any check) and must be inside the caller's folder or trusted, by
 //!   a walk up to `/` in which only the person's own nearer `trusted`
 //!   decision outranks an `untrusted` folder farther up;
+//! - a folder nobody decided first waits on the person's trust card
+//!   (`hub/trust_wait.rs`), and Not now refuses it; a folder the person
+//!   marked untrusted, or a harness the caller may not start, is refused
+//!   without a card;
 //! - a child whose harness mode does not ask, from a caller whose does, is
 //!   moved to an asking mode or closed (OpenCode's default `build` allows
 //!   everything);
@@ -24,7 +28,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use acpmux::config::folder_profiles::{self, FolderGate};
 use acpmux::config::{Config, StoreMode};
-use acpmux::hub::Hub;
+use acpmux::hub::person::Answerer;
+use acpmux::hub::{Control, Hub};
 use acpmux::rpc::Message;
 use acpmux::server::{Origin, serve_connection_with};
 use serde_json::{Value, json};
@@ -80,6 +85,14 @@ impl Scratch {
         let d = self.root.join(rel);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    /// The caller's own folder, which the person trusts: a sub-session there
+    /// raises no trust card (`hub/trust_wait.rs`).
+    fn own(&self) -> PathBuf {
+        let own = self.dir("own");
+        self.decide(&own, "trusted");
+        own
     }
 
     /// The person's own decision for `dir` (`acp.trust.set`).
@@ -272,6 +285,8 @@ async fn a_start_checks_the_folder_a_symlink_or_dotdot_resolves_to() {
     let e = p.refused(START, json!({"prompt": "echo x", "cwd": dotdot})).await;
     assert_eq!(e["data"]["reason"], "subsessions.folder_untrusted", "{e}");
     assert!(app.open_children(&parent).await.is_empty());
+    // The person said no to that folder: they are not asked again.
+    assert!(hub.resolve(&parent).unwrap().pending_permissions().is_empty());
 
     // A link to a folder the person trusts runs in the folder it resolves to.
     let trusted = s.dir("trusted");
@@ -309,9 +324,26 @@ async fn a_folder_agents_trust_inside_one_the_person_did_not_is_refused() {
 
     let e = p.refused(START, json!({"prompt": "echo x", "cwd": inner})).await;
     assert_eq!(e["data"]["reason"], "subsessions.folder_untrusted", "{e}");
-    // A folder nobody trusts, outside the caller's own, is refused too.
-    let e = p.refused(START, json!({"prompt": "echo x", "cwd": plain})).await;
-    assert_eq!(e["data"]["reason"], "subsessions.folder_unknown", "{e}");
+    let session = hub.resolve(&parent).unwrap();
+    assert!(session.pending_permissions().is_empty(), "a refused folder raised a card");
+    // A folder nobody decided, outside the caller's own, waits on the
+    // person's trust card; Not now refuses it.
+    let waiting = {
+        let (hub, parent) = (hub.clone(), parent.clone());
+        tokio::spawn(async move {
+            let mut agent = Client::as_session(&hub, &parent).await;
+            agent.call(START, json!({"prompt": "echo x", "cwd": plain})).await
+        })
+    };
+    let asks = json!({"sessions": [parent], "until": ["permission"], "timeoutMs": 20000});
+    app.ok("_acpmux/wait", asks).await;
+    let cards = session.pending_permissions();
+    assert_eq!(cards.len(), 1, "{cards:?}");
+    let not_now = Some("not_now".to_owned());
+    let (who, control) = (Answerer::default(), Control::Local);
+    hub.respond_permission(&session, &cards[0].0, not_now, None, None, who, control).await.unwrap();
+    let e = waiting.await.unwrap();
+    assert_eq!(e["error"]["data"]["reason"], "subsessions.trust_declined", "{e}");
     assert!(app.open_children(&parent).await.is_empty());
 
     // The person's own decision on the nearer folder ends the walk.
@@ -322,7 +354,7 @@ async fn a_folder_agents_trust_inside_one_the_person_did_not_is_refused() {
 #[tokio::test]
 async fn a_child_whose_mode_does_not_ask_is_closed_under_an_asking_caller() {
     let s = Scratch::new("mode");
-    let own = s.dir("own");
+    let own = s.own();
     let hub = hub(&s);
     let mut app = Client::new(&hub);
     let parent = app.new_session(&own, "fake").await;
@@ -344,7 +376,7 @@ async fn a_child_whose_mode_does_not_ask_is_closed_under_an_asking_caller() {
 #[tokio::test]
 async fn a_profile_that_skips_permissions_needs_a_full_access_caller() {
     let s = Scratch::new("skip");
-    let own = s.dir("own");
+    let own = s.own();
     let hub = hub(&s);
     let mut app = Client::new(&hub);
     let parent = app.new_session(&own, "fake").await;
@@ -352,6 +384,12 @@ async fn a_profile_that_skips_permissions_needs_a_full_access_caller() {
 
     let e = p.refused(START, json!({"prompt": "echo x", "harness": "skipper"})).await;
     assert_eq!(e["data"]["reason"], "subsessions.asks_less", "{e}");
+    // The harness is checked before the folder's trust card: in a folder
+    // nobody decided, the person is not asked for a start that is refused.
+    let undecided = json!({"prompt": "echo x", "harness": "skipper", "cwd": s.dir("undecided")});
+    let e = p.refused(START, undecided).await;
+    assert_eq!(e["data"]["reason"], "subsessions.asks_less", "{e}");
+    assert!(hub.resolve(&parent).unwrap().pending_permissions().is_empty());
     assert!(app.open_children(&parent).await.is_empty());
 
     let full = app.new_session(&own, "fake-full").await;
@@ -403,7 +441,7 @@ async fn a_folder_profile_needs_a_full_access_caller() {
 #[tokio::test]
 async fn a_child_runs_the_callers_policy_when_the_caller_names_none() {
     let s = Scratch::new("policy");
-    let own = s.dir("own");
+    let own = s.own();
     // The daemon default asks; the `lax` profile's own default approves all.
     let hub = hub_with(&s, json!({"permissionPolicy": "ask"}), None);
     let mut app = Client::new(&hub);
@@ -418,7 +456,7 @@ async fn a_child_runs_the_callers_policy_when_the_caller_names_none() {
 #[tokio::test]
 async fn a_message_never_reaches_a_session_that_asks_less_than_its_sender() {
     let s = Scratch::new("send");
-    let own = s.dir("own");
+    let own = s.own();
     // The fake harness's `normal` mode asks, by the person's own table.
     let hub = hub_with(&s, json!({"webAskingModes": {"fake": ["normal", "strict"]}}), None);
     let mut app = Client::new(&hub);
@@ -447,7 +485,7 @@ async fn a_message_never_reaches_a_session_that_asks_less_than_its_sender() {
 #[tokio::test]
 async fn a_caller_that_does_not_ask_never_starts_an_unlisted_mode_of_another_family() {
     let s = Scratch::new("unlisted");
-    let own = s.dir("own");
+    let own = s.own();
     let hub = hub(&s);
     let mut app = Client::new(&hub);
     // OpenCode's `build` does not ask.
@@ -552,7 +590,7 @@ async fn outside_its_folder_an_asking_caller_needs_the_persons_own_trust() {
 #[tokio::test]
 async fn a_queued_message_is_checked_again_when_it_would_run() {
     let s = Scratch::new("queued");
-    let own = s.dir("own");
+    let own = s.own();
     let hub = hub_with(&s, json!({"webAskingModes": {"fake": ["normal", "strict"]}}), None);
     let mut app = Client::new(&hub);
     let top = app.new_session(&own, "fake-full").await;
@@ -575,12 +613,20 @@ async fn a_queued_message_is_checked_again_when_it_would_run() {
         assert!(!said.contains("echo: echo queued"), "the queued message ran");
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
+    // Its refusal is logged (`prompt_refused`), so a daemon restart does not
+    // queue it again (`hub/lost_start.rs`).
+    let events = app.events(&mid).await;
+    let refused = events.iter().find(|e| {
+        e["kind"] == "prompt_refused"
+            && e["msg"]["data"]["reason"] == "subsessions.receiver_asks_less"
+    });
+    assert!(refused.is_some(), "no prompt_refused: {events:?}");
 }
 
 #[tokio::test]
 async fn a_prompt_preview_is_masked_before_it_is_cut() {
     let s = Scratch::new("preview");
-    let own = s.dir("own");
+    let own = s.own();
     let hub = hub(&s);
     let mut app = Client::new(&hub);
     let parent = app.new_session(&own, "fake").await;

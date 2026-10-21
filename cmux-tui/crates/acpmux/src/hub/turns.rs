@@ -293,6 +293,7 @@ impl Hub {
         // A family prompt that waited is checked again: the receiver may ask
         // less than its sender now (`subsession_guard.rs`).
         if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref()).await {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
         }
@@ -358,6 +359,7 @@ impl Hub {
             return Err(e);
         }
         if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref()).await {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
             drop(guard);
             return Err(e);

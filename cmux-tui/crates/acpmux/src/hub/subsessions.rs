@@ -600,11 +600,11 @@ impl Hub {
         let harness = req.harness.clone().unwrap_or_else(|| pm.harness.clone());
         let asked = req.cwd.clone().unwrap_or_else(|| pm.cwd.clone());
         let folder = super::subsession_guard::resolved_folder(&asked)?;
-        // A folder nobody answered the trust question for waits on a card in the parent's chat
-        // instead of failing (`trust_wait.rs`); the checks below read that answer.
-        let decided = self.ensure_folder_trusted(parent, &folder, &harness, &short).await?;
-        self.subsession_folder_check(pm, &folder).await?;
-        self.subsession_harness_check(pm, &harness, req.model.as_deref(), &folder).await?;
+        // The harness, then the folder: one nobody answered the trust question for waits on a
+        // card in the parent's chat instead of failing (`subsession_guard.rs`, `trust_wait.rs`).
+        let model = req.model.as_deref();
+        let decided =
+            self.subsession_place_check(parent, pm, &folder, &harness, model, &short).await?;
         let mut cwd = folder.clone();
         let worktree = if req.worktree {
             let mut kept = self.subsession_worktree(pm, &folder, &short).await?;

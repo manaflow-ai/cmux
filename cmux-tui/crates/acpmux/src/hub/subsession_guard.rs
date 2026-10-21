@@ -18,10 +18,14 @@
 //!   counts as full access: its command is the folder's, not the caller's.
 //! - The folder: resolved once, then allowed under the person's own
 //!   `trusted` decision in cmux (the nearest one wins over anything farther
-//!   up), or inside the caller's own folder when no folder from it up to `/`
-//!   is untrusted. Trust the person did not decide (Claude Code's and
+//!   up), under one of the person's auto-trust rules (`trust_auto.rs`) outside
+//!   a Web turn, or inside the caller's own folder when no folder from it up
+//!   to `/` is untrusted. Trust the person did not decide (Claude Code's and
 //!   Codex's, or another chat's agent-home folder) counts only for a caller
-//!   in full access. A trust record that cannot be read refuses.
+//!   in full access. A trust record that cannot be read refuses. A folder the
+//!   person marked untrusted is refused before anyone is asked; one nobody
+//!   decided waits for the person's answer first (`trust_wait.rs`), and the
+//!   walk reads that answer.
 
 use super::*;
 use std::path::Path;
@@ -119,14 +123,25 @@ pub(super) fn asks_less(why: &str) -> RpcError {
     )
 }
 
-/// Whether `folder` passes the trust walk (module docs) for a caller in
-/// `mine` (its own folder, resolved), `caller_full` when it runs in full
+/// Which trust walk [`folder_allowed`] makes.
+#[derive(Clone, Copy)]
+pub(super) enum Walk {
+    /// Before the trust card (`trust_wait.rs`): only the person's own nearest `untrusted`
+    /// decision refuses, so a folder they said no to raises no card.
+    BeforeCard,
+    /// After it; `rules`: the person's auto-trust rules answer (not in a Web turn).
+    Answered { rules: bool },
+}
+
+/// Whether `folder` passes the trust walk `walk` (module docs) for a caller
+/// in `mine` (its own folder, resolved), `caller_full` when it runs in full
 /// access. Reads files: run off the runtime.
 fn folder_allowed(
     paths: &crate::trust::Paths,
     folder: &Path,
     mine: Option<&Path>,
     caller_full: bool,
+    walk: Walk,
 ) -> Result<(), RpcError> {
     let unreadable = |shown: &str, why: String| {
         refusal(
@@ -141,14 +156,16 @@ fn folder_allowed(
     let why = |e: crate::trust::Failure| match e {
         crate::trust::Failure::Invalid(m) | crate::trust::Failure::Record(m) => m,
     };
-    let (mut inside_own, mut inherited) = (false, false);
+    let answered = matches!(walk, Walk::Answered { .. });
+    let rules = matches!(walk, Walk::Answered { rules: true });
+    let (mut inside_own, mut inherited, mut ruled) = (false, false, false);
     for dir in folder.ancestors() {
         let shown = dir.to_string_lossy();
         let trust = crate::trust::get(paths, &shown).map_err(|e| unreadable(&shown, why(e)))?;
         let person =
             crate::trust::person_decision(paths, &shown).map_err(|e| unreadable(&shown, why(e)))?;
         match trust["level"].as_str() {
-            Some("untrusted") => {
+            Some("untrusted") if answered || person == Some(crate::trust::Level::Untrusted) => {
                 return Err(refusal(
                     "subsessions.folder_untrusted",
                     format!(
@@ -160,6 +177,8 @@ fn folder_allowed(
             }
             // The person's own decision, the nearest one, ends the walk.
             _ if person == Some(crate::trust::Level::Trusted) => return Ok(()),
+            // One of the person's auto-trust rules: a farther `untrusted` still refuses.
+            Some("trusted") if trust["auto"].is_string() => ruled = true,
             // Claude Code's and Codex's, or an agent-home folder's.
             Some("trusted") => inherited = true,
             _ => {}
@@ -168,7 +187,8 @@ fn folder_allowed(
             inside_own = true;
         }
     }
-    if inside_own || (caller_full && inherited) {
+    // Before the card, a folder nobody decided goes on to it.
+    if !answered || inside_own || (rules && ruled) || (caller_full && (inherited || ruled)) {
         return Ok(());
     }
     Err(refusal(
@@ -429,12 +449,36 @@ impl Hub {
         Ok(())
     }
 
+    /// Where and on what a sub-session starts, before anything starts, in
+    /// this order: the harness (it needs no trust answer, so a refused one
+    /// asks the person nothing), a folder the person marked untrusted (refused
+    /// without a card), the trust card for a folder nobody decided
+    /// (`trust_wait.rs`), then the folder walk, which reads that answer. Ok
+    /// is whether a decision trusts the folder (`ensure_folder_trusted`).
+    pub(super) async fn subsession_place_check(
+        self: &Arc<Self>,
+        parent: &Arc<Session>,
+        pm: &SessionMeta,
+        folder: &Path,
+        harness: &str,
+        model: Option<&str>,
+        short: &str,
+    ) -> Result<bool, RpcError> {
+        self.subsession_harness_check(pm, harness, model, folder).await?;
+        self.subsession_folder_check(pm, folder, Walk::BeforeCard).await?;
+        let decided = self.ensure_folder_trusted(parent, folder, harness, short).await?;
+        let rules = !Self::web_turn(parent);
+        self.subsession_folder_check(pm, folder, Walk::Answered { rules }).await?;
+        Ok(decided)
+    }
+
     /// Whether a sub-session may start in `folder` (resolved) for a caller
-    /// with meta `pm` (module docs).
-    pub(super) async fn subsession_folder_check(
+    /// with meta `pm`, by the trust walk `walk` (module docs).
+    async fn subsession_folder_check(
         &self,
         pm: &SessionMeta,
         folder: &Path,
+        walk: Walk,
     ) -> Result<(), RpcError> {
         let Some(paths) = self.trust_gate().or_else(crate::trust::Paths::current) else {
             return Err(refusal(
@@ -446,9 +490,8 @@ impl Hub {
         let folder = folder.to_path_buf();
         let mine = std::fs::canonicalize(&pm.cwd).ok();
         let full = self.caller_access(pm) == Access::Full;
-        tokio::task::spawn_blocking(move || folder_allowed(&paths, &folder, mine.as_deref(), full))
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()))?
+        let allowed = move || folder_allowed(&paths, &folder, mine.as_deref(), full, walk);
+        tokio::task::spawn_blocking(allowed).await.map_err(|e| RpcError::internal(e.to_string()))?
     }
 
     /// Before anything starts: harness `harness` in `cwd`, for a caller with
@@ -456,7 +499,7 @@ impl Hub {
     /// skips the checks, unless the caller runs in full access or it is the
     /// caller's own harness. One the catalog cannot resolve is left to
     /// `session/new` to refuse.
-    pub(super) async fn subsession_harness_check(
+    async fn subsession_harness_check(
         &self,
         pm: &SessionMeta,
         harness: &str,
