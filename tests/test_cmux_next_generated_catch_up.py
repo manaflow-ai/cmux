@@ -196,6 +196,22 @@ class KeyWiseDrivers(unittest.TestCase):
                 self.assertIn(f"$trusted/{path}", script)
         self.assertIn('trusted="$(cd ../trusted && pwd)"', script)
 
+    def test_every_helper_the_drivers_load_from_beside_them_is_checked_out_too(self):
+        # merge-pbxproj.py loads scripts/ci/merge_main_resolver.py and scripts/normalize-pbxproj.py from its own
+        # tree; without them it exits 1 and turns a clean pbxproj text merge into a conflict (review of #23868).
+        # scripts/install-git-hooks.sh installs the same set beside the drivers in every clone.
+        hooks = (ROOT / "scripts/install-git-hooks.sh").read_text(encoding="utf-8")
+        installed = set(re.findall(r'^install -m \d+ (scripts/\S+) "\$MERGE_DRIVER_DIR/', hooks, re.M))
+        self.assertTrue(set(KEYWISE_DRIVERS.values()) <= installed, installed)
+        trusted = set(self.step("Check out the base's catch-up script")["with"]["sparse-checkout"].split())
+        self.assertEqual(installed - trusted, set())
+
+    def test_driver_commands_quote_the_trusted_path(self):
+        script = self.step("Merge feat-cmux-next")["run"]
+        for driver in KEYWISE_DRIVERS:
+            with self.subTest(driver=driver):
+                self.assertRegex(script, rf'git config merge\.{re.escape(driver)}\.driver "\$\w+"')
+
     def git(self, cwd: Path, *args: str) -> str:
         return subprocess.run(["git", "-C", str(cwd), "-c", "user.name=t", "-c", "user.email=t@t",
                                "-c", "commit.gpgsign=false", *args],
