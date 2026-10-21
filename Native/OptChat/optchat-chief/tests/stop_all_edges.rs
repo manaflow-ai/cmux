@@ -1,7 +1,7 @@
 //! chief.stop {all} and {restart} at their edges (#22978's follow-ups): a
 //! cancel acpmux refuses stops nothing, so it is reported as an error and
 //! the subagent stays as it was; a subagent still starting when "Stop all
-//! agents" comes is named and stopped as soon as its session exists.
+//! agents" comes is named and stopped as soon as its task is sent.
 
 mod common;
 
@@ -175,7 +175,7 @@ fn a_refused_cancel_on_restart_keeps_the_subagent_stopped() {
 
 /// "Stop all agents" while a1 is still starting: a1 is named (with a note
 /// that it stops as it starts), and its turn is cancelled as soon as its
-/// session exists, never left to run its task.
+/// task is sent.
 #[test]
 fn stop_all_stops_a_subagent_that_is_still_starting() {
     let mut h = Harness::new(default_script());
@@ -232,30 +232,44 @@ fn restart_of_a_subagent_stopped_while_starting_lets_it_start() {
     assert_eq!(sessions, 1, "a1 started once");
 }
 
-/// What a1 was told stays with it when acpmux refuses its cancel: here the
-/// message an earlier interrupt left for after its turn (`after_stop`).
+/// What a1 was told stays with it when acpmux refuses its cancel: the
+/// message an earlier interrupt left for after its turn (`after_stop`) and
+/// a tell waiting in its inbox while it is paused.
 #[test]
 fn a_refused_cancel_on_stop_all_keeps_what_the_subagent_was_told() {
     let mut h = Harness::new(default_script());
     a1_at_work(&mut h);
-    // The interrupt's cancel reaches nothing: a1's turn goes on, its
-    // message waits for that turn's end.
-    h.agents.inner.lock().unwrap().ignore_cancels = 1;
+    let call = |action: &str, message: Option<&str>| ControlCall {
+        action: action.into(),
+        id: Some("a1".into()),
+        message: message.map(str::to_owned),
+        ..ControlCall::default()
+    };
+    // The interrupt's and the pause's cancels reach nothing: a1's turn goes
+    // on, the interrupt's message waits for its end, a tell waits in its
+    // inbox for its resume.
+    h.agents.inner.lock().unwrap().ignore_cancels = 2;
+    let (a, interrupt) = (
+        spawner(&h),
+        call("interrupt", Some("use the staging branch")),
+    );
+    let interrupted = pump(&mut h, std::thread::spawn(move || a.control(interrupt))).unwrap();
+    assert!(interrupted.starts_with("outcome: done."), "{interrupted}");
+    let (a, pause) = (spawner(&h), call("pause", None));
+    let paused = pump(&mut h, std::thread::spawn(move || a.control(pause))).unwrap();
+    assert!(paused.starts_with("outcome: done."), "{paused}");
     let a = spawner(&h);
-    let interrupted = pump(
+    let told = pump(
         &mut h,
-        std::thread::spawn(move || {
-            a.control(ControlCall {
-                action: "interrupt".into(),
-                id: Some("a1".into()),
-                message: Some("use the staging branch".into()),
-                ..ControlCall::default()
-            })
-        }),
+        std::thread::spawn(move || a.tell("a1", "and run the tests")),
     )
     .unwrap();
-    assert!(interrupted.starts_with("outcome: done."), "{interrupted}");
-    let told = sub(&h, "a1").after_stop.expect("a1's message waits");
+    assert!(told.starts_with("outcome: queued."), "{told}");
+    let before = sub(&h, "a1");
+    assert_eq!(before.status, SubStatus::Running);
+    let after_stop = before.after_stop.clone().expect("a1's message waits");
+    let inbox: Vec<String> = before.inbox.iter().map(|m| m.text.clone()).collect();
+    assert_eq!(inbox, vec!["and run the tests".to_owned()]);
     h.agents
         .inner
         .lock()
@@ -265,7 +279,11 @@ fn a_refused_cancel_on_stop_all_keeps_what_the_subagent_was_told() {
 
     let answer = stop_all(&mut h);
     assert_eq!(answer["subagents"], json!([]), "{answer}");
-    assert_eq!(sub(&h, "a1").after_stop, Some(told), "a1 keeps its message");
+    let a1 = sub(&h, "a1");
+    assert_eq!(a1.after_stop, Some(after_stop), "a1 keeps its message");
+    let kept: Vec<String> = a1.inbox.iter().map(|m| m.text.clone()).collect();
+    assert_eq!(kept, inbox, "a1 keeps its inbox");
+    assert!(!a1.cancelled);
 }
 
 /// Restart after a1 was stopped between its session and its task: it just

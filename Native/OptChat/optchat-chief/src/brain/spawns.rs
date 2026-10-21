@@ -1967,7 +1967,8 @@ impl Brain {
                 }
                 (_, Some(session)) => {
                     // Its task is not sent yet: the cancel may land before
-                    // its turn does, so it is stopped again as it starts.
+                    // its turn does, so it is stopped again as it starts
+                    // (best effort, `stop_if_cancelled`).
                     if self.state.sub(&id).is_some_and(|(_, s)| s.awaiting_task) {
                         starting.push(id.clone());
                     }
@@ -2012,9 +2013,8 @@ impl Brain {
     }
 
     /// A subagent cancelled while it was starting has its first prompt
-    /// sent now: its turn is cancelled at once. (acpmux may take the
-    /// prompt after this cancel; then the turn runs, held as cancelled,
-    /// as before this stop existed.)
+    /// sent now: its turn is cancelled at once. Best effort: a cancel that
+    /// beats the prompt to acpmux is lost, same as before.
     pub(super) fn stop_if_cancelled(&mut self, id: &str) {
         let Some(session) = self
             .state
