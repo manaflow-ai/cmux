@@ -15,14 +15,18 @@
 //! so an unsend asks acpmux about it. A held delivery is never touched (only
 //! `agent.message.release` queues it). Each pass reads the queued acpmux
 //! deliveries only, a page at a time, so queued terminal messages never
-//! hide one. One delivery at a time is handed over and recorded under the
-//! delivery lock, which `agent.message.unsend` takes too, so an unsend never
-//! races a hand-over; the daemon is the one acpmux delivery path (the CLI
-//! waits for the pump).
+//! hide one. Each recipient has at most one hand-over out, on its own
+//! thread, so a session acpmux is slow to take (its chat logs still load)
+//! holds up no other session's message. A hand-over is claimed, and its
+//! outcome recorded, under the delivery lock, which `agent.message.unsend`
+//! takes too; the acpmux call itself runs outside it, and an unsend counts
+//! a hand-over that is out as tried, so it asks acpmux instead of taking
+//! the message back alone. The daemon is the one acpmux delivery path (the
+//! CLI waits for the pump).
 // Off unix nothing starts the pump (no acpmux), and nothing is handed over.
 #![cfg_attr(not(unix), allow(dead_code))]
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
@@ -44,6 +48,9 @@ const RETRY_MAX: Duration = Duration::from_secs(60);
 const ORIGIN: &str = "agent-message-pump";
 /// The limit on a delivery's stored `error`, in UTF-8 bytes.
 const ERROR_MAX: usize = 1024;
+/// The most hand-overs out at once; more recipients wait for a later pass.
+const IN_FLIGHT_MAX: usize = 16;
+const HANDOVER_THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// The pump's wake and the delivery lock.
 #[derive(Default)]
@@ -53,6 +60,9 @@ pub(crate) struct AgentMessagePump {
     /// `(message id, recipient)` of hand-overs that went out unaccepted
     /// whose attempt could not be noted: an unsend treats them as tried.
     unnoted: Mutex<HashSet<(String, String)>>,
+    /// Recipient -> the message whose hand-over to it is out. Changed only
+    /// under the delivery lock; an unsend treats it as tried.
+    in_flight: Mutex<HashMap<String, String>>,
 }
 
 /// How one hand-over to acpmux went.
@@ -109,24 +119,29 @@ impl Mux {
         }
     }
 
-    /// Held while a delivery is handed over and recorded, and while an
-    /// unsend decides.
+    /// Held while a hand-over is claimed and while its outcome is recorded
+    /// (not while acpmux is asked), and while an unsend decides.
     pub(crate) fn agent_message_delivery_lock(&self) -> MutexGuard<'_, ()> {
         self.agent_message_pump.delivering.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Whether a hand-over of `id` to `recipient` went out unaccepted and
-    /// its attempt could not be noted.
+    /// Whether a hand-over of `id` to `recipient` is out now, or went out
+    /// unaccepted and its attempt could not be noted.
     pub(crate) fn agent_message_attempt_unnoted(&self, id: &str, recipient: &str) -> bool {
+        let out = self.in_flight().get(recipient).is_some_and(|out| out == id);
         let unnoted = self.agent_message_pump.unnoted.lock().unwrap_or_else(|e| e.into_inner());
-        unnoted.contains(&(id.to_owned(), recipient.to_owned()))
+        out || unnoted.contains(&(id.to_owned(), recipient.to_owned()))
+    }
+
+    fn in_flight(&self) -> MutexGuard<'_, HashMap<String, String>> {
+        self.agent_message_pump.in_flight.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// One pass over every queued acpmux delivery, oldest first; whether
-    /// one still waits. A recipient one waits for, or acpmux cannot reach,
-    /// gets nothing more this pass: its later messages never overtake it,
-    /// and a stuck session costs one wait per pass.
-    fn pump_agent_messages(&self) -> bool {
+    /// one still waits. A recipient one waits for (its hand-over is out),
+    /// or acpmux cannot reach, gets nothing more this pass: its later
+    /// messages never overtake it. The pass never waits for acpmux itself.
+    fn pump_agent_messages(self: &Arc<Self>) -> bool {
         let session_id = self.session_public_id.as_str().to_owned();
         let mut cursor = (i64::MIN, i64::MIN);
         let mut skipped: Vec<String> = Vec::new();
@@ -158,24 +173,91 @@ impl Mux {
         }
     }
 
-    /// Hands `id` to `recipient` if it is still queued and records the
-    /// outcome.
-    fn pump_one(&self, session_id: &str, id: &str, recipient: &str) -> Pumped {
-        let _delivering = self.agent_message_delivery_lock();
-        let now = crate::state::agent_message_policy::now_ms();
-        let Ok(Some(message)) = self
-            .read_registry_state(|connection| messages::snapshot(connection, session_id, id, now))
-        else {
-            return Pumped::Done;
+    /// Claims `id`'s hand-over to `recipient` if it is still queued and no
+    /// hand-over to `recipient` is out, and starts it on its own thread,
+    /// which records the outcome. The recipient waits for it this pass.
+    fn pump_one(self: &Arc<Self>, session_id: &str, id: &str, recipient: &str) -> Pumped {
+        let message = {
+            let _delivering = self.agent_message_delivery_lock();
+            let mut in_flight = self.in_flight();
+            if in_flight.contains_key(recipient) || in_flight.len() >= IN_FLIGHT_MAX {
+                return Pumped::Waits;
+            }
+            let Ok(Some(message)) = self.queued_message(session_id, id, recipient) else {
+                return Pumped::Done;
+            };
+            in_flight.insert(recipient.to_owned(), id.to_owned());
+            message
         };
-        let queued =
-            message["deliveries"].as_array().into_iter().flatten().any(|delivery| {
-                delivery["recipient"] == recipient && delivery["state"] == "queued"
-            });
-        if !queued {
-            return Pumped::Done;
+        let mux = Arc::clone(self);
+        let (session_id, id_owned, recipient_owned) =
+            (session_id.to_owned(), id.to_owned(), recipient.to_owned());
+        let spawned = std::thread::Builder::new()
+            .name("mux-agent-message-handover".into())
+            .stack_size(HANDOVER_THREAD_STACK_BYTES)
+            .spawn(move || mux.hand_over(&session_id, &message, &id_owned, &recipient_owned));
+        if spawned.is_err() {
+            // Nothing went out: the delivery stays queued for a later pass.
+            let _delivering = self.agent_message_delivery_lock();
+            self.in_flight().remove(recipient);
+            self.report_internal_diagnostic("agent message pump could not start a hand-over");
+            return Pumped::Unreachable;
         }
-        let (state, error) = match self.acp_prompt_message(&message, recipient) {
+        Pumped::Waits
+    }
+
+    /// `id`'s snapshot if its delivery to `recipient` is still queued.
+    fn queued_message(
+        &self,
+        session_id: &str,
+        id: &str,
+        recipient: &str,
+    ) -> anyhow::Result<Option<Value>> {
+        let now = crate::state::agent_message_policy::now_ms();
+        let message = self.read_registry_state(|connection| {
+            messages::snapshot(connection, session_id, id, now)
+        })?;
+        Ok(message.filter(|message| {
+            message["deliveries"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|delivery| delivery["recipient"] == recipient && delivery["state"] == "queued")
+        }))
+    }
+
+    /// One claimed hand-over, outside the delivery lock, then its outcome
+    /// under it; wakes the pump for the recipient's next message once done.
+    fn hand_over(&self, session_id: &str, message: &Value, id: &str, recipient: &str) {
+        let handover = self.acp_prompt_message(message, recipient);
+        let pumped = {
+            let _delivering = self.agent_message_delivery_lock();
+            let pumped = match self.queued_message(session_id, id, recipient) {
+                Ok(Some(_)) => self.record_handover(id, recipient, handover),
+                // An unsend settled it with acpmux while the hand-over was
+                // out: acpmux's answer stands.
+                Ok(None) => {
+                    self.remember_unnoted(id, recipient, false);
+                    Pumped::Done
+                }
+                Err(_) => {
+                    self.report_internal_diagnostic("agent message pump could not read a delivery");
+                    let went_out = !matches!(handover, Handover::Unreachable);
+                    self.remember_unnoted(id, recipient, went_out);
+                    Pumped::Waits
+                }
+            };
+            self.in_flight().remove(recipient);
+            pumped
+        };
+        if pumped == Pumped::Done {
+            self.wake_agent_message_pump();
+        }
+    }
+
+    /// Records how `id`'s hand-over to `recipient`, still queued, went.
+    fn record_handover(&self, id: &str, recipient: &str, handover: Handover) -> Pumped {
+        let (state, error) = match handover {
             Handover::Delivered => ("delivered", None),
             Handover::Failed(error) => ("failed", Some(clip(&error, ERROR_MAX))),
             Handover::Unreachable => return Pumped::Unreachable,
