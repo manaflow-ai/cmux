@@ -10,7 +10,10 @@ export type NewTabIntent =
   /// An address the browser loads.
   | { kind: "url"; url: string }
   /// Plain text: a prompt for an agent (a web search is an explicit row, never a mode, R86).
-  | { kind: "prompt"; text: string };
+  | { kind: "prompt"; text: string }
+  /// Text nothing may load, search or send to an agent: an old Mac Screen pairing link
+  /// (`pairing_link`; it carried a room secret). Return shows the host's refusal.
+  | { kind: "refused"; reason: "pairing_link" };
 
 export type NewTabIntentOptions = {
   /// The user's home folder, for `~` and `~/path`; without it those are text.
@@ -87,9 +90,17 @@ const FILE_EXTENSIONS = new Set([
   "zsh",
 ]);
 
+/// Whether `text` holds an old Mac Screen pairing link (`cmux-vnc://pair?…` or
+/// `cmux-vnc:pair?…`, any case, anywhere). The Swift `BrowserURLResolver.containsPairingLink`
+/// is the same rule; the intent table holds both to it.
+export function containsPairingLink(text: string): boolean {
+  return /cmux-vnc:(\/\/)?pair/i.test(text);
+}
+
 export function classifyNewTabInput(input: string, options: NewTabIntentOptions = {}): NewTabIntent {
   const trimmed = input.trim();
   if (!trimmed) return { kind: "none" };
+  if (containsPairingLink(trimmed)) return { kind: "refused", reason: "pairing_link" };
   if (trimmed.startsWith(TERMINAL_PREFIX)) return { kind: "terminal", command: trimmed.slice(1).trim() };
   const url = newTabURL(trimmed, options.home);
   if (url) return { kind: "url", url };
