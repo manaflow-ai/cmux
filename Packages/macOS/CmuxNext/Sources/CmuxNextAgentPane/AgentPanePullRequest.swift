@@ -6,7 +6,7 @@ public import Foundation
 /// shows the title, the review decision and each check.
 public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// The `gh pr view --json` fields read.
-    public static let fields = "url,number,title,state,isDraft,reviewDecision,mergeable,statusCheckRollup,createdAt,mergedAt"
+    public static let fields = "url,number,title,state,isDraft,reviewDecision,mergeable,statusCheckRollup,createdAt,mergedAt,additions,deletions"
     /// The most checks the popover lists.
     static let maximumChecks = 50
 
@@ -54,9 +54,13 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// merged. Agent PR cycle time runs between the two (hq#1920).
     public var createdAt: String
     public var mergedAt: String
+    /// Lines added and removed; 0 when gh did not say.
+    public var additions: Int
+    public var deletions: Int
 
     public init(url: String, number: Int, title: String = "", state: String, review: String = "", mergeable: String = "",
-                checks: Checks, checkList: [Check] = [], createdAt: String = "", mergedAt: String = "") {
+                checks: Checks, checkList: [Check] = [], createdAt: String = "", mergedAt: String = "",
+                additions: Int = 0, deletions: Int = 0) {
         self.url = url
         self.number = number
         self.title = title
@@ -67,6 +71,8 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
         self.checkList = checkList
         self.createdAt = createdAt
         self.mergedAt = mergedAt
+        self.additions = additions
+        self.deletions = deletions
     }
 
     /// Nil unless `ghView` is gh's answer with an https url and a number.
@@ -82,7 +88,8 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
                   review: (object["reviewDecision"] as? String)?.lowercased() ?? "",
                   mergeable: mergeable == "unknown" ? "" : mergeable,
                   checks: Self.checks(rollup), checkList: Self.checkList(rollup),
-                  createdAt: object["createdAt"] as? String ?? "", mergedAt: object["mergedAt"] as? String ?? "")
+                  createdAt: object["createdAt"] as? String ?? "", mergedAt: object["mergedAt"] as? String ?? "",
+                  additions: object["additions"] as? Int ?? 0, deletions: object["deletions"] as? Int ?? 0)
     }
 
     /// Each check run or commit status with its outcome, failed first; links only when https.
