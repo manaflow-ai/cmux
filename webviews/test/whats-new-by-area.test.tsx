@@ -104,3 +104,21 @@ test("What's New lists the update's changes by area with their pull requests, in
   expect(areas.some((a) => a.textContent?.includes("shard"))).toBe(false);
   expect(fold?.textContent).not.toContain("internal changes");
 });
+
+test("a release day never takes a commit subject as its title", async () => {
+  // The pipeline makes a digest from summary lines (entries "summary-N") and heads it with the
+  // first line, a commit subject; a reviewed document's headline stays the day's title.
+  const { releaseTitle } = await import("../src/pages/changelog/model");
+  const digest = (headline: string, id: string) => ({
+    ...notes("3940000000005", []),
+    whatsNew: {
+      version: "1.0.0-nightly.3940000000005",
+      channel: "nightly" as const,
+      date: "2026-10-20",
+      headline: { en: headline },
+      entries: [{ id, category: "improved" as const, title: { en: headline }, summary: { en: "" } }],
+    },
+  });
+  expect(releaseTitle([digest("Enroll Computer Use after peer check", "summary-0")], "en")).toBeUndefined();
+  expect(releaseTitle([digest("Agents can use your apps", "computer-use")], "en")).toBe("Agents can use your apps");
+});
