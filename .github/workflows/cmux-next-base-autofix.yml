@@ -89,6 +89,7 @@ on:
       - scripts/cmux-next/base-autofix-mac-busy.sh
       - scripts/cmux-next/base-autofix-since.sh
       - scripts/cmux-next/base-autofix-changed.sh
+      - scripts/cmux-next/base-autofix-settings-landed.sh
       - scripts/cmux-next/autofix-areas.sh
       - scripts/cmux-next/pr-autofix-apply.sh
       - scripts/cmux-next/base-autofix-frozen.txt
@@ -604,6 +605,19 @@ jobs:
           # keeps it in the next run's "since". The settings and action exports are judged from the commit
           # the Mac job made them at.
           scripts/cmux-next/base-autofix-land.sh "$remote" feat-cmux-next "$HEAD_SHA" "$SETTINGS_MADE_AT" "$ACTIONS_MADE_AT" 2>&1 \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # A green run moves the next run's "since" past its changes: when its own Mac job made the exports
+      # and the settings area is on, it fails when the settings exports are still stale for the sources
+      # it had, so the next run makes them again. A run that left its Mac exports to another run
+      # (mac-exports-deferred) skips this and stays green; base-autofix-since.sh passes over it anyway.
+      - name: Settings exports current after landing
+        if: success() && needs.action-exports.result == 'success' && steps.areas.outputs.settings == 'true' && vars.CMUX_NEXT_BASE_AUTOFIX == '1'
+        env:
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          scripts/cmux-next/base-autofix-settings-landed.sh "https://github.com/$GITHUB_REPOSITORY.git" feat-cmux-next "$HEAD_SHA" 2>&1 \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
   # When the ghostty gitlink moves, pins its GhosttyKit checksum
