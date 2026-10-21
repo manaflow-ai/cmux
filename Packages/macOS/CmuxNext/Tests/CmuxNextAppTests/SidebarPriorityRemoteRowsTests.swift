@@ -226,6 +226,48 @@ struct SidebarPriorityRemoteRowsTests {
         #expect(row(reloaded, "vm-done")?.state == .done, "a new result that reuses a read notice's id shows unread")
     }
 
+    static func identity(generation: String) throws -> DaemonIdentity {
+        let json = #"{"app":"cmux-tui","protocol":1,"session":"priority-remote-rows","generation":"\#(generation)"}"#
+        return try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
+    }
+
+    @Test func aMarkOnAnUntimedNoticeEndsWhenANewDaemonBootReusesItsId() async throws {
+        // Current daemons send no time on a tab's notice.
+        let ask = { (level: NotificationLevel) in
+            Self.tree([Remote.chatTab(1, session: "vm-asks", host: "install:vm", title: "Fix", notice: (12, level, unread: true)),
+                       Remote.chatTab(2, session: "vm-done", host: "install:vm", title: "Bump", notice: (13, .info, unread: true))])
+        }
+        let store = DaemonStore()
+        store.noteHandshake(try Self.identity(generation: "boot-1"))
+        store.connectionState = .connected(try Self.identity(generation: "boot-1"))
+        store.apply(snapshot: ask(.warning))
+        let chats = Self.chats { [SidebarPriorityMachine(name: "gpu-box", store: store)] }
+        #expect(chats.snooze("vm-asks"))
+        #expect(chats.markRead("vm-done"))
+        let row = { (id: String) in chats.entries().first { $0.id == id } }
+        #expect(row("vm-asks") == nil)
+        #expect(row("vm-done")?.state == .idle)
+
+        // The same connection redraws the rows (a tree update, a disconnect that keeps its last
+        // tree, a reconnect to the same daemon boot): the marks hold.
+        store.apply(snapshot: ask(.warning))
+        #expect(row("vm-asks") == nil, "the same boot's notice stays snoozed across a re-render")
+        #expect(row("vm-done")?.state == .idle, "and stays read")
+        store.connectionState = .disconnected("network down")
+        #expect(row("vm-asks") == nil && row("vm-done")?.state == .idle, "a disconnect keeps the marks")
+        store.noteHandshake(try Self.identity(generation: "boot-1"))
+        store.connectionState = .connected(try Self.identity(generation: "boot-1"))
+        #expect(row("vm-asks") == nil && row("vm-done")?.state == .idle, "a reconnect to the same boot keeps them")
+
+        // The daemon restarts: its new boot renumbers notices, and new ones reuse ids 12 and 13.
+        store.connectionState = .disconnected("restarting")
+        store.noteHandshake(try Self.identity(generation: "boot-2"))
+        store.connectionState = .connected(try Self.identity(generation: "boot-2"))
+        store.apply(snapshot: ask(.warning))
+        #expect(row("vm-asks")?.state == .needsYou, "a new untimed question that reuses a snoozed notice's id shows")
+        #expect(row("vm-done")?.state == .done, "a new untimed result that reuses a read notice's id shows unread")
+    }
+
     @Test func archivingARemoteRowDoesNothing() throws {
         let vm = Remote.tree([Remote.chatTab(1, session: "vm-done", host: "install:vm", title: "Bump", notice: (95, .info, unread: true))])
         let chats = Self.chats { [SidebarPriorityMachine(name: "gpu-box", store: vm)] }
