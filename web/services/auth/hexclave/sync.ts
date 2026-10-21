@@ -120,11 +120,13 @@ export async function syncHexclaveUser(
     { revokeCandidateTeamIds },
   );
   const revoked: string[] = [];
-  const previous = new Set(result.previousTeamIds);
   const current = new Set(result.currentTeamIds);
   const dirtyTeamIds = [...new Set([
+    // Mark every current team, not only additions. If the queue write fails
+    // after the mirror commits, the retry can no longer reconstruct the diff;
+    // the current set is the retry-stable billing authority.
+    ...result.currentTeamIds,
     ...result.previousTeamIds.filter((teamId) => !current.has(teamId)),
-    ...result.currentTeamIds.filter((teamId) => !previous.has(teamId)),
     ...revokeCandidateTeamIds,
   ])].sort();
   let sideEffectFailure: unknown;
