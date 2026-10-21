@@ -8,14 +8,14 @@
 // cadence and at Codex's, sampling every display frame. Each run prints its whole report.
 //
 // Both engines the app uses (WebKit draws the pane in cmux NEXT); one not installed skips. The
-// frame budget is the main thread's work per frame: the script of every task between two frames
+// frame budget is the main thread's work per frame: the script of the tasks between two frames
 // (browser/streaming-text.clock.ts: React's renders, commits and effects with the layout they force,
-// the reveal's frame callbacks, the row resize observers, timers), and the style and layout left
-// for the frame. Frame intervals are reported, not held: they measure the host as much as the
+// the reveal's frame callbacks, the row resize observers, the scroll handler, timers), and the
+// style and layout left for the frame. Frame intervals are reported, not held: they measure the host as much as the
 // page, and CI runs the dev-server browser files side by side (one frame in twelve came 33 ms apart
-// there, job 119122855521). Pierre highlighting a closed fence (100 ms in Chromium, 1 s in WebKit
-// on cmux16) comes off a frame's work, and the frames it held are reported apart: this dev page has
-// no highlight worker, and the app's page highlights in one (highlightPool.ts).
+// there, job 119122855521). Pierre highlighting a closed fence (120 ms in Chromium, 1.1 s in WebKit
+// on cmux16) is not the page's work and the frames it held are reported apart: this dev page has no
+// highlight worker, and the app's page highlights in one (highlightPool.ts).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType } from "playwright";
@@ -28,9 +28,8 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
   setDefaultTimeout(180_000);
   /// The budget a streaming reply keeps.
   const BUDGET = {
-    /// The 95th percentile of a frame's work while the reply streams, and the most any frame takes
-    /// (the first, which draws the row, is the heaviest). On cmux16: 7 and 15-19 ms in Chromium,
-    /// 4 and 9 ms in WebKit.
+    /// The 95th percentile of a frame's work while the reply streams, and the most any frame takes.
+    /// On cmux16 at load 20: 9-11 and 15-20 ms in Chromium, 6-7 and 15-26 ms in WebKit.
     p95WorkMs: 16.7,
     maxWorkMs: 50,
     /// Blocks above the one being written that move or change height.
@@ -137,7 +136,7 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
       // cmux16 at load 25, one run's grammar load took 850 ms, 40 times its usual 20). The work
       // budget fails when two runs in a row break it.
       if (overWork(report).length === 0) return;
-      console.log(`streaming-text-frames ${label}: over the work budget once (${overWork(report).join("; ")}); again`);
+      console.warn(`streaming-text-frames ${label}: over the work budget once (${overWork(report).join("; ")}); again`);
       const again = await stream(name, cadence);
       console.log(`streaming-text-frames ${label} again: ${JSON.stringify(again, null, 2)}`);
       expect(overLayout(again)).toEqual([]);

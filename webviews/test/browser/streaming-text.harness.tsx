@@ -16,7 +16,7 @@
 // much of the reply shows on each frame, where each drawn block of the reply sits, how far the view
 // rests from its end, and the room between the reply's last line and the bottom stack. It resolves
 // with a report (streaming-text-frames.test.ts reads it).
-import "./streaming-text.clock";
+import { spans, untimedFrame } from "./streaming-text.clock";
 import { useState } from "react";
 import { FileRenderer, File as PierreFile } from "@pierre/diffs";
 import { createRoot } from "react-dom/client";
@@ -26,7 +26,6 @@ import { nextFrame } from "../../src/agent-session/acpmux/direct";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../../src/agent-session/acpmux/model";
 import { percentile, round2 } from "../../src/agent-session/acpmux/perf";
 import { StreamReveal } from "../../src/agent-session/acpmux/streamReveal";
-import { spans, untimedFrame } from "./streaming-text.clock";
 import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
 import {
   history,
@@ -82,18 +81,22 @@ StreamReveal.prototype.advance = function (this: StreamReveal, text: string, now
 
 /// Pierre's highlighting ([start, end]): the dev server serves no highlight worker, so Pierre
 /// highlights on the main thread, which the app's page never does (highlightPool.ts). `highlighting`
-/// holds the synchronous calls, drawing a card and tokenizing its code (WebKit does both inside
-/// `render`, Chromium tokenizes once its grammar loads); their time comes off a frame's work.
-/// `loading` holds each grammar load, from the call until its promise settles, which tags the frames
-/// it spans but takes nothing off their work: compiling the grammar runs in promise continuations,
-/// which streaming-text.clock.ts does not time.
+/// holds the outermost synchronous calls, drawing a card or tokenizing its code. WebKit tokenizes
+/// inside `render`, in a layout effect (HighlightedCode.tsx), and that time comes off the frame's
+/// work. Chromium tokenizes in a promise continuation once its grammar loads, which
+/// streaming-text.clock.ts never timed, so nothing comes off. `loading` holds each grammar load,
+/// from the call until its promise settles, which tags the frames it spans and takes nothing off.
 const highlighting: [number, number][] = [];
 const loading: [number, number][] = [];
+let highlightDepth = 0;
 function timedHighlight<A extends unknown[], R>(body: (...args: A) => R, self: unknown, args: A): R {
+  if (highlightDepth > 0) return body.apply(self, args);
+  highlightDepth = 1;
   const start = performance.now();
   try {
     return body.apply(self, args);
   } finally {
+    highlightDepth = 0;
     highlighting.push([start, performance.now()]);
   }
 }

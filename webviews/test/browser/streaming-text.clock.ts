@@ -1,9 +1,11 @@
 // The main thread's script time, task by task, for streaming-text.harness.tsx. The harness imports
-// this first, so it wraps the task sources before React's scheduler takes its MessageChannel: every
-// scheduler task (React's renders, commits, layout and passive effects, and the layout an effect
-// forces), every animation frame callback (the reveal's, direct.ts `nextFrame`), every resize
-// observer callback (the rows' heights, with their `flushSync` commits), every timer and every
-// queued microtask. Each outermost callback adds one [start, end] span to `spans`.
+// this first, so it wraps these callbacks before React's scheduler takes its MessageChannel: the
+// scheduler's tasks (React's renders, commits, layout and passive effects, and the layout an effect
+// forces), animation frame callbacks (the reveal's, direct.ts `nextFrame`), resize observer
+// callbacks (the rows' heights, with their `flushSync` commits), event listeners (the transcript's
+// scroll handler and the layout its reads force), timers and queued microtasks. Each outermost
+// callback adds one [start, end] span to `spans`. Promise continuations, other observers and
+// `setInterval` stay untimed.
 export const spans: [number, number][] = [];
 
 let depth = 0;
@@ -50,6 +52,38 @@ Object.defineProperty(MessagePort.prototype, "onmessage", {
 const Observer = window.ResizeObserver;
 window.ResizeObserver = class extends Observer {
   constructor(callback: ResizeObserverCallback) {
-    super((entries, observer) => timed(callback, undefined, [entries, observer]));
+    super((entries, observer) => timed(callback, observer, [entries, observer]));
   }
+};
+
+/// Each listener's timed stand-in, so removing the listener removes it.
+const listeners = new WeakMap<EventListenerOrEventListenerObject, EventListener>();
+const listen = EventTarget.prototype.addEventListener;
+const unlisten = EventTarget.prototype.removeEventListener;
+const timedListener = (listener: EventListenerOrEventListenerObject) => {
+  let wrapped = listeners.get(listener);
+  if (!wrapped) {
+    wrapped = function (this: EventTarget, event: Event) {
+      if (typeof listener === "function") return timed(listener, this, [event]);
+      return timed(listener.handleEvent, listener, [event]);
+    };
+    listeners.set(listener, wrapped);
+  }
+  return wrapped;
+};
+EventTarget.prototype.addEventListener = function (
+  this: EventTarget,
+  type: string,
+  listener: EventListenerOrEventListenerObject | null,
+  options?: boolean | AddEventListenerOptions,
+) {
+  listen.call(this, type, listener && timedListener(listener), options);
+};
+EventTarget.prototype.removeEventListener = function (
+  this: EventTarget,
+  type: string,
+  listener: EventListenerOrEventListenerObject | null,
+  options?: boolean | EventListenerOptions,
+) {
+  unlisten.call(this, type, listener && (listeners.get(listener) ?? listener), options);
 };
