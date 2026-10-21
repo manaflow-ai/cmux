@@ -59,6 +59,9 @@ struct CoderouterAppCredentialSource: CoderouterAppCredentialProviding {
             )
         } catch let failure as CoderouterCLIFailure {
             throw failure
+        } catch is CancellationError {
+            // A team or account switch restarts the read; that is not a failure.
+            throw CancellationError()
         } catch AuthError.unauthorized {
             throw CoderouterCLIFailure.signInRequired
         } catch AuthError.offline, AuthError.networkError, AuthError.timedOut {
