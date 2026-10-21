@@ -5,7 +5,7 @@
 
 export type ComposerAttachment = {
   id: string;
-  kind: "image" | "text" | "document" | "audio";
+  kind: "image" | "text" | "document" | "link" | "audio";
   name: string;
   mimeType: string;
   size: number;
@@ -17,6 +17,8 @@ export type ComposerAttachment = {
   pageCount?: number;
   /** A shell mode command's chip (shell/shellRuns.ts): its text is the run's output, filled when the prompt goes. */
   shellRun?: string;
+  /** A link's file or folder on this computer (Attach files or folders): the agent reads it there. */
+  path?: string;
 };
 
 export type AttachmentError = { name: string; reason: "tooLarge" | "unsupported" | "imagesUnsupported" | "tooMany" };
@@ -25,6 +27,7 @@ export type PromptBlock =
   | { type: "text"; text: string }
   | { type: "image"; mimeType: string; data: string; name?: string }
   | { type: "document"; mimeType: "application/pdf"; data: string; name?: string }
+  | { type: "resource_link"; uri: string; name: string }
   | { type: "audio"; mimeType: string; data: string };
 
 /** Anthropic's per-image limit. */
@@ -231,7 +234,7 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
   return [text, ...files].filter(Boolean).join("\n\n");
 }
 
-/// ACP prompt blocks: the text (with text files) first, then each image, PDF and recording.
+/// ACP prompt blocks: the text (with text files) first, then each image, PDF, recording and file or folder link.
 export function promptBlocks(text: string, attachments: ComposerAttachment[]): PromptBlock[] {
   const blocks: PromptBlock[] = [];
   const body = promptText(text, attachments);
@@ -241,9 +244,31 @@ export function promptBlocks(text: string, attachments: ComposerAttachment[]): P
       blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
     else if (attachment.kind === "document" && attachment.data)
       blocks.push({ type: "document", mimeType: "application/pdf", data: attachment.data, name: attachment.name });
+    else if (attachment.kind === "link" && attachment.path)
+      blocks.push({ type: "resource_link", uri: fileUri(attachment.path), name: attachment.name });
     else if (attachment.kind === "audio" && attachment.data)
       blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data });
   return blocks;
+}
+
+/// A link chip for a file or folder the host's panel chose (`chat.attach.choose`): named by its
+/// last component, a folder's with a trailing slash.
+export function linkAttachment(path: string, folder: boolean): ComposerAttachment {
+  const trimmed = path.replace(/\/+$/, "") || "/";
+  const name = trimmed.slice(trimmed.lastIndexOf("/") + 1) || trimmed;
+  return {
+    id: `link:${trimmed}`,
+    kind: "link",
+    name: folder ? `${name}/` : name,
+    mimeType: "",
+    size: 0,
+    path: trimmed,
+  };
+}
+
+/// `file://` and the path, each segment percent-encoded.
+function fileUri(path: string): string {
+  return `file://${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 /// Whether a session takes voice input through its picked model: the harness advertises ACP
