@@ -167,21 +167,25 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
       };
     });
 
-  // What WebKit does to the focused editor when the web view resigns and regains first responder.
-  const handOff = (page: Page, placeFirst: boolean) =>
-    page.evaluate((placeFirst) => {
+  // What WebKit does when the web view gives the keyboard to the app and gets it back: the window
+  // blurs (the editor stays the active element), the selection is cleared, the caret is put at the
+  // editor's start while the view is away, then the window (and with `element`, the editor) gets
+  // focus again, longer after any earlier focus than ProseMirror's own 200 ms guard looks back.
+  const handOff = (page: Page, element: boolean) =>
+    page.evaluate(async (element) => {
       const editor = document.querySelector<HTMLElement>(".acpmux-composer-prompt .acpmux-md");
       const selection = document.getSelection();
       if (!editor || !selection) return;
-      const start = () => selection.collapse(editor.querySelector("p")?.firstChild ?? editor, 0);
+      const settle = () => new Promise((resolve) => setTimeout(resolve, 250));
       window.dispatchEvent(new window.Event("blur"));
-      editor.dispatchEvent(new window.FocusEvent("blur"));
+      if (element) editor.dispatchEvent(new window.FocusEvent("blur"));
       selection.removeAllRanges();
-      if (placeFirst) start();
+      await settle();
+      selection.collapse(editor.querySelector("p")?.firstChild ?? editor, 0);
+      await settle();
       window.dispatchEvent(new window.Event("focus"));
-      editor.dispatchEvent(new window.FocusEvent("focus"));
-      if (!placeFirst) start();
-    }, placeFirst);
+      if (element) editor.dispatchEvent(new window.FocusEvent("focus"));
+    }, element);
 
   describe("inbound messages leave the prompt as the person left it", () => {
     test.each(["chromium", "webkit"])(
@@ -323,10 +327,10 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
             },
           ],
           // The web view gives the keyboard to the app (another pane, tab or workspace, the palette)
-          // and gets it back. WebKit clears the selection when it lets go and, taking the keyboard
-          // back, puts a contenteditable's caret at its start, before or after the focus event.
-          ["keyboard handed back, caret placed first", () => handOff(page, true)],
-          ["keyboard handed back, caret placed after", () => handOff(page, false)],
+          // and gets it back. WebKit clears the selection when it lets go and puts a contenteditable's
+          // caret at its start, which ProseMirror takes as the person's before any focus comes back.
+          ["keyboard handed back to the window", () => handOff(page, false)],
+          ["keyboard handed back to the window and the prompt", () => handOff(page, true)],
         ];
         let typed = "";
         try {
