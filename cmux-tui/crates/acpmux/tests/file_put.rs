@@ -92,7 +92,7 @@ impl Client {
 }
 
 fn put(session: &str, name: &str, bytes: &[u8]) -> Value {
-    json!({"sessionId": session, "name": name,
+    json!({"sessionId": session, "fileName": name,
            "data": base64::engine::general_purpose::STANDARD.encode(bytes)})
 }
 

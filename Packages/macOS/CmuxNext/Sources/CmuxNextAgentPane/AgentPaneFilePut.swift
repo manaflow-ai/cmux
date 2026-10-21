@@ -33,7 +33,7 @@ extension AcpmuxStatusClient {
     static let filePutFeature = "filePut"
     static let filePutMethod = "_acpmux/file_put"
 
-    /// `_acpmux/file_put {sessionId, name, data}` on this Mac's acpmux, which saves the file on the
+    /// `_acpmux/file_put {sessionId, fileName, data}` on this Mac's acpmux, which saves the file on the
     /// machine that runs session `sessionId` (a peer's chat goes to that peer) and answers its path
     /// there. Throws ``AgentPaneFilePutFailure``.
     @concurrent static func putFile(socketPath: String, sessionId: String, name: String, data: Data,
@@ -50,7 +50,7 @@ extension AcpmuxStatusClient {
         guard data.count <= AgentPaneUpload.maximumPeerFileBytes else { throw AgentPaneFilePutFailure.tooLarge }
         let result: [String: Any]
         do {
-            result = try await send(["sessionId": sessionId, "name": name, "data": data.base64EncodedString()])
+            result = try await send(["sessionId": sessionId, "fileName": name, "data": data.base64EncodedString()])
         } catch {
             throw AgentPaneFilePutFailure(error)
         }

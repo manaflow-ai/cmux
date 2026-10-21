@@ -1,6 +1,6 @@
 //! Files the person drops or pastes into a chat that the composer can't attach as a prompt block
-//! (a binary, a large text file): the app sends each one (`_acpmux/file_put {sessionId, name,
-//! data}`), and the daemon that owns the session writes it owner-only on its own machine, under
+//! (a binary, a large text file): the app sends each one (`_acpmux/file_put {sessionId,
+//! fileName, data}`), and the daemon that owns the session writes it owner-only on its own machine, under
 //! `<ACPMUX_HOME>/uploads/<session id>/<random>/<name>` (its own folder, so two files may share a
 //! name), and answers `{path}`. The composer puts the path in the prompt and the agent opens it
 //! with its own tools. A chat on an ssh peer gets the file there: the request names the session, so
@@ -60,17 +60,19 @@ fn too_large() -> RpcError {
         .with_data(json!({"reason": "filePut.tooLarge", "maxBytes": MAX_BYTES}))
 }
 
-/// The request's `name` and `data` (base64) when they keep the contract, before anything is
+/// The request's `fileName` and `data` (base64) when they keep the contract, before anything is
 /// decoded or sent on: the daemon a request reaches first checks it, so no oversize frame goes
-/// over a peer link.
+/// over a peer link. (Not `name`: that names a session (`server::session_key`), and a forward to
+/// a peer drops it.)
 pub fn check(params: &Value) -> Result<(&str, &str), RpcError> {
-    let name =
-        params.get("name").and_then(Value::as_str).filter(|name| is_file_name(name)).ok_or_else(
-            || {
-                RpcError::invalid_params("name must be a plain file name")
-                    .with_data(json!({"reason": "filePut.name"}))
-            },
-        )?;
+    let name = params
+        .get("fileName")
+        .and_then(Value::as_str)
+        .filter(|name| is_file_name(name))
+        .ok_or_else(|| {
+            RpcError::invalid_params("fileName must be a plain file name")
+                .with_data(json!({"reason": "filePut.name"}))
+        })?;
     let data = params
         .get("data")
         .and_then(Value::as_str)

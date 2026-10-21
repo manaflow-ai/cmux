@@ -19,7 +19,7 @@ struct AgentPaneFilePutTests {
         let sent = try Self.requests(await stream.writes())
         #expect(sent.map { $0["method"] as? String } == ["initialize", "_acpmux/file_put"])
         let params = try #require(sent.last?["params"] as? [String: String])
-        #expect(params == ["sessionId": "s", "name": "state.sqlite", "data": Data([0, 1, 0xff]).base64EncodedString()])
+        #expect(params == ["sessionId": "s", "fileName": "state.sqlite", "data": Data([0, 1, 0xff]).base64EncodedString()])
     }
 
     @Test func anOlderAcpmuxHereOrOnThePeerTakesNoFiles() async throws {
