@@ -38,8 +38,11 @@ export async function intakeFiles(
   files: File[],
   options: IntakeOptions,
 ): Promise<{ attachments: ComposerAttachment[]; error?: AttachmentError | { text: string } }> {
+  // Asked before the files are read (decoding and scaling photos can take seconds): the host's
+  // record of the drop or paste lasts only a few.
+  const paths = options.localPaths?.(files).catch(() => undefined);
   const read = await readAttachments(files, options.held, options.allowImages);
-  const local = await localLinks(files, read.errors, MAX_ATTACHMENTS - options.held - read.attachments.length, options);
+  const local = await localLinks(files, read.errors, MAX_ATTACHMENTS - options.held - read.attachments.length, paths);
   const errors = read.errors.filter((refused) => !local.linked.has(refused));
   const room = MAX_ATTACHMENTS - options.held - read.attachments.length - local.linked.size;
   const sendable = options.upload ? savable(errors, room) : [];
@@ -58,19 +61,19 @@ export async function intakeFiles(
 }
 
 /// The refused files of the batch that go as links to where they are on this Mac, by the host's
-/// answer for the whole batch (matched to the files by position), while the composer has `room`;
+/// answer for the whole batch (`paths`, matched to the files by position), while the composer has `room`;
 /// `full` when one was left out for the limit. None when nothing refused could be linked, or the
 /// host does not know the batch.
 async function localLinks(
   files: File[],
   refusals: RefusedFile[],
   room: number,
-  options: IntakeOptions,
+  paths: Promise<LinkItem[] | undefined> | undefined,
 ): Promise<{ linked: Map<RefusedFile, ComposerAttachment>; full: boolean }> {
   const linked = new Map<RefusedFile, ComposerAttachment>();
   const wanted = refusals.filter(links);
-  if (!options.localPaths || wanted.length === 0) return { linked, full: false };
-  const items = await options.localPaths(files).catch(() => undefined);
+  if (!paths || wanted.length === 0) return { linked, full: false };
+  const items = await paths;
   if (!items || items.length !== files.length) return { linked, full: false };
   for (const refused of wanted) {
     if (linked.size >= room) return { linked, full: true };

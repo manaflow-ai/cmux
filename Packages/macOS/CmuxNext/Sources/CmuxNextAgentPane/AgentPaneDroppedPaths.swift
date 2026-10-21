@@ -43,15 +43,32 @@ public final class AgentPaneDroppedPaths {
     public func take(_ kind: Kind, names: [String]) -> [URL]? {
         guard let record = held.removeValue(forKey: kind), now() - record.at <= Self.lifetime,
               record.urls.count == names.count else { return nil }
+        // WebKit hands the page the pasteboard's files in its order: a folder and a zip of the same
+        // name (both `name.zip` to the page) stay apart.
+        if zip(record.urls, names).allSatisfy(Self.named) { return record.urls }
         var left = record.urls
         var picked: [URL] = []
         for name in names {
-            // String equality is canonical: a name WebKit and the file system hold in different
-            // Unicode forms (é as one scalar or two) is the same name.
-            guard let index = left.firstIndex(where: { $0.lastPathComponent == name }) else { return nil }
+            guard let index = left.firstIndex(where: { Self.named($0, name) }) else { return nil }
             picked.append(left.remove(at: index))
         }
         return picked
+    }
+
+    /// Whether WebKit names the file at `url` `name`. String equality is canonical: a name WebKit
+    /// and the file system hold in different Unicode forms (é as one scalar or two) is the same
+    /// name. WebKit names a folder (or a package such as an `.app`) `<name>.zip` with type
+    /// `application/zip`, the archive it would make of it (FileCocoa.mm's replaced file), so that
+    /// name is the folder's too.
+    private static func named(_ url: URL, _ name: String) -> Bool {
+        let last = url.lastPathComponent
+        return name == last || name == last + ".zip"
+    }
+
+    /// A name the page may ask for: one a folder holds (``AgentPaneUpload/isFileName(_:)``), a dot
+    /// file or folder (`.github`, `.env`) too, since it is only compared with the dropped files'.
+    nonisolated static func isAskedName(_ name: String) -> Bool {
+        AgentPaneUpload.isFileName(name.hasPrefix(".") ? String(name.dropFirst()) : name)
     }
 
     /// The file URLs `pasteboard` holds (Finder's copied or dragged files and folders); none for text

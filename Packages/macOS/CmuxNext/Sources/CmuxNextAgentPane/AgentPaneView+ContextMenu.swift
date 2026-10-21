@@ -111,8 +111,10 @@ extension AgentPaneView {
             AgentPanePersonInput.record(model.transport.gestures)
             model.droppedPaths.stash(urls, kind: .drop)
         }
-        // Read as the paste goes to WebKit: the pasteboard WebKit hands the page.
+        // Read as the paste goes to WebKit: the pasteboard WebKit hands the page. As for a drop, only
+        // the person's paste (a posted Cmd-V records nothing).
         let pasted: @MainActor () -> Void = { [weak self] in
+            guard AgentPanePersonInput.currentIsPerson else { return }
             self?.model.droppedPaths.stash(AgentPaneDroppedPaths.fileURLs(on: .general), kind: .paste)
         }
         if let page {
