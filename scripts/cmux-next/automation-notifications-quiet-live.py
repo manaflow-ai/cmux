@@ -145,7 +145,7 @@ try:
 
         def banner():
             return [b for b in (rpc("debug.notifications").get("banners") or [])
-                    if isinstance(b, dict) and b.get("title") == title]
+                    if isinstance(b, dict) and (b.get("subtitle") or "").split(" · ")[0] == title]
 
         # The app may not follow the daemon's notifications yet right after launch: post again
         # (same title) until a banner arrives, at most 4 times.
