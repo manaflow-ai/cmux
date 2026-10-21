@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApps
 import CmuxNextDesign
 @testable import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextSidebar
 import Foundation
 import Testing
@@ -69,7 +70,8 @@ import Testing
     @Test func theChiefPetCardLinksToItsSettings() throws {
         for feature in AppFeature.catalog {
             guard let key = feature.settingsLink else { continue }
-            #expect(SettingsSchema.descriptor(for: key.split(separator: ".").map(String.init)) != nil, "\(feature.id) links to \(key), not a setting")
+            // The anchor Settings scrolls to (`SettingsWindowService.show(setting:)`), not just a schema key.
+            #expect(SettingsAnchor(key: key) != nil, "\(feature.id) links to \(key), which Settings cannot show")
         }
         var shown: [String] = []
         let bridge = SettingsAppFeatures(settings: { nil }, showSettings: { shown.append($0) })
