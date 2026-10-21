@@ -1,4 +1,6 @@
 import CMUXAgentLaunch
+import CmuxControlSocket
+import CmuxFoundation
 import Foundation
 import Testing
 
