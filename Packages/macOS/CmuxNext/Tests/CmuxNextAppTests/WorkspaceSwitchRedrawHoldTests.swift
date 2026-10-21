@@ -51,6 +51,8 @@ import Testing
     /// Shows `view` and lets the window lay it out, its page filling it.
     static func show(_ view: WorkspaceContentView, in root: WindowRootView) {
         root.show(view)
+        // The window's chrome settles in its first passes (the titlebar band, the sidebar).
+        root.layoutSubtreeIfNeeded()
         root.layoutSubtreeIfNeeded()
         view.layoutView.subviews.first?.frame = view.layoutView.bounds
     }
@@ -76,13 +78,14 @@ import Testing
         #expect(b.isHidden)
     }
 
-    @Test func aWorkspaceShownAgainAtTheSizeItWasParkedAtShowsAtOnce() {
+    @Test func aWorkspaceShownAgainAtTheSizeItWasParkedAtShowsAtOnce() throws {
         let (window, root) = Self.root()
         defer { window.close() }
         let first = DrawnPage(), second = DrawnPage()
         let a = Self.workspace(first), b = Self.workspace(second)
         Self.show(a, in: root)
         Self.show(b, in: root)
+        try #require(a.frame.size == b.frame.size, "parked at \(a.frame.size), shown at \(b.frame.size)")
         root.show(a)
         #expect(first.asked == 0)
         #expect(a.alphaValue == 1)
