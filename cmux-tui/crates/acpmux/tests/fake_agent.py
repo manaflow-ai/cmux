@@ -42,6 +42,9 @@ ids the loaded rollout holds.
 FAKE_FORK_DEFAULTS=1: session/fork answers with the harness's default model and effort
 (configOptions), not the forked session's, as Codex does.
 
+FAKE_FORK_ERROR=1: the agent offers session/fork but answers it with a bare "Internal
+error", as Claude's ACP adapter does for a chat with no turn.
+
 FAKE_NO_FORK=1: the agent does not advertise sessionCapabilities.fork and answers
 session/fork with a bare "Internal error", as Kimi does.
 
@@ -1025,7 +1028,7 @@ def main():
             send({"jsonrpc": "2.0", "id": rid, "result": None})
         elif m == "session/fork":
             # FAKE_NO_FORK=1: an agent without session/fork (Kimi, DeepSeek): a bare internal error.
-            if os.environ.get("FAKE_NO_FORK") == "1":
+            if os.environ.get("FAKE_NO_FORK") == "1" or os.environ.get("FAKE_FORK_ERROR") == "1":
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "Internal error"}})
                 continue
             sessions += 1

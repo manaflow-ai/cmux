@@ -48,7 +48,7 @@ CASES = [
 class Daemon:
     """One isolated acpmux daemon this script starts and stops itself."""
 
-    def __init__(self, acpmux: str, home: Path, config: Path | None, env: dict[str, str]):
+    def __init__(self, acpmux: str, home: Path, config: Path | None, env: dict[str, str], keep_peers: bool = False):
         self.acpmux = acpmux
         self.home = home
         self.sock = Path(tempfile.mkdtemp(prefix="fmx-sock-")) / "a.sock"
@@ -64,7 +64,8 @@ class Daemon:
         if config and config.exists():
             cfg = json.loads(config.read_text())
             # Peers are other machines' daemons: this run stays on this one.
-            cfg["peers"] = {} if isinstance(cfg.get("peers"), dict) else []
+            if not keep_peers:
+                cfg["peers"] = {} if isinstance(cfg.get("peers"), dict) else []
             (home / "config.json").write_text(json.dumps(cfg))
         self.proc: subprocess.Popen | None = None
         self.log = open(home / "matrix-daemon.log", "ab")
@@ -125,6 +126,9 @@ def token(prefix: str) -> str:
 
 class Matrix:
     def __init__(self, d: Daemon, harness: str, model: str, cwd: Path, run: int, turn_timeout: int):
+        # HARNESS[/MODEL]@PEER: the chat runs on that acpmux peer (another computer); every
+        # fork of it is forwarded there (server/peer_forward.rs).
+        model, _, self.host = model.partition("@")
         self.d, self.harness, self.model, self.cwd, self.run_no = d, harness, model, cwd, run
         self.turn_timeout = turn_timeout
         self.tag = f"fmx-{harness}-{run}-{random.randint(1000, 9999)}"
@@ -133,7 +137,10 @@ class Matrix:
 
     # -- acpmux helpers -------------------------------------------------
     def new(self, name: str, prompt: str | None) -> tuple[bool, str]:
-        args = ["new", "-d", "-n", name, "-m", self.model, "--cwd", str(self.cwd), "--policy", "approve-all"]
+        cwd = "/tmp" if self.host else str(self.cwd)
+        args = ["new", "-d", "-n", name, "-m", self.model, "--cwd", cwd, "--policy", "approve-all"]
+        if self.host:
+            args += ["--host", self.host]
         if prompt:
             args += ["--timeout", str(self.turn_timeout), "--stall", "150", "-q", prompt]
         rc, out, err = self.d.json(args, timeout=self.turn_timeout + 60)
@@ -189,6 +196,9 @@ class Matrix:
         ok, why = self.new(self.parent, f"Remember the secret token {self.t1}. Reply with just OK.")
         if not ok:
             return False, f"turn 1: {why}"
+        # A harness that answers with an error text (a model the account lacks) is no chat to fork.
+        if "OK" not in why.upper() or "ERROR" in why.upper():
+            return False, f"turn 1 reply {why[:200]!r}"
         ok, why = self.send(self.parent, "Use your shell or terminal tool to run exactly this command: echo TOOL-CHECK. Then reply with just DONE.")
         if not ok:
             return False, f"turn 2: {why}"
@@ -357,11 +367,12 @@ def main() -> int:
     ap.add_argument("--env", action="append", default=[], help="NAME=VALUE for the daemon")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--home", type=Path, default=None)
+    ap.add_argument("--keep-peers", action="store_true", help="keep config.json's peers (for HARNESS@PEER chats)")
     args = ap.parse_args()
     env = dict(kv.split("=", 1) for kv in args.env)
     home = args.home or Path(tempfile.mkdtemp(prefix="fmx-home-"))
     cwd = Path(tempfile.mkdtemp(prefix="fmx-cwd-"))
-    d = Daemon(args.acpmux, home, args.config, env)
+    d = Daemon(args.acpmux, home, args.config, env, keep_peers=args.keep_peers)
     d.start()
     host = os.uname().nodename
     try:

@@ -346,6 +346,32 @@ async fn fork_copies_history_and_gets_its_own_agent() {
     assert_eq!(r["stopReason"], "end_turn");
 }
 
+/// An agent that offers `session/fork` but fails it with a bare error (Claude's ACP
+/// adapter on a chat with no turn): the reason names the harness, and no chat is made.
+#[tokio::test]
+async fn an_agents_bare_fork_error_names_the_harness() {
+    let env = BTreeMap::from([("FAKE_FORK_ERROR".to_owned(), "1".to_owned())]);
+    let (_hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "bare"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let err = c
+        .request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()}))
+        .await
+        .expect_err("the agent fails the fork");
+    assert!(
+        err.contains("fake could not fork this chat") && err.contains("Internal error"),
+        "{err}"
+    );
+    let list = c.request(method::SESSION_LIST, json!({})).await.unwrap();
+    assert_eq!(list["sessions"].as_array().map(Vec::len), Some(1), "no chat is made: {list}");
+}
+
 /// A fork keeps the chat's model and effort. Codex answers `session/fork` with its
 /// defaults; the fork matrix found a chat on gpt-5.6-luna forking into one on the
 /// account's default model, which the account cannot run, so the fork's first
