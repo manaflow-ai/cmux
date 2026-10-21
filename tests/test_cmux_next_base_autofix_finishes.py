@@ -256,6 +256,22 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertIn("made_at=", step["run"])
         self.assertEqual(job["outputs"]["settings_made_at"], "${{ steps.settings.outputs.made_at }}")
 
+    def test_the_mac_job_makes_the_action_exports_on_the_newest_tip(self):
+        # 2026-10-21: judged from the run's own commit, the action exports were held on every run
+        # (the Mac job queues for half an hour; the actions area moves every few minutes).
+        job = DOC["jobs"]["action-exports"]
+        step = next(s for s in job["steps"] if s.get("id") == "actions")
+        self.assertIn("scripts/cmux-next/base-autofix-action-exports.sh", step["run"])
+        self.assertIn("made_at=", step["run"])
+        self.assertIn("CMUX_BASE_AUTOFIX_ACTIONS_PREPARE", step["env"])
+        self.assertIn("timeout-minutes", step)
+        self.assertEqual(job["outputs"]["actions_made_at"], "${{ steps.actions.outputs.made_at }}")
+        push = next(s for s in DOC["jobs"]["autofix"]["steps"] if "base-autofix-land.sh" in s.get("run", ""))
+        self.assertEqual(push["env"]["ACTIONS_MADE_AT"], "${{ needs.action-exports.outputs.actions_made_at }}")
+        self.assertIn('"$SETTINGS_MADE_AT" "$ACTIONS_MADE_AT"', push["run"])
+        self.assertIn("scripts/cmux-next/base-autofix-action-exports.sh", DOC[True]["push"]["paths"])
+        self.assertGreaterEqual(job["timeout-minutes"], step["timeout-minutes"] + 40)
+
     def test_a_slow_settings_regeneration_never_costs_the_action_exports(self):
         # Up to three swift builds: the settings step has its own timeout, below the job's, so a slow
         # one fails that step (continue-on-error) and the upload of the action exports still runs.
