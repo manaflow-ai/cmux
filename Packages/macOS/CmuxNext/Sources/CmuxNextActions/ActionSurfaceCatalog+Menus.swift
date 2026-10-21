@@ -51,6 +51,8 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.copyWorkspaceIDAndRef": [p(.workspaceRow, .inspect, 407, folder: .copy)],
         "palette.copyWorkspaceLink": [p(.workspaceRow, .inspect, 406, folder: .copy)],
         "workspaceGroup.newWorkspace": [p(.workspaceGroup, .create, 0)],
+        // In Options ▸: the group menu keeps 12 top-level rows (ActionSurfaceParityTests).
+        "workspaceGroup.newSubgroup": [p(.workspaceGroup, .identity, 109, folder: .options)],
         "workspaceGroup.rename": [p(.workspaceGroup, .identity, 1)],
         "workspaceGroup.togglePin": [p(.workspaceGroup, .identity, 3)],
         "workspaceGroup.markRead": [p(.workspaceGroup, .identity, 110, folder: .options)],
@@ -167,6 +169,8 @@ nonisolated extension ActionSurfaceCatalog {
         "tab.restart": [p(.tab, .create, -3)],
         "newTab.toRight": [p(.tab, .create, -2)],
         "newTab.ofKind": [p(.tab, .create, -1, folder: .new)],
+        "newTab.atStart": [p(.tab, .create, 4, folder: .new)],
+        "newTab.atEnd": [p(.tab, .create, 5, folder: .new)],
         "newSurface": [p(.tab, .create, 0, folder: .new), p(.newTab, .create, 0)],
         "openBrowser.chromium": [p(.tab, .create, 2, folder: .new), p(.newTab, .create, 2)],
         "closeTab": [p(.tab, .close, 604)],

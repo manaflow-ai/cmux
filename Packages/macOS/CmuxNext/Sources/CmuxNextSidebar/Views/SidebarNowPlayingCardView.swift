@@ -52,7 +52,7 @@ final class SidebarNowPlayingCardView: NSView {
         }
         closeButton.isHidden = true
         closeButton.alphaValue = 0
-        closeButton.toolTip = Self.closeLabel
+        for button in [previousButton, nextButton, closeButton] { button.showsLabelToolTip = false }
         closeButton.onPress = { [weak self] in self?.onClose?() }
         previousButton.onPress = { [weak self] in self?.onCommand?(.previous) }
         playPauseButton.onPress = { [weak self] in self?.onCommand?(.playPause) }
@@ -299,7 +299,7 @@ final class SidebarNowPlayingScrubber: NSView {
         fill.bounds = CGRect(x: 0, y: 0, width: width * position / duration, height: bar)
         guard dragged == nil, nowPlaying.isPlaying, nowPlaying.rate > 0, window != nil, width > 0, position < duration else { return }
         let remaining = (duration - position) / nowPlaying.rate
-        let glides = reduceMotionOverride.map { !$0 } ?? Motion.animatesMovement
+        let glides = reduceMotionOverride.map { !$0 } ?? Motion.overlays.animatesMovement
         fill.add(Self.progress(from: fill.bounds.width, to: width, over: remaining, glides: glides), forKey: Self.progressKey)
     }
 

@@ -143,6 +143,9 @@ enum Action {
     /// cmux: an attachment part's bytes arrived or its upload moved
     /// (HomeStore); replaces the part with the same attachment id, no motion.
     case cmuxSetAttachment(ID, Attachment)
+    /// cmux: my send's parts as the owner stored them (Reply to Selection's quote run), the
+    /// same number of parts; replaced in place, no motion.
+    case cmuxSetParts(ID, [Part])
     /// cmux: the host's notice changed (nil clears it); the rows are derived again.
     case cmuxNotice(String?)
     /// Hosted rows of these messages measure again (no state change). `animated` false: an
@@ -187,9 +190,13 @@ enum Reducer {
         case .send:
             let d = s.ui.draft
             guard canSend(d) else { return nil }
-            let text = d.plainText.trimmingCharacters(in: .whitespacesAndNewlines)  // cmux: without the attachment marks
-            var parts = d.attachments.map { Part.attachment($0) }
-            if !text.isEmpty { parts += TextParts.parts(for: text) }
+            // cmux: the text and the attachments in the field's order (Draft+InlineMarks.swift)
+            let parts = d.pieces.flatMap { piece -> [Part] in
+                switch piece {
+                case let .text(t): TextParts.parts(for: t)
+                case let .attachment(a): [.attachment(a)]
+                }
+            }
             var m = Message(id: newID(), senderId: s.me, sentAt: stamp, parts: parts,
                             replyTo: d.replyTo ?? s.ui.openThread, status: .sending, edits: nil, retractedAt: nil, reactions: [])
             // Tree mode: a reply in a drilled branch answers the branch's message (nil: the root).
@@ -326,6 +333,10 @@ enum Reducer {
                   let pi = s.conversation.messages[checked: i]?.parts.firstIndex(where: { if case let .attachment(x) = $0 { return x.id == a.id }; return false })
             else { break } // cmux: checked
             s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .attachment(a) } }
+        case let .cmuxSetParts(id, parts):  // cmux
+            guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
+                  s.conversation.messages[checked: i]?.parts.count == parts.count else { break } // cmux: checked
+            s.conversation.messages.update(at: i) { $0.parts = parts }
         case let .cmuxNotice(text):  // cmux
             s.ui.cmuxNotice = text
         case let .streamBegin(id, sender, format):

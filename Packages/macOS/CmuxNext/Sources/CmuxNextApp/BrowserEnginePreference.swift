@@ -10,7 +10,10 @@ import Observation
 @Observable
 final class BrowserEnginePreference {
     var defaultEngine: BrowserDefaultEngine = .fallback
+    /// The live `browser.siteEngines`: sites that open in a set engine.
+    var siteEngines: BrowserSiteEngines = .fallback
     @ObservationIgnored private var observation: Task<Void, Never>?
+    @ObservationIgnored private var siteObservation: Task<Void, Never>?
 
     /// Applies every loaded snapshot's value.
     func follow(_ settings: SettingsController) {
@@ -19,6 +22,13 @@ final class BrowserEnginePreference {
             for await engine in ObservationStream({ settings.snapshot.browserDefaultEngine }) {
                 guard let self else { return }
                 if self.defaultEngine != engine { self.defaultEngine = engine }
+            }
+        }
+        siteObservation?.cancel()
+        siteObservation = Task { [weak self] in
+            for await rules in ObservationStream({ settings.snapshot.browserSiteEngines }) {
+                guard let self else { return }
+                if self.siteEngines != rules { self.siteEngines = rules }
             }
         }
     }

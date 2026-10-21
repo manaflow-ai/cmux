@@ -317,7 +317,10 @@ POOLS = {
 }
 DEFAULT_ORDER = (LARGE_RUNNER, DEFAULT_RUNNER, MACOS_15_RUNNER)
 # Owned classes in preference order, ahead of Blacksmith in the default order
-# once CI_PR_POOL_OWNED is 1. Their label embeds the lane's Xcode version, and
+# once CI_PR_POOL_OWNED is 1. The order is also widest first: a job sized for a
+# class runs on every class before it (std's 48 GB minis run what light's 16 GB
+# minis run, never the reverse), which side_lane_placement.compatible_labels()
+# reads to spill a starved pool onto an idle wider one. Their label embeds the lane's Xcode version, and
 # their POOLS pin is "" (the lane's own), which is the Xcode that label names.
 RUN_CLASSES = ("std", "light")
 # `glaeda-root-...` are each mini's root runners, the `canonicalRoots` runners

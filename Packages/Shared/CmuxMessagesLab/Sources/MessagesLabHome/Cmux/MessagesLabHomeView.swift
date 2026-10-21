@@ -12,22 +12,28 @@ public final class MessagesLabHomeView: NSView {
     let controller: ChatController
     let projection: HomeProjection
     private var warmed = false
+    /// The palette generation this view's rows were last refreshed for (applyTheme).
+    private var appliedPalette = -1
 
     /// - Parameters:
     ///   - store: the app's HomeStore (one per daemon session; the view never creates one).
     ///   - wake: the engine clock's one-shot timer (CmuxNext: DemandTimer).
     ///   - diagrams: draws ```` ```mermaid ```` fences as diagram bubbles (CmuxNext: the
     ///     JavaScriptCore Ondine renderer); nil keeps them as text.
+    ///   - replies: how an agent's running reply shows: ``HomeReplyDisplay/wholeMessages`` (default:
+    ///     typing dots, then each message whole) or the older token-by-token stream bubble.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler,
-                diagrams: (any HomeDiagramRendering)? = nil) {
+                diagrams: (any HomeDiagramRendering)? = nil, replies: HomeReplyDisplay = .wholeMessages) {
         MessagesLabHomeView.liveFormatting()
         HomeMarkdownPolicy.install()
         // Before the projection maps its first messages, so a diagram never shows as text first.
         if let diagrams { HomeDiagramRowProvider.install(diagrams) }
+        // An agent's pipe tables as full-width table and plan cards (Leo 2026-10-20).
+        HomeTableRowProvider.install()
         controller = ChatController(wake: wake)
         // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
         projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,
-                                    linkPreviews: HomeLinkPreviews())
+                                    linkPreviews: HomeLinkPreviews(), replies: replies)
         super.init(frame: .zero)
         wantsLayer = true
         addSubview(controller.host)
@@ -91,10 +97,31 @@ public final class MessagesLabHomeView: NSView {
         set { projection.notice = newValue }
     }
 
+    /// An agent's pipe tables draw as cards at the chat's full width, assignment tables as the
+    /// Chief's plan card (default on; Debug Settings > Home > Rich tables). Off, they stay Markdown
+    /// text in the bubble. Messages mapped after the change follow it.
+    public static var richTables: Bool {
+        get { HomeTableRowProvider.isOn }
+        set { HomeTableRowProvider.isOn = newValue }
+    }
+
+    /// The Chief's live plan for the plan cards' state pills and owner links (the host copies its
+    /// ``ChiefPlanBoard`` here whenever it changes).
+    public static func publish(plan: ChiefPlan) {
+        HomePlanRowProvider.plan = plan
+    }
+
     /// H17: offline the user can type; tapbacks are off and a send waits as "sending".
     public var isSendEnabled: Bool {
         get { projection.isSendEnabled }
         set { projection.isSendEnabled = newValue }
+    }
+
+    /// How the Chief's running indicator reads (``HomeTurnProgressStyle``), asked at each of its ticks:
+    /// the host passes its Debug Settings value so a change shows within a second.
+    public var turnProgressStyle: () -> HomeTurnProgressStyle {
+        get { projection.liveLine.style }
+        set { projection.liveLine.style = newValue }
     }
 
     /// The Chief works: the compose bar offers Stop (the button, Esc, Cmd-.).
@@ -115,12 +142,13 @@ public final class MessagesLabHomeView: NSView {
         set { projection.isVisibleToUser = newValue }
     }
 
-    /// The theme's palettes for the key and the non-key window. One theme
-    /// per app: the palette is process-wide (`Fixture.theme`).
+    /// The theme's palette (the key window's: every Home window draws its
+    /// bubbles with it in both key states, MessagesLab 806ef0c / macOS 27).
+    /// One theme per app: the palette is process-wide (`Fixture.theme`).
     /// `measuredAccent`: the theme names no accent, so sent bubbles keep
     /// MessagesLab's measured blue and gradient.
-    public func applyTheme(active: HomePalette, inactive: HomePalette, measuredAccent: Bool = false) {
-        let theme = FixtureTheme(active: active, inactive: inactive, measuredAccent: measuredAccent)
+    public func applyTheme(active: HomePalette, measuredAccent: Bool = false) {
+        let theme = FixtureTheme(active: active, measuredAccent: measuredAccent)
         defer {
             // Per view: a second Home tab finds the process-wide theme set.
             controller.host.headerBackdrop.setTint(Fixture.background)
@@ -132,17 +160,14 @@ public final class MessagesLabHomeView: NSView {
         }
         // Link cards follow a light theme (MessagesLab 02519e9: Messages' light card, #E9E9EB).
         if let demo = controller.demo { demo.setLightAppearance(theme.active.isLight) } else { Fixture.lightAppearance = theme.active.isLight }
-        guard Fixture.theme != theme else { return }
-        Fixture.theme = theme
-        RowBitmaps.shared.removeAll()
-        if let demo = controller.demo {
-            let inactiveNow = Fixture.inactive
-            demo.setInactive(!inactiveNow)
-            demo.setInactive(inactiveNow)
-            demo.backgroundColor = Fixture.background
-            // The placeholder, waveform and chips are drawn once with the palette.
-            demo.compose.rescale()
-        }
+        if Fixture.theme != theme { Fixture.theme = theme; RowBitmaps.shared.removeAll() }
+        // This view draws again whenever its rows were made with another palette: also a second Home window,
+        // which finds the process-wide theme already set (its own applied generation, not the theme compare).
+        guard let demo = controller.demo, appliedPalette != Fixture.paletteGeneration else { return }
+        appliedPalette = Fixture.paletteGeneration
+        demo.chrome.setNeedsDisplay(); demo.refreshVisibleCells()
+        demo.backgroundColor = Fixture.background
+        demo.compose.rescale()  // the placeholder, waveform and chips are drawn once with the palette
     }
 
     /// cmux: a click on a cmux app link in agent text (`URL.isCmuxAppLink`); the host
@@ -170,11 +195,26 @@ public final class MessagesLabHomeView: NSView {
         return hit
     }
 
+    /// cmux: a press on a link that moved past the drag slop, with the pointer's screen point; true
+    /// when the host took the drag (it drops the link into a split or a pane). Nil: such a press
+    /// selects text, as before.
+    public var onDragLink: ((_ url: URL, _ screenPoint: CGPoint) -> Bool)? {
+        get { controller.onDragLink }
+        set { controller.onDragLink = newValue }
+    }
+
     /// cmux: a click on any other link in the transcript (`otherTarget`: Shift-Command held).
     /// Defaults to the system; the host routes it (cmux: its link setting).
     public var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void {
         get { controller.onOpenLink }
         set { controller.onOpenLink = newValue }
+    }
+
+    /// cmux: where an attachment opens and what its right-click menu offers (held weakly).
+    /// Nil: the system opens it ("Open in Default App").
+    public var fileHost: HomeFileHost? {
+        get { controller.fileHost }
+        set { controller.fileHost = newValue }
     }
 
     /// A click (or Space/Return with the keyboard) on the header's name
@@ -309,6 +349,27 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onRefusal }
         set { projection.onRefusal = newValue }
     }
+
+    /// Forward… in a bubble's context menu: the host routes the bubble's text to another chat
+    /// (cmux-next's `home.sendSelectionTo`); nil leaves Forward… out of the menu.
+    public var onForward: ((String) -> Void)? {
+        get { projection.onForward }
+        set { projection.onForward = newValue }
+    }
+
+    /// Automation and tests: chooses `title` in the context menu of the shown bubble whose text
+    /// is `text`, built and chosen by the right-click's path. False when no such bubble or row shows.
+    public func debugChooseMenuItem(_ title: String, onBubble text: String) -> Bool {
+        guard let hit = debugBubble(text: text), let menu = controller.menu(at: CGPoint(x: hit.body.midX, y: hit.body.midY)) else { return false }
+        controller.menuHighlight?.discard(); controller.menuHighlight = nil // never shown
+        guard let item = menu.items.first(where: { ($0 as? MenuAction)?.label == title || $0.title == title }),
+              let action = item.action else { return false }
+        NSApp.sendAction(action, to: item.target, from: item)
+        return true
+    }
+
+    /// The localized title of a bubble's Forward… row.
+    public static var forwardMenuTitle: String { CmuxStrings.forward }
 
     // MARK: Attachments (lane 16)
 

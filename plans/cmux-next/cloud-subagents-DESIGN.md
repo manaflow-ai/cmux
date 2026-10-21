@@ -128,3 +128,53 @@ change, and its credential question (B3) had no default.
    Full crate, clippy and fmt on macOS: fleet step `cloudsub-green2-1ccfbdc`.
 5. Proof: after the nightly, `control cloud chief-subagents-1` and one real
    spawn that reports back.
+
+### B4 and B11 slice (2026-10-20)
+
+- `control cloud cloud1,cloud2` lists peers. Each new cloud subagent goes to
+  the peer with the fewest live (starting or running) cloud subagents,
+  counting the ones of the same spawn; ties go to the first listed.
+- `CloudVms` (optchat-chief `cloud_vms.rs`): before a cloud subagent starts,
+  the host resumes its peer's VM (a no-op when it runs). The host's minute
+  tick pauses a peer's VM once after 10 minutes with no live cloud subagent
+  on it; a `tell` to a finished subagent on a paused VM resumes it first.
+- The command is cmuxterm-hq `tools/cloud-subagents/deploy.sh`, named in
+  `~/.config/cloud-subagents/vm-cmd`, which `deploy.sh up` writes. No file:
+  the host leaves VMs alone. Everything stays behind the same opt-in: with
+  `control cloud` off and no `OPTCHAT_SUBAGENT_PEER`, subagents run local.
+- B11: `deploy.sh up` grows the VM disk to 64 GB (Freestyle resize is
+  grow-only, needs a running VM) and grows the guest file system.
+- Tests: two new tests in `tests/cloud_subagents.rs` (least busy peer and
+  resume; idle pause once, then resume).
+
+### Aggressive auto-pause (2026-10-20)
+
+User: "For subagents in the cloud we need to have aggressive auto-pausing
+behavior."
+
+- `cloud.autoPauseIdleSeconds` (Chief settings, default 60; `optchat-chief
+  settings set cloud.autoPauseIdleSeconds N`): a VM pauses this long after its
+  last cloud subagent stops being live. Live = starting or running: a turn, a
+  tool, a permission prompt or a held tell. The host checks every 5 s, so a
+  VM pauses 60-65 s after it went idle.
+- The pool tool also guards: `deploy.sh pause` exits 3 (busy) while a
+  session on the VM is running or at a prompt, or an agent's background
+  process runs; the host tries again later (`CloudPauseFailed`). So a turn
+  is never frozen, even when the host's view is stale.
+- The host stopping (SIGTERM, update) pauses its idle VMs at once. A VM with
+  a subagent mid-turn keeps running; its report waits in acpmux. A host that
+  crashes pauses idle VMs within 65 s of its next start. A VM-side watchdog
+  for a Chief that never comes back is not built (it needs a Freestyle key
+  on the VM).
+- Wake: spawn and tell resume the VM first; the host logs each resume time.
+
+Measured on a temporary 4 vCPU / 8 GiB Freestyle VM with 2 GiB of memory
+in use, 3 runs (Freestyle API): pause 258-549 ms, resume until a command
+runs 209-241 ms. `deploy.sh pause` with its busy check took 1.2 s on
+chief-subagents-1. The acpmux peer reconnect after a resume is not measured.
+
+Idle cost per VM (about 0.26 USD per running hour): before, a VM ran 10-11
+minutes after its last subagent (about 0.045 USD per idle period), and never
+paused when its host was gone. After: 60-65 s (about 0.0045 USD), 10 times
+less; a host that stops pauses its idle VMs at once. The paused price is
+storage only (64 GB); Freestyle's storage price was not checked.

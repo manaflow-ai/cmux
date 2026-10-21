@@ -38,6 +38,8 @@ protocol FilePageHosting: AnyObject {
     /// The native omnibar shows the file's path above the page (the Markdown omnibar), so the
     /// page's toolbar drops its own file name (config `omnibar: true`).
     var showsOmnibar: Bool { get }
+    /// The page's link history moved (`cmux.markdown.history`): the omnibar's Back and Forward follow.
+    func historyChanged(canBack: Bool, canForward: Bool)
     /// A page's edit of `url` (the R96 quit hook): the document's unsaved state and its draft.
     func edited(_ url: URL, text: String, baseHash: String?, writable: Bool) -> RecoveryDraftAcceptance
     /// A normal save of `url` wrote `hash`.
@@ -46,6 +48,7 @@ protocol FilePageHosting: AnyObject {
 
 extension FilePageHosting {
     var showsOmnibar: Bool { false }
+    func historyChanged(canBack: Bool, canForward: Bool) {}
 }
 
 /// One file page tab's `cmux.markdown.*` or `cmux.editor.*` namespace (diff-host.md S6 "Markdown
@@ -89,12 +92,20 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// Whether the tab's file may be saved (the last config's answer).
     private var writable = false
     var isWritable: Bool { writable }
+    /// The page shows its file read only (the last config said `readOnly`): bare keys are the
+    /// user's bindings there, not typing (`markdownReadOnlyFocused`, K1).
+    private(set) var showsReadOnly = false
     /// Documents this tab has shown (it may reopen them, its own back and forward).
     private var shown: Set<String> = []
     private(set) var isClosed = false
     /// Where the markdown page keeps table column widths between opens (nil: the page keeps
     /// none past the tab). ``FilePageProvider+TableWidths.swift``.
     let tableWidths: (any MarkdownTableWidthStoring)?
+    /// Where the markdown page's viewer comments live between opens (nil: none are kept).
+    /// ``FilePageProvider+Comments.swift``.
+    let comments: (any MarkdownTableWidthStoring)?
+    /// Sends the page a changed comment list (the service sets it: the `comments` page command).
+    var onCommentsChanged: ((JSONValue) -> Void)?
     /// The table the page last reported under a right-click (its index), for the native menu's
     /// Reset Column Widths; nil when the right-click was outside every table.
     var contextTable: Int?
@@ -108,9 +119,10 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// the document read only whoever opened it (a chat transcript).
     init(kind: FilePageKind, file: URL?, userChose: Bool = true, readOnly: Bool = false, host: any FilePageHosting,
          clock: any Clock<Duration> = ContinuousClock(), libraries: URL?, images: any RemoteImageFetching,
-         tableWidths: (any MarkdownTableWidthStoring)? = nil) {
+         tableWidths: (any MarkdownTableWidthStoring)? = nil, comments: (any MarkdownTableWidthStoring)? = nil) {
         self.kind = kind
         self.tableWidths = tableWidths
+        self.comments = comments
         self.file = file.map(Self.canonical)
         if let file = self.file {
             shown.insert(file.path)
@@ -152,6 +164,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             return try await config(for: file)
         case kind.op("open"):
             return try await open(path(params["path"]))
+        case kind.op("history") where kind == .markdown:
+            host.historyChanged(canBack: params["canBack"]?.boolValue ?? false, canForward: params["canForward"]?.boolValue ?? false)
+            return .object([:])
         case kind.op("edited"):
             return try edited(params, host: host)
         case kind.op("save"):
@@ -188,6 +203,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             return try await listFiles(params)
         case kind.op("setTableWidths") where kind == .markdown:
             return try await setTableWidths(params)
+        case kind.op("deleteComment") where kind == .markdown:
+            return try await deleteComment(params)
         case kind.op("contextTable") where kind == .markdown:
             contextTable = params["table"]?.intValue.flatMap { $0 >= 0 ? $0 : nil }
             return .object([:])
@@ -322,9 +339,13 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             }
             // Read before the page's first layout, so a saved table never jumps from its natural width.
             if let widths = await savedTableWidths(file.url) { config["tableWidths"] = widths }
+            if let comments = await savedComments(file.url) { config["comments"] = comments }
         case .editor:
             config["size"] = JSONValue(file.size)
         }
+        // Set after the awaits above, so overlapping opens leave the flag
+        // matching the config the page applies last.
+        showsReadOnly = file.readOnlyReason != nil
         return merged(.object(config), host?.look() ?? .object([:]))
     }
 

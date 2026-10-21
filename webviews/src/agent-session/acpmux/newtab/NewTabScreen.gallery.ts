@@ -25,6 +25,22 @@ const reasoningChat = () =>
 const ALBUM_ART =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAACU0lEQVR42tXPCTcTAAAH8P8nkZJyC8uSRUNzX8uRNS0amvvMckSOJkcTOXJHJCJHkyOyHJEjckS8Xr16vXr1en2E9jX+3+D3g5labZ6ttrxx0yorxyYr1zYz1y4jzyEjX5B+yzGtQJha4JRa6JxyW5Rc5JJc7JpULE4scUso9Ui4I4nXeKo03qoyn+t3/eLKA2IrAmMrgmMqpcqqEOW9sGva8GhtRFS1LOq+/GpNpKJGoaiNuvIgOrJOKa+PkdfHXW5QyRrjZQ8TI5qSLjWlhDenhbekh7VmhrZlhbZlh7SrL3bkSB/lSTvzgzsLgroKgx4XBXaXBPSU+vdo/J+U+fWW+z6t9O0Dtb7Kpw/Ueq13P6j11V7PQK2v8RoAtb7WcwDU+jrJIKj1DZLnoNY3XhgCtb7JYxjU+mb3YVDrW91HQK1vdxsFtb5D/ALU+k6xDtT6rvM6UOu7XcdAre9xeQlqfa/LOKj1fecmQK3vF02AWj8gmgS1ftB5CtT6obOvQK0fcZoGtX7UEKDW687MgFo/JnwNav24cBbU+klHPaj1U6f1oNZPC96AWj8jmAO1ftZhHtR6vf08qPVz9gug1i/YLYJav3jqLaj1S7ZLoNYvGwLU+hWbZVDr16zfgVq/br0Cav2G1Sqo9ZuWq6DWb1msgVq/Y7EOav2u+XtQ6/fMNkCt3zcEqPUHJzdBrT888QHU+s+mW6DWfzHdBrX+6/FtUOu/meyAWv/dZBfU+h/HPoJa//PoHqj1v4z3QK3/bbwPav2fI59Arf9rdABq/T+jw/8n7vrBWnViYgAAAABJRU5ErkJggg==";
 
+/// The typed-tab-match variants' omnibar: open tabs, a workspace and visited pages that match "release".
+const RELEASE_OMNIBAR = {
+  tabs: [
+    { id: "tab-1", kind: "browser", title: "Release notes", detail: "cmux.dev", icon: SITE_ICON },
+    { id: "tab-2", kind: "terminal", title: "release build", detail: "~/src/release" },
+  ],
+  workspaces: [{ id: "workspace-1", name: "Release", detail: "~/src/release" }],
+  folders: [CWD],
+  commands: [],
+  // A visited page with its site's icon, and one whose icon is still loading (the glyph).
+  history: [
+    { url: "https://cmux.dev/release", title: "cmux release notes", icon: OTHER_SITE_ICON },
+    { url: "https://example.com/release", title: "example release" },
+  ],
+};
+
 /// What plays, as the host pushes it (`nowPlaying`): Spotify's track with its art.
 const nowPlayingTrack = (playing: boolean) => ({
   title: "Weightless",
@@ -141,6 +157,54 @@ async function waitForTabJump(
   );
 }
 
+/// Types a prompt, pastes an image and starts Now Playing, then checks that the composer's card
+/// and its field are where the empty page drew them (Leo 2026-10-19: the composer kept moving).
+async function holdsItsPlace(ctx: PlayContext): Promise<void> {
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+  const place = () => {
+    const box = ctx.document.querySelector(".nt-box")!.getBoundingClientRect();
+    const field = ctx.document.querySelector(".nt-field")!.getBoundingClientRect();
+    return `${box.top},${box.left},${box.width} ${field.top},${field.left}`;
+  };
+  const start = place();
+  await ctx.type("why does the release build fail", { selector: ".nt-field" });
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-popover .nt-row") !== null);
+  const view = ctx.document.defaultView as unknown as typeof globalThis & {
+    cmuxAcpmuxBridge?: { applyNowPlaying?(track: unknown): void };
+  };
+  const canvas = ctx.document.createElement("canvas");
+  canvas.width = 320;
+  canvas.height = 200;
+  const paint = canvas.getContext("2d")!;
+  paint.fillStyle = "#3a7bd5";
+  paint.fillRect(0, 0, 320, 200);
+  const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+  const data = new view.DataTransfer();
+  data.items.add(new view.File([blob], "Screenshot.png", { type: "image/png" }));
+  ctx
+    .find({ selector: ".nt-field" })
+    .dispatchEvent(new view.ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-box .acpmux-attachment-image") !== null);
+  view.cmuxAcpmuxBridge?.applyNowPlaying?.({
+    title: "Weightless",
+    artist: "Marconi Union",
+    artwork: ALBUM_ART,
+    playing: false,
+    position: 132,
+    duration: 480,
+    rate: 1,
+    positionDate: Date.now(),
+    canPrevious: true,
+    canNext: true,
+    labels: { play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track" },
+  });
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-player") !== null);
+  // The suggestions close, so the capture shows the image under the text.
+  await ctx.press("Escape");
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-popover") === null);
+  if (place() !== start) throw new Error(`the composer moved from ${start} to ${place()}`);
+}
+
 export default agentPaneEntry({
   id: "agent-pane.new-tab",
   title: "New Tab page",
@@ -171,6 +235,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#StyleSwitch",
     "agent-session/acpmux/newtab/WidgetCards.tsx#WidgetCards",
+    "agent-session/acpmux/newtab/StageCards.tsx",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "ui/HideableChrome.tsx#HideableChrome",
@@ -188,33 +253,42 @@ export default agentPaneEntry({
           throw new Error("Add harness shows on the page with a harness installed");
       },
     },
-    // The chip's model picker opens whole: the card does not clip it to its search field
-    // (Lawrence 2026-10-13). Points near its top and bottom edges hit the picker, not the page.
+    // The model button opens its one menu (Leo 2026-10-20), whole: the card does not clip it
+    // (Lawrence 2026-10-13). Points near its top and bottom edges hit the menu, not the page, and
+    // its More models submenu ends on Add harness….
     "model-picker-open": {
-      note: "The New Tab chip's model picker, open: at least its search field and about six rows, never cut by the card. Its list ends on Add harness….",
+      note: "The New Tab model button's menu, open: the harness rail and the numbered models, never cut by the card; More models ends on Add harness….",
       ready: newTab(),
       snapshot: noChat(),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         await ctx.click({ role: "button", name: "Model" });
         await ctx.waitFor(() => {
-          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
-          if (!menu || menu.style.visibility !== "visible") return false;
+          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-quick-menu");
+          if (!menu || !menu.querySelector('[role="menuitemradio"]')) return false;
           const box = menu.getBoundingClientRect();
-          if (box.height < 219) return false;
+          if (box.height < 120) return false;
           const x = box.left + box.width / 2;
           return [box.top + 6, box.bottom - 6].every((y) => menu.contains(ctx.document.elementFromPoint(x, y)));
         });
-        const options = ctx.document.querySelectorAll(".acpmux-mp-models [role=option]");
-        if (!options[options.length - 1]?.classList.contains("acpmux-mp-add-harness"))
-          throw new Error("the model picker's list does not end on Add harness…");
+        await ctx.hover({ text: "More models" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-more"));
+        const rows = ctx.document.querySelectorAll(".acpmux-quick-more [role^=menuitem]");
+        if (!rows[rows.length - 1]?.textContent?.includes("Add harness"))
+          throw new Error("the model menu's More models does not end on Add harness…");
       },
     },
-    // Reasoning is its own chip beside the model chip, with its own menu (P0 #8): acpmux starts
-    // Claude Code on Medium, so the chip names it before any chat exists.
+    // The effort is part of the one model button (Leo 2026-10-20: "Opus 5.5  Medium"), and its
+    // levels are the menu's Effort submenu (P0 #8: a live pick, never a picture): acpmux starts
+    // Claude Code on Medium, so the button names it before any chat exists.
     "reasoning-chip": {
-      note: "Before any chat: the Reasoning chip names the level acpmux starts Claude Code on (Medium) and opens the reasoning menu on its own, apart from the model chip.",
+      note: "Before any chat: the model button names the model and the level acpmux starts Claude Code on (Medium); its menu's Effort row opens the levels. No separate Reasoning chip.",
       ready: newTab(),
+      snapshot: reasoningChat(),
+    },
+    "reasoning-chip-stage": {
+      note: "The Default template's stage layout before any chat: its own composer at the foot of the page, the one model button (model and effort) in the box, text at rest, the soft pill only on the hovered control.",
+      ready: newTab({ template: "default" }),
       snapshot: reasoningChat(),
     },
     // The New Tab composer's states, as the chat composer's (agent-pane.composer composer-*): the
@@ -324,6 +398,39 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-widget-tip") !== null);
       },
     },
+    "stage-layout": {
+      note: "The Default template's layout (Leo 2026-10-19, Claude Code desktop's new-session screen): the composer at the foot with the plain footer (folder and mode left, model and effort right); over it, centered, the environment card (this project checked, the other projects, Choose environment) and the suggested actions card (the chats that need you, then New terminal, New browser tab, New chat); the recent chats under them.",
+      ready: newTab({ template: "default", projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-suggest-chat").length > 0);
+        const composer = ctx.document.querySelector(".nt-composer")!.getBoundingClientRect();
+        const env = ctx.document.querySelector(".nt-env")!.getBoundingClientRect();
+        if (env.bottom > composer.top) throw new Error("the environment card is not above the composer");
+      },
+    },
+    "stage-hover": {
+      note: "A pointer over a chat that needs you: its hover card floats over the page, offset from the row, solid, never over the row's own text.",
+      ready: newTab({ template: "default", projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-suggest-chat").length > 0);
+        await ctx.hover({ selector: ".nt-suggest-chat" });
+        // The card settled: its fade-in ended, so the capture shows the solid card, not a ghost.
+        await ctx.waitFor(() => {
+          const card = ctx.document.querySelector<HTMLElement>(".nt-hovercard");
+          return (
+            !!card &&
+            !card.hasAttribute("data-starting-style") &&
+            ctx.document.defaultView?.getComputedStyle(card).opacity === "1"
+          );
+        });
+        const row = ctx.document.querySelector(".nt-suggest-chat .nt-stage-text")!.getBoundingClientRect();
+        const card = ctx.document.querySelector(".nt-hovercard")!.getBoundingClientRect();
+        if (card.bottom > row.top && card.top < row.bottom) throw new Error("the hover card covers its row's text");
+      },
+    },
     "no-harness-installed": {
       note: "No harness installed (Leo 2026-10-14): the composer's chip says Add harness and opens the Harnesses page. No line under the field, no grey placeholder pills.",
       // The mock daemon answers with no harness, as acpmux does on a Mac without an agent CLI.
@@ -331,9 +438,9 @@ export default agentPaneEntry({
       mockHarnesses: [],
       snapshot: { ...noChat(), catalog: [] },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-pickers .acpmux-add-harness") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-composer .acpmux-add-harness") !== null);
         if (ctx.document.querySelector(".nt-no-agent")) throw new Error("a No agent to ask line shows under the field");
-        const chip = ctx.document.querySelector(".nt-pickers .acpmux-add-harness")!.getBoundingClientRect();
+        const chip = ctx.document.querySelector(".nt-composer .acpmux-add-harness")!.getBoundingClientRect();
         if (chip.height > 32) throw new Error(`the Add harness chip is ${chip.height}px tall, not one chip`);
       },
     },
@@ -697,23 +804,15 @@ export default agentPaneEntry({
         );
       },
     },
+    "typed-tab-match-stage": {
+      note: "The Default template's stage layout with text that matches open tabs: the composer at the foot, so the rows open above it (popup-escape).",
+      ready: newTab({ template: "default", omnibar: RELEASE_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+    },
     "typed-tab-match": {
       note: "Text that matches open tabs, workspaces and visited pages: Ask first (Return's), a web search, then those rows (with their favicons, a glyph while one loads) in the popover; Down to the last row scrolls to it (dogfood 2026-10-08).",
       ready: newTab({
-        omnibar: {
-          tabs: [
-            { id: "tab-1", kind: "browser", title: "Release notes", detail: "cmux.dev", icon: SITE_ICON },
-            { id: "tab-2", kind: "terminal", title: "release build", detail: "~/src/release" },
-          ],
-          workspaces: [{ id: "workspace-1", name: "Release", detail: "~/src/release" }],
-          folders: [CWD],
-          commands: [],
-          // A visited page with its site's icon, and one whose icon is still loading (the glyph).
-          history: [
-            { url: "https://cmux.dev/release", title: "cmux release notes", icon: OTHER_SITE_ICON },
-            { url: "https://example.com/release", title: "example release" },
-          ],
-        },
+        omnibar: RELEASE_OMNIBAR,
       }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
@@ -910,7 +1009,7 @@ export default agentPaneEntry({
       },
     },
     "template-cards": {
-      note: "Cards template, the default and the first dot (u2851): Claude Code's split, the project strip heading the card, the box with the prompt, the Search | Ask switch, the mic and Send, the mode, model and effort in the quiet row under it, then three tall chat cards.",
+      note: "Cards template, the default and the first dot (u2851): Claude Code's split, the project strip heading the card, the box with the prompt, the Search | Ask switch, the mic and Send, the mode, model and effort in the quiet row under it, then three chat cards.",
       ready: newTab({ template: "cards" }),
       snapshot: noChat(manySessions(6)),
     },
@@ -927,6 +1026,18 @@ export default agentPaneEntry({
       note: "Composer template (tabs.newTabTemplate): one large prompt, no chats.",
       ready: newTab({ template: "composer" }),
       snapshot: noChat(manySessions(4)),
+    },
+    "composer-holds-its-place": {
+      note: "After typing, a pasted image and Now Playing: the composer and the typed text are where the empty page drew them; the image sits under the text (Leo 2026-10-19: the composer kept moving).",
+      ready: newTab({ projects: [CWD] }),
+      snapshot: noChat(manySessions(3)),
+      play: holdsItsPlace,
+    },
+    "composer-template-holds-its-place": {
+      note: "Composer template after typing, a pasted image and Now Playing: the card stays where the empty page drew it, about the middle, instead of re-centering on what grew under it.",
+      ready: newTab({ template: "composer", projects: [CWD] }),
+      snapshot: noChat(manySessions(4)),
+      play: holdsItsPlace,
     },
     "template-threads": {
       note: "Threads template: the field and the recent chats as a list.",

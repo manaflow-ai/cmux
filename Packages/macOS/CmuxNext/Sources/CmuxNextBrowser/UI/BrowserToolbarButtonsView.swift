@@ -104,7 +104,16 @@ public final class BrowserToolbarButtonsView: NSStackView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil { refresh() }
+        if window != nil { refresh() } else { onDetach?() }
+    }
+
+    /// The toolbar left the screen (its pane parked it, the tab closed or
+    /// moved): a popup open under one of its buttons closes. Set by the popup.
+    public var onDetach: (() -> Void)?
+
+    public override func viewDidHide() {
+        super.viewDidHide()
+        onDetach?()
     }
 
     /// Shown again after its pane parked it (another tab showed).
@@ -140,12 +149,19 @@ public final class BrowserToolbarButtonsView: NSStackView {
                 // Pressed while the menu is open, normal again when it closes (Chrome).
                 let pressed = anchor as? ChromeIconButton
                 pressed?.isMenuOpen = true
-                self.popUpMenu(menu, CmuxPopoverAnchor.menuPoint(in: anchor, gap: 4), anchor)
+                self.popUpMenu(menu, CmuxPopoverAnchor.menuPoint(for: menu, in: anchor, gap: 4), anchor)
                 pressed?.isMenuOpen = false
             }
         }
         CFRunLoopWakeUp(CFRunLoopGetMain())
     }
+
+    /// The view a popup of `button` opens under: the button, More when it is
+    /// collapsed, the toolbar's view when the toolbar is hidden.
+    public func popupAnchor(for button: BrowserToolbarButton) -> NSView? { anchor(for: button) }
+
+    /// Draws `anchor` (a toolbar button) pressed while its popup is open, as its menu does (Chrome).
+    public func setPopupOpen(_ open: Bool, anchor: NSView) { (anchor as? ChromeIconButton)?.isMenuOpen = open }
 
     func anchor(for button: BrowserToolbarButton) -> NSView? {
         let shown = [button, .overflow].compactMap { buttons[$0] }.first { !$0.isHiddenOrHasHiddenAncestor && $0.window != nil }
@@ -166,7 +182,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// Width of the buttons shown at collapse `level`.
     func width(collapse level: Int) -> CGFloat {
         let count = BrowserToolbarButton.allCases.filter { $0.isShown(at: level, facts, pinned: pinned) }.count
-        return CGFloat(count) * OmnibarStyle.buttonSize + CGFloat(max(0, count - 1)) * BrowserMetrics.buttonSpacing
+        return CGFloat(count) * OmnibarStyle.buttonSize + CGFloat(max(0, count - 1)) * OmnibarStyle.buttonSpacing
     }
 
     @objc private func pressed(_ sender: NSButton) {
@@ -198,6 +214,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
             view.setIcon(state.icon, label: state.label)
             view.isEnabled = state.isEnabled
             view.isOn = state.isActive
+            view.progress = state.progress
         }
     }
 

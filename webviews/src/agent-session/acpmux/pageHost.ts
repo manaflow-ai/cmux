@@ -122,6 +122,8 @@ export function applyHostEvent(event: HostEvent): void {
       return setFloatingState(event.value);
     case "dictation":
       return bridge?.dictation?.(value);
+    case "designSelection":
+      return bridge?.designSelection?.(value);
     case "revealTurn":
       return bridge?.revealTurn?.(String(event.value));
     case "command":

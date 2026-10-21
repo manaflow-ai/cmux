@@ -3,10 +3,11 @@ import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
 
-/// One main Chief in the Home list, with its hosts merged (Lawrence 2026-10-19:
-/// "i dont like that i have a ton of chiefs, idk which is main one").
+/// Every Chief in the Home list on every host, one tagged Main (Lawrence
+/// 2026-10-19: "idk which is main one"; 2026-10-20: "local chiefs and cloud
+/// chiefs and mac mini chiefs etc all at the same time").
 extension HomeService {
-    /// The Home list's Chiefs: the main one on the host the user picked, its other hosts merged.
+    /// The Home list's Chiefs: all of them, the main one on the host the user picked.
     var chiefRoster: HomeChiefRoster {
         let tab = tabChiefs
         let rows: [InboxRow] = homeStore.rows
@@ -33,6 +34,11 @@ extension HomeService {
         case nil: break
         }
         return line
+    }
+
+    /// The cloud Chief whose main conversation is `conversation` (``HomeCloudChiefs/placement(of:records:)``).
+    func cloudChiefPlacement(of conversation: String) -> (id: String, placed: Bool)? {
+        cloudChiefs.placement(of: conversation, records: directory.chiefs)
     }
 
     /// The paired server's name for a placed Chief (its host id while the server is not paired here).

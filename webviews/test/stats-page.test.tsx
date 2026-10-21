@@ -281,3 +281,59 @@ test("with no host the page says where stats live", async () => {
   await store.start();
   expect(store.getSnapshot()).toMatchObject({ unavailable: true, loading: false });
 });
+
+async function renderRange(days: 7 | 30 | 84) {
+  const { createRoot } = await import("react-dom/client");
+  const { StatsPage } = await import("../src/pages/stats/StatsPage");
+  const { StatsStore } = await import("../src/pages/stats/store");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const table = (await import("../src/pages/stats/generated/strings.json")).default;
+  const client: PageClient = {
+    call: <R,>(_op: string, params: unknown) =>
+      Promise.resolve(mockSummary("busy", (params as { days: number }).days, 120, NOON) as R),
+    subscribe: async () => () => {},
+    handle: () => () => {},
+  };
+  const store = new StatsStore(client, () => 120);
+  act(() => root?.unmount());
+  root = createRoot(host);
+  act(() => root!.render(<StatsPage store={store} strings={createStrings(table, ["en"])} />));
+  await act(() => store.setRange(days));
+  return [...host.querySelectorAll(".stats-days .stats-day")].map(
+    (node) => node.querySelector(".stats-day-label")?.textContent ?? "",
+  );
+}
+
+test("a week draws its seven days in one row under their weekday names, today last", async () => {
+  expect(await renderRange(7)).toEqual(["Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Mon"]);
+  expect(host.querySelector(".stats-heatmap")).toBeNull();
+  expect(host.querySelectorAll(".stats-heat:not(.is-padding)").length).toBe(7);
+});
+
+test("a month draws one row of days, dated today and every seventh day before it", async () => {
+  const labels = await renderRange(30);
+  expect(labels.length).toBe(30);
+  expect(labels.filter(Boolean)).toEqual(["14", "21", "28", "5", "12"]);
+  expect(labels.at(-1)).toBe("12");
+});
+
+test("twelve weeks keep the week-column heatmap", async () => {
+  expect(await renderRange(84)).toEqual([]);
+  expect(host.querySelectorAll(".stats-heatmap .stats-heat:not(.is-padding)").length).toBe(84);
+});
+
+test("picking the default range before the first read still reads it", async () => {
+  const { StatsStore } = await import("../src/pages/stats/store");
+  let calls = 0;
+  const client: PageClient = {
+    call: () => {
+      calls++;
+      return new Promise(() => {});
+    },
+    subscribe: async () => () => {},
+    handle: () => () => {},
+  };
+  const store = new StatsStore(client, () => 0);
+  void store.setRange(store.getSnapshot().range);
+  expect(calls).toBe(1);
+});

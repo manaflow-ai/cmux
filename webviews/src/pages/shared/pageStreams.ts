@@ -18,6 +18,8 @@ export type PageCommandName =
   | "reset"
   | "save"
   | "link"
+  // The markdown page: `markdownGoToTop` (a user's `g g` in a read-only page).
+  | "goToTop"
   // The Channels page: the app's menu on selected message text (home-channels/quoteSelection.ts).
   | "quoteSelection"
   // The code editor page (pages/editor/keys.ts).
@@ -33,7 +35,12 @@ export type PageCommandName =
   | "editorAction"
   // The markdown page's table column widths (pages/markdown/tables.ts).
   | "resetTableWidths"
-  | "resetContextTableWidths";
+  | "resetContextTableWidths"
+  // The markdown page's Reload (Cmd-R, the omnibar) and a path typed in its omnibar (`text`).
+  | "reload"
+  | "open"
+  // The markdown page's viewer comments changed: `text` is the new list (pages/markdown/comments.ts).
+  | "comments";
 
 export interface PageCommand {
   command: PageCommandName;

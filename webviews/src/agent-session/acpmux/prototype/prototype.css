@@ -795,7 +795,7 @@ body {
   }
 }
 /* The history layer is the session list alone: the pane's own rail and New chat stay in the pane. */
-.proto-history .acpmux-rail,
+.proto-history .acpmux-sidebar-rail,
 .proto-history .acpmux-sidebar-action,
 .proto-history .acpmux-account {
   display: none;

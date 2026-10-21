@@ -13,7 +13,6 @@ final class SidebarNowPlayingPlayButton: NSButton {
         didSet {
             guard label != oldValue else { return }
             setAccessibilityLabel(label)
-            themedToolTip = label
         }
     }
     private var renderedSide: CGFloat = 0
@@ -144,7 +143,7 @@ final class SidebarNowPlayingLevels: NSView {
 
     /// Whether the bars move now.
     var moves: Bool {
-        isPlaying && window != nil && !isHiddenOrHasHiddenAncestor && (reduceMotionOverride.map { !$0 } ?? Motion.animatesLoops)
+        isPlaying && window != nil && !isHiddenOrHasHiddenAncestor && (reduceMotionOverride.map { !$0 } ?? Motion.indicators.animatesLoops)
     }
 
     override func layout() {

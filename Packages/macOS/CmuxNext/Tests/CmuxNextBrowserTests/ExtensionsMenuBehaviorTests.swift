@@ -25,11 +25,11 @@ import Testing
                                 .pin(true), .separator, .manageExtension, .viewWebPermissions])
     }
 
-    @Test func theBubblesContextMenuHasNoPinAndAnUnpackedNameIsDisabled() {
+    @Test func theBubblesContextMenuOffersUnpinAndAnUnpackedNameIsDisabled() {
         let model = ExtensionContextMenuModel(info: Self.info(location: .unpacked, pinned: true), supportsManagement: true,
                                               source: .menuItem)
         #expect(model.items == [.name("Extension abc", enabled: false), .separator, .siteData, .separator, .options, .remove,
-                                .separator, .manageExtension, .viewWebPermissions])
+                                .pin(false), .separator, .manageExtension, .viewWebPermissions])
     }
 
     @Test func anExtensionWithoutActionOrOptionsDropsThoseRows() {
@@ -56,7 +56,8 @@ import Testing
         #expect(recorder.performed.allSatisfy { $0.1 == "abc" })
     }
 
-    @Test func pinningKeepsTheBubbleOpenAndManageClosesIt() throws {
+    @Test(.enabled("a bubble needs a screen to show") { await ExtensionsMenuPerformanceTests.hasDisplay() })
+    func pinningKeepsTheBubbleOpenAndManageClosesIt() throws {
         let tab = ExtensionsMenuPerformanceTests.tab(extensions: 3)
         let (window, anchor) = ExtensionsMenuPerformanceTests.window()
         defer { window.close() }
@@ -73,7 +74,8 @@ import Testing
         #expect(recorder.performed.last?.0 == .manage)
     }
 
-    @Test func theArrowKeysWalkTheBubblesButtonsAndWrap() throws {
+    @Test(.enabled("a bubble needs a screen to show") { await ExtensionsMenuPerformanceTests.hasDisplay() })
+    func theArrowKeysWalkTheBubblesButtonsAndWrap() throws {
         let tab = ExtensionsMenuPerformanceTests.tab(extensions: 2)
         let (window, anchor) = ExtensionsMenuPerformanceTests.window()
         defer { window.close() }
@@ -81,8 +83,8 @@ import Testing
         controller.show(host: tab, handler: Recorder(), anchor: anchor)
         try #require(controller.isShown, "\(ExtensionsMenuPerformanceTests.environment(window))")
         let order = controller.content.focusOrder
-        // Two rows of three buttons, Manage Extensions, close.
-        #expect(order.count == 8)
+        // Two rows of three buttons, Manage Extensions, Get Extensions, close.
+        #expect(order.count == 9)
         controller.moveFocus(by: 1)
         #expect(controller.focusedButton === order[0])
         controller.moveFocus(by: 1)

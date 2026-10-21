@@ -295,6 +295,10 @@ CEF pre-key hook, which run tier 2 only, so nothing runs twice. Only Command or
 Control chords are candidates, so typing, Option characters and IME input pass):
 1. Tier 0 registry actions.
 2. Browser focus mode on the focused page: stop, the page gets the key (then AppKit menus).
+   Esc Esc leaves it (classic cmux parity, `KeyRouter.routesFocusModeEscape`): the first
+   plain Escape still reaches the page and arms the exit (the omnibar badge reads "Esc
+   again to exit"), a second within 1.6 s leaves and is consumed; a held Escape's repeats
+   never count. Toggling focus mode on moves the keyboard into the page.
 3. Tier 1 registry actions. When the registry has no action for the chord and no
    terminal has the keyboard, the user's Ghostty keybinds for window, tab and split
    actions (`cmd+ctrl+h=goto_split:left`, read with `ghostty_config_trigger`, one chord
@@ -654,7 +658,7 @@ the user."):
   settings; `focus.inactiveTabStyle` overrides the cmux.json key of the same name (`fade` default: text, icons
   and pills fade toward the background; `tonal`: every text tier steps down, the selected
   pill takes the hover fill; `quiet`: no pill, the selection is the text tier);
-  `focus.inactiveTabStrength` (0.35). Subtle text never drops below 3.5:1 (selected),
+  `focus.inactiveTabStrength` (0.6; 0.35 until 2026-10-21, when Leo could not tell which pane Cmd-W would close). Subtle text never drops below 3.5:1 (selected),
   2.5:1 and 2:1 against the page (`ThemeTokens.subtle*Floor`). Panels and hover cards
   opened from a subtle strip adopt `ThemeScope.fullStrength`, so they draw at full strength.
 - With `appearance.borders` none the unfocused panes' dim stands in for the ring only when

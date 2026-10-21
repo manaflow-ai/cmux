@@ -83,6 +83,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view.stripView.resourceSource = services.resources
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.hoverCards = services.hoverCards
+        view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }
+        view.stripView.newTabShortcut = { [weak services] in services?.registry.shortcutDisplay(for: StripNewTab.action) }
         view.onResize = { [weak services, weak paneView = view] in
             services?.surfaceInvariant.noteChange()
             services?.newTabSpares.paneLayoutDidChange(in: paneView?.window) // the parked New Tab spare follows
@@ -99,6 +101,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         services.presentation.cancel(self)
         // No-op for a tab that moved to another pane: its new pane owns it.
         services.cache.removePresenter(self)
+        services.cache.hibernation?.paneDidGo(ObjectIdentifier(self))
         // Page tabs of panes the live tree no longer lists close now
         // rather than at the store's next observation; a workspace switch or
         // a layout move keeps the pane listed, so its tabs stay.
@@ -188,10 +191,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private func tabItem(_ tab: TabModel) -> StripTabItem {
         let fallback = Strings.untitledTerminal
         // Terminals on another machine carry its name; browsers always run here.
-        let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
+        let machine = daemon.isLocal ? nil : services.machines.tabBadge(daemon.machineID)
         let ownWorkspace = workspace?.workspace ?? daemon.store.workspace(containing: pane.handle)
         // The one title rule (`TabTitleResolver`), shared with the sidebar and the closed-tab toasts.
-        let titles = TabTitleResolver(services: services, workspace: ownWorkspace?.handle)
+        var titles = TabTitleResolver(services: services, workspace: ownWorkspace?.handle)
+        if tab.agentSession != nil { titles.workspaceName = ownWorkspace?.displayName }
         // A new tab page is "New Tab", with the new-tab icon, until it
         // becomes a chat (then the chat's title and icon).
         let isNewTabPage = titles.isNewTabPage(tab)
@@ -252,7 +256,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if view.hidesStrip != snapshot.hidesStrip { view.hidesStrip = snapshot.hidesStrip }
         if stripModel.showsSelectedFullWidth != snapshot.fullWidthTab { stripModel.showsSelectedFullWidth = snapshot.fullWidthTab }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
-        if stripModel.tabs != snapshot.items { stripModel.tabs = snapshot.items }
+        if stripModel.tabs != snapshot.items {
+            stripModel.tabs = snapshot.items
+            noteNeighbors()  // a reorder, close or new tab moves the neighbors
+        }
         if stripModel.showsNewTabButton != snapshot.takesNewTabs { stripModel.showsNewTabButton = snapshot.takesNewTabs }
         if !snapshot.items.isEmpty { LaunchReveal.shared.markReady(.tabs) }
         var selectNew = false
@@ -374,13 +381,14 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.mark(self, "stripSync")
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
         DebugTabSwitch.mark(self, "view")
-        // Terminals come in on their first frame (`LaunchSettle`); other
-        // content (a page, an agent) is ready once shown.
-        if let content, !content.isTerminal { LaunchReveal.shared.markReady(.pane) }
+        // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last
+        // quit (`TerminalLaunchFrames`); other content (a page, an agent) is ready once shown.
+        if case .terminal(let terminal) = content, let key { if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if content != nil { LaunchReveal.shared.markReady(.pane) }
         // The content view exists now: the coordinator re-applies focus if
         // this pane has it (content is shown a frame after selection).
         if workspace?.isParked == false { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
         BenchSpans.measure("switch.invariant") { services.surfaceInvariant.noteChange() }
+        BenchSpans.measure("switch.neighbors") { noteNeighbors() }
     }
 
     /// Another pane took `key`'s view (the tab moved there) or its surface
@@ -459,6 +467,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         guard self.presence != presence else { return }
         self.presence = presence
         services.cache.setPresence(presence, presenter: self)
+        noteNeighbors()
         // Content destroyed while away re-attaches (daemon replay) as soon as
         // the pane nears the viewport, so it is ready before it scrolls in.
         if presence != .hidden, stripModel.selectedID != nil, currentTabKey == nil || !view.hostsContent {

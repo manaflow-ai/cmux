@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextPages
 import CmuxNextWorkspaceRepair
 import Observation
 
@@ -84,6 +85,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.onTerminalGridHold = { [weak layoutView] held in
             if let layoutView { ResizeCoordinator.shared.setHeld(held, by: layoutView) }
         }
+        // A link dragged in from another app or a page: the drop zones a dragged tab has (LinkDropPlan).
+        layoutView.linkDropHandler = { [weak self] url, target, perform in
+            guard let self, let item = LinkDragItem(url, browserEnabled: LinkRouter.shared.routing().browserEnabled),
+                  let plan = LinkDropPlan(target, takesTabs: { self.panes[$0]?.stripModel.showsNewTabButton == true }) else { return false }
+            return !perform || self.services.linkOpener.drop(item, plan: plan, in: self)
+        }
         _ = screenBar
         _ = contentView
         let fallbackCreate = emptyWorkspaceRepair.create
@@ -100,7 +107,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         )
         themeScope.root(contentView)
         contentView.backgroundMenu = { [weak services, weak self] in
-            services?.registry.makeContextMenu(for: .windowBackground, target: self.map { ActionTargetRef(kind: .workspace, id: $0.workspace.id) })
+            self.flatMap { services?.registry.makeContextMenu(for: .windowBackground, target: ActionTargetRef(kind: .workspace, id: $0.workspace.id)).themeRows(in: $0.themeScope.fullStrength) }
         }
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
@@ -155,16 +162,23 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         }
     }
 
-    /// Panes with an unread notification draw the attention ring.
+    /// Panes whose shown tab holds an unread notification draw the attention
+    /// ring; this window's tab selection decides which tab a pane shows.
     private func observeAttention() {
         let notifications = services.notifications, workspace = workspace
-        let marks = notifications.attentionMarks(for: workspace)
+        let shownTab: @MainActor @Sendable (PaneModel) -> String? = { [weak self] pane in self?.panes[LayoutPaneID(pane.id)]?.stripModel.selectedID?.rawValue }
+        let marks = notifications.attentionMarks(for: workspace, shownTab: shownTab)
         if layoutModel.attention != marks { layoutModel.attention = marks }
         attentionObservation?.cancel()
         attentionObservation = Task { [weak self] in
-            for await marks in ObservationStream({ notifications.attentionMarks(for: workspace) }) {
+            for await marks in ObservationStream({ notifications.attentionMarks(for: workspace, shownTab: shownTab) }) {
                 guard let self else { return }
-                if self.layoutModel.attention != marks { self.layoutModel.attention = marks }
+                guard self.layoutModel.attention != marks else { continue }
+                // A ring read by going into its pane blinks out (classic's dismiss flash); one
+                // cleared any other way fades. Set first, so the change that removes it sees it.
+                let removed = Set(self.layoutModel.attention.keys).subtracting(marks.keys)
+                self.layoutModel.attentionReadByEntry = notifications.takeEntryReads(removed: removed, in: workspace)
+                self.layoutModel.attention = marks
             }
         }
     }

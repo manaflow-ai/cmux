@@ -87,7 +87,9 @@ body {
   color: var(--cmux-md-muted-color);
 }
 
-.md-toolbar {
+/* The host scopes it past .ui-toolbar's inline-flex (ui.css), whatever order the bundle loads them in:
+   inline, the bar shrank to its content, its border stopped short and the file name met "Saved". */
+.md-toolbar-host > .md-toolbar {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1020,7 +1022,7 @@ body {
   padding-left: 6px;
   border-radius: 5px;
   background: var(--page-hover);
-  box-shadow: inset 0 0 0 0.5px var(--page-separator);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--page-separator);
 }
 
 .md-width-field:focus-within {
@@ -1256,15 +1258,15 @@ body {
 }
 
 .md-prose blockquote.md-callout:is([data-callout="abstract"], [data-callout="question"]) {
-  --md-callout-color: light-dark(#0f8a8a, #3cc6c6);
+  --md-callout-color: light-dark(#0f8a8a, #3cc6c6); /* theme-fixed: the abstract callout's teal has no theme token */
 }
 
 .md-prose blockquote.md-callout:is([data-callout="tip"], [data-callout="success"]) {
-  --md-callout-color: light-dark(#1a7f37, #3fb950);
+  --md-callout-color: var(--cmux-app-success, light-dark(#1a7f37, #3fb950));
 }
 
 .md-prose blockquote.md-callout:is([data-callout="warning"]) {
-  --md-callout-color: light-dark(#b35900, #f0883e);
+  --md-callout-color: var(--cmux-app-warning, light-dark(#b35900, #f0883e));
 }
 
 .md-prose blockquote.md-callout:is([data-callout="failure"], [data-callout="danger"], [data-callout="bug"]) {
@@ -1272,7 +1274,7 @@ body {
 }
 
 .md-prose blockquote.md-callout:is([data-callout="example"]) {
-  --md-callout-color: light-dark(#7c3aed, #a78bfa);
+  --md-callout-color: light-dark(#7c3aed, #a78bfa); /* theme-fixed: the example callout's purple has no theme token */
 }
 
 .md-prose blockquote.md-callout:is([data-callout="quote"]) {
@@ -1345,4 +1347,76 @@ body {
 .md-prose .md-callout-folded > :not(:first-child),
 .md-prose .md-callout-folded .md-callout-body {
   display: none;
+}
+
+/* Viewer comments (comments.ts, viewer-comments-DESIGN.md): a marker in the left margin just before
+   the block that holds the comment's first line; it opens the comment's card under it. The marker
+   takes no height, so the text never moves when comments come and go. */
+.cmux-comment-marker {
+  position: relative;
+  height: 0;
+  user-select: none;
+}
+
+.cmux-comment-button {
+  position: absolute;
+  top: 0.35em;
+  left: -28px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px 9px 9px 3px;
+  background: var(--cmux-accent);
+  opacity: 0.85;
+  cursor: pointer;
+}
+
+.cmux-comment-button:hover,
+.cmux-comment-button[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.cmux-comment-card {
+  position: absolute;
+  z-index: var(--layer-dropdown);
+  top: 1.6em;
+  left: -28px;
+  width: min(360px, 80vw);
+  padding: 10px 12px;
+  border: 1px solid var(--cmux-md-border-color);
+  border-radius: 10px;
+  background: var(--page-elevated);
+  color: var(--cmux-md-text-color);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  box-shadow: var(--elevation-2);
+}
+
+.cmux-comment-card blockquote {
+  margin: 0 0 6px;
+  padding-left: 8px;
+  border-left: 2px solid var(--cmux-md-border-color);
+  color: var(--cmux-md-muted-color);
+  white-space: pre-wrap;
+  max-height: 6.5em;
+  overflow: hidden;
+}
+
+.cmux-comment-card p {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+}
+
+.cmux-comment-delete {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--cmux-md-muted-color);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cmux-comment-delete:hover {
+  color: var(--cmux-md-text-color);
 }

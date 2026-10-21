@@ -76,6 +76,8 @@ pub(crate) mod palette_usage_ops;
 #[cfg(test)]
 mod palette_usage_protocol_tests;
 pub(crate) mod palette_usage_store;
+#[cfg(test)]
+mod persistent_ids_tests;
 pub(crate) mod personal;
 pub(crate) mod personal_order;
 pub(crate) mod personal_state_store;
@@ -119,6 +121,9 @@ mod stash_protocol_tests;
 mod stash_restore_tests;
 pub(crate) mod stash_router;
 pub(crate) mod stash_store;
+#[cfg(test)]
+mod stash_workspace_tests;
+pub(crate) mod stash_workspaces;
 pub(crate) mod status_meta;
 pub(crate) mod status_owners;
 pub(crate) mod store;
