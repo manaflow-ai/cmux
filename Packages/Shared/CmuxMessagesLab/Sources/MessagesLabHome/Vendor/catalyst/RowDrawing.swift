@@ -199,8 +199,8 @@ enum RowDraw {
         case let .notice(s):
             // As the unsent notice below (ask 9, HostHooks.swift).
             // cmux: at the typing bubble's left edge, the row above it (Layout), not centered.
-            let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
-            TextDraw.line(s, font: f, color: Fixture.secondaryText, x: noticeLeft, baseline: top + 12, in: ctx)
+            // cmux: one row per line, each cut to the column (HomeNoticeRows; one line draws as upstream's).
+            HomeNoticeRows.draw(s, x: noticeLeft, baseline: top + 12, maxWidth: m.receiptRight - noticeLeft, in: ctx)
         case let .unsent(outgoing):
             let s = outgoing ? Strings.unsentMine : Strings.unsentTheirs
             let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)

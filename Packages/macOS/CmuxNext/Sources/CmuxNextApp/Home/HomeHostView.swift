@@ -4,6 +4,7 @@ import CmuxHomeRender
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextActions
+import CmuxNextChiefPetWiring
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
@@ -24,6 +25,8 @@ final class HomeHostView: NSView {
     /// toggles it (Chief conversation only).
     private let settings: HomeChiefSettingsPopover
     private var settingsView: HomeChiefSettingsView { settings.content }
+    /// The Chief pet's rows in the popover's Appearance section.
+    private let petRows: ChiefPetSettingsRows
     private var isChief = false
     private var engineWatch: Task<Void, Never>?
     private var agentsWatch: Task<Void, Never>?
@@ -52,17 +55,20 @@ final class HomeHostView: NSView {
                                               diagrams: service.diagrams)
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         settings = HomeChiefSettingsPopover(content: HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()))
+        petRows = ChiefPetSettingsRows(settings: { [weak services] in services?.settings }, homes: services.chiefPetHomes)
         super.init(frame: .zero)
         transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
         // The header's name: the Chief's settings over a Chief; a DM's or group's info otherwise.
         transcript.onNamePill = { [weak self, weak services] in
             guard let self else { return }
-            if isChief || settings.isShown { return toggleChiefSettings() }
+            if isChief || settings.isShown { toggleChiefSettings(); return }
             _ = services?.registry.perform("home.conversationInfo",
                                            invocation: ActionInvocation(arguments: ["conversation": .string(conversation)], origin: .user))
         }
         loadAvatar()
+        petRows.install(in: self, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
+                        open: { [weak self] in self?.toggleChiefSettings(openOnly: true) ?? false })
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
             // Each Chief's tile reads its own brain home: this re-reads them, so only the
@@ -297,13 +303,13 @@ final class HomeHostView: NSView {
         message.frame = NSRect(x: inset, y: (bounds.height - height) / 2, width: width, height: height)
     }
 
-    /// The name pill's click (or `home.toggleChiefSettings`): the Chief's
-    /// settings open under the pill, or close again. Only over the Chief.
-    func toggleChiefSettings() {
-        if settings.isShown { return settings.close() }
-        guard isChief, window != nil, !isHiddenOrHasHiddenAncestor else { return }
+    /// The name pill's click (or `home.toggleChiefSettings`): the Chief's settings open under the pill, or
+    /// close again (never with `openOnly`, the pet's Chief Pet Settings…). Only over the Chief. True if shown.
+    @discardableResult func toggleChiefSettings(openOnly: Bool = false) -> Bool {
+        if settings.isShown { if !openOnly { settings.close() }; return openOnly }
+        guard isChief, window != nil, !isHiddenOrHasHiddenAncestor else { return false }
         settingsView.refresh()
-        settings.show(relativeTo: transcript.namePill, toggles: transcript.namePillToggles)
+        return settings.show(relativeTo: transcript.namePill, toggles: transcript.namePillToggles)
     }
 
     /// The popover is a child panel of the window, not a subview: Home leaving
