@@ -67,6 +67,8 @@ enum SidebarStyle {
     /// Length of the fade that ends a clipped row title (no ellipsis).
     static var titleFadeWidth: CGFloat { Metrics.space6 }
     static var subtitleFont: NSFont { Typography.caption }
+    /// One detail line under a row's title (the folder, branch or agent line), as its label lays it out.
+    static var detailLineHeight: CGFloat { ceil(NSLayoutManager().defaultLineHeight(for: subtitleFont)) }
     /// Where a workspace title without a custom icon starts: rows draw no
     /// default icon (WORKSPACE-ROWS-NO-DEFAULT-ICON). Group headers start
     /// their name here too.
