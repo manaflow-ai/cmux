@@ -71,12 +71,20 @@ import Testing
         }
     }
 
-    @Test func anUnknownStagedUpdateHasItsInstallerCancelled() {
-        let updater = Self.updater(stagedBuild: nil)
-        let cancels = Counter()
-        updater.cancelStaged = { cancels.count += 1 }
-        updater.debugIndicatorPhase = .ready(version: nil)
-        #expect(cancels.count > 0, "an unknown staged installer still runs: quitting installs it")
+    /// Only a known build number proves a staged update is not newer. One of
+    /// unknown version, or known only by its display version, can be a newer
+    /// build the user asked for (Install Update with automatic downloads off
+    /// answers Sparkle's prompt itself), so it stays hidden but keeps its
+    /// installer.
+    @Test func aStagedUpdateWithNoBuildNumberKeepsItsInstaller() {
+        for version in [nil, "1.0.0", "1.0.1"] as [String?] {
+            let updater = Self.updater(stagedBuild: nil)
+            let cancels = Counter()
+            updater.cancelStaged = { cancels.count += 1 }
+            updater.debugIndicatorPhase = .ready(version: version)
+            updater.checkForUpdates()
+            #expect(cancels.count == 0, "a staged update of version \(version ?? "unknown") with no build number was cancelled")
+        }
     }
 
     @Test func aNewerStagedBuildKeepsItsInstaller() {
