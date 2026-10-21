@@ -1,4 +1,4 @@
-import { contentsUnknown, type AcpmuxActivity, type AcpmuxFileDiff, type AcpmuxRow } from "./model";
+import { contentsUnknown, plainEditLabels, type AcpmuxActivity, type AcpmuxFileDiff, type AcpmuxRow } from "./model";
 import { opensTurn } from "./turnStart";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -186,6 +186,18 @@ export function turnFiles(rows: AcpmuxRow[]): TurnFile[] {
     rows.flatMap((row) => (row.kind === "activity" ? (row.items ?? []).flatMap((item) => item.tool ?? []) : [])),
     { known: true },
   );
+}
+
+/// The paths the turn's edits changed with no diff `turnFiles` counts: an edit whose call carried
+/// none, and a file a Write rewrote with old contents unknown. A checkpoint file at one of them is
+/// still a tool call's change (turnCheckpoint.ts `turnDisplay`), not one made outside them.
+export function turnPathsOnly(rows: readonly AcpmuxRow[]): string[] {
+  const edits = rows.flatMap((row) =>
+    row.kind === "activity"
+      ? (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange")
+      : [],
+  );
+  return plainEditLabels(edits).flatMap((entry) => (entry.path ? [entry.path] : []));
 }
 
 /// The files these tool calls changed, each edit in turn, named from their shared directory.

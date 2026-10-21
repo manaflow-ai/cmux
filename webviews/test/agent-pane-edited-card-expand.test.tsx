@@ -231,7 +231,7 @@ async function renderCard(row: AcpmuxRow, load?: TurnCheckpointLoad) {
   await act(async () =>
     root!.render(
       load ? (
-        <TurnCountsContext.Provider value={(_rowId, files) => turnCounts(files, load)}>
+        <TurnCountsContext.Provider value={(_rowId, files, pathsOnly) => turnCounts(files, load, pathsOnly)}>
           {card}
         </TurnCountsContext.Provider>
       ) : (
@@ -260,10 +260,10 @@ const click = (element: Element | null) =>
 
 /// The files the turn's own diff (the in-place View changes) shows for `rows`, with the checkpoint.
 async function viewedFiles(rows: AcpmuxRow[], load: TurnCheckpointLoad) {
-  const { turnFiles } = await import("../src/agent-session/acpmux/diff");
+  const { turnFiles, turnPathsOnly } = await import("../src/agent-session/acpmux/diff");
   const { turnDisplay } = await import("../src/agent-session/acpmux/changes/turnCheckpoint");
   const { translatorFor } = await import("../src/agent-session/acpmux/i18n");
-  return turnDisplay(translatorFor("en"), turnFiles(rows), load, false).files.map((file) => ({
+  return turnDisplay(translatorFor("en"), turnFiles(rows), load, false, turnPathsOnly(rows)).files.map((file) => ({
     path: file.path,
     created: file.created,
     additions: file.additions,
@@ -412,10 +412,12 @@ test("a Write of unknown old contents in the repository takes the checkpoint's c
     },
   };
   await renderCard(row, checkpoint);
-  // The checkpoint read the file before and after: its counts, listed once.
+  // The checkpoint read the file before and after: its counts, listed once, and the Write's change
+  // (not one made outside the tool calls).
   expect(text(".acpmux-edited-title > div")).toBe("Edited notes.txt");
   expect(text(".acpmux-edited-sub")).toBe("+1-1");
   expect(host.querySelectorAll(".acpmux-edited-file")).toHaveLength(0);
+  expect((await viewedFiles([row], checkpoint)).map((file) => [file.path, file.additions])).toEqual([[NOTES, 1]]);
 });
 
 test("a Write of unknown old contents outside the repository still lists once the checkpoint loads", async () => {

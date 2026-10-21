@@ -155,12 +155,14 @@ export function outsideRepository<File extends Pick<TurnFile, "path">>(
 
 /// What the Last turn view shows. A checkpoint that loads replaces the tool calls' edits, unless
 /// Keep or Undo choices on those edits are still unsent: the view switches once they are sent
-/// or cleared, so no choice moves under the reader's hand.
+/// or cleared, so no choice moves under the reader's hand. `pathsOnly`: paths the tool calls changed
+/// without a diff (diff.ts `turnPathsOnly`), so a checkpoint file there is not marked `outside`.
 export function turnDisplay(
   t: Translate,
   toolFiles: TurnFile[],
   load: TurnCheckpointLoad,
   pending: boolean,
+  pathsOnly: readonly string[] = [],
 ): TurnDisplay {
   const tools = (note?: string): TurnDisplay => ({ files: toolFiles, source: "tools", note });
   switch (load.state) {
@@ -175,12 +177,13 @@ export function turnDisplay(
       return tools(t("turn.checkpoint.incomplete"));
     case "loaded": {
       if (pending) return tools(t("turn.checkpoint.pending"));
+      const changed = [...toolFiles, ...pathsOnly.map((path) => ({ path }))];
       const files = changeSetFiles(load.changeSet).map((file) => {
         const reviewFile = checkpointReviewFile(file, toolFiles);
         return {
           ...reviewFile,
           edits: reviewFile.edits.map((edit) => ({ ...edit, toolId: `checkpoint:${load.checkpointId}` })),
-          ...(changedByTools(file, toolFiles) ? {} : { outside: true }),
+          ...(changedByTools(file, changed) ? {} : { outside: true }),
         };
       });
       // The checkpoint holds only its repository: a file a tool call wrote elsewhere (a new file in
@@ -191,10 +194,16 @@ export function turnDisplay(
 }
 
 /// The edited-files card's totals: the checkpoint's once it has loaded, else the tool calls'.
-/// `root`: the loaded checkpoint's repository.
-export function turnCounts(toolFiles: readonly TurnFile[], load: TurnCheckpointLoad | undefined) {
+/// `root`: the loaded checkpoint's repository. `pathsOnly` as for `turnDisplay`.
+export function turnCounts(
+  toolFiles: readonly TurnFile[],
+  load: TurnCheckpointLoad | undefined,
+  pathsOnly: readonly string[] = [],
+) {
   const display =
-    load?.state === "loaded" ? turnDisplay(translatorFor(currentLanguage()), [...toolFiles], load, false) : undefined;
+    load?.state === "loaded"
+      ? turnDisplay(translatorFor(currentLanguage()), [...toolFiles], load, false, pathsOnly)
+      : undefined;
   const files = display?.files ?? toolFiles;
   return {
     files,

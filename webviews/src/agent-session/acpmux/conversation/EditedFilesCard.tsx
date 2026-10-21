@@ -12,7 +12,7 @@
 // header only, a chevron shows the rows) or never (the plain tool rows); `maxRows` rows before
 // "Show N more"; `scope` turn, or session (one card, at the session's latest edit).
 import { useContext, useMemo, useState } from "react";
-import { turnFiles, type TurnFile } from "../diff";
+import { turnFiles, turnPathsOnly, type TurnFile } from "../diff";
 import { ChevronDown } from "../changeIcons";
 import { Counts } from "../changes/Counts";
 import { TurnCountsContext } from "../changes/TurnCountsContext";
@@ -74,20 +74,22 @@ function Card({
     (one.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange"),
   );
   const toolFiles = useMemo(() => turnFiles([...rows]), [rows]);
+  // An edit whose tool call carried no diff, or a Write whose old contents are unknown: a path
+  // without counts.
+  const labels = plainEditLabels(edits);
+  const pathsOnly = useMemo(() => turnPathsOnly(rows), [rows]);
   // Once the turn's checkpoint has loaded, its files and counts replace the tool calls' (turn scope).
   const countsFor = useContext(TurnCountsContext);
   const counts = useMemo(
-    () => (countsFor && rows.length === 1 ? countsFor(row.id, toolFiles) : turnCounts(toolFiles, undefined)),
-    [countsFor, row.id, rows.length, toolFiles],
+    () => (countsFor && rows.length === 1 ? countsFor(row.id, toolFiles, pathsOnly) : turnCounts(toolFiles, undefined)),
+    [countsFor, row.id, rows.length, toolFiles, pathsOnly],
   );
   const files = counts.files;
   // Undo works from the tool calls' full texts, by the paths the agent wrote.
   const changes = useMemo(() => turnChanges(row.id, rows, toolFiles), [row.id, rows, toolFiles]);
   const undoState = useUndoState(row.id);
-  // An edit whose tool call carried no diff, or a Write whose old contents are unknown, still lists
-  // without counts, unless a listed file is that path. Once the checkpoint loads, its files are the
+  // Those list unless a listed file is that path. Once the checkpoint loads, its files are the
   // repository's: only a path outside it stays (a /tmp file), as for the tool calls' diffs.
-  const labels = plainEditLabels(edits);
   const plain =
     counts.files === toolFiles
       ? labels.filter(({ path }) => !path || !files.some((file) => file.path === path))
