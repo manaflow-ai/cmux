@@ -110,6 +110,14 @@ export function cardItems(notes: ReleaseNotes, language: string): UpdateHighligh
   return readableUpdateItems(picked.slice(0, CARD_ITEMS));
 }
 
+/** Whether a defect withholds the notes. Internal work among the machine lines only warns: the
+    page and the card fold those lines (model.ts readableItem, readableUpdateItems), so none reaches
+    people, and a line the page reads as internal on a second pass ("Merge the green pull request…")
+    would otherwise withhold this nightly and every nightly after it. */
+export function blocksPublish(defect: NotesDefect): boolean {
+  return defect.kind !== "internal";
+}
+
 function same(a: NotesDefect, b: NotesDefect): boolean {
   return a.kind === b.kind && a.text === b.text;
 }
@@ -141,7 +149,8 @@ const LABELS: Record<DefectKind, string> = {
   internal: "internal work in New, Improved or Fixed",
 };
 
-/** One GitHub Actions error annotation. */
+/** One GitHub Actions annotation: an error for a defect that withholds the notes, else a warning. */
 export function annotation(build: string, defect: NotesDefect): string {
-  return `::error title=Release notes::${build} ${defect.where}: ${LABELS[defect.kind]}: ${defect.text}`;
+  const level = blocksPublish(defect) ? "error" : "warning";
+  return `::${level} title=Release notes::${build} ${defect.where}: ${LABELS[defect.kind]}: ${defect.text}`;
 }
