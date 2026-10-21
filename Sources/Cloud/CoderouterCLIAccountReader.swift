@@ -42,6 +42,19 @@ enum CoderouterCLIFailure: Error, Equatable, Sendable, LocalizedError {
         }
     }
 
+    /// The hint after a failed removal. Read-specific copy ("didn't load",
+    /// "can't load") is replaced; the rest already fits.
+    var removalMessage: String {
+        switch self {
+        case .outdated:
+            return String(localized: "coderouter.failure.removeOutdated", defaultValue: "This Coderouter version can't remove team accounts. Update cmux, then retry.")
+        case .unavailable, .sessionChanging:
+            return String(localized: "coderouter.failure.remove", defaultValue: "Coderouter couldn't remove this account. Retry in a moment.")
+        case .notInstalled, .signInRequired, .notMember, .planRequired, .unreachable:
+            return message
+        }
+    }
+
     var errorDescription: String? { message }
 
     /// Classifies a CLI failure from its stderr (`coderouter: <message>`),
