@@ -275,6 +275,9 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.image = ws.muted && !isShowingPlaceholder
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
         mutedMark.isHidden = mutedMark.image == nil
+        // The bell-slash alone does not say what is muted: notifications, not the tabs' sound
+        // (the row's accessibility label says it too).
+        mutedMark.themedToolTip = mutedMark.isHidden ? nil : Strings.notificationsMuted
         audio = isShowingPlaceholder ? nil : ws.audio
         audioButton.isHidden = audio == nil
         audioButton.icon = audio == .muted ? .browserTabMuted : .browserTabAudio
