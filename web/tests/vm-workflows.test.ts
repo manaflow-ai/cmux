@@ -9565,7 +9565,7 @@ describe("Cloud snapshot idempotency", () => {
       snapshot: () => {
         providerCalls += 1;
         return providerCalls === 1
-          ? Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "snapshot", cause: new Error("boom") }))
+          ? Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "snapshot", cause: { cause: { status: 408 } } }))
           : Effect.succeed({ id: "snap-after-retry", createdAt: 2 });
       },
     };
@@ -9594,7 +9594,7 @@ describe("Cloud snapshot idempotency", () => {
       snapshot: () => {
         providerCalls += 1;
         return providerCalls === 1
-          ? Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "snapshot", cause: { status: 400 } }))
+          ? Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "snapshot", cause: { cause: { status: 400 } } }))
           : Effect.succeed({ id: "snap-after-rejection", createdAt: 7 });
       },
     };
@@ -9609,6 +9609,76 @@ describe("Cloud snapshot idempotency", () => {
     expect(requests.size).toBe(0);
     expect((await run())._tag).toBe("Right");
     expect(providerCalls).toBe(2);
+  });
+
+  test("a transient rejected-key cleanup is retried before returning the provider refusal", async () => {
+    const source = snapshotSource("00000000-0000-4000-8000-000000000178");
+    const requests = new Map<string, SnapshotRequest>();
+    const base = snapshotRequestRepo(source, [], requests);
+    const finish = base.finishSnapshotRequest!;
+    let cleanupCalls = 0;
+    const repo: VmRepositoryShape = {
+      ...base,
+      finishSnapshotRequest: (input) => {
+        if (input.outcome.kind === "rejected" && ++cleanupCalls === 1) {
+          return Effect.fail(new VmDatabaseError({ operation: "finishSnapshotRequest", cause: new Error("transient") }));
+        }
+        return finish(input);
+      },
+    };
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      snapshot: () => Effect.fail(new VmProviderOperationError({
+        provider: "freestyle",
+        operation: "snapshot",
+        cause: { cause: { status: 400 } },
+      })),
+    };
+
+    const result = await Effect.runPromise(snapshotVm({
+      userId: source.userId,
+      teamIds: [source.billingTeamId!],
+      providerVmId: source.providerVmId!,
+      idempotencyKey: "snap-key-cleanup-retry",
+    }).pipe(Effect.either, Effect.provide(workflowLayer(repo, provider))));
+
+    expect(result._tag).toBe("Left");
+    expect(cleanupCalls).toBe(2);
+    expect(requests.size).toBe(0);
+  });
+
+  test("a transient success-ledger failure is retried before ownership is recorded", async () => {
+    const source = snapshotSource("00000000-0000-4000-8000-000000000179");
+    const usageEvents: RecordedUsageEvent[] = [];
+    const requests = new Map<string, SnapshotRequest>();
+    const base = snapshotRequestRepo(source, usageEvents, requests);
+    const finish = base.finishSnapshotRequest!;
+    let finishCalls = 0;
+    const repo: VmRepositoryShape = {
+      ...base,
+      finishSnapshotRequest: (input) => {
+        if (input.outcome.kind === "succeeded" && ++finishCalls === 1) {
+          return Effect.fail(new VmDatabaseError({ operation: "finishSnapshotRequest", cause: new Error("transient") }));
+        }
+        return finish(input);
+      },
+    };
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      snapshot: () => Effect.succeed({ id: "snap-finish-retry", createdAt: 9 }),
+    };
+
+    const result = await Effect.runPromise(snapshotVm({
+      userId: source.userId,
+      teamIds: [source.billingTeamId!],
+      providerVmId: source.providerVmId!,
+      idempotencyKey: "snap-key-finish-retry",
+    }).pipe(Effect.provide(workflowLayer(repo, provider))));
+
+    expect(result.id).toBe("snap-finish-retry");
+    expect(finishCalls).toBe(2);
+    expect(requests.get(`${source.id}/snap-key-finish-retry`)?.status).toBe("succeeded");
+    expect(usageEvents.filter((event) => event.eventType === "vm.snapshot.created")).toHaveLength(1);
   });
 
   test("a succeeded request replay repairs a missing ownership event without another provider snapshot", async () => {
