@@ -149,7 +149,7 @@ const repoProps = {
 };
 
 // No icon file of their own: cmux draws its GitHub owner's avatar (here a drawn stand-in), atlas-web
-// its framework, relay its language.
+// its framework, relay its language, notes (no manifest) a folder.
 const ownerAvatar =
   "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iMTYiIGZpbGw9IiMxZjIzMjgiLz48cGF0aCBkPSJNOSAyMlYxMWw3IDcgNy03djExIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PC9zdmc+";
 const repoHost = {
@@ -157,6 +157,43 @@ const repoHost = {
     repoProjects.filter((project) => project.repo?.github).map((project) => [project.cwd, ownerAvatar]),
   ),
   projectGlyphs: { "/Users/you/src/atlas-web": "react", "/Users/you/src/relay": "rust" },
+};
+
+// One project per kind the host tells apart (AgentPaneProjectIcon.glyph), and one it cannot.
+const frameworkGlyphs = {
+  "vite-app": "vite",
+  dashboard: "next",
+  storefront: "react",
+  docs: "astro",
+  "admin-panel": "vue",
+  "svelte-kit-site": "svelte",
+  desktop: "electron",
+  "mobile-app": "expo",
+  "api-server": "bun",
+  engine: "rust",
+  "macos-app": "swift",
+  "ml-pipeline": "python",
+  notes: undefined,
+} as const;
+const frameworkProjects = Object.keys(frameworkGlyphs).map((label) => ({ cwd: `/Users/you/src/${label}`, label }));
+// The home folder keeps its corner mark on the neutral tile; a local one has none. (This menu lists
+// the chosen computer's folders, so a remote folder wears no mark here; the project chooser shows it.)
+const kindProps = {
+  ...baseProps,
+  projectChoices: [
+    { cwd: "~", label: "Home" },
+    { cwd: "/Users/you/src/notes", label: "notes" },
+  ],
+};
+const frameworkProps = {
+  ...baseProps,
+  projectChoices: frameworkProjects,
+};
+const frameworkHost = {
+  projectIcons: {},
+  projectGlyphs: Object.fromEntries(
+    Object.entries(frameworkGlyphs).flatMap(([label, glyph]) => (glyph ? [[`/Users/you/src/${label}`, glyph]] : [])),
+  ),
 };
 
 const openComputer: Play = async (ctx) => {
@@ -205,9 +242,21 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openFolder,
     },
     "folder-favicons": {
-      note: "Projects with a favicon (public/, app/, the folder itself) show it in their tile; cmux has none and keeps its letters.",
+      note: "Projects with a favicon (public/, app/, the folder itself) show it in their tile; cmux has none and shows a folder.",
       props: baseProps,
       chipHost: { projectIcons },
+      play: openFolder,
+    },
+    "framework-marks": {
+      note: "With no favicon, each project shows its framework or language (from package.json dependencies, Package.swift, Cargo.toml…) in its brand color; a folder with no manifest shows a folder.",
+      props: frameworkProps,
+      chipHost: frameworkHost,
+      play: openFolder,
+    },
+    "home-mark": {
+      note: "The home folder keeps its corner mark on the neutral tile; a local folder has none.",
+      props: kindProps,
+      chipHost: { projectIcons: {} },
       play: openFolder,
     },
     "duplicate-worktrees": {
@@ -231,7 +280,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "repo-worktrees": {
-      note: "Worktrees fold under their repository: one cmux row (the current worktree's branch dimmed, its other worktrees counted), avatars and framework glyphs before letters.",
+      note: "Worktrees fold under their repository: one cmux row (the current worktree's branch dimmed, its other worktrees counted), framework marks, then avatars, then a folder.",
       props: repoProps,
       chipHost: repoHost,
       play: openFolder,
