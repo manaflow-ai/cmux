@@ -307,26 +307,6 @@
             }
           },
           {
-            "key" : "settings.group.motion",
-            "rows" : [
-              "ui.animations.enabled",
-              "ui.animations.sidebar",
-              "ui.animations.tabs",
-              "ui.animations.panes",
-              "ui.animations.overlays",
-              "ui.animations.hoverCards",
-              "ui.animations.home",
-              "ui.animations.cursor",
-              "ui.animations.indicators",
-              "ui.animations.feedback",
-              "ui.animations.web"
-            ],
-            "title" : {
-              "key" : "settings.group.motion",
-              "text" : "Motion"
-            }
-          },
-          {
             "key" : "settings.group.colorTransition",
             "rows" : [
               "appearance.colorTransition.enabled",
@@ -792,17 +772,6 @@
               "key" : "settings.group.subsessions",
               "text" : "Sub-sessions"
             }
-          },
-          {
-            "key" : "settings.group.chiefPet",
-            "rows" : [
-              "home.chiefPetEnabled",
-              "home.chiefPetMascot"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefPet",
-              "text" : "Chief Pet"
-            }
           }
         ],
         "id" : "agents",
@@ -819,6 +788,39 @@
           "agentHarnesses",
           "chiefs",
           "computerUse"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.chiefPet",
+            "rows" : [
+              "home.chiefPetEnabled",
+              "home.chiefPetMascot"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefPet",
+              "text" : "Chief Pet"
+            }
+          }
+        ],
+        "id" : "chief-pet",
+        "lead" : [
+          "chiefPet"
+        ],
+        "symbol" : "pawprint",
+        "title" : {
+          "key" : "settings.category.chiefPet",
+          "text" : "Chief Pet"
+        },
+        "trail" : [
+
         ]
       },
       {
