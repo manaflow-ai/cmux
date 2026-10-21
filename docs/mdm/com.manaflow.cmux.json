@@ -872,6 +872,17 @@
       "title" : "Focused Pane",
       "type" : "string"
     },
+    "appearance.glass" : {
+      "default" : "lens",
+      "description" : "How glass surfaces bend the wallpaper behind them. Plain Glass blurs only. Reduce Transparency and Low Power Mode use Plain Glass.",
+      "enum" : [
+        "lens",
+        "plain",
+        "spectrum"
+      ],
+      "title" : "Glass",
+      "type" : "string"
+    },
     "appearance.glassTransparency" : {
       "default" : 0,
       "description" : "How much of the desktop or wallpaper shows through the glass.",
@@ -2150,7 +2161,7 @@
     },
     "focus.inactiveTabStyle" : {
       "default" : "fade",
-      "description" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill.",
+      "description" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill.",
       "enum" : [
         "fade",
         "tonal",
@@ -2663,7 +2674,7 @@
       "type" : "number"
     },
     "notifications.attention.moveToTop" : {
-      "default" : true,
+      "default" : false,
       "description" : "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
       "title" : "Move the Workspace to the Top",
       "type" : "boolean"
@@ -2687,7 +2698,7 @@
       "type" : "boolean"
     },
     "notifications.attention.style" : {
-      "default" : "blink",
+      "default" : "steady",
       "description" : "notifications.attention.style",
       "enum" : [
         "blink",
@@ -2719,7 +2730,7 @@
       "type" : "string"
     },
     "notifications.dismissal" : {
-      "default" : "focus",
+      "default" : "click",
       "description" : "notifications.dismissal",
       "enum" : [
         "keystroke",
