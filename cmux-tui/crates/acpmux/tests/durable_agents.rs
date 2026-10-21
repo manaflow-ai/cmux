@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
 
 struct Daemon {
     child: Option<Child>,
@@ -59,6 +60,22 @@ impl Daemon {
         std::fs::write(
             daemon.home.join("config.json"),
             json!({"harnesses": {"fake": {"argv": ["/usr/bin/env", "FAKE_CLAUDE_STEER=1", "python3", FAKE]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+        )
+        .unwrap();
+        daemon.start();
+        daemon
+    }
+
+    /// A daemon whose default harness is `cmux`, the model router's profile:
+    /// Claude Code (claude-stdio, fake_claude.py) under a name that is not `claude*`.
+    fn claude_router(tag: &str) -> Self {
+        let mut daemon = Self::with_env(tag, "approve-all", &[]);
+        daemon.sigterm();
+        let claude_home = daemon.home.join("claude");
+        std::fs::create_dir_all(&claude_home).unwrap();
+        std::fs::write(
+            daemon.home.join("config.json"),
+            json!({"harnesses": {"cmux": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio", "env": {"CLAUDE_CONFIG_DIR": claude_home}}}, "defaultHarness": "cmux", "permissionPolicy": "approve-all"}).to_string(),
         )
         .unwrap();
         daemon.start();
@@ -505,6 +522,51 @@ async fn a_claude_chat_saved_without_steering_steers_once_adopted() {
         .await;
     assert_eq!(steered["stopReason"], "steered", "the prompt stopped the adopted turn: {steered}");
     std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+}
+
+/// An update restart adopts a running Claude Code chat's host without starting its agent again,
+/// so Ctrl-B goes by what the adopted host runs, not by the chat's saved `agentInfo` (a build that
+/// never saved it, or a crash before it did): its summary says `backgroundsWork` and Ctrl-B moves
+/// the turn's foreground shell. It read false, so Ctrl-B and subagent Stop were hidden and
+/// `_acpmux/process/background` refused until the chat's next fresh start.
+#[tokio::test]
+async fn an_adopted_claude_chat_still_moves_its_work_after_an_update_restart() {
+    let mut daemon = Daemon::claude_router("bg-adopt");
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "fg-shell"}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "the foreground shell", |e| {
+        e["msg"]["params"]["update"]["toolCallId"] == "toolu_fg"
+    });
+
+    daemon.sigterm();
+    drop(client);
+    let path = daemon.home.join("sessions").join(&session).join("session.json");
+    let mut meta: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    meta.as_object_mut().unwrap().remove("agentInfo");
+    std::fs::write(&path, serde_json::to_vec_pretty(&meta).unwrap()).unwrap();
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+
+    let mut rpc = daemon.rpc().await;
+    let listed = rpc.call("session/list", json!({})).await;
+    let entry = listed["sessions"]
+        .as_array()
+        .and_then(|all| all.iter().find(|s| s["sessionId"] == session.as_str()))
+        .cloned()
+        .unwrap_or(Value::Null);
+    assert_eq!(
+        entry["_meta"]["acpmux"]["backgroundsWork"], true,
+        "the adopted chat hides Ctrl-B: {entry}"
+    );
+    let moved = rpc.call("_acpmux/process/background", json!({"sessionId": session})).await;
+    assert_eq!(moved, json!({"backgrounded": true}));
     daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
 }
 
