@@ -37,6 +37,31 @@ struct Run {
     mac_endpoints_before: Vec<String>,
     mac_endpoints_after: Vec<String>,
     marks: Vec<(String, Duration)>,
+    /// TEMPORARY (diagnosis): the longest gap between chunks reaching the
+    /// Mac's echo from the change on, and UDP sockets that dropped datagrams
+    /// (local port, drops) right before the link closed.
+    mac_stall: Duration,
+    udp_drops: Vec<(u16, u64)>,
+}
+
+/// TEMPORARY (diagnosis): (local port, drops) of every UDP socket that
+/// dropped datagrams (Linux `/proc/net/udp` and `udp6`).
+fn udp_socket_drops() -> Vec<(u16, u64)> {
+    let mut drops = Vec::new();
+    for file in ["/proc/net/udp", "/proc/net/udp6"] {
+        let text = std::fs::read_to_string(file).unwrap_or_default();
+        for line in text.lines().skip(1) {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            let (Some(local), Some(count)) = (fields.get(1), fields.last()) else { continue };
+            let port = local.rsplit(':').next().and_then(|hex| u16::from_str_radix(hex, 16).ok());
+            if let (Some(port), Ok(count)) = (port, count.parse::<u64>())
+                && count > 0
+            {
+                drops.push((port, count));
+            }
+        }
+    }
+    drops
 }
 
 /// What happens to the phone at 1 s.
@@ -88,6 +113,8 @@ async fn stream_across(
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
     let mac_path = std::sync::Arc::new(std::sync::Mutex::new(None::<tokio::sync::watch::Receiver<LinkPath>>));
     let mac_path_slot = std::sync::Arc::clone(&mac_path);
+    let mac_arrivals = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Instant>::new()));
+    let mac_arrivals_slot = std::sync::Arc::clone(&mac_arrivals);
     tokio::spawn(async move {
         while let Some(session) = mac.next_session().await {
             let events = SessionEvents {
@@ -97,13 +124,16 @@ async fn stream_across(
             };
             let (mac, options) = (mac.clone(), mac_options.clone());
             let mac_path_slot = std::sync::Arc::clone(&mac_path_slot);
+            let mac_arrivals = std::sync::Arc::clone(&mac_arrivals_slot);
             tokio::spawn(async move {
                 let connected =
                     dial::answer(&mac, session.first, events, &options, LinkConfig::default()).await.unwrap();
                 *mac_path_slot.lock().unwrap() = Some(connected.path.clone());
                 while let Some(mut incoming) = connected.link.accept().await {
+                    let mac_arrivals = std::sync::Arc::clone(&mac_arrivals);
                     tokio::spawn(async move {
                         while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
+                            mac_arrivals.lock().unwrap().push(Instant::now());
                             let _ = incoming.channel.send(bytes).await;
                         }
                     });
@@ -223,6 +253,7 @@ async fn stream_across(
         tokio::time::timeout(Duration::from_secs(25), progress.wait_for(|got| *got >= sent)).await.is_ok();
     let got = *progress.borrow();
     let (endpoints_after, mac_endpoints_after) = (endpoints_of(true), endpoints_of(false));
+    let udp_drops = udp_socket_drops();
     connected.link.close("done");
     let arrivals = reader.await.unwrap();
     assert!(all && got == sent, "bytes lost: sent {sent}, echoed {got}");
@@ -234,6 +265,12 @@ async fn stream_across(
     }
     let after = *connected.path.borrow();
     let mac_after = mac_label();
+    let mut mac_last = changed_at;
+    let mut mac_stall = Duration::ZERO;
+    for at in mac_arrivals.lock().unwrap().iter().filter(|at| **at >= changed_at) {
+        mac_stall = mac_stall.max(at.duration_since(mac_last));
+        mac_last = *at;
+    }
     Run {
         stall,
         before,
@@ -245,6 +282,8 @@ async fn stream_across(
         mac_endpoints_before,
         mac_endpoints_after,
         marks: timeline.map(|t| t.marks()).unwrap_or_default(),
+        mac_stall,
+        udp_drops,
     }
 }
 
@@ -386,6 +425,18 @@ async fn turn_tls_roam_round() -> Result<(), String> {
         && ["roam_turn_tls_allocated", "roam_first_packet", "roam_turn"]
             .iter()
             .all(|m| names(&run).contains(m));
+    let summary = format!(
+        "stall {:?} mac_stall {:?} drops {:?} phone {:?}->{:?} mac {:?} turn relays {:?} turn ice {:?}",
+        run.stall,
+        run.mac_stall,
+        run.udp_drops,
+        run.endpoints_before,
+        run.endpoints_after,
+        run.mac_endpoints_before,
+        turn.relay_ports,
+        turn.ice.urls,
+    );
+    println!("{} {summary}", if ok { "ok" } else { "FAILED" });
     if ok { Ok(()) } else { Err(format!("{run:?}; stream connections {}", turn.stream_connections())) }
 }
 
