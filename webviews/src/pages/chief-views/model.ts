@@ -1,31 +1,33 @@
 // What the views show, derived from the app's replies (types.ts). Pure: no clock, no DOM; every
-// function takes `now` or the start of today. The ordering is the Lanes view's (#20363,
-// agent-activity/lanes.ts): what needs a person first, the longest idle next, working last.
-import { laneOrder, type Lane, type LaneState } from "../../agent-activity/lanes";
+// function takes `now` or the start of today. The ordering is the old Lanes view's (#20363; that
+// view and its agent-activity/lanes.ts are gone from the base): what needs a person first, the
+// longest idle next, working last.
 import type { AgentState, ChiefAgent, FleetMachine, FleetPR, LandingPR, LandingReply } from "./types";
 
 export const LOCAL_MACHINE = "local";
 /** The label that marks a pull request as handed to the autolander. */
 export const READY_LABEL = "ready-to-land";
 
-const LANE_STATE: Record<AgentState, LaneState> = {
-  working: "working",
-  waiting: "input",
-  idle: "idle",
-  failed: "failed",
-};
-
-const asLane = (agent: ChiefAgent): Lane => ({
-  id: agent.id,
-  name: agent.name,
-  title: agent.title,
-  state: LANE_STATE[agent.state],
-  since: agent.since ?? null,
-});
+const RANK: Record<AgentState, number> = { failed: 0, waiting: 1, idle: 2, working: 3 };
 
 /** The Lanes view's order: failed, waiting, idle (longest first), working (newest first). */
 export function agentOrder(a: ChiefAgent, b: ChiefAgent): number {
-  return laneOrder(asLane(a), asLane(b));
+  if (RANK[a.state] !== RANK[b.state]) return RANK[a.state] - RANK[b.state];
+  const since = (a.since ?? 0) - (b.since ?? 0);
+  if (since !== 0) return a.state === "working" ? -since : since;
+  return a.title.localeCompare(b.title);
+}
+
+/** A short duration in the page's locale: "4 min", "3 hr", "2 days" (narrow units). */
+export function shortDuration(ms: number, locale?: string): string {
+  const minutes = Math.max(0, Math.round(ms / 60_000));
+  const [value, unit] =
+    minutes < 60
+      ? [Math.max(1, minutes), "minute"]
+      : minutes < 48 * 60
+        ? [Math.round(minutes / 60), "hour"]
+        : [Math.round(minutes / (24 * 60)), "day"];
+  return new Intl.NumberFormat(locale, { style: "unit", unit, unitDisplay: "narrow" }).format(value);
 }
 
 /** A person should look: it waits on them or failed. */

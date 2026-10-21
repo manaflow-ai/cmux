@@ -2,11 +2,10 @@
 // chip and owner chips, and the view glyphs. Colors are theme roles only (pageBase.css,
 // StatusGlyph's tints); nothing here is blue.
 import type { ReactNode } from "react";
-import { shortDuration } from "../../agent-activity/lanes";
 import { StatusGlyph } from "../../ui/StatusGlyph";
 import type { StatusGlyphName } from "../../ui/statusGlyphs.generated";
 import type { Strings } from "../shared/i18n";
-import { agentPR, ciKind, folderName, LOCAL_MACHINE } from "./model";
+import { agentPR, ciKind, folderName, LOCAL_MACHINE, shortDuration } from "./model";
 import type { ChiefViewManifest, ChiefViewProps } from "./registry";
 import type { AgentState, ChiefAgent } from "./types";
 
