@@ -819,6 +819,12 @@ impl Hub {
         if let Some(text) = row["lastTurn"]["errorText"].as_str() {
             row["lastTurn"]["errorText"] = json!(crate::secret_scan::mask(text));
         }
+        // The running turn's prompt and what it does now (a tool call's title, often a command).
+        for key in ["prompt", "activity", "planStep"] {
+            if let Some(text) = row["turn"][key].as_str() {
+                row["turn"][key] = json!(crate::secret_scan::mask(text));
+            }
+        }
         row
     }
 

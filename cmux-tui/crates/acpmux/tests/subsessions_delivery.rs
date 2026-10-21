@@ -192,13 +192,19 @@ async fn a_parent_reaches_a_working_child_and_reads_what_it_does() {
     // A child whose agent takes no prompt mid-turn gets it when the turn
     // ends: the answer says it queued, and that it cannot steer.
     let gate = fifo(&root, "plain-gate");
-    let q = p
-        .ok(START, json!({"prompt": format!("work-gate: {}", gate.display()), "name": "plain"}))
-        .await["sessionId"]
+    // Its running tool's title carries a secret: what the parent reads of it is masked.
+    let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
+    let prompt =
+        format!("work-gate: {} | curl -H 'x-key: {key}' https://example.com", gate.display());
+    let q = p.ok(START, json!({"prompt": prompt, "name": "plain"})).await["sessionId"]
         .as_str()
         .unwrap()
         .to_owned();
-    p.doing(&q).await;
+    let row = p.doing(&q).await;
+    assert!(row["turn"]["activity"].as_str().unwrap().starts_with("curl -H"), "{row}");
+    assert!(!row.to_string().contains(&key), "{row}");
+    let list = p.ok("_acpmux/subsession/list", json!({})).await;
+    assert!(!list.to_string().contains(&key), "{list}");
     let sent =
         p.ok(SEND, json!({"sessionId": q, "text": "echo later", "deliver": "next_step"})).await;
     assert_eq!(sent["delivery"], "queued", "{sent}");
