@@ -332,9 +332,19 @@ impl Brain {
     }
 
     pub(super) fn sub_failed(&mut self, id: &str, error: &str) {
+        // A subagent that fails while the spawn floor is up (another
+        // person's turn, or an `ask` child or subagent alive) keeps `ask`:
+        // its failure text then holds the turn that reads it. The owner's own
+        // failures never do (the Chief never asks, 2026-10-20).
+        let floor = self.spawn_policy();
         let Some(sub) = self.state.sub_mut(id) else {
             return;
         };
+        if let Some(floor) = floor
+            && sub.policy.is_none()
+        {
+            sub.policy = Some(floor.to_owned());
+        }
         sub.status = SubStatus::Done;
         sub.awaiting_task = false;
         sub.report = Some(format!("(did not start: {error})"));
@@ -1601,8 +1611,8 @@ impl Brain {
     }
 
     /// A permission request of subagent session `session_id`, when it is
-    /// one: an ask subagent's goes to a person in the Chief chat (as an ask
-    /// child's), any other's reaches the Chief as a note. True when handled.
+    /// one: an ask subagent's is refused at once (as an ask child's), any
+    /// other's reaches the Chief as a note. True when handled.
     pub(super) fn sub_permission(
         &mut self,
         session_id: &str,

@@ -561,9 +561,19 @@ impl Brain {
             ),
         };
         // The kept session, when this turn has the same session shape and
-        // keeps the frozen view: only what it has not read goes to it.
-        let sig =
-            keep.then(|| keep_sig(&engine, &preset, system_prompt.as_deref(), &view.text, ttl));
+        // keeps the frozen view: only what it has not read goes to it. The
+        // policy is part of the shape: an approve-all session never serves a
+        // turn another person started, and an `ask` one never an owner turn.
+        let sig = keep.then(|| {
+            keep_sig(
+                &engine,
+                &preset,
+                system_prompt.as_deref(),
+                &view.text,
+                ttl,
+                &policy,
+            )
+        });
         let kept = self.kept.take();
         let stale = self
             .state
@@ -873,9 +883,6 @@ impl Brain {
         // in between tool calls when the session steers, else it waits and
         // the next turn starts the moment this one ends. Native: the engine
         // delivers it after the next tool results. Only chief.stop stops.
-        // A pending approval stays pending: a newer message never answers
-        // it (only the person's Allow or Deny does); the message is steered
-        // in once the tool call is answered.
         if matches!(self.settings.engine, Engine::Acpmux) {
             self.try_steer();
         }
@@ -1795,6 +1802,7 @@ fn keep_sig(
     system: Option<&str>,
     view: &str,
     ttl: CacheTtl,
+    policy: &str,
 ) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -1806,6 +1814,7 @@ fn keep_sig(
         system,
         view,
         ttl.as_str(),
+        policy,
     )
         .hash(&mut h);
     h.finish()

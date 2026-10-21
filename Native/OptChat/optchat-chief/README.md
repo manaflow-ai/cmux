@@ -45,8 +45,7 @@ an item of another conversation is ahead, or acpmux refuses the steer), the
 message waits at the head of the queue and the next turn starts the moment
 this one ends. The native engine delivers it after the next tool results,
 or the next turn takes it. Messages that arrive while a turn waits for
-settle go into that same call. A pending approval is denied by a newer
-human message, so the turn reaches its next tool boundary. Subagent reports
+settle go into that same call. Subagent reports
 follow the same rule. Only chief.stop stops a turn: the runner waits until
 no tool call runs, then sends `session/cancel` every second until the turn
 ends, and the end posts nothing to the chat or any bridge.

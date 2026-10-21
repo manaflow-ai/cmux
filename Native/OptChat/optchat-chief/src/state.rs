@@ -579,7 +579,8 @@ pub struct Resume {
     /// every local effect, as that turn did.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote: bool,
-    /// The cut turn required approval independently of remote.autoApprove.
+    /// The cut turn carried another person's text: the resume turn refuses
+    /// its local effects too.
     #[serde(
         default,
         rename = "other_person",
@@ -598,8 +599,8 @@ pub struct SpawnRef {
     pub spawn: String,
     /// (subagent id, its floor once this report is logged).
     pub subs: Vec<(String, u64)>,
-    /// The report came from a subagent whose effects required approval.
-    /// Older persisted reports have unknown provenance and fail closed.
+    /// The report came from a subagent spawned under the spawn floor
+    /// (another person's turn): the turn that reads it refuses local effects.
     #[serde(
         default,
         rename = "other_person",
