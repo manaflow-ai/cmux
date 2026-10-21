@@ -284,6 +284,8 @@ extension SettingsSchema {
         "updates.checkIntervalSeconds": .network,
         "updates.downloadAutomatically": .network,
         "updates.meteredNetwork": .network,
+        // Web UI updates download and run new page code from files.cmux.com.
+        "updates.web": .network,
         "announcements.fetch": .network,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.

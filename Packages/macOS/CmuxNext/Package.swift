@@ -952,6 +952,8 @@ let package = Package(
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/WhatsNew"),
+                // The keys a web update pointer may be signed with (plans/cmux-next/web-ota.md).
+                .copy("Resources/web-update-keys.json"),
             ],
             swiftSettings: uiSwiftSettings
         ),

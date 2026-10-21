@@ -46,6 +46,7 @@ extension UpdaterService {
             _ = services?.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
         }
         attachTips(registry: services.registry)
+        WebUpdates.shared.start()
         #if DEBUG
         UpdateHarnessProbe.install(updater: self)
         #endif
@@ -100,6 +101,7 @@ extension UpdaterService {
     }
 
     func apply(_ updates: UpdatesSettings) {
+        WebUpdates.shared.follow(updates)
         let preferences = UpdatePreferences(
             installOnQuit: updates.installOnQuit,
             notify: UpdateNotifyMode(rawValue: updates.notify.rawValue) ?? .badge,

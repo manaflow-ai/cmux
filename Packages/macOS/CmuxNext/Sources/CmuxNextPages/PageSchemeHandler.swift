@@ -78,6 +78,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         let id = ObjectIdentifier(task)
         active.insert(id)
+        WebBundleServedViews.shared.add(webView)
         // task-owner: one file read or dynamic lookup per scheme task; a stopped task is never answered
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -95,7 +96,8 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     /// The reply for a GET of `url`: a bundled file (nil when missing or outside the root, as
     /// before), or the dynamic source's answer (a 404 when it has none). With a ``devServer`` a
-    /// page file comes from that server instead.
+    /// page file comes from that server instead; with an active web update
+    /// (``WebBundleOverlay``) from the update's copy of the page's folder.
     func reply(to url: URL) async -> Reply? {
         guard let served = served(url) else { return nil }
         if let devServer, let remote = devServer.url(for: url, page: served.page) {
@@ -104,7 +106,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
                 ?? Self.mimeType(forExtension: remote.pathExtension)
             return Self.reply(url: url, csp: devServer.csp(for: served.page), status: response.statusCode, mimeType: type, body: body)
         }
-        switch Self.route(for: url, page: served.page, root: served.root) {
+        switch Self.route(for: url, page: served.page, root: await WebBundleOverlay.shared.root(for: served.root)) {
         case nil:
             return nil
         case .file(let file):

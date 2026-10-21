@@ -13,8 +13,10 @@ import WebKit
 // automatic-check settings, last probe). `updates.check`: a read-only probe
 // of the build's real feed; answers with the typed result (or `pending`
 // when the feed is slower than the control deadline), never installs.
+// `updates.web.*`: web updates (AppControl+WebUpdates).
 extension AppControl {
     func registerUpdateMethods(_ updater: UpdaterService, services appServices: AppServices) {
+        registerWebUpdateMethods()
         service?.router.register([
             .mainActor("updates.status") { _ in .value(Self.json(updater.status, log: updater.log.recent)) },
             // `updates.highlights {last?}`: the staged update's top changes (the
