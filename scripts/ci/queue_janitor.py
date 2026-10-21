@@ -5,9 +5,9 @@ Pull request macOS jobs share a few small runner pools (Blacksmith and
 GitHub-hosted macOS 15 and 26). When one is saturated, every queued job on it
 that nobody will read delays one that somebody will. This janitor looks at
 in-flight Actions runs and cancels runs that are waste, in this priority
-order. Stale pull request runs (b) are cancelled on every sweep; the other
-categories only when the number of macOS jobs queued on a pool they hold
-exceeds a threshold:
+order. Stale pull request runs (b) and lost runner assignments (e) are
+cancelled on every sweep; the other categories only when the number of macOS
+jobs queued on a pool they hold exceeds a threshold:
 
   a. push-triggered experiment workflows on ``exp/*`` branches;
   b. pull request runs whose PR is closed or merged, or whose head SHA is no
@@ -24,21 +24,63 @@ exceeds a threshold:
      pool. Unlike (a)-(c) the run is current and its remaining output is still
      readable, so this category is ordered last and never touches a run whose
      diff changes what the failing shard does.
+  e. push and pull request runs holding a lost runner assignment
+     (find_lost()): a job GitHub shows `queued` with no runner (runner_id
+     null or 0, no runner_name) more than LOST_QUEUED_SECONDS (30 minutes)
+     after it could first run, while at least one job created later on the
+     identical label set has been taken by a runner (skipped_by_pool()). That
+     evidence comes from GitHub alone, since the sweep's hosted runner cannot
+     reach the fleet: the in-flight jobs already listed, plus, only when a
+     suspect lacks it, the jobs of at most two recently completed runs of its
+     own workflow for up to three workflows (evidence_queries()). Without
+     it the job is just waiting in a backed-up pool and is left alone. A lost
+     job holds nothing but never runs, so this category is not gated on a
+     backed-up pool. A run whose head is stale (a push with no open pull
+     request at its head, or a pull request run whose PR is closed, merged or
+     superseded) is cancelled. A run at the current head of an open pull
+     request is cancelled once no other job of it is running, and a later
+     sweep re-runs its failed jobs (rerun-failed-jobs) when the run has
+     completed as cancelled and the PR head still equals its head_sha
+     (plan_lost_reruns()). It is re-run once: the pending re-run names the
+     attempt it cancelled and is dropped when the run is past that attempt,
+     and an attempt a bot started (the janitor's own re-run, or
+     owned_pool_rescue.py's) is cancelled but never queued for a re-run
+     (bot_rerun()), nor is a run that already failed. The pending re-runs ride
+     in the `macos-pool-load` snapshot this sweep already uploads, under
+     LOST_RERUNS_KEY, and the next sweep reads them from the newest trusted
+     copy (previous_lost_reruns()); without that state nothing at an open
+     pull request's head is cancelled.
 
 Draft pull requests are deliberately not a category: a draft can be an active
 integration branch other work depends on, and ci.yml has no ready_for_review
 trigger to replace a cancelled ci-status.
 
-A pool is the set of macOS labels a job asked for. Outside (b), a run that only
-waits on a pool that is not backed up is never cancelled: its output may still
-be read, and cancelling it frees nothing anyone is waiting for. A stale pull
-request run's output is never read, so it goes whatever the queue, unless
-someone re-ran it or labelled the PR no-janitor; those wait for a backed-up
-pool like the other categories. Outside (b), candidates are skipped once every
-pool's projected queue is back under the threshold. Every category shares the
-per-sweep cancel cap, and runs holding a backed-up pool are spent first. Main pushes, merge groups, scheduled and
-dispatched runs on main, release/tag runs, nightly, and TestFlight/App Store
-workflows are never candidates, whatever their state.
+A pool is the set of macOS labels a job asked for. Outside (b) and (e), a run
+that only waits on a pool that is not backed up is never cancelled: its output
+may still be read, and cancelling it frees nothing anyone is waiting for. A
+stale pull request run's output is never read, so it goes whatever the queue,
+unless someone re-ran it or labelled the PR no-janitor; those wait for a
+backed-up pool like the other categories. A lost assignment (e) goes whatever
+the queue, and a `no-janitor` label (or a label page left unread) leaves it
+alone, as it does an orphan. Outside (b) and (e), candidates are skipped once
+every pool's projected queue is back under the threshold. Every category shares
+the per-sweep cancel cap, and runs holding a backed-up pool are spent first.
+Main pushes, merge groups, scheduled and dispatched runs on main, release/tag
+runs, nightly, and TestFlight/App Store workflows are never candidates,
+whatever their state.
+
+owned_pool_rescue.py also cancels and re-runs runs on owned pools, inside its
+own watch of each run. The two never re-run the same attempt twice: each
+re-checks the run's attempt right before re-running (the rescue in its
+cancel-wait loop, the janitor in plan_lost_reruns()), and GitHub refuses a
+re-run of a run that is not completed. The rescue usually moves a CI job
+stuck on an owned pool first (its budget is about 16.5 minutes at the default
+queue rounds, 46.5 at most); when (e) gets there first, the rescue's watch
+ends with the cancelled run, and its sweeper watches the janitor's re-run
+like any attempt 2. Where the rescue deliberately waits for a sibling still
+running, (e) waits too at an open pull request's head. The rescue's own
+re-runs are attempts a bot started, which (e) never re-runs, so the rescue's
+attempt ladder (Blacksmith from attempt 3) is never extended by the janitor.
 
 Everything that decides is a pure function over already-fetched JSON; the
 GitHub client at the bottom only fetches and cancels.
@@ -62,7 +104,9 @@ artifact listing per run that may hold one.
 Orphaned runs are a separate pass (find_orphans): a job the runner scheduler
 lost holds nothing on any pool, so that pass ignores the queue threshold,
 has its own cap, and may end main schedules, nightly and TestFlight runs,
-which the categories above never touch.
+which the categories above never touch. It acts later than (e)
+(CI_JANITOR_ORPHAN_MINUTES, 120 by default) and never re-runs; a run (e)
+cancels this sweep is excluded from it.
 """
 
 from __future__ import annotations
@@ -70,6 +114,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime as dt
+import io
 import json
 import os
 import re
@@ -78,6 +123,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
+import zlib
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -87,6 +134,8 @@ from pr_runner_pool import MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
 from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label, side_label  # noqa: E402
 from pr_runner_pool import GitHub as PoolClient  # noqa: E402
+from pr_runner_pool import ARTIFACT_NAME as SNAPSHOT_ARTIFACT  # noqa: E402
+from pr_runner_pool import SNAPSHOT_BRANCH, SNAPSHOT_FILE, trusted_snapshot_artifact  # noqa: E402
 import owned_warm_state  # noqa: E402
 
 
@@ -137,7 +186,34 @@ FULL_SUITE_LABEL = "full-ci"
 COMPILE_ONLY_POLICY = "compile-only"
 COMPILE_ADMISSION_JOB = re.compile(r"(^|/ )macOS compile admission$")
 
-CATEGORY_ORDER = ("experiment", "stale-pr", "label-dropped", "doomed")
+CATEGORY_ORDER = ("experiment", "stale-pr", "label-dropped", "doomed", "lost")
+
+# Category e (lost runner assignments, find_lost()). A job queued with no
+# runner this long after it could first run, while a newer job on exactly its
+# labels started, was skipped by its pool.
+LOST_QUEUED_SECONDS = 1800
+# Only these events have a head to judge the run by (lost_pr_state()); a lost
+# job in any other run is left to the orphan pass.
+LOST_EVENTS = frozenset({"push", "pull_request"})
+# Evidence the in-flight inventory lacks is looked for in a few completed runs
+# of the suspect's own workflow: at most this many workflows per sweep, one
+# listing of LOST_EVIDENCE_LISTING runs each, and the jobs of at most
+# LOST_EVIDENCE_RUNS_PER_WORKFLOW of them.
+LOST_EVIDENCE_WORKFLOWS = 3
+LOST_EVIDENCE_LISTING = 20
+LOST_EVIDENCE_RUNS_PER_WORKFLOW = 2
+# The snapshot key that carries a cancelled run to the sweep that re-runs it.
+LOST_RERUNS_KEY = "lost_reruns"
+# Older snapshots read when the newest has no LOST_RERUNS_KEY (its sweep
+# failed before rewriting it).
+LOST_PREVIOUS_SNAPSHOTS = 3
+# A pending re-run older than this is dropped: the cancel never settled, or the
+# lookups kept failing, and the pull request has had hours to move on.
+LOST_RERUN_TTL = dt.timedelta(hours=6)
+# Pending re-runs read (one run request each) and re-runs posted per sweep.
+LOST_PENDING_MAX = 25
+LOST_RERUN_MAX = 10
+SNAPSHOT_UNREADABLE = (ValueError, KeyError, EOFError, NotImplementedError, zipfile.BadZipFile, zlib.error)
 
 # The jobs whose failure decides ci-status. ci-macos.yml shards the app-host
 # suite and the reusable-call prefix makes the API name "macos / app-host unit
@@ -684,6 +760,9 @@ class Candidate:
     reason: str
     usage: MacosUsage
     pr: Mapping[str, Any] | None = None
+    # Category e at the current head of an open pull request: once the cancel
+    # has settled, a later sweep re-runs the run's failed jobs (new_lost_reruns()).
+    rerun: bool = False
 
 
 def classify(
@@ -774,6 +853,376 @@ def newer_ci_run_waiting(run: Mapping[str, Any], runs: Iterable[Mapping[str, Any
     return False
 
 
+# ---------------------------------------------------------------------------
+# Category e: lost runner assignments
+# ---------------------------------------------------------------------------
+#
+# GitHub can lose a job's runner assignment: the job stays `queued` with no
+# runner for hours while newer jobs on the same labels are picked up, and the
+# runner fleet never sees it (run 39631559018, job 119450713364 on
+# glaeda-side-std-xcode-26.6, queued 80+ minutes from 19:55Z on 2026-10-21).
+# The sweep runs on a hosted runner that cannot reach the fleet dashboard, so
+# "the fleet has no record of it" is read from GitHub alone: no runner id or
+# name, and proof from the same inventory that runners serving exactly its
+# labels took newer work and skipped it (skipped_by_pool()).
+
+
+def unassigned(job: Mapping[str, Any]) -> bool:
+    """GitHub shows the job queued with no runner: runner_id null or 0 and no runner_name.
+
+    `waiting` (an environment approval) and `pending` (a concurrency group)
+    are deliberate holds, not lost assignments. A job with no labels asked no
+    pool for anything.
+    """
+    return (job.get("status") == "queued" and not job.get("runner_id") and not job.get("runner_name")
+            and bool(job.get("labels")))
+
+
+def took_runner(job: Mapping[str, Any]) -> bool:
+    """A runner took the job: it is running, or it finished after a runner started it.
+
+    A job cancelled while still queued is `completed` with a `started_at` too,
+    but no runner id or name, so `started_at` alone proves nothing.
+    """
+    if job.get("status") in RUNNING_JOB_STATUSES:
+        return True
+    return (job.get("status") == "completed" and bool(job.get("started_at"))
+            and bool(job.get("runner_id") or job.get("runner_name")))
+
+
+def lost_wait_start(job: Mapping[str, Any], run_jobs: Iterable[Mapping[str, Any]]) -> dt.datetime | None:
+    """When the job could first have run: its `created_at`, or the last completion among its run's other jobs.
+
+    A job record can exist before its `needs` finished, and the jobs API names
+    no `needs`, so any sibling's completion may be the one it waited for.
+    Taking the latest errs toward a later start, and so toward leaving a job
+    alone.
+    """
+    created = parse_time(job.get("created_at"))
+    if created is None:
+        return None
+    finished = [parse_time(other.get("completed_at")) for other in run_jobs
+                if other is not job and other.get("status") == "completed"]
+    return max([created, *(moment for moment in finished if moment is not None)])
+
+
+def skipped_by_pool(job: Mapping[str, Any], since: dt.datetime, others: Iterable[Mapping[str, Any]]) -> int:
+    """How many jobs on exactly this job's labels, created after `since`, a runner took (took_runner()).
+
+    This is the evidence rule. The label set is the job's whole `labels`
+    list, lowercased (job_pool_key(): GitHub matches labels without case),
+    compared for equality: a runner serving it can take any job asking for
+    those labels, while a job asking for one label more or less may need a
+    runner this job cannot use, or the reverse. A pool serves its queue
+    roughly in order, so a newer job on the same labels being taken means the
+    pool had a runner and passed this job over. A merely backed-up pool leaves
+    the newer jobs queued too, and the count stays 0.
+    """
+    key = job_pool_key(job)
+    count = 0
+    for other in others:
+        if other is job or job_pool_key(other) != key or not took_runner(other):
+            continue
+        created = parse_time(other.get("created_at"))
+        if created is not None and created > since:
+            count += 1
+    return count
+
+
+@dataclasses.dataclass(frozen=True)
+class LostJob:
+    job_name: str
+    labels: str
+    queued_since: dt.datetime
+    # Newer jobs on the same labels that a runner took (skipped_by_pool()).
+    skipped: int
+
+
+def _overdue(run_jobs: Sequence[Mapping[str, Any]], now: dt.datetime) -> Iterable[tuple[Mapping[str, Any], dt.datetime]]:
+    for job in run_jobs:
+        if not unassigned(job):
+            continue
+        since = lost_wait_start(job, run_jobs)
+        if since is not None and (now - since).total_seconds() > LOST_QUEUED_SECONDS:
+            yield job, since
+
+
+def _lost_scope(run: Mapping[str, Any]) -> bool:
+    return (run.get("status") in IN_FLIGHT_RUN_STATUSES and run.get("event") in LOST_EVENTS
+            and protected_reason(run) is None)
+
+
+def _all_jobs(*maps: Mapping[int, Sequence[Mapping[str, Any]]] | None) -> list[Mapping[str, Any]]:
+    return [job for jobs_by_run in maps if jobs_by_run for jobs in jobs_by_run.values() for job in jobs]
+
+
+def find_lost(
+    runs: Sequence[Mapping[str, Any]],
+    jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
+    *,
+    now: dt.datetime,
+    evidence_jobs: Mapping[int, Sequence[Mapping[str, Any]]] | None = None,
+) -> dict[int, LostJob]:
+    """Run id -> its longest-waiting lost job, for in-flight push and pull request runs policy may touch.
+
+    A job is lost when it is unassigned(), could have run for more than
+    LOST_QUEUED_SECONDS (lost_wait_start()), and skipped_by_pool() finds at
+    least one newer job on its labels taken, among every job this sweep
+    listed: the in-flight runs' and the completed runs listed for this
+    (`evidence_jobs`, evidence_queries()). Without that evidence the job is
+    waiting in a backed-up pool and is left alone.
+    """
+    others = _all_jobs(jobs_by_run, evidence_jobs)
+    lost: dict[int, LostJob] = {}
+    for run in runs:
+        if not _lost_scope(run):
+            continue
+        best: LostJob | None = None
+        for job, since in _overdue(jobs_by_run.get(run["id"]) or (), now):
+            skipped = skipped_by_pool(job, since, others)
+            if skipped and (best is None or since < best.queued_since):
+                best = LostJob(str(job.get("name") or ""), job_pool_key(job), since, skipped)
+        if best is not None:
+            lost[run["id"]] = best
+    return lost
+
+
+def evidence_queries(
+    runs: Sequence[Mapping[str, Any]],
+    jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
+    *,
+    now: dt.datetime,
+) -> list[tuple[str, str]]:
+    """(workflow file, earliest wait start) to list completed runs for, when the inventory holds no evidence.
+
+    In-flight runs show only the jobs still in flight; a short side lane that
+    started after a lost job may already have finished with its run. Such
+    newer runs of the suspect's own workflow most likely asked for the same
+    labels, so one listing of its completed runs created since the wait began
+    finds them. At most LOST_EVIDENCE_WORKFLOWS, oldest suspect first.
+    """
+    others = _all_jobs(jobs_by_run)
+    earliest: dict[str, dt.datetime] = {}
+    for run in runs:
+        workflow = str(run.get("path") or "").rsplit("/", 1)[-1]
+        if not _lost_scope(run) or not workflow:
+            continue
+        for job, since in _overdue(jobs_by_run.get(run["id"]) or (), now):
+            if not skipped_by_pool(job, since, others) and (workflow not in earliest or since < earliest[workflow]):
+                earliest[workflow] = since
+    ordered = sorted(earliest.items(), key=lambda item: (item[1], item[0]))[:LOST_EVIDENCE_WORKFLOWS]
+    return [(workflow, _iso(since)) for workflow, since in ordered]
+
+
+def evidence_runs(listed: Iterable[Mapping[str, Any]], *, known: Iterable[int], cap: int) -> list[Mapping[str, Any]]:
+    """The first `cap` listed runs whose jobs ran (success or failure) and whose jobs the sweep has not listed."""
+    known = set(known)
+    return [run for run in listed
+            if run.get("id") not in known and run.get("conclusion") in ("success", "failure")][:cap]
+
+
+def lost_branches(runs: Iterable[Mapping[str, Any]], lost: Mapping[int, LostJob],
+                  pending: Iterable[Mapping[str, Any]]) -> list[str]:
+    """Branches the pull request lookup needs for category e: lost runs' and pending re-runs'."""
+    branches = {str(run.get("head_branch")) for run in runs if run.get("id") in lost and run.get("head_branch")}
+    branches |= {str(entry.get("branch")) for entry in pending if isinstance(entry, Mapping) and entry.get("branch")}
+    return sorted(branches)
+
+
+def bot_rerun(run: Mapping[str, Any]) -> bool:
+    """This attempt is a re-run a bot started: the janitor's own, owned_pool_rescue.py's, or another App's."""
+    actor = str((run.get("triggering_actor") or {}).get("login") or "")
+    return int(run.get("run_attempt") or 1) > 1 and actor.endswith("[bot]")
+
+
+def lost_pr_state(run: Mapping[str, Any], prs: Sequence[Mapping[str, Any]]) -> tuple[str, Mapping[str, Any] | None, str]:
+    """("current" | "stale" | "unknown", the pull request it was judged by, why).
+
+    A pull request run is current while its pull request is open at the run's
+    head, and stale once it is merged, closed or superseded. A push run is
+    current while an open pull request from the same owner has the run's head,
+    and stale otherwise, including a branch with no pull request at all.
+    """
+    branch = run.get("head_branch") or ""
+    sha = str(run.get("head_sha") or "")
+    if run.get("event") == "pull_request":
+        pr = resolve_pull_request(run, prs)
+        if pr is None:
+            return "unknown", None, "its pull request could not be resolved"
+        number, state = pr.get("number"), pr.get("state")
+        if state in ("MERGED", "CLOSED"):
+            return "stale", pr, f"PR #{number} is {str(state).lower()}"
+        if state != "OPEN":
+            return "unknown", pr, f"PR #{number} is {state}"
+        if pr.get("headRefOid") and pr.get("headRefOid") != sha:
+            return "stale", pr, f"superseded: PR #{number} head is now {str(pr.get('headRefOid'))[:9]}"
+        return "current", pr, f"at the head of open PR #{number}"
+    if run.get("event") == "push":
+        owner = run_head_owner(run)
+        open_prs = [pr for pr in prs if pr.get("state") == "OPEN"
+                    and str(((pr.get("headRepositoryOwner") or {}).get("login")) or "").lower() == owner]
+        at_head = [pr for pr in open_prs if pr.get("headRefOid") == sha]
+        if at_head:
+            return "current", at_head[0], f"push at the head of open PR #{at_head[0].get('number')}"
+        return "stale", (open_prs[0] if open_prs else None), f"push on {branch}: no open pull request at {sha[:9]}"
+    return "unknown", None, f"{run.get('event')} run"
+
+
+@dataclasses.dataclass(frozen=True)
+class LostVerdict:
+    action: str  # "cancel" or "skip"
+    reason: str
+    note: str = ""
+    rerun: bool = False
+    pr: Mapping[str, Any] | None = None
+
+
+def classify_lost(
+    run: Mapping[str, Any],
+    run_jobs: Sequence[Mapping[str, Any]],
+    lost: LostJob,
+    prs: Sequence[Mapping[str, Any]] | None,
+    *,
+    now: dt.datetime,
+    rerun_state: bool,
+) -> LostVerdict | None:
+    """What category e does with a run holding a lost job, or None to leave it to the other categories.
+
+    `prs` is the lookup for the run's branch, None when the branch was not
+    looked up (then nothing is known, and nothing is done). A stale run is
+    cancelled whatever its siblings are doing: nobody reads it. A run at the
+    current head of an open pull request is cancelled so that a later sweep
+    re-runs its failed jobs, except:
+    - while another of its jobs runs (the cancel would kill readable work;
+      once they finish only the lost job is left to re-run);
+    - a run that already failed, or an attempt a bot started (bot_rerun()),
+      is cancelled but not re-run: the first is decided, and the second is the
+      janitor's own re-run (or owned_pool_rescue.py's), which is never re-run
+      again;
+    - without re-run state (`rerun_state`: --pool-load, and the previous
+      snapshot was readable) it is left alone, since a cancel nobody re-runs
+      would leave the pull request with a cancelled run.
+    `no-janitor` on the pull request, or a label page left unread, skips the
+    run like an orphan.
+    """
+    if prs is None:
+        return None
+    state, pr, why = lost_pr_state(run, prs)
+    evidence = (f"lost runner assignment: `{lost.job_name}` queued {format_age(now - lost.queued_since)} with no "
+                f"runner while {lost.skipped} newer job(s) on `{lost.labels}` started")
+    if state == "unknown":
+        return LostVerdict("skip", evidence, why)
+    if pr is not None and JANITOR_OPT_OUT_LABEL in pr_labels(pr):
+        return LostVerdict("skip", evidence, f"PR #{pr.get('number')} is labelled `{JANITOR_OPT_OUT_LABEL}`", pr=pr)
+    if pr is not None and not labels_complete(pr):
+        return LostVerdict("skip", evidence, f"PR #{pr.get('number')} has more labels than were read", pr=pr)
+    if state == "stale":
+        return LostVerdict("cancel", f"{evidence}; {why}", pr=pr)
+    running = sum(1 for job in run_jobs if job.get("status") in RUNNING_JOB_STATUSES)
+    if running:
+        return LostVerdict("skip", f"{evidence}; {why}", f"{running} other job(s) still running", pr=pr)
+    if any(job.get("status") == "completed" and job.get("conclusion") == "failure" for job in run_jobs):
+        return LostVerdict("cancel", f"{evidence}; {why}, but the run already failed, so it is not re-run", pr=pr)
+    if bot_rerun(run):
+        return LostVerdict("cancel", f"{evidence}; {why}, but attempt {run.get('run_attempt')} is a bot's re-run, "
+                                     "which is never re-run again", pr=pr)
+    if not rerun_state:
+        return LostVerdict("skip", f"{evidence}; {why}", "no re-run state to carry the re-run to a later sweep", pr=pr)
+    return LostVerdict("cancel", f"{evidence}; {why}: its failed jobs are re-run once the cancel settles",
+                       rerun=True, pr=pr)
+
+
+def _iso(moment: dt.datetime) -> str:
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def new_lost_reruns(candidates: Iterable[Candidate], results: Mapping[int, str], *,
+                    now: dt.datetime) -> list[dict[str, Any]]:
+    """Pending re-run entries for this sweep's category-e cancels that took and asked for one."""
+    entries = []
+    for candidate in candidates:
+        result = results.get(candidate.run["id"]) or ""
+        if candidate.rerun and (result == "cancelled" or result.startswith("force-cancelled")):
+            run = candidate.run
+            entries.append({"run_id": run["id"], "attempt": int(run.get("run_attempt") or 1),
+                            "head_sha": str(run.get("head_sha") or ""), "branch": str(run.get("head_branch") or ""),
+                            "cancelled_at": _iso(now)})
+    return entries
+
+
+@dataclasses.dataclass(frozen=True)
+class LostRerun:
+    entry: Mapping[str, Any]
+    action: str  # "rerun", "keep" (try again next sweep) or "drop"
+    note: str = ""
+    run: Mapping[str, Any] | None = None
+
+
+def plan_lost_reruns(
+    pending: Sequence[Mapping[str, Any]],
+    runs_now: Mapping[int, Mapping[str, Any]],
+    prs_by_branch: Mapping[str, Sequence[Mapping[str, Any]]],
+    *,
+    now: dt.datetime,
+) -> list[LostRerun]:
+    """Which pending category-e cancels to re-run now.
+
+    Each entry names the run and the attempt the janitor cancelled. It is
+    re-run (rerun-failed-jobs) once that attempt has completed as cancelled,
+    while its pull request is still open at the run's head (lost_pr_state()).
+    The "once" is the attempt: a re-run makes a new attempt, so an entry whose
+    run moved past its attempt (the janitor's re-run, a person's, or
+    owned_pool_rescue.py's) is dropped, and the new attempt, started by a bot,
+    is never queued for another re-run (classify_lost()). A run not readable
+    this sweep, a cancel not settled yet, or a branch not looked up is kept for
+    the next sweep, until LOST_RERUN_TTL.
+    """
+    decisions: list[LostRerun] = []
+    reruns = 0
+    for entry in pending:
+        run_id = entry.get("run_id") if isinstance(entry, Mapping) else None
+        if not isinstance(run_id, int) or isinstance(run_id, bool):
+            continue
+        cancelled = parse_time(str(entry.get("cancelled_at") or ""))
+        if cancelled is None or now - cancelled > LOST_RERUN_TTL:
+            decisions.append(LostRerun(entry, "drop", "expired"))
+            continue
+        run = runs_now.get(run_id)
+        if not run:
+            decisions.append(LostRerun(entry, "keep", "run not readable this sweep"))
+            continue
+        attempt = int(run.get("run_attempt") or 0)
+        if attempt != int(entry.get("attempt") or 0):
+            decisions.append(LostRerun(entry, "drop", f"already re-run (now attempt {attempt})", run))
+            continue
+        if run.get("status") != "completed":
+            decisions.append(LostRerun(entry, "keep", f"cancel not settled ({run.get('status')})", run))
+            continue
+        if run.get("conclusion") != "cancelled":
+            decisions.append(LostRerun(entry, "drop", f"finished {run.get('conclusion')}", run))
+            continue
+        if run.get("head_sha") != entry.get("head_sha"):
+            decisions.append(LostRerun(entry, "drop", "head changed", run))
+            continue
+        branch = str(entry.get("branch") or "")
+        if branch not in prs_by_branch:
+            decisions.append(LostRerun(entry, "keep", "pull request lookup missing", run))
+            continue
+        state, pr, why = lost_pr_state(run, prs_by_branch[branch])
+        if state != "current":
+            decisions.append(LostRerun(entry, "drop", f"not re-run: {why}", run))
+            continue
+        if pr is not None and (JANITOR_OPT_OUT_LABEL in pr_labels(pr) or not labels_complete(pr)):
+            decisions.append(LostRerun(entry, "drop", f"not re-run: PR #{pr.get('number')} opted out", run))
+            continue
+        if reruns >= LOST_RERUN_MAX:
+            decisions.append(LostRerun(entry, "keep", f"re-run cap of {LOST_RERUN_MAX} reached", run))
+            continue
+        reruns += 1
+        decisions.append(LostRerun(entry, "rerun", why, run))
+    return decisions
+
+
 @dataclasses.dataclass
 class Decision:
     candidate: Candidate
@@ -810,7 +1259,21 @@ def build_plan(
     max_cancels: int,
     pull_request_policy: str,
     now: dt.datetime,
+    evidence_jobs: Mapping[int, Sequence[Mapping[str, Any]]] | None = None,
+    lost: Mapping[int, LostJob] | None = None,
+    rerun_state: bool = True,
 ) -> Plan:
+    """Decide every category's candidates under the shared cap.
+
+    Category e (lost, classify_lost()) is judged first, so a run holding a
+    lost job is cancelled as one, never gated on a backed-up pool; a run it
+    leaves alone still goes through classify(). `lost` defaults to
+    find_lost() over `jobs_by_run` and `evidence_jobs`; `rerun_state` says
+    whether a cancel at an open pull request's head can be carried to the
+    sweep that re-runs it.
+    """
+    if lost is None:
+        lost = find_lost(runs, jobs_by_run, now=now, evidence_jobs=evidence_jobs)
     usages = {run["id"]: macos_usage(jobs_by_run.get(run["id"], ())) for run in runs}
     queued = sum(u.queued for u in usages.values())
     running = sum(u.running for u in usages.values())
@@ -820,11 +1283,22 @@ def build_plan(
             queued_by_pool[pool] = queued_by_pool.get(pool, 0) + count
 
     candidates: list[Candidate] = []
+    lost_skips: list[Decision] = []
     for run in runs:
         usage = usages[run["id"]]
+        branch = str(run.get("head_branch") or "")
+        lost_verdict = None
+        if run["id"] in lost:
+            lost_verdict = classify_lost(
+                run, jobs_by_run.get(run["id"], ()), lost[run["id"]],
+                prs_by_branch[branch] if branch in prs_by_branch else None, now=now, rerun_state=rerun_state)
+            if lost_verdict is not None and lost_verdict.action == "cancel":
+                candidates.append(Candidate(run, "lost", lost_verdict.reason, usage, lost_verdict.pr,
+                                            rerun=lost_verdict.rerun))
+                continue
         pr = None
         if run.get("event") == "pull_request":
-            pr = resolve_pull_request(run, prs_by_branch.get(str(run.get("head_branch") or ""), ()))
+            pr = resolve_pull_request(run, prs_by_branch.get(branch, ()))
         verdict = classify(
             run, usage, pr,
             newer_ci_run_waiting=newer_ci_run_waiting(run, runs),
@@ -833,6 +1307,9 @@ def build_plan(
         )
         if verdict:
             candidates.append(Candidate(run, verdict[0], verdict[1], usage, pr))
+        elif lost_verdict is not None:
+            lost_skips.append(Decision(Candidate(run, "lost", lost_verdict.reason, usage, lost_verdict.pr),
+                                       "skip", lost_verdict.note))
 
     initially_backed_up = {pool for pool, count in queued_by_pool.items() if count > threshold}
 
@@ -844,6 +1321,10 @@ def build_plan(
                 str(candidate.run.get("created_at") or ""), candidate.run["id"])
 
     def needs_pressure(candidate: Candidate) -> bool:
+        # A lost job frees nothing but never runs either: pure dead weight, on
+        # any pool (classify_lost() already honoured no-janitor).
+        if candidate.category == "lost":
+            return False
         # A re-run or a no-janitor label means someone wants this output.
         return candidate.category != "stale-pr" or deliberate(candidate)
 
@@ -880,7 +1361,7 @@ def build_plan(
         for pool, held in candidate.usage.held_by_pool.items():
             if pool in projected:
                 projected[pool] = max(0, projected[pool] - held)
-    return Plan(queued, running, threshold, decisions, queued_by_pool)
+    return Plan(queued, running, threshold, decisions + lost_skips, queued_by_pool)
 
 
 def branches_to_resolve(
@@ -962,7 +1443,7 @@ def render_summary(plan: Plan, *, dry_run: bool, now: dt.datetime, results: Mapp
         if plan.to_cancel():
             verb = "would be cancelled" if dry_run else "are cancelled"
             lines.append("No pool is over the threshold, so only runs for merged, closed or superseded "
-                         f"pull requests {verb}. Candidates seen:")
+                         f"pull requests, and runs holding a lost runner assignment, {verb}. Candidates seen:")
         else:
             lines.append("No pool is over the threshold, so nothing is cancelled. Candidates seen:")
         lines.append("")
@@ -980,6 +1461,28 @@ def render_summary(plan: Plan, *, dry_run: bool, now: dt.datetime, results: Mapp
         name = str(run.get("name") or run.get("path") or "").replace("|", "\\|")
         reason = f"({decision.candidate.category}) {decision.candidate.reason}".replace("|", "\\|")
         lines.append(f"| {verb} | {url} | {name} | {reason} | {age} | {usage.queued}/{usage.running} |")
+    return "\n".join(lines) + "\n"
+
+
+def render_lost_reruns(decisions: Sequence[LostRerun], *, dry_run: bool,
+                       results: Mapping[int, str] | None = None) -> str:
+    """The pending category-e re-runs this sweep looked at."""
+    if not decisions:
+        return ""
+    results = results or {}
+    lines = ["", "### Lost-assignment re-runs", "",
+             "Runs cancelled for a lost runner assignment at an open pull request's head get their failed jobs "
+             "re-run once, after the cancel settles.", "",
+             "| Decision | Run | Attempt | Note |", "| --- | --- | --- | --- |"]
+    for decision in decisions:
+        run_id = decision.entry.get("run_id")
+        if decision.action == "rerun":
+            verb = results.get(run_id) or ("would re-run failed jobs" if dry_run else "re-run failed jobs")
+        else:
+            verb = "keep for the next sweep" if decision.action == "keep" else "drop"
+        url = (decision.run or {}).get("html_url") or f"run {run_id}"
+        note = decision.note.replace("|", "\\|")
+        lines.append(f"| {verb.replace('|', '/')} | {url} | {decision.entry.get('attempt')} | {note} |")
     return "\n".join(lines) + "\n"
 
 
@@ -1399,6 +1902,7 @@ def render_rate_limits(limits: Mapping[str, Mapping[str, int]]) -> str:
 class GitHub:
     def __init__(self, token: str, repo: str) -> None:
         self.repo = repo
+        self._token = token
         self.calls = 0
         # Rate limit resource ("core", "graphql") -> the newest response's values.
         self.rate_limits: dict[str, dict[str, int]] = {}
@@ -1489,6 +1993,79 @@ class GitHub:
     def force_cancel(self, run_id: int) -> None:
         self.request("POST", f"/repos/{self.repo}/actions/runs/{run_id}/force-cancel")
 
+    def rerun_failed(self, run_id: int) -> None:
+        self.request("POST", f"/repos/{self.repo}/actions/runs/{run_id}/rerun-failed-jobs")
+
+    def completed_runs(self, workflow: str, since: str) -> list[dict[str, Any]]:
+        """One page of `workflow`'s completed runs created at or after `since`, newest first."""
+        query = urllib.parse.urlencode({"status": "completed", "created": f">={since}",
+                                        "per_page": LOST_EVIDENCE_LISTING})
+        payload = self.request("GET", f"/repos/{self.repo}/actions/workflows/{urllib.parse.quote(workflow)}/runs?{query}")
+        return [run for run in payload.get("workflow_runs") or [] if isinstance(run, Mapping)]
+
+    def snapshot_artifacts(self) -> list[dict[str, Any]]:
+        """The newest `macos-pool-load` artifacts (the listing by name; the unfiltered one answers 500)."""
+        payload = self.request("GET", f"/repos/{self.repo}/actions/artifacts?name={SNAPSHOT_ARTIFACT}&per_page=20")
+        return [artifact for artifact in payload.get("artifacts") or [] if isinstance(artifact, Mapping)]
+
+    def download(self, artifact: Mapping[str, Any]) -> bytes:
+        """One artifact's zip archive, through pr_runner_pool.py's redirect-safe download."""
+        self.calls += 1
+        try:
+            return PoolClient(self._token, self.repo).download(artifact)
+        except OSError as error:  # urllib's HTTPError and URLError
+            raise RuntimeError(f"artifact download failed ({error})") from error
+
+
+def previous_lost_reruns(github: GitHub) -> list[dict[str, Any]]:
+    """The pending category-e re-runs the newest janitor snapshot that has them carried.
+
+    Read from the `macos-pool-load` artifact every sweep already uploads (the
+    same trusted main-branch copies pr_runner_pool.py reads), so the state
+    lives where GitHub keeps it and needs no new storage. A snapshot whose
+    sweep failed before writing LOST_RERUNS_KEY is passed over for the one
+    before it (at most LOST_PREVIOUS_SNAPSHOTS). An entry read twice is
+    harmless: plan_lost_reruns() re-checks its run's attempt. Raises
+    RuntimeError when a request fails, so the caller knows the state is
+    unknown rather than empty.
+    """
+    trusted = sorted((artifact for artifact in github.snapshot_artifacts()
+                      if trusted_snapshot_artifact(artifact, SNAPSHOT_BRANCH)),
+                     key=lambda artifact: str(artifact.get("created_at") or ""), reverse=True)
+    for artifact in trusted[:LOST_PREVIOUS_SNAPSHOTS]:
+        blob = github.download(artifact)
+        try:
+            document = json.loads(zipfile.ZipFile(io.BytesIO(blob)).read(SNAPSHOT_FILE))
+        except SNAPSHOT_UNREADABLE:
+            continue
+        entries = document.get(LOST_RERUNS_KEY) if isinstance(document, Mapping) else None
+        if isinstance(entries, list):
+            return [dict(entry) for entry in entries if isinstance(entry, Mapping)][-LOST_PENDING_MAX:]
+    return []
+
+
+def rerun_lost(github: GitHub, decisions: Sequence[LostRerun]) -> tuple[list[dict[str, Any]], dict[int, str], int]:
+    """POST rerun-failed-jobs for each `rerun` decision. Returns (entries still pending, results, failures).
+
+    A re-run GitHub refused stays pending: if it took after all, the next
+    sweep sees the new attempt and drops it, so it can never run twice.
+    """
+    pending = [dict(decision.entry) for decision in decisions if decision.action == "keep"]
+    results: dict[int, str] = {}
+    failures = 0
+    for decision in decisions:
+        if decision.action != "rerun":
+            continue
+        run_id = int(decision.entry["run_id"])
+        try:
+            github.rerun_failed(run_id)
+            results[run_id] = "re-ran failed jobs"
+        except RuntimeError as error:
+            failures += 1
+            results[run_id] = f"failed: {error}"
+            pending.append(dict(decision.entry))
+    return pending, results, failures
+
 
 def utc_now() -> dt.datetime:
     return dt.datetime.now(UTC)
@@ -1551,16 +2128,40 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         runs = github.in_flight_runs()
         jobs_by_run = {run["id"]: github.jobs(run["id"]) for run in runs if needs_jobs(run, linux_only, now)}
+        # Category e: a suspect whose evidence the in-flight jobs lack gets a
+        # few completed runs of its own workflow listed (evidence_queries()),
+        # only when such a suspect exists.
+        evidence_jobs: dict[int, list[dict[str, Any]]] = {}
+        for workflow, since in evidence_queries(runs, jobs_by_run, now=now):
+            try:
+                listed = github.completed_runs(workflow, since)
+                for run in evidence_runs(listed, known=set(jobs_by_run) | set(evidence_jobs),
+                                         cap=LOST_EVIDENCE_RUNS_PER_WORKFLOW):
+                    evidence_jobs[run["id"]] = github.jobs(run["id"])
+            except RuntimeError as error:
+                print(f"queue-janitor: lost-assignment evidence for {workflow}: {error}", file=sys.stderr)
+        lost = find_lost(runs, jobs_by_run, now=now, evidence_jobs=evidence_jobs)
+        # The re-runs an earlier sweep left pending, from its pool snapshot.
+        # None means unknown: then nothing at an open pull request's head is
+        # cancelled for a re-run this sweep could not carry on.
+        pending: list[dict[str, Any]] | None = None
+        if args.pool_load:
+            try:
+                pending = previous_lost_reruns(github)
+            except RuntimeError as error:
+                print(f"queue-janitor: lost-assignment re-run state: {error}", file=sys.stderr)
         # Orphans read only what is already fetched; their PR branches join
         # the one batched GraphQL lookup for the no-janitor label.
         orphans = find_orphans(runs, jobs_by_run, min_age=orphan_age, now=now)
-        branches = sorted(set(branches_to_resolve(runs, jobs_by_run)) | set(orphan_branches(orphans, now)))
+        branches = sorted(set(branches_to_resolve(runs, jobs_by_run)) | set(orphan_branches(orphans, now))
+                          | set(lost_branches(runs, lost, pending or [])))
         prs_by_branch = github.pull_requests(branches) if branches else {}
     except RuntimeError as error:
         print(f"queue-janitor: {error}", file=sys.stderr)
         print(render_rate_limits(github.rate_limits), file=sys.stderr)
         return 1
 
+    snapshot: dict[str, Any] | None = None
     if args.pool_load:
         # Before any cancellation: pr_runner_pool.py wants the demand a new run
         # would queue behind, and the janitor's cancels are capped anyway.
@@ -1600,13 +2201,38 @@ def main(argv: Sequence[str] | None = None) -> int:
     plan = build_plan(
         runs, jobs_by_run, prs_by_branch,
         threshold=threshold, max_cancels=max_cancels, pull_request_policy=args.pull_request_policy,
-        now=now,
+        now=now, lost=lost, rerun_state=pending is not None,
     )
 
     results: dict[int, str] = {}
     failures = 0
     if not args.dry_run:
         results, failures = cancel_plan(github, plan.to_cancel())
+
+    # Category e re-runs: one run request per pending entry, then at most
+    # LOST_RERUN_MAX re-runs. What is still pending, plus this sweep's cancels
+    # that asked for a re-run, goes into the snapshot for the next sweep.
+    rerun_decisions: list[LostRerun] = []
+    rerun_results: dict[int, str] = {}
+    if pending is not None:
+        runs_now: dict[int, Mapping[str, Any]] = {}
+        for entry in pending:
+            run_id = entry.get("run_id")
+            if isinstance(run_id, int) and run_id not in runs_now:
+                try:
+                    runs_now[run_id] = github.run(run_id)
+                except RuntimeError as error:
+                    print(f"queue-janitor: pending re-run of run {run_id}: {error}", file=sys.stderr)
+        rerun_decisions = plan_lost_reruns(pending, runs_now, prs_by_branch, now=now)
+        if args.dry_run:
+            still_pending = [dict(entry) for entry in pending]
+        else:
+            still_pending, rerun_results, rerun_failures = rerun_lost(github, rerun_decisions)
+            failures += rerun_failures
+            still_pending += new_lost_reruns(plan.to_cancel(), results, now=now)
+        if snapshot is not None and args.pool_load:
+            snapshot[LOST_RERUNS_KEY] = still_pending[-LOST_PENDING_MAX:]
+            args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
 
     orphan_decisions = build_orphan_plan(
         orphans, prs_by_branch, max_cancels=max_orphan_cancels,
@@ -1618,10 +2244,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         failures += orphan_failures
 
     summary = render_summary(plan, dry_run=args.dry_run, now=now, results=results)
+    summary += render_lost_reruns(rerun_decisions, dry_run=args.dry_run, results=rerun_results)
     summary += render_orphan_summary(orphan_decisions, dry_run=args.dry_run, now=now, min_age=orphan_age,
                                      results=orphan_results)
     summary += f"\n_{len(runs)} in-flight runs, {len(jobs_by_run)} job listings, {len(branches)} PR branches, " \
-               f"{len(orphans)} orphans, {github.calls} API calls._\n"
+               f"{len(orphans)} orphans, {len(lost)} lost assignments, {len(evidence_jobs)} evidence job listings, " \
+               f"{github.calls} API calls._\n"
     summary += f"\n_{render_rate_limits(github.rate_limits)}_\n"
     print(summary)
     if args.summary:

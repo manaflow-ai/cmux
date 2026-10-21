@@ -23,6 +23,13 @@ name: CI queue janitor
 # These are lost runner assignments, not demand, so no queue threshold gates
 # them; release, tag and merge-queue orphans are only reported.
 #
+# Sooner than that, category e takes a push or pull request run (never a
+# protected one) whose job has queued with no runner for 30 minutes while a
+# newer job on exactly its labels was taken. A stale run is cancelled; a run
+# at an open pull request's head is cancelled and, on a later sweep, its failed
+# jobs are re-run once. That pending re-run rides in the `macos-pool-load`
+# snapshot below, which the next sweep reads back. It shares the cancel cap.
+#
 # Each sweep also publishes the per-pool macOS queue it saw as the
 # `macos-pool-load` artifact, which pull request CI reads to overflow off a
 # backed-up pool.
