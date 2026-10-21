@@ -380,6 +380,7 @@
         "CmuxGhosttyKit",
         "CmuxHomeCore",
         "CmuxHomeRender",
+        "CmuxInstallAuthCore",
         "CmuxMessagesLab",
         "CmuxUpdater"
       ],
@@ -1517,6 +1518,8 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextIcons",
+        "CmuxNextPages",
+        "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
       "packages": [

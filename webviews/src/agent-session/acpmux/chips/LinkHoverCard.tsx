@@ -2,8 +2,8 @@
 // request chip and the pull request bars above the composer. Its head is the site's icon, the page
 // title cmux already has (else the host), Open (a cmux tab) and Open in; its foot is the host and
 // the full address with secret-looking values as ••• (linkDisplay.ts). A pull request adds its full
-// title, state, author and checks between them (PullRequestCard.tsx). It sits on the tooltip's
-// frosted glass (styles.css .cv-link-preview).
+// title, state, author and checks between them (PullRequestCard.tsx). It sits on the
+// liquid glass (.ui-glass; styles.css .cv-link-preview).
 import type { PointerEvent, ReactNode } from "react";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { OpenInMenu } from "../previewCard/OpenInMenu";
@@ -61,7 +61,7 @@ export function LinkHoverCard({
     <AnchoredCard
       id={id}
       anchor={hover.open ? anchor : null}
-      className={pullRequest ? "cv-link-preview acpmux-pr-card" : "cv-link-preview"}
+      className={pullRequest ? "ui-glass cv-link-preview acpmux-pr-card" : "ui-glass cv-link-preview"}
       side={side}
       interactive
       ariaLabel={head}
