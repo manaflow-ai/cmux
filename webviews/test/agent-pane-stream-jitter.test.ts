@@ -255,6 +255,23 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     });
   const scrollTop = (page: Page) =>
     page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
+  /// Where the view comes to rest: Linux WebKit animates a wheel step over several frames,
+  /// so a read at a fixed delay can land mid-glide. Resolves once scrollTop holds for 200ms.
+  const settledScrollTop = (page: Page) =>
+    page.evaluate(
+      () =>
+        new Promise<number>((resolve) => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          let last = scroller.scrollTop;
+          let since = performance.now();
+          const tick = (now: number) => {
+            if (scroller.scrollTop !== last) [last, since] = [scroller.scrollTop, now];
+            if (now - since >= 200) resolve(last);
+            else requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
 
   test.each(engines.map(([name]) => name))(
     "%s: the reply only moves up as a tool call, the working line and the queue card come and go",
@@ -311,8 +328,7 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
           wheeled = page.mouse
             .move(box.x + box.width / 2, box.y + 120)
             .then(() => page.mouse.wheel(0, -400))
-            .then(() => page.waitForTimeout(150))
-            .then(() => scrollTop(page));
+            .then(() => settledScrollTop(page));
       });
       const left = await wheeled!;
       endTurn();
@@ -325,9 +341,26 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     },
   );
 
-  /// How far the last row sits above the bottom stack's top.
+  /// How far the last row sits above the bottom stack's top, once the transcript is at rest. A new row
+  /// rises in (cv-enter) and growth glides in (GLIDE_MS); a read mid-way put the row up to 41px low
+  /// in Chromium on a loaded machine, though scrollTop never moved. Infinite ones (a spinner) aside.
   const gapAbove = (page: Page) =>
-    page.evaluate(() => {
+    page.evaluate(async () => {
+      const scroller = document.querySelector(".acpmux-scroll")!;
+      for (;;) {
+        const moving = document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.playState === "running" &&
+              Number.isFinite(animation.effect?.getComputedTiming().endTime) &&
+              animation.effect instanceof KeyframeEffect &&
+              animation.effect.target instanceof Node &&
+              scroller.contains(animation.effect.target),
+          );
+        if (moving.length === 0) break;
+        await Promise.allSettled(moving.map((animation) => animation.finished));
+      }
       const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-scroll .acpmux-row")];
       const last = rows.reduce((a, b) =>
         Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a,

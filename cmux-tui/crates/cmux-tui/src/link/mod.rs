@@ -20,7 +20,7 @@ mod inbound;
 #[cfg(target_os = "macos")]
 mod launchd;
 mod lines;
-mod machine_gate;
+pub(crate) mod machine_gate;
 pub(crate) mod machine_update;
 mod mesh;
 mod mesh_cloud;

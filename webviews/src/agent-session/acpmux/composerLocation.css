@@ -215,12 +215,12 @@
   overflow: auto;
 }
 .acpmux-location-menu .acpmux-menu-item { width: 100%; text-align: left; }
-.acpmux-location-menu .ui-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); }
+.acpmux-location-menu .ui-menu-item[data-highlighted] { background: var(--acpmux-menu-highlight); }
 .acpmux-location-menu .acpmux-menu-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-location-menu .ui-separator { flex: none; height: 1px; border: 0; margin: 4px 6px; background: color-mix(in srgb, var(--agent-text) 12%, transparent); }
 /* A started chat's Choose folder… under the folder field's rows (dogfood 09): a plain row, not a button face. */
 .acpmux-location-choose { border: 0; background: none; color: inherit; font: inherit; }
-.acpmux-location-choose:hover, .acpmux-location-choose:focus-visible { background: var(--acpmux-menu-hover); outline: none; }
+.acpmux-location-choose:hover, .acpmux-location-choose:focus-visible { background: var(--acpmux-menu-highlight); outline: none; }
 
 /* The controls row's rhythm (Leo 2026-10-14: "one consistent gap, group related controls, and
    right-align the trailing cluster"). Its groups: [+] [model · effort] [permission mode · Plan]
@@ -286,7 +286,7 @@
   border-radius: var(--ui-row-radius);
   color: var(--agent-text);
 }
-.ui-menu-item.acpmux-access-item[data-highlighted] { background: var(--acpmux-menu-hover); }
+.ui-menu-item.acpmux-access-item[data-highlighted] { background: var(--acpmux-menu-highlight); }
 .acpmux-access-item .ui-menu-check { grid-row: 1; grid-column: 3; display: inline-flex; width: 16px; justify-content: center; margin: 0; color: var(--agent-text); font-weight: 600; }
 .acpmux-access-item-icon { display: inline-flex; align-items: center; color: var(--agent-muted); }
 .acpmux-access-item-icon .acpmux-icon { width: 16px; height: 16px; }
@@ -319,7 +319,7 @@
   padding: 2px 8px 2px 10px;
   border-radius: var(--ui-row-radius);
 }
-.acpmux-access-grant:hover { background: var(--acpmux-menu-hover); }
+.acpmux-access-grant:hover { background: var(--acpmux-menu-highlight); }
 .acpmux-access-grant-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--agent-soft); font-size: var(--text-detail); }
 .acpmux-access-grant-remove {
   flex: none;
@@ -475,8 +475,7 @@
     .acpmux-picker-button,
     .acpmux-plan,
     .acpmux-steer,
-    .acpmux-mic:not([data-state="starting"], [data-state="listening"], [data-state="finalizing"]),
-    .acpmux-fast
+    .acpmux-mic:not([data-state="starting"], [data-state="listening"], [data-state="finalizing"])
   ):focus-visible {
   background: var(--acpmux-row-hover);
   box-shadow: none;
@@ -496,12 +495,12 @@
     background: var(--acpmux-pill-hover, var(--acpmux-row-hover));
   }
 }
-:is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic, .acpmux-fast):focus-visible {
+:is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic):focus-visible {
   outline: 2px solid color-mix(in srgb, var(--agent-text) 72%, transparent);
   outline-offset: 0;
 }
 @media (prefers-contrast: more) {
-  :is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic, .acpmux-fast):focus-visible {
+  :is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic):focus-visible {
     outline-offset: 2px;
   }
 }
@@ -522,6 +521,8 @@
   transform: translateY(0.75px);
 }
 .acpmux-composer-bar .acpmux-model-name,
+.acpmux-composer-bar .acpmux-model-short,
+.acpmux-composer-bar .acpmux-model-detail,
 .acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
 .acpmux-composer-bar .acpmux-access .acpmux-picker-button {
   font-size: var(--text-control);
@@ -603,6 +604,10 @@
 .nt-pickers .acpmux-model .acpmux-picker-button { min-width: 0; max-width: 100%; }
 .nt-pickers .acpmux-effort .acpmux-picker-button { position: relative; overflow: clip; }
 .nt-pickers .acpmux-effort .acpmux-picker-button [data-fit-part] { display: block; white-space: nowrap; }
+/* The model button's effort ("Opus 5.5  Medium", Leo 2026-10-20) swaps its level for the short name
+   as the card narrows, as the chat bar's does: the form shown draws, the other is laid out of it. */
+.nt-pickers .acpmux-model .acpmux-picker-button:has(.acpmux-model-detail) { position: relative; overflow: clip; }
+.nt-pickers .acpmux-model .acpmux-model-detail[data-fit-part] { display: block; white-space: nowrap; }
 .nt-pickers .acpmux-effort .acpmux-picker-button > span { overflow: visible; text-overflow: clip; }
 .nt-pickers .acpmux-picker-button > :not(span) { flex: none; }
 .acpmux-composer-bar .acpmux-picker-button > * { flex: none; }
@@ -638,7 +643,6 @@
 .nt-pickers [data-fit-part="effort"]:not([data-fit-forms~="full"]),
 .acpmux-composer-bar[data-fit-access="icon"] [data-fit-part="access"]:not([data-fit-forms~="icon"]),
 .acpmux-composer-bar[data-fit-effort="short"] [data-fit-part="effort"]:not([data-fit-forms~="short"]),
-.acpmux-composer-bar[data-fit-speed="hidden"] [data-fit-part="speed"]:not([data-fit-forms~="hidden"]),
 .acpmux-composer-bar[data-fit-model="family"] [data-fit-part="model"]:not([data-fit-forms~="family"]),
 .acpmux-composer-bar[data-fit-model="icon"] [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
   position: absolute;
@@ -701,17 +705,6 @@
 }
 @container composer (max-width: 420px) {
   .acpmux-composer-bar [data-fit-part="access"]:not([data-fit-forms~="icon"]) {
-    position: absolute;
-    top: 0;
-    inset-inline-start: 0;
-    visibility: hidden;
-    pointer-events: none;
-  }
-}
-/* The speed bolt gives way with the model's name (#20964's narrow step, now the composer's width):
-   the reasoning menu's speed rows still set it, so it leaves before the mic. */
-@container composer (max-width: 370px) {
-  .acpmux-composer-bar [data-fit-part="speed"]:not([data-fit-forms~="hidden"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -1036,7 +1029,7 @@
   height: 1px;
   background: color-mix(in srgb, var(--agent-text) 12%, transparent);
 }
-.acpmux-folder-popover .acpmux-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); }
+.acpmux-folder-popover .acpmux-menu-item[data-highlighted] { background: var(--acpmux-menu-highlight); }
 .acpmux-location-check { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; min-height: 16px; margin-left: auto; color: var(--agent-text); }
 /* The name and its suffix on one line, cut at the end: "cmux · cg-lane-adopt". */
 .acpmux-menu-text.acpmux-location-name { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1063,30 +1056,6 @@
 .acpmux-location-worktrees:hover { background: color-mix(in srgb, var(--agent-text) 9%, transparent); color: var(--agent-text); }
 .acpmux-location-worktrees[data-open] > .acpmux-icon:last-child { transform: rotate(90deg); }
 .acpmux-location-worktrees + .acpmux-location-check { margin-left: 0; }
-/* The speed toggle (FastToggle.tsx, Leo 2026-10-15): a round 28 px bolt left of the mic, drawn as
-   the mic is (no bezel, muted ink, a 16 px glyph, the row's hover wash and focus ring). On, its ink
-   is the accent; Ultrafast fills the bolt. */
-.acpmux-fast {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: none;
-  color: var(--agent-muted);
-  cursor: default;
-}
-.acpmux-fast .acpmux-icon { width: 16px; height: 16px; }
-.acpmux-fast:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
-.acpmux-fast:hover { background: var(--acpmux-row-hover, var(--acpmux-composer-hover)); color: var(--agent-text); }
-.acpmux-fast[aria-pressed="true"],
-.acpmux-fast[aria-pressed="true"]:hover { color: var(--agent-accent); }
-/* A narrow composer lays the bolt out of the row (composerRowFit.ts speedHidden, the
-   `[data-fit-part="speed"]` rules above): the reasoning menu's speed rows still set it. Its hover
-   ease is the other chips' (composerStates.css). */
 
 /* Claude Code's split (Leo 2026-10-19, "stick it to the bottom"; ComposerFoot.tsx): under the plain
    footer look the box keeps +, the prompt, the mic and Send or Stop, and the mode, model and effort

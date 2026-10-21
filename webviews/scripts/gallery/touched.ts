@@ -7,8 +7,16 @@
 // touches every entry of that host. A change to the gallery itself, the build config or the
 // lockfile touches every entry.
 //
+// `ranked` orders the touched entries by how close each is to the change, for a capped sample
+// (gallery-advisory.yml renders the first few): its own source first (its gallery file, a file it
+// covers, a stylesheet one of those imports), then a gallery file that names a changed component,
+// then entries that import a changed file (fewest hops first), then entries beside a changed file
+// in the same folder, then entries reached only through a host stylesheet, then everything else a
+// broad change re-renders. A shared stylesheet touches every entry; the ranking still puts the
+// component that owns it first.
+//
 //   bun scripts/gallery/touched.ts --changed changed.txt            # one repo path per line
-//   -> {"all": false, "entries": ["agent-pane.composer"], "reasons": {"agent-pane.composer": ["..."]}}
+//   -> {"all": false, "entries": ["agent-pane.composer"], "reasons": {...}, "ranked": [{"id": ..., "tier": 0, ...}]}
 import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -30,7 +38,17 @@ const EVERYTHING = [
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".css"];
 const IMPORT = /(?:\bfrom\s*|\bimport\s*\(?\s*)["']([^"']+)["']/g;
 
-export type TouchedEntries = { all: boolean; entries: string[]; reasons: Record<string, string[]> };
+/** Why an entry is in the sample, closest first (the tier is the index here). */
+export const RANK_REASONS = ["own", "names", "imports", "same-folder", "host-stylesheet", "everything"] as const;
+export type RankReason = (typeof RANK_REASONS)[number];
+/** One touched entry in ranked order: the changed file that put it there and, for imports, the hops. */
+export type RankedEntry = { id: string; tier: number; why: RankReason; file: string; distance: number };
+export type TouchedEntries = {
+  all: boolean;
+  entries: string[];
+  reasons: Record<string, string[]>;
+  ranked: RankedEntry[];
+};
 export type EntryRoots = { id: string; host: string; file: string; covers: string[] };
 
 /** The stage module that mounts each kind of entry (src/gallery/frame/). */
@@ -99,6 +117,34 @@ export function closure(roots: string[], read: (file: string) => string | undefi
   return seen;
 }
 
+/** Import hops from `roots` to every reachable file (roots are 0), breadth first. */
+export function distances(
+  roots: string[],
+  read: (file: string) => string | undefined = readSource,
+): Map<string, number> {
+  const seen = new Map<string, number>();
+  let frontier = [...new Set(roots)];
+  for (let hops = 0; frontier.length; hops++) {
+    const next: string[] = [];
+    for (const file of frontier) {
+      if (seen.has(file)) continue;
+      seen.set(file, hops);
+      next.push(...importsOf(file, read).filter((imported) => !seen.has(imported)));
+    }
+    frontier = next;
+  }
+  return seen;
+}
+
+const COMPONENT_NAME = /^[A-Z][A-Za-z0-9]{3,}$/;
+
+/** Whether a gallery file names a changed file: its src-relative path, or a component's name as a word. */
+function names(text: string, changedSrcPath: string): boolean {
+  if (text.includes(changedSrcPath)) return true;
+  const stem = path.basename(changedSrcPath).replace(/\.[^.]+$/, "");
+  return COMPONENT_NAME.test(stem) && new RegExp(`\\b${stem}\\b`).test(text);
+}
+
 /** A cover is `dir/File.tsx#Component` or `dir/`, relative to webviews/src. */
 function coverFiles(cover: string, src: string): string[] {
   const rel = cover.replace(/#.*$/, "");
@@ -130,19 +176,50 @@ export function touchedEntries(
   const paneStylesheets = options.paneStylesheets ?? (() => agentPaneStylesheets());
   const ids = entries.map((entry) => entry.id).sort();
   const broad = changed.filter((file) => EVERYTHING.some((pattern) => pattern.test(file)));
-  if (broad.length)
-    return { all: true, entries: ids, reasons: Object.fromEntries(ids.map((id) => [id, broad.slice(0, 5)])) };
-  const changedFull = new Map(changed.map((file) => [path.join(repoRoot, file), file]));
+  const specific = changed.filter((file) => !broad.includes(file));
+  const changedFull = new Map(specific.map((file) => [path.join(repoRoot, file), file]));
   const reasons: Record<string, string[]> = {};
+  const ranks = new Map<string, RankedEntry>();
   const sheets = new Map<string, string[]>();
+  const rank = (candidate: RankedEntry) => {
+    const best = ranks.get(candidate.id);
+    if (!best || candidate.tier < best.tier || (candidate.tier === best.tier && candidate.distance < best.distance))
+      ranks.set(candidate.id, candidate);
+  };
   for (const entry of entries) {
     if (!sheets.has(entry.host)) sheets.set(entry.host, hostStylesheets(entry.host, src, read, paneStylesheets));
-    const roots = [entry.file, ...entry.covers.flatMap((cover) => coverFiles(cover, src))];
-    const reached = new Set([...closure(roots, read), ...sheets.get(entry.host)!]);
-    const hits = [...reached].flatMap((file) => changedFull.get(file) ?? []);
-    if (hits.length) reasons[entry.id] = hits.sort();
+    const covered = entry.covers.flatMap((cover) => coverFiles(cover, src));
+    const roots = [entry.file, ...covered];
+    const hops = distances(roots, read);
+    const own = new Set([
+      ...roots,
+      ...roots.flatMap((root) => importsOf(root, read)).filter((f) => f.endsWith(".css")),
+    ]);
+    const folders = new Set(roots.map((root) => path.dirname(root)));
+    const entryText = read(entry.file) ?? "";
+    const hits = new Set<string>();
+    for (const [full, repoPath] of changedFull) {
+      const why = (tier: number, reason: RankReason, distance = 0) => {
+        hits.add(repoPath);
+        rank({ id: entry.id, tier, why: reason, file: repoPath, distance });
+      };
+      if (own.has(full)) why(0, "own");
+      else if (full.startsWith(`${src}/`) && names(entryText, path.relative(src, full))) why(1, "names");
+      else if (hops.has(full)) why(2, "imports", hops.get(full)!);
+      else if (folders.has(path.dirname(full))) why(3, "same-folder");
+      else if (sheets.get(entry.host)!.includes(full)) why(4, "host-stylesheet");
+    }
+    if (hits.size) reasons[entry.id] = [...hits].sort();
   }
-  return { all: false, entries: Object.keys(reasons).sort(), reasons };
+  if (broad.length)
+    for (const id of ids) {
+      reasons[id] = [...new Set([...(reasons[id] ?? []), ...broad.slice(0, 5)])].sort();
+      rank({ id, tier: 5, why: "everything", file: broad[0]!, distance: 0 });
+    }
+  const ranked = [...ranks.values()].sort(
+    (a, b) => a.tier - b.tier || a.distance - b.distance || a.id.localeCompare(b.id),
+  );
+  return { all: broad.length > 0, entries: Object.keys(reasons).sort(), reasons, ranked };
 }
 
 /** The entries under src/ with the file each one comes from. */

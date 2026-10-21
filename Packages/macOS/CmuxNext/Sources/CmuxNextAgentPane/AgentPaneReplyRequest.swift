@@ -59,8 +59,24 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     static let maximumURL = 2048
     /// Longest `data:` image the viewer actions take (base64 of ``AgentPaneImageCopies/maximumBytes``).
     static let maximumImageSource = AgentPaneImageCopies.maximumBytes / 3 * 4 + 64
-    /// Longest image name (its alt text) the viewer actions take.
+    /// Longest image name (its alt text) the viewer actions keep: a longer one is cut to it, not
+    /// refused, since alt text has no length limit (``AgentPaneImageCopies/fileName(_:data:type:)``
+    /// cuts it again to fit a file name).
     static let maximumImageName = 512
+
+    /// `name` cut to at most ``maximumImageName`` UTF-8 bytes, on a character boundary.
+    static func imageName(_ name: String) -> String {
+        guard name.utf8.count > maximumImageName else { return name }
+        var bytes = 0
+        var end = name.startIndex
+        for index in name.indices {
+            let next = name.index(after: index)
+            bytes += name[index..<next].utf8.count
+            guard bytes <= maximumImageName else { break }
+            end = next
+        }
+        return String(name[..<end])
+    }
 
     /// Whether the request only reads (it does not count as the page being touched).
     var isPassive: Bool {
@@ -111,8 +127,8 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         case "image.reveal", "image.openInPane":
             // `src` is the image itself; the name may be empty (an image without alt text).
             guard let src = text("src", Self.maximumImageSource), src.hasPrefix("data:"),
-                  let name = params["name"] as? String, name.utf8.count <= Self.maximumImageName,
-                  !name.utf8.contains(0) else { return nil }
+                  let raw = params["name"] as? String, !raw.utf8.contains(0) else { return nil }
+            let name = Self.imageName(raw)
             guard method == "image.reveal" else {
                 self = .openImageInPane(src: src, name: name)
                 return
