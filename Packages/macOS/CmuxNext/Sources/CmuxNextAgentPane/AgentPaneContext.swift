@@ -22,7 +22,7 @@ public nonisolated struct AgentPaneContext: Sendable, Equatable {
     }
 }
 
-extension AgentPaneContext {
+nonisolated extension AgentPaneContext {
     private static let localHosts: Set<String> = ["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"]
 
     /// The dev server a terminal shows (#16620): the newest localhost URL in
