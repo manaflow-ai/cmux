@@ -91,7 +91,8 @@ async function render(node: React.ReactNode) {
 
 const click = (element: Element | null | undefined) =>
   act(async () => {
-    expect(element).toBeTruthy();
+    // A boolean, so a miss prints one line rather than the element's whole React tree.
+    expect(Boolean(element)).toBe(true);
     element!.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   });
 
@@ -107,7 +108,13 @@ const lines = (count: number, make = (index: number) => `line ${index + 1}`) =>
 async function newFile(filePath: string, text: string) {
   const { toolFiles } = await import("../src/agent-session/acpmux/diff");
   return toolFiles([
-    { id: `edit-${filePath}`, title: `Write ${filePath}`, kind: "edit", status: "completed", diffs: [{ path: filePath, oldText: null, newText: text }] } as never,
+    {
+      id: `edit-${filePath}`,
+      title: `Write ${filePath}`,
+      kind: "edit",
+      status: "completed",
+      diffs: [{ path: filePath, oldText: null, newText: text }],
+    } as never,
   ])[0]!;
 }
 
@@ -141,7 +148,7 @@ test("a prose file wraps by default and code does not; Wrap lines sits beside Co
     expect(block.getAttribute("data-wrap")).toBe(wraps);
     // In the header, right before Copy diff.
     const header = block.querySelector(".cv-edit-diff__header")!;
-    expect(wrap?.parentElement?.closest(".cv-edit-diff__header")).toBe(header);
+    expect(wrap?.parentElement?.closest(".cv-edit-diff__header") === header).toBe(true);
     expect(wrap?.nextElementSibling?.getAttribute("aria-label")).toBe("Copy diff");
     // A visible-text-free icon button names itself by aria-label only (no title tooltip).
     expect(wrap?.hasAttribute("title")).toBe(false);
@@ -149,11 +156,7 @@ test("a prose file wraps by default and code does not; Wrap lines sits beside Co
 });
 
 test("the wrap choice holds for every block of its kind and is remembered", async () => {
-  await renderDiffs(
-    await newFile("/w/a.md", "a\n"),
-    await newFile("/w/b.txt", "b\n"),
-    await newFile("/w/c.ts", "c\n"),
-  );
+  await renderDiffs(await newFile("/w/a.md", "a\n"), await newFile("/w/b.txt", "b\n"), await newFile("/w/c.ts", "c\n"));
   await click(wrapOf(card("a.md")));
   expect(wrapOf(card("a.md"))?.getAttribute("aria-pressed")).toBe("false");
   expect(wrapOf(card("b.txt"))?.getAttribute("aria-pressed")).toBe("false");
@@ -198,16 +201,20 @@ async function openRow(kind: string, output: string, command?: string) {
 }
 
 test("a Shell block previews eight lines under a fade and wraps its output with a hanging indent", async () => {
-  await openRow("execute", lines(30, (index) => `case ${index + 1} ${"ok ".repeat(40)}`), "bun test");
+  await openRow(
+    "execute",
+    lines(30, (index) => `case ${index + 1} ${"ok ".repeat(40)}`),
+    "bun test",
+  );
   const shell = host.querySelector(".cv-shell")!;
   const body = shell.querySelector(".cv-shell__body")!;
   expect(body.getAttribute("data-preview")).toBe("cut");
   // The command line and the thirty lines of output.
   const more = byText("Show all 31 lines", shell);
-  expect(more).toBeDefined();
+  expect(Boolean(more)).toBe(true);
   // Output wraps by default, each line its own block so a wrapped line hangs under its start.
   const wrap = wrapOf(shell);
-  expect(wrap?.closest(".cv-shell__label")).toBeTruthy();
+  expect(Boolean(wrap?.closest(".cv-shell__label"))).toBe(true);
   expect(wrap?.getAttribute("aria-pressed")).toBe("true");
   expect(body.getAttribute("data-wrap")).toBe("true");
   expect(shell.querySelectorAll(".cv-shell__output .cv-line").length).toBe(30);
@@ -224,9 +231,9 @@ test("a Shell block previews eight lines under a fade and wraps its output with 
 test("a long output's Show all output waits until its preview is opened", async () => {
   await openRow("execute", lines(1000), "seq 1000");
   const shell = host.querySelector(".cv-shell")!;
-  expect(byText("Show all output", shell)).toBeUndefined();
+  expect(Boolean(byText("Show all output", shell))).toBe(false);
   await click(byText("Show all 401 lines", shell));
-  expect(byText("Show all output", shell)).toBeDefined();
+  expect(Boolean(byText("Show all output", shell))).toBe(true);
 });
 
 test("a call's output has Wrap lines and the same preview", async () => {
@@ -234,7 +241,7 @@ test("a call's output has Wrap lines and the same preview", async () => {
   const card = host.querySelector(".cv-tool-output-card")!;
   expect(wrapOf(card)?.getAttribute("aria-pressed")).toBe("true");
   expect(card.querySelector(".cv-tool-output")?.getAttribute("data-preview")).toBe("cut");
-  expect(byText("Show all 12 lines", card)).toBeDefined();
+  expect(Boolean(byText("Show all 12 lines", card))).toBe(true);
 });
 
 test("a box wider than its content area marks its right edge until scrolled to the end, inside shadow roots too", async () => {
@@ -275,7 +282,9 @@ test("the cuts are fades, a wrapped line hangs, and Pierre's rows get both", asy
     path.join(import.meta.dir, "../src/agent-session/acpmux/conversation/conversation.css"),
     "utf8",
   );
-  const rule = (selector: RegExp) => css.match(new RegExp(`${selector.source}[^{]*\\{([^}]*)\\}`))?.[1] ?? "";
+  // Every declaration block of the rules whose selector has `selector`.
+  const rule = (selector: RegExp) =>
+    [...css.matchAll(new RegExp(`${selector.source}[^{]*\\{([^}]*)\\}`, "g"))].map((match) => match[1]).join("\n");
   // The preview's bottom edge and the overflow's right edge fade out (a mask), never a hard edge.
   expect(rule(/\[data-preview="cut"\]/)).toMatch(/--cv-fade-bottom:\s*\d/);
   expect(rule(/\[data-more-right\]/)).toMatch(/--cv-fade-right:\s*\d/);

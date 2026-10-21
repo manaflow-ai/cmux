@@ -144,6 +144,8 @@ test("a long output shows its last lines until Show all output", async () => {
   expect(shown().endsWith("line 4999")).toBe(true);
   expect(shown()).not.toContain("line 0\n");
   expect(shown().split("\n").length).toBeLessThan(1000);
+  // Its first lines show under a fade until the block is opened (BlockParts.tsx); then all of it.
+  await click([...host.querySelectorAll("button")].find((node) => node.textContent === "Show all 401 lines"));
   await click([...host.querySelectorAll("button")].find((node) => node.textContent === "Show all output"));
   expect(shown()).toBe(lines.join("\n"));
 });

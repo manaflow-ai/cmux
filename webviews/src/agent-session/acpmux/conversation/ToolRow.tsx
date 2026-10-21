@@ -22,6 +22,8 @@ import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { toolDuration } from "./toolGroups";
 import { OutputMore, useOutput } from "./toolOutput";
+import { useBlockWrap } from "./blockWrap";
+import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
 import { cleanText } from "./mcpCalls";
 import { useFold } from "./fold";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
@@ -159,28 +161,34 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
 
 /// A call's output when it is not a shell's: copyable whole from its right-click menu (Copy Output;
 /// the `hover-actions` experiment's "all" arm adds a Copy in its corner on hover), the end of a long
-/// one shown.
+/// one shown. Wrap lines sits in its corner on hover; past eight lines it shows its first ones under
+/// a fade, with Show all N lines (BlockParts.tsx).
 function ToolOutput({ id, output, reveal }: { id: string; output: string; reveal: number }) {
   const t = useT();
   const shown = useOutput(output, reveal);
+  const [wrap] = useBlockWrap("output");
+  const preview = usePreview(lineCount(shown.shown), reveal);
+  const body = useSidewaysRef<HTMLPreElement>();
   return (
     <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: shown.text })}>
-      {experimentArm(hoverActions) === "all" && (
-        <CopyButton
-          text={shown.text ?? ""}
-          label={t("turn.copy")}
-          className="cv-codeblock__action cv-tool-output__copy"
-        />
-      )}
-      <pre className="cv-tool-output selectable">
-        {shown.cut && (
-          <span className="cv-output-cut" aria-hidden="true">
-            …{"\n"}
-          </span>
-        )}
-        {shown.shown}
-      </pre>
-      <OutputMore output={shown} />
+      <div className="cv-tool-output__box">
+        <span className="cv-tool-output__actions">
+          <WrapButton kind="output" />
+          {experimentArm(hoverActions) === "all" && (
+            <CopyButton text={shown.text ?? ""} label={t("turn.copy")} className="cv-codeblock__action" />
+          )}
+        </span>
+        <pre ref={body} className="cv-tool-output selectable" data-wrap={wrap} data-preview={preview.attribute}>
+          {shown.cut && (
+            <span className="cv-output-cut" aria-hidden="true">
+              …{"\n"}
+            </span>
+          )}
+          {shown.shown && <Lines text={shown.shown} />}
+        </pre>
+      </div>
+      <PreviewMore preview={preview} />
+      {!preview.cut && <OutputMore output={shown} />}
     </div>
   );
 }
