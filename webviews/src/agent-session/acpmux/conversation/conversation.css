@@ -8,7 +8,7 @@
 
 :root {
   /* The fold: a collapsible's body opening or closing, and its chevron turning (fold.ts). The host's
-     move duration (--agent-motion-move, AgentPaneTheme.swift: ~190ms, 0 under Reduce Motion or with
+     move duration (--agent-motion-move, AgentPaneTheme.swift: the motion scale's standard 180ms, 0 under Reduce Motion or with
      animation off), the token the newtab-resize-anim lane's resizes share; 180ms without a host. */
   --cv-fold-duration: var(--agent-motion-move, 180ms);
   --cv-text: var(--agent-text);

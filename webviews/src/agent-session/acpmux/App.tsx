@@ -389,6 +389,7 @@ import {
 } from "./started/startedSessions";
 import { experimentArm } from "../../experiments/experiment";
 import { setSessionStatus, useSessionStatus } from "./sessionStatus";
+import { MOTION_MS } from "../../motion/scale.generated";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -1186,7 +1187,7 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
   rowKind(row) !== "editedFiles" &&
   hasTranscriptCopyText(row);
 
-/// Slides the thread from `step` px below (above, when negative) to its place over 180 ms, so
+/// Slides the thread from `step` px below (above, when negative) to its place over GLIDE_MS, so
 /// content that grew at the latest row glides in. Glides stack (`composite: "add"`): two started
 /// before one paint move the text by their sum. None under Reduce Motion (undefined).
 function glide(node: HTMLElement | null, step: number): Animation | undefined {
@@ -1199,7 +1200,7 @@ function glide(node: HTMLElement | null, step: number): Animation | undefined {
     composite: "add",
   });
 }
-const GLIDE_MS = 180;
+const GLIDE_MS = MOTION_MS.standard;
 /// How many rows from the end a glide looks for the row it holds.
 const FOLLOWED_ROW_SEARCH = 64;
 
