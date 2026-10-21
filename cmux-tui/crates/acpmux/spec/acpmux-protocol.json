@@ -578,6 +578,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/file_put",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/permission_respond",
       "params": {
         "$ref": "#/types/PermissionRespondParams"
@@ -2803,7 +2809,28 @@
           "minimum": 0,
           "type": "integer"
         },
-        "usage": true
+        "usage": true,
+        "waitingOn": {
+          "description": "What it waits on the person for: `question` (an agent question) or\n`permission`; null while nothing is pending. Only the person allows a permission.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "waitingPrompt": {
+          "description": "The first prompt of the question it waits on, cut to 120 characters.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "watching": {
+          "description": "The family of a conversation another app runs that this chat only shows; null otherwise.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       },
       "required": [
         "sessionId",
@@ -3203,6 +3230,20 @@
           "minimum": 0,
           "type": "integer"
         },
+        "waitingOn": {
+          "description": "What it waits on the person for: `question` (an agent question) or\n`permission`; null while nothing is pending. Only the person allows a permission.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "waitingPrompt": {
+          "description": "The first prompt of the question it waits on, cut to 120 characters.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "watching": {
           "description": "The family of a conversation another app runs that this chat only shows; null otherwise.",
           "type": [
@@ -3327,8 +3368,22 @@
     "TurnSummary": {
       "description": "The running turn.",
       "properties": {
+        "activity": {
+          "description": "What the turn does right now: its latest tool call's title; null\nuntil it calls one (`hub/activity.rs`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "client": {
           "type": "string"
+        },
+        "planStep": {
+          "description": "Its plan's entry in progress; null without one.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "prompt": {
           "type": "string"
@@ -3351,7 +3406,9 @@
         }
       },
       "required": [
+        "activity",
         "client",
+        "planStep",
         "prompt",
         "promptId",
         "startedAt",

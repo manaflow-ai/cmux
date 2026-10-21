@@ -290,7 +290,7 @@ jobs:
   # The tests of feat-cmux-next's own CI tooling (nightly-next's App ID, the
   # cmux-tui republish path, the crash ratchet, the red-checks comment, the
   # backdrop art generator). Each is stdlib Python with fakes for the network
-  # and the binaries it calls, so the job needs nothing but a checkout.
+  # and the binaries it calls; only the web lint hook's test also needs bun.
   tooling-tests:
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -300,6 +300,8 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # HEAD^1: a pull request's base for the registry check.
+          fetch-depth: 2
 
       - name: nightly-next's App ID and profile through the ASC API
         run: python3 tests/test_asc_developer_id_app.py
@@ -321,6 +323,34 @@ jobs:
 
       - name: The crash-class rules fast gate fails only on findings the pull request adds
         run: python3 tests/test_crash_class_fast_gate.py
+
+      # web-validation.yml ran this only on main pushes, so a2d6b35 broke the runner's test on
+      # feat-cmux-next unseen (#23430). A fake bun stands in; no web test runs.
+      - name: The per-file webviews test runner (scripts/ci/run-webviews-tests.sh)
+        run: python3 tests/test_webviews_tests_per_file.py
+
+      # A test no feat-cmux-next pull request runs lands red unseen: a2d6b35 broke
+      # tests/test_webviews_tests_per_file.py, which only main pushes and the nightly ran (#23430).
+      - name: Every Python test runs on a pull request lane, or is a reviewed exemption
+        run: python3 tests/test_pr_lane_coverage.py
+
+      # The registry check with the pull request lanes: a test no feat-cmux-next pull request
+      # runs needs a job that runs it (routed by the paths it tests) or an entry in
+      # tests/pr-lane-exemptions.json with the reason. ci-guards.yml's copy of this check is in
+      # the preflight group, which feat-cmux-next pull requests do not run. HEAD^1 is the base.
+      - name: The Python test registry, and the tests no pull request runs
+        run: python3 scripts/ci/validate_test_execution_registry.py --pr-lanes feat-cmux-next --base-sha "$(git rev-parse HEAD^1)"
+
+      # The web lint pre-push hook (scripts/web-lint.sh, scripts/web_lint_prepush.py) on throwaway
+      # repositories with stand-in packages; cmux-next-web.yml ran it only on pushes. A stand-in
+      # package with no node_modules gets a `bun install`.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: The web lint pre-push hook
+        run: python3 tests/test_web_lint_prepush.py
 
   # Every web bundle build runs gen-strings.mjs strict, but only pull requests
   # that touch webviews/ run its tests. 2c661dec960b renamed a setting in Swift

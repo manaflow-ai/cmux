@@ -97,9 +97,12 @@ export class AskTracker {
   }
 
   /// A `_acpmux/permission_pending` notification, on an attached chat or a watched one.
+  /// A peer's request names its peer (`peer`, `via: "peer"`: acpmux server/pending.rs
+  /// `peer_permission_pending`) and is never held, even when it beats its chat's summary.
   pending(message: unknown): void {
     const sessionId = sessionOf(message);
-    if (!sessionId || this.remote.has(sessionId) || grouped((message as { groupId?: unknown }).groupId)) return;
+    const fields = message as { groupId?: unknown; peer?: unknown };
+    if (!sessionId || this.remote.has(sessionId) || onPeer(fields) || grouped(fields.groupId)) return;
     const permission = this.parse(message, sessionId);
     if (!permission || this.asks.has(permission.permissionId)) return;
     // A read already on its way keeps counting: it may hold another chat's answer. It cannot drop
