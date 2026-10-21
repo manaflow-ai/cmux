@@ -1878,7 +1878,10 @@ mod tests {
     /// answers.
     #[tokio::test(start_paused = true)]
     async fn an_unanswered_handshake_initiation_is_repeated_until_the_peer_answers() {
-        let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        // A plain socket: its reads see what loopback delivered at once
+        // (a tokio socket's `try_recv` waits for the reactor to see it).
+        let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        peer.set_nonblocking(true).unwrap();
         let relayed = peer.local_addr().unwrap();
         let (reach_out, _reaches) = mpsc::unbounded_channel();
         let (_control, control) = mpsc::unbounded_channel();
@@ -1898,9 +1901,9 @@ mod tests {
         );
         let mut initiation = vec![0u8; cmux_transport::classify::WG_INITIATION_LEN];
         initiation[0] = 1;
-        let copies = |peer: &UdpSocket| {
+        let copies = |peer: &std::net::UdpSocket| {
             let mut buffer = [0u8; 256];
-            std::iter::from_fn(|| peer.try_recv(&mut buffer).ok()).count()
+            std::iter::from_fn(|| peer.recv(&mut buffer).ok()).count()
         };
         underlay.send(&initiation);
         // Short of boringtun's own retry (REKEY_TIMEOUT, 5 s).
