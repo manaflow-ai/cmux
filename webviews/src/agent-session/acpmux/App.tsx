@@ -50,7 +50,7 @@ import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
-import { publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
+import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
@@ -150,7 +150,7 @@ import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { ActivityLine } from "./conversation/ActivityLine";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
-import { IncomingMessageCard, IncomingNotice } from "./conversation/IncomingMessageCard";
+import { IncomingMessageLine, IncomingNotice } from "./conversation/IncomingMessageCard";
 import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
 import { AgentPairNote } from "./conversation/AgentPairNote";
 import { SessionStartNote } from "./conversation/SessionStartNote";
@@ -498,6 +498,9 @@ const postScrollAnchor = (sessionId: string, anchor: ScrollAnchor | null) =>
   );
 /// A host that does not answer `chat.scrollAnchor.get` (the gallery, an older app) never holds up the chat.
 const SCROLL_ANCHOR_READ_MS = 250;
+/// The longest a chat the handshake named keeps the host's loading state up for acpmux's attach: the
+/// scroll anchor's read, then the client's open hold (direct.ts OPEN_HOLD_MS), with a frame to spare.
+const CHAT_DRAW_HOLD_MS = SCROLL_ANCHOR_READ_MS + 1_500 + 50;
 /// Where chat `sessionId` rested when it was last shown; undefined when nothing is kept.
 const fetchScrollAnchor = async (sessionId: string): Promise<(ScrollAnchor & { sessionId: string }) | undefined> => {
   const anchor = await Promise.race([
@@ -621,15 +624,14 @@ const MessageRow = memo(
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
-    // Another agent's message as a card from it; a task notification as one quiet line
+    // Another agent's message as one "Received message from" line; a task notification as one quiet line
     // (conversation/incomingMessage.ts).
-    // Its images and a steer's read state show with it, as under a bubble.
+    // Its images show with it; a steer's read state does not: the message is the agent's to read.
     if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
     if (row.kind === "user" && row.incoming?.kind === "message")
       return (
         <div className="cv-incoming">
-          <IncomingMessageCard message={row.incoming.message} images={row.images} onOpen={openOfferChat} />
-          {row.steer && <SteerMark steer={row.steer} />}
+          <IncomingMessageLine id={row.id} message={row.incoming.message} images={row.images} onOpen={openOfferChat} />
         </div>
       );
     if (row.kind === "user" && row.incoming?.kind === "hidden") return null;
@@ -1444,6 +1446,7 @@ export function VirtualTranscript({
   expanded,
   registry = defaultRegistry,
   canLoadOlder = false,
+  historyFrom,
   githubRepository,
   find,
   reveal,
@@ -1480,6 +1483,8 @@ export function VirtualTranscript({
   expanded: Set<string>;
   registry?: NativeRegistry;
   canLoadOlder?: boolean;
+  /// The oldest event seq held (AcpmuxSnapshot.historyFrom): a read that drew no row still moves it.
+  historyFrom?: number;
   /// Pages older history in (canLoadOlder): asked once per loaded page while the view is near the top.
   onLoadOlder?: () => Promise<void>;
   githubRepository?: string;
@@ -2521,7 +2526,8 @@ export function VirtualTranscript({
   // Older history pages in before the reader reaches it: whenever the view is within two viewports
   // of the first loaded row, including a tail too short to fill them. The anchoring above keeps the
   // reader's row in place as each page lands.
-  const olderLoadKey = `${sessionKey}\u0000${rows[0]?.id ?? ""}`;
+  // A read that drew no row above the first (records that draw nothing) moves historyFrom: ask again.
+  const olderLoadKey = `${sessionKey}\u0000${rows[0]?.id ?? ""}\u0000${historyFrom ?? ""}`;
   const olderLoadRequested = useRef<string | undefined>(undefined);
   useEffect(() => {
     const node = ref.current;
@@ -2852,6 +2858,9 @@ function AcpmuxPane() {
   // The host answered the handshake: the page shows what it is (a new chat's hero, a session).
   const [handshaken, setHandshaken] = useState(false);
   const handshakenRef = useRef(false);
+  /// The handshake named a chat acpmux still has to attach: the page draws it once the client's
+  /// first frame (its rows, title and modes) is in, or the open's hold has passed.
+  const [awaitsChat, setAwaitsChat] = useState(false);
   /// New Tab submits made before acpmux answered, run in order once it has (never dropped).
   const pendingSubmits = useRef<Array<() => void>>([]);
   const whenHandshaken = (run: () => void) => {
@@ -4168,8 +4177,17 @@ function AcpmuxPane() {
   // the same way).
   const paintReported = useRef(false);
   // A New Tab page is what it is from its first render: its frame draws before the handshake
-  // (cx-0rpl.10), and the host shows no loading mark over it.
-  const showsWhatItIs = handshaken || hostError !== undefined || newTab !== undefined;
+  // (cx-0rpl.10), and the host shows no loading mark over it. A chat the handshake named is what it
+  // is once acpmux attached it: before, the page drew an empty transcript with stand-in chips, and
+  // the host faded that in, then the rows, title and modes popped in (Leo 2026-10-20).
+  const chatDrawn = !awaitsChat || clientSnapshot.connection !== "connecting";
+  const showsWhatItIs = (handshaken && chatDrawn) || hostError !== undefined || newTab !== undefined;
+  useEffect(() => {
+    if (!handshaken || chatDrawn) return;
+    // A slow attach: the client draws what it has after the open's hold (direct.ts OPEN_HOLD_MS).
+    const timer = window.setTimeout(() => setAwaitsChat(false), CHAT_DRAW_HOLD_MS);
+    return () => window.clearTimeout(timer);
+  }, [handshaken, chatDrawn]);
   useEffect(() => {
     if (!showsWhatItIs || paintReported.current) return;
     paintReported.current = true;
@@ -4536,6 +4554,13 @@ function AcpmuxPane() {
         );
         setPastTurns(host.sessionId ? undefined : readPastTurns(host.pastTurns));
         setPastWaitsForTrust(host.adopt !== undefined && host.adopt !== null);
+        if (!reconnect)
+          setAwaitsChat(
+            Boolean(host.sessionId) &&
+              (host.transport === "mock" ||
+                host.transport === "acpmux-bridge" ||
+                (host.transport === "acpmux-websocket" && Boolean(host.endpoint && host.token))),
+          );
         setHandshaken(true);
         handshakenRef.current = true;
         // Submits made on the New Tab page before acpmux answered go now, in order.
@@ -4604,6 +4629,7 @@ function AcpmuxPane() {
         const mock = host.transport === "mock";
         // Links copy in this build's scheme; only the hostless mock page falls back to Release's.
         setLinkScheme(host.linkScheme, mock ? FALLBACK_LINK_SCHEME : undefined);
+        if (mock) markMockPage();
         if (mock)
           setCheckpointVariant(
             new URLSearchParams(window.location.search).get("checkpointVariant") === "expanded"
@@ -5744,6 +5770,7 @@ function AcpmuxPane() {
                                           childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId
                                         }
                                         canLoadOlder={!childRows && snapshot.canLoadOlder}
+                                        historyFrom={childRows ? undefined : snapshot.historyFrom}
                                         onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
                                         openAt={
                                           !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
@@ -6095,6 +6122,7 @@ function AcpmuxPane() {
       <ImageViewerContext.Provider value={openImage}>
         <Composer
           snapshot={composerSnapshot}
+          headerCwd={snapshot.summary?.cwd ?? ""}
           sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
           switching={Boolean(switchView.intent)}
           chips={ComposerChips}

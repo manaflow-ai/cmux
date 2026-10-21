@@ -309,6 +309,34 @@ describe("Hexclave mirror reconcile", () => {
     expect(inbox.rows.has("msg_user_seat_retry")).toBe(false);
   });
 
+  test("a failed seat decrement discovered by user update keeps its revoke pending for retry", async () => {
+    let available = true;
+    const dirtyTeamIds: string[] = [];
+    const { hexclave, mirror, inbox, post, retry } = harness({
+      sync: {
+        markTeamSeatsDirty: async (teamId) => {
+          if (!available) throw new Error("seat queue unavailable");
+          dirtyTeamIds.push(teamId);
+        },
+      },
+    });
+    seed(hexclave);
+    await post("user.created", serverUser());
+    dirtyTeamIds.length = 0;
+    hexclave.removeMember(TEAM_ID, USER_ID);
+    available = false;
+
+    await post("user.updated", serverUser(), "msg_remove_seat_retry");
+    expect(inbox.rows.get("msg_remove_seat_retry")).toMatchObject({ attempts: 1 });
+    expect([...mirror.pendingRevocations]).toEqual([`${TEAM_ID}:${USER_ID}`]);
+    available = true;
+    await retry();
+
+    expect(dirtyTeamIds).toEqual([TEAM_ID]);
+    expect(mirror.pendingRevocations.size).toBe(0);
+    expect(inbox.rows.has("msg_remove_seat_retry")).toBe(false);
+  });
+
   test("every event type reconciles from Hexclave, not from its payload", async () => {
     for (const type of hexclaveWebhookEventTypes) {
       const { hexclave, mirror, post } = harness();
