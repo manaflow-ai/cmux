@@ -217,11 +217,11 @@ async fn agent_messages_a_failed_turn_held_go_in_after_the_next_completed_turn()
     loop {
         let attached =
             c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
-        if attached["session"]["turn"].is_null() {
-            assert_eq!(attached["session"]["queuePaused"], true, "{attached}");
+        // The turn ends a moment before its failure holds the queue (`finish_turn`).
+        if attached["session"]["turn"].is_null() && attached["session"]["queuePaused"] == true {
             break;
         }
-        assert!(tokio::time::Instant::now() < deadline, "the failed turn never ended: {attached}");
+        assert!(tokio::time::Instant::now() < deadline, "the queue was never held: {attached}");
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert_eq!(queue_order(&mut c, &id).await, ["p-me", "p-a", "p-b"]);
