@@ -6434,6 +6434,7 @@ function AcpmuxPane() {
           onProject={chooseProject}
           onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
           onConnect={connectMachine}
+          onRefreshMachines={() => void directClient.current?.refreshPeers()}
           // A started local chat lists the same folders to move to (dogfood 09); Start Agent's
           // panel lists them before its first prompt (cx-hkat).
           projectChoices={freshChat || (!quick && canMove) ? newTabProjects : undefined}
