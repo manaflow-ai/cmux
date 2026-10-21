@@ -15,6 +15,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SETTINGS = ROOT / ".claude/settings.json"
@@ -145,6 +146,30 @@ class GuardsRunFromTheBase(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertNotIn('"$CLAUDE_PROJECT_DIR"/scripts', command)
                 self.assertIn("origin/feat-cmux-next:scripts/ci/guards-from-base.sh", command)
+
+    def test_git_starts_no_background_maintenance_in_the_fixture_repos(self):
+        """A commit or fetch runs `git maintenance run --auto`, which detaches and keeps taking
+        `.git/objects/maintenance.lock` after the test returns; the cleanup's rmtree then lists the lock, the
+        maintenance child removes it, and the unlink fails with FileNotFoundError (script-tests, #23563). The
+        fixture repos turn auto maintenance and gc off, so git never starts it: here or in the hook's fetch."""
+        trace = self.tmp / "trace2.json"
+        with mock.patch.dict(os.environ, {"GIT_TRACE2_EVENT": str(trace)}):
+            git(self.seed, "commit", "-q", "--allow-empty", "-m", "another base commit")
+            git(self.seed, "push", "-q", "origin", "feat-cmux-next")
+            git(self.lane, "fetch", "-q", "origin")
+            self.hook("gh pr merge 5 --squash")
+        events = [json.loads(line) for line in trace.read_text().splitlines()]
+        started = [event.get("argv", []) for event in events if event.get("event") == "child_start"]
+        background = [argv for argv in started if "maintenance" in argv or ("gc" in argv and "--auto" in argv)]
+        self.assertEqual(background, [], "git started auto maintenance in a fixture repo")
+
+    def test_git_reads_no_config_from_outside_the_test_directory(self):
+        """The runner's own ~/.gitconfig or /etc/gitconfig can't turn auto maintenance back on."""
+        tmp = self.tmp.resolve()
+        files = {line.split("\t")[0][len("file:"):]
+                 for line in git(self.lane, "config", "--list", "--show-origin").splitlines() if line.startswith("file:")}
+        outside = [f for f in files if not (self.lane / f).resolve().is_relative_to(tmp)]
+        self.assertEqual(outside, [], "git read config from outside the test's directory")
 
     def test_ci_runs_this_test(self):
         self.assertIn("tests/test_guard_hooks_from_base.py", (ROOT / ".github/workflows/cmux-next.yml").read_text())
