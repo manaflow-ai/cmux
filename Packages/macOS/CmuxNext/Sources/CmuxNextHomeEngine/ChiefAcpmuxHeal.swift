@@ -32,21 +32,66 @@ public nonisolated struct ChiefAcpmuxHeal: Sendable {
         self.ensureHost = ensureHost
     }
 
+    /// How long the heal waits for a Chief host it asked to hand off when idle to end its turn.
+    static let turnLimit: Duration = .seconds(2 * 60 * 60)
+
     /// Hands off the stale daemon and restarts the Chief host. Returns whether
     /// it handed one off now; false leaves the daemon running (the Chief host may
-    /// have been asked to hand off when its turn ends).
+    /// have been asked to hand off when its turn ends: then the heal finishes after that).
     @concurrent public func heal() async -> Bool {
         let handoff = AcpmuxChiefHandoff(environment: environment, chiefMuxHome: home.muxHome.path)
         // An update never cuts a Chief turn: a host that takes it hands off when its turn ends,
-        // and the start after it exits (`HomeBrainHost.start`) hands the daemon off. Only an
-        // older host is stopped here.
+        // and the heal finishes after it exits. Only an older host is stopped here.
         let home = home
-        guard await handoff.handOffReplaced(waitFor: { ChiefHostStop.askToHandOffWhenIdle(home: home) }) else { return false }
-        if let pid = await ChiefHostStop.stop(home: home) {
-            Self.logger.info("Chief host \(pid) stopped after its acpmux handoff; the brain watch starts it again")
-            _ = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
+        let host = ChiefHostStop.runningHostPID(home: home)
+        switch await handoff.handOffReplaced(waitFor: { ChiefHostStop.askToHandOffWhenIdle(home: home) }) {
+        case .keep:
+            return false
+        case .waitForHost:
+            let ensureHost = ensureHost
+            // task-owner: one follow-up per stale daemon (the pane heals each pid once); it ends
+            // when the host exits or after `turnLimit`
+            Task.detached {
+                await Self.finishAfterTurn(
+                    hostExited: {
+                        guard let host else { return true }
+                        return await AgentPaneProcessExit(pid: host).event(within: Self.turnLimit)
+                    },
+                    handOff: { await handoff.handOffReplaced(waitFor: { false }) == .handOff },
+                    stopHost: { await Self.stopHost(home: home) },
+                    ensureHost: ensureHost)
+            }
+            return false
+        case .handOff:
+            await Self.stopHost(home: home)
+            await ensureHost()
+            return true
+        }
+    }
+
+    /// After the Chief host that was asked to hand off when idle exits: hands the replaced
+    /// daemon off here, not through `HomeBrainHost.start` (its handoff runs once per Chief
+    /// home per app run, so a second update in one run would leave the daemon in place), stops
+    /// a host the brain watch started on it meanwhile, and starts the host again, which the
+    /// brain watch may not do (no watch, or its restart limit). A host that never exits leaves
+    /// everything as it is.
+    static func finishAfterTurn(hostExited: () async -> Bool, handOff: () async -> Bool,
+                                stopHost: () async -> Void, ensureHost: () async -> Void) async {
+        guard await hostExited() else {
+            logger.error("Chief host did not end its turn in time; its acpmux keeps running from a replaced bundle")
+            return
+        }
+        if await handOff() {
+            logger.info("Chief acpmux handed off after the Chief host's turn ended")
+            await stopHost()
         }
         await ensureHost()
-        return true
+    }
+
+    /// Stops the Chief host that ran on a daemon just handed off, and waits for it to exit.
+    @concurrent static func stopHost(home: ChiefHome) async {
+        guard let pid = await ChiefHostStop.stop(home: home) else { return }
+        logger.info("Chief host \(pid) stopped after its acpmux handoff; the brain watch starts it again")
+        _ = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
     }
 }
