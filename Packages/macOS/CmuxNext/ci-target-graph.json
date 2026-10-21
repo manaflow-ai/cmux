@@ -144,6 +144,7 @@
       ],
       "packages": [],
       "reads": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneBridge.swift",
         "cmux-tui/crates/cmux-agent-pane-policy/tests/cases/environment.json",
         "cmux-tui/spec/",
         "scripts/cmux-next/pin-cmux-tui.sh"
