@@ -140,7 +140,7 @@ public actor DaemonConnection {
     public static let defaultCreateTimeout: Duration = .seconds(30)
 
     /// ``defaultCreateTimeout``, or no deadline when this connection has none (tests).
-    public var createTimeout: Duration? {
+    public nonisolated var createTimeout: Duration? {
         configuration.requestTimeout == nil ? nil : Self.defaultCreateTimeout
     }
 
