@@ -293,6 +293,9 @@ def compile_wait(checks: list[dict]) -> bool:
     """The Release compile has not finished on the head yet: no checks, queued or running, or not created
     while cmux-next routes and places it."""
     named = [c for c in checks if c.get("name") == COMPILE]
+    finished = [c.get("conclusion") for c in named if c.get("status") == "completed"]
+    if any(c not in NOT_RUN and c != "success" for c in finished) and "success" not in finished:
+        return False  # an attempt finished red: a rerun queued after it is no wait (every attempt is read)
     return (not checks or any(c.get("status") in RUNNING for c in named)
             or (not named and any(c.get("name") in ROUTING and c.get("status") in RUNNING for c in checks)))
 
@@ -332,7 +335,7 @@ def read_pr(repo: str, number: int, cwd: str | None) -> str:
         raise Unreadable
     if not any(changes_swift(f) for f in files):
         return ""
-    checks = gh_lines(["api", "--paginate", f"repos/{repo}/commits/{pr['head']}/check-runs?per_page=100", "--jq",
+    checks = gh_lines(["api", "--paginate", f"repos/{repo}/commits/{pr['head']}/check-runs?filter=all&per_page=100", "--jq",
                        ".check_runs[] | {name, status, conclusion} | tojson"], cwd)
     if checks is None:
         raise Unreadable
@@ -387,6 +390,9 @@ def refusal(command: str, cwd: str | None, reader=read_pr) -> str:
             return ("merge-compile-guard: this merges a pull request in a checkout the guard can't read (over "
                     "ssh or after `cd $VAR`); run `gh pr merge N -R OWNER/REPO` so its compile is checked.")
         repo = repo or checkout_repo(where)
+        if repo is None:
+            return ("merge-compile-guard: can't tell which repository this merges in (its checkout's origin "
+                    "could not be read); run `gh pr merge N -R OWNER/REPO` so its compile is checked.")
         if repo != GUARDED_REPO:
             continue
         where = None if where is REMOTE else where

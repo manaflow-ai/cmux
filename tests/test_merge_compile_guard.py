@@ -93,8 +93,8 @@ class FleetCompileCheck(unittest.TestCase):
         runs = [check(COMPILE, conclusion="failure"), check(COMPILE, "queued")]
         self.assertFalse(guard.compile_wait(runs))
         self.assertIn("still running", guard.verdict(pr(), SWIFT, runs, fleet_passed=True))
-        # A rerun after a green one is still a wait for the rerun, as before; a pass then stands in.
-        self.assertTrue(guard.compile_wait([check(COMPILE, conclusion="cancelled"), check(COMPILE, "queued")]) is False)
+        # A cancelled attempt is red too.
+        self.assertFalse(guard.compile_wait([check(COMPILE, conclusion="cancelled"), check(COMPILE, "queued")]))
 
     def test_every_gh_call_shares_one_deadline_under_the_hooks_timeout(self):
         self.assertLess(guard.BUDGET, 120)
@@ -219,6 +219,16 @@ class Targets(unittest.TestCase):
         # Unquoted, ssh joins the words into the remote command.
         self.assertEqual(guard.merge_targets("ssh -p 22 cmux16 gh pr merge 5 -R manaflow-ai/cmux", "/tmp"),
                          [("manaflow-ai/cmux", "5", guard.REMOTE)])
+
+    def test_a_merge_whose_checkout_cannot_be_read_is_refused(self):
+        # Out of time (or no git): the checkout's repository is unknown, so the merge can't be judged.
+        spent = guard.STARTED
+        try:
+            guard.STARTED = guard.time.monotonic() - guard.BUDGET
+            self.assertIn("can't tell which repository", guard.refusal("gh pr merge 5 --squash", "/tmp",
+                                                                      lambda *a: self.fail("read")))
+        finally:
+            guard.STARTED = spent
 
     def test_a_merge_it_cannot_name_is_refused(self):
         why = guard.refusal('gh pr merge "$PR" -R manaflow-ai/cmux', None, lambda *a: self.fail("read"))
