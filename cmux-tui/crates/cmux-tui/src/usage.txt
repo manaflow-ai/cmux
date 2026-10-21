@@ -5,8 +5,6 @@ USAGE
 {lifecycle_usage}
   cmux attach [OPTIONS]    Attach to a session or one terminal
   cmux relay [OPTIONS]     Relay protocol bytes over stdio
-  cmux capabilities [--json]
-                           Print the daemon capabilities this build always serves
   {machine_agent_usage}
   cmux <scope> --help      Discover resource commands
 

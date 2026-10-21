@@ -1,5 +1,6 @@
-//! Argv modes that run before the daemon's startup: the private ones
-//! (`__…`) stay out of public help; `capabilities` is in the usage.
+//! Argv modes that run before the daemon's startup, all private (`__…`):
+//! they stay out of public help, and no public verb (`cmux capabilities`
+//! asks the app) is taken from the app scopes.
 
 use crate::client_log;
 
@@ -32,12 +33,15 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         }
         // What every daemon of this build advertises, with none running: the
         // app bundle records it for the web pages (daemon-capabilities.json).
-        Some("capabilities") => Some(capabilities(&args[1..])),
+        Some(DAEMON_CAPABILITIES) => Some(capabilities(&args[1..])),
         _ => None,
     }
 }
 
-/// `capabilities [--json]`: [`cmux_tui_core::server::static_capabilities`],
+/// The offline capabilities mode, which write-daemon-capabilities.sh runs.
+pub(crate) const DAEMON_CAPABILITIES: &str = "__daemon-capabilities";
+
+/// `__daemon-capabilities [--json]`: [`cmux_tui_core::server::static_capabilities`],
 /// one per line, or `{"capabilities": [...]}`.
 fn capabilities(args: &[String]) -> i32 {
     match args {
@@ -50,7 +54,7 @@ fn capabilities(args: &[String]) -> i32 {
             0
         }
         _ => {
-            client_log::stderr_log!("startup", "usage: {BIN} capabilities [--json]");
+            client_log::stderr_log!("startup", "usage: {BIN} {DAEMON_CAPABILITIES} [--json]");
             2
         }
     }
@@ -67,9 +71,9 @@ fn render_capabilities(json: bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::render_capabilities;
+    use super::{render_capabilities, run};
 
-    /// `capabilities --json` prints the list `identify` always serves, the one
+    /// `__daemon-capabilities --json` prints the list `identify` always serves, the one
     /// the app bundle's daemon-capabilities.json records.
     #[test]
     fn capabilities_prints_the_static_identify_list() {
@@ -79,5 +83,19 @@ mod tests {
         assert_eq!(printed, serde_json::json!({ "capabilities": listed }));
         let lines: Vec<String> = render_capabilities(false).lines().map(str::to_owned).collect();
         assert_eq!(lines, listed);
+    }
+
+    /// `cmux capabilities` stays the classic verb that asks the app
+    /// (`system.capabilities`); only the private name runs offline.
+    #[test]
+    fn the_public_capabilities_verb_is_left_to_the_app() {
+        for args in [
+            &["capabilities"][..],
+            &["capabilities", "--json"],
+            &["capabilities", "--id-format", "both"],
+        ] {
+            let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
+            assert_eq!(run(&args), None, "{args:?}");
+        }
     }
 }

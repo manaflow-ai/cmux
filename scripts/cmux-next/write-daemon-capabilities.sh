@@ -5,7 +5,7 @@
 #
 #   {"cmuxTui": [...], "acpmux": [...]}
 #
-#   cmuxTui  `<bin>/cmux-tui capabilities --json`: what every cmux-tui daemon of
+#   cmuxTui  `<bin>/cmux-tui __daemon-capabilities --json`: what every cmux-tui daemon of
 #            this build always advertises in `identify` (cmux-tui-core
 #            server/capabilities.rs, static_capabilities)
 #   acpmux   `<bin>/acpmux capabilities --json`: what acpmux serves, also in its
@@ -49,11 +49,14 @@ give_up() {
   exit 0
 }
 
+# cmux-tui's mode is private: `cmux capabilities` is the app's classic verb.
 for name in cmux-tui acpmux; do
+  mode=capabilities
+  [[ "$name" == cmux-tui ]] && mode=__daemon-capabilities
   [[ -x "$bin_dir/$name" ]] || give_up "$bin_dir/$name is not an executable"
   # stdin closed: an older binary that does not know the command must not wait on it.
-  "$bin_dir/$name" capabilities --json </dev/null >"$work/$name.json" 2>"$work/$name.err" \
-    || give_up "\`$name capabilities --json\` failed: $(head -c 300 "$work/$name.err")"
+  "$bin_dir/$name" "$mode" --json </dev/null >"$work/$name.json" 2>"$work/$name.err" \
+    || give_up "\`$name $mode --json\` failed: $(head -c 300 "$work/$name.err")"
 done
 
 if ! python3 -I - "$work/cmux-tui.json" "$work/acpmux.json" "$work/out.json" 2>"$work/py.err" <<'PY'
@@ -66,11 +69,11 @@ def listed(path, name):
         with open(path, encoding="utf-8") as handle:
             value = json.load(handle)
     except ValueError as error:
-        sys.exit(f"`{name} capabilities --json` printed no JSON ({error})")
+        sys.exit(f"`{name}` printed no capabilities JSON ({error})")
     capabilities = value.get("capabilities") if isinstance(value, dict) else None
     if (not isinstance(capabilities, list) or not capabilities
             or not all(isinstance(item, str) and item for item in capabilities)):
-        sys.exit(f"`{name} capabilities --json` printed no capability list")
+        sys.exit(f"`{name}` printed no capability list")
     return capabilities
 
 
