@@ -155,8 +155,7 @@ impl Hub {
             *moving = Some(transfer_id.clone());
         }
         let unfreeze = |e: RpcError| {
-            *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
-            session.queue_moved.notify_waiters();
+            self.end_move(session);
             e
         };
         // No turn may run while the bundle is made: one that runs stops only if asked.
@@ -326,19 +325,25 @@ impl Hub {
                 "the move committed; the chat lives on the target",
             ));
         }
-        *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let mut record = json!({"transferId": transfer_id});
         if let Some(reason) = reason {
             record["reason"] = json!(reason);
         }
+        self.end_move(session);
         self.append(session, "mux", "transfer_aborted", record);
-        // Its queue runs again once the policy's mode holds.
+        let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));
+        Ok(json!({"sessionId": session.id, "transferId": transfer_id, "aborted": true}))
+    }
+
+    /// A move that did not happen (aborted, or its begin failed) gives the chat back: a policy
+    /// that changed while it moved (a deny-all default skips a moving chat, `policy_mode.rs`) is
+    /// followed, then its queued prompts run again.
+    fn end_move(self: &Arc<Self>, session: &Arc<Session>) {
+        *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let (hub, followed) = (self.clone(), session.clone());
         tokio::spawn(async move {
             hub.follow_policy(&followed).await;
             followed.queue_moved.notify_waiters();
         });
-        let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));
-        Ok(json!({"sessionId": session.id, "transferId": transfer_id, "aborted": true}))
     }
 }
