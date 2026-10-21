@@ -62,6 +62,11 @@ jobs:
         with:
           node-version: "24.11.1"
 
+      - name: Cache Playwright's apt packages
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
+
       - name: Capture a bounded before/after receipt
         continue-on-error: true
         env:
