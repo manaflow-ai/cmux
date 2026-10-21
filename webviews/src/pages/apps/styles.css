@@ -147,11 +147,6 @@
   font-weight: 650;
 }
 
-.apps-section-heading span {
-  color: var(--page-text-3);
-  font-size: var(--text-caption);
-}
-
 .apps-card {
   display: flex;
   flex-direction: column;
@@ -173,11 +168,6 @@
 .apps-card.featured {
   border-color: color-mix(in srgb, var(--page-text-3) 65%, var(--page-separator));
   background: color-mix(in srgb, var(--page-selection) 38%, transparent);
-}
-
-.apps-card.featured .apps-icon {
-  width: 52px;
-  height: 52px;
 }
 
 .apps-card-open,
@@ -340,7 +330,14 @@
   display: block;
   border-radius: 5px;
   background: var(--page-hover);
-  animation: apps-pulse 1.25s ease-in-out infinite;
+}
+
+/* The skeleton breathes on the shared clock (desktop.css), and holds still under Reduce Motion or
+   Settings > Static status indicators. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-status-indicators="static"]) :is(.apps-skeleton-icon, .apps-skeleton-line, .apps-skeleton-footer) {
+    animation: cmux-breathe var(--cmux-breath-period, 2.4s) ease-in-out infinite;
+  }
 }
 
 .apps-skeleton-icon {
@@ -363,12 +360,6 @@
   width: 38%;
   height: 20px;
   margin-top: auto;
-}
-
-@keyframes apps-pulse {
-  50% {
-    opacity: 0.45;
-  }
 }
 
 .apps-split {
@@ -720,12 +711,8 @@ code {
 
 @media (prefers-reduced-motion: reduce) {
   .apps-switch-knob,
-  .apps-card,
-  .apps-skeleton-icon,
-  .apps-skeleton-line,
-  .apps-skeleton-footer {
+  .apps-card {
     transition: none;
-    animation: none;
   }
 }
 

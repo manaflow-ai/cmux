@@ -95,7 +95,7 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
   const catalog = featured.length ? snap.visible.filter((app) => !featuredIds.has(app.id)) : snap.visible;
   const listing = (
     <div className="apps-discover-list">
-      {!snap.query && !snap.category && <CloudFeature store={store} strings={strings} />}
+      {!snap.query.trim() && !snap.category && <CloudFeature store={store} strings={strings} />}
       <div className="apps-chips">
         <button
           type="button"
@@ -139,32 +139,34 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
               </div>
             </section>
           )}
-          <section
-            className="apps-catalog-section"
-            aria-labelledby={featured.length > 0 ? "apps-catalog-title" : undefined}
-            aria-label={featured.length > 0 ? undefined : t("store.category.all")}
-          >
-            {featured.length > 0 && (
-              <div className="apps-section-heading">
-                <h3 id="apps-catalog-title">{t("store.category.all")}</h3>
-              </div>
-            )}
-            <div className={snap.layout === "grid" ? "apps-grid" : "apps-rows"}>
-              {catalog.map((app) =>
-                snap.layout === "grid" ? (
-                  <AppCard key={app.id} app={app} store={store} strings={strings} />
-                ) : (
-                  <AppRow
-                    key={app.id}
-                    app={app}
-                    selected={snap.layout === "split" && app.id === selected}
-                    store={store}
-                    strings={strings}
-                  />
-                ),
+          {catalog.length > 0 && (
+            <section
+              className="apps-catalog-section"
+              aria-labelledby={featured.length > 0 ? "apps-catalog-title" : undefined}
+              aria-label={featured.length > 0 ? undefined : t("store.category.all")}
+            >
+              {featured.length > 0 && (
+                <div className="apps-section-heading">
+                  <h3 id="apps-catalog-title">{t("store.category.all")}</h3>
+                </div>
               )}
-            </div>
-          </section>
+              <div className={snap.layout === "grid" ? "apps-grid" : "apps-rows"}>
+                {catalog.map((app) =>
+                  snap.layout === "grid" ? (
+                    <AppCard key={app.id} app={app} store={store} strings={strings} />
+                  ) : (
+                    <AppRow
+                      key={app.id}
+                      app={app}
+                      selected={snap.layout === "split" && app.id === selected}
+                      store={store}
+                      strings={strings}
+                    />
+                  ),
+                )}
+              </div>
+            </section>
+          )}
         </>
       )}
     </div>
@@ -251,13 +253,13 @@ function AppCard({
         aria-label={app.name}
         aria-describedby={descriptionId}
       >
-        <AppIcon icon={app.icon} name={app.name} size={44} />
+        <AppIcon icon={app.icon} name={app.name} size={featured ? 52 : 44} />
         <span className="apps-card-text">
           <span className="apps-name">{app.name}</span>
           <span className="apps-card-meta">
             <span>{app.publisher}</span>
             {app.publisher_verified && (
-              <span className="apps-verified" title={t("store.tier.verified")} aria-label={t("store.tier.verified")}>
+              <span className="apps-verified" title={t("store.tier.verified")} aria-hidden="true">
                 ✓
               </span>
             )}
@@ -303,7 +305,7 @@ function AppRow({
           <span className="apps-card-meta">
             <span>{app.publisher}</span>
             {app.publisher_verified && (
-              <span className="apps-verified" title={t("store.tier.verified")} aria-label={t("store.tier.verified")}>
+              <span className="apps-verified" title={t("store.tier.verified")} aria-hidden="true">
                 ✓
               </span>
             )}
