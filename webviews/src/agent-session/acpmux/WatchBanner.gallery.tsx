@@ -1,3 +1,4 @@
+// l10n-allow-file: gallery fixtures (sample notes), not shipped UI.
 import { componentEntry } from "../../gallery/format";
 import type { WatchBanner } from "./WatchBanner";
 
