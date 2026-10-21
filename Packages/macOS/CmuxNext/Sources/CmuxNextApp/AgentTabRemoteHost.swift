@@ -149,6 +149,8 @@ nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
 
     func detach() async { await client.detach() }
 
+    func children() async throws -> Data { try await mapped { try await client.children() } }
+
     func close() async { await client.close() }
 
     /// A daemon push as the pane's event: the record or request object, or the close reason.

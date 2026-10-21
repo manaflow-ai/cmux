@@ -99,8 +99,8 @@
 .acpmux-lineage__icon[data-state=done]::after{background:var(--agent-success,var(--acpmux-add,#3fb950))}
 .acpmux-lineage__icon[data-state=completed]::after{background:var(--agent-success,var(--acpmux-add,#3fb950))}
 .acpmux-lineage__icon[data-state=failed]::after{background:var(--agent-danger)}
-@keyframes acpmux-summary-popover-in{from{opacity:0;transform:translateX(8px)}}
-@media (prefers-reduced-motion:no-preference){.acpmux-summary-card[data-placement=popover]{animation:acpmux-summary-popover-in var(--ui-popup-open) ease-out}}
+/* The card slides in from the pane's right edge and back out (ui/presence.ts, data-presence): the inline column travels its own width inside the pane (the shell clips it), so the chat lays out once, not on every frame; the popover travels the shared few points. */
+.acpmux-summary-card[data-placement=inline]{--ui-enter-distance:100%}
 /* Static status indicators (cx-sya4n): a shape per state, not color alone. A subagent dot carries
    a check when done and a cross when it failed; the lineage badge is a dot while running, ! while
    it waits, a check, a cross, or a ring when it stopped otherwise. */

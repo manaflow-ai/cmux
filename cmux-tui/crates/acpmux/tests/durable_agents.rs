@@ -1631,6 +1631,36 @@ async fn a_queued_prompt_keeps_its_provenance_across_a_daemon_crash() {
     assert_eq!(ran["msg"]["_meta"]["provenance"], provenance, "{ran:#}");
 }
 
+/// `_acpmux/info` with `waitLogs: false` answers while a restarted daemon still reads the chat
+/// logs, and says so (`logsLoading`). The app daemon's callers give info 2 s (cmux-tui-core
+/// `agent_message_acpmux.rs`, `agent_session_link.rs`) and read only what the session list
+/// holds; a large log store takes longer to read. Without the flag info still waits for the logs
+/// (#22916). `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the second daemon's log load.
+#[tokio::test]
+async fn info_answers_while_the_chat_logs_load() {
+    const HOLD: Duration = Duration::from_secs(6);
+    let mut daemon = Daemon::new("ilogs", "approve-all");
+    let session = new_session(&daemon).await;
+    daemon.sigterm();
+    daemon.env = vec![("ACPMUX_TEST_DELAY_LOAD_LOGS_MS".into(), HOLD.as_millis().to_string())];
+    let started = Instant::now();
+    daemon.start();
+
+    let mut rpc = daemon.rpc().await;
+    let early = tokio::time::timeout(
+        Duration::from_secs(2),
+        rpc.call("_acpmux/info", json!({"sessionId": session, "waitLogs": false})),
+    )
+    .await
+    .expect("_acpmux/info {waitLogs: false} answered within 2 s while the logs load");
+    assert_eq!(early["sessionId"], session.as_str(), "{early:#}");
+    assert_eq!(early["logsLoading"], true, "info did not say the logs are loading: {early:#}");
+
+    let waited = rpc.call("_acpmux/info", json!({"sessionId": session})).await;
+    assert!(started.elapsed() >= HOLD, "info answered before the logs were read: {waited:#}");
+    assert_eq!(waited["logsLoading"], false, "{waited:#}");
+}
+
 /// A config whose `slow` launcher check (`config/launchers.rs`) waits until `<home>/go` exists:
 /// the daemon's startup, and so the run of every prompt it restored (`resume_queues`), waits
 /// for the test. A check a killed daemon left behind ends once the test removes its home.
