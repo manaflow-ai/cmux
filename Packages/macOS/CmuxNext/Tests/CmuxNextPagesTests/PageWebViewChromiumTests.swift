@@ -154,6 +154,70 @@ struct PageWebViewChromiumTests {
     }
 }
 
+extension PageWebViewChromiumTests {
+    /// A file dragged in from outside onto a Chromium page goes to the host's ``PageWebView/fileDrop``
+    /// as it does on the WebKit page: the shim names the drag's files, the host tells the page to
+    /// hand the drop over, and the page's drop message opens the first file once.
+    @Test func aFileDraggedInFromOutsideOpensInTheHostWhenDropped() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        view.chromiumClock = PageTestClock.never
+        var opened: [URL] = []
+        view.fileDrop = PageFileDrop(accepts: { $0.pathExtension == "png" }) { opened.append($0) }
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        let image = URL(fileURLWithPath: "/tmp/a.png")
+        let drop = FakeChromiumPage.bindingCall(["name": PageChromiumDocumentScripts.hostDropHandler, "body": [String: String]()])
+
+        let told: Bool? = await PageTestWait.value("host drop on") { done in
+            page.onCall = { if Self.hostDrop(in: page) == true { done(true) } }
+            page.onEvent?(.filesDragged([image, URL(fileURLWithPath: "/tmp/b.png")]))
+        }
+        #expect(told == true)
+        let first: URL? = await PageTestWait.value("drop") { done in
+            view.fileDrop = PageFileDrop(accepts: { $0.pathExtension == "png" }) { opened.append($0); done($0) }
+            page.onEvent?(.devTools(drop))
+        }
+        #expect(first == image)
+        // The same drag drops once: a second message (page script can send one) opens nothing.
+        page.onEvent?(.devTools(drop))
+        await Self.barrier(view, page)
+        #expect(opened == [image])
+
+        // A drag the host does not take tells the page to keep it, and its drop message opens nothing.
+        let off: Bool? = await PageTestWait.value("host drop off") { done in
+            page.onCall = { if Self.hostDrop(in: page) == false { done(true) } }
+            page.onEvent?(.filesDragged([URL(fileURLWithPath: "/tmp/a.txt")]))
+        }
+        #expect(off == true)
+        page.onEvent?(.devTools(drop))
+        await Self.barrier(view, page)
+        #expect(opened == [image])
+        view.close()
+    }
+
+    /// Returns once the page's messages sent so far reached the host: they are handled in order, so
+    /// a link click sent last opens after them.
+    private static func barrier(_ view: PageWebView, _ page: FakeChromiumPage) async {
+        let opened: URL? = await PageTestWait.value("barrier") { done in
+            view.onOpenExternal = { done($0) }
+            page.onEvent?(.devTools(FakeChromiumPage.bindingCall([
+                "name": PageChromiumDocumentScripts.navigateHandler, "body": ["url": "https://example.com/barrier"],
+            ])))
+        }
+        view.onOpenExternal = nil
+        #expect(opened == URL(string: "https://example.com/barrier"))
+    }
+
+    /// The last `__cmuxHostDrop(...)` value the host evaluated in `page`, nil when none.
+    private static func hostDrop(in page: FakeChromiumPage) -> Bool? {
+        let scripts = page.calls.filter { $0.method == "Runtime.evaluate" }.compactMap { $0.params["expression"] as? String }
+        guard let last = scripts.last(where: { $0.contains("__cmuxHostDrop") }) else { return nil }
+        return last.contains("(true)")
+    }
+}
+
 /// A dynamic source with two resources: `a.png` (typed) and `b.json` (typed by its name).
 @MainActor
 private final class OneResource: PageDynamicResourceSource {

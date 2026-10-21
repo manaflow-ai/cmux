@@ -7,6 +7,8 @@ public import WebKit
 public nonisolated struct PageChromiumDocumentScripts: Sendable, Equatable {
     /// The handler a link click to another origin posts to (``navigationScript``).
     public static let navigateHandler = "cmuxPageNavigate"
+    /// The handler a drop the host takes posts to (``hostDropScript``).
+    public static let hostDropHandler = "cmuxPageHostDrop"
 
     /// The scripts, in install order.
     public let sources: [String]
