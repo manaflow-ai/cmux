@@ -230,6 +230,89 @@ class Decide(unittest.TestCase):
             self.assertEqual((lines["gui_runner"], lines["session_runner"]), (GUI, SESSION))
 
 
+LIGHT_SIDE = "glaeda-side-light-xcode-26.6"
+LIGHT = "glaeda-light-xcode-26.6"
+# The fleet dashboard at 2026-10-20 22:22Z: 133 jobs queued on the light side label's 3 online (all
+# busy) runners, while 51 of the std side label's 60 online runners sat idle.
+SNAPSHOT = ROOT / "tests/fixtures/side-lane-placement/fleet-2026-10-20T2222Z.json"
+
+
+class SpillToCompatiblePool(unittest.TestCase):
+    def setUp(self):
+        self.assertIsNotNone(placement, "scripts/ci/side_lane_placement.py is missing")
+
+    def test_the_starved_light_snapshot_spills_to_the_idle_std_side_runners(self):
+        fleet = json.loads(SNAPSHOT.read_text())
+        runners = fleet["runners"]
+        self.assertEqual(fleet["pools"][LIGHT_SIDE]["queued"], 133)
+        self.assertEqual(placement.route_label(LIGHT_SIDE, runners), SIDE)
+        self.assertEqual(placement._online(LIGHT_SIDE, runners), 3)
+        self.assertEqual(placement.pool.live_owned_free(runners, [LIGHT_SIDE, SIDE]), {LIGHT_SIDE: 0, SIDE: 51})
+        owned, _, why = placement.decide(env(SIDE_LABEL=LIGHT_SIDE), runners)
+        self.assertEqual(owned, JOBS)
+        self.assertIn(SIDE, why)
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            output = Path(tmp) / "out"
+            fake = mock.Mock()
+            fake.runners.return_value = runners
+            with mock.patch.object(placement.pool, "GitHub", return_value=fake), \
+                    mock.patch.object(placement.cascade, "read", return_value=(None, None, None)):
+                placement.main(env(SIDE_LABEL=LIGHT_SIDE, ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux",
+                                   GITHUB_OUTPUT=str(output)))
+            lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        self.assertEqual(lines["runner"], SIDE)
+
+    def test_the_own_class_keeps_its_jobs_while_it_has_as_much_room(self):
+        light = [runner(f"light-{host}-glaeda-1", labels=(LIGHT, LIGHT_SIDE)) for host in "ab"]
+        std = [runner("mini-a-glaeda-3"), runner("mini-b-glaeda-3", busy=True)]
+        self.assertEqual(placement.route_label(LIGHT_SIDE, light + std), LIGHT_SIDE)
+        # All busy everywhere: the larger online pool drains the queue faster.
+        busy = [{**item, "busy": True} for item in light + std + [runner("mini-c-glaeda-3")]]
+        self.assertEqual(placement.route_label(LIGHT_SIDE, busy), SIDE)
+        # Light offline and std offline: the owned pool label, as before.
+        self.assertEqual(placement.route_label(LIGHT_SIDE, [runner("light-a-glaeda", labels=(LIGHT,))]), LIGHT)
+
+    def test_a_std_job_never_takes_a_light_runner(self):
+        light = [runner(f"light-{host}-glaeda-1", labels=(LIGHT, LIGHT_SIDE)) for host in "abcd"]
+        std = [runner("mini-a-glaeda-3", busy=True)]
+        self.assertEqual(placement.compatible_labels(SIDE), (SIDE,))
+        self.assertEqual(placement.route_label(SIDE, light + std), SIDE)
+        self.assertEqual(placement.decide(env(), light + std)[0], ())
+
+    def test_compatibility_changes_only_the_class(self):
+        # Role, trust and fleet namespace never mix: only the class token widens.
+        cases = {
+            LIGHT_SIDE: (LIGHT_SIDE, SIDE),
+            "glaeda-aws-side-light-xcode-26.6": ("glaeda-aws-side-light-xcode-26.6", "glaeda-aws-side-std-xcode-26.6"),
+            # Trusted and promote pools are not ordinary owned pools: they never widen.
+            "glaeda-trusted-light-xcode-26.6": ("glaeda-trusted-light-xcode-26.6",),
+            "glaeda-promote-side-trusted-std-xcode-26.6": ("glaeda-promote-side-trusted-std-xcode-26.6",),
+            "glaeda-root-light-xcode-26.6": ("glaeda-root-light-xcode-26.6", "glaeda-root-std-xcode-26.6"),
+            SIDE: (SIDE,),
+            FALLBACK: (FALLBACK,),
+            "": (),
+        }
+        for label, expected in cases.items():
+            self.assertEqual(placement.compatible_labels(label), expected, label)
+            for wider in expected[1:]:
+                self.assertEqual(placement.pool._role_name(wider), placement.pool._role_name(label), wider)
+                self.assertEqual(wider.replace("-std-", "-light-"), label, wider)
+
+    def test_the_classes_are_the_pickers_classes_and_the_fleet_labels_classes(self):
+        # One class list: every class an owned label names (OWNED_LABEL, the label manifest the fleet
+        # registers) that the picker routes is in RUN_CLASSES, and the snapshot's live pools use no other.
+        fleet = json.loads(SNAPSHOT.read_text())
+        classes = {placement.pool.owned_class(label) for label in fleet["pools"] if placement.pool.persistent(label)}
+        self.assertEqual(classes, set(placement.pool.RUN_CLASSES))
+        self.assertEqual(placement.pool.RUN_CLASSES[-1], placement.pool.LIGHT_CLASS)
+
+    def test_a_side_route_is_only_a_side_label(self):
+        root = [runner("mini-a-glaeda", labels=(STD, "glaeda-root-std-xcode-26.6"))]
+        self.assertEqual(placement.side_route(LIGHT_SIDE, root), "")
+        self.assertEqual(placement.side_route(LIGHT, [runner("mini-a-glaeda-3")]), "")
+        self.assertEqual(placement.side_route(LIGHT_SIDE, None), "")
+
+
 class CmuxNextWiring(unittest.TestCase):
     PLACEMENT = "macos-placement"
 
