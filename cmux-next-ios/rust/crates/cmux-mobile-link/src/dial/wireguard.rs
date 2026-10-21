@@ -131,6 +131,11 @@ fn missed_turn(wanted: bool, turn: Option<&TurnCarrier>, options: &DialOptions) 
     wanted && turn.is_none() && super::turn::turn_servers(&options.ice_servers) != (None, None)
 }
 
+/// The host addresses offered as endpoints: the primary one.
+fn host_ips(primary: Option<IpAddr>, _interfaces: &[IpAddr], _options: &DialOptions) -> Vec<IpAddr> {
+    primary.into_iter().collect()
+}
+
 /// Host endpoints of a socket on `port` (no STUN).
 fn host_endpoints(port: u16, options: &DialOptions) -> Vec<SocketAddr> {
     if no_plain_udp(options) {
@@ -140,7 +145,7 @@ fn host_endpoints(port: u16, options: &DialOptions) -> Vec<SocketAddr> {
     if options.include_loopback {
         endpoints.push(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port));
     }
-    if let Some(ip) = primary_local_ip() {
+    for ip in host_ips(primary_local_ip(), &[], options) {
         endpoints.push(SocketAddr::new(ip, port));
     }
     endpoints
@@ -1725,6 +1730,91 @@ mod tests {
         });
         underlay.authenticated(udp_from(new));
         assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: new }));
+    }
+
+    /// A Mac on Ethernet and Wi-Fi with Tailscale (the user's laptop: en7
+    /// 172.20.21.166 primary, en0 10.88.184.154, utun 100.89.49.105) offered
+    /// only its primary address, so a phone on the Wi-Fi or on Tailscale had
+    /// no direct route, while WebRTC's host candidates cover every interface.
+    /// Every usable IPv4 address is offered, the primary one first.
+    #[test]
+    fn host_endpoints_cover_every_interface_primary_first() {
+        let ip = |text: &str| text.parse::<IpAddr>().unwrap();
+        let interfaces = [
+            ip("127.0.0.1"),
+            ip("10.88.184.154"),
+            ip("172.20.21.166"),
+            ip("169.254.12.3"),
+            ip("100.89.49.105"),
+            ip("fe80::1"),
+            ip("2001:db8::7"),
+            ip("10.88.184.154"),
+        ];
+        let options = DialOptions::default();
+        assert_eq!(
+            host_ips(Some(ip("172.20.21.166")), &interfaces, &options),
+            vec![ip("172.20.21.166"), ip("10.88.184.154"), ip("100.89.49.105")],
+        );
+        // Tailscale addresses stay out when CGNAT is excluded; no primary
+        // (no default route) still offers the others.
+        let no_cgnat = DialOptions { exclude_cgnat: true, ..DialOptions::default() };
+        assert_eq!(host_ips(None, &interfaces, &no_cgnat), vec![ip("10.88.184.154"), ip("172.20.21.166")]);
+    }
+
+    /// The answering Mac's first handshake initiation goes out when its tunnel
+    /// starts, before the phone has a TURN permission for the Mac (the phone
+    /// has not seen `wg-resp` yet), so the phone's TURN server drops it. Behind
+    /// a NAT whose mapping depends on the destination (the office NAT: one
+    /// port toward the STUN server, another toward the relay), the phone's
+    /// own initiation goes to the Mac's announced reflexive address and is
+    /// dropped too. Nothing then reaches either side until boringtun's next
+    /// initiation 5 s later: every TURN link came up in 5.1 to 6.1 s, right
+    /// after the Mac logged `HANDSHAKE(REKEY_TIMEOUT)`. An unanswered
+    /// initiation is sent again within the first seconds, until the peer
+    /// answers.
+    #[tokio::test(start_paused = true)]
+    async fn an_unanswered_handshake_initiation_is_repeated_until_the_peer_answers() {
+        let peer = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let relayed = peer.local_addr().unwrap();
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[relayed.to_string()],
+                peer_relayed: &[relayed.to_string()],
+                peer_relayed_tls: &[],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                control,
+            },
+            &DialOptions::default(),
+        );
+        let mut initiation = vec![0u8; cmux_transport::classify::WG_INITIATION_LEN];
+        initiation[0] = 1;
+        let copies = |peer: &UdpSocket| {
+            let mut buffer = [0u8; 256];
+            std::iter::from_fn(|| peer.try_recv(&mut buffer).ok()).count()
+        };
+        underlay.send(&initiation);
+        // Short of boringtun's own retry (REKEY_TIMEOUT, 5 s).
+        drive(&mut underlay, Duration::from_millis(4500)).await;
+        assert!(copies(&peer) >= 3, "the initiation went out once and was never repeated");
+        // Answered: no more copies.
+        underlay.send(&initiation);
+        underlay.authenticated(Origin { path: UDP_PATH, addr: Some(relayed) });
+        let _ = copies(&peer);
+        drive(&mut underlay, Duration::from_millis(4500)).await;
+        assert_eq!(copies(&peer), 0, "an answered initiation was repeated");
+    }
+
+    /// Poll the underlay's receive side (which runs its timers) for `wait`.
+    async fn drive(underlay: &mut HybridUnderlay, wait: Duration) {
+        let mut buffer = vec![0u8; 2048];
+        let receive = std::future::poll_fn(|cx| underlay.poll_recv(cx, &mut buffer));
+        let _ = tokio::time::timeout(wait, receive).await;
     }
 
     #[test]

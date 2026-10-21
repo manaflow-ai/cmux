@@ -1,3 +1,4 @@
+import CmuxMobileDesign
 import CmuxMobileTransport
 import Foundation
 import Testing
@@ -59,5 +60,55 @@ import Testing
         #expect(machine.media == .off)
         _ = machine.handle(.mediaUpdated(generation: first, .up(.turn, rttMillis: nil)))
         #expect(machine.media == .off)
+    }
+}
+
+/// A WireGuard link that was up dropped (its tunnel stopped passing
+/// handshakes), the first redial failed, and the machine waits out its
+/// backoff before the next one. The phone showed "Can't reach … over
+/// WireGuard" for every such wait, which reads as giving up while it was
+/// still retrying. A Mac the link was connected to says "Reconnecting".
+@Suite struct WaitingBannerTests {
+    let offline = LinkController.reason(LinkError(code: "offline", message: ""))
+    let timedOut = LinkController.reason(LinkError(code: "timeout", message: ""))
+
+    @Test func aMacTheLinkWasConnectedToIsReconnecting() {
+        let banner = LiveCoordinator.waitingBanner(
+            macName: "Studio", transport: .wireGuard, reason: timedOut, wasConnected: true, relayAvailable: true)
+        #expect(banner == .reconnecting(to: "Studio"))
+    }
+
+    @Test func aMacNeverReachedIsAFailure() {
+        let banner = LiveCoordinator.waitingBanner(
+            macName: "Studio", transport: .wireGuard, reason: timedOut, wasConnected: false, relayAvailable: true)
+        #expect(banner == .failed("Can't reach Studio over WireGuard"))
+        let noRelay = LiveCoordinator.waitingBanner(
+            macName: "Studio", transport: .webRTC, reason: timedOut, wasConnected: false, relayAvailable: false)
+        #expect(noRelay == .failed("Can't reach Studio over WebRTC. Relay (TURN) unavailable"))
+    }
+
+    @Test func anOfflineMacIsOfflineEitherWay() {
+        for wasConnected in [false, true] {
+            let banner = LiveCoordinator.waitingBanner(
+                macName: "Studio", transport: .wireGuard, reason: offline, wasConnected: wasConnected,
+                relayAvailable: nil)
+            #expect(banner == .macOffline("Studio"))
+        }
+    }
+
+    /// The machine's side of the same story: after a drop, the silent retry
+    /// fails too and the machine waits; its phase is `.waiting`, which the
+    /// coordinator turns into the banner above.
+    @Test func aDroppedLinkWhoseRedialsFailWaits() {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(LinkMachine.Target(macID: "m", name: "Studio", isOnline: true)))
+        _ = machine.handle(.dialSucceeded(generation: machine.generation, path: .turn))
+        _ = machine.handle(.linkDropped(generation: machine.generation, reason: "keepalive timed out"))
+        _ = machine.handle(.dialFailed(generation: machine.generation, reason: "timed out"))
+        _ = machine.handle(.dialFailed(generation: machine.generation, reason: "timed out"))
+        guard case .waiting(.wireGuard, _, _, _) = machine.phase else {
+            Issue.record("expected waiting, got \(machine.phase)")
+            return
+        }
     }
 }

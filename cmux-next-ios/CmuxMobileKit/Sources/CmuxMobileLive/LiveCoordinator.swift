@@ -76,6 +76,9 @@ public final class LiveCoordinator {
     @ObservationIgnored private var teamTask: Task<Void, Never>?
     @ObservationIgnored private var bannerTask: Task<Void, Never>?
     @ObservationIgnored private var everConnected = false
+    /// The Mac the link was last connected to: a failed redial to it says
+    /// "Reconnecting", not "Can't reach" (the link keeps retrying).
+    @ObservationIgnored private var connectedMacID: String?
     @ObservationIgnored private var tree: DaemonTree?
     /// The acpmux session each cached chat store was built for (nil: unbound).
     @ObservationIgnored private var sourcedSessions: [String: String?] = [:]
@@ -1383,6 +1386,7 @@ public final class LiveCoordinator {
                 banner = nil
             }
             everConnected = true
+            connectedMacID = target?.macID
         case .connecting(let transport, let attempt):
             // Blips heal silently: the reconnecting banner waits 1.5 s.
             if attempt == 1, !everConnected {
@@ -1394,13 +1398,24 @@ public final class LiveCoordinator {
                 }
             }
         case .waiting(let transport, _, let reason, _):
-            // An offline Mac is not a connection failure; without TURN, neither
-            // transport gets through from another network (WireGuard's backend
-            // relay is retired), so say so.
-            let relay = relayAvailable == false ? ". Relay (TURN) unavailable" : ""
-            banner = reason == LinkController.reason(LinkError(code: "offline", message: ""))
-                ? .macOffline(name) : .failed("Can't reach \(name) over \(transport.displayName)\(relay)")
+            banner = Self.waitingBanner(
+                macName: name, transport: transport, reason: reason,
+                wasConnected: target != nil && target?.macID == connectedMacID,
+                relayAvailable: relayAvailable)
         }
+    }
+
+    /// The banner while a redial waits out its backoff. An offline Mac is not
+    /// a connection failure. A Mac the link was connected to is being
+    /// reconnected (the machine keeps retrying), so a lost link reads
+    /// "Reconnecting", not "Can't reach", which reads as giving up. A Mac
+    /// never reached says so; without TURN neither transport gets through
+    /// from another network (WireGuard's backend relay is retired).
+    nonisolated static func waitingBanner(macName: String, transport: TransportKind, reason: String,
+                                          wasConnected: Bool, relayAvailable: Bool?) -> ConnectionBannerState {
+        if reason == LinkController.reason(LinkError(code: "offline", message: "")) { return .macOffline(macName) }
+        let relay = relayAvailable == false ? ". Relay (TURN) unavailable" : ""
+        return .failed("Can't reach \(macName) over \(transport.displayName)\(relay)")
     }
 }
 
