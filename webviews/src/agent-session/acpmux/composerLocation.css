@@ -1197,6 +1197,27 @@
 .acpmux-env-popover .acpmux-env-icon { flex: none; color: var(--agent-muted); }
 .acpmux-env-popover .acpmux-env-icon[data-kind="ssh"] { color: var(--agent-ansi-2, currentColor); }
 .acpmux-env-popover .acpmux-env-icon[data-kind="cloud"] { color: var(--agent-ansi-4, currentColor); }
+/* A remote machine's status, as acpmux last said: a filled dot when connected, a ring when not. */
+.acpmux-env-row .acpmux-env-status {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  position: relative;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+/* The status in words, for screen readers only (the pane does not load ui.css's .ui-sr-only). */
+.acpmux-env-status-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.acpmux-env-row .acpmux-env-status[data-connected="true"] { background: var(--agent-success, var(--acpmux-add, currentColor)); }
+.acpmux-env-row .acpmux-env-status[data-connected="false"] { border: 1px solid var(--agent-muted); }
 /* New Cloud Machine: its name, then one quiet line of what a cloud machine gives. */
 .acpmux-env-new[data-kind="cloud"] .acpmux-menu-text { display: flex; flex-direction: column; min-width: 0; }
 .acpmux-env-new .acpmux-env-detail {

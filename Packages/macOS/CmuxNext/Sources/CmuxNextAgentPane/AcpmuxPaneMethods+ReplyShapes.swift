@@ -6,6 +6,8 @@ nonisolated extension AcpmuxPaneMethods {
     /// The shape of a reply the relay filters itself, without relying on the daemon's redaction.
     public nonisolated indirect enum ReplyShape: Sendable {
         case string
+        /// A JSON `true` or `false` only; a number or a string that reads as one is dropped.
+        case bool
         case object([String: ReplyShape])
         case list(ReplyShape)
         /// Only the scheme of the URL in the sibling field `source` (`ssh`, `ws`, `wss`), so the
@@ -17,11 +19,12 @@ nonisolated extension AcpmuxPaneMethods {
     static let reportedSchemes: Set<String> = ["ssh", "ws", "wss"]
 
     /// Replies filtered to the fields the pane renders; everything else is dropped, at every depth.
-    /// `_acpmux/status`: the pane reads only `peers[].name` and each peer's `transport`, the
-    /// scheme of its `url` (direct.ts, after initialize; environments.ts peerKindsFromStatus).
+    /// `_acpmux/status`: the pane reads only `peers[].name`, each peer's `transport` (the scheme
+    /// of its `url`) and whether it is `connected` (direct.ts; environments.ts peerKindsFromStatus,
+    /// peerConnectedFromStatus).
     public static let replyShapes: [String: ReplyShape] = [
         "_acpmux/status": .object([
-            "peers": .list(.object(["name": .string, "transport": .scheme(from: "url")])),
+            "peers": .list(.object(["name": .string, "transport": .scheme(from: "url"), "connected": .bool])),
         ]),
     ]
 
@@ -30,6 +33,9 @@ nonisolated extension AcpmuxPaneMethods {
         switch shape {
         case .string:
             return value as? String
+        case .bool:
+            guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
+            return number.boolValue
         case .scheme:
             guard let scheme = (value as? String).flatMap({ URLComponents(string: $0)?.scheme?.lowercased() }),
                   reportedSchemes.contains(scheme) else { return nil }
