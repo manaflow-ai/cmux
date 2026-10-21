@@ -209,3 +209,13 @@ test("a focused prompt keeps its card when earlier turns arrive above it", async
     await view.unmount();
   }
 });
+
+test("a chat that fits its pane above the composer has no map", async () => {
+  // Two short turns: the transcript is shorter than the 600 px viewport.
+  const view = await mount(2);
+  try {
+    expect(document.querySelector(".acpmux-scrollmap")).toBeNull();
+  } finally {
+    await view.unmount();
+  }
+});

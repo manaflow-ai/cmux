@@ -57,6 +57,7 @@ export function ScrollMap({
   layout,
   scroller,
   viewportHeight,
+  scrolls,
   width,
   marks: bookmarks,
   jump,
@@ -66,6 +67,7 @@ export function ScrollMap({
   layout: ConversationLayout;
   scroller: React.RefObject<HTMLElement | null>;
   viewportHeight: number;
+  scrolls: boolean;
   width: number;
   marks: PromptMarks;
   /// The compact rail's jump to a prompt (ThreadMinimap), so a click lands and flashes the same.
@@ -100,7 +102,7 @@ export function ScrollMap({
   const press = useRef<Press | undefined>(undefined);
   const shown =
     turns.length >= MAP_MIN_PROMPTS &&
-    layout.totalHeight > viewportHeight &&
+    scrolls &&
     height > 4 * MAP_MARGIN &&
     transcriptColumn(width).inset >= MIN_GUTTER;
 
@@ -181,7 +183,8 @@ export function ScrollMap({
     const at = keyOf(marks[markAt(marks, y) ?? -1]);
     setPointerY(Math.round(y));
     setHovered(at);
-    if (at === undefined) return;
+    // A scrub moves the transcript, not the card: it opens again once the drag ends.
+    if (at === undefined || press.current?.moved) return;
     setCardMark(at);
     intend("map");
   };
@@ -249,6 +252,7 @@ export function ScrollMap({
           if (state && !state.moved && Math.abs(event.clientY - state.y) >= SCRUB_SLOP) {
             state.moved = true;
             setScrubbing(true);
+            dismiss();
             try {
               event.currentTarget.setPointerCapture?.(state.pointer);
             } catch {}
