@@ -671652,6 +671652,65 @@
           }
         }
       }
+    },
+    "cloudTree.resources.lowDisk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk almost full: %1$@ GB free. Run cmux vm clean %2$@ or resize the disk to keep this machine reachable."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "القرص ممتلئ تقريبًا: %1$@ غيغابايت متاحة. شغّل cmux vm clean %2$@ أو كبّر القرص لتبقى هذه الآلة قابلة للوصول."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datenträger fast voll: %1$@ GB frei. Führe cmux vm clean %2$@ aus oder vergrößere den Datenträger, damit diese Maschine erreichbar bleibt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disco casi lleno: %1$@ GB libres. Ejecuta cmux vm clean %2$@ o amplía el disco para que esta máquina siga accesible."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disque presque plein : %1$@ Go libres. Exécutez cmux vm clean %2$@ ou agrandissez le disque pour que cette machine reste accessible."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスクがほぼいっぱいです: 空き %1$@ GB。このマシンに接続できる状態を保つには、cmux vm clean %2$@ を実行するか、ディスクを拡張してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디스크가 거의 가득 찼습니다: %1$@ GB 남음. 이 머신에 계속 연결할 수 있도록 cmux vm clean %2$@을(를) 실행하거나 디스크 크기를 늘리세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁盘即将写满：剩余 %1$@ GB。请运行 cmux vm clean %2$@ 或扩容磁盘，以确保这台机器仍可连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁碟即將滿載：剩餘 %1$@ GB。請執行 cmux vm clean %2$@ 或擴充磁碟，以確保這台機器仍可連線。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
