@@ -89,8 +89,9 @@ nonisolated enum AcpmuxVersionHandoff {
     /// Hands the daemon described by `status` off when it runs another build or
     /// a replaced bundle's executable, and keeps its agents across a restart.
     /// Returns true when it stopped that daemon, so the caller starts the
-    /// bundled one.
-    static func handOffIfStale(_ status: AcpmuxStatus, environment: AcpmuxEnvironment) async -> Bool {
+    /// bundled one. `again` (Update cmux Components…, a person's ask) also hands
+    /// off a daemon after this app already handed one off to the same bundled build.
+    static func handOffIfStale(_ status: AcpmuxStatus, environment: AcpmuxEnvironment, again: Bool = false) async -> Bool {
         let bundled = await bundledBuild(environment)
         #if DEBUG
         let swapped = status.pid.map { swapsOverride(runningPath: executablePath(pid: $0),
@@ -106,7 +107,7 @@ nonisolated enum AcpmuxVersionHandoff {
         guard decide(status.build, bundled, status.agentHosts, replaced: isReplaced) == .restart, let pid = status.pid else {
             return false
         }
-        guard handedOff.withLock({ $0.insert(bundled ?? "pid \(pid)").inserted }) else { return false }
+        guard handedOff.withLock({ $0.insert(bundled ?? "pid \(pid)").inserted }) || again else { return false }
         logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public)\(isReplaced ? " from a replaced bundle" : "", privacy: .public); handing off to \(bundled ?? "?", privacy: .public)")
         do {
             try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)

@@ -64,13 +64,30 @@ final class ServerUpdatePresenter {
     /// for the current notice or, with none, a plain restart.
     func confirmRestart() {
         guard let window = activeWindow() else { return }
-        let notice = servers.notices.first { $0.kind == .cmuxTUI && $0.host == .local }
+        let notice = localCmuxTUINotice
+        shown[notice.id]?.dismiss()
+        confirm(notice, in: window)
+    }
+
+    /// Update cmux Components…'s Update All, which the person already confirmed: the same restart
+    /// as the confirm's, and its result line.
+    func restartLocalCmuxTUI() async -> String {
+        let notice = localCmuxTUINotice
+        busy.insert(notice.id)
+        shown[notice.id]?.dismiss()
+        let outcome = await servers.restart(notice)
+        busy.remove(notice.id)
+        sync()
+        return outcome.message(serverLabel: notice.serverLabel)
+    }
+
+    /// The local cmux-tui's current notice or, with none, a plain restart.
+    private var localCmuxTUINotice: ServerUpdateNotice {
+        servers.notices.first { $0.kind == .cmuxTUI && $0.host == .local }
             ?? ServerUpdateNotice(kind: .cmuxTUI, host: .local,
                                   serverBuild: servers.handshake(.cmuxTUI, host: .local)?.build,
                                   missingCapabilities: [], gainedFeatures: [],
                                   impact: ServerRestartImpact(kind: .cmuxTUI, keepsWork: true))
-        shown[notice.id]?.dismiss()
-        confirm(notice, in: window)
     }
 
     private func show(_ notice: ServerUpdateNotice, in window: NSWindow) {

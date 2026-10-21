@@ -52,7 +52,7 @@ extension ActionDescriptor {
         "toggleRightSidebar", "toggleSplitZoom", "equalizeSplits", "openFolder", "file.open", "reopenClosedBrowserPanel",
         "reopenClosedWorkspace", "recentlyClosed", "jumpToUnread", "openDiffViewer", "terminal.setTheme",
         "appearance.customize", "appearance.changeBackground", "terminal.increaseFontSize", "terminal.decreaseFontSize",
-        "remote.connect", "workspace.newOnMachine", "newCloudWorkspace", "keybindings.open", "palette.checkForUpdates",
+        "remote.connect", "workspace.newOnMachine", "newCloudWorkspace", "keybindings.open", "palette.checkForUpdates", "palette.updateComponents",
         "palette.toggleSetting", "reloadConfiguration",
     ]
 

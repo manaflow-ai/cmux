@@ -41,6 +41,7 @@ enum SettingsHandlers {
                             stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] })
         OnboardingHandlers.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
+        ComponentUpdates.bind(into: registry, context: context)
         KeymapHandlers.bind(into: registry, context: context)
 
         registry.bind("palette.restartSocketListener", run: { [weak services = context.services] _ in

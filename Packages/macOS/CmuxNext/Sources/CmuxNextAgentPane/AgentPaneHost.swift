@@ -155,13 +155,21 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         _ = try await endpoint(startsDaemon: true)
     }
 
+    /// Update cmux Components…: hands a daemon of another build off to the bundled one and
+    /// starts it, as a first handshake after an update does, also when this app already handed
+    /// one off to that build. A daemon without agent hosts keeps running (its agents would end).
+    /// A start already in flight is joined instead.
+    public func updateToBundledBuild() async throws {
+        _ = try await endpoint(startsDaemon: true, handOffAgain: true)
+    }
+
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? {
         if environment == nil { environment = resolveEnvironment() }
         guard let environment else { throw AgentPaneHostError.acpmuxNotFound }
         return try await AcpmuxStatusClient.sessionFolder(socketPath: environment.socketPath, sessionId: sessionId)
     }
 
-    private func endpoint(startsDaemon asked: Bool) async throws -> AcpmuxWebEndpoint {
+    private func endpoint(startsDaemon asked: Bool, handOffAgain: Bool = false) async throws -> AcpmuxWebEndpoint {
         let startsDaemon = asked && startsDaemons
         if let task = inFlight[startsDaemon] { return try await task.value }
         // A reconnect during a start waits for that daemon instead of
@@ -184,7 +192,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if let healReplaced {
             heal = { @Sendable (pid: Int32) async -> Bool in await self.healOnce(pid: pid, healReplaced) }
         }
-        let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal) }
+        let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal, handOffAgain: handOffAgain) }
         inFlight[startsDaemon] = task
         defer { if inFlight[startsDaemon] == task { inFlight[startsDaemon] = nil } }
         let endpoint = try await task.value
@@ -244,7 +252,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     }
 
     private static func findOrStart(_ environment: AcpmuxEnvironment, startsDaemon: Bool, owned: Bool,
-                                    heal: (@Sendable (Int32) async -> Bool)?) async throws -> AcpmuxWebEndpoint {
+                                    heal: (@Sendable (Int32) async -> Bool)?, handOffAgain: Bool = false) async throws -> AcpmuxWebEndpoint {
         // cmux NEXT adopts its old acpmux home before it asks or starts a daemon (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
         do {
@@ -284,7 +292,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             }
             // After an update, or for this launch's person key (`AcpmuxPersonKey`): a daemon
             // that cannot take the key is handed off and ours starts with it.
-            let stale = await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment)
+            let stale = await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment, again: handOffAgain)
             let stopped = stale ? true : await AcpmuxPersonKey.enroll(status, environment: environment)
             guard stopped else {
                 await AcpmuxComputerUse.enroll(environment)
