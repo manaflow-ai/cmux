@@ -171,12 +171,10 @@ export type AcpmuxRow = {
   folded?: boolean;
   /// Work shown inside an open "Worked for": its turn has ended.
   settled?: boolean;
-  /// A running turn's run of tool calls that text followed, folded under one summary line (Debug
-  /// toggle, conversation/turns.ts `codexRuns`, conversation/toolRunSummary.ts).
+  /// A run of finished tool calls folded under one summary line (Debug toggle
+  /// `agentPane.debug.codexToolRuns`, on by default; conversation/turns.ts `codexRuns`,
+  /// conversation/toolRunSummary.ts).
   foldRun?: boolean;
-  /// A running turn's run of tool calls still in flight, drawn as its newest call alone (Debug toggle,
-  /// conversation/turns.ts `codexRuns`).
-  inFlight?: boolean;
   /// The live turn's latest row, whose last thought may still stream (conversation/turns.ts).
   live?: boolean;
   /// A running turn's status line: the title of the call in flight, which it names (WorkingFor.tsx).
@@ -228,6 +226,9 @@ export type AcpmuxActivity = {
     output?: string;
     /// A shell call's command line (`rawInput.command`), for its Shell block.
     command?: string;
+    /// What the call says it does in a few words (Claude Code's Bash `rawInput.description`): a
+    /// command row reads it instead of its raw command line, which its Shell block still shows.
+    description?: string;
     /// A finished shell call's exit status (Codex's `rawOutput.exit_code`).
     exitCode?: number;
     /// When the call started and, once it completed or failed, when it ended (epoch ms),

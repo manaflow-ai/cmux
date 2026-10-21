@@ -217,6 +217,7 @@ type ShapedTurn = {
   last: boolean;
   clockOffset: number;
   dated: boolean;
+  liveRuns: boolean;
   rows: AcpmuxRow[];
 };
 const shapedTurns = new WeakMap<AcpmuxRow, ShapedTurn>();
@@ -244,6 +245,7 @@ function shapedTurn(
     cached.last === last &&
     cached.clockOffset === clockOffset &&
     cached.dated === dated &&
+    cached.liveRuns === liveRuns &&
     cached.source.length === end - start - 1
   ) {
     let same = true;
@@ -287,7 +289,7 @@ function shapedTurn(
       ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset, liveRuns, sessionStatus),
       ...held,
     ];
-  if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, rows: shaped });
+  if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, liveRuns, rows: shaped });
   return shaped;
 }
 
@@ -363,8 +365,17 @@ function shapeTurn(
       toolCount: summary.toolCount,
       durationMs: answer ? Math.max(0, answer.at - user.at) : (summary.durationMs ?? Math.max(0, summary.at - user.at)),
     });
+    // Open, each run of its work folds into its summary line between the commentary, as in a
+    // running turn (codexRuns).
     if (open)
-      shaped.push(...work.map((row) => ({ ...row, id: isEdit(row) ? `${row.id}${FOLDED}` : row.id, settled: true })));
+      shaped.push(
+        ...work.map((row) => ({
+          ...row,
+          id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
+          settled: true,
+          ...(liveRuns && row.kind === "activity" && !isEdit(row) && { foldRun: true }),
+        })),
+      );
   }
   shaped.push(...groups.map(endedPlan), ...renderRows(body, version));
   if (answer) shaped.push(answer);
@@ -506,11 +517,12 @@ function liveTurn(
   sessionStatus = false,
 ): AcpmuxRow[] {
   const drawn = turn.filter((row) => row.kind !== "typing");
-  const rows = liveRuns ? codexRuns(drawn) : drawn;
-  // A started chat's card that no row follows yet is not the turn's latest step.
+  // A started chat's card that no row follows yet is not the turn's latest step. The latest step is
+  // read before the Codex-style runs fold it: the call it runs is what the live line names.
   let last: AcpmuxRow | undefined;
-  for (let index = rows.length - 1; index >= 0 && !last; index -= 1)
-    if (rows[index]!.kind !== STARTED_SESSIONS) last = rows[index];
+  for (let index = drawn.length - 1; index >= 0 && !last; index -= 1)
+    if (drawn[index]!.kind !== STARTED_SESSIONS) last = drawn[index];
+  const rows = liveRuns ? codexRuns(drawn) : drawn;
   // A turn with only its started chats' card so far keeps the card under its thinking line.
   if (!last) return [{ id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING }, ...rows];
   const answering = last.kind === "assistant";
@@ -526,8 +538,9 @@ function liveTurn(
   // The latest step row may still stream its last thought (ThoughtRow.tsx). Its version moves off
   // the stored one, so the row draws again, done, once another row follows it. A started chats'
   // card may follow it (`last` is the latest row that is not one).
+  // The Codex-style runs hold no streaming thought (codexRuns).
   const shown =
-    last.kind === "activity"
+    last.kind === "activity" && !liveRuns
       ? rows.map((row) => (row === last ? { ...last, live: true, version: last.version * 2 + 1 } : row))
       : rows;
   const plan = sessionStatus ? [...shown].reverse().find((row) => row.kind === "plan" && row.plan?.length) : undefined;
@@ -535,7 +548,16 @@ function liveTurn(
   const work = shown.filter((row) => row !== plan);
   // The answer streams under the list; the line has nothing left to say.
   if (answering) return [...work.filter((row) => row !== last), plan, last];
-  return [...work, plan, activityLine(user, work, plan, clockOffset)];
+  return [
+    ...work,
+    plan,
+    activityLine(
+      user,
+      drawn.filter((row) => row !== plan),
+      plan,
+      clockOffset,
+    ),
+  ];
 }
 
 /// The activity line of a running turn: its running tool call as its row names it (a command as
@@ -576,19 +598,28 @@ function inFlightTitle(row: AcpmuxRow): string | undefined {
   return undefined;
 }
 
-/// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): a run that text
-/// followed settles into its summary line, as in an open "Worked for"; the run in flight
-/// (`inFlight`) shows only its newest call, so its line replaces itself instead of growing into a
-/// list. Each derived row's version moves with its drawn state.
+/// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): each run folds into its
+/// summary line between the paragraphs ("Read files, ran commands", or one group's "Ran 3
+/// commands"), the latest one too as its calls finish, and opens on a click. The call in flight and
+/// a thought still coming are not in the run: the turn's live line names them (WorkingFor.tsx
+/// `doing`, "Thinking") and each step replaces it in place. A call still running in an earlier run
+/// (a background shell) stays in its run. Each derived row's version moves with its drawn state.
 function codexRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
   // A started chats' card after the run is not a step: the run before it is still in flight.
   let latest = rows.length - 1;
   while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
-  return rows.map((row, index) => {
-    if (row.kind !== "activity" || isEdit(row)) return row;
-    return index === latest
-      ? { ...row, inFlight: true, version: row.version * 4 + 1 }
-      : { ...row, settled: true, foldRun: true, version: row.version * 4 + 2 };
+  return rows.flatMap((row, index) => {
+    if (row.kind !== "activity" || isEdit(row)) return [row];
+    if (index !== latest) return [{ ...row, settled: true, foldRun: true, version: row.version * 4 + 2 }];
+    // The latest run: what is happening now leaves it for the live line, so the run holds only
+    // finished steps and never grows a stack of live rows (Leo 2026-10-20: "rows pile up instead
+    // of replacing each other").
+    const all = row.items ?? [];
+    const items = all.filter(
+      (item, at) => !(item.tool ? isRunning(item.tool) : at === all.length - 1 && item.kind !== "tool"),
+    );
+    if (!items.length) return [];
+    return [{ ...row, items, settled: true, foldRun: true, version: row.version * 4 + 1 }];
   });
 }
 

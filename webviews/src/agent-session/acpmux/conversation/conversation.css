@@ -1281,9 +1281,27 @@ pre.cv-math-source {
   flex: none;
   margin-inline-start: 6px;
 }
-/* "Thinking" stays still in the muted color. No mark blinks before it or before "Working for". */
+/* "Thinking" in the muted color. No mark blinks before it or before "Working for": the word itself
+   shimmers, as in the Codex and ChatGPT apps, a band of the theme accent crossing it on the shared
+   clock (ui/spinnerClock.ts). Reduce Motion, the static status look and agent motion off hold it
+   still in the muted color. */
 .cv-thinking {
   color: var(--cv-text-muted);
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-status-indicators="static"]) .cv-thinking.is-shimmer {
+    background: linear-gradient(
+        100deg,
+        var(--cv-text-muted) 35%,
+        color-mix(in srgb, var(--agent-accent, var(--cv-text)) 70%, var(--cv-text)) 50%,
+        var(--cv-text-muted) 65%
+      )
+      0 0 / 250% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: cmux-shimmer var(--cmux-breath-period, 2.4s) linear infinite;
+  }
 }
 
 .cv-tools {
@@ -1375,7 +1393,7 @@ pre.cv-math-source {
 .cv-tool__detail {
   color: var(--cv-text-dim);
 }
-/* Quiet and always there: a transcript row shows nothing more on hover (Leo 2026-10-13). */
+/* Quiet and always there. On hover a row adds only a finished call's check and time (above). */
 .cv-tool__chevron {
   margin-left: -4px;
   color: var(--cv-text-dim);
@@ -1579,6 +1597,19 @@ pre.cv-math-source {
 }
 .cv-command__ok {
   color: var(--acpmux-add);
+}
+/* A finished call's check and run time show only while the row is pointed at or focused, as in
+   the Codex app: at rest a run reads as its words. A failure keeps its red mark ("exit 1",
+   "failed") in sight; its time waits for the hover too. Opacity, not display, so the row never
+   reflows under the pointer. */
+.cv-tool :is(.cv-command__ok, .cv-command__time) {
+  opacity: 0;
+}
+.cv-tool > .cv-command__meta {
+  margin-left: auto;
+}
+.cv-tool:is(:hover, :focus-visible) :is(.cv-command__ok, .cv-command__time) {
+  opacity: 1;
 }
 /* A message to another agent: sender to recipient over the message's first line (MessageCard.tsx). */
 .cv-message {

@@ -19,7 +19,8 @@ import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { OutputMore, useOutput } from "./toolOutput";
 import { cleanText } from "./mcpCalls";
-import { ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
+import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
+import { toolDuration } from "./toolGroups";
 
 /// ACP tool kinds (`ToolKind`) to row glyphs.
 export function toolIcon(kind?: string): ReactNode {
@@ -63,9 +64,18 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   // Diffed only while open: a closed edit row costs nothing on each transcript update.
   const files = useMemo(() => (open && hasDiff ? toolFiles([tool]) : []), [open, hasDiff, tool]);
   const cwd = useContext(SessionCwdContext);
-  const label = toolLabel(tool, item.text, (command) => t("tools.ranCommand", { command }), cwd);
   const running = tool.status === "pending" || tool.status === "in_progress";
+  const label = toolLabel(
+    tool,
+    item.text,
+    (command) => t("tools.ranCommand", { command }),
+    cwd,
+    t(running ? "tools.runningUnnamed" : "tools.ranUnnamed"),
+  );
   const failed = tool.status === "failed";
+  // A finished call's check and run time, at the row's right edge and only on hover
+  // (conversation.css), as on a command row; its failure already says so in the label.
+  const duration = running ? undefined : toolDuration(t, tool);
   // Only a call with a command line is a shell; an MCP call can also say "execute".
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // A shell prints what it printed; any other output loses the context a host injects into it.
@@ -81,6 +91,12 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
         {label}
         {failed && <span className="cv-tool__detail"> {t("tools.failed")}</span>}
       </span>
+      {!running && (
+        <span className="cv-command__meta">
+          {!failed && <Check size={14} className="cv-command__ok" />}
+          {duration && <span className="cv-command__time">{duration}</span>}
+        </span>
+      )}
     </>
   );
   return (

@@ -1,6 +1,7 @@
 // One command in a "Ran N commands" group, as the Codex desktop app lists them: the terminal glyph
-// and "Ran <command>" with the command in mono, cut to the row, then its exit status and run time,
-// opening to its Shell block.
+// and what it does (Claude Code's Bash description) or "Ran <command>" with the command in mono, cut
+// to the row, then its exit status and run time (the check and time on hover only), opening to its
+// Shell block.
 import { useFindReveal } from "./chatFind";
 import { useId, useMemo } from "react";
 import { useT } from "../i18n";
@@ -40,11 +41,19 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
           <TerminalSquare />
         </span>
         <span className="cv-command__text">
-          {before && <span data-find-skip>{before}</span>}
-          <code className="cv-command__line" data-find-skip={open || undefined}>
-            {tool.command}
-          </code>
-          {after && <span data-find-skip>{after}</span>}
+          {tool.description ? (
+            // What the command does in a few words (Claude Code's Bash description); the raw line
+            // waits in its Shell block, opened.
+            <span>{tool.description}</span>
+          ) : (
+            <>
+              {before && <span data-find-skip>{before}</span>}
+              <code className="cv-command__line" data-find-skip={open || undefined}>
+                {tool.command}
+              </code>
+              {after && <span data-find-skip>{after}</span>}
+            </>
+          )}
         </span>
         <span className="cv-command__meta">
           {running ? (

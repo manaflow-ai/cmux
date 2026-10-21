@@ -51,8 +51,8 @@ export type AgentSessionTheme = {
   /// `standard`, `wide` or `wideBlocks`. Absent means standard.
   chatWidth?: string;
   /// Codex-style tool runs in a running turn (Debug Settings `agentPane.debug.codexToolRuns`,
-  /// acpmux codexToolRuns.ts). Native hosts send their default explicitly; absent keeps the
-  /// browser fallback off. true opts in and false opts out.
+  /// acpmux codexToolRuns.ts). Native hosts send their default (true) explicitly; absent keeps it
+  /// on, and false opts out.
   codexToolRuns?: boolean;
   /// The answer footer's copy/retry/fork controls: right by default, or left when selected by the host.
   turnActionsPlacement?: "left" | "right";

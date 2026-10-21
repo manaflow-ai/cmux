@@ -6,13 +6,14 @@ function Value() {
   return <span>{String(useCodexToolRuns())}</span>;
 }
 
-test("Codex-style tool grouping follows the host theme and can be explicitly enabled or disabled", () => {
+test("Codex-style tool grouping is on by default and follows the host theme", () => {
   configureCodexToolRuns(undefined);
+  expect(renderToStaticMarkup(<Value />)).toContain("true");
+  configureCodexToolRuns(false);
   expect(renderToStaticMarkup(<Value />)).toContain("false");
   configureCodexToolRuns(true);
   expect(renderToStaticMarkup(<Value />)).toContain("true");
   configureCodexToolRuns(false);
-  expect(renderToStaticMarkup(<Value />)).toContain("false");
   configureCodexToolRuns(undefined);
-  expect(renderToStaticMarkup(<Value />)).toContain("false");
+  expect(renderToStaticMarkup(<Value />)).toContain("true");
 });
