@@ -601,3 +601,56 @@ fn a_read_masks_secrets_in_another_chats_text() {
         }
     }
 }
+
+/// The acpmux sessions `daemon`'s acpmux holds.
+fn session_count(daemon: &Daemon) -> usize {
+    let listed = Acp::connect(daemon).call("_acpmux/sessions", json!({}));
+    let result = &listed["result"];
+    result.get("sessions").unwrap_or(result).as_array().map_or(0, Vec::len)
+}
+
+/// `cmux agents chat new` (#23016) starts a chat only where the app shows
+/// it: a pane this session does not have starts nothing, and a chat the app
+/// cannot show (no app answers) is ended again, over the CLI and over MCP.
+#[test]
+fn a_new_chat_that_no_tab_can_show_leaves_no_session() {
+    let daemon = machine("chat-new");
+    let workspace = workspace(&daemon);
+    let caller = chat(&daemon, Some(&workspace));
+    let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
+    let work = work.to_str().unwrap();
+    let before = session_count(&daemon);
+    let no_app = daemon.dir.join("no-app.sock");
+
+    let mut command = cmux(&daemon, Some(&caller));
+    command.arg("--app-socket").arg(&no_app);
+    let (code, missing) = chat_json(command, &["new", "--pane", "pane_nope", "--model", "fake"]);
+    assert_ne!(code, Some(0), "{missing}");
+    assert_eq!(error_of(&missing)["code"], "selector.not_found", "{missing}");
+    assert_eq!(session_count(&daemon), before, "a refused placement started a chat");
+
+    let mut command = cmux(&daemon, Some(&caller));
+    command.arg("--app-socket").arg(&no_app);
+    let (code, unshown) =
+        chat_json(command, &["new", "--model", "fake", "--cwd", work, "--", "hello"]);
+    assert_ne!(code, Some(0), "{unshown}");
+    assert!(
+        error_of(&unshown)["code"].as_str().is_some_and(|code| code.starts_with("app.")),
+        "{unshown}"
+    );
+    assert_eq!(session_count(&daemon), before, "a chat no tab shows was left running");
+
+    let (tools, results) = mcp(
+        &daemon,
+        &caller,
+        &[("agents_chat_new", json!({"model": "fake", "cwd": work, "effort": "low"}))],
+    );
+    let tool = tools
+        .iter()
+        .find(|tool| tool["name"] == "agents_chat_new")
+        .unwrap_or_else(|| panic!("agents_chat_new is not listed"));
+    assert_eq!(tool["inputSchema"]["additionalProperties"], false, "{tool}");
+    assert_eq!(tool["annotations"]["readOnlyHint"], false, "{tool}");
+    assert_eq!(results[0]["isError"], true, "{}", results[0]);
+    assert_eq!(session_count(&daemon), before, "an MCP chat no tab shows was left running");
+}
