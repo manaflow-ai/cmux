@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextMacScreen
 import CmuxNextRemote
 import CmuxNextTerminal
 import Observation
@@ -222,6 +223,12 @@ final class TabContentCache {
         }
         if let adopted = pageRequests.takeAdoption(for: tab) { return tracked(install(adopted, for: key), tab) }
         let url = MachineBrowserPages(cache: self).recordURL(tab) ?? recordURL(tab)
+        // A browser tab on a Mac Screen address (dev builds before Mac Screen had its own tab
+        // kind, or restored from then): the Mac Screen tab replaces it, waiting for Connect.
+        if let url, MacScreenRecord.matches(url) {
+            pageRequests.services?.macScreenTabs.replaceBrowserTab(key, url: url)
+            return nil
+        }
         if let page = appPage(for: tab, url: url) { return page }
         if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.wasOpenedHere(tab) {
             return deferred(tab, url: url)
