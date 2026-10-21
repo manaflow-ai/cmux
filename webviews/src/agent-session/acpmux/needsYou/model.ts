@@ -104,16 +104,14 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
       });
     }
   }
-  // A chat that waits on the person with no ask read here (a chat on another computer, or one
-  // whose ask is still being read): one item, so it is never missing from the list.
+  // A chat that waits on the person with no ask read here (a chat on another computer, a grouped
+  // request, or one whose ask is still being read): one item, so it is never missing from the list.
   for (const session of input.sessions) {
-    if (asked.has(session.sessionId) || session.archived) continue;
-    if (session.indicator !== "input" && !(session.pendingPermissions && session.pendingPermissions > 0)) continue;
+    if (asked.has(session.sessionId) || session.archived || !waitsOnPerson(session)) continue;
     items.push({
       id: `chat:${session.sessionId}`,
-      kind: "input",
+      ...waitingAsk(session),
       sessionId: session.sessionId,
-      ask: session.preview ?? "",
       who: who(session, session.sessionId, byId),
       ...(session.updatedAt ? { at: session.updatedAt } : {}),
       answers: [],
@@ -121,6 +119,25 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
   }
   // Newest first, as every list of chats in the pane; an ask without a time last.
   return items.sort((a, b) => (b.at ?? 0) - (a.at ?? 0));
+}
+
+/// Something is pending on the person: acpmux counts an open request or names what the chat waits
+/// on. A chat on another computer whose daemon names neither still shows by its indicator alone.
+/// A local chat with nothing pending is not waiting, whatever its dot last said.
+function waitsOnPerson(session: AcpmuxSessionEntry): boolean {
+  if ((session.pendingPermissions ?? 0) > 0 || session.waitingOn) return true;
+  return session.indicator === "input" && Boolean(session.peer);
+}
+
+/// What a chat whose ask is not read here waits on, as acpmux names it: a question by its first
+/// prompt (`waitingPrompt`), a permission as a permission. Never the chat's last message
+/// (`preview`): that is what the agent said, not what it asks (Leo 2026-10-21). An empty ask
+/// reads as its kind's line (NeedsYou.tsx `askText`).
+function waitingAsk(session: AcpmuxSessionEntry): Pick<NeedsYouItem, "kind" | "ask"> {
+  const waiting = session.waitingOn;
+  if (waiting?.on === "question") return { kind: "decision", ask: waiting.prompt ?? "" };
+  if (waiting?.on === "permission") return { kind: "approval", ask: "" };
+  return { kind: "input", ask: "" };
 }
 
 function askItem(

@@ -56,6 +56,9 @@ export function chatWaitsOn(chat: {
   trustBlocks: boolean;
   isWorking: boolean;
   individualPermission: boolean;
+  /// The individual permission carries an agent question (AskUserQuestion, an interactive ask): a
+  /// question to answer, not a tool to allow.
+  individualQuestion?: boolean;
   permissionGroups?: readonly { state: PermissionGroupState }[];
   secret: boolean;
   cards: readonly { state: string }[];
@@ -67,10 +70,13 @@ export function chatWaitsOn(chat: {
     trust: chat.isWorking ? undefined : chat.trust,
     permission:
       shown &&
-      (chat.individualPermission ||
+      ((chat.individualPermission && !chat.individualQuestion) ||
         (chat.permissionGroups ?? []).some((group) => group.state === "pending" || group.state === "collecting")),
     secret: shown && !chat.trustBlocks && chat.secret,
-    question: shown && chat.cards.some((card) => card.state === "ask"),
+    question:
+      shown &&
+      ((chat.individualPermission && chat.individualQuestion === true) ||
+        chat.cards.some((card) => card.state === "ask")),
     model: chat.isWorking && chat.silent === true,
   });
 }

@@ -362,10 +362,11 @@ function Avatar({ item }: { item: NeedsYouItem }) {
   );
 }
 
-/// The ask's line: its own text, else what its kind says.
+/// The ask's line: its own text, else what its kind says (a permission asks to allow, anything
+/// else for an answer).
 export function askText(item: NeedsYouItem, t: Translate): string {
   if (item.kind === "held") return t("needsYou.held", { n: item.held ?? 1, peer: item.ask });
-  return item.ask || t("needsYou.waiting");
+  return item.ask || t(item.kind === "approval" ? "needsYou.waitingPermission" : "needsYou.waiting");
 }
 
 /// The side session's first prompt (`_acpmux/btw`): the ask, then the person's question, so the
