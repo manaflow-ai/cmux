@@ -305,6 +305,27 @@ export interface PermissionRespondParams {
 
 export type PermissionRespondResult = Record<string, unknown>;
 
+/**
+ * `_acpmux/process/background` (Ctrl-B): the chat whose running work goes
+ * to the background, and the one tool call to move (none: every
+ * foreground task, as Claude Code's own Ctrl-B does).
+ */
+export interface ProcessBackgroundParams {
+  /** The chat's id, name or unique prefix. */
+  sessionId: string;
+  /** Only the task this tool call started. */
+  toolCallId?: (string | null);
+}
+
+export type ProcessBackgroundResult = {
+  /**
+   * Claude Code moved something: the tasks arrive as `process_update`s
+   * with origin `user_backgrounded`. False when nothing ran in the
+   * foreground (or no turn ran).
+   */
+  backgrounded: boolean;
+} & Record<string, unknown>;
+
 /** A purged session: only its id is left. */
 export type PurgedSession = {
   sessionId: string;
