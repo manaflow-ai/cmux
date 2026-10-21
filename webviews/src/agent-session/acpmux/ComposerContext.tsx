@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
 import { Popover } from "../../ui/Popover";
@@ -25,7 +25,7 @@ export const CONTEXT_LABELS = {
   folderSearch: "composer.folderSearch",
   cloud: "composer.cloud",
   connectSSH: "composer.connectSSH",
-  connectCloud: "composer.connectCloud",
+  newCloudMachine: "composer.newCloudMachine",
   newChatHere: "composer.newChatHere",
   noProject: "composer.noProject",
   environment: "composer.environment",
@@ -84,7 +84,7 @@ export function ComposerContext({
   onNewChat?(cwd: string): void;
   /// A started chat's Choose folder…: the host's folder panel, then a new chat there.
   onBrowseFolder?(): Promise<string | undefined>;
-  /// A new chat's Computer menu ends with SSH… and cmux Cloud…, which open the host's
+  /// A new chat's Computer menu ends with SSH… and New Cloud Machine, which open the host's
   /// connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH").
   onConnect?(kind: "ssh" | "cloud"): void;
 }) {
@@ -94,8 +94,15 @@ export function ComposerContext({
     [summary, sessions, peers, peerKinds, environments, localName],
   );
   const initialComputer = computerId(summary);
-  const [selectedComputer, setSelectedComputer] = useState(initialComputer);
-  useEffect(() => setSelectedComputer(initialComputer), [summary?.sessionId, initialComputer]);
+  // A pick in the Computer menu holds until the chat or its computer changes; then the new chat's
+  // own computer shows in the render that shows it (it followed in an effect, a frame late: the
+  // wrong computer and no folder for one frame on a local/peer switch). Each change clears the pick,
+  // so a pick on one new chat never carries into the next.
+  const pickKey = `${summary?.sessionId ?? ""}\u0000${initialComputer}`;
+  const [picked, setPicked] = useState<{ key: string; computer?: string }>({ key: pickKey });
+  if (picked.key !== pickKey) setPicked({ key: pickKey });
+  const selectedComputer = picked.key === pickKey && picked.computer ? picked.computer : initialComputer;
+  const setSelectedComputer = (computer: string) => setPicked({ key: pickKey, computer });
   const folders = useMemo(() => {
     const known = availableFolders(summary, sessions, selectedComputer);
     if (selectedComputer !== "local" || !projectChoices) return known;
@@ -247,7 +254,7 @@ export function ComposerContext({
                 !started && onConnect
                   ? [
                       { id: "ssh", label: t(CONTEXT_LABELS.connectSSH), onSelect: () => onConnect("ssh") },
-                      { id: "cloud", label: t(CONTEXT_LABELS.connectCloud), onSelect: () => onConnect("cloud") },
+                      { id: "cloud", label: t(CONTEXT_LABELS.newCloudMachine), onSelect: () => onConnect("cloud") },
                     ]
                   : undefined
               }

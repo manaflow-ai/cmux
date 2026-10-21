@@ -47,7 +47,9 @@ fn text(args: &[String]) -> Option<String> {
     };
     let messages = &crate::localization::catalog().app_control;
     let usage = match words {
-        ["browser", target, ..] if *target == "page" || target.starts_with("tab_") => {
+        ["browser", target, ..]
+            if *target == "page" || *target == "right" || target.starts_with("tab_") =>
+        {
             format!("{}\n", messages.browser_page_usage)
         }
         ["notify", ..] => return Some(super::super::scope_help::NOTIFY_HELP.to_owned()),

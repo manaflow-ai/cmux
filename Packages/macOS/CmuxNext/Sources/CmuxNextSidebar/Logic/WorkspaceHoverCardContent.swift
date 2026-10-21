@@ -44,7 +44,7 @@ struct WorkspaceHoverCardContent: Equatable {
         /// reply): it reads in the primary ink. Every other row is metadata in the secondary ink,
         /// under the title (Claude desktop's session card: a title, muted metadata, the message).
         var isMessage: Bool { Self.messageKinds.contains(kind) }
-        static let messageKinds: Set<String> = ["needsInput", "notification", "task", lastReplyKind]
+        static let messageKinds: Set<String> = ["needsInput", "notification", "task", "description", lastReplyKind]
         /// The agent chat's last reply, the card's last line.
         static let lastReplyKind = "lastReply"
     }
@@ -59,16 +59,123 @@ struct WorkspaceHoverCardContent: Equatable {
     var activityStyle: StatusIndicatorStyle?
     /// When that status began; the status row appends how long it has held, live (cx-swovq).
     var activitySince: Date?
+    /// The history lines the card lists, newest first (u3320), filtered by the options.
+    var timeline: [SidebarTimelineEntry] = []
+    /// The stats line under the status ("Prompts: 4 · Worked 12m"); nil when hidden or empty.
+    var stats: String?
+    /// The options the card was made with (its layout picks the card's width and history height).
+    var options = WorkspaceHoverCardOptions()
 
     /// CPU of at least half a core, or memory of at least 1 GB, is worth a line.
     static let notableCPU = 0.5
     static let notableMemoryBytes: UInt64 = 1 << 30
+    /// The card lists this many checklist items, then how many more.
+    static let visibleChecklistLimit = 6
 
+    /// The card for `workspace` with the default options and no history (the classic card's facts).
     static func make(_ workspace: SidebarWorkspace, machine: SidebarMachine?, now: Date) -> Self {
+        make(workspace, machine: machine, now: now, options: { var o = WorkspaceHoverCardOptions(); o.layout = .classic; return o }(), timeline: [])
+    }
+
+    /// The card for `workspace` as `options` lay it out (u3320), with its `timeline` (newest first).
+    static func make(_ workspace: SidebarWorkspace, machine: SidebarMachine?, now: Date,
+                     options: WorkspaceHoverCardOptions, timeline: [SidebarTimelineEntry]) -> Self {
+        var card = facts(workspace, machine: machine, now: now)
+        card.options = options
+        var timeline = timeline
+        // The newest wait, while the workspace still waits, says why (the row's own reason).
+        if let first = timeline.first, first.kind == .waiting, first.text == nil, case .waiting = workspace.activity {
+            timeline[0].text = workspace.detail.needsInput
+        }
+        if !options.showsGit { card.facts.removeAll { $0.kind == "branch" || $0.kind == "pullRequest" } }
+        if options.showsPorts, let ports = workspace.ports, !ports.isEmpty {
+            let at = card.facts.firstIndex { $0.kind == "machine" || $0.kind == "status" || $0.kind == "more" || $0.kind == Fact.lastReplyKind }
+            card.facts.insert(Fact(icon: .network, text: ports, kind: "ports"), at: at ?? card.facts.count)
+        }
+        if !options.showsTimings {
+            card.activitySince = nil
+            for index in card.facts.indices { card.facts[index].since = nil }
+        }
+        let shown = timeline.filter { entry in
+            switch entry.kind {
+            case .prompt, .started: options.showsPrompts
+            case .waiting, .finished, .failed: options.showsWaiting
+            }
+        }
+        switch options.layout {
+        case .classic:
+            break
+        case .compact:
+            card.timeline = Array(shown.prefix(options.historyRows))
+        case .timeline:
+            card.timeline = Array(shown.prefix(options.historyRows))
+            if options.showsTimings { card.stats = stats(timeline, now: now) }
+        case .log:
+            // The history alone: only why the workspace waits stays above it.
+            card.facts.removeAll { $0.kind != "needsInput" }
+            card.timeline = Array(shown.prefix(options.historyRows))
+            if options.showsTimings { card.stats = stats(timeline, now: now) }
+        case .minimal:
+            card.facts.removeAll { $0.kind != "needsInput" && $0.kind != "task" }
+            if !card.facts.contains(where: { $0.kind == "task" }),
+               let prompt = timeline.first(where: { $0.kind == .prompt && $0.text != nil })?.text {
+                card.facts.append(Fact(icon: .composerSend, text: prompt, lines: 2, kind: "task"))
+            }
+        }
+        return card
+    }
+
+    /// "Prompts: 4 · Worked 12m" over `timeline` (newest first): the time from each prompt or
+    /// start to the next moment after it that is a wait, finish, failure or later prompt, a running
+    /// turn until `now`. Nil with neither prompts nor worked time.
+    static func stats(_ timeline: [SidebarTimelineEntry], now: Date) -> String? {
+        let prompts = timeline.filter { $0.kind == .prompt }.count
+        var worked: TimeInterval = 0
+        var end: Date? = now
+        for entry in timeline {
+            switch entry.kind {
+            case .waiting, .finished, .failed: end = entry.date
+            case .prompt, .started:
+                if let stop = end { worked += max(0, stop.timeIntervalSince(entry.date)) }
+                // An older prompt with no end between worked until this one.
+                end = entry.date
+            }
+        }
+        guard prompts > 0 || worked > 0 else { return nil }
+        return Strings.timelineStats(prompts: prompts, worked: worked >= 1 ? elapsed(since: now.addingTimeInterval(-worked), now: now) : nil)
+    }
+
+    private static let clockFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("MMMd")
+        return formatter
+    }()
+
+    /// A history line's time: the clock time today ("2:03 PM"), else the day ("Oct 18").
+    static func timelineTime(_ date: Date, now: Date) -> String {
+        Calendar.current.isDate(date, inSameDayAs: now) ? clockFormatter.string(from: date) : dayFormatter.string(from: date)
+    }
+
+    /// The facts card (the classic layout): one row per meaningful fact.
+    private static func facts(_ workspace: SidebarWorkspace, machine: SidebarMachine?, now: Date) -> Self {
         let remote = machine.flatMap { $0.kind == .local ? nil : $0 }
         var facts: [Fact] = []
         let detail = workspace.detail
         if let reason = detail.needsInput { facts.append(Fact(icon: .statusNeedsinput, text: reason, lines: 3, kind: "needsInput")) }
+        // The person's own notes and the lane they pinned (classic's description and status).
+        if let notes = workspace.workspaceDescription?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty {
+            facts.append(Fact(icon: .textDescription, text: notes, lines: 6, kind: "description"))
+        }
+        if let status = workspace.taskStatus {
+            facts.append(Fact(icon: status.iconName, text: status.title, mark: status.symbol, kind: "taskStatus"))
+        }
         // The unread notification's text, which a compact row no longer draws by default; without
         // one, how many items are unread (rows draw no count, `SidebarRowBadgeStyle`).
         if let text = workspace.notificationText, !text.isEmpty {
@@ -105,6 +212,13 @@ struct WorkspaceHoverCardContent: Equatable {
         }
         if entries.count > SidebarWorkspaceStatus.visibleEntryLimit {
             facts.append(Fact(icon: .overflowMore, text: Strings.statusMore(entries.count - SidebarWorkspaceStatus.visibleEntryLimit), kind: "more"))
+        }
+        // The checklist, each item with its state's mark, as many as the status block shows.
+        for item in workspace.checklist.prefix(Self.visibleChecklistLimit) {
+            facts.append(Fact(icon: .listBulletItem, text: item.text, mark: item.state.symbol, kind: "checklist"))
+        }
+        if workspace.checklist.count > Self.visibleChecklistLimit {
+            facts.append(Fact(icon: .overflowMore, text: Strings.statusMore(workspace.checklist.count - Self.visibleChecklistLimit), kind: "more"))
         }
         // The agent chat's last reply, when no task says more: the card's last line, under the
         // metadata, two lines at most (Leo 2026-10-19, Claude desktop's session card).

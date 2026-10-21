@@ -44,6 +44,7 @@ export function HarnessMark({ harness, size = 16 }: { harness: Harness; size?: n
       className="sa-harness"
       data-harness={harness}
       style={{ width: size, height: size }}
+      // tooltip-allow: the mark draws only the harness's initial; the title names the harness.
       title={HARNESS_LABEL[harness]}
       aria-hidden="true"
     >

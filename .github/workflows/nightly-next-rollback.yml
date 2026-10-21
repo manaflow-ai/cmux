@@ -16,8 +16,14 @@ name: nightly-next rollback
 #     -f bad_build=3917159104301            # or: pull this build and everything newer
 #     -f to_build=3917061587901             # or: serve this build again
 #     -f dry_run=true                       # print the plan, write nothing
-# nightly-next-canary.yml dispatches it with bad_build when
-# NIGHTLY_NEXT_CANARY=enforce and the build it launched failed.
+# nightly-next-canary.yml dispatches it with bad_build when the canary
+# enforces and the build it launched failed.
+#
+# Every real pull then starts the fix-forward (job fix-forward,
+# scripts/ci/nightly_next_fix_forward.py): a train with the pulled build's
+# newest change quarantined (nightly-next-train.yml, once it can fix forward),
+# or else one `nightly-next fix-forward needed` issue naming that change and
+# its owner. Only a higher build moves the Macs already on the pulled one.
 #
 # GitHub registers a dispatch workflow only from the default branch, so this
 # file is on main too; a run there does nothing.
@@ -68,6 +74,10 @@ jobs:
     # A literal ephemeral label: this job holds the feed's write token.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    outputs:
+      changed: ${{ steps.plan.outputs.changed }}
+      serving: ${{ steps.plan.outputs.serving }}
+      pulled: ${{ steps.plan.outputs.pulled }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -177,3 +187,48 @@ jobs:
               echo "Failed before the pull of $PULLED was confirmed; check the feed."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # No secrets and no environment: it reads runs and commits, dispatches the
+  # train, or writes one issue.
+  fix-forward:
+    needs: rollback
+    if: needs.rollback.result == 'success' && needs.rollback.outputs.changed == 'true' && !inputs.dry_run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write # dispatch nightly-next-train.yml
+      contents: read
+      issues: write # the nightly-next fix-forward needed issue
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/nightly_next_fix_forward.py
+          sparse-checkout-cone-mode: false
+
+      - name: Start the fix-forward
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULLED: ${{ needs.rollback.outputs.pulled }}
+          SERVING: ${{ needs.rollback.outputs.serving }}
+          REASON: ${{ inputs.reason }}
+          TRAIN_REF: ${{ vars.NIGHTLY_NEXT_TRAIN_REF || 'feat-cmux-next' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          plan="$(python3 scripts/ci/nightly_next_fix_forward.py run --repo "$GITHUB_REPOSITORY" \
+            --pulled "$PULLED" --serving "$SERVING" --reason "$REASON" \
+            --train-ref "$TRAIN_REF" --run-url "$RUN_URL")"
+          echo "$plan"
+          python3 - "$plan" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, sys
+          p = json.loads(sys.argv[1])
+          a, s = p["action"], p.get("suspect") or {}
+          car = f"#{s['pr']}" if s.get("pr") else s.get("sha", "unknown")[:12]
+          print("### cmux NEXT fix-forward\n")
+          print(f"First pulled build {p['pulled_build']}; the feed serves {p['good_build']}. Suspect: {car} (owner {s.get('owner') or 'unknown'}).\n")
+          if "dispatch" in a:
+              print(f"Started {a['dispatch']} on {a['ref']} with {json.dumps(a['inputs'])}.")
+          else:
+              print(f"No train ({a['why']}); wrote issue #{a.get('number')}: {a['issue']}.")
+          PY

@@ -172,11 +172,11 @@ function bareSubject(text: string): string {
 /** The changes a person would notice, readable and each pull request (or title) once, and how
     many internal ones were left out. A pull request reads as its human commit when it has one; a
     change reverted in the same span, and its revert, are left out. */
-export function readableChanges(items: ChangeItem[]): { changes: ChangeItem[]; internal: number } {
+export function readableChanges<T extends ChangeItem>(items: T[]): { changes: T[]; internal: number } {
   const reverted = new Set(
     items.map((item) => revertedSubject(item.title)).flatMap((subject) => (subject ? [bareSubject(subject)] : [])),
   );
-  const rows: { key: string; item: ChangeItem; internal: boolean }[] = [];
+  const rows: { key: string; item: T; internal: boolean }[] = [];
   const byKey = new Map<string, number>();
   for (const item of items) {
     if (revertedSubject(item.title) || reverted.has(bareSubject(item.title))) continue;
@@ -259,6 +259,17 @@ export function mergedView(notes: ReleaseNotes[], language: string): ReleaseView
   })).filter((g) => g.items.length > 0);
   const { changes, internal } = readableChanges(notes.flatMap(changeItems));
   return { hero, groups, changes, internalChanges: internal, count: items.length };
+}
+
+/** A release day's title, Conductor style (2026-10-20): the curated headline of its newest build
+    that has curated entries. Undefined when none has one: such a day says "Maintenance and fixes". */
+export function releaseTitle(notes: ReleaseNotes[], language: string): string | undefined {
+  for (const n of notes) {
+    if (!n.whatsNew || n.whatsNew.entries.length === 0) continue;
+    const title = localized(n.whatsNew.headline, language).trim();
+    if (title) return title;
+  }
+  return undefined;
 }
 
 /** Builds (newest first) in runs of one release day. */

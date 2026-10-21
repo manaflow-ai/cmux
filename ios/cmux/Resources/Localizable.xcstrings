@@ -945,6 +945,242 @@
         }
       }
     },
+    "intent.callChief.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يفتح cmux في مكالمة مع Chief ويبدأ التسجيل فورًا. يتلقى Chief التسجيل ونصه عند إنهاء المكالمة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Öffnet cmux in einem Anruf mit deinem Chief und startet sofort die Aufnahme. Dein Chief erhält Aufnahme und Transkript, wenn du auflegst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens cmux into a call with your Chief and starts recording right away. Your Chief gets the recording and its transcript when you hang up."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abre cmux en una llamada con tu Chief y empieza a grabar de inmediato. Tu Chief recibe la grabación y su transcripción cuando cuelgas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvre cmux dans un appel avec votre Chief et lance l’enregistrement aussitôt. Votre Chief reçoit l’enregistrement et sa transcription quand vous raccrochez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を開いて Chief との通話を始め、すぐに録音します。通話を終えると、録音と文字起こしが Chief に届きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux에서 Chief와의 통화를 열고 바로 녹음을 시작합니다. 통화를 끝내면 녹음과 받아쓰기가 Chief에게 전달됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开 cmux 与 Chief 通话并立即开始录音。挂断后 Chief 会收到录音和转写文本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打開 cmux 與 Chief 通話並立即開始錄音。掛斷後 Chief 會收到錄音和轉寫文字。"
+          }
+        }
+      }
+    },
+    "intent.callChief.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الاتصال بـ Chief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief anrufen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Call Chief"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Llamar a Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Appeler Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief に電話"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief에게 전화"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "呼叫 Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "撥給 Chief"
+          }
+        }
+      }
+    },
+    "intent.recordVoiceNote.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يفتح cmux ويسجل ملاحظة صوتية. عند التوقف، يحولها cmux إلى نص على هذا الـ iPhone ويرسلها إلى Chief."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Öffnet cmux und nimmt eine Sprachnotiz auf. Wenn du stoppst, transkribiert cmux sie auf diesem iPhone und sendet sie an deinen Chief."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens cmux and records a voice note. When you stop, cmux transcribes it on this iPhone and sends it to your Chief."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abre cmux y graba una nota de voz. Al detenerla, cmux la transcribe en este iPhone y la envía a tu Chief."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvre cmux et enregistre une note vocale. Quand vous arrêtez, cmux la transcrit sur cet iPhone et l’envoie à votre Chief."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を開いてボイスメモを録音します。停止すると、この iPhone 上で文字起こしして Chief に送信します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux를 열고 음성 메모를 녹음합니다. 멈추면 이 iPhone에서 받아쓰기한 뒤 Chief에게 보냅니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开 cmux 并录制语音备忘。停止后，cmux 会在这台 iPhone 上转写并发送给 Chief。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打開 cmux 並錄製語音備忘。停止後，cmux 會在這支 iPhone 上轉寫並傳送給 Chief。"
+          }
+        }
+      }
+    },
+    "intent.recordVoiceNote.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تسجيل ملاحظة صوتية إلى Chief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sprachnotiz für Chief aufnehmen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record Voice Note for Chief"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grabar nota de voz para Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enregistrer une note vocale pour Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief へのボイスメモを録音"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief에게 보낼 음성 메모 녹음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "为 Chief 录制语音备忘"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "為 Chief 錄製語音備忘"
+          }
+        }
+      }
+    },
     "mobile.common.retry": {
       "extractionState": "manual",
       "localizations": {
@@ -2239,6 +2475,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "驗證碼"
+          }
+        }
+      }
+    },
+    "shortcut.callChief.shortTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الاتصال بـ Chief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief anrufen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Call Chief"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Llamar a Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Appeler Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief に電話"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief에게 전화"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "呼叫 Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "撥給 Chief"
+          }
+        }
+      }
+    },
+    "shortcut.recordVoiceNote.shortTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ملاحظة صوتية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sprachnotiz"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice Note"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nota de voz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Note vocale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボイスメモ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "음성 메모"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "语音备忘"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "語音備忘"
           }
         }
       }

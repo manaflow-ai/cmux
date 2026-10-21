@@ -42,6 +42,92 @@ key's actor. Creator references remain private. Arbitrary actor selectors are
 rejected. The operator CLI sends this filter with `cmux-vm list --created-by-me`
 and `cmux-vm snapshot list --created-by-me`.
 
+## Device overlay policy
+
+Mesh ACL destinations accept device IDs and `device:*` as well as VM
+selectors. Device edges are directed and omit self connections. They compile
+separately from provider firewall rules, with limits of 2,500 directed rules
+per mesh and 180 incoming plus outgoing rules per device.
+
+`GET /v1/devices/{deviceId}/overlay-policy` requires `mesh:join` and the
+device's enrolling principal or a tenant admin. A device can instead use
+`POST /v1/devices/{deviceId}/signed/overlay-policy`, signing the existing
+eight-line `cmux-mesh-v1` message with the distinct purpose `overlay-policy`.
+The operator CLI exposes the credential read as
+`cmux-vm device overlay-policy dev_…` (`--json` preserves the response).
+
+The response includes public install and WireGuard keys and separate inbound
+and outbound permissions for relevant peers whose owners remain valid. Its
+digest identifies the projection even when a key changes at the same ACL
+version; it does not prove freshness. Reads hold the ACL/removal writer lock
+and use one device identity inventory.
+This contract does not activate transport, push updates, admit HostDO relay
+sessions or grant command execution; those integrations remain separate.
+
+Provider-free servers use `POST /v1/meshes/{meshId}/overlay-servers`. Sign the
+same eight-line message with purpose `enroll-overlay-server`, the mesh id,
+the server's public keys and name. A fresh signed retry returns the existing
+identity when its owner, name and keys match. Records are separate from
+gateway devices, have no tunnel id and do not authorize provider operations.
+Source wildcards include gateway clients; server initiation needs an explicit
+source-id grant to another device. Provider VM firewall paths cannot originate
+from an overlay server. Destination selectors include both inventories. Enrollment
+checks existing wildcard expansion before recording the new identity.
+
+Operators can read/list/revoke these identities and read their policy under
+`/v1/overlay-servers/{id}` and `/v1/meshes/{meshId}/overlay-servers`. Servers
+can sign their own `/signed/policy` or `/signed/revoke` request with the
+distinct purposes `overlay-server-policy` and `revoke-overlay-server`.
+Policy responses include the authoritative Native tenant id for a future
+backend binding, alongside the mesh id and public keys. Neither pairing nor
+this metadata activates a server role or grants execution. Backend pairing,
+policy push and relay admission still need integration.
+
+The CLI exposes `device enroll-server MESH --request signed-request.json`,
+`device get-server ID`, `device servers MESH`, `device server-policy ID`,
+and `device revoke-server ID --yes`. The enrollment file contains a signed
+public request; the CLI sends only the known request fields. Private keys
+remain with their signer. Admission is limited to 50 live server identities
+per mesh, independently of provider tunnel and Cloud VM billing capacity.
+
+Migration 0014 adds the server inventory and widens signed-request purposes.
+Apply it and grant the Worker SELECT, INSERT and UPDATE on
+`cmux_vm.mesh_overlay_servers` before deployment. The shared Worker/release
+schema gate requires the table, these privileges and a validated replay
+constraint; older gateway rows/readers remain unchanged.
+
+An approver can instead issue `POST /v1/meshes/{meshId}/overlay-server-codes`
+with the approved `name`, `wgPublicKey` and `installPublicKey`. The response
+contains an `msc_` code, those bindings, tenant/mesh ids, a reserved device id
+and a 10-minute expiry. Issuance creates no server; the code is shown once
+and only its SHA-256 is stored. Each mesh may issue 20 codes per hour.
+Deliver the response through the approved pairing channel.
+
+The server redeems at `POST /v1/meshes/{meshId}/overlay-server-enrollments`
+without an account credential. Sign `cmux-mesh-v1` with purpose
+`enroll-overlay-server`, mesh id as target, the approved public keys, and
+`<code>:<name>` as the name line. Colons are not allowed in a plain server
+name, so this cannot be replayed as credential enrollment. The signature
+must be fresh and single use. Authentication failures burn unused codes;
+quota and dependency failures leave them usable with a fresh signature.
+Registration and consumption commit atomically. Until expiry, a fresh
+signed retry acknowledges the same live identity; revocation cannot revive
+it. After a lost response the reserved device id also supports signed policy
+recovery, including after code expiry.
+
+Use `device server-code MESH --request binding.json` to approve, and
+`device redeem-server-code MESH --request signed-code.json` to redeem.
+Redemption reads no account configuration and sends no account headers;
+its origin comes from `--base-url`, `CMUX_VM_BASE_URL`, or the default API.
+The code stays in the request file rather than command arguments. Private
+keys remain with the signer. This API does not deliver the code or activate
+a server role; backend pairing still needs to supply the approved channel.
+
+Migration 0015 adds `cmux_vm.mesh_overlay_server_codes`. Apply it through
+the versioned runner and grant the Worker SELECT, INSERT and UPDATE before
+deployment. The schema gate checks those privileges. Gateway codes and
+older readers retain their own table and code prefix.
+
 ## gdp-ts proofs
 
 `src/proofs/` is the only place proofs are minted: `KeyHasScope`,
@@ -77,8 +163,8 @@ snapshot succeeds and the create fails, the caller gets 503 `ForkIncomplete`
 with the snapshot's id, the snapshot stays in the tenant's ownership rows, and
 a retry with the same `Idempotency-Key` creates from it without a second
 snapshot. Create with `resources` boots the largest base size inside the
-request and then grows it. Without an idempotency key, a failed grow deletes
-the new VM (409). A keyed create retains its allocation for recovery instead.
+request and then grows it. A failed grow keeps the new VM as an uncommitted
+creation instead of deleting it (see "Recover a create without a client key").
 
 Use the same `Idempotency-Key` and request body when retrying a create or fork.
 Before provider I/O, the API durably retains the public allocation ID, original
@@ -88,6 +174,11 @@ and source snapshot; it never adopts by display name or account-wide listing.
 A provider or ownership-write failure retains the intent and quota slot. A
 confirmed ownership row repairs an uncertain completion, including a tombstone:
 retrying a deleted allocation cannot create another VM.
+A provider 4xx create answer other than 408 or 409, confirmed by a 404 at the
+exact slug, frees the slot at once; the same key may retry under quota. A send
+whose outcome is unknown (5xx, timeout, transport) is resent, or its
+cancellation settles, only after a 10-minute grace window and another empty
+exact-slug lookup.
 
 Unresolved allocation intents do not expire at the ordinary 24-hour key or
 five-minute quota-reservation deadlines. They continue to occupy their slot
@@ -102,6 +193,39 @@ and live-provider validation remain separate work.
 
 Every create and fork needs billing (`Entitlements`, 402) and a quota slot
 (`TenantMayCreate`, 429; default 20 live VMs, `TENANT_VM_QUOTAS` overrides).
+Snapshot captures have the same durable send boundary, with separate quota and
+public snapshot IDs. A key permanently identifies one capture: use a new key
+for a new point in time. Omitted-key requests are separate captures, and retained
+failures return `pendingSnapshotId`. `GET /v1/snapshot-creations` lists capture
+receipts newest first, including pending unkeyed requests; it never contacts the
+provider or returns caller keys. `GET /v1/snapshot-creations/ID` is read only. Callers that retained their key can
+use `GET /v1/snapshot-creations/by-key` with the original `Idempotency-Key`
+header for an exact lookup without scanning history or contacting the provider.
+`POST /v1/snapshot-creations/ID/reconcile` records an exactly verified capture,
+even after its source is deleted; it never captures again. `POST .../cancel`
+fences future sends before deleting a verified capture. An unknown capture stays
+pending and consumes quota even if its provider lookup currently returns 404.
+Completed or cancelled keys never create another snapshot. Delete a committed
+snapshot through the ordinary snapshot endpoint. To cancel by key, use
+`POST /v1/snapshot-creations/by-key/cancel` with the original header and
+`expectedSnapshotId` from the lookup. A null ID fences only an unadmitted key;
+it does not prove an older unrecorded provider operation was deleted. A known ID
+can cancel a pending capture or delete its committed snapshot. Unverified cleanup
+stays pending and retains quota. By-key cancellation requires credentials without
+a resource allowlist; existing by-ID controls retain their source scope.
+Source-allowlisted credentials
+can control only their original derived capture; general snapshot access stays
+subject to its own allowlist. Service labels and the original service actor apply
+to capture controls. Legacy uncertain snapshot requests fail closed; their old
+records contain no reliable capture identity. Fork intermediates use this same
+capture journal, with a destination VM ID and VM quota reserved before capture.
+VM creation status can therefore be pending before VM allocation has begun.
+An unresolved capture also holds a snapshot slot. Retry the original fork to
+continue; reconcile records existing effects without sending a capture or VM
+create. VM creation cancellation fences both stages, deleting only an exactly
+verified intermediate before releasing quota. The VM write credential receives
+authority for that fork snapshot only, without general snapshot write access.
+
 Rate limits, quota reservations and idempotency keys live in one Durable
 Object per tenant (`src/limits/`). Every mutation (create, start, stop,
 pause, resume, fork, delete, exec, file write) writes an audit row: tenant,
@@ -136,6 +260,56 @@ pauses them. Until the billing source is wired (TODO in
 
 `bun scripts/smoke.ts` (CI job `smoke-staging`, after each staging deploy)
 creates, execs, pauses and deletes a VM by exact id on the smoke tenant.
+
+## Recover a create without a client key
+
+VM creates and forks always journal the VM allocation before provider I/O.
+If the client omitted `Idempotency-Key`, success and retained-allocation errors
+include a public `creationKey` (`vcr_…`). Save it and use it as the
+`Idempotency-Key` on retries, status, reconciliation or cancellation. A new
+request without a key is a distinct intent. Server-issued handles never become
+fresh allocation authority, including after the VM is deleted.
+
+`cmux-vm creation list --json` and
+`GET /v1/vm-creations?limit=50&cursor=…` discover server-issued handles after
+a lost response. It returns `items` and an opaque `nextCursor`; a filtered page
+may be empty while still having a next cursor. It reads no provider state.
+The caller needs `vm:read` and an unrestricted credential; tenant, service
+identity and current resource labels still apply. Client-supplied keys are
+never returned or indexed in this history. History persists with its operation. The compatibility check runs the pinned preceding ledger against these
+protected records; that version refuses them and needs current software for recovery.
+
+Use `cmux-vm creation list --pending` or `GET /v1/vm-creations?state=pending`
+for unfinished server-issued work, newest first, including requested cancellations.
+This view follows retained VM quota slots and rechecks current authorization and
+canonical receipts. Keep `--pending` or `state=pending` with its page cursor.
+`pendingIndex: ready` confirms that the retained slots were correlated. Older
+slots are linked to their journals in bounded steps: `building` returns an index
+cursor, and `unavailable` means some retained work needs manual reconciliation.
+Neither value is complete history, and listing never releases quota or contacts
+the provider. The CLI advances at most 32 backfill pages per command; set
+`--index-pages 1..128` to change that budget or resume from the printed cursor.
+
+An uncertain send or failed grow retains the VM and its quota reservation.
+Use the original intent to recover it, or cancel with its handle. After a
+failed grow (503, or 429 when the provider is out of capacity) the VM is
+recorded as uncommitted: `GET /v1/vms` and `GET /v1/vms/{vmId}` show it with
+`creation: "pending"`, and the creation status stays `pending`. It is never
+replayed or settled as a finished create, and it keeps its quota slot. Retry
+the create with the same key (or `creationKey`) to grow and commit it;
+reconcile commits it once the VM already meets the requested size. Deleting
+it cancels the creation and frees the slot, including when the delete's own
+answer was lost and it is retried. A same-key retry never creates another VM.
+If the provider deleted it first (for example after `autoDeleteSeconds`), the
+retry answers 503 and keeps the slot until the 10-minute send grace window has
+passed; then, once both its exact slug and its recorded provider VM answer 404,
+the allocation is recorded as deleted, its slot is freed, and the retry answers
+404 like any deleted allocation. A fork that
+used the older snapshot stage without a VM receipt reports unresolved. New
+forks retain their destination ID before capture and stay pending under the
+same handle. Retry the original fork to continue. An absent provider lookup
+does not prove the snapshot was never taken. Older claims without capture
+receipts require reconciliation; their expiry cannot authorize recapturing.
 
 ## Grow an existing VM
 

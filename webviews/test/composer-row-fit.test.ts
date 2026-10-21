@@ -22,7 +22,7 @@ describe("composer row fit", () => {
     expect(fitStep(1, widths(room - 8), room)).toBe(0);
   });
 
-  test("the composer's width shortens labels first and drops controls last", () => {
+  test("the composer's width shortens labels first and drops controls last; the mic stays", () => {
     const at = (width: number) => fitForms(width);
     expect(at(760)).toEqual({ access: "full", effort: "full", mic: "full", model: "full", speed: "full" });
     expect(at(470)).toEqual({ access: "full", effort: "short", mic: "full", model: "full", speed: "full" });
@@ -30,12 +30,13 @@ describe("composer row fit", () => {
     expect(at(420)).toEqual({ access: "icon", effort: "short", mic: "full", model: "family", speed: "full" });
     expect(at(371)).toEqual({ access: "icon", effort: "short", mic: "full", model: "family", speed: "full" });
     expect(at(370)).toEqual({ access: "icon", effort: "short", mic: "full", model: "icon", speed: "hidden" });
-    expect(at(340)).toEqual({ access: "icon", effort: "short", mic: "hidden", model: "icon", speed: "hidden" });
+    expect(at(340)).toEqual({ access: "icon", effort: "short", mic: "full", model: "icon", speed: "hidden" });
+    expect(at(240)).toEqual({ access: "icon", effort: "short", mic: "full", model: "icon", speed: "hidden" });
   });
 
-  test("a row too long for its width gives up the speed bolt, then the mic last", () => {
-    expect(fitForms(760, ROW_FIT_STEPS.length - 2).speed).toBe("full");
-    expect(fitForms(760, ROW_FIT_STEPS.length - 1)).toMatchObject({ speed: "hidden", mic: "full" });
-    expect(fitForms(760, ROW_FIT_STEPS.length).mic).toBe("hidden");
+  test("a row too long for its width gives up the speed bolt last and never the mic", () => {
+    expect(fitForms(760, ROW_FIT_STEPS.length - 1).speed).toBe("full");
+    expect(fitForms(760, ROW_FIT_STEPS.length)).toMatchObject({ speed: "hidden", mic: "full" });
+    expect(fitForms(760, ROW_FIT_STEPS.length + 4).mic).toBe("full");
   });
 });
