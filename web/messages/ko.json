@@ -15,6 +15,21 @@
     "benefitSuperpowers": "계획, TDD, 하위 에이전트 및 검토"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM 요청이 지연되었습니다",
+      "message": "Cloud VM 할당을 일시적으로 사용할 수 없습니다.",
+      "action": "1분 후 같은 멱등성 키로 다시 시도하세요."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "스냅샷 요청에 재시도 키가 필요합니다",
+      "message": "Cloud VM 스냅샷에는 멱등성 키가 필요합니다.",
+      "action": "128자 이하의 고정된 Idempotency-Key로 다시 시도하세요."
+    },
+    "snapshotQuota": {
+      "title": "스냅샷 한도에 도달했습니다",
+      "message": "이 Cloud VM이 스냅샷 한도에 도달했습니다.",
+      "action": "기존 스냅샷을 삭제한 다음 같은 멱등성 키로 다시 시도하세요."
+    },
     "guestInstall": {
       "title": "Cloud VM 설정이 완료되지 않았습니다",
       "reason": "Cloud VM 게스트 설정이 완료되지 않았습니다.",

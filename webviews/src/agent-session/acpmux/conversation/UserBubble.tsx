@@ -11,8 +11,9 @@ import type { AcpmuxRow, PromptImage } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
 import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { useT } from "../i18n";
+import { imageLabel } from "../imageLabel";
 import { copyText } from "./clipboard";
-import { ChevronLeft, ChevronRight, Copy, Pencil } from "./icons";
+import { ChevronLeft, ChevronRight, Copy, ImageIcon, Pencil } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { TurnActionsContext } from "./turnActions";
 import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
@@ -125,9 +126,10 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   );
 }
 
-function SentImages({ images }: { images: readonly PromptImage[] }) {
+/// A prompt's images, each opening the image viewer; IncomingMessageCard shows another agent's.
+export function SentImages({ images, className }: { images: readonly PromptImage[]; className?: string }) {
   return (
-    <div className="cv-user__images">
+    <div className={className ? `cv-user__images ${className}` : "cv-user__images"}>
       {images.map((image) => (
         <SentImage key={image.id} image={image} />
       ))}
@@ -135,16 +137,28 @@ function SentImages({ images }: { images: readonly PromptImage[] }) {
   );
 }
 
-/// One sent image, read from acpmux by its id; nothing shows until it is read, or when it cannot be.
+/// The sent thumbnail's height (conversation.css), and the narrowest and
+/// widest it draws as a share of that: a tall phone shot or a wide screenshot is cropped to fill
+/// past those bounds rather than drawn as a sliver.
+export const SENT_IMAGE_HEIGHT = 120;
+const SENT_IMAGE_RATIO = { min: 0.75, max: 1.6 };
+
+/// One sent image, read from acpmux by its id. Its slot holds the thumbnail's height while the image
+/// is read (square, then the image's own shape within bounds once it loads), and says
+/// "Couldn't load image" when the image cannot be drawn. An image acpmux no longer has shows nothing.
 function SentImage({ image }: { image: PromptImage }) {
   const t = useT();
   const { promptImage } = useContext(TurnActionsContext);
   const openImage = useContext(ImageViewerContext);
   const [src, setSrc] = useState<string>();
-  const [state, setState] = useState<"loading" | "ready" | "missing">(() => (promptImage ? "loading" : "missing"));
+  const [state, setState] = useState<"loading" | "ready" | "missing" | "failed">(() =>
+    promptImage ? "loading" : "missing",
+  );
+  const [size, setSize] = useState<{ width: number; height: number }>();
   useEffect(() => {
     let live = true;
     setSrc(undefined);
+    setSize(undefined);
     if (!promptImage) {
       setState("missing");
       return;
@@ -171,15 +185,45 @@ function SentImage({ image }: { image: PromptImage }) {
       live = false;
     };
   }, [promptImage, image.id]);
-  // Keep the thumbnail's 72px row slot while the host reads the attachment. Without this,
-  // the sent-image band appears after the transcript row has already been placed and pushes
-  // the prompt and everything below it down by a frame. A missing image keeps the old behavior.
-  if (!src) return state === "loading" ? <span className="cv-user__image-placeholder" aria-hidden="true" /> : null;
-  const alt = image.name ?? "";
-  const thumbnail = <img className="cv-user__image cv-enter" src={src} alt={alt} decoding="async" />;
+  if (state === "missing") return null;
+  if (state === "failed")
+    return (
+      <span className="cv-user__image-failed" role="img" aria-label={t("image.failed")}>
+        <ImageIcon size={16} />
+        <span>{t("image.failed")}</span>
+      </span>
+    );
+  // Keep the thumbnail's row slot while the host reads the attachment. Without this, the
+  // sent-image band appears after the transcript row has already been placed and pushes the
+  // prompt and everything below it down by a frame.
+  if (!src) return <span className="cv-user__image-placeholder" aria-hidden="true" />;
+  // A pasted image's name is WebKit's "image.png": name it by its size instead (imageLabel.ts).
+  const label = imageLabel(t, { name: image.name, ...size });
+  const ratio = size ? Math.min(SENT_IMAGE_RATIO.max, Math.max(SENT_IMAGE_RATIO.min, size.width / size.height)) : 1;
+  const thumbnail = (
+    <img
+      className="cv-user__image cv-enter"
+      src={src}
+      alt={label}
+      decoding="async"
+      style={{ width: Math.round(SENT_IMAGE_HEIGHT * ratio) }}
+      onError={() => setState("failed")}
+      onLoad={(event) => {
+        const { naturalWidth: width, naturalHeight: height } = event.currentTarget;
+        // An image that decodes to no pixels draws nothing: it failed too.
+        if (!width || !height) setState("failed");
+        else setSize({ width, height });
+      }}
+    />
+  );
   if (!openImage) return thumbnail;
   return (
-    <button type="button" aria-label={alt || t("image.view")} onClick={() => openImage(src, alt)}>
+    <button
+      type="button"
+      /* tooltip-allow: an image thumbnail shows no name */ title={label}
+      aria-label={label || t("image.view")}
+      onClick={() => openImage(src, label)}
+    >
       {thumbnail}
     </button>
   );

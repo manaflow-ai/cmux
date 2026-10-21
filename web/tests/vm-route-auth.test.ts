@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, tes
 import manifestJson from "../services/vms/images/manifest.json";
 import { pickVmImageSizeForMemory } from "../services/vms/images/sizes";
 import { vmCapabilitiesFor } from "../services/vms/drivers";
+import { installVercelFirewallMock } from "./vercel-firewall-mock";
 
 // The manifest is the only source of truth for images: the desktop default at
 // the plan's memory is what a create with no image (and no kind) resolves to,
@@ -54,6 +55,7 @@ const deleteVmPublicationsForVmDeletion = mock(async () => ({
 }));
 const VM_ENV_KEYS = [
   "CMUX_VM_CREATE_ENABLED",
+  "CMUX_VM_ALLOCATION_RATE_LIMIT_ID",
   "CMUX_VM_FREESTYLE_ENABLED",
   "CMUX_VM_PRIVATE_NETWORK_ENABLED",
   "CMUX_VM_ALLOWED_ORIGINS",
@@ -131,6 +133,8 @@ mock.module("../app/lib/stack", () => ({
   isStackConfigured: () => true,
   stackServerApp: { getUser },
 }));
+
+installVercelFirewallMock();
 
 mock.module("../services/vms/workflows", () => ({
   ...workflowsModule,
@@ -408,6 +412,72 @@ describe("VM REST auth", () => {
     removed = true;
     expect((await verifyRequest(request, options))?.teamIds).toEqual([]);
     expect(getUser).toHaveBeenCalledTimes(2);
+  });
+
+  test("VM routes stop authorizing a removed team member even when native auth was cached", async () => {
+    const team = { id: "team-revoked", displayName: "Revoked Team", clientReadOnlyMetadata: { cmuxPlan: "pro" } };
+    let isMember = true;
+    getUser.mockResolvedValue({
+      id: "user-revoked",
+      displayName: null,
+      primaryEmail: "revoked@example.com",
+      clientReadOnlyMetadata: {},
+      selectedTeam: null,
+      listTeams: async () => isMember ? [team] : [],
+    });
+    runVmWorkflow.mockResolvedValue([]);
+    const request = () => new Request("https://cmux.test/api/vm?teamId=team-revoked", {
+      headers: {
+        authorization: "Bearer access-revoked",
+        "x-stack-refresh-token": "refresh-revoked",
+      },
+    });
+
+    expect((await GET(request())).status).toBe(200);
+    isMember = false;
+    runVmWorkflow.mockClear();
+
+    const removed = await GET(request());
+    expect(removed.status).toBe(403);
+    expect(await removed.json()).toMatchObject({ error: "vm_billing_team_not_found" });
+    expect(getUser).toHaveBeenCalledTimes(2);
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("a body-supplied team cannot reuse membership cached before removal", async () => {
+    const team = { id: "team-body-revoked", displayName: "Body Revoked", clientReadOnlyMetadata: { cmuxPlan: "pro" } };
+    let isMember = true;
+    getUser.mockResolvedValue({
+      id: "user-body-revoked",
+      displayName: null,
+      primaryEmail: "body-revoked@example.com",
+      clientReadOnlyMetadata: {},
+      selectedTeam: null,
+      listTeams: async () => isMember ? [team] : [],
+    });
+    runVmWorkflow.mockResolvedValue([]);
+    const headers = {
+      authorization: "Bearer access-body-revoked",
+      "x-stack-refresh-token": "refresh-body-revoked",
+    };
+
+    const seeded = await GET(new Request("https://cmux.test/api/vm?teamId=team-body-revoked", { headers }));
+    expect(seeded.status).toBe(200);
+    isMember = false;
+    runVmWorkflow.mockClear();
+
+    const removed = await POST(new Request("https://cmux.test/api/vm", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        provider: "freestyle",
+        image: "snapshot-test",
+        teamId: "team-body-revoked",
+      }),
+    }));
+    expect(removed.status).toBe(403);
+    expect(await removed.json()).toMatchObject({ error: "vm_billing_team_not_found" });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
   test("allows stale account-deleting metadata after tombstone lease expires", async () => {
@@ -3138,6 +3208,7 @@ describe("VM REST auth", () => {
   test("requires manifest images in deployed environments before workflow", async () => {
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID = "test-vm-allocation";
     getUser.mockResolvedValue(authedStackUser());
 
     const response = await POST(
@@ -3166,6 +3237,7 @@ describe("VM REST auth", () => {
     // resolves; the error must not name an image.
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID = "test-vm-allocation";
     manifestJson.images = originalManifestImages.map((entry) => entry.kind === "desktop" ? { ...entry, defaultForKind: false } : entry);
     getUser.mockResolvedValue(authedStackUser());
 
@@ -3196,6 +3268,7 @@ describe("VM REST auth", () => {
     // machine with a screen (#12239), never the shell-only ladder.
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID = "test-vm-allocation";
     getUser.mockResolvedValue(authedStackUser());
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-manifest",
@@ -3225,6 +3298,7 @@ describe("VM REST auth", () => {
   test("the shell-only base image the CLI sends for `vm new --base` is manifest-listed", async () => {
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID = "test-vm-allocation";
     process.env.CMUX_VM_DEFAULT_PROVIDER = "freestyle";
     getUser.mockResolvedValue(authedStackUser());
     runVmWorkflow.mockResolvedValue({

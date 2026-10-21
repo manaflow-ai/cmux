@@ -23,7 +23,7 @@ import re
 import sys
 
 
-TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "pinned-tabs", "hover-card", "update-card", "chief-settings", "glass", "home", "core")
+TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "pinned-tabs", "hover-card", "update-card", "chief-settings", "glass", "home", "new-message", "core")
 UI_ROOTS = (
     re.compile(r"^(?:Packages/macOS/CmuxNext/Sources|webviews/(?:src|apps)|agent-chat/(?:src|app|components?)/)"),
     re.compile(r"^(?:Packages/macOS/CmuxNext/(?:Resources|Tests?)/|webviews/|agent-chat/)"),
@@ -41,12 +41,15 @@ PINNED_TABS = re.compile(r"(?:Pinned|PinCommands|/Pins/)")
 HOVER_CARD = re.compile(r"(?:WorkspaceHoverCard|TabHoverCard|HoverCards/|HoverCardGallery)")
 # The sidebar's native Update Ready card and its popup window (the popup's React page is gallery work).
 UPDATE_CARD = re.compile(r"(?:SidebarUpdateCard|SidebarUpdateNotes|UpdateReadyCard|UpdateSurfaceIsland)")
-# The Chief's settings popover and the Home view that opens it.
-CHIEF_SETTINGS = re.compile(r"(?:HomeChiefSettings|HomeHostView|HomeEngineStrings)")
+# The Chief's settings popover, the Home view that opens it, and the empty Chief conversation's
+# front page (its hero, rows and the Chief's default face) that the same tour shows first.
+CHIEF_SETTINGS = re.compile(r"(?:HomeChiefSettings|HomeHostView|HomeEngineStrings|HomeFirstRun)")
 # Themes, glass and background art: the glass tour shows them over art and opaque.
 GLASS = re.compile(r"(?:theme|glass|backdrop|WindowBackground|SurfaceBackground|TerminalHostView|cmux-themes|composerStates\.css)", re.IGNORECASE)
 # Home's conversation list column: its header, rows and width (the home tour's widths, light and dark).
 HOME = re.compile(r"(?:MessagesLabSidebar|CmuxNextHome/Sidebar/|HomeSidebar|TopHomePage)")
+# Home's New Message page: its To: field and the suggestion list under it (the Chiefs before typing).
+NEW_MESSAGE = re.compile(r"(?:CmuxNextHome/NewMessage/|HomeNewMessage)")
 # Webview code: the gallery advisory run captures it on Linux (glass and themes excepted).
 WEBVIEW = re.compile(r"^webviews/")
 # Webview code that talks to the app or the daemon: the gallery's mock providers never run it.
@@ -89,6 +92,8 @@ def tours_for_path(path: str) -> list[str]:
         selected.append("glass")
     if HOME.search(normalized):
         selected.append("home")
+    if NEW_MESSAGE.search(normalized):
+        selected.append("new-message")
     if not selected:
         selected.append("core")
     return selected

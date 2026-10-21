@@ -1516,7 +1516,8 @@ fn start(
     .with_workspaces(workspaces);
     let mut brain = brain;
     brain.set_sub_starter(sub_starter);
-    brain.set_cloud_vms(cloud_vms, std::time::Duration::from_secs(600));
+    let idle = brain.cloud_auto_pause_idle();
+    brain.set_cloud_vms(cloud_vms, idle);
     // No cap on subagents at work unless OPTCHAT_MAX_LIVE_SUBAGENTS sets one.
     brain.set_max_live(crate::subagents::live_limit(
         env(crate::subagents::MAX_LIVE_ENV).as_deref(),

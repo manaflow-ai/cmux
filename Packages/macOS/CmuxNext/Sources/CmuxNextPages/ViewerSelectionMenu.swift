@@ -49,7 +49,8 @@ public struct ViewerSelectionMenu {
     }
 
     /// The localized titles of the viewer rows.
-    public enum Titles {
+    public struct Titles {
+        public init() {}
         /// "Comment…": opens the comment popover.
         public static var comment: String {
             String(localized: "pages.viewerSelection.comment", defaultValue: "Comment…", bundle: .module)

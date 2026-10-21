@@ -4,6 +4,8 @@
 // chats arriving, typing (the suggestions popover), a pasted image (the attachment chips), the
 // Now Playing player appearing and the page outgrowing its window, the composer's card keeps its
 // top, left edge and width, and the field (where the text is typed) keeps its top and left edge.
+// The Default template's stage layout docks the composer at the page's foot instead: there the
+// card keeps its bottom edge, left edge and width while it grows upward.
 //
 // The real agent pane (the dev entry) in Chromium and WebKit, with a stand-in host and a stand-in
 // acpmux daemon whose chat list comes late. A script from the document's start records the card's
@@ -139,7 +141,13 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
           if (!box || !field) return;
           const at = box.getBoundingClientRect();
           const text = field.getBoundingClientRect();
-          const rect = `top ${at.top} left ${at.left} width ${at.width} field ${text.top},${text.left}`;
+          // The stage layout (Default, #22119) docks the composer at the page's foot, as Claude Code
+          // desktop does: its bottom edge holds and it grows upward, as the chat composer does, so
+          // there the card keeps its bottom, left edge and width, and the field its left edge.
+          const docked = document.querySelector(".nt-screen")?.getAttribute("data-layout") === "stage";
+          const rect = docked
+            ? `bottom ${at.bottom} left ${at.left} width ${at.width} field left ${text.left}`
+            : `top ${at.top} left ${at.left} width ${at.width} field ${text.top},${text.left}`;
           if (rects.at(-1)?.startsWith(`${rect} @`)) return;
           rects.push(`${rect} @ ${String(w.__step)}`);
         };

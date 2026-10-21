@@ -74,6 +74,17 @@ if [[ "\$method" == POST ]]; then
   esac
   exit 22
 fi
+# A head_sha= run query lists only that commit's runs (a run without head_sha
+# matches every query, as the older fixtures expect).
+if [[ -z "\$url" && "\$api" == *"head_sha="* ]]; then
+  want="\${api##*head_sha=}"; want="\${want%%&*}"
+  "$real_curl" "\$@" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+data["workflow_runs"] = [r for r in data.get("workflow_runs", []) if r.get("head_sha", sys.argv[1]) == sys.argv[1]]
+print(json.dumps(data))' "\$want"
+  exit "\${PIPESTATUS[0]}"
+fi
 if [[ -z "\$url" ]]; then exec "$real_curl" "\$@"; fi
 path="$TMP/cdn/\${url#https://cdn.test/}"; path="\${path%%\\?*}"
 [[ -f "\$path" ]] || exit 22
@@ -179,8 +190,11 @@ key=$(cd "$TMP/src" && bash scripts/cmux-next/pin-cmux-tui.sh key)
   echo "fixture: the merge has the head's tree key" >&2; exit 1; }
 set_runs "$none"
 unset CMUX_TUI_TREE_DISPATCH
+# A fork PR: main's merge-tree publisher never starts, so path routing looks once (wait 0).
+export CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=0
 expect "pull request, changed hash, dispatch off (fork)" pull_request failed "no cmux-tui artifacts run"
 [[ "$(posts dispatches)" == 0 ]] || fail "(b) a fork PR (no CMUX_TUI_TREE_DISPATCH) must not dispatch"
+unset CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS
 export CMUX_TUI_TREE_DISPATCH=1
 expect "pull request, changed hash" pull_request deferred
 [[ "$(posts dispatches)" == 1 && "$(posts git/refs)" == 1 ]] || fail "(b) a changed hash needs one pin ref and one dispatch: $(cat "$TMP/posts.log")"
@@ -225,6 +239,30 @@ probe pull_request
 (( took < 15 )) || fail "(d) the wait must be bounded"
 unset REFUSE_WRITES CMUX_TUI_TREE_DISPATCH CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS
 
+# (e) Path routing is read-only since e93faa5f1fb0 (CMUX_TUI_TREE_DISPATCH is
+# empty), so a same-repository PR with its own merge tree never reaches the
+# dispatch path. Main's cmux-next-pr-merge-tree.yml has already pinned the merge
+# commit and its cmux-tui artifacts run is active: the probe must look for that
+# run (reads only) and defer, not fail with "no cmux-tui artifacts run can
+# publish tree" (PR #22580, run 39491343806, 2026-10-20).
+: > "$TMP/posts.log"
+set_runs "$active"
+expect "pull request, own merge tree, read-only probe, main's publisher active" pull_request deferred "active cmux-tui artifacts run"
+[[ ! -s "$TMP/posts.log" ]] || fail "(e) the read-only probe must not write: $(cat "$TMP/posts.log")"
+# The publisher appears during the bounded wait.
+set_runs "$none"
+export CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS=8 CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS=1
+fake_clock_at 2 "printf '%s\\n' '$active' > '$runs_dir/runs'"
+probe pull_request
+[[ "$status" == 0 && "$state" == deferred ]] || fail "(e) a publish started from main during the wait must be deferred to"
+# Nothing starts: the bounded wait ends and the check still fails, without writing.
+set_runs "$none"
+probe pull_request
+[[ "$state" == failed ]] || fail "(e) with no publisher the read-only probe must still fail"
+(( took < 15 )) || fail "(e) the wait must be bounded"
+[[ ! -s "$TMP/posts.log" ]] || fail "(e) the read-only probe must not write: $(cat "$TMP/posts.log")"
+unset CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS
+
 
 # (d) A pull request that changes no cmux-tui or ghostty-next path is not
 # blocked by a merge tree nothing publishes (#16614, #17551, #18605): the base
@@ -267,10 +305,12 @@ unset CMUX_TUI_TREE_BASE_FALLBACK
 
 # A scheduled DEV snapshot owns its exact SHA after the source branch moves.
 # Since e93faa5f1fb0 path routing is read-only (CMUX_TUI_TREE_DISPATCH=""), so
-# the probe never writes a pin ref or a dispatch. Current behavior: a cold tree
-# reads failed, and ready once published. Failed is not the intended result
-# while a trusted publisher for the exact SHA is running; the probe skips that
-# read-only lookup too. Follow-up: ci-green/dev-tree-readonly-lookup.
+# the probe never writes a pin ref or a dispatch. It still looks once, read-only,
+# for an artifacts run that publishes the tree: a cold tree with none reads
+# failed, one whose push run (or the same-key run that push handed the build
+# to) is running defers to it so dev-daily-tree-wait waits, and a published
+# tree reads ready. DEV run 39499536927 (2026-10-20) failed while push run
+# 39499455843 for its SHA and same-key owner run 39498123849 were running.
 sha=$(git -C "$TMP/src" rev-parse HEAD)
 set_head "$newer"
 set_runs "$none"
@@ -300,6 +340,24 @@ expect "scheduled dev, cold exact tree" workflow_dispatch failed "no cmux-tui ar
 eval "$(dev_probe_environment tree-final)"
 expect "scheduled dev, second probe" workflow_dispatch failed "no cmux-tui artifacts run can publish tree $key"
 [[ ! -s "$TMP/posts.log" ]] || fail "dev second probe must not write: $(cat "$TMP/posts.log")"
+# The push's artifacts run for the exact SHA is still running: defer, one look
+# (no wait), no write.
+set_runs "{\"total_count\":1,\"workflow_runs\":[{\"id\":5,\"status\":\"in_progress\",\"conclusion\":null,\"html_url\":\"u5\",\"head_sha\":\"$sha\",\"pull_requests\":[]}]}"
+eval "$(dev_probe_environment tree)"
+expect "scheduled dev, cold tree, push publisher running" workflow_dispatch deferred "$sha"
+(( took == 0 )) || fail "scheduled dev: the lookup must not wait (${took}s)"
+[[ ! -s "$TMP/posts.log" ]] || fail "dev probe with a running publisher must not write: $(cat "$TMP/posts.log")"
+eval "$(dev_probe_environment tree-final)"
+expect "scheduled dev, second probe, push publisher running" workflow_dispatch deferred "$sha"
+[[ ! -s "$TMP/posts.log" ]] || fail "dev second probe with a running publisher must not write: $(cat "$TMP/posts.log")"
+# A same-tree run of another commit is the active owner (the push's own run
+# handed the build to it): the probe defers to that commit.
+owner_sha=$(git -c user.name=t -c user.email=t@example.com -C "$TMP/src" commit-tree "$sha^{tree}" -p "$sha" -m "same tree")
+set_runs "{\"total_count\":1,\"workflow_runs\":[{\"id\":6,\"status\":\"in_progress\",\"conclusion\":null,\"html_url\":\"u6\",\"head_sha\":\"$owner_sha\",\"pull_requests\":[]}]}"
+eval "$(dev_probe_environment tree)"
+expect "scheduled dev, cold tree, same-key owner running" workflow_dispatch deferred "$owner_sha"
+[[ ! -s "$TMP/posts.log" ]] || fail "dev probe with a same-key owner must not write: $(cat "$TMP/posts.log")"
+set_runs "$none"
 mkdir -p "$TMP/cdn/cmux-tui/tree/$key"
 printf '%064d  cmux-tui-aarch64-apple-darwin\n' 0 > "$TMP/cdn/cmux-tui/tree/$key/cmux-tui-aarch64-apple-darwin.sha256"
 expect "scheduled dev, published by a trusted publisher" workflow_dispatch ready

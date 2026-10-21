@@ -29,6 +29,7 @@ export function SummaryCard({
   changes,
   onOpenChanges,
   subagents,
+  onAttach,
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
@@ -49,6 +50,8 @@ export function SummaryCard({
     /// Whether new subagents open in panes of their own, and its switch; none where no pane opens.
     autoOpen?: { on: boolean; set: (on: boolean) => void };
   };
+  /// Sources' + (Attach files or folders), for a chat on this computer.
+  onAttach?: () => void;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -123,7 +126,7 @@ export function SummaryCard({
       <aside
         ref={panel}
         className="acpmux-summary-card"
-        // Focusable from script only: the last place closing the Subagents tab can leave focus.
+        // ui-allow: focusable from script only, the last place closing the Subagents tab can leave focus.
         tabIndex={-1}
         aria-label={title}
         data-placement={card.column ? "inline" : "popover"}
@@ -240,6 +243,7 @@ export function SummaryCard({
               onOpenChanges={onOpenChanges}
               subagents={agents.length > 0 ? <></> : undefined}
               onOpenOutput={onOpenOutput}
+              onAttach={onAttach}
             />
           </div>
         )}

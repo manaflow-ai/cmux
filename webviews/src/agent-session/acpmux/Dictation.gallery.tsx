@@ -22,13 +22,17 @@ const update = (state: DictationUpdate["state"], extra: Partial<DictationUpdate>
   ...extra,
 });
 
+/// A second of speech for the waveform: one level per update, as the host sends about 12 a second.
+const SPEECH = [0.12, 0.35, 0.62, 0.48, 0.81, 0.66, 0.3, 0.74, 0.52, 0.9, 0.58];
+
 function GalleryDictation({ initialState, initialNotice }: Props) {
   const [state, setState] = useState<Dictation["state"]>(initialState);
   const [notice, setNotice] = useState<DictationUpdate | null>(initialNotice);
   const [settingsOpened, setSettingsOpened] = useState(false);
 
   useEffect(() => {
-    deliverDictation(update(state));
+    if (state === "listening") for (const level of SPEECH) deliverDictation(update(state, { level }));
+    else deliverDictation(update(state));
   }, [state]);
 
   const dictation: Dictation = {
@@ -36,6 +40,9 @@ function GalleryDictation({ initialState, initialNotice }: Props) {
     notice,
     toggle() {
       setState((current) => (current === "idle" ? "listening" : "idle"));
+    },
+    finish() {
+      setState("idle");
     },
     cancel() {
       setState("idle");
@@ -78,6 +85,11 @@ const start: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.find({ role: "button", name: "Stop dictation" }).getAttribute("aria-pressed") === "true");
 };
 
+const finish: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Finish dictation" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-dictation-wave") === null);
+};
+
 const stop: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Stop dictation" });
   await ctx.waitFor(() => ctx.find({ role: "button", name: "Dictate" }).getAttribute("aria-pressed") === "false");
@@ -112,7 +124,8 @@ export default componentEntry<Props>({
   covers: [
     "agent-session/acpmux/DictationButton.tsx#DictationButton",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
-    "agent-session/acpmux/DictationLevelMeter.tsx#DictationLevelMeter",
+    "agent-session/acpmux/DictationListening.tsx#DictationWave",
+    "agent-session/acpmux/DictationListening.tsx#DictationFinishButton",
     "agent-session/acpmux/DictationNotice.tsx#DictationNotice",
   ],
   styles: () => import("./styles.css"),
@@ -123,7 +136,8 @@ export default componentEntry<Props>({
     },
     layoutShiftMax: {
       value: 0,
-      reason: "The level meter and permission notice stay inside the composer host instead of reflowing the pane.",
+      reason:
+        "The waveform, finish key and permission notice stay inside the composer host instead of reflowing the pane.",
     },
     longFrameFailMs: {
       value: 33,
@@ -137,12 +151,27 @@ export default componentEntry<Props>({
   load: async () => GalleryDictation,
   variants: {
     idle: { props: { initialState: "idle", initialNotice: null } },
-    listening: { props: { initialState: "listening", initialNotice: null } },
-    finalizing: { props: { initialState: "finalizing", initialNotice: null } },
+    listening: {
+      props: { initialState: "listening", initialNotice: null },
+      note: "Listening: a waveform of thin bars that fades to dots at both ends, the finish key (⏎), and the lit mic.",
+    },
+    starting: {
+      props: { initialState: "starting", initialNotice: null },
+      note: "Starting: the wave rests as dots until the first level arrives; the mic is already lit.",
+    },
+    finalizing: {
+      props: { initialState: "finalizing", initialNotice: null },
+      note: "Finalizing: the last words are landing; the wave dims and the finish key waits.",
+    },
     start: {
       props: { initialState: "idle", initialNotice: null },
       play: start,
-      note: "The mic keeps the composer focused while it switches to the live level meter.",
+      note: "The mic keeps the composer focused while the waveform and finish key come in beside it.",
+    },
+    finish: {
+      props: { initialState: "listening", initialNotice: null },
+      play: finish,
+      note: "The finish key ends the session and keeps its words.",
     },
     stop: {
       props: { initialState: "listening", initialNotice: null },
