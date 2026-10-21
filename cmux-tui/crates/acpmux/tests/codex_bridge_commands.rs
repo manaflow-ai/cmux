@@ -75,7 +75,17 @@ fn codex_slash_commands_reach_the_person_through_the_bridge() {
 
     let first = cli(
         &dir,
-        &["--json", "run", "-m", "codex-fixture", "-n", "cx", "--policy", "approve-all", "hello from the test"],
+        &[
+            "--json",
+            "run",
+            "-m",
+            "codex-fixture",
+            "-n",
+            "cx",
+            "--policy",
+            "approve-all",
+            "hello from the test",
+        ],
     );
     assert!(first.status.success(), "first turn: {}", String::from_utf8_lossy(&first.stderr));
 
