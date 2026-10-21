@@ -1,7 +1,7 @@
 // The chat's work that goes on outside its turn: commands it runs in the background and chats its
-// agent started. The summary card lists them (SummaryTasks.tsx, ChildSessionRows.tsx), the running
-// turn's line counts them (conversation/WorkingFor.tsx), and after the turn one compact row at the
-// transcript's end says what still runs (conversation/BackgroundWorkRow.tsx).
+// agent started. The summary card lists them (SummaryTasks.tsx, ChildSessionRows.tsx), and the tray
+// above the composer shows what still runs (subagents/runningTray.ts `trayItems`); with the tray
+// off in Debug Settings, the running turn's line counts them (conversation/WorkingFor.tsx).
 //
 // Commands come from two places. acpmux's process registry (sessionProcesses.ts) knows every
 // harness's background commands and how each ended; the transcript knows Claude's background Bash
@@ -88,16 +88,3 @@ export function orderedSessions(sessions: readonly StartedSession[]): StartedSes
     (a, b) => rank[a.state] - rank[b.state] || (b.createdAt ?? -Infinity) - (a.createdAt ?? -Infinity),
   );
 }
-
-/// The row kind App.tsx appends after the transcript's rows (conversation/BackgroundWorkRow.tsx).
-export const BACKGROUND_WORK = "backgroundWork";
-
-/// What still runs in the background: commands, started chats and subagents.
-export type BackgroundCounts = { commands: number; sessions: number; agents: number };
-
-export const NO_BACKGROUND: BackgroundCounts = { commands: 0, sessions: 0, agents: 0 };
-
-/// Whether the transcript ends with the "Running in background" row: no turn runs (the running
-/// turn's line counts the same work) and something still does.
-export const backgroundRowShown = (working: boolean, counts: BackgroundCounts): boolean =>
-  !working && counts.commands + counts.sessions + counts.agents > 0;

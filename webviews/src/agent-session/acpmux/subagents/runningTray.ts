@@ -1,17 +1,21 @@
-// Running subagents and background commands live in one tray at the foot of the chat, in the bottom
-// stack right above the composer (SubagentTray.tsx), never in the middle of history (Leo
-// 2026-10-20: "put the subagent situation at the bottom of the chat and anchor"). The transcript
-// keeps no running card for them: once a subagent ends it leaves one quiet line where it ended,
-// "Subagent finished: Explore the daemon · 1m 20s" (SubagentDoneLine.tsx), as a background
-// shell's end does (conversation/BackgroundTaskNote.tsx).
+// Running subagents, background commands and the chats the agent started live in one tray at the
+// foot of the chat, in the bottom stack right above the composer (SubagentTray.tsx), never in the
+// middle of history (Leo 2026-10-20: "put the subagent situation at the bottom of the chat and
+// anchor"). It is the one place running background work shows: the transcript keeps no running
+// card and no "Running in background" row, and the running turn's line counts nothing. Once a
+// subagent ends it leaves one quiet line where it ended, "Subagent finished: Explore the daemon ·
+// 1m 20s" (SubagentDoneLine.tsx), as a background shell's end does
+// (conversation/BackgroundTaskNote.tsx).
 //
 // Debug Settings `agentPane.debug.subagentTray` (AgentPaneTunables+SubagentTray.swift) turns it off:
-// the transcript then draws the old group card where the subagents started (SubagentGroup.tsx) and
-// the agents pill sits above the composer (AgentsPill.tsx). The host sends it with the theme
-// (`subagentTray`); absent means on.
+// the transcript then draws the old group card where the subagents started (SubagentGroup.tsx),
+// the agents pill sits above the composer (AgentsPill.tsx) and the running turn's line counts the
+// work (conversation/WorkingFor.tsx). The host sends it with the theme (`subagentTray`); absent
+// means on.
 import { useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
-import type { SummaryBackgroundTask } from "../summary/sessionSummary";
+import type { StartedSession } from "../started/startedSessions";
+import type { BackgroundCommand } from "../summary/backgroundWork";
 import { nestAgents } from "./AgentsPill";
 import { isSubagentGroup, SUBAGENT_DONE } from "./subagentRows";
 import type { Subagent } from "./subagentFold";
@@ -36,41 +40,42 @@ const snapshot = () => trayOn;
 /// Whether running subagents show in the tray (the default) rather than as a transcript card.
 export const useSubagentTray = (): boolean => useSyncExternalStore(subscribe, snapshot, snapshot);
 
-/// One running thing in the tray: a subagent (nested ones moved in under their parent) or a
-/// background command.
+/// One running thing in the tray: a subagent (nested ones moved in under their parent), a
+/// background command, or a chat the agent started.
 export type TrayItem =
   | { kind: "agent"; id: string; agent: Subagent; depth: number }
-  | { kind: "command"; id: string; command: string; startedAt?: number };
+  | { kind: "command"; id: string; command: BackgroundCommand }
+  | { kind: "session"; id: string; session: StartedSession };
 
 /// What the tray lists: the running subagents, each nested one right under the one that spawned
-/// it, then the background commands still running. Between turns only work that outlives its turn
-/// shows (a background subagent); a foreground one a cancel or a reconnect left "running" pins
-/// nothing, and the running turn's commands list only while it works (the transcript cannot
-/// always tell a command that ended unseen from one that runs).
+/// it, then the background commands still running, then the started chats that run.
+///
+/// Between turns only work that outlives its turn shows. A foreground subagent a cancel or a
+/// reconnect left "running" pins nothing. A command shows whenever acpmux's process registry says
+/// it runs (summary/backgroundWork.ts merged it in, `processId`); one only the transcript knows
+/// shows only while a turn runs, since the transcript cannot tell a command that ended unseen (a
+/// peer's chat, whose registry this acpmux cannot list) from one that runs.
 export function trayItems(
   agents: readonly Subagent[],
-  commands: readonly SummaryBackgroundTask[],
+  commands: readonly BackgroundCommand[],
+  sessions: readonly StartedSession[],
   working: boolean,
 ): TrayItem[] {
   const live = agents
     .filter((agent) => agent.state === "running" && (working || agent.background === true))
     .sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id));
   const items: TrayItem[] = nestAgents(live).map(({ agent, depth }) => ({ kind: "agent", id: agent.id, agent, depth }));
-  if (working)
-    for (const task of commands)
-      if (task.state === "running")
-        items.push({
-          kind: "command",
-          id: task.id,
-          command: task.command,
-          ...(task.startedAt !== undefined ? { startedAt: task.startedAt } : {}),
-        });
+  for (const command of commands)
+    if (command.state === "running" && (working || command.processId !== undefined))
+      items.push({ kind: "command", id: command.id, command });
+  for (const session of sessions)
+    if (session.state === "running") items.push({ kind: "session", id: session.sessionId, session });
   return items;
 }
 
 /// When an item started, if known.
 export const itemStart = (item: TrayItem): number | undefined =>
-  item.kind === "agent" ? item.agent.startedAt : item.startedAt;
+  item.kind === "agent" ? item.agent.startedAt : item.kind === "command" ? item.command.startedAt : undefined;
 
 /// Done lines by row id, kept while what they say holds, so the turns built on them stay the same
 /// objects (conversation/turns.ts `turnViewFrom` reuses turns whose rows did not change).

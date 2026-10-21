@@ -1,13 +1,24 @@
-// l10n-allow-file: gallery fixtures (sample prompts, subagent names and commands), not shipped UI.
-// Running subagents and background commands in one tray at the foot of the chat, right above the
-// composer (SubagentTray.tsx, runningTray.ts), never in the middle of history: one running is its
-// line alone; several get a header ("3 subagents running · 1 command") with a line each; past three
-// they start folded to the header. A subagent that ended leaves one line where it ended
+// l10n-allow-file: gallery fixtures (prompts, subagent names, commands, chat titles), not shipped UI.
+// Running subagents, background commands and chats the agent started in one tray at the foot of
+// the chat, right above the composer (SubagentTray.tsx, runningTray.ts), never in the middle of
+// history, in a turn and after it ("Running in background · …"): one running is its line alone;
+// several get a header ("3 subagents running · 1 command") with a line each; past three they start
+// folded to the header. The transcript has no "Running in background" row. A subagent that ended leaves one line where it ended
 // (SubagentDoneLine.tsx), a failure in the danger color. The tray's lines are the summary card's
 // Subagents rows (AgentLine.tsx). The group card and the agents pill this replaces are
 // subagents.gallery.ts, under Debug Settings agentPane.debug.subagentTray off.
 import { agentPaneEntry } from "../../../gallery/format";
-import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
+import {
+  activity,
+  assistant,
+  chat,
+  row,
+  session,
+  SESSION_ID,
+  summary,
+  tool,
+  user,
+} from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
@@ -101,6 +112,58 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "command-and-subagent": {
+      note: "A turn with a subagent and a background command: a header with both counts, then a line each; the working line counts nothing, the tray is the count.",
+      play: async (ctx) => {
+        await trayLines(2)(ctx);
+        if (ctx.document.querySelector(".cv-worked__open")) throw new Error("the tray is the count, not the line");
+      },
+      snapshot: chat(
+        [
+          user("Start the dev server, then have a subagent check the routes", 2),
+          devServer,
+          group([agent("Check the routes", 1.2, "running", { kind: "Explore", action: "Read src/routes.ts" })], 1.2),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "between-turns": {
+      note: "After the turn: a background subagent and two chats the agent started still run. The tray says so above the composer; the transcript ends with the turn's footer.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === 3);
+        if (ctx.document.querySelector(".cv-bgwork")) throw new Error("no Running in background row in the transcript");
+      },
+      snapshot: (() => {
+        const base = chat([
+          user("Split the migration into two chats and keep an eye on the logs", 7),
+          group([agent("Watch the logs", 6.5, "running", { kind: "general-purpose", background: true })], 6.5),
+          assistant("Two chats are migrating the settings store and the history page; a subagent watches the logs.", 5),
+          summary(5, { status: "completed", durationMs: 70_000, toolCount: 1 }),
+        ]);
+        return {
+          ...base,
+          sessions: [
+            ...base.sessions,
+            session({
+              sessionId: "child-1",
+              title: "Migrate the settings store to SQLite",
+              spawnedBy: SESSION_ID,
+              indicator: "working",
+              status: "running",
+              createdAt: minutesAgo(5.5),
+            }),
+            session({
+              sessionId: "child-2",
+              title: "Port the history page to React Aria",
+              spawnedBy: SESSION_ID,
+              indicator: "working",
+              status: "running",
+              createdAt: minutesAgo(5.4),
+            }),
+          ],
+        };
+      })(),
     },
     "many-folded": {
       note: "Five running: the tray starts folded to its header so it never takes the transcript's room; the chevron opens the list.",

@@ -3,8 +3,12 @@
 // "put the subagent situation at the bottom of the chat and anchor"; subagents/runningTray.ts).
 // - The transcript drops the group card where subagents started; a subagent that ended leaves one
 //   line where it ended, with its name and how long it ran, a failure in the danger color.
-// - The tray lists each running subagent (nested ones under their parent) and background command:
-//   name, what it does now, its state and its time. Several get a header; more than three fold.
+// - The tray lists each running subagent (nested ones under their parent), background command and
+//   chat the agent started: name, what it does now, its state and its time. Several get a header;
+//   more than three fold.
+// - It is the one place running background work shows: no "Running in background" row in the
+//   transcript. Between turns a command shows only when acpmux's process registry says it runs; one
+//   only the transcript knows (a peer's chat, whose end never arrived) does not pin the tray.
 // - The tray's lines are the summary card's Subagents rows: one component (AgentLine.tsx).
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
@@ -57,6 +61,9 @@ const { trayItems, withSubagentLines, configureSubagentTray } =
 const { SubagentTray, TRAY_OPEN_MAX } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
 const { SubagentStatusList } = await import("../src/agent-session/acpmux/summary/SubagentStatusList");
 const { SubagentNavContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
+const { backgroundCommands } = await import("../src/agent-session/acpmux/summary/backgroundWork");
+type BackgroundCommand = import("../src/agent-session/acpmux/summary/backgroundWork").BackgroundCommand;
+type StartedSession = import("../src/agent-session/acpmux/started/startedSessions").StartedSession;
 type Row = import("../src/agent-session/acpmux/model").AcpmuxRow;
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 
@@ -81,6 +88,14 @@ const agent = (id: string, fields: Partial<Subagent> = {}): Subagent => ({
   startedAt: at(10),
   ...fields,
 });
+const command = (id: string, fields: Partial<BackgroundCommand> = {}): BackgroundCommand => ({
+  id,
+  command: id,
+  state: "running",
+  startedAt: at(5),
+  ...fields,
+});
+const NONE: StartedSession[] = [];
 const row = (id: string, kind: string, seconds: number, fields: Partial<Row> = {}): Row => ({
   id,
   version: 1,
@@ -111,7 +126,7 @@ describe("the transcript keeps no running card", () => {
     const rows = transcript([agent("Reviewer", { action: "Read src/app.ts" })]);
     const out = withSubagentLines(rows);
     expect(out.map((entry) => entry.kind)).toEqual(["user", "assistant", "activity", "assistant"]);
-    const items = trayItems([agent("Reviewer", { action: "Read src/app.ts" })], [], true);
+    const items = trayItems([agent("Reviewer", { action: "Read src/app.ts" })], [], NONE, true);
     expect(items.map((item) => item.id)).toEqual(["Reviewer"]);
   });
 
@@ -180,29 +195,36 @@ describe("the tray", () => {
       agent("Scout", { parent: "Reviewer", startedAt: at(14) }),
       agent("Linter", { state: "completed", endedAt: at(20) }),
     ];
-    const commands = [
-      { id: "bg1", command: "bun run dev", state: "running" as const, startedAt: at(5) },
-      { id: "bg2", command: "make", state: "completed" as const },
+    const commands = [command("bg1", { command: "bun run dev" }), command("bg2", { state: "completed" })];
+    const chats: StartedSession[] = [
+      { sessionId: "c1", title: "Port the history page", state: "running" },
+      { sessionId: "c2", title: "Draft the notes", state: "idle" },
     ];
-    expect(trayItems(agents, commands, true).map((item) => [item.id, item.kind === "agent" ? item.depth : -1])).toEqual(
-      [
-        ["Reviewer", 0],
-        ["Scout", 1],
-        ["Tester", 0],
-        ["bg1", -1],
-      ],
-    );
+    expect(
+      trayItems(agents, commands, chats, true).map((item) => [item.id, item.kind === "agent" ? item.depth : -1]),
+    ).toEqual([
+      ["Reviewer", 0],
+      ["Scout", 1],
+      ["Tester", 0],
+      ["bg1", -1],
+      ["c1", -1],
+    ]);
     // Between turns only background subagents still run; a foreground one left "running" pins nothing.
-    const between = trayItems([...agents, agent("Watcher", { background: true })], commands, false);
-    expect(between.map((item) => item.id)).toEqual(["Watcher"]);
+    const between = trayItems([...agents, agent("Watcher", { background: true })], commands, chats, false);
+    expect(between.map((item) => item.id)).toEqual(["Watcher", "c1"]);
   });
 
   test("one running subagent is its line alone: name, what it does now, its time and state", async () => {
     const now = Date.now();
-    const items = trayItems([agent("Explore the daemon", { startedAt: now - 80_000, action: "Bash" })], [], true);
+    const items = trayItems([agent("Explore the daemon", { startedAt: now - 80_000, action: "Bash" })], [], NONE, true);
     const opened: string[] = [];
     const { root, done } = await render(
-      createElement(SubagentTray, { items, waiting: new Set<string>(), onOpen: (id: string) => opened.push(id) }),
+      createElement(SubagentTray, {
+        items,
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: (id: string) => opened.push(id),
+      }),
     );
     try {
       expect(root.querySelector(".acpmux-running-tray__head")).toBeNull();
@@ -225,11 +247,12 @@ describe("the tray", () => {
     const now = Date.now();
     const few = trayItems(
       [agent("A", { startedAt: now - 5000 }), agent("B", { startedAt: now - 4000 })],
-      [{ id: "bg1", command: "bun run dev", state: "running", startedAt: now - 3000 }],
+      [command("bg1", { command: "bun run dev", startedAt: now - 3000 })],
+      NONE,
       true,
     );
     const shown = await render(
-      createElement(SubagentTray, { items: few, waiting: new Set<string>(), onOpen: () => {} }),
+      createElement(SubagentTray, { items: few, working: true, waiting: new Set<string>(), onOpen: () => {} }),
     );
     try {
       const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
@@ -244,10 +267,11 @@ describe("the tray", () => {
     const many = trayItems(
       Array.from({ length: TRAY_OPEN_MAX + 1 }, (_, index) => agent(`Agent ${index}`, { startedAt: now - index })),
       [],
+      NONE,
       true,
     );
     const folded = await render(
-      createElement(SubagentTray, { items: many, waiting: new Set<string>(), onOpen: () => {} }),
+      createElement(SubagentTray, { items: many, working: true, waiting: new Set<string>(), onOpen: () => {} }),
     );
     try {
       const head = folded.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
@@ -261,13 +285,91 @@ describe("the tray", () => {
   });
 
   test("a subagent waiting on the person says so", async () => {
-    const items = trayItems([agent("Reviewer", { startedAt: Date.now() })], [], true);
+    const items = trayItems([agent("Reviewer", { startedAt: Date.now() })], [], NONE, true);
     const { root, done } = await render(
-      createElement(SubagentTray, { items, waiting: new Set(["Reviewer"]), onOpen: () => {} }),
+      createElement(SubagentTray, { items, working: true, waiting: new Set(["Reviewer"]), onOpen: () => {} }),
     );
     try {
       expect(root.querySelector(".acpmux-summary-agent__state")?.textContent).toBe("Waiting");
       expect(root.querySelector(".acpmux-agent-line")?.getAttribute("data-status")).toBe("waiting");
+    } finally {
+      await done();
+    }
+  });
+
+  test("between turns a command only the transcript knows is not in the tray; the registry's is", () => {
+    // A peer's chat: acpmux cannot list its registry, and the dev server's end never arrived.
+    const transcript = [{ id: "call-dev", command: "bun run dev", state: "running" as const, startedAt: at(5) }];
+    const peer = backgroundCommands([], transcript, false);
+    expect(trayItems([], peer, NONE, true).map((item) => item.id)).toEqual(["call-dev"]);
+    expect(trayItems([], peer, NONE, false)).toEqual([]);
+    // The registry lists a watcher it runs: it shows between turns too, by its process.
+    const processes = [
+      { id: "s/1", toolCallId: "call-watch", command: "cargo watch", startedAt: at(6), state: "running" },
+      { id: "s/2", toolCallId: "call-make", command: "make", startedAt: at(7), state: "exited" },
+    ];
+    const local = backgroundCommands(processes, transcript, false);
+    expect(trayItems([], local, NONE, false).map((item) => item.id)).toEqual(["s/1"]);
+  });
+
+  test("between turns the header says it runs in the background; a line opens it, a process stops", async () => {
+    const now = Date.now();
+    const registry = command("s/1", {
+      command: "cargo watch",
+      processId: "s/1",
+      toolCallId: "call-watch",
+      startedAt: now,
+    });
+    const items = trayItems(
+      [agent("Watcher", { background: true, startedAt: now })],
+      [registry],
+      [{ sessionId: "c1", title: "Port the history page", state: "running" }],
+      false,
+    );
+    const opened: string[] = [];
+    const stopped: string[] = [];
+    const { root, done } = await render(
+      createElement(SubagentTray, {
+        items,
+        working: false,
+        waiting: new Set<string>(),
+        onOpen: (id: string) => opened.push(`agent:${id}`),
+        onOpenCommand: (entry: BackgroundCommand) => opened.push(`command:${entry.id}`),
+        onOpenSession: (id: string) => opened.push(`chat:${id}`),
+        stopProcess: async (id: string) => void stopped.push(id),
+      }),
+    );
+    try {
+      expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
+        "Running in background · 1 agent · 1 command · 1 session",
+      );
+      const lines = [...root.querySelectorAll<HTMLElement>(".acpmux-agent-line")];
+      expect(lines.map((line) => line.querySelector(".acpmux-summary-agent__name")?.textContent)).toEqual([
+        "Watcher",
+        "cargo watch",
+        "Port the history page",
+      ]);
+      for (const line of lines) await act(async () => line.querySelector<HTMLButtonElement>("button")!.click());
+      expect(opened).toEqual(["agent:Watcher", "command:s/1", "chat:c1"]);
+      await act(async () => lines[1]!.querySelector<HTMLButtonElement>(".acpmux-rail-task__stop")!.click());
+      expect(stopped).toEqual(["s/1"]);
+    } finally {
+      await done();
+    }
+  });
+
+  test("the transcript draws no Running in background row", async () => {
+    const rows = [
+      row("u1", "user", 0, { text: "Start the dev server" }),
+      row("a1", "assistant", 5, { text: "It runs." }),
+      row("backgroundWork", "backgroundWork", 5),
+    ];
+    const { root, done } = await render(
+      createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() }),
+    );
+    try {
+      expect(root.querySelector(".cv-bgwork")).toBeNull();
+      expect(root.textContent).not.toContain("Running in background");
     } finally {
       await done();
     }
