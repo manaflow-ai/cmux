@@ -111,16 +111,24 @@
   overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
 }
-/* The bubble's glass (Leo 2026-10-20: tinted glass, never a solid fill): the theme's text at a low
-   strength over transparent, so the window's backdrop shows through, and the composer's hairline
-   rim so it holds its shape on a busy wallpaper. The shared glass primitive (#22815, `ui-glass`)
-   replaces this block when it lands. */
+/* The bubble's glass (Leo 2026-10-20: tinted glass, never a solid fill): the liquid glass
+   (.ui-glass, UserBubble.tsx; ui/glass/glass.css) tinted with the theme's text at a low strength
+   over transparent, so the window's backdrop shows through, with the composer's hairline as the
+   glass's edge so it holds its shape on a busy wallpaper. Under Plain glass that is the whole look,
+   as before the lens; under Lens the lens bends the wallpaper at its rim under a specular line.
+   It keeps no backdrop blur of its own: a long transcript repeats it, and the lens frosts it. Reduce
+   Transparency makes it the same grey, opaque. */
 .cv-user__bubble {
-  background: var(--cv-bubble);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
+  --glass-tint: var(--cv-bubble);
+  /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque: color-mix(in srgb, var(--cv-fg) 5%, var(--glass-surface));
+  --glass-edge: var(--acpmux-composer-edge, transparent);
+  --glass-backdrop: none;
 }
 .acpmux-shell .cv-user__bubble {
-  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  --glass-tint: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque: color-mix(in srgb, var(--agent-text) 12%, var(--glass-surface));
 }
 
 /* The images a prompt sent, above its bubble. */
@@ -2974,9 +2982,11 @@ button.cv-received__name:focus-visible {
 }
 
 /* Jump to latest (App.tsx JumpToLatest): a glass circle centered above the composer, at the
-   transcript stage's bottom edge, shown while the reader is scrolled up. Glass like the mobile
-   app's: the page reads through a blur, under a thin ring and a soft shadow. Its accent dots say a
-   reply is streaming below. It fades in and out with the pane's motion tokens. */
+   transcript stage's bottom edge, shown while the reader is scrolled up. The liquid glass
+   (.ui-glass, ui/glass/glass.css): the lens bends the wallpaper across the whole disc, under the
+   glass's rim in its own ring tone and a soft shadow; Plain glass keeps the look from before the
+   lens (the page at 72% through the shared blur), and Reduce Transparency makes it opaque. Its
+   accent dots say a reply is streaming below. It fades in and out with the pane's motion tokens. */
 .acpmux-jump-latest {
   position: absolute;
   left: 50%;
@@ -2990,12 +3000,8 @@ button.cv-received__name:focus-visible {
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background-color: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
-  -webkit-backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
-  backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
-  box-shadow:
-    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-jump-latest-rim, color-mix(in srgb, var(--agent-text) 18%, transparent)),
-    var(--elevation-2);
+  --glass-edge: var(--acpmux-jump-latest-rim, color-mix(in srgb, var(--agent-text) 18%, transparent));
+  --glass-elevation: var(--elevation-2);
   color: var(--agent-text);
   cursor: default;
   opacity: 0;
@@ -3011,8 +3017,15 @@ button.cv-received__name:focus-visible {
   pointer-events: auto;
   transform: translate3d(-50%, 0, 0);
 }
+:root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-jump-latest {
+  --glass-tint: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
+}
+/* Hover lays a wash of the text over the glass, in every mode. */
 .acpmux-jump-latest:hover {
-  background-color: color-mix(in srgb, var(--agent-page-bg) 60%, var(--agent-text) 6%);
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--agent-text) 6%, transparent),
+    color-mix(in srgb, var(--agent-text) 6%, transparent)
+  );
 }
 .acpmux-jump-latest:focus-visible {
   outline: 2px solid var(--agent-accent);
@@ -3173,18 +3186,6 @@ button.cv-received__name:focus-visible {
 :root[data-reduce-transparency] .acpmux-scroll[data-fade-bottom] {
   --acpmux-fade-top: 0px;
   --acpmux-fade-bottom: 0px;
-}
-@media (prefers-reduced-transparency: reduce) {
-  .acpmux-jump-latest {
-    background-color: var(--agent-page-bg);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
-:root[data-reduce-transparency] .acpmux-jump-latest {
-  background-color: var(--agent-page-bg);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
 }
 
 /* The agent's todo list (PlanList.tsx, cx-ncc.80): a quiet card, as in Claude desktop. A filled

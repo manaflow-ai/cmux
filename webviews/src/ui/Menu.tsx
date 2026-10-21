@@ -310,7 +310,7 @@ export function MenuPopup({
           ref={attachPopup}
           id={id}
           aria-label={label}
-          className={cx("ui-popup ui-menu", className)}
+          className={cx("ui-popup ui-glass ui-menu", className)}
           finalFocus={
             finalFocus ?? (nested ? undefined : (closeType) => focusAfterClose(closeType, menu, popupNode.current))
           }
