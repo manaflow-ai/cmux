@@ -263,6 +263,268 @@
         }
       }
     },
+    "updater.rollback.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roll Back to the Previous Version?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الرجوع إلى الإصدار السابق؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vratiti na prethodnu verziju?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gå tilbage til den forrige version?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf die vorherige Version zurücksetzen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Volver a la versión anterior?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revenir à la version précédente ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tornare alla versione precedente?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前のバージョンに戻しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រឡប់ទៅកំណែមុនវិញឬ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 버전으로 되돌릴까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gå tilbake til forrige versjon?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przywrócić poprzednią wersję?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voltar para a versão anterior?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вернуться к предыдущей версии?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ย้อนกลับไปเวอร์ชันก่อนหน้าไหม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önceki sürüme geri dönülsün mü?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повернутися до попередньої версії?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quay lại phiên bản trước?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回退到上一个版本？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回復到上一個版本？"
+          }
+        }
+      }
+    },
+    "updater.rollback.confirm.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux quits and reopens the build this Mac kept. Your terminals and agents keep running."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيُغلق cmux ويُعيد فتح الإصدار الذي احتفظ به جهاز Mac هذا. تستمر الطرفيات والوكلاء في العمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux se zatvara i ponovo otvara verziju koju je ovaj Mac sačuvao. Vaši terminali i agenti nastavljaju raditi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux lukker og åbner den version, denne Mac har gemt. Dine terminaler og agenter kører videre."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux wird beendet und öffnet den Build, den dieser Mac aufbewahrt hat. Deine Terminals und Agenten laufen weiter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux se cierra y abre la compilación que este Mac guardó. Tus terminales y agentes siguen funcionando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux se ferme et rouvre la version conservée sur ce Mac. Vos terminaux et agents continuent de tourner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux si chiude e riapre la build conservata su questo Mac. I terminali e gli agenti continuano a funzionare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を終了し、この Mac に保管されているビルドを開き直します。ターミナルとエージェントは実行を続けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux នឹងបិទ ហើយបើកកំណែដែល Mac នេះបានរក្សាទុកឡើងវិញ។ ទែមីណល់ និងភ្នាក់ងាររបស់អ្នកនៅតែដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux를 종료하고 이 Mac에 보관된 빌드를 다시 엽니다. 터미널과 에이전트는 계속 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux avslutter og åpner versjonen denne Macen har tatt vare på. Terminalene og agentene dine fortsetter å kjøre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux zamknie się i otworzy wersję zachowaną na tym Macu. Terminale i agenci nadal działają."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux fecha e reabre a versão que este Mac guardou. Seus terminais e agentes continuam rodando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux закроется и откроет сборку, сохранённую на этом Mac. Терминалы и агенты продолжат работу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux จะปิดและเปิดบิลด์ที่ Mac เครื่องนี้เก็บไว้ เทอร์มินัลและเอเจนต์ของคุณยังทำงานต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kapanır ve bu Mac'in sakladığı derlemeyi yeniden açar. Terminalleriniz ve ajanlarınız çalışmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux закриється й відкриє збірку, збережену на цьому Mac. Термінали й агенти продовжать працювати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sẽ thoát và mở lại bản dựng mà máy Mac này đã giữ. Terminal và agent của bạn vẫn tiếp tục chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 将退出并重新打开这台 Mac 保留的版本。你的终端和代理会继续运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 將結束並重新開啟這台 Mac 保留的版本。你的終端機和代理會繼續執行。"
+          }
+        }
+      }
+    },
     "updater.rollback.nothingKept": {
       "extractionState": "manual",
       "localizations": {
