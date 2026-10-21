@@ -531,7 +531,8 @@ struct MachinesPanelView: View {
     private var coderouter: CloudTreeCoderouterSection {
         CloudTreeCoderouterSection(
             accounts: coderouterStore.state.accounts,
-            isRefreshing: coderouterStore.isRefreshing || coderouterStore.state.isLoadingScope
+            isRefreshing: coderouterStore.isRefreshing || coderouterStore.state.isLoadingScope,
+            failure: coderouterStore.state.failure
         )
     }
 
@@ -543,27 +544,59 @@ struct MachinesPanelView: View {
         do {
             let teamName = accountFlow?.availableTeams.first(where: { $0.id == scope.teamID })?.displayName
             Self.coderouterLogger.info("Refreshing CodeRouter accounts for cmux team ID \(scope.teamID, privacy: .public), name \(teamName ?? "<nil>", privacy: .public)")
-            let snapshot = try await CoderouterCLIAccountReader.snapshot(
-                for: scope.teamID,
-                name: teamName
-            )
+            let snapshot = try await withCoderouterAppSession(scope: scope, teamName: teamName) { run in
+                try await CoderouterCLIAccountReader.snapshot(for: scope.teamID, name: teamName, run: run)
+            }
             // A team or identity switch can finish while the CLI is running.
             guard !Task.isCancelled, currentCoderouterScope == scope else { return }
             coderouterStore.state.apply(
                 accounts: snapshot.accounts,
                 organizationID: snapshot.organizationID,
-                teamScope: snapshot.scope,
                 for: scope,
                 startedAt: readRevision
             )
+        } catch is CancellationError {
+            return
         } catch {
-            Self.coderouterLogger.error("CodeRouter account refresh failed: \(error.localizedDescription, privacy: .public)")
-            // Never let an old scope's failure clear or authorize a replacement.
-            guard !Task.isCancelled, currentCoderouterScope == scope else { return }
+            let failure = CoderouterCLIFailure.classify(error)
+            Self.coderouterLogger.error("CodeRouter account refresh failed (\(String(describing: failure), privacy: .public)): \(error.localizedDescription, privacy: .public)")
+            // Never let an old scope's failure clear or authorize a replacement,
+            // and let a session mid-revalidation retry on the next tick.
+            guard !Task.isCancelled, currentCoderouterScope == scope, failure != .sessionChanging else { return }
             // Same-team rows remain useful during a transient error, but the
             // add destination is withdrawn until a fresh read succeeds.
-            coderouterStore.state.fail(for: scope, startedAt: readRevision)
+            coderouterStore.state.fail(failure, for: scope, startedAt: readRevision)
         }
+    }
+
+    /// Runs CodeRouter CLI commands as the account signed into this app, in a
+    /// private CLI configuration, never the CLI's own saved sign-in.
+    private func withCoderouterAppSession<T>(
+        scope: CoderouterAccountScope,
+        teamName: String?,
+        body: (CoderouterCLIAccountReader.Run) async throws -> T
+    ) async throws -> T {
+        guard let session = coderouterAppSession() else {
+            throw CoderouterCLIFailure.signInRequired
+        }
+        return try await session.withSession(
+            teamID: scope.teamID,
+            teamName: teamName,
+            expectedAccountID: scope.identityID,
+            body: body
+        )
+    }
+
+    /// The CLI session for this app's sign-in, built per operation because
+    /// the auth coordinator and the resolved CLI can change while the panel
+    /// is open. Nil when the app has no auth coordinator.
+    @MainActor
+    private func coderouterAppSession() -> CoderouterAppCLISession? {
+        guard let coordinator = AppDelegate.shared?.auth?.coordinator else { return nil }
+        return CoderouterAppCLISession(
+            credentials: CoderouterAppCredentialSource(auth: coordinator),
+            executable: CoderouterCLIAccountReader.resolvedExecutable()
+        )
     }
 
     @MainActor
@@ -584,16 +617,20 @@ struct MachinesPanelView: View {
         Task { @MainActor in
             await coderouterStore.lane.run {
                 do {
-                    try await CoderouterCLIAccountReader.remove(
-                        accountID: account.id,
-                        for: scope.teamID,
-                        name: teamName
-                    )
+                    try await withCoderouterAppSession(scope: scope, teamName: teamName) { run in
+                        try await CoderouterCLIAccountReader.remove(
+                            accountID: account.id,
+                            for: scope.teamID,
+                            name: teamName,
+                            run: run
+                        )
+                    }
                     coderouterStore.state.finishRemoval(accountID: account.id, for: scope)
                 } catch {
-                    Self.coderouterLogger.error("CodeRouter account removal failed: \(error.localizedDescription, privacy: .public)")
+                    let failure = CoderouterCLIFailure.classify(error)
+                    Self.coderouterLogger.error("CodeRouter account removal failed (\(String(describing: failure), privacy: .public)): \(error.localizedDescription, privacy: .public)")
                     coderouterStore.state.restore(account, at: previousIndex, for: scope)
-                    viewModel.noteTreeFailure(error.localizedDescription)
+                    viewModel.noteTreeHint(failure.removalMessage)
                 }
             }
             requestCoderouterRefresh()
@@ -615,21 +652,78 @@ struct MachinesPanelView: View {
             viewModel.noteTreeHint(String(localized: "teamMembers.error.noTeam", defaultValue: "Select a team first."))
             return
         }
-        guard let destination = coderouterStore.state.destination(for: scope) else {
+        let destination: CoderouterAccountDestination
+        switch coderouterStore.state.addAvailability(for: scope) {
+        case .ready(let ready):
+            destination = ready
+        case .loading:
             viewModel.noteTreeHint(String(localized: "coderouter.loadingTeam", defaultValue: "Account settings are still loading for this team. Try again in a moment."))
             requestCoderouterRefresh()
             return
+        case .failed(let failure):
+            // Say what is wrong; the retry may already fix a transient failure.
+            viewModel.noteTreeHint(failure.message)
+            requestCoderouterRefresh()
+            return
         }
-        // Use the same app-bundled cmux executable that owns the selected team;
-        // a login shell can otherwise resolve a different installation.
-        let cmuxExecutable = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin/cmux").path
-        let command = provider.addCommand(
-            for: destination.organizationID,
-            scope: destination.teamScope,
-            cmuxExecutable: cmuxExecutable
-        )
+        // The terminal runs the CLI directly, as this app's account: `cmux cr`
+        // or a login shell's `cr` would use the CLI's own saved sign-in.
+        guard let session = coderouterAppSession() else {
+            viewModel.noteTreeHint(CoderouterCLIFailure.signInRequired.message)
+            return
+        }
+        guard session.executable != nil else {
+            viewModel.noteTreeHint(CoderouterCLIFailure.notInstalled.message)
+            return
+        }
+        let teamName = accountFlow?.availableTeams.first(where: { $0.id == scope.teamID })?.displayName
 
         Task { @MainActor in
+            let sessionDirectory: URL
+            do {
+                let credentials = try await session.credentials.credentials(expectedAccountID: scope.identityID)
+                // A refresh can replace or withdraw the destination while the
+                // session resolves; never launch setup for a stale one.
+                guard currentCoderouterScope == scope else { return }
+                switch coderouterStore.state.addAvailability(for: scope) {
+                case .ready(let current) where current.organizationID == destination.organizationID:
+                    break
+                case .failed(let failure):
+                    viewModel.noteTreeHint(failure.message)
+                    requestCoderouterRefresh()
+                    return
+                case .ready, .loading:
+                    viewModel.noteTreeHint(String(localized: "coderouter.loadingTeam", defaultValue: "Account settings are still loading for this team. Try again in a moment."))
+                    requestCoderouterRefresh()
+                    return
+                }
+                sessionDirectory = try session.makeSessionDirectory(
+                    kind: CoderouterAppCLISession.addSession,
+                    credentials: credentials,
+                    teamID: scope.teamID,
+                    teamName: teamName
+                )
+            } catch {
+                viewModel.noteTreeHint(CoderouterCLIFailure.classify(error).message)
+                return
+            }
+            // The terminal's shell deletes the directory when `add` exits. Any
+            // path below that never starts the terminal deletes it here.
+            var launched = false
+            defer {
+                if !launched { try? FileManager.default.removeItem(at: sessionDirectory) }
+            }
+            let command: String
+            do {
+                command = try session.addAccountCommand(
+                    provider: provider,
+                    organizationID: destination.organizationID,
+                    sessionDirectory: sessionDirectory
+                )
+            } catch {
+                viewModel.noteTreeHint(CoderouterCLIFailure.classify(error).message)
+                return
+            }
             let coordinator = CoderouterSetupWorkspaceCoordinator(
                 managerSource: { @MainActor in
                     if let tabManager, !tabManager.isFinalizedForWindowClose {
@@ -661,6 +755,7 @@ struct MachinesPanelView: View {
             let workspace: Workspace
             switch route {
             case .created:
+                launched = true
                 return
             case let .existing(existingWorkspace, _):
                 workspace = existingWorkspace
@@ -676,6 +771,7 @@ struct MachinesPanelView: View {
                     destination: .workspace(id: workspace.id, placement: .split),
                     focus: true
                 )
+                launched = true
             } catch {
                 viewModel.noteTreeFailure(error.localizedDescription)
             }
