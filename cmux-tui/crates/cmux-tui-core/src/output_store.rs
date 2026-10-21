@@ -282,6 +282,9 @@ pub(crate) struct OutputStore {
     memory_budget: memory_budget::MemoryBudget,
     /// Stream ends the snapshots recorded, by terminal: (generation, end).
     resume: Mutex<HashMap<TerminalPublicId, (String, u64)>>,
+    /// Stored segment stream ends, by terminal and generation key (full
+    /// mode; read once at start).
+    segment_resume: Mutex<HashMap<(TerminalPublicId, String), u64>>,
 }
 
 impl OutputStore {
@@ -301,6 +304,7 @@ impl OutputStore {
             prune_pending: std::sync::atomic::AtomicBool::new(false),
             memory_budget: memory_budget::MemoryBudget::default(),
             resume: Mutex::new(HashMap::new()),
+            segment_resume: Mutex::new(HashMap::new()),
         }
     }
 
@@ -332,6 +336,10 @@ impl OutputStore {
         }
         *self.resume.lock().unwrap_or_else(PoisonError::into_inner) =
             snapshot::stream_ends(directory);
+        if policy.mode == PersistenceMode::Full {
+            *self.segment_resume.lock().unwrap_or_else(PoisonError::into_inner) =
+                segments::all_stream_ends(directory);
+        }
         self.writer.start(Arc::downgrade(mux))
     }
 
@@ -344,7 +352,8 @@ impl OutputStore {
         // last snapshot or stored segment frame left it (a client's cursor
         // stays meaningful, and no stored offset is used twice). Segments
         // flush more often than snapshots, and a snapshot can be gone (the
-        // total cap) while its segments stay. Only frame headers are read.
+        // total cap) while its segments stay. Both were read at start: no
+        // IO here.
         let snapshot_end = self
             .resume
             .lock()
@@ -353,10 +362,10 @@ impl OutputStore {
             .filter(|(resumed, _)| resumed.as_str() == generation.as_ref())
             .map(|(_, end)| end);
         let segment_end = self
-            .directory
-            .as_deref()
-            .filter(|_| self.full.enabled())
-            .and_then(|directory| segments::stream_end(directory, terminal_id, generation));
+            .segment_resume
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&(terminal_id.clone(), segments::key_of(generation)));
         let start = snapshot_end.into_iter().chain(segment_end).max().unwrap_or(0);
         let log = Arc::new(TerminalLog {
             terminal_id: terminal_id.clone(),
@@ -378,7 +387,7 @@ impl OutputStore {
     }
 
     /// Record output the terminal's parser accepted. Memory only: no disk
-    /// IO and no syscall on this path.
+    /// IO and no syscall on this path (resume offsets were read at start).
     pub(crate) fn append(
         &self,
         terminal_id: &TerminalPublicId,

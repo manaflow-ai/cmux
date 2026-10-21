@@ -224,7 +224,7 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
         digests.push((log, Some(digest)));
     }
     if full {
-        super::segments::flush_logs(directory, &digests, policy, quitting);
+        super::segments::flush_logs(&store.full, directory, &digests, policy, quitting);
     }
     if wrote {
         enforce_total(directory, SUFFIX, snapshot_total_cap(policy));
