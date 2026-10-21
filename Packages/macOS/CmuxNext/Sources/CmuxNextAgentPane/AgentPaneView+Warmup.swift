@@ -29,6 +29,9 @@ extension AgentPaneView {
 
     public static func startWarmup() {
         guard warmupView == nil else { return }
+        // The acpmux trust check (a strict hash of its 72 MB binary) runs now, off the main thread,
+        // so AppServices' main-thread acpmux lookups at launch find its verdict.
+        AcpmuxEnvironment.prewarmTrust()
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = sharedDataStore
         configuration.processPool = processPool

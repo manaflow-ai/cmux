@@ -22,7 +22,7 @@ public struct UpdateDropBack {
     public func run(to build: String? = nil, checkOnly: Bool = false, stateDirectories: [URL?]) async throws -> KeptVersion {
         let inputs = await updater.rollbackInputs(stateDirectories: stateDirectories)
         if checkOnly { return try updater.rollbackDecision(to: build, inputs: inputs).get() }
-        return try updater.rollback(to: build, inputs: inputs, relaunch: Self.relaunchAfterExit)
+        return try await updater.rollback(to: build, inputs: inputs, relaunch: Self.relaunchAfterExit)
     }
 
     /// ``run(to:checkOnly:stateDirectories:)`` for an action: nil when it ran, else what the
@@ -53,6 +53,7 @@ public struct UpdateDropBack {
     nonisolated static func signingTeam(of bundle: URL) -> String? {
         var code: SecStaticCode?
         guard SecStaticCodeCreateWithPath(bundle as CFURL, [], &code) == errSecSuccess, let code,
+              // concurrency-allow: off main only: rollbackInputs' detached task (the running bundle and KeptVersionStore.list); the prune lists unsigned
               SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSCheckNestedCode), nil) == errSecSuccess
         else { return nil }
         var information: CFDictionary?

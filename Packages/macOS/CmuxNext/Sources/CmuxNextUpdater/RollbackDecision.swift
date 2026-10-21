@@ -35,6 +35,8 @@ nonisolated public enum RollbackRefusal: Error, Equatable, Sendable {
     case signature(KeptVersion)
     /// The running daemon cannot report its stored formats.
     case storesUnknown
+    /// Another rollback's bundle swap is running.
+    case inProgress
 }
 
 /// Picks the rollback target or refuses (pure).
@@ -76,6 +78,8 @@ extension RollbackRefusal {
             UpdaterStrings.rollbackSignature(kept.shortVersion)
         case .storesUnknown:
             UpdaterStrings.rollbackStoresUnknown
+        case .inProgress:
+            UpdaterStrings.rollbackInProgress
         }
     }
 }

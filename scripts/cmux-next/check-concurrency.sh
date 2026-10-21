@@ -145,10 +145,7 @@ WAKEUP_PENDING_FILES: set[str] = set()
 # KNOWN main-thread signature checks, moved off main by #22814 (a high-risk-tier PR
 # that waits for a person: acpmux trust and the updater). Only the rule for
 # SecStaticCodeCheckValidity is waived here; #22814 removes these entries.
-SIGNATURE_PENDING_FILES: set[str] = {
-    "CmuxNextAgentPane/AcpmuxServerPeer.swift",
-    "CmuxNextUpdater/UpdateDropBack.swift",
-}
+SIGNATURE_PENDING_FILES: set[str] = set()
 SIGNATURE_RULE = "SecStaticCodeCheckValidity (hashes the whole file; never on the main thread)"
 
 # A task group whose body sleeps within this many lines is a deadline race.

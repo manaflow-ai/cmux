@@ -77,6 +77,8 @@ public final class UpdaterService {
     @ObservationIgnored var recordedUpdate: WhatsNewLastUpdate?
     /// The running bundle's keep for rollback (``keepRunningBuildForRollback()``).
     @ObservationIgnored var keptRunningBuild: KeepState?
+    /// A rollback's bundle swap is running (``rollback(to:inputs:relaunch:)``); installs wait.
+    @ObservationIgnored var isRollingBack = false
     @ObservationIgnored var keepTask: Task<Void, Never>?
     /// The click that installs, before Sparkle takes over (set by the App:
     /// the windows go at once). ``installAbandoned`` undoes it when the
@@ -478,6 +480,7 @@ extension UpdaterService {
 
     /// Why installing is impossible here, or nil.
     public var installUnavailableReason: String? {
-        controller != nil && disabledReason == nil ? nil : UpdaterUnavailable(reason: disabledReason).description
+        if isRollingBack { return RollbackRefusal.inProgress.message }
+        return controller != nil && disabledReason == nil ? nil : UpdaterUnavailable(reason: disabledReason).description
     }
 }

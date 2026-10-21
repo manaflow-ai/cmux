@@ -36,7 +36,12 @@ nonisolated public struct KeptVersionStore: Sendable {
     }
 
     /// Kept versions, newest build first.
-    public func list() -> [KeptVersion] {
+    public func list() -> [KeptVersion] { list(signed: true) }
+
+    /// `signed` false leaves `teamID` nil: the prune needs only the order, and reading each kept
+    /// build's signature (a nested-code check of a whole app) took seconds, also from the
+    /// main-thread fallback keep in ``UpdaterService/updaterWillInstallUpdate(build:)``.
+    private func list(signed: Bool) -> [KeptVersion] {
         let files = FileManager.default
         guard let builds = try? files.contentsOfDirectory(atPath: root.path) else { return [] }
         return builds.compactMap { build -> KeptVersion? in
@@ -47,13 +52,13 @@ nonisolated public struct KeptVersionStore: Sendable {
             let schemas = (info["CmuxStoreSchemas"] as? [String: Any])?.compactMapValues { ($0 as? NSNumber)?.intValue }
             return KeptVersion(build: info["CFBundleVersion"] as? String ?? build,
                                shortVersion: info["CFBundleShortVersionString"] as? String ?? build,
-                               bundle: bundle, storeSchemas: schemas, teamID: teamID(bundle))
+                               bundle: bundle, storeSchemas: schemas, teamID: signed ? teamID(bundle) : nil)
         }
         .sorted { Self.isNewer($0.build, than: $1.build) }
     }
 
     private func prune(limit: Int) {
-        for old in list().dropFirst(limit) {
+        for old in list(signed: false).dropFirst(limit) {
             try? FileManager.default.removeItem(at: old.bundle.deletingLastPathComponent())
         }
     }
