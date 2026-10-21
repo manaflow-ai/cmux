@@ -159,6 +159,11 @@ extension NotificationCenterService {
         var marks: [LayoutPaneID: AttentionMark] = [:]
         for screen in workspace.screens {
             for pane in screen.panes {
+                // An agent chat whose turn ended rings until the person goes into it.
+                if let finished = pane.tabs.compactMap({ agentFinished[$0.id] }).max() {
+                    marks[LayoutPaneID(pane.id)] = AttentionMark(color: preferences.sources[.agent]?.color, generation: finished)
+                    continue
+                }
                 let unread = pane.tabs.filter(\.hasUnread)
                 guard let newest = unread.max(by: { ($0.notification?.notification.rawValue ?? 0) < ($1.notification?.notification.rawValue ?? 0) }) else { continue }
                 let generation = newest.notification?.notification.rawValue ?? 1
@@ -169,6 +174,20 @@ extension NotificationCenterService {
             }
         }
         return marks
+    }
+
+    /// Of the panes in `removed` (their mark just went away), those read because
+    /// the person went into them: their ring blinks out. Forgets the entry
+    /// reads of every tab in `workspace`, so a later mark starts clean.
+    func takeEntryReads(removed: Set<LayoutPaneID>, in workspace: WorkspaceModel) -> Set<LayoutPaneID> {
+        guard !entryReads.isEmpty else { return [] }
+        var entered: Set<LayoutPaneID> = []
+        for pane in workspace.screens.flatMap(\.panes) {
+            let read = pane.tabs.contains { entryReads.contains($0.id) }
+            if read, removed.contains(LayoutPaneID(pane.id)) { entered.insert(LayoutPaneID(pane.id)) }
+            for tab in pane.tabs { entryReads.remove(tab.id) }
+        }
+        return entered
     }
 
     /// Whether `workspace` draws an attention ring now (the Dismiss Highlight item shows only then).
@@ -187,6 +206,7 @@ extension NotificationCenterService {
             dismissedHighlights = [:]
             dismissedHighlightSession = session
         }
+        for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) where agentFinished[tab.id] != nil { agentFinished[tab.id] = nil }
         guard newest > (dismissedHighlights[workspace.id] ?? 0) else { return }
         dismissedHighlights[workspace.id] = newest
         note("highlight dismissed workspace=\(workspace.id) through=\(newest)")

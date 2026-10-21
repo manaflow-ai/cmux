@@ -5,8 +5,10 @@
 // - The box keeps +, the prompt, the mic and Send or Stop. The mode, model and effort sit in a quiet
 //   row under the box: the mode on the left, on the prompt's text edge; the model and effort on the
 //   right, their labels about 8 px apart (Claude Code's spacing).
+// - The chat's Send comes in after the mic with a draft; an empty chat draft draws the mic alone
+//   (Claude desktop's box: no Send until there is a draft, Leo 2026-10-20). The New Tab page keeps Send.
 // - The mic never leaves, at a roomy width or a narrow one.
-// - + is its glyph, named "Add" by the shared tooltip.
+// - + is its glyph, named "Add" for screen readers, with no tooltip (Leo, 2026-10-20: a plain + needs none).
 // - The mode menu marks the chosen mode with a check at the row's trailing edge, where the other
 //   rows show their number, as Claude's model menu does.
 // - The + menu's and the @ file picker's rows highlight under the pointer, one row at a time.
@@ -74,7 +76,16 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
     await vite?.close();
   });
 
-  type Stage = { name: string; entry: string; variant: string; composer: string; box: string; plus: boolean };
+  type Stage = {
+    name: string;
+    entry: string;
+    variant: string;
+    composer: string;
+    box: string;
+    plus: boolean;
+    /** Whether Send draws with an empty draft (the chat's waits for a draft; the New Tab page's always draws). */
+    sendAtRest: boolean;
+  };
   const COMPOSERS: Stage[] = [
     {
       name: "chat composer",
@@ -83,6 +94,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
       composer: ".acpmux-composer",
       box: ".acpmux-composer-box",
       plus: true,
+      sendAtRest: false,
     },
     {
       name: "New Tab composer",
@@ -93,6 +105,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
       box: ".nt-box",
       // The New Tab page has no + button (it takes pastes and drops): its box has no +.
       plus: false,
+      sendAtRest: true,
     },
   ];
 
@@ -172,7 +185,8 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
         expect(at.foot!.top, "the row is under the box").toBeGreaterThanOrEqual(at.box.bottom - 0.5);
         expect(at.foot!.top - at.box.bottom, "a few px under it").toBeLessThanOrEqual(8);
         expect(at.mic, "the mic is in the box").not.toBeNull();
-        expect(at.send, "Send is in the box").not.toBeNull();
+        if (stage.sendAtRest) expect(at.send, "Send is in the box").not.toBeNull();
+        else expect(at.send, "no Send with an empty draft").toBeNull();
         if (stage.plus) expect(at.plus, "+ is in the box").not.toBeNull();
         // The mode on the left, on the prompt's text edge (16 px in from the box, Claude Code's). A
         // New Tab page before its chat starts may have no mode yet; the model and effort stay right.
@@ -203,6 +217,12 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
       for (const width of [760, 300])
         test(`${engine}: ${stage.name} at ${width} px: the mic stays`, async () => {
           const page = await open(engine, stage, width);
+          // The chat's Send waits for a draft: type one so Send comes in after the mic.
+          if (!stage.sendAtRest) {
+            await page.locator(`${stage.box} .acpmux-md`).first().click();
+            await page.keyboard.type("Retry");
+            await page.locator(`${stage.box} .acpmux-send`).waitFor();
+          }
           const at = await layout(page, stage);
           await page.close();
           expect(at.mic, "the mic shows").not.toBeNull();
@@ -211,17 +231,18 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
           expect(at.send!.right, "Send inside the box").toBeLessThanOrEqual(at.box.right);
         });
 
-    test(`${engine}: + is its glyph, named Add by the shared tooltip`, async () => {
+    test(`${engine}: + is its glyph, named Add with no tooltip`, async () => {
       const page = await open(engine, COMPOSERS[0]!);
       const plus = await page
         .locator(".acpmux-composer-plus .acpmux-picker-button")
         .first()
         .evaluate((element) => ({
           text: element.textContent?.trim() ?? "",
+          name: element.getAttribute("aria-label") ?? "",
           tooltip: element.getAttribute("data-tooltip") ?? element.getAttribute("title") ?? "",
         }));
       await page.close();
-      expect(plus).toEqual({ text: "", tooltip: "Add" });
+      expect(plus).toEqual({ text: "", name: "Add", tooltip: "" });
     });
 
     // The New Tab stage has no chat yet, so no mode menu; both pages draw the same AccessMenu.

@@ -35,8 +35,8 @@ pub struct Interrupt {
     /// The owner stopped the turn: cancel at once, even while a tool call
     /// waits (`request_hard`), never only at the next tool boundary.
     hard: AtomicBool,
-    /// The turn has a remote origin and no auto-approve: the native engine
-    /// refuses its local effects (README "Remote-origin messages").
+    /// The turn carries another person's text: the native engine refuses
+    /// its local effects (README "Remote-origin messages").
     gate: AtomicBool,
     /// The running acpmux turn's signals, woken on a request.
     wake: Mutex<Option<Sender<TurnSignal>>>,
@@ -109,7 +109,7 @@ impl Interrupt {
         true
     }
 
-    /// Sets whether the turn's local effects need an approval.
+    /// Sets whether the turn's local effects are refused.
     pub fn set_gate(&self, on: bool) {
         self.gate.store(on, Ordering::SeqCst);
     }
@@ -635,9 +635,11 @@ pub fn run_with_drafts(
             last_cancel = Some(Instant::now());
         }
         let resend = last_cancel.filter(|_| stopping).map(|t| t + CANCEL_RESEND);
+        // A turn that waits on a permission request is idle too: its
+        // running tool is not at work, and nobody may ever answer.
         let idle_at = start
             .idle_limit
-            .filter(|_| !fold.tool_running() && last_cancel.is_none())
+            .filter(|_| (!fold.tool_running() || fold.awaits_permission()) && last_cancel.is_none())
             .map(|limit| last_event + limit);
         if idle_at.is_some_and(|at| Instant::now() >= at) {
             answered = true;

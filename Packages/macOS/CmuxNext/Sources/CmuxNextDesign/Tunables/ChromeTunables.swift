@@ -35,11 +35,12 @@ public nonisolated enum ChromeTunables {
         "chrome.tabs.compact", .tabs, "Compact tabs",
         help: "A tighter tab strip at compact density: 26 pt strip, 22 pt tabs, the icon 6 pt in and 4 pt from its title. Off: 28, 24, 8 and 6.",
         default: false, code: "ChromeTunables.compactTabs")
-    // @intent no top bar (Leo 2026-10-14): a chat's header tools in its pane's tab row is opt-in, off by default.
+    // @intent no top bar (Leo 2026-10-14; on by default 2026-10-20, "I thought we moved that all the way up
+    // to the top right"): a chat's header tools sit in its pane's tab row, not a second row under it.
     public static let tabRowTools = Tunable<Bool>.toggle(
         "chrome.tabs.rowTools", .tabs, "Chat tools in the tab row",
         help: "A chat's header tools sit at the right end of its pane's tab row instead of a row of their own; the tabs make room. Off: the chat header is its own row under the tabs.",
-        default: false, code: "ChromeTunables.tabRowTools")
+        default: true, code: "ChromeTunables.tabRowTools")
     // @intent opt-in looks live in Debug Settings, off by default, until promoted (Lawrence via Leo, 2026-10-15).
     public static let interfaceSize = Tunable<Bool>.toggle(
         "chrome.interfaceSize", .shape, "Interface size",
