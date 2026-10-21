@@ -46,7 +46,6 @@ nonisolated enum Strings {
     static var extensionMenuUnpinAccessible: String { String(localized: "browser.extensions.menu.unpinAccessible", defaultValue: "Unpin %@", bundle: .module) }
     static var extensionMenuPinnedAnnouncement: String { String(localized: "browser.extensions.menu.pinnedAnnouncement", defaultValue: "Extension pinned", bundle: .module) }
     static var extensionMenuUnpinnedAnnouncement: String { String(localized: "browser.extensions.menu.unpinnedAnnouncement", defaultValue: "Extension unpinned", bundle: .module) }
-    static var extensionMenuMoreTooltip: String { String(localized: "browser.extensions.menu.moreTooltip", defaultValue: "More options", bundle: .module) }
     static var extensionContextSiteData: String { String(localized: "browser.extensions.context.siteData", defaultValue: "This Can Read and Change Site Data", bundle: .module) }
     static var extensionContextRemove: String { String(localized: "browser.extensions.context.remove", defaultValue: "Remove from cmux", bundle: .module) }
     static var extensionContextInstalledByAdmin: String { String(localized: "browser.extensions.context.installedByAdmin", defaultValue: "Installed by Your Administrator", bundle: .module) }
@@ -145,6 +144,14 @@ nonisolated enum Strings {
     static var allow: String { String(localized: "browser.prompt.allow", defaultValue: "Allow", bundle: .module) }
     static var ok: String { String(localized: "browser.prompt.ok", defaultValue: "OK", bundle: .module) }
     static var cancel: String { String(localized: "browser.prompt.cancel", defaultValue: "Cancel", bundle: .module) }
+    // beforeunload (Chrome's wording)
+    static var beforeUnloadLeaveTitle: String { String(localized: "browser.beforeUnload.leaveTitle", defaultValue: "Leave site?", bundle: .module) }
+    static var beforeUnloadReloadTitle: String { String(localized: "browser.beforeUnload.reloadTitle", defaultValue: "Reload site?", bundle: .module) }
+    static var beforeUnloadMessage: String {
+        String(localized: "browser.beforeUnload.message", defaultValue: "Changes that you made may not be saved.", bundle: .module)
+    }
+    static var beforeUnloadLeave: String { String(localized: "browser.beforeUnload.leave", defaultValue: "Leave", bundle: .module) }
+    static var beforeUnloadReload: String { String(localized: "browser.beforeUnload.reload", defaultValue: "Reload", bundle: .module) }
 
     // Context menu
     static var openImageInNewTab: String { String(localized: "browser.menu.openImageInNewTab", defaultValue: "Open Image in New Tab", bundle: .module) }

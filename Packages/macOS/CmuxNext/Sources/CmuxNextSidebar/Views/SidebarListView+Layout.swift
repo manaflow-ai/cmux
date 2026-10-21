@@ -56,6 +56,9 @@ extension SidebarListViewComponents {
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = model.listOptions()
         o.showsSoleMachineHeader = true
+        if let tree = SidebarSessionTree.shared.state {
+            (o.sessionTree, o.keycaps) = (tree, model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation))
+        }
         o.excludedWorkspaces.formUnion(leaving)
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
@@ -94,7 +97,10 @@ extension SidebarListViewComponents {
         case .group: SidebarStyle.groupGutter * CGFloat(row.depth)
         default: 0
         }
-        return NSRect(x: inset + gutter, y: row.y, width: max(0, bounds.width - inset * 2 - gutter), height: row.height)
+        // Rows end `rowTrailingTrim` short of the list's right inset, so a row's pill never runs to
+        // the sidebar's edge (Leo 2026-10-20, Chrome's vertical tabs).
+        return NSRect(x: inset + gutter, y: row.y, width: max(0, bounds.width - inset * 2 - gutter - SidebarStyle.rowTrailingTrim),
+                      height: row.height)
     }
     func realizationRect() -> NSRect {
         // A space page never scrolls: the rows in its frame, no overscan.
@@ -242,7 +248,8 @@ extension SidebarListViewComponents {
             guard let tab = tabs[tabID] else { return }
             view.configure(tab, row: row)
         case let (.group(id), view as GroupHeaderRowView):
-            guard let group = groups[id] else { return }
+            // The model's own group when the cache (rebuilt on reload) lags it: a held drag shows the live sections.
+            guard let group = groups[id] ?? model.group(id) else { return }
             var details = model.groupHeaderDetails
             details.otherStates = model.detailedStatus
             view.configure(group, row: row, details: details, animated: animated)

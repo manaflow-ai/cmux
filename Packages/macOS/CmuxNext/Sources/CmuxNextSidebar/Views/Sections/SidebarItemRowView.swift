@@ -107,6 +107,8 @@ class SidebarItemRowView: NSView {
     /// A drag from a press (window points): true once the region drags.
     var onDragged: ((NSPoint, NSEvent) -> Bool)?
     var onDragEnded: (() -> Void)?
+    /// Every press, before it acts: a drag an earlier press left held ends (its release went elsewhere).
+    var onPressBegan: (() -> Void)?
     private var pressLocation: NSPoint?
     private var didDrag = false
     /// The press's modifiers, which the release acts with (Option opens a workspace).
@@ -206,6 +208,7 @@ class SidebarItemRowView: NSView {
         // A pinned workspace row's pin leads, and its icon and title follow it.
         let pinSide = Metrics.smallIconSize
         let lead = (style == .chip ? Metrics.space2 : inset * 2) + (info.leadingPin ? pinSide + Metrics.space2 : 0)
+            + (style == .chip ? 0 : CGFloat(info.indent) * Metrics.space3)
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
             : NSRect(x: lead, y: (b.height - side) / 2, width: side, height: side)
@@ -388,6 +391,7 @@ class SidebarItemRowView: NSView {
     /// Activates on press, as the sidebar's rows do; the pressed fill shows
     /// until release.
     override func mouseDown(with event: NSEvent) {
+        onPressBegan?()
         let point = convert(event.locationInWindow, from: nil)
         guard pill.frame.contains(point) else { return super.mouseDown(with: event) }
         isPressed = true

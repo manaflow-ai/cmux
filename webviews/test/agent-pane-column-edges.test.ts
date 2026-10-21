@@ -36,7 +36,6 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
       edge: ".acpmux-composer-box",
       blocks: {
         "trust ask": ".acpmux-trust-ask",
-        "trust note": ".acpmux-composer-remote-note",
         queue: ".acpmux-composer-queue",
       },
     },

@@ -14,7 +14,7 @@ import Observation
 /// the folders again (off the main actor) and updates each open page.
 @MainActor
 final class ScreenshotsPageService {
-    private unowned let services: AppServices
+    private weak var services: AppServices?
     /// One cache for every Screenshots page (and, later, the Finder pane's grids).
     let thumbnails = ThumbnailCache()
     private let workspace = AppScreenshotsWorkspace()
@@ -38,6 +38,7 @@ final class ScreenshotsPageService {
     /// - Parameter focus: select the tab (a person's run); off, an agent or the
     ///   CLI opens it in the background and keeps the person's focus.
     func open(focus: Bool) {
+        guard let services else { return }
         guard let window = services.windows.active else { return services.registry.refuse(RefusalStrings.noWindowOpen) }
         for pane in window.content?.panes.values.map({ $0 }) ?? [] {
             if let tab = pane.pane.tabs.first(where: { ScreenshotsPageAddress.matches($0.url.flatMap(URL.init(string:))) }) {
@@ -66,12 +67,12 @@ final class ScreenshotsPageService {
     }
 
     private func settings() -> ScreenshotsSettings {
-        services.settings?.snapshot.screenshots ?? ScreenshotsSettings()
+        services?.settings?.snapshot.screenshots ?? ScreenshotsSettings()
     }
 
     /// Re-arms on each `screenshots.*` change for as long as the service lives.
     private func followSettings() {
-        guard !followsSettings, let settings = services.settings else { return }
+        guard !followsSettings, let settings = services?.settings else { return }
         followsSettings = true
         withObservationTracking {
             _ = settings.snapshot.screenshots

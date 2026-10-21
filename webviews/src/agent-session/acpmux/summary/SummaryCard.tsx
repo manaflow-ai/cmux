@@ -29,6 +29,7 @@ export function SummaryCard({
   changes,
   onOpenChanges,
   subagents,
+  onAttach,
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
@@ -49,6 +50,8 @@ export function SummaryCard({
     /// Whether new subagents open in panes of their own, and its switch; none where no pane opens.
     autoOpen?: { on: boolean; set: (on: boolean) => void };
   };
+  /// Sources' + (Attach files or folders), for a chat on this computer.
+  onAttach?: () => void;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -137,7 +140,6 @@ export function SummaryCard({
               className="acpmux-summary-card__fold acpmux-summary-card__fold--icon"
               aria-expanded={!card.collapsed}
               aria-label={foldLabel}
-              title={foldLabel}
               onClick={() => card.fold(!card.collapsed)}
             >
               <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
@@ -168,7 +170,6 @@ export function SummaryCard({
                   type="button"
                   className="acpmux-summary-tab__close"
                   aria-label={t("summary.subagents.closeTab")}
-                  title={t("summary.subagents.closeTab")}
                   onClick={closeTab}
                 >
                   <Icon name="action.close" size={10} />
@@ -182,8 +183,6 @@ export function SummaryCard({
               type="button"
               className="acpmux-summary-card__fold"
               aria-expanded={!card.collapsed}
-              /* tooltip-allow: the button shows the card title; the tooltip names what a click does */
-              title={foldLabel}
               onClick={() => card.fold(!card.collapsed)}
             >
               <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
@@ -199,7 +198,6 @@ export function SummaryCard({
               type="button"
               className="acpmux-summary-card__close"
               aria-label={t("summary.close")}
-              title={t("summary.close")}
               onClick={(event) => {
                 // The button goes with the card: focus moves to the header's summary button.
                 const pane = event.currentTarget.closest(".acpmux-stage");
@@ -240,6 +238,7 @@ export function SummaryCard({
               onOpenChanges={onOpenChanges}
               subagents={agents.length > 0 ? <></> : undefined}
               onOpenOutput={onOpenOutput}
+              onAttach={onAttach}
             />
           </div>
         )}

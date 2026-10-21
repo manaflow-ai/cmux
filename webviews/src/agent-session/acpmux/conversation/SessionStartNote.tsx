@@ -46,7 +46,6 @@ export function SessionStartNote({ start }: { start: AcpmuxSessionStart }) {
             type="button"
             className="cv-session-start__dismiss"
             aria-label={t("sessionStart.compaction.dismiss")}
-            title={t("sessionStart.compaction.dismiss")}
             onClick={() => {
               dismissCompactionNotice(mode);
               setDismissed(true);

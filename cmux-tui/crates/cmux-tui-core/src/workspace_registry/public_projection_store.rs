@@ -266,7 +266,7 @@ impl WorkspaceRegistry {
         Ok(agents)
     }
 
-    pub(super) fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
+    pub(crate) fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
             "SELECT public_id
