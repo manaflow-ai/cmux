@@ -1,5 +1,7 @@
 //! The user's tailnet, through the installed `tailscale` CLI (phase 1 of
-//! plans/cmux-next/remote-hosts.md 4.1: system tailscaled). The CLI owns
+//! plans/cmux-next/remote-hosts.md 4.1: system tailscaled). Shared by
+//! cmux-tui's remote hosting (`remote_host`) and `acpmux host candidates`
+//! and `host enroll` (`cli/host_peering.rs`). The CLI owns
 //! each platform's LocalAPI transport (Linux Unix socket, macOS app or
 //! standalone port with its same-user proof, Windows named pipe), so cmux
 //! carries no copy of it. Every call has a bound; a CLI that does not
@@ -24,7 +26,7 @@ const MAX_OUTPUT: u64 = 32 * 1024 * 1024;
 
 /// One node of the tailnet as `tailscale status --json` reports it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Node {
+pub struct Node {
     /// The OS host name (`HostName`).
     pub host_name: String,
     /// The MagicDNS name without the trailing dot, or empty.
@@ -41,7 +43,7 @@ pub(crate) struct Node {
 
 impl Node {
     /// The MagicDNS short name (first label), else the host name.
-    pub(crate) fn short_name(&self) -> String {
+    pub fn short_name(&self) -> String {
         self.dns_name
             .split('.')
             .next()
@@ -50,18 +52,18 @@ impl Node {
             .to_owned()
     }
 
-    pub(crate) fn tagged(&self) -> bool {
+    pub fn tagged(&self) -> bool {
         !self.tags.is_empty()
     }
 
     /// The address a client dials: IPv4 first.
-    pub(crate) fn dial_ip(&self) -> Option<IpAddr> {
+    pub fn dial_ip(&self) -> Option<IpAddr> {
         self.ips.iter().find(|ip| ip.is_ipv4()).or_else(|| self.ips.first()).copied()
     }
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct Status {
+pub struct Status {
     pub backend_state: String,
     pub this: Node,
     pub peers: Vec<Node>,
@@ -69,7 +71,7 @@ pub(crate) struct Status {
 
 /// Who is at a peer address (`tailscale whois`).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Identity {
+pub struct Identity {
     /// `None` when the node is tagged (its profile is `tagged-devices`).
     pub login: Option<String>,
     /// The node's MagicDNS name without the trailing dot.
@@ -81,21 +83,21 @@ pub(crate) struct Identity {
 }
 
 /// The profile login of every tagged node; never a person.
-pub(crate) const TAGGED_LOGIN: &str = "tagged-devices";
+pub const TAGGED_LOGIN: &str = "tagged-devices";
 
 fn person(login: &str) -> Option<String> {
     let login = login.trim();
     (!login.is_empty() && !login.eq_ignore_ascii_case(TAGGED_LOGIN)).then(|| login.to_owned())
 }
 
-pub(crate) struct Tailnet {
+pub struct Tailnet {
     bin: PathBuf,
 }
 
 impl Tailnet {
     /// Finds the CLI: `CMUX_TAILSCALE_BIN`, then `PATH`, then each
     /// platform's install location.
-    pub(crate) fn locate() -> anyhow::Result<Self> {
+    pub fn locate() -> anyhow::Result<Self> {
         if let Some(bin) = std::env::var_os("CMUX_TAILSCALE_BIN").filter(|v| !v.is_empty()) {
             return Ok(Self { bin: PathBuf::from(bin) });
         }
@@ -170,12 +172,12 @@ impl Tailnet {
         Ok(stdout)
     }
 
-    pub(crate) fn status(&self) -> anyhow::Result<Status> {
+    pub fn status(&self) -> anyhow::Result<Status> {
         let raw = self.run(&["status", "--json"])?;
         parse_status(&raw)
     }
 
-    pub(crate) fn whois(&self, ip: IpAddr) -> anyhow::Result<Identity> {
+    pub fn whois(&self, ip: IpAddr) -> anyhow::Result<Identity> {
         let raw = self.run(&["whois", "--json", &ip.to_string()])?;
         parse_whois(&raw)
     }
@@ -244,7 +246,7 @@ fn node(value: &Value, users: &HashMap<u64, String>) -> Node {
     }
 }
 
-pub(crate) fn parse_status(raw: &[u8]) -> anyhow::Result<Status> {
+pub fn parse_status(raw: &[u8]) -> anyhow::Result<Status> {
     let doc = json(raw)?;
     let mut users = HashMap::new();
     if let Some(map) = doc["User"].as_object() {
@@ -268,7 +270,7 @@ pub(crate) fn parse_status(raw: &[u8]) -> anyhow::Result<Status> {
     })
 }
 
-pub(crate) fn parse_whois(raw: &[u8]) -> anyhow::Result<Identity> {
+pub fn parse_whois(raw: &[u8]) -> anyhow::Result<Identity> {
     let doc = json(raw)?;
     let node = &doc["Node"];
     if node.is_null() {
@@ -285,7 +287,7 @@ pub(crate) fn parse_whois(raw: &[u8]) -> anyhow::Result<Identity> {
 }
 
 /// A tailnet address: 100.64.0.0/10 or fd7a:115c:a1e0::/48.
-pub(crate) fn is_tailnet_ip(ip: IpAddr) -> bool {
+pub fn is_tailnet_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => {
             let o = v4.octets();
