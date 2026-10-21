@@ -52,6 +52,21 @@ class Verdict(unittest.TestCase):
         self.assertEqual(guard.verdict(pr(), SWIFT, [check("cmux-next path routing")]), "")
         self.assertEqual(guard.verdict(pr(), SWIFT, [check("web / lint")]), "")
 
+    def test_a_prs_build_fleet_compile_stands_in_for_its_skipped_release_compile(self):
+        # A same-repository PR compiles on the build fleet; its Mac Release compile runs only with no fleet verdict.
+        fleet = guard.FLEET_COMPILE
+        self.assertIn(fleet, guard.ROUTING)
+        self.assertIn("has not created", guard.verdict(pr(), SWIFT, [check(fleet, "in_progress")]))
+        self.assertEqual(guard.verdict(pr(), SWIFT, [check(fleet), check(COMPILE, conclusion="skipped")]), "")
+        for conclusion in ("failure", "timed_out"):
+            with self.subTest(conclusion=conclusion):
+                runs = [check(fleet, conclusion=conclusion), check(COMPILE, conclusion="skipped")]
+                self.assertIn(f"{fleet} finished {conclusion}", guard.verdict(pr(), SWIFT, runs))
+                self.assertIn(f"{fleet} finished {conclusion}", guard.verdict(pr(), SWIFT, runs, fleet_passed=True))
+        # No fleet verdict: the Mac Release compile that ran instead decides.
+        self.assertEqual(guard.verdict(pr(), SWIFT, [check(fleet), check(COMPILE)]), "")
+        self.assertIn("still running", guard.verdict(pr(), SWIFT, [check(fleet), check(COMPILE, "queued")]))
+
     def test_what_the_compile_does_not_cover_is_not_held(self):
         # The router skipped it (iOS, a package outside the graph, a fork).
         self.assertEqual(guard.verdict(pr(), ["ios/CmuxiOS/A.swift"], [check(COMPILE, conclusion="skipped")]), "")

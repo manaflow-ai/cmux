@@ -2107,8 +2107,10 @@ class HeavyMacCompilesBehindFullCi(unittest.TestCase):
 
     def context(self, event: str = "pull_request", *, head_repo: str = "manaflow-ai/cmux",
                 labels: tuple[str, ...] = (), ref: str = "refs/pull/1/merge", association: str = "CONTRIBUTOR",
-                cmuxnext_swift: str = "true") -> dict:
+                cmuxnext_swift: str = "true", fleet: str = "pass") -> dict:
         context = {
+            # The build fleet compiled the PR's head (app-compile-fleet), so no Mac Release compile is needed.
+            "needs.app-compile-fleet.outputs.verdict": fleet,
             "github.event_name": event, "github.ref": ref,
             "github.base_ref": "feat-cmux-next" if event == "pull_request" else "",
             "github.repository": "manaflow-ai/cmux", "github.repository_owner": "manaflow-ai",
@@ -2135,6 +2137,14 @@ class HeavyMacCompilesBehindFullCi(unittest.TestCase):
         # With or without a CmuxNext Swift change: the base push compiles Release after the merge.
         self.assertEqual(self.compiling(self.context(cmuxnext_swift="false")), set())
 
+    def test_a_same_repository_pr_compiles_release_on_a_mac_only_without_a_fleet_verdict(self):
+        # No fleet verdict (the gateway is down, the client is missing, or the variable is unset): the
+        # Mac Release compile is the PR's compile again. A fleet red is already the PR's red.
+        for fleet in ("unavailable", ""):
+            with self.subTest(fleet=fleet):
+                self.assertEqual(self.compiling(self.context(fleet=fleet)), {"release-compile"})
+        self.assertEqual(self.compiling(self.context(fleet="fail")), set())
+
     def test_a_same_repository_pr_with_full_ci_runs_both(self):
         self.assertEqual(self.compiling(self.context(labels=("full-ci",))), set(HEAVY_COMPILES))
 
@@ -2158,6 +2168,82 @@ class HeavyMacCompilesBehindFullCi(unittest.TestCase):
         self.assertEqual(self.compiling(self.context(head_repo=fork, labels=("full-ci",))), set(HEAVY_COMPILES))
         self.assertEqual(self.compiling(self.context(head_repo=fork, labels=("dev-build",), association="MEMBER",
                                                      cmuxnext_swift="false")), set())
+
+
+class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
+    """A same-repository PR's app compile runs on the build fleet (`cmux-ci compile-check --ref <head> --app`,
+    about a minute) instead of the Mac Release queue. 2026-10-21: 76 of ~350 queued Mac jobs were Release
+    compiles. The job compiles the PR's head, the commit merge_compile_guard.py and the landing hooks ask
+    about; a fleet red fails it; no verdict hands the PR to the Mac Release compile."""
+
+    NAME = "cmux-next app compile (build fleet)"
+
+    def job(self) -> dict:
+        return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["app-compile-fleet"]
+
+    def context(self, event: str = "pull_request", *, head_repo: str = "manaflow-ai/cmux",
+                labels: tuple[str, ...] = (), native: str = "true", gateway: str = "glaeda-gateway") -> dict:
+        context = {
+            "github.event_name": event, "github.repository": "manaflow-ai/cmux",
+            "github.repository_owner": "manaflow-ai", "vars.CI_COMPILE_CHECK_GATEWAY": gateway,
+            "needs.path_route.outputs.native": native, "needs.push-head-preflight.outputs.current": "true",
+        }
+        if event == "pull_request":
+            context.update({"github.event.pull_request.head.repo.full_name": head_repo,
+                            "github.event.pull_request.labels.*.name": list(labels)})
+        return context
+
+    def test_it_runs_on_a_same_repository_pr_the_native_tier_reaches(self):
+        job = self.job()
+        self.assertEqual(job["name"], self.NAME)
+        self.assertTrue(evaluate(job["if"], self.context()))
+        self.assertEqual(job["runs-on"], "${{ vars.CI_COMPILE_CHECK_GATEWAY }}")
+
+    def test_it_does_not_run_where_the_mac_release_compile_does(self):
+        for why, context in (("fork", self.context(head_repo="someone/cmux")),
+                             ("full-ci", self.context(labels=("full-ci",))),
+                             ("push", self.context("push")),
+                             ("no native tier", self.context(native="false")),
+                             ("no gateway", self.context(gateway=""))):
+            with self.subTest(why=why):
+                self.assertFalse(evaluate(self.job()["if"], context))
+
+    def test_release_compile_waits_for_its_verdict(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        self.assertIn("app-compile-fleet", jobs["release-compile"]["needs"])
+
+    def run_check(self, client_exit: int) -> tuple[subprocess.CompletedProcess, str, str]:
+        step = next(s for s in self.job()["steps"] if s.get("id") == "check")
+        self.assertEqual(step["env"]["REF"], "${{ github.event.pull_request.head.sha }}")
+        with tempfile.TemporaryDirectory() as tmp:
+            client = Path(tmp) / "cmux-ci"
+            client.write_text(f'#!/bin/bash\necho "$@" > "{tmp}/args"\nexit {client_exit}\n')
+            client.chmod(0o755)
+            output = Path(tmp) / "output"
+            output.touch()
+            env = {"PATH": os.environ["PATH"], "HOME": tmp, "CMUX_CI_CLIENT": str(client), "REF": "d" * 40,
+                   "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": tmp, "RUNNER_NAME": "gw",
+                   "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary")}
+            result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", step["run"]], env=env,
+                                    capture_output=True, text=True, timeout=60)
+            args = (Path(tmp) / "args").read_text() if (Path(tmp) / "args").exists() else ""
+            return result, output.read_text(), args
+
+    def test_a_fleet_pass_is_green_and_compiles_the_head(self):
+        result, output, args = self.run_check(0)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("verdict=pass", output)
+        self.assertIn(f"compile-check --ref {'d' * 40} --app", args)
+
+    def test_a_fleet_compile_failure_is_the_prs_red(self):
+        result, output, _ = self.run_check(1)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("verdict=fail", output)
+
+    def test_no_fleet_verdict_is_not_a_red(self):
+        result, output, _ = self.run_check(3)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("verdict=unavailable", output)
 
 
 if __name__ == "__main__":
