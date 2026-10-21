@@ -1104,8 +1104,8 @@ impl Orchestrator for Spawner {
                 (self.log)(&format!("the subagent directory's CLAUDE.md: {e}"));
             }
         }
-        // The security floor: during a remote-origin (ask) turn, or while an
-        // ask child or subagent lives, every subagent runs with policy ask.
+        // The security floor: during a turn another person started, or while
+        // an ask child or subagent lives, every subagent runs with policy ask.
         // No answer from the brain fails closed (ask).
         let floor = self.spawn_floor();
         let (dir, dir_note) = match &cloud {

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
 import CmuxNextDesign

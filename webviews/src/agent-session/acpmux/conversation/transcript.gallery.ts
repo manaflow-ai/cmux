@@ -345,8 +345,8 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
   await ctx.waitFor(() => {
     const group = ctx.document.querySelector<HTMLElement>(".cv-turn-action-group");
     const datasetPlacement = ctx.document.documentElement.dataset.turnActionsPlacement;
-    // Right is the stylesheet default, so the bridge removes its data attribute for that side.
-    const datasetMatches = placement === "right" ? datasetPlacement === undefined : datasetPlacement === placement;
+    // Left is the stylesheet default, so the bridge removes its data attribute for that side.
+    const datasetMatches = placement === "left" ? datasetPlacement === undefined : datasetPlacement === placement;
     return (
       datasetMatches &&
       group !== null &&
@@ -586,7 +586,9 @@ export default agentPaneEntry({
       snapshot: forkTurns(undefined),
       play: async (ctx) => {
         await ctx.focus({ selector: "[contenteditable='true']" });
-        await ctx.waitFor(() => ctx.document.querySelectorAll('button[aria-label="Fork from here"]').length === 1);
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll('.cv-turn-actions button[aria-label="Fork from here"]').length === 1,
+        );
       },
     },
     "mark-unread-menu": {
@@ -1097,7 +1099,7 @@ export default agentPaneEntry({
       snapshot: chat([...workedTurnRows(minutesAgo(15)), summary(14, { status: "completed", toolCount: 3 })]),
     },
     "preview-card": {
-      note: "A turn that started a local server: the preview card.",
+      note: "A turn that started a local server. Its address stays a link in the reply; the preview card under the answer shows only with the Debug toggle agentPane.debug.turnPreviewCards (data-turn-preview-cards on <html>).",
       snapshot: chat([
         user("Start the dev server", 9),
         activity(
@@ -1112,6 +1114,17 @@ export default agentPaneEntry({
         ),
         assistant("The dev server runs at http://localhost:5173/.", 8.8),
         summary(8.8, { status: "completed", toolCount: 1 }),
+      ]),
+    },
+    "token-link": {
+      note: "An agent's bare local address with a token (Leo 2026-10-20): plain link text with the token as •••, no card under the answer; hovering it offers Open and Open in.",
+      snapshot: chat([
+        user("Open the dashboard", 6),
+        assistant(
+          "The dashboard is up at http://127.0.0.1:47811?token=0f3c9a7d51e2b8846a0c3f9e1d7b2a5c6e8f0a1b and reloads on save.",
+          5.9,
+        ),
+        summary(5.9, { status: "completed" }),
       ]),
     },
     "chips-and-previews": {
@@ -1462,7 +1475,10 @@ async function forkEarlierTurn(ctx: PlayContext) {
   const page = ctx.document.defaultView as unknown as {
     cmuxGalleryLog: { method: string; params?: { throughSeq?: number } }[];
   };
-  const forks = () => [...ctx.document.querySelectorAll<HTMLButtonElement>('button[aria-label="Fork from here"]')];
+  // The answers' footers: a prompt's own row has a Fork too (UserBubble.tsx).
+  const forks = () => [
+    ...ctx.document.querySelectorAll<HTMLButtonElement>('.cv-turn-actions button[aria-label="Fork from here"]'),
+  ];
   await ctx.focus({ selector: "[contenteditable='true']" });
   await ctx.waitFor(() => forks().length === 2);
   forks()[0]!.click();
