@@ -324,6 +324,22 @@ jobs:
       - name: The crash-class rules fast gate fails only on findings the pull request adds
         run: python3 tests/test_crash_class_fast_gate.py
 
+      # web-validation.yml ran this only on main pushes, so a2d6b35 broke the runner's test on
+      # feat-cmux-next unseen (#23430). A fake bun stands in; no web test runs.
+      - name: The per-file webviews test runner (scripts/ci/run-webviews-tests.sh)
+        run: python3 tests/test_webviews_tests_per_file.py
+
+      # The web lint pre-push hook (scripts/web-lint.sh, scripts/web_lint_prepush.py) on throwaway
+      # repositories with stand-in packages; cmux-next-web.yml ran it only on pushes. A stand-in
+      # package with no node_modules gets a `bun install`.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: The web lint pre-push hook
+        run: python3 tests/test_web_lint_prepush.py
+
       # A test no feat-cmux-next pull request runs lands red unseen: a2d6b35 broke
       # tests/test_webviews_tests_per_file.py, which only main pushes and the nightly ran (#23430).
       - name: Every Python test runs on a pull request lane, or is a reviewed exemption

@@ -28,6 +28,7 @@ verify-local.py recipe, workload profiles) and the runner lanes they invoke.
 
 from __future__ import annotations
 
+import fnmatch
 import itertools
 import json
 import math
@@ -296,9 +297,22 @@ def runs_on_pull_requests_into(workflow: dict, branch: str) -> bool:
     trigger = on["pull_request"] or {}
     branches = trigger.get("branches")
     ignored = trigger.get("branches-ignore") or []
-    if branches is not None and branch not in branches:
+    if branches is not None and not branch_matches(branch, branches):
         return False
-    return branch not in ignored
+    return not branch_matches(branch, ignored)
+
+
+def branch_matches(branch: str, patterns: list) -> bool:
+    """GitHub's branch filter: glob patterns, a later `!pattern` taking a match back."""
+    matched = False
+    for pattern in [patterns] if isinstance(patterns, str) else patterns or []:
+        pattern = str(pattern)
+        if pattern.startswith("!"):
+            if matched and fnmatch.fnmatchcase(branch, pattern[1:]):
+                matched = False
+        elif fnmatch.fnmatchcase(branch, pattern):
+            matched = True
+    return matched
 
 
 def event_context(branch: str) -> dict[str, object]:
@@ -322,7 +336,8 @@ def matrix_rows(job: dict, context: dict[str, object]) -> list[dict[str, object]
             continue
         values = value_of(raw, context) if isinstance(raw, str) else raw
         axes[key] = values if isinstance(values, list) else [UNKNOWN]
-    rows = [dict(zip(axes, combo)) for combo in itertools.product(*axes.values())][:MAX_MATRIX] or [{}]
+    # A matrix of only `include:` entries has no axes: its rows are the entries alone.
+    rows = [dict(zip(axes, combo)) for combo in itertools.product(*axes.values())][:MAX_MATRIX] if axes else []
     excludes = matrix.get("exclude") if isinstance(matrix.get("exclude"), list) else []
     rows = [row for row in rows
             if not any(isinstance(ex, dict) and all(row.get(k) == v for k, v in ex.items()) for ex in excludes)]

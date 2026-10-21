@@ -239,27 +239,17 @@ class ThisTree(unittest.TestCase):
         errors = validator.validate_pr_lanes(ROOT, BRANCH)
         self.assertEqual(errors, [], "\n".join(errors))
 
-    def test_the_runner_test_runs_where_the_runner_changes(self):
-        """A pull request that touches run-webviews-tests.sh runs its test (a2d6b35, #23430)."""
-        import web_subareas  # noqa: PLC0415
+    def test_the_runner_test_runs_on_every_feat_pull_request(self):
+        """a2d6b35 broke tests/test_webviews_tests_per_file.py with every pull request green (#23430)."""
+        import yaml  # noqa: PLC0415
 
-        detector_spec = importlib.util.spec_from_file_location(
-            "detect_ci_change_areas", ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
-        )
-        detector = importlib.util.module_from_spec(detector_spec)
-        detector_spec.loader.exec_module(detector)
-        self.assertIn("tests/test_webviews_tests_per_file.py", validator.pr_lane_tests(ROOT, BRANCH)[0])
-        for path in ("scripts/ci/run-webviews-tests.sh", "tests/test_webviews_tests_per_file.py"):
-            with self.subTest(path=path):
-                # ci.yml's changes job calls ci-web.yml for a web change, and react-apps-check runs for it.
-                self.assertTrue(detector.is_web_change(path))
-                self.assertTrue(web_subareas.classify_paths([path], ROOT).react_apps)
-        workflow = (ROOT / ".github" / "workflows" / "ci-web.yml").read_text(encoding="utf-8")
-        job = workflow[workflow.index("  react-apps-check-shard:"):]
-        job = job[: job.index("\n  runners:")]
-        self.assertIn("python3 tests/test_webviews_tests_per_file.py", job)
-        self.assertIn("../scripts/ci/run-webviews-tests.sh", job)
-
+        text = validator.pr_lane_tests(ROOT, BRANCH)[0]
+        workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "cmux-next-guards.yml").read_text(encoding="utf-8"))
+        runs = "\n".join(str(step.get("run", "")) for step in workflow["jobs"]["tooling-tests"]["steps"])
+        for test in ("tests/test_webviews_tests_per_file.py", "tests/test_web_lint_prepush.py"):
+            with self.subTest(test=test):
+                self.assertIn(test, text)
+                self.assertIn(f"python3 {test}", runs)
 
 if __name__ == "__main__":
     unittest.main()
