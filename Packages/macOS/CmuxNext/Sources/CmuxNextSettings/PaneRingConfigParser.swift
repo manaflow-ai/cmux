@@ -26,6 +26,9 @@ enum PaneRingConfigParser {
         guard var reader = ConfigFieldReader(root, at: ["notifications", "attention"], diagnostics: &diagnostics) else { return settings }
         if let value = reader.choice("style", AttentionStyle.self) { settings.style = value }
         if let value = reader.color("color") { settings.color = value }
+        if let value = reader.choice("ringStyle", FocusRingStyle.self) { settings.ringStyle = value }
+        if let value = reader.bool("terminals") { settings.ringsTerminals = value }
+        if let value = reader.bool("agentChats") { settings.ringsAgentChats = value }
         if let value = reader.points("width", range: AttentionSettings.widthRange) { settings.width = value }
         let blinks = AttentionSettings.blinkRange
         if let value = reader.number("blinkCount", range: Double(blinks.lowerBound)...Double(blinks.upperBound)) {

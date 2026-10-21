@@ -158,17 +158,20 @@ extension NotificationCenterService {
     ///   falls back to ``shownTab(of:)``.
     func attentionMarks(for workspace: WorkspaceModel,
                         shownTab: @MainActor (PaneModel) -> String? = { _ in nil }) -> [LayoutPaneID: AttentionMark] {
-        guard DesignSettings.shared.attention.style != .none, !preferences.mutedWorkspaces.contains(workspace.id) else { return [:] }
+        let attention = DesignSettings.shared.attention
+        guard attention.drawsRing, !preferences.mutedWorkspaces.contains(workspace.id) else { return [:] }
         let sameSession = dismissedHighlightSession == services?.daemon.identity?.session
         let dismissed = sameSession ? dismissedHighlights[workspace.id] ?? 0 : 0
         var marks: [LayoutPaneID: AttentionMark] = [:]
         for screen in workspace.screens {
             for pane in screen.panes {
                 guard let id = shownTab(pane) ?? self.shownTab(of: pane), let shown = pane.tabs.first(where: { $0.id == id }) else { continue }
-                // An agent chat whose turn ended rings until the person goes into it (opt-in,
-                // `AgentTurnRing`): a hairline, never the notification blue.
+                // Each kind of pane rings only when its setting is on: terminals by default,
+                // agent chats opt-in (`notifications.attention.agentChats`).
+                guard attention.rings(agentChat: shown.agentSession != nil) else { continue }
+                // An agent chat whose turn ended rings until the person goes into it.
                 if let finished = agentFinished[shown.id] {
-                    marks[LayoutPaneID(pane.id)] = AttentionMark(color: preferences.sources[.agent]?.color, generation: finished, hairline: true)
+                    marks[LayoutPaneID(pane.id)] = AttentionMark(color: preferences.sources[.agent]?.color, generation: finished)
                     continue
                 }
                 guard shown.hasUnread else { continue }

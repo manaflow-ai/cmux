@@ -336,15 +336,15 @@ final class NotificationCenterService {
         }
     }
 
-    /// An agent chat's turn ended: with `AgentTurnRing` on (Debug, off by default), ring the panes
-    /// that show its tab until the person goes in. Off, nothing rings: acpmux reads a turn that
-    /// ends in a shown chat at once, as before #22678.
+    /// An agent chat's turn ended: with `notifications.attention.agentChats` on (off by default),
+    /// ring the panes that show its tab until the person goes in. Off, nothing rings: acpmux reads
+    /// a turn that ends in a shown chat at once, as before #22678.
     func agentTurnEnded(session: String) {
         guard let services else { return }
         agentTurnEnded(session: session, in: services.daemon.store.workspaces)
     }
 
-    func agentTurnEnded(session: String, in workspaces: [WorkspaceModel], rings: Bool = AgentTurnRing.tunable.value) {
+    func agentTurnEnded(session: String, in workspaces: [WorkspaceModel], rings: Bool = DesignSettings.shared.attention.ringsAgentChats) {
         guard rings else { return }
         for workspace in workspaces {
             for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) where tab.agentSession?.session == session {

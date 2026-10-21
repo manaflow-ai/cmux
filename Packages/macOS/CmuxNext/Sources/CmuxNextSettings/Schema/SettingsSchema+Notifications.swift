@@ -152,7 +152,29 @@ nonisolated enum NotificationSettingsSchema {
             SettingDescriptor(
                 ["notifications", "attention", "color"], section: .notifications, group: ring,
                 title: SettingsText.keyed("settings.attention.color", "Color"),
-                kind: .color, default: nil, defaultLabel: SettingsText.keyed("settings.default.notificationBlue", "Notification Blue")
+                kind: .color, default: nil, defaultLabel: SettingsText.keyed("settings.choice.themeAccent", "Theme Accent")
+            ),
+            SettingDescriptor(
+                ["notifications", "attention", "ringStyle"], section: .notifications, group: ring,
+                title: SettingsText.keyed("settings.attention.ringStyle", "Ring Look"),
+                kind: .choice([
+                    SettingChoice(FocusRingStyle.glow.rawValue, SettingsText.keyed("settings.choice.glow", "Glow")),
+                    SettingChoice(FocusRingStyle.ring.rawValue, SettingsText.keyed("settings.choice.ring", "Ring")),
+                    SettingChoice(FocusRingStyle.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
+                ]),
+                default: .string(attention.ringStyle.rawValue), keywords: ["ring", "glow", "flash", "blink"]
+            ),
+            SettingDescriptor(
+                ["notifications", "attention", "terminals"], section: .notifications, group: ring,
+                title: SettingsText.keyed("settings.attention.terminals", "Ring Terminal Panes"),
+                kind: .toggle, default: .bool(attention.ringsTerminals), keywords: ["ring", "flash", "blink", "terminal"]
+            ),
+            SettingDescriptor(
+                ["notifications", "attention", "agentChats"], section: .notifications, group: ring,
+                title: SettingsText.keyed("settings.attention.agentChats", "Ring Agent Chat Panes"),
+                help: SettingsText.keyed("settings.attention.agentChats.help",
+                                        "Ring an agent chat's pane when its turn ends, until you click or type in it."),
+                kind: .toggle, default: .bool(attention.ringsAgentChats), keywords: ["ring", "flash", "blink", "agent", "chat", "turn"]
             ),
             SettingDescriptor(
                 ["notifications", "attention", "width"], section: .notifications, group: ring,
