@@ -47,7 +47,7 @@ mod roam;
 use roam::{Control, Session};
 pub use roam::{network_changed, rehome, roam_timeline};
 #[doc(hidden)]
-pub use roam::{roam_session, simulate_network_loss, simulate_turn_loss};
+pub use roam::{roam_session, session_endpoints, simulate_network_loss, simulate_turn_loss};
 
 /// The link's TCP port inside the tunnel (PROTOCOL.md).
 pub const LINK_PORT: u16 = 7420;
