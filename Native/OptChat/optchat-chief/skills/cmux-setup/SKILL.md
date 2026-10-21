@@ -96,14 +96,16 @@ one.
   `"mcp": {"enabled": true}` in the settings file the text names; hand them
   that line, do not edit the file. Kind `conflict` means their own server
   is named `cmux`: ask before removing it. `undo` is the shell line that
-  puts each changed config back.
+  puts each changed config back. With neither installed it is `ok`:
+  nothing to wire, and the switch is not needed.
 - Computer Use: `cmux setup computer-use` turns it on: cmux shows the user
   a sheet to allow it (tell them to click Allow), then each missing macOS
   grant comes back as `user_action` kind `grant`; run its `command` to
   open the System Settings pane and tell them which switch to turn on.
   Kind `wait` means it is starting: run the task again in a few seconds.
-  Kind `declined` means it was not allowed (they said no, or cmux had no
-  window to show the sheet in): ask them before running it again.
+  Kind `declined` means it was not allowed (they said no, did not answer
+  the sheet in time, or cmux had no window to show the sheet in): ask them
+  before running it again.
 - Cloud machine: ask the user first (it costs money every hour it runs and
   does not pause by itself), then run `cmux setup cloud-machine`. Signed
   out is kind `sign_in`: run its `command` and the user signs in in the
