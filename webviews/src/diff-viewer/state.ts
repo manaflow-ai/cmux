@@ -50,6 +50,8 @@ export type AppState = {
   /** Bumped by a soft refresh so the render effect re-streams in place. */
   renderGeneration: number;
   status: DiffViewerStatus;
+  /** Every file of this diff has arrived; only then does "Group by kind" reorder the list. */
+  streamComplete: boolean;
   treeSource: FileTreeSource | null;
   /** Persisted "Viewed" entries for `viewedScopeKey`, keyed by file path. */
   viewedByPath: Map<string, ViewedFileEntry>;
@@ -92,6 +94,7 @@ export type AppAction =
   | { type: "set-option"; key: keyof DiffViewerOptions; value: any }
   | { type: "set-options-open"; open: boolean }
   | { type: "set-status"; status: DiffViewerStatus }
+  | { type: "set-stream-complete" }
   | { type: "set-tree-source"; source: FileTreeSource }
   | { type: "upsert-comment"; comment: DiffCommentRecord };
 
@@ -131,6 +134,7 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
       colors: "theme",
       diffIndicators: "bars",
       expandUnchanged: false,
+      groupByKind: true,
       lineNumbers: true,
       showBackgrounds: true,
       wordDiffs: false,
@@ -141,6 +145,7 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
     optionsOpen: false,
     renderGeneration: 0,
     status: initialStatus,
+    streamComplete: false,
     treeSource: null,
     viewedByPath: new Map(),
     viewedLocalEdits: new Map(),
@@ -299,6 +304,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         metrics: null,
         renderGeneration: state.renderGeneration + 1,
         status: action.status,
+        streamComplete: false,
         treeSource: null,
       };
     case "append-items": {
@@ -334,6 +340,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         languages: ["text"],
         metrics: null,
         status: action.status,
+        streamComplete: false,
         treeSource: null,
       };
     case "remove-comment": {
@@ -395,6 +402,8 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, filesVisible: action.visible };
     case "set-metrics":
       return { ...state, metrics: action.metrics };
+    case "set-stream-complete":
+      return state.streamComplete ? state : { ...state, streamComplete: true };
     case "set-option":
       if (action.key === "collapsed") {
         return {

@@ -14,6 +14,7 @@ import { useCommentsBootstrap } from "./comments/useCommentsBootstrap";
 import { type DiffItem } from "./diff-stream";
 import { withCollapsedFile } from "./collapsed-files";
 import { treeFileActivation } from "./file-activation";
+import { diffItemKind, orderItemsByKind } from "./diff-kind-groups";
 import { filterDiffItems, isDiffFileFilterActive } from "./file-filter";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
 import { codeViewOptions, workerHighlighterOptions, type DiffViewerOptions } from "./pierre-options";
@@ -227,10 +228,16 @@ export function App({ config, initialStatus }: ConfigProps) {
   // frame; the diff column (and what follows it: find, jump, navigation) catches up in a deferred,
   // interruptible render, so laying out the new set of files never sits on the input path.
   const deferredFileFilter = useDeferredValue(state.fileFilter);
-  const visibleItems = useMemo(
-    () => filterDiffItems(state.items, deferredFileFilter, (item) => viewedStateOfItem(item, state.viewedByPath)),
-    [deferredFileFilter, state.items, state.viewedByPath],
-  );
+  // The delineated diff: once every file has arrived, they read in kind order, code first, so
+  // the work is at the top and a lockfile never sits between two source files.
+  const generatedPathSet = useMemo(() => new Set(state.generatedPaths), [state.generatedPaths]);
+  const grouped = state.options.groupByKind && state.streamComplete;
+  const visibleItems = useMemo(() => {
+    const filtered = filterDiffItems(state.items, deferredFileFilter, (item) =>
+      viewedStateOfItem(item, state.viewedByPath),
+    );
+    return grouped ? [...orderItemsByKind(filtered, generatedPathSet)] : filtered;
+  }, [deferredFileFilter, generatedPathSet, grouped, state.items, state.viewedByPath]);
   const treeItems = useMemo(
     () =>
       deferredFileFilter === state.fileFilter
@@ -238,6 +245,12 @@ export function App({ config, initialStatus }: ConfigProps) {
         : filterDiffItems(state.items, state.fileFilter, (item) => viewedStateOfItem(item, state.viewedByPath)),
     [deferredFileFilter, state.fileFilter, state.items, state.viewedByPath, visibleItems],
   );
+  // The kind pill names each group, but only where there is more than one group to tell apart.
+  const kindOfItem = useMemo(() => {
+    if (!grouped) return undefined;
+    const kinds = new Set(visibleItems.map((item) => diffItemKind(item, generatedPathSet)));
+    return kinds.size > 1 ? (item: DiffItem) => diffItemKind(item, generatedPathSet) : undefined;
+  }, [generatedPathSet, grouped, visibleItems]);
   const visibleItemsRef = useSyncedRef(visibleItems);
   // What CodeView renders: a collapsed file as plain text, so no highlight
   // work is spent on it (see presentedItem).
@@ -761,6 +774,7 @@ export function App({ config, initialStatus }: ConfigProps) {
                 renderCustomHeader={(item) => (
                   <FileHeader
                     item={item as DiffItem}
+                    kind={kindOfItem?.(item as DiffItem)}
                     label={label}
                     onCopyPath={(path) => {
                       copyText(path, copyFallbackRef.current).then(
