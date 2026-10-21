@@ -12,13 +12,13 @@ import Observation
 @MainActor @Observable
 public final class WebUpdater {
     /// `updates.web` in cmux.json.
-    public enum Channel: String, Sendable, CaseIterable {
+    nonisolated public enum Channel: String, Sendable, CaseIterable {
         case off
         case nightly
         case everyMerge = "every-merge"
     }
 
-    public enum Phase: Equatable, Sendable {
+    nonisolated public enum Phase: Equatable, Sendable {
         case idle
         case checking
         case downloading
@@ -26,7 +26,7 @@ public final class WebUpdater {
     }
 
     /// What the running app's own web bundles are.
-    public struct App: Sendable {
+    nonisolated public struct App: Sendable {
         /// `pages/web-abi.json` of the bundled pages.
         public var abi: Int
         /// When the bundled web was built (that file's modification time), unix seconds: an update
@@ -211,6 +211,11 @@ public final class WebUpdater {
             next.active = pointer
             next.floor = max(next.floor, pointer.committedAt)
             try await Self.save(next, store: store, served: served())
+            guard self.channel == channel else {
+                // The channel changed during the save: the next check serves the right channel.
+                phase = .idle
+                return
+            }
             state = next
             etag = tag
             lastRefusal = nil
