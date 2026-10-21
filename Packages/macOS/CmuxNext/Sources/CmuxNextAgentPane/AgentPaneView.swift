@@ -90,7 +90,7 @@ public final class AgentPaneView: NSView {
     }
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     public let loadingView = AgentPaneLoadingView()
-    public private(set) lazy var redraw = page.map(AgentPageRedraw.init(page:)) ?? AgentPageRedraw(webView: webView) // a chat shown again draws first
+    public private(set) lazy var redraw = page.map { AgentPageRedraw(page: $0) } ?? AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
     static let processPool = WKProcessPool()
