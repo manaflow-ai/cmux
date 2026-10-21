@@ -54765,19 +54765,19 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chiefs meddelelser følger dine indstillinger for notifikationer."
+            "value": "Chiefs meddelelser følger dine notifikationsindstillinger."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Hinweise des Chiefs folgen deinen Mitteilungseinstellungen."
+            "value": "Chief-Hinweise folgen deinen Mitteilungseinstellungen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los avisos del Chief siguen tu configuración de notificaciones."
+            "value": "Los avisos del Chief siguen tus ajustes de notificaciones."
           }
         },
         "fr": {
@@ -54789,7 +54789,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gli avvisi del Chief seguono le impostazioni delle notifiche."
+            "value": "Gli avvisi del Chief seguono le impostazioni notifiche."
           }
         },
         "ja": {
@@ -54801,7 +54801,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សេចក្ដីជូនដំណឹងរបស់ Chief ធ្វើតាមការកំណត់ការជូនដំណឹងរបស់អ្នក។"
+            "value": "សេចក្ដីជូនដំណឹងរបស់ Chief ធ្វើតាមការកំណត់ការជូនដំណឹង។"
           }
         },
         "ko": {
@@ -54825,7 +54825,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Os avisos do Chief seguem suas configurações de notificações."
+            "value": "Os avisos do Chief seguem seus ajustes de notificações."
           }
         },
         "ru": {
