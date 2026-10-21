@@ -174,6 +174,7 @@ public final class WindowMaterialView: NSView {
         // window's own Chromium page window resigns this window's key, and leaving from that page
         // window to another app posts nothing on this window.
         let names = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+                     NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification,
                      NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification]
         keyObservers = names.map { name in
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -196,7 +197,13 @@ public final class WindowMaterialView: NSView {
         let check = keyCheck
         Task { @MainActor [weak self] in
             guard let self, check == self.keyCheck, let window = self.window else { return }
-            let holds = Self.family(of: window, holds: NSApp.keyWindow, owner: { $0.parent ?? $0.sheetParent })
+            let key = NSApp.keyWindow
+            // Chromium can make a page window key before the fork places it as this window's
+            // child (a browser-tab workspace switch): a parentless page window acts for the main
+            // window, as `KeyWindowRole` resolves it.
+            let parentlessPage = key.map { $0.parent == nil && $0.sheetParent == nil && Self.isChromiumPageWindow($0) } ?? false
+            let holds = Self.family(of: window, holds: key, owner: { $0.parent ?? $0.sheetParent })
+                || (parentlessPage && window.isMainWindow)
             let inactive = Self.looksInactive(appActive: NSApp.isActive, familyHoldsKey: holds, familyHeldKey: self.familyHeldKey)
             if NSApp.isActive, holds { self.familyHeldKey = true }
             guard inactive != self.resignedKey else { return }
@@ -216,6 +223,12 @@ public final class WindowMaterialView: NSView {
             next = owner(current)
         }
         return false
+    }
+
+    /// `CefNSWindow`: a Chromium page window.
+    private static func isChromiumPageWindow(_ window: NSWindow) -> Bool {
+        guard let pageClass = NSClassFromString("CefNSWindow") else { return false }
+        return window.isKind(of: pageClass)
     }
 
     /// A window looks inactive only once its family held the keyboard and then lost it to another
