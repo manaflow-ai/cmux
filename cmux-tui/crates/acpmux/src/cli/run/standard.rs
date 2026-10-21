@@ -193,7 +193,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         req.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
                     let hint = crate::question_answer::pending_hint(&req, &name);
                     let is_question = crate::question_answer::question(&req).is_some();
-                    out.push(json!({"session": name, "sessionId": id, "permissionId": p.get("permissionId"), "title": title, "kind": kind, "options": options, "question": is_question, "answer": hint}));
+                    // The ask's Needs you link: an agent writes it in a reply instead of restating
+                    // the ask, and the pane draws it as a chip that opens the list on this ask.
+                    let needs_you = p
+                        .get("permissionId")
+                        .and_then(Value::as_str)
+                        .map(|pid| format!("cmux://needs-you/{pid}"));
+                    out.push(json!({"session": name, "sessionId": id, "permissionId": p.get("permissionId"), "title": title, "kind": kind, "options": options, "question": is_question, "answer": hint, "needsYou": needs_you}));
                 }
             }
             if json_out {
@@ -340,6 +346,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Some((w, _)) = &launch.worktree {
                 meta["worktree"] = w.clone();
+            }
+            if let Some(tools) = launch.disallowed_tools() {
+                meta["disallowedTools"] = tools;
             }
             // A session of this name already running is the one asked for:
             // found before the create, or after losing the create to another
@@ -517,8 +526,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             on_permission,
             stall,
             prompt_id,
+            from,
         } => {
-            let prompt_id = PromptId::new(prompt_id);
+            let mut prompt_id = PromptId::new(prompt_id);
+            prompt_id.from_agent = from;
             // A message (--no-wait) steers; a send that waits for its reply queues.
             let steer = send_steers(steer, no_steer, no_wait);
             let client = connect(true).await?;

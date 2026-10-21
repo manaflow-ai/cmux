@@ -273,8 +273,18 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
     }
     let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
+    let memory_store = config.store.mode == crate::config::StoreMode::Memory;
     // Only the session list before the ready line; the chat logs load right after it.
     let hub = Hub::new_deferred(config, store, mailbox);
+    // Temporary folders of sessions this daemon no longer has, before the
+    // socket serves (`agent/session_tmp.rs`).
+    #[cfg(unix)]
+    hub.sweep_session_tmp();
+    // The forum log (`forum.rs`): on disk unless the store is in memory; a
+    // log that cannot open leaves the posts in memory.
+    if !memory_store && let Err(e) = hub.open_forum(&home().join("forum")) {
+        tracing::warn!("forum log unavailable, keeping posts in memory: {e:#}");
+    }
     if let Some(key) = person_key {
         // A Team-signed daemon takes the key only from the signed app's
         // `_acpmux/person_enroll`: a same-uid process could restart it with
@@ -305,6 +315,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             codex_config: none.join("config.toml"),
             record: none.join("trust.json"),
             agent_home: None,
+            cmux_worktrees: None,
         }
     })));
     // Agents outlive this daemon unless the user opts out for this release.
@@ -327,6 +338,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.enable_agent_hosts();
     }
     hub.begin_startup(login_env);
+    // Pairing tickets and paired machines, hashes only (`crate::pairing`).
+    hub.pairing.persist_at(home().join("pairing.json"));
     // The ACP Registry and agent CLI health, off the startup path (`hub/health_view.rs`).
     hub.start_harness_checks();
     crate::config::write_atomic(
@@ -423,6 +436,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     {
         let hub = hub.clone();
         tokio::spawn(async move {
+            // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
+            // load, as a large log store does, so integration tests can ask in that
+            // window. Bounded; release builds have no seam.
+            #[cfg(debug_assertions)]
+            if let Some(ms) = std::env::var("ACPMUX_TEST_DELAY_LOAD_LOGS_MS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+            {
+                tokio::time::sleep(Duration::from_millis(ms.min(10_000))).await;
+            }
             // The chat logs (tails, cut-off turns, queues), before adoption as before.
             hub.load_logs_async().await;
             // Agents that outlived the previous daemon come back first.

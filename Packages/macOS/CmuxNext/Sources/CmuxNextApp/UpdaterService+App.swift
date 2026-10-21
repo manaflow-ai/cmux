@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextDaemonService
 import CmuxNextPages
 import CmuxNextDesign
 import CmuxNextSettings
@@ -11,10 +12,12 @@ extension UpdaterService {
     /// Wires the updater to the App: the sheet (failure details, managed
     /// policy, required version), and a relaunch into an update that keeps
     /// every terminal and agent (no quit sheet; the footer pill's tooltip
-    /// says so, SIDEBAR-FOOTER-MINIMAL).
-    func attach(sheet: UpdateSheetController, services: AppServices) {
+    /// says so, SIDEBAR-FOOTER-MINIMAL). `simulating` is Debug Settings
+    /// "Simulate pending update" (DEV and NIGHTLY; elsewhere it stays off).
+    func attach(sheet: UpdateSheetController, services: AppServices, simulating: @escaping @MainActor @Sendable () -> Bool) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
+        relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services))] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
         // The click: the windows leave the screen at once (S1); a failed
         // install brings them back.
         let handoff = UpdateWindowHandoff()
@@ -46,6 +49,7 @@ extension UpdaterService {
             _ = services?.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
         }
         attachTips(registry: services.registry)
+        UpdateSimulation(updater: self).follow(simulating)
         #if DEBUG
         UpdateHarnessProbe.install(updater: self)
         #endif
@@ -107,6 +111,6 @@ extension UpdaterService {
         if self.preferences != preferences { self.preferences = preferences }
         configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,
                   downloadAutomatically: updates.downloadAutomatically,
-                  metered: UpdateMeteredMode(rawValue: updates.meteredNetwork.rawValue) ?? .deferLowData, ring: updates.channel.rawValue)
+                  metered: UpdateMeteredMode(rawValue: updates.meteredNetwork.rawValue) ?? .deferLowData, ring: updates.channel.rawValue, idleInstall: (updates.idleInstallMaxWaitSeconds, updates.idleInstallQuietSeconds))
     }
 }
