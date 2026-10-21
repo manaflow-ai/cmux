@@ -356,13 +356,20 @@ struct RapidWorkspaceCreateTests {
 
         // Each frame: the new rows it draws come first, newest first; the old rows follow in their order.
         var bad: [[String]] = []
+        func label(_ frame: [String]) -> [String] {
+            frame.map { id in keys.firstIndex(of: id).map { "new\($0 + 1)" } ?? (id == unread.id ? "unread" : "old") }
+        }
         for frame in frames {
             let fresh = frame.filter(keys.contains), rest = frame.filter { !keys.contains($0) }
             let newestFirst = fresh.compactMap { keys.firstIndex(of: $0) }
             let ok = Array(frame.prefix(fresh.count)) == fresh && newestFirst == newestFirst.sorted(by: >)
                 && rest == old.filter(rest.contains)
-            if !ok, bad.count < 5 { bad.append(frame.map { id in keys.firstIndex(of: id).map { "new\($0 + 1)" } ?? (id == unread.id ? "unread" : "old") }) }
+            if !ok, bad.count < 5 { bad.append(label(frame)) }
         }
+        // The frame strip (each distinct drawn order, in order) for the before/after gallery.
+        var strip: [[String]] = []
+        for frame in frames.map(label) where strip.last != frame { strip.append(frame) }
+        print("cmd-n-top frames: \(frames.count) drawn, \(strip.count) distinct: \(strip.map { $0.joined(separator: ",") }.joined(separator: " | "))")
         #expect(keys.count == 5, "\(keys.count) of 5 presses added a row")
         #expect(!frames.isEmpty, "the list drew no frame")
         #expect(bad.isEmpty, "frames with a new row not on top (of \(frames.count)): \(bad)")
