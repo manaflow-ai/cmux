@@ -405,6 +405,29 @@ async fn an_attachment_put_ahead_goes_with_the_prompt_that_names_it() {
     assert!(user_messages(&mut c, &other).await.is_empty());
 }
 
+/// A put attachment is read back whole in one reply (`_acpmux/attachment`), so it stays under the
+/// message bound with its base64: at most 10 MiB, the pane's per-file cap. A bigger one is
+/// refused alone, with a reason, before acpmux keeps it.
+#[tokio::test]
+async fn an_attachment_put_over_ten_mib_is_refused_with_a_reason() {
+    let hub = hub(&store("attachment-put-cap"));
+    let mut c = client(&hub);
+    let session = new_session(&mut c).await;
+    let base64_of = |bytes: usize| "A".repeat(bytes / 3 * 4);
+    let put =
+        |data: String| json!({"sessionId": session, "mimeType": "application/pdf", "data": data});
+
+    let fits = c.call("_acpmux/attachment_put", put(base64_of(10 << 20))).await;
+    assert!(fits["result"]["id"].is_string(), "a 10 MiB PDF was refused");
+    let refused = c.call("_acpmux/attachment_put", put(base64_of(11 << 20))).await;
+    assert_eq!(
+        refused["error"]["data"]["reason"],
+        json!("attachment.tooLarge"),
+        "{}",
+        refused["error"]
+    );
+}
+
 /// A text block the composer marks as pasted (`_meta.cmux.pasted`).
 fn pasted(text: &str) -> Value {
     json!({"type": "text", "text": text, "_meta": {"cmux": {"pasted": true}}})
