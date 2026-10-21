@@ -440,7 +440,7 @@ export function Composer({
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
-  const holdForAttachments = useSendWhenAttached(pending.length);
+  const holdForAttachments = useSendWhenAttached(pending.length, sessionId);
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const pastedChips = usePastedChips(attachmentsRef, setAttachments, field);
   // + then Attach files clicks this input: the system file chooser (an open panel in the app).

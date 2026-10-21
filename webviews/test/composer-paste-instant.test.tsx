@@ -121,20 +121,20 @@ async function until(ready: () => boolean, what: string) {
   }
 }
 
-async function openComposer(sent: { text: string; attachments: ComposerAttachment[] }[] = []) {
+async function openComposer(sent: { text: string; attachments: ComposerAttachment[] }[] = [], sessionId = "chat-a") {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   const handle = createRef<ComposerHandle>();
   const snapshot = noChat([], {
-    sessionId: "chat-a",
-    summary: { sessionId: "chat-a", harness: "claude", cwd: "/Users/you/src/app", turnCount: 0 },
+    sessionId,
+    summary: { sessionId, harness: "claude", cwd: "/Users/you/src/app", turnCount: 0 },
   });
   root ??= createRoot(host);
   await act(async () =>
     root!.render(
       <Composer
         snapshot={snapshot}
-        sessionId="chat-a"
+        sessionId={sessionId}
         chips={Chips}
         onSend={(text, attachments) => {
           sent.push({ text, attachments: attachments ?? [] });
@@ -214,4 +214,21 @@ test("a prompt sent while its screenshot is still being read goes once the chip 
   expect(sent).toHaveLength(1);
   expect(sent[0]!.attachments.map((chip) => chip.kind)).toEqual(["image"]);
   expect(placeholders()).toHaveLength(0);
+});
+
+test("a prompt held for its screenshot never goes to the chat the composer moved to", async () => {
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const shot = slowScreenshot();
+  paste([shot.file]);
+  act(() => {
+    composer.current!.send();
+  });
+  await openComposer(sent, "chat-b");
+  shot.release();
+  await until(() => placeholders().length === 0, "the read chip");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(sent).toHaveLength(0);
 });

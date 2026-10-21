@@ -175,11 +175,15 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
 /// A prompt sent while its files are still being read (`pending`) is held and goes, once, when the
 /// last of them is a chip, so it never leaves without them. `hold(send)` holds it when there are
 /// pending files (true; a later hold replaces it) and does nothing otherwise (false). `send` runs
-/// after the render that has the chips, so it must read the composer's state then (a ref).
-export function useSendWhenAttached(pending: number): (send: () => void) => boolean {
+/// after the render that has the chips, so it must read the composer's state then (a ref). A new
+/// `scope` (the composer moved to another chat) drops a held prompt: it never goes to another chat.
+export function useSendWhenAttached(pending: number, scope?: string): (send: () => void) => boolean {
   const held = useRef<(() => void) | undefined>(undefined);
   const count = useRef(pending);
   count.current = pending;
+  useEffect(() => {
+    held.current = undefined;
+  }, [scope]);
   useEffect(() => {
     const send = held.current;
     if (pending > 0 || !send) return;
