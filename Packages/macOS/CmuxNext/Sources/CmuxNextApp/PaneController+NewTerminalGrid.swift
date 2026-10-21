@@ -16,13 +16,14 @@ extension PaneController {
         return newTerminalSize(shown: shown, hostSize: host.bounds.size, in: window)
     }
 
-    /// The pane's frame less its content host: the tab strip and edges around the content, read
-    /// before a split so the new pane's content size follows from its frame
-    /// (``splitTerminalSize(newPane:chrome:)``). Nil out of a window's layout.
+    /// The pane's host less its content host, in their own points (a canvas zoom scales
+    /// neither): the padding, tab strip and edges around the content, read before a split so the
+    /// new pane's content size follows from its host's (``splitTerminalSize(newPane:chrome:)``).
+    /// Nil out of a window's layout.
     var contentChrome: CGSize? {
-        guard let frame = workspace?.layoutView.frame(of: layoutPaneID) else { return nil }
+        guard view.window != nil, let pane = workspace?.layoutView.hostSize(of: layoutPaneID) else { return nil }
         let content = view.contentHost.bounds.size
-        return CGSize(width: max(0, frame.width - content.width), height: max(0, frame.height - content.height))
+        return CGSize(width: max(0, pane.width - content.width), height: max(0, pane.height - content.height))
     }
 
     /// The size a split's new terminal spawns at: the new pane's resting size in the window's

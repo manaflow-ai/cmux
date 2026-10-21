@@ -198,6 +198,12 @@ public final class LayoutRootView: NSView {
         return view.navigationFrames
     }
 
+    /// Size of `pane`'s host in its own points (a canvas zoom does not scale it), the unit of
+    /// ``restingSize(of:)``; nil before its host exists.
+    public func hostSize(of pane: PaneID) -> CGSize? {
+        context.hosts[pane]?.bounds.size
+    }
+
     /// Size `pane` comes to rest at in the current layout (active screen only): a new split's
     /// final size while its host still grows in from the edge (``frame(of:)`` is the shown one).
     public func restingSize(of pane: PaneID) -> CGSize? {

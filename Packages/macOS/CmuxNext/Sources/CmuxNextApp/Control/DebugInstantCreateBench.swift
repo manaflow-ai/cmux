@@ -16,9 +16,10 @@ private typealias JSON = CmuxNextSettings.JSONValue
 ///   window's focused pane is a new pane);
 /// - `confirmed_ms`: the first frame at which the daemon's object replaced the provisional one
 ///   (no `pending_tab_` id, no provisional pane handle), or null within 5 s;
-/// - `content_ms`: the first frame at which the new object shows its content: a terminal's shell
-///   printed into its viewport (the prompt), a browser tab's page and toolbar are built; null
-///   within 5 s or for Cmd-N and Cmd-T (the New Tab page);
+/// - `content_ms`: the first frame at which the new object has its content: a terminal's shell
+///   printed into its viewport (the prompt), a browser tab's entry exists in the cache (with
+///   Chromium cold, only once it started; not the page's first paint); null within 5 s or for
+///   Cmd-N and Cmd-T (the New Tab page);
 /// - `frames_to_visible`: display frames from the key to `visible_ms` (1 = the next frame);
 /// - `spans`: the main-thread spans and marks `BenchSpans` recorded (handler stages, daemon reply).
 @MainActor
@@ -112,8 +113,8 @@ enum DebugInstantCreateBench {
             }
         }
 
-        /// The focused pane's new tab shows its content: a terminal's viewport has text (the
-        /// shell's prompt), a browser tab's entry (page and toolbar) exists.
+        /// The focused pane's new tab has its content: a terminal's viewport has text (the
+        /// shell's prompt), a browser tab's cache entry exists.
         static func showsContent(_ command: Command, _ controller: WindowController, _ services: AppServices) -> Bool {
             guard let key = controller.content?.focusedPane?.currentTabKey else { return false }
             if command == .openBrowser { return services.cache.existingBrowser(key) != nil }
