@@ -46,7 +46,7 @@ extension SettingsWindowService {
             "computer_use": services.onboarding.computerUseSetup.pageJSON,
             "iphone": services.iphone.pageJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
-            "backdrops": Self.backdrops.pageRows,
+            "backdrops": BackdropCatalogSource.shared.pageRows,
             "derived": .object(pageDerivedNumbers()),
         ]
     }
@@ -61,15 +61,9 @@ extension SettingsWindowService {
         return derived
     }
 
-    /// The wallpaper grid's choices, read each time so an image the person just added, or a
-    /// macOS wallpaper they just downloaded, is listed as it is now.
-    static var backdrops: BackdropCatalog {
-        backdropCatalogBuilds += 1
-        return BackdropCatalog(systemDirectory: AppleWallpapers.system.desktopPictures, fileManager: .default, userImages: userImages)
-    }
-
-    /// Wallpaper folder listings so far (debug.layout_counters `backdrop_catalog_builds`).
-    static var backdropCatalogBuilds = 0
+    /// The wallpaper grid's choices as they are now: listed again only after a change in a folder
+    /// they come from (an image the person just added, a macOS wallpaper they just downloaded).
+    static var backdrops: BackdropCatalog { BackdropCatalogSource.shared.catalog }
 
     /// Runs of ``pageHostLists()`` (debug.layout_counters `settings_host_list_runs`).
     static var hostListRuns = 0
