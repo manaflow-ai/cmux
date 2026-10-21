@@ -125,6 +125,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             groups: [
                 GroupSpec(keys: ["newTerminal.opensWorkspace", "app.warnBeforeClosingTab"],
                           title: SettingsText.keyed("settings.pageGroup.terminalBehavior", "Behavior")),
+                // What terminal output the daemon keeps on disk, and scrollback memory across terminals.
+                group("settings.group.terminalOutput"),
             ],
             lead: [.terminalInfo], trail: [.ghosttyDiagnostics], actions: [.terminal], aliases: [.terminal]),
         // The Monaco code editor: VS Code's settings by name. The Markdown Viewer group (its text

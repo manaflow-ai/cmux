@@ -149701,6 +149701,1854 @@
           }
         }
       }
+    },
+    "settings.default.persistenceMode": {
+      "comment": "Settings > Terminal > Output and Scrollback (terminal.persistence.*, terminal.scrollback.maxTotalMemoryBytes).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode Default"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "افتراضي الوضع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zadano za način"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilstandens standard"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standard des Modus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Predeterminado del modo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Valeur du mode"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Predefinito della modalità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "モードの既定値"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លំនាំដើមរបស់របៀប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모드 기본값"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standard for modus"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Domyślne dla trybu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Padrão do modo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "По умолчанию для режима"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค่าเริ่มต้นของโหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mod varsayılanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Типово для режиму"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mặc định của chế độ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "模式默认值"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "模式預設值"
+          }
+        }
+      }
+    },
+    "settings.group.terminalOutput": {
+      "comment": "Settings > Terminal > Output and Scrollback (terminal.persistence.*, terminal.scrollback.maxTotalMemoryBytes).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Output and Scrollback"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المخرجات وسجل التمرير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izlaz i historija pomicanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Output og rullehistorik"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ausgabe und Scrollback"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Salida e historial de desplazamiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sortie et historique de défilement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Output e cronologia di scorrimento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "出力とスクロールバック"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លទ្ធផល និងប្រវត្តិរំកិល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "출력 및 스크롤백"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utdata og rullehistorikk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyjście i historia przewijania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saída e histórico de rolagem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вывод и прокрутка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอาต์พุตและประวัติการเลื่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çıktı ve kaydırma geçmişi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вивід і прокручування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đầu ra và lịch sử cuộn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "输出与回滚缓冲"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "輸出與回捲緩衝"
+          }
+        }
+      }
+    },
+    "settings.terminal.persistence.maxBytesPerTerminal": {
+      "comment": "Settings > Terminal > Output and Scrollback (terminal.persistence.*, terminal.scrollback.maxTotalMemoryBytes).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk Limit per Terminal (Bytes)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حد القرص لكل طرفية (بايت)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ograničenje diska po terminalu (bajtovi)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diskgrænse pr. terminal (byte)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Speicherlimit pro Terminal (Byte)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Límite de disco por terminal (bytes)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limite disque par terminal (octets)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limite disco per terminale (byte)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターミナルごとのディスク上限（バイト）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដែនកំណត់ថាសក្នុងមួយទែមីណាល់ (បៃ)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널당 디스크 한도(바이트)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diskgrense per terminal (byte)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limit dysku na terminal (bajty)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limite de disco por terminal (bytes)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лимит диска на терминал (байты)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขีดจำกัดดิสก์ต่อเทอร์มินัล (ไบต์)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal başına disk sınırı (bayt)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ліміт диска на термінал (байти)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giới hạn ổ đĩa mỗi terminal (byte)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每个终端的磁盘上限（字节）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每個終端機的磁碟上限（位元組）"
+          }
+        }
+      }
+    },
+    "settings.terminal.persistence.maxBytesPerTerminal.help": {
+      "comment": "Settings > Terminal > Output and Scrollback (terminal.persistence.*, terminal.scrollback.maxTotalMemoryBytes).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The most saved output one terminal keeps on disk, in bytes, from 1 MiB to 100 GiB. Empty uses the mode's limit: 100 MB in Full Scrollback; Snapshot has its own small limit. The oldest saved output goes first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أقصى قدر من المخرجات المحفوظة تبقيه طرفية واحدة على القرص، بالبايت، من 1 MiB إلى 100 GiB. القيمة الفارغة تستخدم حد الوضع: 100 MB في سجل التمرير الكامل؛ وللقطة حد صغير خاص بها. تُحذف أقدم المخرجات المحفوظة أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najviše sačuvanog izlaza koji jedan terminal čuva na disku, u bajtovima, od 1 MiB do 100 GiB. Prazno koristi ograničenje načina: 100 MB u cijeloj historiji pomicanja; snimak ima svoje malo ograničenje. Najstariji sačuvani izlaz ide prvi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det største gemte output, én terminal beholder på disken, i byte, fra 1 MiB til 100 GiB. Tom bruger tilstandens grænse: 100 MB ved fuld rullehistorik; øjebliksbillede har sin egen lille grænse. Det ældste gemte output fjernes først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die größte gespeicherte Ausgabe, die ein Terminal behält, in Byte, von 1 MiB bis 100 GiB. Leer verwendet das Limit des Modus: 100 MB bei gesamtem Scrollback; die Momentaufnahme hat ihr eigenes kleines Limit. Die älteste gespeicherte Ausgabe wird zuerst entfernt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mayor cantidad de salida guardada que un terminal conserva en el disco, en bytes, de 1 MiB a 100 GiB. Vacío usa el límite del modo: 100 MB en Historial completo; Instantánea tiene su propio límite pequeño. La salida guardada más antigua se borra primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La plus grande quantité de sortie enregistrée qu'un terminal garde sur le disque, en octets, de 1 Mio à 100 Gio. Vide utilise la limite du mode : 100 Mo en Historique complet ; Instantané a sa propre petite limite. La sortie enregistrée la plus ancienne part en premier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La quantità massima di output salvato che un terminale tiene su disco, in byte, da 1 MiB a 100 GiB. Vuoto usa il limite della modalità: 100 MB in Cronologia completa; Istantanea ha un suo limite ridotto. L'output salvato più vecchio viene rimosso per primo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "1 つのターミナルがディスクに保存する出力の上限（バイト、1 MiB〜100 GiB）。空欄の場合はモードの上限を使います: スクロールバック全体では 100 MB、スナップショットには独自の小さな上限があります。古い保存出力から削除されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លទ្ធផលដែលបានរក្សាទុកច្រើនបំផុតដែលទែមីណាល់មួយរក្សានៅលើថាស គិតជាបៃ ពី 1 MiB ដល់ 100 GiB។ ទទេប្រើដែនកំណត់របស់របៀប៖ 100 MB ក្នុងប្រវត្តិរំកិលពេញលេញ រូបថតស្ថានភាពមានដែនកំណត់តូចផ្ទាល់ខ្លួន។ លទ្ធផលដែលបានរក្សាទុកចាស់បំផុតត្រូវលុបមុន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널 하나가 디스크에 보관하는 저장 출력의 최대 크기(바이트, 1MiB~100GiB). 비워 두면 모드의 한도를 사용합니다. 전체 스크롤백은 100MB이고, 스냅숏은 자체의 작은 한도가 있습니다. 가장 오래된 저장 출력부터 삭제됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mest lagrede utdata én terminal beholder på disken, i byte, fra 1 MiB til 100 GiB. Tom bruker modusens grense: 100 MB ved full rullehistorikk; øyeblikksbilde har sin egen lille grense. De eldste lagrede utdataene fjernes først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Największa ilość zapisanego wyjścia, którą jeden terminal trzyma na dysku, w bajtach, od 1 MiB do 100 GiB. Puste używa limitu trybu: 100 MB w pełnej historii przewijania; migawka ma własny mały limit. Najstarsze zapisane wyjście jest usuwane najpierw."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O máximo de saída salva que um terminal mantém no disco, em bytes, de 1 MiB a 100 GiB. Vazio usa o limite do modo: 100 MB no Histórico completo; o Instantâneo tem seu próprio limite pequeno. A saída salva mais antiga sai primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Наибольший объём сохранённого вывода, который один терминал хранит на диске, в байтах, от 1 МиБ до 100 ГиБ. Пусто — лимит режима: 100 МБ для всей прокрутки; у снимка свой небольшой лимит. Самый старый сохранённый вывод удаляется первым."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปริมาณเอาต์พุตที่บันทึกไว้สูงสุดที่เทอร์มินัลหนึ่งเก็บบนดิสก์ เป็นไบต์ ตั้งแต่ 1 MiB ถึง 100 GiB ค่าว่างใช้ขีดจำกัดของโหมด: 100 MB สำหรับประวัติการเลื่อนทั้งหมด สแนปช็อตมีขีดจำกัดเล็กของตัวเอง เอาต์พุตที่บันทึกไว้เก่าที่สุดจะถูกลบก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir terminalin diskte tuttuğu en fazla kayıtlı çıktı, bayt olarak, 1 MiB ile 100 GiB arası. Boş bırakılırsa modun sınırı kullanılır: tüm kaydırma geçmişinde 100 MB; anlık görüntünün kendi küçük sınırı vardır. En eski kayıtlı çıktı önce silinir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Найбільший обсяг збереженого виводу, який один термінал зберігає на диску, у байтах, від 1 МіБ до 100 ГіБ. Порожнє — ліміт режиму: 100 МБ для всієї історії прокручування; знімок має власний невеликий ліміт. Найстаріший збережений вивід видаляється першим."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lượng đầu ra đã lưu tối đa mà một terminal giữ trên ổ đĩa, tính bằng byte, từ 1 MiB đến 100 GiB. Để trống dùng giới hạn của chế độ: 100 MB với Toàn bộ lịch sử cuộn; Ảnh chụp nhanh có giới hạn nhỏ riêng. Đầu ra đã lưu cũ nhất bị xóa trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "单个终端在磁盘上保存输出的上限，单位为字节，范围 1 MiB 至 100 GiB。留空则使用模式的上限：完整回滚缓冲为 100 MB；快照有自己较小的上限。最早保存的输出先被删除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "單一終端機在磁碟上保留輸出的上限，單位為位元組，範圍 1 MiB 至 100 GiB。留空則使用模式的上限：完整回捲緩衝為 100 MB；快照有自己較小的上限。最早儲存的輸出先被刪除。"
+          }
+        }
+      }
+    },
+    "settings.terminal.persistence.maxTotalBytes": {
+      "comment": "Settings > Terminal > Output and Scrollback (terminal.persistence.*, terminal.scrollback.maxTotalMemoryBytes).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk Limit for All Terminals (Bytes)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حد القرص لكل الطرفيات (بايت)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ograničenje diska za sve terminale (bajtovi)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diskgrænse for alle terminaler (byte)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Speicherlimit für alle Terminals (Byte)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Límite de disco para todos los terminales (bytes)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limite disque pour tous les terminaux (octets)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limite disco per tutti i terminali (byte)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "全ターミナルのディスク上限（バイト）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដែនកំណត់ថាសសម្រាប់ទែមីណាល់ទាំងអស់ (បៃ)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "전체 터미널 디스크 한도(바이트)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diskgrense for alle terminaler (byte)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limit dysku dla wszystkich terminali (bajty)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limite de disco para todos os terminais (bytes)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лимит диска для всех терминалов (байты)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขีดจำกัดดิสก์ของทุกเทอร์มินัล (ไบต์)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tüm terminaller için disk sınırı (bayt)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ліміт диска для всіх терміналів (байти)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giới hạn ổ đĩa cho mọi terminal (byte)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "所有终端的磁盘上限（字节）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "所有終端機的磁碟上限（位元組）"
+          }
+        }
+      }
+    },
+    "settings.terminal.persistence.maxTotalBytes.help": {
+      "comment": "Settings > Terminal > Output and Scrollback (terminal.persistence.*, terminal.scrollback.maxTotalMemoryBytes).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The most saved output all terminals keep on disk together, in bytes, from 1 MiB to 100 GiB. Empty uses the mode's limit: 50 MB in Snapshot, 2 GB in Full Scrollback. The oldest saved output goes first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أقصى قدر من المخرجات المحفوظة تبقيه كل الطرفيات معًا على القرص، بالبايت، من 1 MiB إلى 100 GiB. القيمة الفارغة تستخدم حد الوضع: 50 MB في اللقطة، و2 GB في سجل التمرير الكامل. تُحذف أقدم المخرجات المحفوظة أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najviše sačuvanog izlaza koji svi terminali zajedno čuvaju na disku, u bajtovima, od 1 MiB do 100 GiB. Prazno koristi ograničenje načina: 50 MB u snimku, 2 GB u cijeloj historiji pomicanja. Najstariji sačuvani izlaz ide prvi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det største gemte output, alle terminaler tilsammen beholder på disken, i byte, fra 1 MiB til 100 GiB. Tom bruger tilstandens grænse: 50 MB ved øjebliksbillede, 2 GB ved fuld rullehistorik. Det ældste gemte output fjernes først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die größte gespeicherte Ausgabe, die alle Terminals zusammen behalten, in Byte, von 1 MiB bis 100 GiB. Leer verwendet das Limit des Modus: 50 MB bei Momentaufnahme, 2 GB bei gesamtem Scrollback. Die älteste gespeicherte Ausgabe wird zuerst entfernt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mayor cantidad de salida guardada que todos los terminales conservan juntos en el disco, en bytes, de 1 MiB a 100 GiB. Vacío usa el límite del modo: 50 MB en Instantánea, 2 GB en Historial completo. La salida guardada más antigua se borra primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La plus grande quantité de sortie enregistrée que tous les terminaux gardent ensemble sur le disque, en octets, de 1 Mio à 100 Gio. Vide utilise la limite du mode : 50 Mo en Instantané, 2 Go en Historique complet. La sortie enregistrée la plus ancienne part en premier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La quantità massima di output salvato che tutti i terminali tengono insieme su disco, in byte, da 1 MiB a 100 GiB. Vuoto usa il limite della modalità: 50 MB in Istantanea, 2 GB in Cronologia completa. L'output salvato più vecchio viene rimosso per primo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "すべてのターミナルが合計でディスクに保存する出力の上限（バイト、1 MiB〜100 GiB）。空欄の場合はモードの上限を使います: スナップショットでは 50 MB、スクロールバック全体では 2 GB。古い保存出力から削除されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លទ្ធផលដែលបានរក្សាទុកច្រើនបំផុតដែលទែមីណាល់ទាំងអស់រក្សារួមគ្នានៅលើថាស គិតជាបៃ ពី 1 MiB ដល់ 100 GiB។ ទទេប្រើដែនកំណត់របស់របៀប៖ 50 MB ក្នុងរូបថតស្ថានភាព 2 GB ក្នុងប្រវត្តិរំកិលពេញលេញ។ លទ្ធផលដែលបានរក្សាទុកចាស់បំផុតត្រូវលុបមុន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 터미널이 합쳐서 디스크에 보관하는 저장 출력의 최대 크기(바이트, 1MiB~100GiB). 비워 두면 모드의 한도를 사용합니다. 스냅숏은 50MB, 전체 스크롤백은 2GB입니다. 가장 오래된 저장 출력부터 삭제됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mest lagrede utdata alle terminaler til sammen beholder på disken, i byte, fra 1 MiB til 100 GiB. Tom bruker modusens grense: 50 MB ved øyeblikksbilde, 2 GB ved full rullehistorikk. De eldste lagrede utdataene fjernes først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Największa ilość zapisanego wyjścia, którą wszystkie terminale razem trzymają na dysku, w bajtach, od 1 MiB do 100 GiB. Puste używa limitu trybu: 50 MB w migawce, 2 GB w pełnej historii przewijania. Najstarsze zapisane wyjście jest usuwane najpierw."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O máximo de saída salva que todos os terminais mantêm juntos no disco, em bytes, de 1 MiB a 100 GiB. Vazio usa o limite do modo: 50 MB no Instantâneo, 2 GB no Histórico completo. A saída salva mais antiga sai primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Наибольший объём сохранённого вывода, который все терминалы вместе хранят на диске, в байтах, от 1 МиБ до 100 ГиБ. Пусто — лимит режима: 50 МБ для снимка, 2 ГБ для всей прокрутки. Самый старый сохранённый вывод удаляется первым."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปริมาณเอาต์พุตที่บันทึกไว้สูงสุดที่ทุกเทอร์มินัลรวมกันเก็บบนดิสก์ เป็นไบต์ ตั้งแต่ 1 MiB ถึง 100 GiB ค่าว่างใช้ขีดจำกัดของโหมด: 50 MB สำหรับสแนปช็อต 2 GB สำหรับประวัติการเลื่อนทั้งหมด เอาต์พุตที่บันทึกไว้เก่าที่สุดจะถูกลบก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tüm terminallerin birlikte diskte tuttuğu en fazla kayıtlı çıktı, bayt olarak, 1 MiB ile 100 GiB arası. Boş bırakılırsa modun sınırı kullanılır: anlık görüntüde 50 MB, tüm kaydırma geçmişinde 2 GB. En eski kayıtlı çıktı önce silinir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Найбільший обсяг збереженого виводу, який усі термінали разом зберігають на диску, у байтах, від 1 МіБ до 100 ГіБ. Порожнє — ліміт режиму: 50 МБ для знімка, 2 ГБ для всієї історії прокручування. Найстаріший збережений вивід видаляється першим."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lượng đầu ra đã lưu tối đa mà mọi terminal cùng giữ trên ổ đĩa, tính bằng byte, từ 1 MiB đến 100 GiB. Để trống dùng giới hạn của chế độ: 50 MB với Ảnh chụp nhanh, 2 GB với Toàn bộ lịch sử cuộn. Đầu ra đã lưu cũ nhất bị xóa trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "所有终端合计在磁盘上保存输出的上限，单位为字节，范围 1 MiB 至 100 GiB。留空则使用模式的上限：快照为 50 MB，完整回滚缓冲为 2 GB。最早保存的输出先被删除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "所有終端機合計在磁碟上保留輸出的上限，單位為位元組，範圍 1 MiB 至 100 GiB。留空則使用模式的上限：快照為 50 MB，完整回捲緩衝為 2 GB。最早儲存的輸出先被刪除。"
+          }
+        }
+      }
+    },
+    "settings.terminal.persistence.mode": {
+      "comment": "Settings > Terminal > Output and Scrollback (terminal.persistence.*, terminal.scrollback.maxTotalMemoryBytes).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Output on Disk"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مخرجات الطرفية على القرص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izlaz terminala na disku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminaloutput på disken"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminalausgabe auf dem Volume"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Salida del terminal en el disco"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sortie du terminal sur le disque"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Output del terminale su disco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ディスク上のターミナル出力"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លទ្ធផលទែមីណាល់នៅលើថាស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "디스크의 터미널 출력"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminalutdata på disken"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyjście terminala na dysku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saída do terminal no disco"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вывод терминала на диске"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอาต์พุตเทอร์มินัลบนดิสก์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diskteki terminal çıktısı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вивід термінала на диску"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đầu ra terminal trên ổ đĩa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "磁盘上的终端输出"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "磁碟上的終端機輸出"
+          }
+        }
+      }
+    },
+    "settings.terminal.persistence.mode.full": {
+      "comment": "Settings > Terminal > Output and Scrollback (terminal.persistence.*, terminal.scrollback.maxTotalMemoryBytes).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full Scrollback"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجل التمرير الكامل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cijela historija pomicanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fuld rullehistorik"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gesamter Scrollback"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historial completo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historique complet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cronologia completa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スクロールバック全体"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រវត្តិរំកិលពេញលេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "전체 스크롤백"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Full rullehistorikk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pełna historia przewijania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Histórico completo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вся прокрутка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ประวัติการเลื่อนทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tüm kaydırma geçmişi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Уся історія прокручування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toàn bộ lịch sử cuộn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完整回滚缓冲"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完整回捲緩衝"
+          }
+        }
+      }
+    },
+    "settings.terminal.persistence.mode.help": {
+      "comment": "Settings > Terminal > Output and Scrollback (terminal.persistence.*, terminal.scrollback.maxTotalMemoryBytes).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory Only: nothing is written to disk. A restart of the Mac loses terminal output; a restart of cmux reconnects to the running terminals. Snapshot: each terminal saves one compressed screen and its recent lines, only when they changed (at most every 30 seconds, and at quit). Full Scrollback: each terminal saves all of its output, compressed, every few seconds, and older output loads again when you scroll up."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الذاكرة فقط: لا يُكتب أي شيء على القرص. إعادة تشغيل الـ Mac تُفقد مخرجات الطرفية؛ وإعادة تشغيل cmux تعيد الاتصال بالطرفيات العاملة. لقطة: تحفظ كل طرفية شاشة مضغوطة واحدة وأسطرها الأخيرة، فقط عند تغيّرها (كل 30 ثانية على الأكثر، وعند الإنهاء). سجل التمرير الكامل: تحفظ كل طرفية كل مخرجاتها مضغوطة كل بضع ثوانٍ، وتُحمَّل المخرجات الأقدم مجددًا عند التمرير للأعلى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samo memorija: ništa se ne upisuje na disk. Ponovno pokretanje Maca gubi izlaz terminala; ponovno pokretanje cmuxa se ponovo povezuje s pokrenutim terminalima. Snimak: svaki terminal čuva jedan komprimirani ekran i nedavne redove, samo kada su se promijenili (najviše svakih 30 sekundi i pri izlasku). Cijela historija pomicanja: svaki terminal čuva sav svoj izlaz, komprimiran, svakih nekoliko sekundi, a stariji izlaz se ponovo učitava kada pomaknete prema gore."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun hukommelse: intet skrives til disken. En genstart af Mac'en mister terminaloutput; en genstart af cmux genforbinder til de kørende terminaler. Øjebliksbillede: hver terminal gemmer én komprimeret skærm og de seneste linjer, kun når de er ændret (højst hvert 30. sekund og ved afslutning). Fuld rullehistorik: hver terminal gemmer alt sit output, komprimeret, med få sekunders mellemrum, og ældre output indlæses igen, når du ruller op."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur Arbeitsspeicher: Nichts wird auf das Volume geschrieben. Ein Neustart des Mac verliert die Terminalausgabe; ein Neustart von cmux verbindet sich wieder mit den laufenden Terminals. Momentaufnahme: Jedes Terminal speichert einen komprimierten Bildschirm und seine letzten Zeilen, nur wenn sie sich geändert haben (höchstens alle 30 Sekunden und beim Beenden). Gesamter Scrollback: Jedes Terminal speichert seine gesamte Ausgabe komprimiert alle paar Sekunden, und ältere Ausgabe wird beim Hochscrollen wieder geladen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo memoria: no se escribe nada en el disco. Al reiniciar el Mac se pierde la salida del terminal; al reiniciar cmux se vuelve a conectar a los terminales en ejecución. Instantánea: cada terminal guarda una pantalla comprimida y sus líneas recientes, solo cuando cambian (como mucho cada 30 segundos, y al salir). Historial completo: cada terminal guarda toda su salida, comprimida, cada pocos segundos, y la salida anterior vuelve a cargarse al desplazarte hacia arriba."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mémoire seulement : rien n'est écrit sur le disque. Un redémarrage du Mac perd la sortie du terminal ; un redémarrage de cmux se reconnecte aux terminaux en cours. Instantané : chaque terminal enregistre un écran compressé et ses lignes récentes, seulement quand ils ont changé (au plus toutes les 30 secondes, et à la fermeture). Historique complet : chaque terminal enregistre toute sa sortie, compressée, toutes les quelques secondes, et la sortie plus ancienne se recharge quand vous faites défiler vers le haut."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo memoria: non viene scritto nulla su disco. Un riavvio del Mac perde l'output del terminale; un riavvio di cmux si ricollega ai terminali in esecuzione. Istantanea: ogni terminale salva una schermata compressa e le righe recenti, solo quando sono cambiate (al massimo ogni 30 secondi, e all'uscita). Cronologia completa: ogni terminale salva tutto il suo output, compresso, ogni pochi secondi, e l'output più vecchio si ricarica quando scorri verso l'alto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "メモリのみ: ディスクには何も書き込みません。Mac を再起動するとターミナル出力は失われます。cmux を再起動すると実行中のターミナルに再接続します。スナップショット: 各ターミナルが圧縮した画面 1 枚と最近の行を、変化したときだけ保存します（最大 30 秒ごとと終了時）。スクロールバック全体: 各ターミナルがすべての出力を圧縮して数秒ごとに保存し、上にスクロールすると古い出力を再び読み込みます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តែអង្គចងចាំ៖ គ្មានអ្វីត្រូវបានសរសេរទៅថាសទេ។ ការចាប់ផ្ដើម Mac ឡើងវិញធ្វើឱ្យបាត់លទ្ធផលទែមីណាល់ ការចាប់ផ្ដើម cmux ឡើងវិញភ្ជាប់ទៅទែមីណាល់ដែលកំពុងដំណើរការវិញ។ រូបថតស្ថានភាព៖ ទែមីណាល់នីមួយៗរក្សាទុកអេក្រង់បង្ហាប់មួយ និងបន្ទាត់ថ្មីៗ តែនៅពេលវាផ្លាស់ប្ដូរ (យ៉ាងច្រើនរៀងរាល់ 30 វិនាទី និងនៅពេលចាកចេញ)។ ប្រវត្តិរំកិលពេញលេញ៖ ទែមីណាល់នីមួយៗរក្សាទុកលទ្ធផលទាំងអស់ ដោយបង្ហាប់ រៀងរាល់ពីរបីវិនាទី ហើយលទ្ធផលចាស់ៗផ្ទុកឡើងវិញនៅពេលអ្នករំកិលឡើងលើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "메모리만: 디스크에 아무것도 쓰지 않습니다. Mac을 재시동하면 터미널 출력이 사라지고, cmux를 다시 시작하면 실행 중인 터미널에 다시 연결됩니다. 스냅숏: 각 터미널이 압축된 화면 하나와 최근 줄을 변경되었을 때만 저장합니다(최대 30초마다, 그리고 종료할 때). 전체 스크롤백: 각 터미널이 모든 출력을 압축해 몇 초마다 저장하고, 위로 스크롤하면 이전 출력을 다시 불러옵니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare minne: ingenting skrives til disken. En omstart av Mac-en mister terminalutdata; en omstart av cmux kobler til de kjørende terminalene igjen. Øyeblikksbilde: hver terminal lagrer én komprimert skjerm og de siste linjene, bare når de er endret (høyst hvert 30. sekund og ved avslutning). Full rullehistorikk: hver terminal lagrer alle utdataene sine, komprimert, med noen sekunders mellomrom, og eldre utdata lastes inn igjen når du ruller opp."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko pamięć: nic nie jest zapisywane na dysku. Ponowne uruchomienie Maca traci wyjście terminala; ponowne uruchomienie cmux łączy się znowu z działającymi terminalami. Migawka: każdy terminal zapisuje jeden skompresowany ekran i ostatnie wiersze, tylko gdy się zmieniły (najwyżej co 30 sekund i przy zamykaniu). Pełna historia przewijania: każdy terminal zapisuje całe swoje wyjście, skompresowane, co kilka sekund, a starsze wyjście wczytuje się ponownie po przewinięciu w górę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Somente memória: nada é gravado no disco. Reiniciar o Mac perde a saída do terminal; reiniciar o cmux reconecta aos terminais em execução. Instantâneo: cada terminal salva uma tela compactada e suas linhas recentes, somente quando mudam (no máximo a cada 30 segundos, e ao sair). Histórico completo: cada terminal salva toda a sua saída, compactada, a cada poucos segundos, e a saída mais antiga é carregada de novo quando você rola para cima."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Только память: на диск ничего не записывается. Перезагрузка Mac теряет вывод терминала; перезапуск cmux снова подключается к работающим терминалам. Снимок: каждый терминал сохраняет один сжатый экран и последние строки, только когда они изменились (не чаще чем раз в 30 секунд и при выходе). Вся прокрутка: каждый терминал сохраняет весь свой вывод в сжатом виде каждые несколько секунд, а более старый вывод снова загружается при прокрутке вверх."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน่วยความจำเท่านั้น: ไม่มีการเขียนสิ่งใดลงดิสก์ การรีสตาร์ท Mac จะทำให้เอาต์พุตเทอร์มินัลหายไป การรีสตาร์ท cmux จะเชื่อมต่อกับเทอร์มินัลที่ทำงานอยู่อีกครั้ง สแนปช็อต: แต่ละเทอร์มินัลบันทึกหน้าจอที่บีบอัดหนึ่งหน้าและบรรทัดล่าสุด เฉพาะเมื่อมีการเปลี่ยนแปลง (อย่างมากทุก 30 วินาที และเมื่อออก) ประวัติการเลื่อนทั้งหมด: แต่ละเทอร์มินัลบันทึกเอาต์พุตทั้งหมดแบบบีบอัดทุกไม่กี่วินาที และเอาต์พุตเก่าจะโหลดอีกครั้งเมื่อคุณเลื่อนขึ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yalnızca bellek: diske hiçbir şey yazılmaz. Mac'i yeniden başlatmak terminal çıktısını kaybettirir; cmux'u yeniden başlatmak çalışan terminallere yeniden bağlanır. Anlık görüntü: her terminal sıkıştırılmış bir ekranı ve son satırlarını yalnızca değiştiklerinde kaydeder (en fazla 30 saniyede bir ve çıkışta). Tüm kaydırma geçmişi: her terminal tüm çıktısını sıkıştırarak birkaç saniyede bir kaydeder ve yukarı kaydırdığınızda eski çıktı yeniden yüklenir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лише пам'ять: на диск нічого не записується. Перезавантаження Mac втрачає вивід термінала; перезапуск cmux знову підключається до запущених терміналів. Знімок: кожен термінал зберігає один стиснений екран і останні рядки, лише коли вони змінилися (не частіше ніж раз на 30 секунд і під час виходу). Уся історія прокручування: кожен термінал зберігає весь свій вивід у стисненому вигляді кожні кілька секунд, а старіший вивід знову завантажується, коли ви прокручуєте вгору."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ bộ nhớ: không có gì được ghi ra ổ đĩa. Khởi động lại Mac sẽ mất đầu ra terminal; khởi động lại cmux sẽ kết nối lại với các terminal đang chạy. Ảnh chụp nhanh: mỗi terminal lưu một màn hình đã nén và các dòng gần đây, chỉ khi chúng thay đổi (tối đa mỗi 30 giây, và khi thoát). Toàn bộ lịch sử cuộn: mỗi terminal lưu toàn bộ đầu ra, đã nén, vài giây một lần, và đầu ra cũ hơn được tải lại khi bạn cuộn lên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仅内存：不向磁盘写入任何内容。重启 Mac 会丢失终端输出；重启 cmux 会重新连接到正在运行的终端。快照：每个终端仅在内容变化时保存一个压缩的屏幕及其最近的行（最多每 30 秒一次，以及退出时）。完整回滚缓冲：每个终端每隔几秒压缩保存其全部输出，向上滚动时会重新载入较早的输出。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "僅記憶體：不會寫入任何內容到磁碟。重新啟動 Mac 會遺失終端機輸出；重新啟動 cmux 會重新連接到執行中的終端機。快照：每個終端機只在內容變更時儲存一個壓縮的畫面及最近的行（最多每 30 秒一次，以及結束時）。完整回捲緩衝：每個終端機每隔幾秒壓縮儲存其全部輸出，向上捲動時會重新載入較舊的輸出。"
+          }
+        }
+      }
+    },
+    "settings.terminal.persistence.mode.memory": {
+      "comment": "Settings > Terminal > Output and Scrollback (terminal.persistence.*, terminal.scrollback.maxTotalMemoryBytes).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory Only"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الذاكرة فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samo memorija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun hukommelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur Arbeitsspeicher"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo memoria"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mémoire seulement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo memoria"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "メモリのみ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តែអង្គចងចាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "메모리만"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare minne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko pamięć"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Somente memória"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Только память"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน่วยความจำเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yalnızca bellek"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лише пам'ять"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ bộ nhớ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仅内存"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "僅記憶體"
+          }
+        }
+      }
+    },
+    "settings.terminal.persistence.mode.snapshot": {
+      "comment": "Settings > Terminal > Output and Scrollback (terminal.persistence.*, terminal.scrollback.maxTotalMemoryBytes).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snapshot"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لقطة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Snimak"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Øjebliksbillede"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Momentaufnahme"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instantánea"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instantané"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Istantanea"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スナップショット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រូបថតស្ថានភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스냅숏"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Øyeblikksbilde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Migawka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instantâneo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Снимок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สแนปช็อต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anlık görüntü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Знімок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ảnh chụp nhanh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "快照"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "快照"
+          }
+        }
+      }
+    },
+    "settings.terminal.persistence.mode.summary": {
+      "comment": "Settings > Terminal > Output and Scrollback (terminal.persistence.*, terminal.scrollback.maxTotalMemoryBytes).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What terminal output cmux keeps on disk"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ما يحفظه cmux من مخرجات الطرفية على القرص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koji izlaz terminala cmux čuva na disku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvilket terminaloutput cmux gemmer på disken"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Welche Terminalausgabe cmux speichert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Qué salida del terminal guarda cmux en el disco"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sortie du terminal que cmux garde sur le disque"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quale output del terminale cmux salva su disco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux がディスクに保存するターミナル出力"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លទ្ធផលទែមីណាល់ដែល cmux រក្សាទុកនៅលើថាស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 디스크에 보관하는 터미널 출력"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvilke terminalutdata cmux lagrer på disken"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jakie wyjście terminala cmux zapisuje na dysku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Qual saída do terminal o cmux guarda no disco"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Какой вывод терминала cmux хранит на диске"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอาต์พุตเทอร์มินัลที่ cmux เก็บไว้บนดิสก์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un diskte tuttuğu terminal çıktısı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Який вивід термінала cmux зберігає на диску"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đầu ra terminal mà cmux lưu trên ổ đĩa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 在磁盘上保存哪些终端输出"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 在磁碟上保留哪些終端機輸出"
+          }
+        }
+      }
+    },
+    "settings.terminal.scrollback.maxTotalMemoryBytes": {
+      "comment": "Settings > Terminal > Output and Scrollback (terminal.persistence.*, terminal.scrollback.maxTotalMemoryBytes).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scrollback Memory for All Terminals (Bytes)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ذاكرة سجل التمرير لكل الطرفيات (بايت)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Memorija historije za sve terminale (bajtovi)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hukommelse til rullehistorik for alle terminaler (byte)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scrollback-Speicher für alle Terminals (Byte)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Memoria de historial para todos los terminales (bytes)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mémoire d'historique pour tous les terminaux (octets)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Memoria di scorrimento per tutti i terminali (byte)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "全ターミナルのスクロールバックメモリ（バイト）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អង្គចងចាំប្រវត្តិរំកិលសម្រាប់ទែមីណាល់ទាំងអស់ (បៃ)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "전체 터미널 스크롤백 메모리(바이트)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minne for rullehistorikk for alle terminaler (byte)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pamięć historii dla wszystkich terminali (bajty)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Memória de histórico para todos os terminais (bytes)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Память прокрутки для всех терминалов (байты)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน่วยความจำประวัติการเลื่อนของทุกเทอร์มินัล (ไบต์)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tüm terminaller için kaydırma belleği (bayt)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пам'ять прокручування для всіх терміналів (байти)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bộ nhớ cuộn cho mọi terminal (byte)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "所有终端的回滚内存（字节）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "所有終端機的回捲記憶體（位元組）"
+          }
+        }
+      }
+    },
+    "settings.terminal.scrollback.maxTotalMemoryBytes.help": {
+      "comment": "Settings > Terminal > Output and Scrollback (terminal.persistence.*, terminal.scrollback.maxTotalMemoryBytes).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The most memory all terminals use together for scrollback, in bytes, from 16 MiB. The default is 256 MiB. The limit for one terminal is Ghostty's scrollback-limit. When the total is over this limit, idle and background terminals give back scrollback first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أقصى ذاكرة تستخدمها كل الطرفيات معًا لسجل التمرير، بالبايت، بدءًا من 16 MiB. القيمة الافتراضية 256 MiB. حد الطرفية الواحدة هو scrollback-limit في Ghostty. عندما يتجاوز المجموع هذا الحد، تتخلى الطرفيات الخاملة والتي في الخلفية عن سجل التمرير أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najviše memorije koju svi terminali zajedno koriste za historiju pomicanja, u bajtovima, od 16 MiB. Zadano je 256 MiB. Ograničenje za jedan terminal je Ghosttyjev scrollback-limit. Kada je ukupno iznad ovog ograničenja, neaktivni i pozadinski terminali prvi vraćaju historiju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den største hukommelse, alle terminaler tilsammen bruger til rullehistorik, i byte, fra 16 MiB. Standard er 256 MiB. Grænsen for én terminal er Ghosttys scrollback-limit. Når det samlede forbrug er over denne grænse, afgiver inaktive terminaler og terminaler i baggrunden rullehistorik først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der größte Arbeitsspeicher, den alle Terminals zusammen für Scrollback nutzen, in Byte, ab 16 MiB. Standard ist 256 MiB. Das Limit für ein Terminal ist Ghosttys scrollback-limit. Liegt die Summe über diesem Limit, geben inaktive Terminals und Terminals im Hintergrund zuerst Scrollback ab."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mayor cantidad de memoria que todos los terminales usan juntos para el historial, en bytes, desde 16 MiB. El valor predeterminado es 256 MiB. El límite de un terminal es scrollback-limit de Ghostty. Cuando el total supera este límite, los terminales inactivos y en segundo plano liberan historial primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La plus grande quantité de mémoire que tous les terminaux utilisent ensemble pour l'historique, en octets, à partir de 16 Mio. La valeur par défaut est 256 Mio. La limite d'un terminal est le scrollback-limit de Ghostty. Quand le total dépasse cette limite, les terminaux inactifs et en arrière-plan libèrent leur historique en premier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La quantità massima di memoria che tutti i terminali usano insieme per lo scorrimento, in byte, da 16 MiB. Il valore predefinito è 256 MiB. Il limite per un terminale è lo scrollback-limit di Ghostty. Quando il totale supera questo limite, i terminali inattivi e in background liberano per primi la cronologia."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "すべてのターミナルが合計でスクロールバックに使うメモリの上限（バイト、16 MiB 以上）。既定値は 256 MiB です。1 つのターミナルの上限は Ghostty の scrollback-limit です。合計がこの上限を超えると、アイドル中やバックグラウンドのターミナルから先にスクロールバックを解放します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អង្គចងចាំច្រើនបំផុតដែលទែមីណាល់ទាំងអស់ប្រើរួមគ្នាសម្រាប់ប្រវត្តិរំកិល គិតជាបៃ ចាប់ពី 16 MiB។ លំនាំដើមគឺ 256 MiB។ ដែនកំណត់សម្រាប់ទែមីណាល់មួយគឺ scrollback-limit របស់ Ghostty។ នៅពេលសរុបលើសដែនកំណត់នេះ ទែមីណាល់ទំនេរ និងនៅផ្ទៃខាងក្រោយត្រូវបោះបង់ប្រវត្តិរំកិលមុន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 터미널이 합쳐서 스크롤백에 사용하는 최대 메모리(바이트, 16MiB 이상). 기본값은 256MiB입니다. 터미널 하나의 한도는 Ghostty의 scrollback-limit입니다. 합계가 이 한도를 넘으면 유휴 터미널과 백그라운드 터미널이 먼저 스크롤백을 반환합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mest minne alle terminaler til sammen bruker til rullehistorikk, i byte, fra 16 MiB. Standard er 256 MiB. Grensen for én terminal er Ghosttys scrollback-limit. Når summen er over denne grensen, gir inaktive terminaler og terminaler i bakgrunnen fra seg rullehistorikk først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Największa ilość pamięci, jaką wszystkie terminale razem zużywają na historię przewijania, w bajtach, od 16 MiB. Domyślnie 256 MiB. Limit jednego terminala to scrollback-limit w Ghostty. Gdy suma przekracza ten limit, bezczynne terminale i terminale w tle najpierw oddają historię."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O máximo de memória que todos os terminais usam juntos para o histórico, em bytes, a partir de 16 MiB. O padrão é 256 MiB. O limite de um terminal é o scrollback-limit do Ghostty. Quando o total passa desse limite, terminais ociosos e em segundo plano liberam histórico primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Наибольший объём памяти, который все терминалы вместе используют для прокрутки, в байтах, от 16 МиБ. По умолчанию 256 МиБ. Лимит одного терминала — scrollback-limit в Ghostty. Когда сумма превышает этот лимит, неактивные и фоновые терминалы первыми освобождают прокрутку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน่วยความจำสูงสุดที่ทุกเทอร์มินัลรวมกันใช้สำหรับประวัติการเลื่อน เป็นไบต์ ตั้งแต่ 16 MiB ค่าเริ่มต้นคือ 256 MiB ขีดจำกัดของเทอร์มินัลหนึ่งคือ scrollback-limit ของ Ghostty เมื่อผลรวมเกินขีดจำกัดนี้ เทอร์มินัลที่ไม่ได้ใช้งานและที่อยู่เบื้องหลังจะคืนประวัติการเลื่อนก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tüm terminallerin birlikte kaydırma geçmişi için kullandığı en fazla bellek, bayt olarak, 16 MiB'tan itibaren. Varsayılan 256 MiB'tır. Tek bir terminalin sınırı Ghostty'nin scrollback-limit değeridir. Toplam bu sınırı aştığında boşta ve arka plandaki terminaller önce kaydırma geçmişini bırakır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Найбільший обсяг пам'яті, який усі термінали разом використовують для прокручування, у байтах, від 16 МіБ. Типово 256 МіБ. Ліміт одного термінала — scrollback-limit у Ghostty. Коли сума перевищує цей ліміт, неактивні та фонові термінали першими звільняють історію прокручування."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lượng bộ nhớ tối đa mà mọi terminal cùng dùng cho lịch sử cuộn, tính bằng byte, từ 16 MiB. Mặc định là 256 MiB. Giới hạn cho một terminal là scrollback-limit của Ghostty. Khi tổng vượt giới hạn này, các terminal đang rảnh và chạy nền sẽ trả lại lịch sử cuộn trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "所有终端合计用于回滚缓冲的内存上限，单位为字节，最小 16 MiB。默认值为 256 MiB。单个终端的上限是 Ghostty 的 scrollback-limit。合计超过此上限时，空闲和后台终端先释放回滚缓冲。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "所有終端機合計用於回捲緩衝的記憶體上限，單位為位元組，最小 16 MiB。預設值為 256 MiB。單一終端機的上限是 Ghostty 的 scrollback-limit。合計超過此上限時，閒置和背景終端機先釋放回捲緩衝。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
