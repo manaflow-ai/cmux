@@ -712,9 +712,15 @@ def step_spend(stdout):
 
 
 def campaign(opts):
+    import queue
     from concurrent.futures import ThreadPoolExecutor
 
     ledger = Ledger(opts.ledger, opts.cap_usd)
+    # A step must run where --base-url resolves (a tailnet host, not an AWS Mac):
+    # with --worker each step takes a free one of these, so no two share one.
+    free = queue.Queue()
+    for w in opts.worker:
+        free.put(w)
     out = os.path.abspath(opts.out)
     os.makedirs(out, exist_ok=True)
     runs = [(t, a, n) for n in range(1, opts.reps + 1) for t in opts.task for a in opts.arm]
@@ -731,7 +737,12 @@ def campaign(opts):
                f"--arg=base_url={opts.base_url}", f"--arg=task={task}", f"--arg=arm={arm}", f"--arg=budget={budget}",
                f"--arg=minutes={opts.minutes}",
                "--artifact", ".build/team-eval/out.tgz", "--timeout", str(int(opts.minutes) * 60 + 3600), "--key", key]
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        worker = free.get() if opts.worker else None
+        try:
+            r = subprocess.run(cmd + (["--target-worker", worker] if worker else []), capture_output=True, text=True)
+        finally:
+            if worker:
+                free.put(worker)
         step = next((m.group(1) for m in re.finditer(r"cmux-ci: step (\S+) ", r.stderr)), None)
         os.makedirs(os.path.join(out, key), exist_ok=True)
         log = r.stdout
@@ -792,6 +803,9 @@ def main():
                    help="dollars a run may overshoot its budget by: about $3 per Opus response in flight when it "
                         "stops (the Chief and up to three subagents), read every 2 s")
     c.add_argument("--parallel", type=int, default=3)
+    c.add_argument("--worker", nargs="+", default=[],
+                   help="controller workers to run on (names from cmux-ci workers) that can reach --base-url; "
+                        "each step takes a free one")
     c.add_argument("--minutes", type=int, default=60)
     c.add_argument("--out", required=True)
     r = sub.add_parser("run")

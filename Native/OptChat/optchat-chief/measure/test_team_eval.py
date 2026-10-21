@@ -277,7 +277,7 @@ class CampaignOutcomeTests(unittest.TestCase):
         self.assertEqual(led.committed(), 0)
         self.assertEqual(led.reserve("r1", 25, 3), ("r1-a2", 25))
 
-    def campaign_with(self, stderr, rc):
+    def campaign_with(self, stderr, rc, **more):
         import argparse
         import shutil
         import tempfile
@@ -286,11 +286,13 @@ class CampaignOutcomeTests(unittest.TestCase):
         os.makedirs(os.path.join(d, "bin"))
         fake = os.path.join(d, "bin", "cmux-ci")
         with open(fake, "w") as f:
-            f.write(f"#!/bin/sh\necho {json.dumps(stderr)} >&2\nexit {rc}\n")
+            f.write(f"#!/bin/sh\necho \"$*\" >> {d}/calls\necho {json.dumps(stderr)} >&2\nexit {rc}\n")
         os.chmod(fake, 0o755)
         opts = argparse.Namespace(ledger=os.path.join(d, "l.json"), cap_usd=100, out=os.path.join(d, "out"), reps=1,
                                   task=["t"], arm=["A"], name="x", run_budget=25, margin=12, ref="r", base_url="u",
-                                  minutes=5, parallel=1)
+                                  minutes=5, parallel=1, worker=[])
+        vars(opts).update(more)
+        self.calls = os.path.join(d, "calls")
         path = os.environ["PATH"]
         os.environ["PATH"] = os.path.join(d, "bin") + os.pathsep + path
         try:
@@ -310,6 +312,12 @@ class CampaignOutcomeTests(unittest.TestCase):
     def test_a_refusal_after_the_step_existed_keeps_its_reservation(self):
         led = self.campaign_with("cmux-ci: step s1 (exclusive, key x-A)\ncmux-ci: controller HTTP 404: no such step", 1)
         self.assertEqual(led.committed(), 37)
+
+    def test_each_step_runs_on_a_named_worker(self):
+        self.campaign_with("cmux-ci: controller HTTP 400: no", 1, arm=["A", "B", "B2"], parallel=3, worker=["m1", "m2"])
+        runs = [c.split() for c in open(self.calls).read().splitlines() if c.startswith("run ")]
+        self.assertEqual(len(runs), 3)
+        self.assertTrue(all(c[c.index("--target-worker") + 1] in ("m1", "m2") for c in runs))
 
     def test_a_409_for_an_existing_key_keeps_its_reservation(self):
         led = self.campaign_with("cmux-ci: controller HTTP 409: step_key already names a different step", 1)
