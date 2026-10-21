@@ -71,7 +71,7 @@ final class AppServices {
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
-    let mobile = MobileHostService(displayName: { await MacName().computerName() })  // phone access; the account layer starts it
+    let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
     let registry = ActionRegistry.standard()
