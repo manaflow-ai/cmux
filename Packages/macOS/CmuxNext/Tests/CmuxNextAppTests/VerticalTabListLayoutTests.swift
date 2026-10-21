@@ -46,7 +46,8 @@ import Testing
         #expect(line.group == Self.work && line.frame.minY <= w1.frame.minY && line.frame.maxY == w2.frame.maxY,
                 "one line joins the group's tabs")
         #expect(line.frame.maxX <= w1.frame.minX)
-        #expect(layout.contentHeight > try Self.row(layout, .newTab).frame.maxY)
+        let newTab = try Self.row(layout, .newTab)
+        #expect(layout.contentHeight > newTab.frame.maxY)
     }
 
     @Test func iconsOnlyStacksTheTilesAndDropsTheIndent() throws {
