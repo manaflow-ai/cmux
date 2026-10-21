@@ -48,7 +48,7 @@ export default componentEntry<Record<string, never>>({
   height: 460,
   widths: { narrow: 320, normal: 420, wide: 560 },
   anchors: [{ selector: ".cv-turn-retry-menu" }],
-  covers: ["agent-session/acpmux/conversation/TurnRows.tsx", "agent-session/acpmux/conversation/retryModelSections.ts"],
+  covers: ["agent-session/acpmux/conversation/TurnRows.tsx"],
   load: async () => {
     const { TurnFooter } = await import("./TurnRows");
     const { TurnActionsContext } = await import("./turnActions");
