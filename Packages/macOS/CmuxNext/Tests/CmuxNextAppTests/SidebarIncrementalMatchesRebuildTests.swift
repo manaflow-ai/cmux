@@ -232,7 +232,10 @@ import Testing
     }
 
     /// Lets the list's completions run (a landing's end, a deferred reload) and, with motion on, its springs and fades
-    /// end (a rebuild draws ends, not flights; at most 3 s), then compares it with a fresh rebuild.
+    /// end (a rebuild draws ends, not flights), then compares it with a fresh rebuild. A row's spring
+    /// (`NSAnimationContext` with a SwiftUI spring) writes its frame on each display frame and leaves no layer
+    /// animation to see, so the list has settled when two looks 50 ms apart agree, no layer animation runs and no
+    /// row fades (at most 3 s: a list stuck mid-flight still differs).
     static func expectMatchesRebuild(_ sidebar: SidebarView, _ when: String) async {
         let list = sidebar.list
         for _ in 0..<3 {
@@ -240,10 +243,13 @@ import Testing
             sidebar.renderNow()
             try? await Task.sleep(for: .milliseconds(30))
         }
-        for _ in 0..<100 where animates(list) || !list.fadingRows.isEmpty {
-            try? await Task.sleep(for: .milliseconds(30))
+        var last = snapshot(list)
+        for _ in 0..<60 {
+            try? await Task.sleep(for: .milliseconds(50))
+            let now = snapshot(list)
+            if now == last, !animates(list), list.fadingRows.isEmpty { break }
+            last = now
         }
-        #expect(!animates(list), "\(when): the list still animates after 3 s")
         let (fresh, window) = rebuilt(from: list.model, design: sidebar.design)
         defer { window.close() }
         let mine = snapshot(list), theirs = snapshot(fresh.list)
