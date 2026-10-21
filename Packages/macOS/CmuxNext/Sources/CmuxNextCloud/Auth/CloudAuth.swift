@@ -92,6 +92,8 @@ public final class CloudAuth {
         // explicit `CMUX_AUTH_CREDENTIALS_FILE`, never from the ambient secrets files: that is how
         // a hidden rig build signs a production test account in for end-to-end checks
         // (cmux-next-ios/verify). A release build never reads either.
+        // The variable is read from the process environment, so pass it per launch with
+        // `open --env`; an exported one would replace a production session signed in by browser.
         let explicitCredentialsFile = environment["CMUX_AUTH_CREDENTIALS_FILE"].map { !$0.isEmpty } ?? false
         let devAuth = configuration.isDebugBuild && (!configuration.isProductionAuth || explicitCredentialsFile)
         var launchEnvironment = environment
