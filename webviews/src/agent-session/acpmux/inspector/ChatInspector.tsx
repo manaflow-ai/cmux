@@ -20,10 +20,20 @@
 // and hold in every chat tab (inspectorState.ts). Debug Settings `agent.inspector` (on by default)
 // turns it off, which brings back the summary card it replaces (summary/SummaryCard.tsx). It reads
 // only acpmux's common snapshot and the App's header state, never one harness's own fields.
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
 import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
+import { useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
@@ -267,6 +277,7 @@ function InspectorPresence({
   const drawn = presence.present;
   const paneWidth = usePaneWidth(shell, drawn);
   const push = pushes(placement, paneWidth, width);
+  const tabRowHeight = useTabRow().height;
   const rows = snapshot.rows;
   const made = useMemo(() => (drawn ? sessionSummary(rows) : undefined), [drawn, rows]);
   const links = useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]);
@@ -289,7 +300,14 @@ function InspectorPresence({
   }, [push, placement, openedOutputAt, onSuppress]);
   if (!drawn) return null;
   return (
-    <InspectorPanel width={width} placement={push ? "push" : "overlay"} presence={presence}>
+    <InspectorPanel
+      width={width}
+      placement={push ? "push" : "overlay"}
+      // Over the chat it starts under the chat header (styles.css --acpmux-header-height; in the
+      // pane's tab row, the row's height), so the header's tools, its own toggle among them, stay in reach.
+      under={tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height)"}
+      presence={presence}
+    >
       {/* Another chat's sections start drawn with what that chat has: none of its rows drops in. */}
       <ChatInspector
         key={snapshot.sessionId}
@@ -325,15 +343,18 @@ function InspectorPresence({
 
 /// The panel's frame: its width, its place beside or over the chat, and the drag handle on its
 /// left edge (a double-click puts the width back). With `presence`, it enters from and leaves toward
-/// the pane's right edge.
+/// the pane's right edge. Over the chat it starts `under` (a CSS length: the chat header's height)
+/// below the pane's top, at the top by default.
 export function InspectorPanel({
   width,
   placement,
+  under,
   presence,
   children,
 }: {
   width: number;
   placement: InspectorPlacement;
+  under?: string;
   presence?: Presence;
   children: ReactNode;
 }) {
@@ -350,7 +371,7 @@ export function InspectorPanel({
       inert={presence?.leaving}
       className="acpmux-chat-inspector"
       data-placement={placement}
-      style={{ width }}
+      style={under ? ({ width, "--acpmux-inspector-top": under } as CSSProperties) : { width }}
       aria-label={t("chatInspector.title")}
     >
       <div

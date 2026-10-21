@@ -22,6 +22,13 @@ impl Hub {
         // A `message_start` was logged and its first delta was not yet.
         let awaiting_first_delta = AtomicBool::new(false);
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
+            if matches!(dir, Direction::In)
+                && !msg
+                    .method()
+                    .is_some_and(|m| m == crate::agent::HOST_STDERR || m == crate::agent::HOST_EXIT)
+            {
+                tap_session.heard.fetch_add(1, Ordering::SeqCst);
+            }
             let (d, kind) = match (dir, msg) {
                 // Agent host stderr and exit entries: logged here, in entry
                 // order, before the entry is acknowledged.
