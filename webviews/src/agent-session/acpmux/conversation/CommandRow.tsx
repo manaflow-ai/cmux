@@ -13,6 +13,7 @@ import { BackgroundMark } from "./BackgroundMark";
 import { Check, ChevronRight, Spinner, TerminalSquare } from "./icons";
 import { isFailed, isRunning, toolDuration } from "./toolGroups";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useFold } from "./fold";
 
 export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
@@ -22,6 +23,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
     useMemo(() => [item], [item]),
     () => setOpen(true),
   );
+  const fold = useFold(open);
   const detailsId = useId();
   // Running in the foreground; a call that went on in the background shows BackgroundMark instead.
   const foreground = isRunning(tool);
@@ -72,13 +74,15 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
-      {open && (
-        <ShellBlock
-          id={detailsId}
-          command={tool.command}
-          output={tool.output?.replace(/\n$/, "")}
-          exitCode={tool.exitCode}
-        />
+      {fold.present && (
+        <div ref={fold.ref} className="cv-fold">
+          <ShellBlock
+            id={detailsId}
+            command={tool.command}
+            output={tool.output?.replace(/\n$/, "")}
+            exitCode={tool.exitCode}
+          />
+        </div>
       )}
     </>
   );

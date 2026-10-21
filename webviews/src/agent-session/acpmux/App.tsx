@@ -161,6 +161,7 @@ import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { transcriptRepositories, type RepositoryCache } from "./conversation/transcriptRepositories";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
+import { foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
@@ -268,6 +269,8 @@ import { PendingSteer } from "./conversation/PendingSteer";
 import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
+import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
+import { TranscriptDisclosureProvider } from "./conversation/transcriptDisclosure";
 import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
 import { Notice, NoticeSlot } from "./NoticeSlot";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
@@ -299,6 +302,7 @@ import {
 import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
+import { BACKGROUND_NOTICE_TEXT, useBackgroundNotice } from "./conversation/backgroundNotice";
 import { InstructionsNotice, type InstructionsFailure } from "./header/InstructionsNotice";
 import { FolderChoice, showsFolderChoice } from "./FolderChoice";
 import { type FolderAsk, StartFolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
@@ -794,8 +798,13 @@ const ThinkingRow = memo(
     a.row.queued === b.row.queued,
 );
 const WorkingRow = memo(
-  function WorkingRow({ row }: RowProps) {
-    return <WorkingFor row={row} />;
+  function WorkingRow({ row, sessionId }: RowProps) {
+    // The session's disclosures say whether the running call's group shows its row (WorkingFor.tsx).
+    return (
+      <TranscriptDisclosureProvider sessionId={sessionId}>
+        <WorkingFor row={row} />
+      </TranscriptDisclosureProvider>
+    );
   },
   (a, b) =>
     a.row.id === b.row.id &&
@@ -803,7 +812,10 @@ const WorkingRow = memo(
     a.row.at === b.row.at &&
     a.row.durationMs === b.row.durationMs &&
     a.row.doing === b.row.doing &&
-    a.row.doingCommand === b.row.doingCommand,
+    a.row.doingCommand === b.row.doingCommand &&
+    a.row.doingGroup === b.row.doingGroup &&
+    a.row.doingGroupOpen === b.row.doingGroupOpen &&
+    a.sessionId === b.sessionId,
 );
 /// The running turn's activity line under its todo list (agent.sessionStatus, cx-ncc.102).
 const ActivityLineRow = memo(
@@ -1951,6 +1963,9 @@ export function VirtualTranscript({
   // while the pointer rests on the same row.
   const pointedRows = useRef<AcpmuxRow[] | undefined>(undefined);
   const scrolledTo = useRef({ top: 0, atLatest: false });
+  /// The disclosure line the reader just clicked, held where they clicked it while its fold plays
+  /// (conversation/foldAnchor.ts).
+  const foldAnchor = useRef<FoldAnchor | undefined>(undefined);
   /// Where the reader last saw it rest, measured in view; undefined until it is.
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
   /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
@@ -2273,7 +2288,16 @@ export function VirtualTranscript({
     if (rewrapped) reflowing.current = true;
     else if (rows.length !== oldRows.length || rows.some((row, index) => row !== oldRows[index]))
       reflowing.current = false;
-    if (old && node) {
+    // A disclosure the reader clicked stays where they clicked it while what it opens lays out: this
+    // pass neither follows the latest row nor keeps the top row, it puts the clicked line back.
+    const folding = Boolean(old && node && foldAnchor.current && keepFold(foldAnchor.current, node));
+    if (!folding) foldAnchor.current = undefined;
+    if (folding && node) {
+      // What opened pushed the latest row out of view: the view is the reader's now, not following.
+      if (followingRef.current && node.scrollTop < layout.totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX)
+        follow(false);
+      glideHold.current = undefined;
+    } else if (old && node) {
       // Content that shrank under the viewport has already clamped the live offset to
       // the new end; the offset recorded before this commit is where the reader was.
       // A clamp lands exactly on the scroller's own end, which rounds the layout's
@@ -2651,8 +2675,12 @@ export function VirtualTranscript({
     // A layout-driven scroll keeps the previous offset; a reader scroll changes it. The latter is
     // also what the jsdom behavior tests dispatch without a wheel event, so do not classify every
     // programmatic-looking event as layout work.
+    // A held disclosure (foldAnchor) keeps the view where it is, not at the latest row.
     const layoutDriven =
-      followingRef.current && programmatic && Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX;
+      followingRef.current &&
+      programmatic &&
+      !foldAnchor.current &&
+      Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX;
     if (layoutDriven) {
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
       const settled = settleFollowBottom(node, latest);
@@ -2728,6 +2756,23 @@ export function VirtualTranscript({
     };
     const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
     for (const name of inputs) node?.addEventListener(name, reader, { passive: true });
+    // A click on a disclosure line holds it where it is (foldAnchor.ts), before the row's own handler
+    // opens it. A glide in flight lands first, so the line is held where it rests.
+    const holdClicked = (event: MouseEvent) => {
+      const toggle = node ? foldToggleAt(event.target, node) : undefined;
+      if (!toggle) return;
+      for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
+      foldAnchor.current = holdFold(toggle);
+    };
+    // The reader scrolling lets go of it.
+    const release = (event: Event) => {
+      const key = (event as KeyboardEvent).key;
+      if (key === "Enter" || key === " ") return;
+      foldAnchor.current = undefined;
+    };
+    const releases = ["wheel", "touchstart", "keydown"] as const;
+    node?.addEventListener("click", holdClicked, { capture: true });
+    for (const name of releases) node?.addEventListener(name, release, { passive: true });
     // The wheel over Jump to latest scrolls the transcript (wheelPassThrough.ts).
     // The chat's own transcript only (a replay's sits in its own screen).
     const main = node?.closest(".acpmux-stage")?.parentElement?.closest<HTMLElement>(".acpmux-main");
@@ -2735,6 +2780,8 @@ export function VirtualTranscript({
     return () => {
       clearTimeout(settle.current);
       for (const name of inputs) node?.removeEventListener(name, reader);
+      node?.removeEventListener("click", holdClicked, { capture: true });
+      for (const name of releases) node?.removeEventListener(name, release);
       removeWheel?.();
     };
   }, []);
@@ -4248,9 +4295,13 @@ function AcpmuxPane() {
   // Ctrl-B moves a Claude Code chat's running command or subagent to the background, and a
   // running command's row says so (conversation/runInBackground.ts).
   const canBackground = backgroundsWork(snapshot.summary);
+  // When nothing moves (nothing in the foreground, a refusal, no answer), a line above the composer
+  // says so (conversation/backgroundNotice.ts).
+  const background = useBackgroundNotice(shownSessionId);
+  const trackBackground = background.track;
   const runInBackground = useCallback(
-    (toolCallId?: string) => void directClient.current?.backgroundWork(toolCallId).catch(() => undefined),
-    [],
+    (toolCallId?: string) => trackBackground(directClient.current?.backgroundWork(toolCallId)),
+    [trackBackground],
   );
   const foreground = useMemo(
     () => (canBackground && snapshot.isWorking ? foregroundCalls(snapshot.rows) : []),
@@ -6123,6 +6174,18 @@ function AcpmuxPane() {
     () => directClient.current?.recordedEvents(replaying ?? "") ?? Promise.reject(new Error("no connection")),
     [replaying],
   );
+  const toolCards = useToolCards();
+  // What the chat waits on the person for: the running turn's line says it, never "Thinking".
+  const waiting = chatWaitsOn({
+    trust: trustAsk.ask,
+    holdsAsks: trustAsk.holdsAsks,
+    trustBlocks: Boolean(trustAsk.blocked),
+    isWorking: snapshot.isWorking,
+    individualPermission: Boolean(individualPermission),
+    permissionGroups: snapshot.permissionGroups?.supported ? snapshot.permissionGroups.groups : undefined,
+    secret: Boolean(snapshot.secret),
+    cards: toolCards,
+  });
   const transcript = (
     // Quick Chat's panel has no room beside it: its fences have no Open preview.
     <ArtifactContext.Provider value={quick ? undefined : openArtifact}>
@@ -6136,63 +6199,65 @@ function AcpmuxPane() {
                     <SubagentNavContext.Provider value={setSubagentView}>
                       <SubagentPaneContext.Provider value={showSubagent}>
                         <WorkingCountsContext.Provider value={workingCounts}>
-                          <SubagentStopContext.Provider value={stopSubagent}>
-                            <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-                              <SubagentHarnessContext.Provider
-                                value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
-                              >
-                                <SessionHoverContext.Provider value={sessionHover}>
-                                  <StartedMentionsContext.Provider value={startedMentions}>
-                                    <ChatFindScope
-                                      rows={childRows ?? sourceRows}
-                                      shown={childRows ? undefined : transcriptRows}
-                                      openFold={openFold}
-                                      findRef={findRef}
-                                    >
-                                      {(find) => (
-                                        <VirtualTranscript
-                                          rows={drawnRows}
-                                          working={snapshot.isWorking}
-                                          // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                                          jumpButton={!quick}
-                                          focusComposer={() => composerHandle.current?.focus()}
-                                          // Quick Chat's panel stacks its composer below the transcript.
-                                          dock={quick ? undefined : dock}
-                                          queueWithdrawn={snapshot.queueWithdrawn}
-                                          find={quick ? undefined : find}
-                                          sessionId={
-                                            childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId
-                                          }
-                                          canLoadOlder={!childRows && snapshot.canLoadOlder}
-                                          historyFrom={childRows ? undefined : snapshot.historyFrom}
-                                          onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
-                                          openAt={
-                                            !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                                              ? scrollAnchor
-                                              : undefined
-                                          }
-                                          anchorNow={quick || childRows ? undefined : transcriptAnchor}
-                                          onAnchor={
-                                            quick || childRows || !shownSessionId
-                                              ? undefined
-                                              : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                                          }
-                                          expanded={expanded}
-                                          reveal={childRows ? undefined : revealRow}
-                                          registry={registry}
-                                          githubRepository={githubRepository}
-                                          fallbackRepository={pullRequestRef(headerPullRequest?.url ?? "")?.repo}
-                                          // The Quick Composer has no room for the changes view; its file rows stay plain.
-                                          onOpenDiff={quick ? undefined : openDiff}
-                                          onToggleActivity={toggleActivity}
-                                        />
-                                      )}
-                                    </ChatFindScope>
-                                  </StartedMentionsContext.Provider>
-                                </SessionHoverContext.Provider>
-                              </SubagentHarnessContext.Provider>
-                            </SubagentClockContext.Provider>
-                          </SubagentStopContext.Provider>
+                          <WaitingOnContext.Provider value={waiting}>
+                            <SubagentStopContext.Provider value={stopSubagent}>
+                              <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+                                <SubagentHarnessContext.Provider
+                                  value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
+                                >
+                                  <SessionHoverContext.Provider value={sessionHover}>
+                                    <StartedMentionsContext.Provider value={startedMentions}>
+                                      <ChatFindScope
+                                        rows={childRows ?? sourceRows}
+                                        shown={childRows ? undefined : transcriptRows}
+                                        openFold={openFold}
+                                        findRef={findRef}
+                                      >
+                                        {(find) => (
+                                          <VirtualTranscript
+                                            rows={drawnRows}
+                                            working={snapshot.isWorking}
+                                            // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                                            jumpButton={!quick}
+                                            focusComposer={() => composerHandle.current?.focus()}
+                                            // Quick Chat's panel stacks its composer below the transcript.
+                                            dock={quick ? undefined : dock}
+                                            queueWithdrawn={snapshot.queueWithdrawn}
+                                            find={quick ? undefined : find}
+                                            sessionId={
+                                              childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId
+                                            }
+                                            canLoadOlder={!childRows && snapshot.canLoadOlder}
+                                            historyFrom={childRows ? undefined : snapshot.historyFrom}
+                                            onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
+                                            openAt={
+                                              !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                                                ? scrollAnchor
+                                                : undefined
+                                            }
+                                            anchorNow={quick || childRows ? undefined : transcriptAnchor}
+                                            onAnchor={
+                                              quick || childRows || !shownSessionId
+                                                ? undefined
+                                                : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                                            }
+                                            expanded={expanded}
+                                            reveal={childRows ? undefined : revealRow}
+                                            registry={registry}
+                                            githubRepository={githubRepository}
+                                            fallbackRepository={pullRequestRef(headerPullRequest?.url ?? "")?.repo}
+                                            // The Quick Composer has no room for the changes view; its file rows stay plain.
+                                            onOpenDiff={quick ? undefined : openDiff}
+                                            onToggleActivity={toggleActivity}
+                                          />
+                                        )}
+                                      </ChatFindScope>
+                                    </StartedMentionsContext.Provider>
+                                  </SessionHoverContext.Provider>
+                                </SubagentHarnessContext.Provider>
+                              </SubagentClockContext.Provider>
+                            </SubagentStopContext.Provider>
+                          </WaitingOnContext.Provider>
                         </WorkingCountsContext.Provider>
                       </SubagentPaneContext.Provider>
                     </SubagentNavContext.Provider>
@@ -6205,7 +6270,6 @@ function AcpmuxPane() {
       </ImageViewerContext.Provider>
     </ArtifactContext.Provider>
   );
-  const toolCards = useToolCards();
   // Folder trust is the first gate in the bottom stack. While its question is open (or after Don't
   // trust), permission and secret cards stay out of the tree so the user never has two different
   // asks competing for the same answer. A read in flight asks nothing and holds nothing: the cards
@@ -6489,6 +6553,11 @@ function AcpmuxPane() {
             />
           </Notice>
         )}
+        <Notice id="background" tier="status" when={background.notice}>
+          <output className="acpmux-switch-notice acpmux-background-notice">
+            {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
+          </output>
+        </Notice>
         <Notice id="worktree-creating" tier="status" when={worktreeCreating && freshChat && !snapshot.sessionId}>
           <output className="acpmux-switch-notice acpmux-worktree-creating">{t("worktree.creating")}</output>
         </Notice>
