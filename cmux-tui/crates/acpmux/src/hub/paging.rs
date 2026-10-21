@@ -91,6 +91,21 @@ impl EventFilter {
         }
     }
 
+    /// True when no record with this `dir` and `kind` can match, so a store can
+    /// pass its line without parsing it. False means "parse and ask `matches`":
+    /// an `in` record's kind alone does not say whether it is an agent update,
+    /// except for the kinds that never are (raw harness lines, responses, load
+    /// replays and bookkeeping updates).
+    pub fn surely_skips(&self, dir: &[u8], kind: &[u8]) -> bool {
+        let Some(kinds) = &self.kinds else { return false };
+        !kinds.iter().any(|k| match k.as_str() {
+            "all" | "wire" => true,
+            "transcript" => transcript_may_match(dir, kind),
+            "mux" => dir == b"mux",
+            exact => kind == exact.as_bytes(),
+        })
+    }
+
     pub fn matches(&self, rec: &EventRecord) -> bool {
         let Some(kinds) = &self.kinds else { return true };
         kinds.iter().any(|k| match k.as_str() {
@@ -115,6 +130,23 @@ pub fn is_transcript(rec: &EventRecord) -> bool {
             && !NON_TRANSCRIPT_UPDATES.contains(&rec.kind.as_str());
     }
     rec.dir == "mux" && TRANSCRIPT_MUX_KINDS.contains(&rec.kind.as_str())
+}
+
+/// Whether a record with this `dir` and `kind` may be a transcript record
+/// (`is_transcript`); false only when it surely is not.
+fn transcript_may_match(dir: &[u8], kind: &[u8]) -> bool {
+    match dir {
+        b"mux" => TRANSCRIPT_MUX_KINDS.iter().any(|k| k.as_bytes() == kind),
+        // A live agent update's kind is its `sessionUpdate` (hub/tap.rs); a raw
+        // harness line keeps its `claude.` method and a reply is `response`.
+        b"in" => {
+            !kind.ends_with(b".replay")
+                && !kind.starts_with(b"claude.")
+                && kind != b"response"
+                && !NON_TRANSCRIPT_UPDATES.iter().any(|k| k.as_bytes() == kind)
+        }
+        _ => false,
+    }
 }
 
 /// Raw protocol traffic: requests, responses, replays and harness lines.
@@ -185,7 +217,8 @@ impl Hub {
             return Ok(page);
         }
         let mut found = Vec::new();
-        self.store.scan_back(id, after, before, &mut |rec| {
+        let skip = |dir: &[u8], kind: &[u8]| filter.surely_skips(dir, kind);
+        self.store.scan_back(id, after, before, &skip, &mut |rec| {
             if !filter.matches(&rec) {
                 return true;
             }
