@@ -16,7 +16,9 @@ extension PaneController {
         if isFocusedInWorkspace, let successor = close.successor {
             workspace.focus.send(.focusPane(successor.rawValue, source: .programmatic))
         }
-        workspace.applyCurrent()
+        // The store tree has not changed: the view mirrors the hidden pane now, and the daemon's
+        // echo is the close's one apply and topology (the perf gate's split budget).
+        workspace.layoutView.syncWithModel()
         return close
     }
 
