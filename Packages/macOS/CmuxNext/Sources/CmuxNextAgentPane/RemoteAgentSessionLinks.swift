@@ -5,7 +5,9 @@ import Observation
 /// that machine's daemon listed them for the chat's attachment (`agent-session-children-v1`,
 /// ``RemoteAcpmuxWire``): each child's parent, so the sidebar's session tree nests them
 /// (`SidebarSessionTreeFeed`) and the chat's Subagents rows open them (``AgentPaneSideChat``).
-/// Only what a daemon answered is noted, never what a page sent.
+/// Only what a daemon answered is noted, never what a page sent. The links are what that
+/// machine's acpmux reports, not proof of who started what: `spawnedBy` there is a tag any process
+/// of its user can set.
 @MainActor @Observable
 public final class RemoteAgentSessionLinks {
     public static let shared = RemoteAgentSessionLinks()

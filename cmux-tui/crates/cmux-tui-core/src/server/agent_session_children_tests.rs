@@ -208,4 +208,16 @@ fn session_children_changes_stream_on_the_attachment_and_no_others() {
     // A followed child is this machine's chat too: it opens in a tab here.
     open_tab(&mux, &own_host(&mux), "acp_new").expect("a followed child opens");
     refused_as_mismatch(open_tab(&mux, &own_host(&mux), "acp_peer_new"));
+
+    // A purged child reaches the client once more, then is neither followed nor opened.
+    fake.notify(
+        "_acpmux/session_changed",
+        json!({"sessionId": SPAWNED, "kind": "purged", "recordKind": "purged", "seq": 5,
+               "session": {"sessionId": SPAWNED}}),
+    );
+    let purged = client.event(WAIT).expect("the purge");
+    assert_eq!(purged["change"]["kind"], json!("purged"));
+    refused_as_mismatch(open_tab(&mux, &own_host(&mux), SPAWNED));
+    fake.notify("_acpmux/session_changed", changed(SPAWNED, json!({"sessionId": SPAWNED})));
+    assert!(client.event(Duration::from_millis(300)).is_none(), "a purged child is not followed");
 }

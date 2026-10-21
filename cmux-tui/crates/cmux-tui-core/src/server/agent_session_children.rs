@@ -16,10 +16,17 @@
 //!   and finish. A change whose summary names a followed parent adds that
 //!   session.
 //! - Every descendant listed or followed is remembered here
-//!   ([`KnownChildren`]), from acpmux's own answer and never from a client,
-//!   so `new-conversation-tab` may file it under this store's `registry:`
-//!   host: a child chat opens in a tab of its own, as a chat this machine
-//!   started (conversation_tabs_wire.rs `record_of`).
+//!   ([`KnownChildren`]), so `new-conversation-tab` may file it under this
+//!   store's `registry:` host: a child chat opens in a tab of its own, as a
+//!   chat this machine started (conversation_tabs_wire.rs `record_of`).
+//!
+//! What this trusts: the ids come from this machine's acpmux list, never
+//! from the request, and peer daemons' sessions are left out. They are not
+//! proof of who started what: the root is whichever bound tab the trusted
+//! local client attached, and `spawnedBy` is a tag acpmux's client sets from
+//! `ACPMUX_SESSION_ID` with no caller token, so any process of this
+//! machine's user may tag a chat under another. Every id is still a session
+//! of this machine's own acpmux, which is what a `registry:` tab may show.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
@@ -55,6 +62,11 @@ impl KnownChildren {
     /// True when acpmux answered `session` as a descendant of an attached tab's session.
     pub(crate) fn contains(&self, session: &str) -> bool {
         self.0.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|id| id == session)
+    }
+
+    /// Forgets `session`: it is moving away from this machine, or acpmux purged it.
+    pub(crate) fn forget(&self, session: &str) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).retain(|id| id != session);
     }
 }
 
@@ -111,22 +123,31 @@ pub(super) fn descendant_ids(root: &str, answer: &Value) -> Vec<String> {
 }
 
 impl Attachment {
-    /// Follows `ids` (descendants acpmux answered) and remembers them for tab records.
-    pub(super) fn follow_children(&self, ids: &[String]) {
-        {
+    /// Follows `ids` (descendants acpmux answered) up to [`MAX_CHILDREN`] and
+    /// remembers the followed ones for tab records; answers those ids (an id
+    /// past the cap is neither followed nor remembered).
+    pub(super) fn follow_children<'a>(&self, ids: &'a [String]) -> Vec<&'a str> {
+        let followed: Vec<&str> = {
             let mut family = self.children.lock().unwrap_or_else(|e| e.into_inner());
-            for id in ids {
-                if family.len() >= MAX_CHILDREN {
-                    break;
-                }
-                family.insert(id.clone());
-            }
-        }
+            ids.iter()
+                .filter(|id| {
+                    family.contains(id.as_str())
+                        || (family.len() < MAX_CHILDREN && family.insert((*id).clone()))
+                })
+                .map(String::as_str)
+                .collect()
+        };
         if let Some(mux) = self.mux.upgrade() {
-            mux.control_clients
-                .agent_sessions
-                .known_children
-                .remember(ids.iter().map(String::as_str));
+            mux.control_clients.agent_sessions.known_children.remember(followed.iter().copied());
+        }
+        followed
+    }
+
+    /// Stops following `session` and forgets it for tab records (acpmux purged it).
+    fn drop_child(&self, session: &str) {
+        self.children.lock().unwrap_or_else(|e| e.into_inner()).remove(session);
+        if let Some(mux) = self.mux.upgrade() {
+            mux.control_clients.agent_sessions.known_children.forget(session);
         }
     }
 
@@ -142,16 +163,18 @@ impl Attachment {
         let new_child = {
             let family = self.children.lock().unwrap_or_else(|e| e.into_inner());
             if family.contains(id) {
+                drop(family);
+                // The purge still reaches the client, which drops the chat.
+                if params.get("kind").and_then(Value::as_str) == Some("purged") {
+                    self.drop_child(id);
+                }
                 return true;
             }
             !is_peer(params)
                 && !is_peer(summary)
                 && parents(summary).any(|parent| parent == self.session || family.contains(parent))
         };
-        if new_child {
-            self.follow_children(&[id.to_owned()]);
-        }
-        new_child
+        new_child && !self.follow_children(&[id.to_owned()]).is_empty()
     }
 }
 
@@ -172,7 +195,9 @@ pub(super) fn list(attachment: &Attachment) -> Result<Value, Refusal> {
     }
     let ids: Vec<String> =
         listed.iter().filter_map(|summary| session_id(summary).map(str::to_owned)).collect();
-    attachment.follow_children(&ids);
+    let followed: HashSet<&str> = attachment.follow_children(&ids).into_iter().collect();
+    // Only what the attachment follows (and so streams and may open) is listed.
+    listed.retain(|summary| session_id(summary).is_some_and(|id| followed.contains(id)));
     Ok(json!({"sessions": listed}))
 }
 
@@ -224,5 +249,7 @@ mod tests {
         assert!(!known.contains("s0"), "the oldest went first");
         assert!(known.contains("s1") && known.contains(&format!("s{MAX_KNOWN}")));
         assert!(!known.contains("never-listed"));
+        known.forget("s1");
+        assert!(!known.contains("s1") && known.contains("s2"));
     }
 }

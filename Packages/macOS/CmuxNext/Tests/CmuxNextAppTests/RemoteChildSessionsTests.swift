@@ -13,10 +13,10 @@ import Testing
     /// A daemon attachment of chat `parent` whose machine started `children` from it.
     private nonisolated final class FakeClient: AgentSessionRemoteClient, @unchecked Sendable {
         let parent: String
-        let children: [[String: Any]]
+        let listed: [[String: Any]]
         init(parent: String, children: [[String: Any]]) {
             self.parent = parent
-            self.children = children
+            listed = children
         }
 
         func attach(_ page: AgentSessionPage, events handler: @escaping @Sendable (AgentSessionRemoteEvent) -> Void) async throws -> Data {
@@ -29,7 +29,7 @@ import Testing
         func permission(id: String, option: String, decisionNonce: String?, personDecision: String?) async throws {}
         func detach() async {}
         func close() async {}
-        func children() async throws -> Data { RemoteAcpmuxWire.json(["sessions": children]) }
+        func children() async throws -> Data { RemoteAcpmuxWire.json(["sessions": listed]) }
     }
 
     /// The reply of the wire's `_acpmux/watch`.
