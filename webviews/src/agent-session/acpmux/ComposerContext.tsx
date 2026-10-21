@@ -9,7 +9,7 @@ import type { EnvironmentKind } from "./environments";
 import { FolderPopover } from "./FolderPopover";
 import type { Project } from "./ProjectChooser";
 import { projectSuffixes } from "./projectSuffix";
-import { folderRepo, isMainCheckout, worktreeName, type ProjectRepo } from "./projectRepos";
+import { belowCheckout, folderRepo, isMainCheckout, worktreeName, type ProjectRepo } from "./projectRepos";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
@@ -131,7 +131,8 @@ export function ComposerContext({
   const newChats = started && onNewChat !== undefined;
   const branch = summary?.branch;
   // The folder control names the repository (projectRepos.ts), and a worktree's branch while no
-  // branch control follows it: "cmux · issue-22273", not the worktree folder's own name.
+  // branch control follows it: "cmux · issue-22273", not the worktree folder's own name. A folder
+  // inside a checkout always adds its path below it ("cmux · webviews"), branch control or not.
   const currentLocation = currentFolder
     ? (folders.find((folder) => folder.id === currentFolder) ?? {
         id: currentFolder,
@@ -139,8 +140,13 @@ export function ComposerContext({
       })
     : undefined;
   const currentRepo = currentLocation ? folderRepo(currentLocation) : undefined;
-  const place =
-    currentLocation && !branch && !isMainCheckout(currentLocation) ? worktreeName(currentLocation) : undefined;
+  const place = !currentLocation
+    ? undefined
+    : branch
+      ? belowCheckout(currentLocation)
+      : isMainCheckout(currentLocation)
+        ? undefined
+        : worktreeName(currentLocation);
   const currentName = currentLocation
     ? currentRepo
       ? place && place !== currentRepo.name

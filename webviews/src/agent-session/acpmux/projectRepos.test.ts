@@ -2,6 +2,7 @@
 // showed each cmux worktree as a project of its own.
 import { expect, test } from "bun:test";
 import {
+  belowCheckout,
   groupByRepo,
   guessProjectRepo,
   isMainCheckout,
@@ -141,4 +142,6 @@ test("a folder inside a checkout is named by its path below it, never as the che
   expect(worktreeName(laneSub)).toBe("feat/picker/web/src");
   expect(worktreeName(laneTop)).toBe("feat/picker");
   expect([main, sub, laneSub, laneTop].map(isMainCheckout)).toEqual([true, false, false, false]);
+  // The composer strip adds this beside its branch control: "cmux · web", not "cmux".
+  expect([main, sub, laneSub, laneTop].map(belowCheckout)).toEqual([undefined, "web", "web/src", undefined]);
 });

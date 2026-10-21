@@ -125,11 +125,17 @@ export function groupByRepo<T extends RepoFolder>(folders: readonly T[], current
 export function worktreeName(folder: RepoFolder): string {
   const repo = folderRepo(folder);
   const checkout = repo?.branch ?? baseName(repo?.top ?? folder.id);
-  const top = repo?.top && trim(repo.top);
+  const below = belowCheckout(folder);
+  if (!below) return checkout;
+  return trim(repo!.top!) === trim(repo!.root) ? below : `${checkout}/${below}`;
+}
+
+/// The folder's path below its checkout's top (`webviews/src`), or nothing at the top itself.
+export function belowCheckout(folder: RepoFolder): string | undefined {
+  const top = folderRepo(folder)?.top;
   const id = trim(folder.id);
-  if (!top || id === top || !id.startsWith(top + "/")) return checkout;
-  const below = id.slice(top.length + 1);
-  return top === trim(repo.root) ? below : `${checkout}/${below}`;
+  if (!top || !id.startsWith(trim(top) + "/")) return undefined;
+  return id.slice(trim(top).length + 1);
 }
 
 /// Whether the folder is its repository's main checkout itself, which needs no second name.
