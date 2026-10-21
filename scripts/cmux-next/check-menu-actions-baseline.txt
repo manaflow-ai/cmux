@@ -25,6 +25,8 @@
 # 2026-10-20 (base red): one row builder for every file row; was an NSMenuItem subclass the check could not see until d2af2d78b672 made it a target object. File rows have no file-target registered action yet.
 1 Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/FileActionsMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/FileSidebarView.swift
+# 2026-10-21 (base red): the pet's Chief Pet Settings… and Hide Chief Pet rows from #22390; their closures run the toggle action and the settings popover (ChiefPetActions), but the pet target cannot see the registry and Settings… has no registered action yet.
+2 Packages/macOS/CmuxNext/Sources/CmuxNextFloating/ChiefPet/ChiefPetPanel.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefSettingsView.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomePageMenus.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageSelectionMenu.swift
