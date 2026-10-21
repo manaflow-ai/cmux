@@ -24,6 +24,8 @@ enum MiscHandlerStrings {
     static var noDefaultBrowser: String { String(localized: "handlers.misc.noDefaultBrowser", defaultValue: "No app opens this link", table: "MiscHandlers", bundle: .module) }
     static var terminalChatNoSession: String { String(localized: "handlers.misc.failed.terminalChatNoSession", defaultValue: "The focused terminal runs no agent session to open as a chat.", table: "MiscHandlers", bundle: .module) }
     static var terminalChatHarness: String { String(localized: "handlers.misc.failed.terminalChatHarness", defaultValue: "Only Claude Code and Codex sessions can open as a chat.", table: "MiscHandlers", bundle: .module) }
+    /// A Simulator shortcut (Home, Rotate, Appearance, Software Keyboard) with no phone tab focused.
+    static var noPhoneTab: String { String(localized: "handlers.misc.failed.noPhoneTab", defaultValue: "No phone tab is focused.", table: "MiscHandlers", bundle: .module) }
     static var noBrowser: String { String(localized: "handlers.misc.failed.noBrowser", defaultValue: "No browser tab is focused.", table: "MiscHandlers", bundle: .module) }
     static var noTerminal: String { String(localized: "handlers.misc.failed.noTerminal", defaultValue: "No terminal tab is focused.", table: "MiscHandlers", bundle: .module) }
     /// A shortcut the key window's kind does not support (`WindowKeyTable`).
