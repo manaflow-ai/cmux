@@ -2941,6 +2941,27 @@ struct RestorableAgentSessionIndex: Sendable {
         return savedLaunchCommand
     }
 
+    /// The launch capture a restored session keeps from its hook record: the
+    /// trusted capture, and for Claude the account a dropped or missing capture
+    /// would otherwise lose. Crash recovery reopens sessions by this same rule.
+    static func restorableLaunchCommand(
+        _ launchCommand: AgentLaunchCommandSnapshot?,
+        kind: RestorableAgentKind,
+        transcriptPath: String?,
+        homeDirectory: String,
+        fileManager: FileManager = .default
+    ) -> AgentLaunchCommandSnapshot? {
+        let trusted = trustedLaunchCommand(launchCommand, kind: kind)
+        guard kind == .claude else { return trusted }
+        return claudeLaunchCommandNamingConfigDirectory(
+            trusted,
+            liveProcessEnvironment: nil,
+            transcriptPath: transcriptPath,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        )
+    }
+
     /// Claude's account selection: the config directory and the secure-storage
     /// directory its login lives under.
     private static let claudeAccountEnvironmentKeys = ["CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR"]
