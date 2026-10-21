@@ -616,6 +616,8 @@ impl Hub {
                         // Who prompted, as `turn_started` recorded it; an
                         // older record without it counts as Web.
                         control,
+                        activity: None,
+                        plan_step: None,
                     });
                     session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
                     // A Web turn in flight in an agent the sandbox did not
