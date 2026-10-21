@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 
 use super::tests::{Session, empty_workspace, read, revision, send};
 use crate::mux::*;
+use crate::state::prelude::*;
 
 /// The workspace ids of `workspace.list` (the sidebar document order) restricted to `ids`.
 fn document_order(mux: &Arc<Mux>, ids: &[&str]) -> Vec<String> {

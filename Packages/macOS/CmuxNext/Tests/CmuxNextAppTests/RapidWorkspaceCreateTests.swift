@@ -327,11 +327,21 @@ struct RapidWorkspaceCreateTests {
 
         // Every frame the list draws from the first press until the creates settled.
         var frames: [[String]] = []
+        // Per frame, which rows the sidebar document places (d) and which have a personal row (p): says which
+        // source a misplaced row came from.
+        var sources: [[String: String]] = []
+        let personal = services.machines.local.store.personal
         list.onDisplayed = { layout in
-            frames.append(layout.rows.compactMap { row in
+            let frame: [String] = layout.rows.compactMap { row in
                 guard case let .workspace(id) = row.key, id.rawValue != home else { return nil }
                 return id.rawValue
-            })
+            }
+            frames.append(frame)
+            let rowed = Set(personal.workspaces.map(\.workspaceKey.rawValue))
+            let path = SidebarDocStore.current?.shown == nil ? "personal" : "doc"
+            sources.append(Dictionary(uniqueKeysWithValues: frame.map { id in
+                (id, path + (SidebarDocWiring.item(workspace: id, services.machines) != nil ? "+d" : "") + (rowed.contains(id) ? "+p" : ""))
+            }))
         }
         var keys: [String] = []
         func noteKeys() { for row in PendingWorkspaceRows.shared.rows(in: window) where !keys.contains(row.id) { keys.append(row.id) } }
@@ -368,7 +378,10 @@ struct RapidWorkspaceCreateTests {
         }
         // The frame strip (each distinct drawn order, in order) for the before/after gallery.
         var strip: [[String]] = []
-        for frame in frames.map(label) where strip.last != frame { strip.append(frame) }
+        for (frame, source) in zip(frames, sources) {
+            let shown = label(frame).enumerated().map { index, name in name.hasPrefix("new") ? "\(name)[\(source[frame[index]] ?? "")]" : name }
+            if strip.last != shown { strip.append(shown) }
+        }
         print("cmd-n-top frames: \(frames.count) drawn, \(strip.count) distinct: \(strip.map { $0.joined(separator: ",") }.joined(separator: " | "))")
         #expect(keys.count == 5, "\(keys.count) of 5 presses added a row")
         #expect(!frames.isEmpty, "the list drew no frame")
