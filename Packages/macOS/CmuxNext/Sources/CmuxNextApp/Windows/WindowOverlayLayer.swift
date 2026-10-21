@@ -121,6 +121,7 @@ final class WindowOverlayLayer {
 
     func teardown() {
         isTornDown = true
+        sidebarResizeArea = nil
         catchers.teardown()
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
@@ -365,6 +366,7 @@ final class WindowOverlayLayer {
             root.hoverPassThroughWindows = { [weak catchers] in catchers?.windowNumbers ?? [] }
             root.refreshDividerHover()
         }
+        (window.contentView as? WindowRootView)?.sidebar.refreshResizeHover { [weak catchers] in catchers?.windowNumbers ?? [] }
     }
 
     /// Every Chromium page of this window re-applies geometry, clip and

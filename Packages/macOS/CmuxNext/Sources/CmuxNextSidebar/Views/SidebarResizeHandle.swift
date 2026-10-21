@@ -23,7 +23,6 @@ final class SidebarResizeHandle: NSView {
     private var pointerHover: PointerHover?
     private var startX: CGFloat = 0
     private let line = CALayer()
-    private var cursorArea: NSTrackingArea?
 
     /// Width of the line at rest (`sidebar.border`); 0 shows it only on
     /// hover or while dragging.
@@ -64,27 +63,13 @@ final class SidebarResizeHandle: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    private var resizeCursor: NSCursor {
-        if #available(macOS 15, *) { return .columnResize }
-        return .resizeLeftRight
-    }
-
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: resizeCursor)
+        if #available(macOS 15, *) {
+            addCursorRect(bounds, cursor: .columnResize)
+        } else {
+            addCursorRect(bounds, cursor: .resizeLeftRight)
+        }
     }
-
-    /// Cursor rects work only in the key window. A focused Chromium page is a child window that
-    /// holds key, so the resize cursor also comes from an always-active cursor-update area.
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let cursorArea { removeTrackingArea(cursorArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        cursorArea = area
-    }
-
-    override func cursorUpdate(with event: NSEvent) { resizeCursor.set() }
-    override func mouseEntered(with event: NSEvent) { resizeCursor.set() }
 
     override func layout() {
         super.layout()
@@ -114,6 +99,15 @@ final class SidebarResizeHandle: NSView {
     }
 
     func setHovered(_ hovered: Bool) { isHovered = hovered }
+
+    /// Windows above this one that pass hover through: the catcher panels over pages
+    /// (`DividerMouseCatchers`). They cover the band, so without them the hover reads as occluded.
+    var hoverPassThroughWindows: () -> Set<Int> = { [] } {
+        didSet { pointerHover?.passThroughWindows = hoverPassThroughWindows }
+    }
+
+    /// Recomputes the hover now (the catcher panels moved under a still pointer).
+    func refreshHover() { pointerHover?.refresh() }
 
     /// Hidden with the sidebar under a still pointer: no exit comes.
     override func viewDidHide() {

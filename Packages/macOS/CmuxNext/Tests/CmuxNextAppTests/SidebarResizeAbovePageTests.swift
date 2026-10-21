@@ -7,9 +7,9 @@ import Testing
 /// The sidebar's resize edge works whatever has focus (Leo 2026-10-20: "when im focused in
 /// chromium/a browser tab i should also be able to resize the left sidebar"). A Chromium page is a
 /// child window above this one and holds key while it has focus. The handle's first click only
-/// brought the window forward, its cursor rect only works in the key window, and the band's part
-/// over the page went to the page. Pane dividers already had all three covered: they take the
-/// first mouse and their hit areas get a catcher panel above pages (`DividerMouseCatchers`).
+/// brought the window forward, and the band's part over the page went to the page. Pane dividers
+/// already had both covered: they take the first mouse and their hit areas get a catcher panel
+/// above pages (`DividerMouseCatchers`), which also sets the cursor while the page holds key.
 @MainActor @Suite(.serialized) struct SidebarResizeAbovePageTests {
     func root(sidebarHidden: Bool = false) -> (ShellWindow, WindowRootView) {
         _ = NSApplication.shared
@@ -54,17 +54,6 @@ import Testing
         #expect(try handle(in: root).acceptsFirstMouse(for: nil))
     }
 
-    /// Cursor rects work only in the key window: the resize cursor also comes from a cursor-update
-    /// area that is active while a page holds key.
-    @Test func theResizeCursorShowsWhenThePageHoldsKey() throws {
-        let (window, root) = root()
-        defer { window.close() }
-        let handle = try handle(in: root)
-        handle.updateTrackingAreas()
-        #expect(handle.trackingAreas.contains { $0.options.contains([.cursorUpdate, .activeAlways]) },
-                "\(handle.trackingAreas.map(\.options.rawValue))")
-    }
-
     /// The whole band gets a catcher panel above pages, like a pane divider's hit area.
     @Test func theBandIsACatcherArea() throws {
         let (window, root) = root()
@@ -76,10 +65,12 @@ import Testing
     @Test func theCatcherAreaFollowsTheSidebarWidth() throws {
         let (window, root) = root()
         defer { window.close() }
+        let before = try handle(in: root).convert(try handle(in: root).bounds, to: nil)
         root.sidebar.restore(width: root.sidebar.model.width + 60, presentation: .shown)
         root.needsLayout = true
         root.layoutSubtreeIfNeeded()
         let band = try handle(in: root).convert(try handle(in: root).bounds, to: nil)
+        #expect(band.minX > before.minX, "band \(before) -> \(band)")
         #expect(sidebarAreas(in: window, root: root) == [band], "areas \(window.overlayLayer.dividerAreas), band \(band)")
     }
 
