@@ -16,7 +16,7 @@ extension AcpmuxHost {
 
     /// A shutdown removes `daemon.pid`; kill -9 or a crash leaves it naming a dead process,
     /// and a daemon nobody reaped leaves a zombie, which `kill(pid, 0)` still reports alive.
-    static func crashed(_ home: URL) -> Bool {
+    nonisolated static func crashed(_ home: URL) -> Bool {
         guard let text = try? String(contentsOf: home.appendingPathComponent("daemon.pid"), encoding: .utf8),
               let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0 else { return false }
         return !agentPaneProcessIsRunning(pid)
