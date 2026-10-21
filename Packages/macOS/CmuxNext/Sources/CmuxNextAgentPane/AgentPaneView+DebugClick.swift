@@ -1,6 +1,6 @@
 #if DEBUG
 public import AppKit
-import WebKit
+public import WebKit
 
 /// `debug.agent_pane click` and `hover` (DEBUG builds), on whichever host shows the chat: the
 /// pane's own WebKit view, or the shared page host (`agent.pageHost`) in WebKit or Chromium. The
