@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxActivity, AcpmuxRow } from "../../src/agent-session/acpmux/model";
+import type { TurnCheckpointLoad } from "../../src/agent-session/acpmux/changes/turnCheckpoint";
 
 export const FOLDER = "/Users/you/src/uploader";
 export const NOTES = `${FOLDER}/notes.txt`;
@@ -149,8 +150,30 @@ export function useDom() {
   };
 }
 
-/// The edited-files card for `row`, as the transcript draws it at the end of its turn.
-export async function editedCard(row: AcpmuxRow): Promise<ReactNode> {
+/// The turn's checkpoint, loaded: the repository at FOLDER, with `files` (paths from FOLDER) changed.
+export const checkpoint = (
+  files: { path: string; additions: number; deletions: number; patch: string }[] = [],
+): TurnCheckpointLoad => ({
+  state: "loaded",
+  checkpointId: "checkpoint-1",
+  changeSet: {
+    scope: "lastTurn",
+    root: FOLDER,
+    files: files.map((file) => ({ ...file, status: "modified" as const })),
+  },
+});
+
+/// The edited-files card for `row`, as the transcript draws it at the end of its turn; with `load`,
+/// once the turn's checkpoint has loaded (App.tsx `turnCountsFor`).
+export async function editedCard(row: AcpmuxRow, load?: TurnCheckpointLoad): Promise<ReactNode> {
   const { EditedFilesCard } = await import("../../src/agent-session/acpmux/conversation/EditedFilesCard");
-  return <EditedFilesCard row={row} onOpenDiff={() => {}} />;
+  const { TurnCountsContext } = await import("../../src/agent-session/acpmux/changes/TurnCountsContext");
+  const { turnCounts } = await import("../../src/agent-session/acpmux/changes/turnCheckpoint");
+  const card = <EditedFilesCard row={row} onOpenDiff={() => {}} />;
+  if (!load) return card;
+  return (
+    <TurnCountsContext.Provider value={(_rowId, files, pathsOnly) => turnCounts(files, load, pathsOnly)}>
+      {card}
+    </TurnCountsContext.Provider>
+  );
 }

@@ -4,6 +4,9 @@
 // transcript marks a failed call. It wrote nothing, so it neither counts nor hides a later edit to
 // the same file: Claude Code's Write fails until the file is read, and the retry is the change.
 //
+// So it does once the turn's checkpoint has loaded: no checkpoint file covers a file a failed call
+// named, wherever it is.
+//
 // Before: the failed Write dropped off the card ("Edited 0 files" with no row), and an Edit after
 // it to the same file lost its counts.
 import { expect, test } from "bun:test";
@@ -11,6 +14,7 @@ import {
   NOTES,
   PLAN,
   activity,
+  checkpoint,
   editWithDiff,
   editedCard,
   toolCall,
@@ -76,4 +80,29 @@ test("a failed edit that carried no diff lists as failed too", async () => {
   ]);
   await dom.render(await editedCard(activity("turn-f5", [failedMove])));
   expect(rows()).toEqual([[NOTES, "failed"]]);
+});
+
+test("once the checkpoint loads, a failed Write in the repository stays on the card", async () => {
+  const row = activity("turn-f6", [await translatorWrite("write-6", NOTES, "failed")]);
+  await dom.render(await editedCard(row, checkpoint()));
+  expect(dom.text(".acpmux-edited-title > div")).toBe("Edited 1 file");
+  expect(rows()).toEqual([[NOTES, "failed"]]);
+});
+
+test("once the checkpoint loads, a failed Write lists after the repository's counted files", async () => {
+  const row = activity("turn-f7", [
+    await editWithDiff("edit-3", PLAN, "a\n", "b\n"),
+    await translatorWrite("write-7", NOTES, "failed"),
+  ]);
+  await dom.render(
+    await editedCard(
+      row,
+      checkpoint([{ path: "plan.md", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-a\n+b\n" }]),
+    ),
+  );
+  expect(dom.text(".acpmux-edited-title > div")).toBe("Edited 2 files");
+  expect(rows()).toEqual([
+    [PLAN, "+1-1"],
+    [NOTES, "failed"],
+  ]);
 });

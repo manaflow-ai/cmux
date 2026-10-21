@@ -1,7 +1,8 @@
 // l10n-allow-file: test fixture paths and file text, not shipped UI.
 // The `debug.agent_pane` state's `changedFiles` lists every file the chat's edits changed, as the
 // edited-files card does: one with counts, and one listed without (a Write whose old contents are
-// unknown). Not a file only a failed call named: it changed nothing.
+// unknown). Not a file only a failed call named, or one an edit still waiting for its permission
+// names: neither changed anything.
 //
 // Before: a Write whose old contents are unknown was left out, so a scripted check saw the turn
 // change one file of two.
@@ -45,4 +46,14 @@ test("a file one call diffed and another named without a diff lists once", async
     activity("turn-4", [await translatorWrite("write-4", NOTES, "updated")]),
   ];
   expect(await changedFiles(rows)).toEqual([CARGO, NOTES]);
+});
+
+test("an edit with no diff still waiting for its permission is not a changed file", async () => {
+  const rows = [
+    activity("turn-5", [
+      await editWithDiff("edit-3", CARGO, "a\n", "b\n"),
+      await toolCall("move-2", [{ title: "Move", kind: "edit", status: "pending", locations: [{ path: PLAN }] }]),
+    ]),
+  ];
+  expect(await changedFiles(rows)).toEqual([CARGO]);
 });
