@@ -132,18 +132,20 @@ jobs:
             --ocr "$RUNNER_TEMP/pr-media-ocr" --apply --report "$RUNNER_TEMP/pr-media-privacy.json"
           status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
+          # 2 is bad input, 3 a crash: keep the marker so the next run tries again.
           if [ "$status" -gt 1 ]; then exit "$status"; fi
 
       - name: Advance the scanned marker
         env:
-          TO: ${{ steps.fetch.outputs.to }}
+          MARKER: ${{ steps.scan.outputs.marker || steps.fetch.outputs.to }}
         run: |
           set -euo pipefail
-          # Hits were removed or reported above; the next run scans from here.
-          git push --force origin "$TO:refs/pr-media-privacy/scanned"
+          # Hits were removed or reported above; the next run scans from here. The marker is
+          # the gate's own removal commit when that sits right on the scanned tip.
+          git push --force origin "$MARKER:refs/pr-media-privacy/scanned"
 
       - name: Fail when private names were found
         if: ${{ steps.scan.outputs.status != '0' }}
         run: |
-          echo "::error title=pr-media privacy::Private names were found on pr-media; see the annotations and the job summary."
+          echo "::error title=pr-media privacy::Private names were found on pr-media, or a file could not be read; see the annotations and the job summary."
           exit 1

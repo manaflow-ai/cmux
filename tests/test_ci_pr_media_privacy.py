@@ -202,13 +202,56 @@ class ApplyTests(RepoCase):
         report_path = self.root / "report.json"
         argv = ["--repo", str(self.work), "--from", start, "--to", end, "--ocr", str(self.ocr),
                 "--apply", "--report", str(report_path)]
-        quiet = {**GIT_ENV, "GITHUB_STEP_SUMMARY": "", "PR_MEDIA_PRIVATE_TERMS": "", "PR_MEDIA_AGENT_AUTHORS": ""}
+        quiet = {**GIT_ENV, "GITHUB_STEP_SUMMARY": "", "GITHUB_OUTPUT": "", "PR_MEDIA_PRIVATE_TERMS": "",
+                 "PR_MEDIA_AGENT_AUTHORS": ""}
         with contextlib.redirect_stdout(io.StringIO()), mock.patch.dict(os.environ, quiet):
             self.assertEqual(privacy.main(argv, lookup=lambda _numbers: {}), 1)
             self.assertEqual(privacy.main(["--repo", str(self.work), "--from", "f" * 40, "--to", end]), 2)
             self.assertEqual(privacy.main(["--repo", str(self.work), "--from", "empty", "--to", end]), 0)
         self.assertEqual(json.loads(report_path.read_text())["files"][0]["action"], "removed")
         self.assertNotIn("nightly-next/leak.png", self.remote_paths())
+
+    def test_the_marker_skips_the_gates_own_removal_commit(self) -> None:
+        start = self.commit({"README.md": "hi"})
+        end = self.commit({"nightly-next/leak.png": "x"})
+        report, _ = self.scan(start, end, apply=True)
+        self.assertEqual(report["marker"], git("rev-parse", privacy.BRANCH, cwd=self.remote).strip())
+        self.assertNotEqual(report["marker"], end)
+
+    def test_an_unreadable_file_fails_the_run(self) -> None:
+        start = self.commit({"README.md": "hi"})
+        end = self.commit({"3/broken.png": "x"})
+        self.ocr.write_text("#!/bin/sh\nexit 4\n")
+        argv = ["--repo", str(self.work), "--from", start, "--to", end, "--ocr", str(self.ocr)]
+        quiet = {**GIT_ENV, "GITHUB_STEP_SUMMARY": "", "GITHUB_OUTPUT": "", "PR_MEDIA_PRIVATE_TERMS": ""}
+        with contextlib.redirect_stdout(io.StringIO()), mock.patch.dict(os.environ, quiet):
+            self.assertEqual(privacy.main(argv, lookup=lambda _numbers: {}), 1)
+
+    def test_a_crash_exits_above_one_so_the_marker_holds(self) -> None:
+        start = self.commit({"README.md": "hi"})
+        end = self.commit({"nightly-next/leak.png": "x"})
+        argv = ["--repo", str(self.work), "--from", start, "--to", end, "--ocr", str(self.ocr), "--apply"]
+        quiet = {**GIT_ENV, "GITHUB_STEP_SUMMARY": "", "GITHUB_OUTPUT": "", "PR_MEDIA_PRIVATE_TERMS": ""}
+        with contextlib.redirect_stdout(io.StringIO()) as out, mock.patch.dict(os.environ, quiet), \
+                mock.patch.object(privacy, "apply_removal", side_effect=RuntimeError("pr-media kept moving")):
+            self.assertEqual(privacy.main(argv, lookup=lambda _numbers: {}), 3)
+        self.assertIn("RuntimeError", out.getvalue())
+        self.assertIn("nightly-next/leak.png", self.remote_paths())
+
+
+class AuthorLookupTests(unittest.TestCase):
+    def test_a_partial_graphql_answer_counts_as_a_failed_lookup(self) -> None:
+        partial = json.dumps({"data": {"repository": {"p10": {"author": {"login": "teamleaderleo"}}, "p12": None}},
+                              "errors": [{"message": "Could not resolve to a PullRequest"}]})
+        done = subprocess.CompletedProcess([], 1, stdout=partial, stderr="")
+        with mock.patch.dict(os.environ, {"REPOSITORY": "o/r"}), \
+                mock.patch.object(privacy.subprocess, "run", return_value=done):
+            self.assertIsNone(privacy.github_authors([10, 12]))
+        whole = json.dumps({"data": {"repository": {"p10": {"author": {"login": "teamleaderleo"}}}}})
+        with mock.patch.dict(os.environ, {"REPOSITORY": "o/r"}), \
+                mock.patch.object(privacy.subprocess, "run",
+                                  return_value=subprocess.CompletedProcess([], 0, stdout=whole, stderr="")):
+            self.assertEqual(privacy.github_authors([10]), {10: "teamleaderleo"})
 
 
 class WorkflowTests(unittest.TestCase):

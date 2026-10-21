@@ -195,11 +195,13 @@ def github_authors(numbers: list[int]) -> dict[int, str] | None:
         query = f'query {{ repository(owner: "{owner_name}", name: "{name}") {{ {fields} }} }}'
         done = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
                               capture_output=True, text=True)
+        # A partial answer (one number is an issue, one PR is gone) also exits non-zero:
+        # treat it as a failed lookup so nothing in the batch is removed.
+        if done.returncode != 0:
+            return None
         try:
             repo = (json.loads(done.stdout or "{}").get("data") or {}).get("repository") or {}
         except json.JSONDecodeError:
-            return None
-        if not repo and done.returncode != 0:
             return None
         for key, value in repo.items():
             login = ((value or {}).get("author") or {}).get("login")
@@ -293,7 +295,7 @@ def annotation_property(text: str) -> str:
 
 def scan(repo: Path, start: str | None, end: str, ocr: str | None, patterns, apply: bool,
          agents: frozenset[str], lookup, remote: str = "origin") -> dict:
-    report: dict = {"from": start, "to": end, "files": [], "unscanned": [], "removal": None}
+    report: dict = {"from": start, "to": end, "files": [], "unscanned": [], "removal": None, "marker": end}
     if not start:
         print(f"No scanned marker yet; recording {end[:12]} without scanning the existing branch.", flush=True)
         return report
@@ -306,7 +308,7 @@ def scan(repo: Path, start: str | None, end: str, ocr: str | None, patterns, app
             lines = ocr_lines(ocr or "", repo, end, path)
         except (RuntimeError, subprocess.SubprocessError, OSError) as error:
             report["unscanned"].append({"path": path, "error": str(error)})
-            print(f"::warning file={annotation_property(path)}::pr-media privacy: could not read {annotation(path)} ({error})",
+            print(f"::error file={annotation_property(path)},title=pr-media privacy::could not read {annotation(path)} ({error})",
                   flush=True)
             continue
         found = findings(lines, patterns)
@@ -326,6 +328,9 @@ def scan(repo: Path, start: str | None, end: str, ocr: str | None, patterns, app
         lines += [f"- {path} ({', '.join(sorted({hit['kind'] for hit in hits[path]}))})" for path in sorted(to_remove)]
         lines += ["", "Found by scripts/ci/pr_media_privacy.py (.github/workflows/pr-media-privacy.yml)."]
         report["removal"] = apply_removal(repo, remote, to_remove, "\n".join(lines) + "\n")
+        # The removal holds nothing new to scan when it sits right on the scanned tip.
+        if report["removal"] and git("rev-parse", f"{report['removal']}^", cwd=repo).strip() == end:
+            report["marker"] = report["removal"]
     for path in sorted(hits):
         kinds = sorted({hit["kind"] for hit in hits[path]})
         if path not in to_remove:
@@ -390,12 +395,21 @@ def main(argv: list[str] | None = None, lookup=github_authors) -> int:
     except BadInput as error:
         print(f"::error title=pr-media privacy::{annotation(str(error))}", flush=True)
         return 2
+    except Exception as error:  # noqa: BLE001 - any crash must hold the marker, not pass as "hits found"
+        # Only the type: a git error's text can carry paths or commit messages.
+        print(f"::error title=pr-media privacy::scan stopped with {type(error).__name__}; the marker is kept",
+              flush=True)
+        return 3
     if args.report:
         args.report.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     write_summary(report)
-    found = len(report["files"])
-    print(f"pr-media privacy: {found} file(s) with private names, {len(report['unscanned'])} unreadable.", flush=True)
-    return 1 if found else 0
+    if os.environ.get("GITHUB_OUTPUT"):
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+            handle.write(f"marker={report['marker']}\n")
+    found, unread = len(report["files"]), len(report["unscanned"])
+    print(f"pr-media privacy: {found} file(s) with private names, {unread} unreadable.", flush=True)
+    # An unreadable file is not retried, so it fails the run like a hit.
+    return 1 if found or unread else 0
 
 
 if __name__ == "__main__":
