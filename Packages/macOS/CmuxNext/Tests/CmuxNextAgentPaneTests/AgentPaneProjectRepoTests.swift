@@ -88,7 +88,8 @@ struct AgentPaneProjectRepoTests {
         defer { fixture.remove() }
         try checkout(fixture)
         #expect(fixture.repos.repo(for: fixture.home + "/code/cmux")
-            == AgentPaneProjectRepo(root: fixture.home + "/code/cmux", name: "cmux", branch: "main", github: "manaflow-ai/cmux"))
+            == AgentPaneProjectRepo(
+                root: fixture.home + "/code/cmux", top: fixture.home + "/code/cmux", name: "cmux", branch: "main", github: "manaflow-ai/cmux"))
     }
 
     @Test func aLinkedWorktreeBelongsToItsMainCheckout() throws {
@@ -96,7 +97,8 @@ struct AgentPaneProjectRepoTests {
         defer { fixture.remove() }
         try checkout(fixture)
         #expect(fixture.repos.repo(for: fixture.home + "/wt/cmux/picker")
-            == AgentPaneProjectRepo(root: fixture.home + "/code/cmux", name: "cmux", branch: "feat/picker", github: "manaflow-ai/cmux"))
+            == AgentPaneProjectRepo(
+                root: fixture.home + "/code/cmux", top: fixture.home + "/wt/cmux/picker", name: "cmux", branch: "feat/picker", github: "manaflow-ai/cmux"))
     }
 
     @Test func aFolderInsideARepositoryFindsItAbove() throws {
@@ -104,7 +106,9 @@ struct AgentPaneProjectRepoTests {
         defer { fixture.remove() }
         try checkout(fixture)
         try fixture.folder("code/cmux/webviews/src")
-        #expect(fixture.repos.repo(for: fixture.home + "/code/cmux/webviews/src")?.root == fixture.home + "/code/cmux")
+        let repo = fixture.repos.repo(for: fixture.home + "/code/cmux/webviews/src")
+        #expect(repo?.root == fixture.home + "/code/cmux")
+        #expect(repo?.top == fixture.home + "/code/cmux")
     }
 
     @Test func aDetachedHeadHasNoBranchAndNoRemoteNamesItForItsFolder() throws {
@@ -112,7 +116,8 @@ struct AgentPaneProjectRepoTests {
         defer { fixture.remove() }
         try fixture.write("0123456789abcdef0123456789abcdef01234567\n", "code/tool/.git/HEAD")
         #expect(fixture.repos.repo(for: fixture.home + "/code/tool")
-            == AgentPaneProjectRepo(root: fixture.home + "/code/tool", name: "tool", branch: nil, github: nil))
+            == AgentPaneProjectRepo(
+                root: fixture.home + "/code/tool", top: fixture.home + "/code/tool", name: "tool", branch: nil, github: nil))
     }
 
     @Test func aBareRepositoryIsTheRootOfItsWorktrees() throws {
@@ -123,7 +128,8 @@ struct AgentPaneProjectRepoTests {
         try fixture.write("../..\n", "code/lib.git/worktrees/next/commondir")
         try fixture.write("gitdir: \(fixture.home)/code/lib.git/worktrees/next\n", "code/lib-next/.git")
         #expect(fixture.repos.repo(for: fixture.home + "/code/lib-next")
-            == AgentPaneProjectRepo(root: fixture.home + "/code/lib.git", name: "lib", branch: "next", github: nil))
+            == AgentPaneProjectRepo(
+                root: fixture.home + "/code/lib.git", top: fixture.home + "/code/lib-next", name: "lib", branch: "next", github: nil))
 
         // A bare repository in a hidden folder of the checkout is named for the checkout.
         try fixture.write("ref: refs/heads/main\n", "code/app/.bare/HEAD")
@@ -132,6 +138,30 @@ struct AgentPaneProjectRepoTests {
         try fixture.write("gitdir: ../.bare/worktrees/main\n", "code/app/main/.git")
         #expect(fixture.repos.repo(for: fixture.home + "/code/app/main")?.root == fixture.home + "/code/app")
         #expect(fixture.repos.repo(for: fixture.home + "/code/app/main")?.name == "app")
+    }
+
+    @Test func aHiddenMainCheckoutIsItsOwnRootNotItsParent() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write("ref: refs/heads/main\n", "code/.github/.git/HEAD")
+        try fixture.write("ref: refs/heads/main\n", "code/.dotfiles/.git/HEAD")
+        let github = fixture.repos.repo(for: fixture.home + "/code/.github")
+        #expect(github?.root == fixture.home + "/code/.github")
+        #expect(github?.name == ".github")
+        #expect(fixture.repos.repo(for: fixture.home + "/code/.dotfiles")?.root == fixture.home + "/code/.dotfiles")
+    }
+
+    @Test func aSubmoduleIsItsOwnRepositoryRootedAtItsCheckout() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try checkout(fixture)
+        try fixture.write("ref: refs/heads/trunk\n", "code/cmux/.git/modules/ghostty/HEAD")
+        try fixture.write("gitdir: ../.git/modules/ghostty\n", "code/cmux/ghostty/.git")
+        let repo = fixture.repos.repo(for: fixture.home + "/code/cmux/ghostty")
+        #expect(repo?.root == fixture.home + "/code/cmux/ghostty")
+        #expect(repo?.top == fixture.home + "/code/cmux/ghostty")
+        #expect(repo?.name == "ghostty")
+        #expect(repo?.branch == "trunk")
     }
 
     @Test func aFolderInNoRepositoryIsLeftOut() throws {
@@ -260,6 +290,7 @@ struct AgentPaneProjectRepoTests {
         #expect(value?["projects"] as? [String] == [worktree])
         let repo = (value?["repos"] as? [String: Any])?[worktree] as? [String: Any]
         #expect(repo?["root"] as? String == fixture.home + "/code/cmux")
+        #expect(repo?["top"] as? String == worktree)
         #expect(repo?["name"] as? String == "cmux")
         #expect(repo?["branch"] as? String == "feat/picker")
         #expect(repo?["github"] as? String == "manaflow-ai/cmux")

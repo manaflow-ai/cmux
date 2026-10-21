@@ -7,6 +7,9 @@ import CmuxNextSettings
 /// shared `.git`), the same for every worktree of the repository.
 nonisolated struct AgentPaneProjectRepo: Equatable, Sendable {
     var root: String
+    /// The checkout holding the folder (its main checkout or worktree): a folder inside it is
+    /// named by its path below this, not by the checkout's branch alone.
+    var top: String
     var name: String
     var branch: String?
     /// `owner/repo` when `origin` is on GitHub: the owner's avatar is the badge of last resort.
@@ -14,7 +17,7 @@ nonisolated struct AgentPaneProjectRepo: Equatable, Sendable {
 
     /// The page's shape: absent fields are left out.
     var reply: [String: Any] {
-        var value: [String: Any] = ["root": root, "name": name]
+        var value: [String: Any] = ["root": root, "top": top, "name": name]
         if let branch { value["branch"] = branch }
         if let github { value["github"] = github }
         return value
@@ -67,7 +70,10 @@ nonisolated struct AgentPaneProjectRepoReader: Sendable {
         var current = Self.normalized(folder)
         for _ in 0..<Self.maximumLevels {
             guard current.hasPrefix("/"), current != "/", allows(current) else { return nil }
-            if let repo = repo(at: current) { return repo }
+            if var repo = repo(at: current) {
+                repo.top = current
+                return repo
+            }
             current = (current as NSString).deletingLastPathComponent
         }
         return nil
@@ -87,22 +93,32 @@ nonisolated struct AgentPaneProjectRepoReader: Sendable {
             return nil
         }
         guard let head = text(gitDir + "/HEAD") else { return nil }
-        let common = text(gitDir + "/commondir").map {
-            Self.resolve($0.trimmingCharacters(in: .whitespacesAndNewlines), from: gitDir)
-        } ?? gitDir
-        return repo(commonDir: common, head: head)
+        guard let commonDir = text(gitDir + "/commondir") else {
+            // A submodule (`gitdir: ../.git/modules/sub`) or a checkout with a separate Git folder:
+            // its own repository, rooted where its `.git` file is.
+            return repo(commonDir: gitDir, root: folder, head: head)
+        }
+        return repo(commonDir: Self.resolve(commonDir.trimmingCharacters(in: .whitespacesAndNewlines), from: gitDir), head: head)
     }
 
-    private func repo(commonDir: String, head: String) -> AgentPaneProjectRepo? {
+    private func repo(commonDir: String, root given: String? = nil, head: String) -> AgentPaneProjectRepo? {
         guard allows(commonDir) else { return nil }
-        // A bare repository kept in a hidden folder of its checkout (`cmux/.bare`) is named for the checkout.
-        var root = commonDir.hasSuffix("/.git") ? String(commonDir.dropLast("/.git".count)) : commonDir
-        if (root as NSString).lastPathComponent.hasPrefix(".") { root = (root as NSString).deletingLastPathComponent }
+        let root: String
+        if let given {
+            root = given
+        } else if commonDir.hasSuffix("/.git") {
+            root = String(commonDir.dropLast("/.git".count))
+        } else if (commonDir as NSString).lastPathComponent.hasPrefix(".") {
+            // A bare repository kept in a hidden folder of its checkout (`cmux/.bare`) is named for the checkout.
+            root = (commonDir as NSString).deletingLastPathComponent
+        } else {
+            root = commonDir
+        }
         guard root.hasPrefix("/"), root != "/" else { return nil }
         let github = text(commonDir + "/config").flatMap(Self.origin).flatMap(AgentPaneGitHubRepository.parse)
         var name = github.flatMap { $0.split(separator: "/").last.map(String.init) } ?? (root as NSString).lastPathComponent
         if github == nil, name.hasSuffix(".git"), name.count > 4 { name = String(name.dropLast(4)) }
-        return AgentPaneProjectRepo(root: root, name: name, branch: Self.branch(head), github: github)
+        return AgentPaneProjectRepo(root: root, top: root, name: name, branch: Self.branch(head), github: github)
     }
 
     /// The file's text, only when its path and its resolved path may be read.

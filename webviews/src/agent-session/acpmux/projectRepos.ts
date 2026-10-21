@@ -13,6 +13,8 @@
 export type ProjectRepo = {
   /// The main checkout's folder; every worktree of one repository has the same.
   root: string;
+  /// The checkout (main or worktree) holding the folder: a folder inside it is named by its path below.
+  top?: string;
   name: string;
   /// The folder's branch; none while detached.
   branch?: string;
@@ -26,10 +28,11 @@ export function parseProjectRepos(value: unknown): Record<string, ProjectRepo> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return repos;
   for (const [cwd, entry] of Object.entries(value as Record<string, unknown>)) {
     if (!entry || typeof entry !== "object") continue;
-    const { root, name, branch, github } = entry as Record<string, unknown>;
+    const { root, top, name, branch, github } = entry as Record<string, unknown>;
     if (typeof root !== "string" || !root.startsWith("/") || typeof name !== "string" || !name) continue;
     repos[cwd] = {
       root,
+      ...(typeof top === "string" && top.startsWith("/") ? { top } : {}),
       name,
       ...(typeof branch === "string" && branch ? { branch } : {}),
       ...(typeof github === "string" && /^[\w.-]+\/[\w.-]+$/.test(github) ? { github } : {}),
@@ -116,9 +119,23 @@ export function groupByRepo<T extends RepoFolder>(folders: readonly T[], current
   });
 }
 
-/// What a worktree row is called: its branch, else its folder's name.
+/// What a worktree row is called: its branch, else its folder's name. A folder inside a checkout
+/// is named by its path below it (`webviews/src`, `issue-22273/web`), so it never reads as the
+/// checkout itself.
 export function worktreeName(folder: RepoFolder): string {
-  return folderRepo(folder)?.branch ?? baseName(folder.id);
+  const repo = folderRepo(folder);
+  const checkout = repo?.branch ?? baseName(repo?.top ?? folder.id);
+  const top = repo?.top && trim(repo.top);
+  const id = trim(folder.id);
+  if (!top || id === top || !id.startsWith(top + "/")) return checkout;
+  const below = id.slice(top.length + 1);
+  return top === trim(repo.root) ? below : `${checkout}/${below}`;
+}
+
+/// Whether the folder is its repository's main checkout itself, which needs no second name.
+export function isMainCheckout(folder: RepoFolder): boolean {
+  const repo = folderRepo(folder);
+  return repo !== undefined && trim(folder.id) === trim(repo.root);
 }
 
 /// The rows a search shows: each group with any folder that matches every word, by the

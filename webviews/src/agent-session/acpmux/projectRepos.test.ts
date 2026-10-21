@@ -1,7 +1,15 @@
 // The project pickers fold a repository's worktrees under one row (projectRepos.ts): Austin's list
 // showed each cmux worktree as a project of its own.
 import { expect, test } from "bun:test";
-import { groupByRepo, guessProjectRepo, parseProjectRepos, shownRepoRows, type RepoFolder } from "./projectRepos";
+import {
+  groupByRepo,
+  guessProjectRepo,
+  isMainCheckout,
+  parseProjectRepos,
+  shownRepoRows,
+  worktreeName,
+  type RepoFolder,
+} from "./projectRepos";
 
 const cmux = (branch: string) => ({ root: "/Users/me/src/cmux", name: "cmux", branch });
 const lane = (name: string): RepoFolder => ({
@@ -99,13 +107,38 @@ test("a search by branch lists that worktree under its repository; by the reposi
 test("the host's repos are checked before use", () => {
   expect(
     parseProjectRepos({
-      "/a": { root: "/a", name: "a", branch: "main", github: "o/a" },
+      "/a": { root: "/a", top: "/a", name: "a", branch: "main", github: "o/a" },
       "/b": { root: "relative", name: "b" },
       "/c": { root: "/c", name: "" },
       "/d": { root: "/d", name: "d", github: "not a repo" },
       "/e": "nope",
     }),
-  ).toEqual({ "/a": { root: "/a", name: "a", branch: "main", github: "o/a" }, "/d": { root: "/d", name: "d" } });
+  ).toEqual({
+    "/a": { root: "/a", top: "/a", name: "a", branch: "main", github: "o/a" },
+    "/d": { root: "/d", name: "d" },
+  });
   expect(parseProjectRepos(undefined)).toEqual({});
   expect(parseProjectRepos([1])).toEqual({});
+});
+
+test("a folder inside a checkout is named by its path below it, never as the checkout", () => {
+  const root = "/Users/me/src/cmux";
+  const lanePath = "/Users/me/.cmux/worktrees/cmux/picker";
+  const main: RepoFolder = { id: root, label: "cmux", repo: { root, top: root, name: "cmux", branch: "main" } };
+  const sub: RepoFolder = { id: `${root}/web`, label: "web", repo: { root, top: root, name: "cmux", branch: "main" } };
+  const laneSub: RepoFolder = {
+    id: `${lanePath}/web/src`,
+    label: "src",
+    repo: { root, top: lanePath, name: "cmux", branch: "feat/picker" },
+  };
+  const laneTop: RepoFolder = {
+    id: lanePath,
+    label: "picker",
+    repo: { root, top: lanePath, name: "cmux", branch: "feat/picker" },
+  };
+  expect(worktreeName(main)).toBe("main");
+  expect(worktreeName(sub)).toBe("web");
+  expect(worktreeName(laneSub)).toBe("feat/picker/web/src");
+  expect(worktreeName(laneTop)).toBe("feat/picker");
+  expect([main, sub, laneSub, laneTop].map(isMainCheckout)).toEqual([true, false, false, false]);
 });

@@ -9,7 +9,7 @@ import type { EnvironmentKind } from "./environments";
 import { FolderPopover } from "./FolderPopover";
 import type { Project } from "./ProjectChooser";
 import { projectSuffixes } from "./projectSuffix";
-import { folderRepo, type ProjectRepo } from "./projectRepos";
+import { folderRepo, isMainCheckout, worktreeName, type ProjectRepo } from "./projectRepos";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
@@ -139,10 +139,12 @@ export function ComposerContext({
       })
     : undefined;
   const currentRepo = currentLocation ? folderRepo(currentLocation) : undefined;
+  const place =
+    currentLocation && !branch && !isMainCheckout(currentLocation) ? worktreeName(currentLocation) : undefined;
   const currentName = currentLocation
     ? currentRepo
-      ? currentRepo.branch && !branch && currentRepo.root !== currentLocation.id
-        ? `${currentRepo.name} · ${currentRepo.branch}`
+      ? place && place !== currentRepo.name
+        ? `${currentRepo.name} · ${place}`
         : currentRepo.name
       : projectLabel(currentLocation.id)
     : undefined;

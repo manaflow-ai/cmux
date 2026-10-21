@@ -7,7 +7,7 @@ import { translate as t } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
-import { folderRepo, groupByRepo, shownRepoRows, worktreeName, type ProjectRepo } from "./projectRepos";
+import { folderRepo, groupByRepo, isMainCheckout, shownRepoRows, worktreeName, type ProjectRepo } from "./projectRepos";
 
 /// A folder the popover offers: its path (`id`), name and, when known, its repository.
 export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
@@ -171,11 +171,8 @@ export function FolderPopover({
       );
     const folder = group.lead;
     const repo = folderRepo(folder);
-    // A worktree leading its row is named by its branch; the main checkout needs none.
-    const suffix =
-      repo?.branch && folder.id !== group.key && group.members.length > 0 && folder.id !== repo.root
-        ? repo.branch
-        : suffixes.get(folder.id);
+    // A worktree or subfolder leading its row is named by its branch or path; the main checkout needs none.
+    const suffix = repo && !isMainCheckout(folder) ? worktreeName(folder) : suffixes.get(folder.id);
     const others = group.members.length - 1;
     const open = expanded.has(group.key);
     return (
@@ -237,6 +234,8 @@ export function FolderPopover({
     const place = highlighted.current ? shown.get(highlighted.current) : undefined;
     if (!place || place.group.members.length < 2) return false;
     const open = key === "ArrowRight";
+    // Only from the repository's own row: collapsing under a worktree row would drop the highlight.
+    if (!open && place.worktree) return false;
     if (expanded.has(place.group.key) === open) return false;
     toggle(place.group.key, open);
     return true;
