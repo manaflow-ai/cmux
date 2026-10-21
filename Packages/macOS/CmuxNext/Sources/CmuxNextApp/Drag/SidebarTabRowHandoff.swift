@@ -19,8 +19,11 @@ enum SidebarTabRowHandoff {
         guard session.drag == nil, let paneModel = session.services.locateTab(handoff.tab.rawValue)?.1,
               let pane = session.services.paneController(for: paneModel) else { return false }
         let id = handoff.tab.rawValue
+        // No image: the ghost's glass follows the tab's pane, the scope it is dragged out of.
+        let onGlass = WindowBackdrop.dragPreview(pane.view.themeScope).dragsOnGlass
         session.begin(item: .tab(id), payload: .tab(id: id, sourceStripID: pane.stripModel.stripID), frame: handoff.rowScreenFrame,
-                      grabOffset: handoff.grabOffset, point: handoff.screenPoint, image: nil, previewTab: id, draggedCount: 1, pane: pane)
+                      grabOffset: handoff.grabOffset, point: handoff.screenPoint, image: nil, onGlass: onGlass, previewTab: id,
+                      draggedCount: 1, pane: pane)
         return true
     }
 }
