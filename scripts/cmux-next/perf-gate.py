@@ -929,8 +929,13 @@ class Gate:
             app.action("renameWorkspace", {"name": f"perf idle {i}"}, target=f"workspace:{ids[1]}")
             time.sleep(0.3)  # test script: one model change at a time, past the 100 ms throttle
         app.settle()
-        per_change = (ledger() - before) / 10
+        delta = ledger() - before
+        per_change = delta / 10
         report["phases"].setdefault("idle", {})["publish_frames_per_change"] = per_change
+        # The renames must land and run the batcher, or the check measured nothing.
+        named = next((w.get("name") for w in app.topology().get("workspaces") or [] if w.get("id") == ids[1]), None)
+        check(named == "perf idle 9" and delta > 0,
+              f"the 10 renames landed (name {named!r}) and ran the control batcher ({delta} frames)", "idle")
         check(per_change <= BUDGET["publish_frames_per_change"],
               f"{per_change:g} control batcher frames per model change (10 renames; budget "
               f"{BUDGET['publish_frames_per_change']})", "idle")
