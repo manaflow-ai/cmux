@@ -15,12 +15,19 @@ Xcode project or package manifest) file, and its head's `cmux-next Release compi
 - or finished red or cancelled with no passing rerun;
 
 unless that compile is still waiting (queued, running, not created yet, or every attempt cancelled, which
-gives no verdict) and the build fleet compiled
-the exact head: `fleet/compile-check` on the head is a success
-status posted by GitHub Actions whose run is a finished, green fleet-compile-check.yml dispatch from
-feat-cmux-next titled with the full head, whose workflow file came from a commit on that branch. A
-token can post any status, and a workflow on another branch or a tag any run, so the guard trusts only
-that run. A Release compile that finished red (any conclusion but success, skipped, neutral or
+gives no verdict) and the build fleet compiled the exact head, read from either record of it:
+
+- the build fleet's controller (`cmux-ci status`) holds a done `cmux-ci compile-check --ref <head> --app`
+  job from a verified submitter, and its receipts.json has an `app` receipt that is ok for that sha,
+  which is what makes the client exit 0. A lane that ran it needs no workflow dispatch (#23606 at
+  bf14aa7d: job edfa18ea31a796eac433019a passed, the guard refused, and the lane compiled the head
+  again with run 39662744415). No client on this machine, or no answer from the controller, is no pass;
+- or `fleet/compile-check` on the head is a success status posted by GitHub Actions whose run is a
+  finished, green fleet-compile-check.yml dispatch from feat-cmux-next titled with the full head, whose
+  workflow file came from a commit on that branch. A token can post any status, and a workflow on
+  another branch or a tag any run, so the guard trusts only that run.
+
+A Release compile that finished red (any conclusion but success, skipped, neutral or
 cancelled) stays a refusal, even with a rerun queued: the fleet compiles on Linux with the pool
 SDK, not Xcode 26 Release. The pass covers what `cmux-ci compile-check --app`
 compiles (#22845 sat queued over an hour after its fleet pass, with 60 minis offline).
@@ -38,6 +45,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 import time
 
 BASE = "feat-cmux-next"
@@ -59,6 +67,10 @@ FLEET_CONTEXT = "fleet/compile-check"
 FLEET_TITLE = "fleet compile-check "  # + the full sha: the workflow's run-name
 FLEET_POSTER = "github-actions[bot]"
 FLEET_RUNS_READ = 2  # newest first; each run read is one gh call
+# cmux-ci compile-check's job (HQ build-fleet/ci-client.py compile_check_body and compile_check_verdict).
+CMUX_CI_KIND = "cmux-next-swift-check"
+CMUX_CI_RECIPE = "/Users/Shared/cmux-build-fleet/recipes/cmux-next-swift-check.sh"
+CMUX_CI_JOBS_READ = 2  # newest first; each receipts read is one controller call
 SWIFT_SUFFIXES = (".swift", ".xcconfig", ".h", ".m", ".mm", ".c", ".modulemap")
 SWIFT_NAMES = ("Package.swift", "Package.resolved")
 
@@ -291,8 +303,7 @@ def verdict(pr: dict, files: list[str], checks: list[dict], fleet_passed: bool =
         return why
     if fleet_passed:
         return ""
-    return why + (f" Or compile-check the head on the build fleet: gh workflow run {FLEET_WORKFLOW} --ref {BASE} "
-                  f"-f sha={pr['head']}")
+    return why + f" Or compile-check the head on the build fleet: cmux-ci compile-check --ref {pr['head']} --app"
 
 
 def compile_wait(checks: list[dict]) -> bool:
@@ -347,9 +358,59 @@ def read_pr(repo: str, number: int, cwd: str | None) -> str:
     if checks is None:
         raise Unreadable
     why = verdict(pr, files, checks)
-    if why and compile_wait(checks) and fleet_passed(repo, pr["head"], cwd):
+    # The controller first: it costs no GitHub call.
+    if why and compile_wait(checks) and (cmux_ci_passed(pr["head"]) or fleet_passed(repo, pr["head"], cwd)):
         return ""
     return why
+
+
+def cmux_ci_client() -> str | None:
+    client = os.environ.get("CMUX_CI_CLIENT") or os.path.expanduser("~/.local/bin/cmux-ci")
+    return client if os.access(client, os.X_OK) else None
+
+
+def cmux_ci_passed(head: str) -> bool:
+    """Whether the build fleet's controller holds a passed `cmux-ci compile-check --ref head --app` job,
+    judged the way the client's exit 0 is: a done job of the recipe on exactly `head` with --app, whose
+    receipts.json has an ok `app` receipt for `head`. An unreadable controller or artifact is no pass."""
+    client = cmux_ci_client()
+    if client is None or not re.fullmatch(r"[0-9a-f]{40}", head):
+        return False
+    try:
+        jobs = json.loads(run([client, "status"]) or "null")
+    except ValueError:
+        return False
+    if not isinstance(jobs, list):
+        return False
+
+    def app_check(job) -> bool:
+        if not isinstance(job, dict) or job.get("kind") != CMUX_CI_KIND or job.get("state") != "done":
+            return False
+        try:
+            argv = shlex.split(job.get("command") or "")
+        except ValueError:
+            return False
+        return (job.get("ref") == head and job.get("submitter_verified") is True and argv[:2] == [CMUX_CI_RECIPE, head]
+                and "--app" in argv[2:] and re.fullmatch(r"[0-9a-f]{6,64}", str(job.get("id", ""))) is not None)
+
+    candidates = sorted(filter(app_check, jobs), key=lambda job: str(job.get("created_at") or ""), reverse=True)
+    for job in candidates[:CMUX_CI_JOBS_READ]:
+        with tempfile.TemporaryDirectory(prefix="merge-compile-guard-") as scratch:
+            path = os.path.join(scratch, "receipts.json")
+            if run([client, "artifact", job["id"], path]) is None:
+                continue
+            try:
+                with open(path) as f:
+                    receipts = json.load(f)
+            except (OSError, ValueError):
+                continue
+        if isinstance(receipts, dict):
+            receipts = receipts.get("receipts")
+        if isinstance(receipts, list) and any(
+                isinstance(r, dict) and r.get("package") == "app" and r.get("ok") is True and r.get("sha") == head
+                for r in receipts):
+            return True
+    return False
 
 
 def fleet_passed(repo: str, head: str, cwd: str | None) -> bool:
