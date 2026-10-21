@@ -165,8 +165,13 @@ export function diffStatBlocks(added: number, deleted: number): ("added" | "dele
   let deletedBlocks = Math.round((deleted / total) * STAT_BAR_BLOCKS);
   if (added > 0 && addedBlocks === 0) addedBlocks = 1;
   if (deleted > 0 && deletedBlocks === 0) deletedBlocks = 1;
+  // Over by a rounding: take from the larger side, from both on a tie (an even split stays even,
+  // with a neutral block left over).
   while (addedBlocks + deletedBlocks > STAT_BAR_BLOCKS) {
-    if (addedBlocks >= deletedBlocks) addedBlocks -= 1;
+    if (addedBlocks === deletedBlocks) {
+      addedBlocks -= 1;
+      deletedBlocks -= 1;
+    } else if (addedBlocks > deletedBlocks) addedBlocks -= 1;
     else deletedBlocks -= 1;
   }
   return Array.from({ length: STAT_BAR_BLOCKS }, (_, index) =>
