@@ -26,8 +26,8 @@ import {
   orderedSessions,
   splitCommands,
 } from "../src/agent-session/acpmux/summary/backgroundWork";
-import type { RailProcess } from "../src/agent-session/acpmux/summary/sessionProcesses";
-import { processesOf } from "../src/agent-session/acpmux/summary/sessionProcesses";
+import type { InspectorProcess } from "../src/agent-session/acpmux/inspector/processes";
+import { processesOf } from "../src/agent-session/acpmux/inspector/processes";
 import type { SessionSummary, SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { SubagentStatusList } from "../src/agent-session/acpmux/summary/SubagentStatusList";
 import { SummaryBody } from "../src/agent-session/acpmux/summary/SummaryBody";
@@ -113,7 +113,7 @@ test("the registry's records carry the call that started them", () => {
 });
 
 test("a transcript task the registry lists is listed once, as the registry says it stands", () => {
-  const processes: RailProcess[] = processesOf(
+  const processes: InspectorProcess[] = processesOf(
     { processes: [wire("a", "bun run dev", "killed", 1_000, 5_000), wire("b", "tsc --watch", "running", 2_000)] },
     "s1",
   );
@@ -199,7 +199,7 @@ test("the card lists running commands with their time and Stop, and folds the fi
     ["npm run lint", "Failed"],
   ]);
   // Stop only on running rows the registry lists.
-  const stops = [...section.querySelectorAll<HTMLButtonElement>("button.acpmux-rail-task__stop")];
+  const stops = [...section.querySelectorAll<HTMLButtonElement>("button.acpmux-chat-inspector-stop")];
   expect(stops.map((stop) => stop.getAttribute("aria-label"))).toEqual(["Stop bun run dev", "Stop tsc --watch"]);
   await act(async () => stops[0]!.click());
   expect(stopped).toEqual(["s1/a"]);
