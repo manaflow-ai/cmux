@@ -112,7 +112,7 @@ final class CloudService {
             session: { [auth] in
                 guard await MainActor.run(body: { auth.isSignedIn }) else { return CloudCredentialRelay.Session(signedIn: false, team: nil) }
                 let token = try? await identity.installToken()
-                return CloudCredentialRelay.Session(signedIn: true, team: token.flatMap(CloudService.team(ofToken:)))
+                return CloudCredentialRelay.Session(signedIn: true, team: token.flatMap(MacInstallIdentity.team(ofToken:)))
             },
             allowedOps: { await CloudCredentialRelay.bundledServedOps() }
         ))
