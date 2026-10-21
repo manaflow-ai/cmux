@@ -3424,6 +3424,7 @@ jobs:
         run: |
           set -euo pipefail
           built="$(find "$CMUX_NEXT_DERIVED_DATA/Build/Products/Debug" -maxdepth 1 -type d -name 'cmux DEV*.app' -print -quit)"
+          [[ -d "$built" ]] || { echo "::error::crash gate: no cmux DEV app in $CMUX_NEXT_DERIVED_DATA (not a crash freeze)"; exit 1; }
           tag="ci-crash-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           app="$RUNNER_TEMP/crash-gate/cmux DEV ${tag}.app"
           mkdir -p "$RUNNER_TEMP/crash-gate/out"
@@ -3525,7 +3526,7 @@ jobs:
         run: |
           case "$OUTCOME" in
             success) echo "crash gate: every deliberate crash ended the app in time" ;;
-            failure) echo "::error::crash gate: a crash froze the app instead of ending it; see the cmux-scheme-compile log, step Crash ends the app"; exit 1 ;;
+            failure) echo "::error::crash gate: red; the cause (a crash froze the app, or no app to test) is in the cmux-scheme-compile log, step Crash ends the app"; exit 1 ;;
             *)
               if [[ "$COMPILE" == success ]]; then
                 echo "::error::crash gate: the scheme compile succeeded but the gate step did not run (outcome '${OUTCOME:-none}')"; exit 1
