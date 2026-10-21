@@ -26,12 +26,16 @@ await requireBrowserLane("composer-line-breaks.test.ts", async () => {
     ["webkit", webkit],
   ] as [string, BrowserType][]) {
     try {
-      await (await engine[1].launch({ headless: true })).close();
+      await (await engine[1].launch({ headless: true, timeout: 30_000 })).close();
       engines.push(engine);
     } catch {
-      throw new Error(`composer-line-breaks: cannot launch ${engine[0]}`);
+      // GitHub Actions installs both engines (requireBrowserLane fails the file there first); a
+      // fleet host without one runs the other.
+      if (process.env.GITHUB_ACTIONS === "true") throw new Error(`composer-line-breaks: cannot launch ${engine[0]}`);
+      console.warn(`composer-line-breaks: skipping ${engine[0]} (cannot launch here)`);
     }
   }
+  if (!engines.length) throw new Error("composer-line-breaks: no browser engine launches");
 
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
