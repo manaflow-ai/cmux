@@ -518,6 +518,9 @@ pub struct Agents {
     pub events_error: Option<String>,
     /// Sessions whose turn was cancelled, in order.
     pub cancels: Vec<String>,
+    /// Sessions whose running background processes were ended
+    /// (`_acpmux/process/kill` of each), in order.
+    pub killed_processes: Vec<String>,
     /// Queued prompts taken out (`_acpmux/queue_remove`): (session, prompt id).
     pub removed_queued: Vec<(String, String)>,
     /// The next prompt's answer (default `{"stopReason": "end_turn"}`), used once.
