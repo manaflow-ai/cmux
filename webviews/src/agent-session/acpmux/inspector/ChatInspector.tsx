@@ -8,8 +8,10 @@
 // - Connectors: the MCP servers its harness loaded, with how many need reconnecting.
 // - Changes: the pull requests it opened or touched (ChangesSection).
 // - Servers: the dev servers it runs in the background (ServersSection).
-// - Subagents: an avatar row with live counts that opens into the list (SubagentsSection).
-// - Background tasks: its other background commands and its wakeups (TasksSection).
+// - Subagents: an avatar row with live counts that opens into the list: the harness's subagents and
+//   the chats its agent started, a Cloud VM's or another machine's included (SubagentsSection).
+// - Background tasks: its other background commands, the ones only the transcript knows included,
+//   and its wakeups (TasksSection).
 // - Outputs: the files, artifacts and links it produced (OutputsSection).
 //
 // Open, it pushes the chat aside and the chat reflows (Settings > Agent Chat > Inspector), unless
@@ -28,9 +30,10 @@ import { registerPicker } from "../pickerOpeners";
 import { subagentsIn } from "../subagents/subagentRows";
 import { chatGallery } from "../summary/chatGallery";
 import { GalleryDialog } from "../summary/GalleryDialog";
-import { sessionSummary, type SessionSummary } from "../summary/sessionSummary";
+import { sessionSummary, type SessionSummary, type SummaryBackgroundTask } from "../summary/sessionSummary";
 import { waitingSubagents } from "../summary/SubagentStatusList";
 import type { TurnFile } from "../diff";
+import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection, headerStatus, type InspectorPullRequestStatus } from "./ChangesSection";
 import { EnvironmentSection } from "./EnvironmentSection";
 import { InspectorSection } from "./InspectorSection";
@@ -45,15 +48,15 @@ import {
 } from "./inspectorState";
 import { OutputsSection, outputLinks, type OutputLink } from "./OutputsSection";
 import {
+  backgroundCommands,
   splitServers,
-  useInspectorProcesses,
   type InspectorProcess,
   type InspectorServer,
-  type ProcessSource,
+  type ProcessRegistry,
 } from "./processes";
 import { ServersSection } from "./ServersSection";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
-import { isRunning, TasksSection } from "./TasksSection";
+import { TasksSection } from "./TasksSection";
 import type { Subagent } from "../subagents/subagentFold";
 import "./inspector.css";
 
@@ -95,10 +98,10 @@ export function useChatInspector({
   onOpenOutput,
   onOpenUrl,
   onOpenImage,
-  processSource,
-  sessionId,
+  processes: registry,
   onStopProcess,
   subagents,
+  sessions,
 }: {
   snapshot: AcpmuxSnapshot;
   /// This Mac's name from the handshake, for a local chat.
@@ -112,9 +115,9 @@ export function useChatInspector({
   /// Opens a web address in the browser beside the chat (a server's port, a pull request).
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
-  /// acpmux's background-process registry for the chat, from the pane's client.
-  processSource?: ProcessSource;
-  sessionId?: string;
+  /// acpmux's background-process registry for the chat: the App's one (App.tsx `processRegistry`),
+  /// which the running line and the summary card read too, so it is listed once.
+  processes?: ProcessRegistry;
   /// `_acpmux/process/kill`.
   onStopProcess?: (id: string) => Promise<unknown>;
   subagents?: {
@@ -123,6 +126,8 @@ export function useChatInspector({
     asks: ReadonlySet<string>;
     onOpen: (id: string) => void;
   };
+  /// The chats the chat's agent started (App.tsx `childSessions`), and how one opens.
+  sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
 }): {
   on: boolean;
   button?: ReactNode;
@@ -151,7 +156,8 @@ export function useChatInspector({
     [shown, asks, views],
   );
   const statuses = useMemo(() => headerStatus(pullRequest), [pullRequest]);
-  const processes = useInspectorProcesses(processSource, sessionId, shown);
+  // The section a running line's count asked for, scrolled to once drawn.
+  const [revealed, setRevealed] = useState<{ section: InspectorSectionId; at: number }>();
   const openedOutputAt = useRef(0);
   // An output's diff opens beside the chat. When that split leaves too little room to push the
   // chat, the Inspector would cover it, so it steps aside until the toggle opens it again.
@@ -175,6 +181,7 @@ export function useChatInspector({
     if (shown) setInspectorOpen(false);
     else {
       setSuppressed(false);
+      setRevealed(undefined);
       setInspectorOpen(true);
     }
   };
@@ -182,6 +189,7 @@ export function useChatInspector({
     setSuppressed(false);
     setInspectorSection(section, true);
     setInspectorOpen(true);
+    setRevealed({ section, at: Date.now() });
   };
   const openOutput = onOpenOutput
     ? (path: string) => {
@@ -219,7 +227,12 @@ export function useChatInspector({
           waiting={waiting}
           onOpenSubagent={subagents?.onOpen}
           statuses={statuses}
-          processes={processes}
+          processes={registry?.processes}
+          listed={registry?.listed}
+          transcriptTasks={made?.backgroundTasks}
+          sessions={sessions?.list}
+          onOpenSession={sessions?.onOpen}
+          revealed={revealed}
           onStopProcess={onStopProcess}
           sections={sections}
           onSection={setInspectorSection}
@@ -299,6 +312,11 @@ export function ChatInspector({
   onOpenSubagent,
   statuses = {},
   processes = [],
+  listed = false,
+  transcriptTasks = [],
+  sessions = [],
+  onOpenSession,
+  revealed,
   onStopProcess,
   sections,
   onSection,
@@ -325,6 +343,17 @@ export function ChatInspector({
   statuses?: Readonly<Record<string, InspectorPullRequestStatus>>;
   /// The chat's background processes, in the order they started.
   processes?: readonly InspectorProcess[];
+  /// The registry answered a listing for the chat: a transcript task it does not list no longer
+  /// runs (processes.ts `backgroundCommands`).
+  listed?: boolean;
+  /// The background commands the transcript knows (sessionSummary `backgroundTasks`): Claude's
+  /// background Bash, Ctrl-B's included, which the registry may not list.
+  transcriptTasks?: readonly SummaryBackgroundTask[];
+  /// The chats the agent started, listed under Subagents.
+  sessions?: readonly StartedSession[];
+  onOpenSession?: (sessionId: string) => void;
+  /// The section a running line's count opened: scrolled into view (`at` tells one ask from the next).
+  revealed?: { section: InspectorSectionId; at: number };
   onStopProcess?: (id: string) => Promise<unknown>;
   /// Which sections are open; uncontrolled without `onSection`.
   sections?: InspectorSections;
@@ -345,20 +374,29 @@ export function ChatInspector({
   // As the composer's context ring reads it (ComposerPickers ContextRing).
   const percent = known ? Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) : 0;
   const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
-  const servers: InspectorServer[] = [];
-  const tasks: InspectorProcess[] = [];
-  const split = splitServers(processes);
-  servers.push(...split.servers);
-  tasks.push(...split.tasks);
+  const servers: InspectorServer[] = splitServers(processes).servers;
+  // Every command but the running servers; all processes are passed, so a transcript task a
+  // server stands for is not listed again.
+  const serving = new Set(servers.map((server) => server.id));
+  const commands = backgroundCommands(processes, transcriptTasks, listed).filter(
+    (command) => !command.processId || !serving.has(command.processId),
+  );
+  const body = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!revealed) return;
+    body.current
+      ?.querySelector<HTMLElement>(`[data-section="${revealed.section}"]`)
+      ?.scrollIntoView?.({ block: "nearest" });
+  }, [revealed]);
   const scheduled = made?.scheduled ?? [];
   const pullRequests = made?.pullRequests ?? [];
   const outputs = (made?.outputs ?? []) as readonly TurnFile[];
   const mcp = summary?.mcpServers ?? [];
   const reconnect = mcp.filter((server) => server.status === "failed").length;
-  const runningTasks = tasks.filter(isRunning).length;
+  const runningTasks = commands.filter((command) => command.state === "running").length;
   const value = (text: string) => <span className="acpmux-chat-inspector-section__value">{text}</span>;
   return (
-    <div className="acpmux-chat-inspector__body">
+    <div ref={body} className="acpmux-chat-inspector__body">
       <InspectorSection
         id="environment"
         title={t("rail.environment")}
@@ -459,18 +497,24 @@ export function ChatInspector({
           <ServersSection servers={servers} onStop={onStopProcess} onOpenUrl={onOpenUrl} />
         </InspectorSection>
       )}
-      {agents.length > 0 && (
+      {agents.length + sessions.length > 0 && (
         <InspectorSection
           id="subagents"
           title={t("summary.subagents")}
           open={state.subagents}
           onOpenChange={fold("subagents")}
-          meta={value(subagentCounts(t, agents, waiting))}
+          meta={value(subagentCounts(t, agents, waiting, sessions))}
         >
-          <SubagentsSection agents={agents} waiting={waiting} onOpen={onOpenSubagent ?? (() => undefined)} />
+          <SubagentsSection
+            agents={agents}
+            waiting={waiting}
+            onOpen={onOpenSubagent ?? (() => undefined)}
+            sessions={sessions}
+            onOpenSession={onOpenSession}
+          />
         </InspectorSection>
       )}
-      {(tasks.length > 0 || scheduled.length > 0) && (
+      {(commands.length > 0 || scheduled.length > 0) && (
         <InspectorSection
           id="tasks"
           title={t("summary.backgroundTasks")}
@@ -478,7 +522,7 @@ export function ChatInspector({
           onOpenChange={fold("tasks")}
           meta={runningTasks > 0 ? value(t("rail.running", { count: runningTasks })) : undefined}
         >
-          <TasksSection processes={tasks} scheduled={scheduled} onStop={onStopProcess} />
+          <TasksSection commands={commands} scheduled={scheduled} onStop={onStopProcess} />
         </InspectorSection>
       )}
       {outputs.length + links.length + artifacts > 0 && (
