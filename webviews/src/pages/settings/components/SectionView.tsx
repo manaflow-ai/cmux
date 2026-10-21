@@ -5,6 +5,7 @@ import { text } from "../strings";
 import { AccountsSection } from "./AccountsSection";
 import { AgentHarnesses } from "./AgentHarnesses";
 import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
+import { ChannelsCard } from "./ChannelsCard";
 import { ChiefsCard } from "./ChiefsCard";
 import { ComputerUseCard } from "./ComputerUseCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
@@ -43,6 +44,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   mobile: () => <MobileCard />,
   chiefPet: (focus) => <ChiefPetCard focus={focus} />,
   density: () => <DensityCard />,
+  channels: () => <ChannelsCard />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
