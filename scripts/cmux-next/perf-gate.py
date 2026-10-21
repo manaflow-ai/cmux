@@ -41,7 +41,8 @@ warnings only.
                  folders 0 times (debug.layout_counters backdrop_catalog_builds; perf100). 10 workspace
                  renames 0.3 s apart: at most 4 `Control.frames` display frames each (debug.wakeups
                  ledger; the snapshot publisher's throttle is a deadline, not a clock check per
-                 frame). Then 5 s with
+                 frame). 5 new terminal workspaces mount with 0 "Unable to simultaneously satisfy
+                 constraints" entries (`log show`). Then 5 s with
                  nothing changing: no FrameScheduler delivers a frame (debug.wakeups frames, which
                  count stalled-link frames too, so any console measures it).
   status         4 background workspaces print OSC 7501 progress 4 times a second for 5 s:
@@ -96,6 +97,9 @@ BUDGET = {
     # model change, 10 renames 0.3 s apart: the rename's work-queue frames and one publish. The
     # publisher waited out its 100 ms throttle by checking the clock on every frame (12 at 120 Hz).
     "publish_frames_per_change": 4,
+    # "Unable to simultaneously satisfy constraints" faults while 5 new terminal workspaces mount
+    # (each terminal host's hidden banner and chip conflicted 4 times per mount).
+    "mount_constraint_conflicts": 0,
 }
 # Known breaches of a budget above: (scenario, counter) -> (the value measured today, the bead that
 # removes it). A breach up to that value is a warning that names the bead; above it, a failure. A
@@ -267,6 +271,19 @@ class App:
         if done.returncode != 0:
             print(f"  cli {' '.join(args)[:80]} -> {done.returncode} {(done.stdout + done.stderr).strip()[-240:]}", flush=True)
         return done
+
+    def constraint_conflicts(self, since):
+        """AppKit's "Unable to simultaneously satisfy constraints" log entries of this app since `since`
+        (local "YYYY-MM-DD HH:MM:SS"), or None when `log show` fails."""
+        predicate = f'processID == {self.process.pid} AND eventMessage BEGINSWITH "Unable to simultaneously satisfy constraints"'
+        try:
+            done = subprocess.run(["/usr/bin/log", "show", "--style", "ndjson", "--start", since, "--predicate", predicate],
+                                  capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if done.returncode != 0:
+            return None
+        return sum(1 for line in done.stdout.splitlines() if '"eventMessage"' in line)
 
     # -- reads --
 
@@ -920,6 +937,21 @@ class Gate:
         # Settings closes again: `status` runs as before.
         app.action("goToWorkspace", {"workspace": ids[0]})
         app.action("closeTab")
+        # New terminals mount without Auto Layout conflicts (AppKit logs each one as a fault).
+        since = time.strftime("%Y-%m-%d %H:%M:%S")
+        for _ in range(5):
+            app.action("newTab")
+        app.settle()
+        time.sleep(1.0)  # test script: the last mount's layout pass and its log entries land
+        conflicts = app.constraint_conflicts(since)
+        report["phases"].setdefault("idle", {})["mount_constraint_conflicts"] = conflicts
+        if conflicts is None:
+            warn("`log show` could not count constraint conflicts on this host; the check is skipped", "idle")
+        else:
+            check(conflicts <= BUDGET["mount_constraint_conflicts"],
+                  f"{conflicts} constraint conflicts while 5 new terminal workspaces mounted "
+                  f"(budget {BUDGET['mount_constraint_conflicts']})", "idle")
+        app.action("goToWorkspace", {"workspace": ids[0]})
         # A model change publishes after the publisher's throttle without a frame per clock check.
         ledger = lambda: sum(e.get("count", 0) for e in (app.rpc("debug.wakeups") or {}).get("ledger") or []
                              if e.get("owner") == "Control.frames" and e.get("reason") == "frame")
