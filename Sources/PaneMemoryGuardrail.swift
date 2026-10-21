@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import Foundation
 import Observation
@@ -41,9 +42,19 @@ final class PaneMemoryGuardrail {
     private var lastScopedOnlySamplesByKey: [PaneMemoryPaneKey: PaneMemorySample] = [:]
     @ObservationIgnored
     private var lastScopedScanAt = Date.distantPast
+    @ObservationIgnored
+    private let settingsCache = PaneMemoryGuardrailSettingsCache(read: { PaneMemoryGuardrail.readSettings(in: .standard) })
+    @ObservationIgnored
+    private var defaultsObserver: NSObjectProtocol?
 
     func start() {
         guard timer == nil else { return }
+        // Each tick used to read both settings from UserDefaults on the main
+        // actor, where a contended preferences lock stalls the UI (Sentry
+        // CMUXTERM-MACOS-1FSR). Read them once and again only after a change.
+        defaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
+            self?.settingsCache.invalidate()
+        }
         let timer = DispatchSource.makeTimerSource(queue: timerQueue)
         timer.schedule(
             deadline: .now() + Self.pollInterval,
@@ -59,20 +70,22 @@ final class PaneMemoryGuardrail {
 
     // MARK: Settings
 
-    private var isEnabled: Bool {
-        Self.enabledSetting.value(in: .standard)
-    }
-
-    private func thresholdBytes() -> Int64 {
-        let raw = Self.thresholdGBSetting.value(in: .standard)
-        let gb = raw.isFinite ? min(max(raw, Self.thresholdRangeGB.lowerBound), Self.thresholdRangeGB.upperBound) : Self.defaultThresholdGB
-        return Int64(gb * Self.bytesPerGB)
+    static func readSettings(in defaults: UserDefaults) -> PaneMemoryGuardrailSettingsCache.Values {
+        let rawThresholdGB = thresholdGBSetting.value(in: defaults)
+        let gb = rawThresholdGB.isFinite
+            ? min(max(rawThresholdGB, thresholdRangeGB.lowerBound), thresholdRangeGB.upperBound)
+            : defaultThresholdGB
+        return PaneMemoryGuardrailSettingsCache.Values(
+            isEnabled: enabledSetting.value(in: defaults),
+            thresholdBytes: Int64(gb * bytesPerGB)
+        )
     }
 
     // MARK: Tick
 
     private func tick() {
-        guard isEnabled else {
+        let settings = settingsCache.values
+        guard settings.isEnabled else {
             clearAll()
             return
         }
@@ -82,7 +95,7 @@ final class PaneMemoryGuardrail {
             clearAll()
             return
         }
-        let thresholdBytes = thresholdBytes()
+        let thresholdBytes = settings.thresholdBytes
         let includeCMUXScope = consumeScopedScanIfDue(now: Date())
         isScanning = true
         let sampleTask = Task.detached(priority: .utility) {
@@ -363,5 +376,37 @@ final class PaneMemoryGuardrail {
         scanApplyTask = nil
         lastScopedOnlySamplesByKey.removeAll()
         lastScopedScanAt = .distantPast
+    }
+}
+
+// MARK: - Settings cache
+
+/// Holds the guardrail's settings between UserDefaults changes so the poll
+/// timer does not read preferences on the main actor every tick.
+@MainActor
+final class PaneMemoryGuardrailSettingsCache {
+    struct Values: Equatable {
+        let isEnabled: Bool
+        let thresholdBytes: Int64
+    }
+
+    private let read: @MainActor () -> Values
+    private var cached: Values?
+
+    init(read: @escaping @MainActor () -> Values) {
+        self.read = read
+    }
+
+    /// The cached settings, read from the source only when nothing is cached.
+    var values: Values {
+        if let cached { return cached }
+        let fresh = read()
+        cached = fresh
+        return fresh
+    }
+
+    /// Drops the cached settings; the next ``values`` read reloads them.
+    func invalidate() {
+        cached = nil
     }
 }
