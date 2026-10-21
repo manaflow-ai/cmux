@@ -216,5 +216,95 @@ async fn subsession_questions_a_parent_answers_its_childs_question_but_never_a_p
     let row = p.ok("_acpmux/subsession/get", json!({"sessionId": asking})).await;
     assert_eq!(row["status"], "waiting", "{row}");
 
+    // A question by its input's shape alone is not one: a command tool (or
+    // ExitPlanMode) whose input also holds `questions`, and an
+    // AskUserQuestion that offers only a lasting allow, stay the person's.
+    for prompt in [
+        "tool-question: mcp__shell__run allow_once",
+        "tool-question: ExitPlanMode allow_once",
+        "tool-question: AskUserQuestion allow_always",
+    ] {
+        let shaped = p.child_that_asks(prompt).await;
+        let row = p.ok("_acpmux/subsession/get", json!({"sessionId": shaped})).await;
+        let q = &row["questions"][0];
+        assert_eq!(q["answerable"], false, "{prompt}: {row}");
+        let spid = q["permissionId"].as_str().unwrap_or_else(|| panic!("{prompt}: {row}"));
+        let e = p
+            .refused(
+                ANSWER,
+                json!({"sessionId": shaped, "permissionId": spid, "answers": {"ok?": "yes"}}),
+            )
+            .await;
+        assert_eq!(e["data"]["reason"], "subsessions.not_a_question", "{prompt}: {e}");
+        let decided = hub
+            .events(&shaped, 0, 1000)
+            .unwrap()
+            .into_iter()
+            .any(|e| e.kind == "permission_decision");
+        assert!(!decided, "{prompt}: the prompt was decided");
+        let row = p.ok("_acpmux/subsession/get", json!({"sessionId": shaped})).await;
+        assert_eq!(row["status"], "waiting", "{prompt}: {row}");
+    }
+
+    // A sibling never answers; a grandparent answers a grandchild.
+    let sibling = p.child_that_asks("question: Sibling?").await;
+    let row = p.ok("_acpmux/subsession/get", json!({"sessionId": sibling})).await;
+    let sib_pid = row["questions"][0]["permissionId"].as_str().unwrap().to_owned();
+    let e = c
+        .refused(
+            ANSWER,
+            json!({"sessionId": sibling, "permissionId": sib_pid, "answers": {"Sibling?": "A"}}),
+        )
+        .await;
+    assert_eq!(e["data"]["reason"], "subsessions.not_family", "{e}");
+    let grandchild = c.child_that_asks("question: Deep?").await;
+    let row = p.ok("_acpmux/subsession/get", json!({"sessionId": grandchild})).await;
+    assert_eq!(row["questions"][0]["answerable"], true, "{row}");
+    let gpid = row["questions"][0]["permissionId"].as_str().unwrap().to_owned();
+    p.ok(ANSWER, json!({"sessionId": grandchild, "permissionId": gpid, "answers": {"Deep?": "A"}}))
+        .await;
+    p.ok("_acpmux/wait", json!({"sessions": [grandchild], "until": ["ready"], "timeoutMs": 20000}))
+        .await;
+    let row = p.ok("_acpmux/subsession/get", json!({"sessionId": grandchild})).await;
+    assert_eq!(row["lastReply"], r#"chose allow_once {"Deep?": "A"}"#, "{row}");
+
+    // A child never answers its parent's question.
+    app.0
+        .send(
+            Message::request(
+                9000,
+                "session/prompt",
+                json!({"sessionId": parent, "prompt": [{"type": "text", "text": "question: Mine?"}]}),
+            )
+            .to_line(),
+        )
+        .await
+        .unwrap();
+    let w = app
+        .ok(
+            "_acpmux/wait",
+            json!({"sessions": [parent], "until": ["permission"], "timeoutMs": 20000}),
+        )
+        .await;
+    assert_eq!(w["timedOut"], false, "{w}");
+    let parent_pid = hub
+        .events(&parent, 0, 1000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "permission_request")
+        .next_back()
+        .expect("the parent's question")
+        .msg["permissionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let e = c
+        .refused(
+            ANSWER,
+            json!({"sessionId": parent, "permissionId": parent_pid, "answers": {"Mine?": "A"}}),
+        )
+        .await;
+    assert_eq!(e["data"]["reason"], "subsessions.not_family", "{e}");
+
     let _ = std::fs::remove_dir_all(&root);
 }
