@@ -358,10 +358,10 @@ test("a press released off the rail ends there: a later hover does not scrub", a
   }
 });
 
-test("a bookmark shows as the tick's dot and in the prompt's row; the dot, the card and the row toggle it", async () => {
+test("a bookmark shows as the tick's dot and as the prompt row's Pin; the dot, the card and the Pin toggle it", async () => {
   const view = await mount(8);
   const rowButton = (index: number) =>
-    document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="user-${index + 1}"] .cv-user__bookmark`)!;
+    document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="user-${index + 1}"] .cv-message-pin`)!;
   try {
     expect(tick(2).hasAttribute("data-bookmarked")).toBe(false);
     expect(rowButton(2).getAttribute("aria-pressed")).toBe("false");
