@@ -74,8 +74,8 @@ public final class SidebarPriorityFeed {
                 view?.showPriority(panel)
                 scheduleNextChange()
                 // A store is empty while its watch is down or not up yet: pruning then would drop
-                // the marks of every chat it reports, so prune only while every store lists some.
-                if stores.allSatisfy({ !$0.lanes.isEmpty }) { marks.prune(keeping: Set(lanes.map(\.id))) }
+                // the marks of every chat it reports, so prune only while every watched store is live.
+                if stores.allSatisfy({ $0.live || $0.socketPath == nil }) { marks.prune(keeping: Set(lanes.map(\.id))) }
             }
         }
     }
@@ -130,13 +130,16 @@ public final class SidebarPriorityFeed {
         }
     }
 
-    /// Wakes once at the next change no lane or mark makes (a snooze end, an idle chat aging out).
+    /// Wakes at the next change no lane or mark makes (a snooze end, an idle chat aging out), and
+    /// again after it: a wake that leaves the rows as they were (the bell off) emits nothing.
     private func scheduleNextChange() {
         let now = Date()
         guard let next = ranking.nextChange(lanes, marks: marks.state, now: now) else { return nextChange.cancel() }
-        let seconds = max(1, next.timeIntervalSince(now))
-        nextChange.schedule(after: .milliseconds(Int64(seconds * 1000))) { @MainActor [weak self] in
+        // Rounded up and a little late, so the wake never lands just before the change.
+        let milliseconds = Int64((max(1, next.timeIntervalSince(now)) * 1000).rounded(.up)) + 50
+        nextChange.schedule(after: .milliseconds(milliseconds)) { @MainActor [weak self] in
             self?.clock.ticks += 1
+            self?.scheduleNextChange()
         }
     }
 }

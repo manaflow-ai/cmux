@@ -61,10 +61,8 @@ public final class AgentPriorityMarks {
         state.snoozed[lane.id] = State.Snooze(stamp: Self.stamp(lane), until: now.addingTimeInterval(duration))
     }
 
-    public func archive(_ id: String) {
-        state.archived.insert(id)
-        state.pinned.remove(id)
-    }
+    /// Hides the chat; its pin stays until acpmux stops listing it, so a refused archive keeps it.
+    public func archive(_ id: String) { state.archived.insert(id) }
 
     /// Undoes `archive` when acpmux refused it, so the chat is not hidden here only.
     public func unarchive(_ id: String) { state.archived.remove(id) }

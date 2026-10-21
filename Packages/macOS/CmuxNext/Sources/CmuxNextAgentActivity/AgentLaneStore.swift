@@ -16,6 +16,8 @@ public final class AgentLaneStore {
     /// The acpmux socket whose watch fills the store (set by `AgentTurnStateFeed`), for requests
     /// about its sessions such as the Priority view's Archive.
     @ObservationIgnored public var socketPath: String?
+    /// The watch is up and has delivered its page: `lanes` is every session, not a gap.
+    public var live = false
 
     public init() {}
 

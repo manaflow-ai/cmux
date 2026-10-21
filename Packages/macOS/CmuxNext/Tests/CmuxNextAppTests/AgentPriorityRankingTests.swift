@@ -95,6 +95,12 @@ struct AgentPriorityRankingTests {
         pinned.togglePin("idle-old")
         pinned.togglePin("idle-new")
         #expect(ranking.nextChange(Self.lanes, marks: pinned.state, now: Self.now) == nil)
+        // A snooze on an older state of the chat, or an archived chat, changes no row.
+        pinned.snooze(Self.lane("asks", .input, ago: 90), now: Self.now)
+        #expect(ranking.nextChange(Self.lanes, marks: pinned.state, now: Self.now) == nil)
+        pinned.togglePin("idle-old")
+        pinned.archive("idle-old")
+        #expect(ranking.nextChange(Self.lanes, marks: pinned.state, now: Self.now) == nil)
         marks.archive("broke")
         marks.unarchive("broke")
         #expect(ranking.entries(Self.lanes, marks: marks.state, now: Self.now).contains { $0.id == "broke" })
