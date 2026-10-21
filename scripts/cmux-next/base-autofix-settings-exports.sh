@@ -44,6 +44,10 @@ main() {
   root="$(git rev-parse --show-toplevel)"
   cd "$root"
   start="$(git rev-parse HEAD)"
+  # --depth only where the checkout is already shallow (the CI checkout): in a full clone it would make every
+  # worktree sharing it shallow (tests/test_ci_no_shallow_dev_fetch.py).
+  local depth=()
+  [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
   at="$start"
   prepare="${CMUX_BASE_AUTOFIX_SETTINGS_PREPARE:-}"
   for ((try = 1; try <= tries; try++)); do
@@ -59,7 +63,7 @@ main() {
       echo "::error::regenerating the settings exports on ${at:0:12} failed" >&2
       return 1
     }
-    git fetch --quiet --no-tags --depth=1 "$remote" "refs/heads/$branch" || {
+    git fetch --quiet --no-tags "${depth[@]}" "$remote" "refs/heads/$branch" || {
       echo "::error::cannot read $branch, so the settings exports made at ${at:0:12} are not known to be current" >&2
       return 1
     }
