@@ -381,7 +381,7 @@ jobs:
           bun run typecheck || status=1
           # The generated protocol must match the daemon's IR: a wire-format check, not style.
           bun run acpmux-protocol:check || status=1
-          for check in check:layers check:type-scale check:status-glyphs check:system-blue check:text-focus check:dialog-keys check:switch-fetches; do
+          for check in check:layers check:type-scale check:motion-scale check:status-glyphs check:system-blue check:text-focus check:dialog-keys check:switch-fetches; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Lint, format and types together; a type error already failed `typecheck` above.
