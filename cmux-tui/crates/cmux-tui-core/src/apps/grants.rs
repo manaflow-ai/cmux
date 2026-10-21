@@ -98,9 +98,16 @@ impl ScopeTable {
         if external && grant.sandboxed {
             return Decision::ScopeMissing("the app runs sandboxed: no network");
         }
-        // A workspace created with a command runs it, as `workspace.run` does.
-        let launches = op == "workspace.create"
-            && (params.get("argv").is_some() || params.get("shell").is_some());
+        // A workspace, screen, pane or terminal tab created with a command
+        // runs it, as `workspace.run` does.
+        let launches = matches!(
+            op,
+            "workspace.create"
+                | "screen.create"
+                | "pane.create"
+                | "pane.split"
+                | "tab.create_terminal"
+        ) && (params.get("argv").is_some() || params.get("shell").is_some());
         let scope = if launches { "workspace:execute" } else { scope.as_str() };
         let granted = match scope {
             "net:<host>" => grant.scopes.iter().any(|s| s.starts_with("net:")),
