@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -110,24 +111,33 @@ enum DebugWindowRecord {
             let times = self.times
             let brightness = brightness
             encoder.async {
-                let frames: [String: [Double]] = ["times": times, "luminance": brightness.means, "peak": brightness.peaks]
+                let series = brightness.series
+                let frames: [String: [Double]] = ["times": times, "luminance": series.means, "peak": series.peaks]
                 if let data = try? JSONSerialization.data(withJSONObject: frames) { try? data.write(to: index) }
             }
             done()
         }
     }
 
-    /// Each frame's brightness, in frame order. Only the recorder's `encoder`
-    /// queue touches it, which is serial, so it needs no lock of its own.
-    // concurrency-allow: confined to one serial queue; no other thread reads or writes it
-    private final class Brightness: @unchecked Sendable {
-        private(set) var means: [Double] = []
-        private(set) var peaks: [Double] = []
+    /// Each frame's brightness, in frame order. The recorder's `encoder` queue
+    /// is serial, so the order is the frames' order.
+    private final class Brightness: Sendable {
+        struct Series: Sendable {
+            var means: [Double] = []
+            var peaks: [Double] = []
+        }
+
+        private let samples = Mutex(Series())
+
+        /// What every frame measured so far, in frame order.
+        var series: Series { samples.withLock { $0 } }
 
         func measure(_ image: CGImage) {
             let reading = Self.brightness(of: image)
-            means.append(reading.mean)
-            peaks.append(reading.peak)
+            samples.withLock {
+                $0.means.append(reading.mean)
+                $0.peaks.append(reading.peak)
+            }
         }
 
         /// How bright `image` is: `mean`, its mean Rec. 709 luminance, and
