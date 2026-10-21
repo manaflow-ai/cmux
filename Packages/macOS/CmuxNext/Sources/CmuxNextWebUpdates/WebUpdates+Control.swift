@@ -1,4 +1,4 @@
-import CmuxNextControl
+public import CmuxNextControl
 import CmuxNextPages
 import CmuxNextUpdater
 import Foundation
@@ -9,9 +9,11 @@ import Foundation
 // `updates.web.rollback`: serves the update before the active one (the bundled web when none) at
 // the next safe point; the rolled-back update is not taken again. `updates.web.apply`: swaps a
 // ready update in now and reloads the pages (a draft being typed is not saved first).
-extension AppControl {
-    func registerWebUpdateMethods(_ web: WebUpdates = .shared) {
-        service?.router.register([
+extension WebUpdates {
+    /// The `updates.web.*` methods, for the App's control router.
+    public var controlMethods: [ControlMethod] {
+        let web = self
+        return [
             .mainActor("updates.web.status") { _ in .value(Self.json(web)) },
             .mainActor("updates.web.check") { _ in
                 guard let updater = web.updater else { return .value(Self.json(web)) }
@@ -38,7 +40,7 @@ extension AppControl {
                 fields["reloaded"] = JSONValue(reloaded)
                 return .value(.object(fields))
             },
-        ])
+        ]
     }
 
     static func json(_ web: WebUpdates) -> JSONValue {

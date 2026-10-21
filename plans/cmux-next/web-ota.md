@@ -17,7 +17,7 @@ updates ship that code on its own, signed, minutes after each merge to `feat-cmu
    environment. The job runs no bun or node: only this checkout's scripts touch the key. It never
    moves the pointer back (`web-ota-pointer.py newer`: the published pointer's `committed_at` must
    be older), and it verifies what it uploaded.
-3. **App** (`WebUpdater` in CmuxNextUpdater, `WebUpdates` in the app): on NIGHTLY bundles only, it
+3. **App** (`WebUpdater` in CmuxNextUpdater, `WebUpdates` in CmuxNextWebUpdates): on NIGHTLY bundles only, it
    reads the pointer (a conditional GET, every 10 minutes and when cmux comes to the front after
    two minutes away), verifies it, downloads and checks the archive, unpacks it into Application
    Support and checks the tree, then serves it from the next safe point.

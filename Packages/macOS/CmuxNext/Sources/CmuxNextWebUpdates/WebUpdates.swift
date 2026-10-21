@@ -1,10 +1,10 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextPages
-import CmuxNextSettings
-import CmuxNextUpdater
+public import CmuxNextSettings
+public import CmuxNextUpdater
 import CmuxNextWakeups
-import Foundation
+public import Foundation
 
 /// Web updates in the app (plans/cmux-next/web-ota.md). On a NIGHTLY bundle it names where each
 /// bundled web output sits in an update, starts the launch check of the kept update before a
@@ -13,17 +13,17 @@ import Foundation
 /// typing; a composer draft survives the reload in its origin's storage), then reloads every page
 /// and agent pane in place. Until then
 /// open pages keep the files they started with, so a page never mixes two builds' chunks.
-final class WebUpdates {
-    static let shared = WebUpdates()
+/// The App calls ``follow(_:bundle:)`` with each `updates.*` read; the first call starts it.
+public final class WebUpdates {
+    public static let shared = WebUpdates()
 
-    private(set) var updater: WebUpdater?
+    public private(set) var updater: WebUpdater?
     /// The folder to serve from the next safe point (`.some(nil)`: the bundled web).
-    private(set) var pending: URL??
+    public private(set) var pending: URL??
     /// The wait in the background before an update swaps in.
     private let safePoint = DemandTimer(owner: "web-updates.safe-point")
     private var observers: [Task<Void, Never>] = []
-    /// The last `updates.*` read, applied when the updater starts after it.
-    private var settings: UpdatesSettings?
+    private var started = false
     /// How long cmux stays in the background before an update swaps in.
     let grace: Duration = .seconds(3)
 
@@ -34,9 +34,12 @@ final class WebUpdates {
         return bundle == "com.cmuxterm.app.nightly" || bundle.hasPrefix("com.cmuxterm.app.nightly.")
     }
 
-    /// Starts once; call before the first page loads.
-    func start(bundle: Bundle = .main) {
-        guard updater == nil, Self.isAvailable(bundleID: bundle.bundleIdentifier),
+    /// Starts once. Before the first page loads, pages wait for the kept update's check; after,
+    /// the kept update waits for a safe point.
+    func start(bundle: Bundle) {
+        guard !started else { return }
+        started = true
+        guard Self.isAvailable(bundleID: bundle.bundleIdentifier),
               let app = Self.app(pages: WebBundleOverlay.bundledPages),
               let store = WebUpdateStore.standard(bundleIdentifier: bundle.bundleIdentifier)
         else { return }
@@ -50,7 +53,6 @@ final class WebUpdates {
         let updater = WebUpdater(store: store, app: app)
         updater.onReady = { [weak self] tree in self?.ready(tree) }
         self.updater = updater
-        if let settings { follow(settings) }
         if WebBundleServedViews.shared.isEmpty {
             overlay.load { await updater.launchTree() }
         } else {
@@ -85,9 +87,9 @@ final class WebUpdates {
         return WebUpdater.App(abi: abi, webBuiltAt: Int(built.timeIntervalSince1970))
     }
 
-    /// `updates.*`: the channel and what downloads may use.
-    func follow(_ settings: UpdatesSettings) {
-        self.settings = settings
+    /// `updates.*`: the channel and what downloads may use. The first call starts web updates.
+    public func follow(_ settings: UpdatesSettings, bundle: Bundle = .main) {
+        start(bundle: bundle)
         guard let updater else { return }
         updater.allowsConstrained = settings.meteredNetwork == .download
         updater.allowsExpensive = settings.meteredNetwork != .deferExpensive
@@ -102,7 +104,7 @@ final class WebUpdates {
 
     /// Serves the pending folder now and reloads the pages; returns how many reloaded.
     @discardableResult
-    func applyPending() -> Int {
+    public func applyPending() -> Int {
         guard let tree = pending else { return 0 }
         pending = nil
         guard WebBundleOverlay.shared.activate(tree) else { return 0 }
