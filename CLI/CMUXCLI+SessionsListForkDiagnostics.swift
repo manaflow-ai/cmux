@@ -267,13 +267,27 @@ extension CMUXCLI {
         let liveSessionID = sessionsListProcessSessionID(process.arguments, expected: expectedSessionID)
         let sessionMatches = liveSessionID == expectedSessionID
         let liveRoute = sessionsListProviderRoute(agent: agent, arguments: process.arguments)
+        let expectedLaunchArguments: [String] = {
+            let capturedArguments = record.launchCommand?.arguments ?? []
+            // Codex's provider assignment is carried in its agent argv. A
+            // captured outer prefix such as `sr codex resume` identifies the
+            // launcher, but does not itself prove the provider route. Prefer
+            // the structured agent argv when it contains explicit evidence;
+            // fall back to the prefix for older records.
+            if agent.lowercased() == "codex",
+               sessionsListProviderRoute(agent: agent, arguments: capturedArguments) != "unknown" {
+                return capturedArguments
+            }
+            return record.launchCommand?.launcherPrefix ?? capturedArguments
+        }()
         let expectedRoute = sessionsListProviderRoute(
             agent: agent,
-            arguments: record.launchCommand?.launcherPrefix
-                ?? record.launchCommand?.arguments
-                ?? []
+            arguments: expectedLaunchArguments
         )
-        let routeMatches = expectedRoute == "unknown" || liveRoute == "unknown" || expectedRoute == liveRoute
+        let routeMatches = Self.sessionsListProviderRoutesMatch(
+            expected: expectedRoute,
+            live: liveRoute
+        )
 
         binding["pid"] = pid
         binding["pid_start_matches"] = startMatches
@@ -335,24 +349,33 @@ extension CMUXCLI {
             let normalized = arguments.map { argument in
                 URL(fileURLWithPath: argument).lastPathComponent.lowercased()
             }
+            // AgentLauncherPrefix deliberately removes the session selector
+            // (including `--resume <id>`) before persisting the outer wrapper.
+            // Match the stable wrapper portion only.
             let routedPrefixes = [
-                ["sr", "claude", "proxy", "--resume"],
-                ["subrouter", "claude", "proxy", "--resume"],
+                ["sr", "claude", "proxy"],
+                ["subrouter", "claude", "proxy"],
             ]
             if routedPrefixes.contains(where: { prefix in
                 normalized.starts(with: prefix)
             }) {
                 return "subrouter"
             }
-            guard let executable = normalized.first,
-                  executable == "claude" else {
-                return "unknown"
-            }
-            return "direct"
+            // A routed Claude child has the same bare `claude` argv as a
+            // direct launch. Without a trusted parent/launch marker, that
+            // argv cannot prove the direct route, so keep it indeterminate.
+            return "unknown"
 
         default:
             return "unknown"
         }
+    }
+
+    /// Route identity is evidence, not a best-effort hint. An unknown route
+    /// cannot prove that a live provider used the same direct/Subrouter path,
+    /// so it must fail the identity gate until trusted evidence is available.
+    static func sessionsListProviderRoutesMatch(expected: String, live: String) -> Bool {
+        expected != "unknown" && live != "unknown" && expected == live
     }
 
     func sessionsListVerifiedRuntimeStatus(

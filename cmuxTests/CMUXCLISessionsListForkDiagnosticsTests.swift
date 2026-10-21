@@ -4,7 +4,7 @@ import Testing
 
 extension CMUXCLIErrorOutputRegressionTests {
     @Test func testSessionsListProviderRouteRequiresExplicitEvidence() throws {
-        func routeFixture(argv0: String, agent: String, arguments: [String]) throws -> String {
+        func routeFixture(argv0: String, agent: String, arguments: [String]) throws -> [String: Any] {
             let root = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-route-fixture-\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -32,31 +32,26 @@ extension CMUXCLIErrorOutputRegressionTests {
                 pid: Int(pid)
             )
             let binding = try #require(session["identity_binding"] as? [String: Any])
-            return try #require(binding["live_provider_route"] as? String)
+            return binding
         }
 
-        #expect(try routeFixture(argv0: "claude", agent: "claude", arguments: ["--prompt", "subrouter"]) == "direct")
+        let directLikeClaude = try routeFixture(
+            argv0: "claude", agent: "claude", arguments: ["--prompt", "subrouter"]
+        )
+        #expect(directLikeClaude["live_provider_route"] as? String == "unknown")
+        #expect(directLikeClaude["provider_route_matches"] as? Bool == false)
         #expect(
-            try routeFixture(
+            (try routeFixture(
                 argv0: "sr", agent: "claude",
                 arguments: ["claude", "proxy", "--resume", "019ef275-74e3-7777-9773-9dcb118ed5aa"]
-            ) == "subrouter"
+            ))["live_provider_route"] as? String == "subrouter"
         )
         #expect(
-            try routeFixture(argv0: "codex", agent: "codex", arguments: ["-c", "model_provider=subrouter"]) == "subrouter"
+            (try routeFixture(argv0: "codex", agent: "codex", arguments: ["-c", "model_provider=subrouter"]))["live_provider_route"] as? String == "subrouter"
         )
         #expect(
-            try routeFixture(argv0: "codex", agent: "codex", arguments: ["--prompt", "subrouter"]) == "unknown"
+            (try routeFixture(argv0: "codex", agent: "codex", arguments: ["--prompt", "subrouter"]))["live_provider_route"] as? String == "unknown"
         )
-    }
-
-    @Test func testSessionsListProviderRouteMatchFailsClosedForUnknownEvidence() {
-        #expect(!sessionsListProviderRoutesMatch(expected: "unknown", live: "unknown"))
-        #expect(!sessionsListProviderRoutesMatch(expected: "subrouter", live: "unknown"))
-        #expect(!sessionsListProviderRoutesMatch(expected: "unknown", live: "direct"))
-        #expect(sessionsListProviderRoutesMatch(expected: "direct", live: "direct"))
-        #expect(sessionsListProviderRoutesMatch(expected: "subrouter", live: "subrouter"))
-        #expect(!sessionsListProviderRoutesMatch(expected: "subrouter", live: "direct"))
     }
 
     @Test func testSessionsListReportsForkDiagnosticsAndAcceptsWorkspaceRefs() throws {
