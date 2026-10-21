@@ -28,6 +28,9 @@ extension UpdateController {
             // silently looping on "Update Available".
             installWatchdog.arm { [weak self] in self?.fireInstallWatchdogIfStalled() }
         }
+        // With the idle policy on, a background download this check stages would otherwise be
+        // installed as an automatic install; the user asked for this one.
+        if driver.installsInBackground, driver.installsWhenIdle { driver.installsWhenStaged = true }
         performAttemptAction(action)
     }
 
