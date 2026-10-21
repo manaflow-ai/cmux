@@ -2882,6 +2882,65 @@
           }
         }
       }
+    },
+    "sidebarSections.priorityViewOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the Priority view is off; turn it on in the App Store or Settings"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "die Prioritätsansicht ist aus; schalte sie im App Store oder in den Einstellungen ein"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la vue Priorité est désactivée ; activez-la dans l’App Store ou les Réglages"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض الأولوية متوقف؛ شغّله من متجر التطبيقات أو الإعدادات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la vista de prioridad está desactivada; actívala en la App Store o en Ajustes"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先檢視已關閉；請在 App Store 或設定中開啟"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "优先视图已关闭；请在 App Store 或设置中打开"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "우선순위 보기가 꺼져 있습니다. App Store나 설정에서 켜세요"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先ビューはオフです。App Store または設定でオンにしてください"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
