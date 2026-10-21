@@ -47,6 +47,7 @@ import {
   useDraftActionsVersion,
   writePersistedDraft,
 } from "./composerDraft";
+import { useDictationListening } from "./dictation";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
@@ -984,6 +985,8 @@ export function Composer({
         : steerKind === "steer"
           ? COMPOSER_LABELS.placeholderSteer
           : COMPOSER_LABELS.placeholderInterrupt;
+  // A dictation waiting for words says so in the empty prompt, in italic (dictation.css).
+  const dictating = useDictationListening();
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -1238,9 +1241,11 @@ export function Composer({
           {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
           <MarkdownField
             ref={fieldRef}
-            className={shell ? "acpmux-composer-prompt is-hidden" : "acpmux-composer-prompt"}
+            className={
+              shell ? "acpmux-composer-prompt is-hidden" : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}`
+            }
             value={text}
-            placeholder={t(placeholder)}
+            placeholder={t(dictating ? "dictation.listening" : placeholder)}
             attributes={{
               role: "combobox",
               "aria-label": t(COMPOSER_LABELS.prompt),
