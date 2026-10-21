@@ -80,8 +80,9 @@ export function scrollToRow(rowId: string, root: ParentNode = document): boolean
 /// Marks row `rowId` once the transcript draws it, which is not the frame it was asked for: the
 /// transcript virtualizes its rows, so a row far from the view scrolls first and mounts after.
 /// Gives up quietly when it never mounts, or when `stale` says the row's chat is no longer the one
-/// on screen, leaving the view where it is. Returns the way to stop waiting: a later reveal, or a
-/// reader who scrolled on, must not be pulled back to this row minutes later.
+/// on screen, leaving the view where it is. Returns the way to stop waiting, which is what keeps a
+/// later reveal's reader from being pulled back to this row. A reader who only scrolls away inside
+/// the wait is still taken to the row when it is drawn, as a reveal they asked for should.
 function markWhenDrawn(
   rowId: string,
   root: ParentNode,
