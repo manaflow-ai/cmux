@@ -213,6 +213,7 @@ async fn stream_across(
     let all =
         tokio::time::timeout(Duration::from_secs(25), progress.wait_for(|got| *got >= sent)).await.is_ok();
     let got = *progress.borrow();
+    let endpoints_after = endpoints_of();
     connected.link.close("done");
     let arrivals = reader.await.unwrap();
     assert!(all && got == sent, "bytes lost: sent {sent}, echoed {got}");
@@ -224,7 +225,6 @@ async fn stream_across(
     }
     let after = *connected.path.borrow();
     let mac_after = mac_label();
-    let endpoints_after = endpoints_of();
     Run {
         stall,
         before,
