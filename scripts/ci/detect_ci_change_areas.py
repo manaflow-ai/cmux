@@ -128,6 +128,8 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/swift_incremental_diagnostics.py",
     "scripts/ci/triage-radar.py",
     "scripts/ci/validate_test_execution_registry.py",
+    # The registry check's pull request lanes (--pr-lanes).
+    "scripts/ci/pr_test_lanes.py",
     "scripts/ci/verify-r2-canary.py",
     # ci-web.yml's subarea router. It keeps the web area below -- editing it
     # selects every web subarea through the helper's own ALL_SUBAREA_INPUTS --
@@ -961,6 +963,10 @@ def is_web_change(path: str) -> bool:
         "scripts/build-webviews-app.sh",
         # react-apps-check runs the webviews tests through it.
         "scripts/ci/run-webviews-tests.sh",
+        # and compares its reds with the base's through these.
+        "scripts/ci/webviews-tests-new-reds.sh",
+        "scripts/ci/webviews_test_results.py",
+        "scripts/ci/guards_new_reds.py",
         # It also runs the test of the PR scoping of ui-rules and gallery coverage.
         "scripts/tests/test_pr_scoped_webviews_checks.py",
         "scripts/check-webviews-bun-version.sh",

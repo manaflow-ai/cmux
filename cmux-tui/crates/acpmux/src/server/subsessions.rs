@@ -120,8 +120,9 @@ async fn handle(
             let target = hub.subsession_write_target(&caller, key, true)?;
             let text = str_param(params, "text").unwrap_or_default();
             let interrupt = params.get("interrupt").and_then(Value::as_bool).unwrap_or(false);
+            let deliver = crate::hub::Delivery::parse(str_param(params, "deliver"), interrupt)?;
             let prompt_id = str_param(params, "promptId").map(str::to_owned);
-            hub.subsession_send(&caller, &target, text, interrupt, prompt_id).await
+            hub.subsession_send(&caller, &target, text, deliver, prompt_id).await
         }
         method::MUX_SUBSESSION_ANSWER => {
             let key = str_param(params, "sessionId")

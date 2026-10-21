@@ -32,6 +32,7 @@ SHORTCUTS = "web/data/cmux-shortcuts.generated.json"
 SURFACES = "plans/cmux-next/action-surfaces.json"
 WEBVIEWS = "webviews/src/generated.ts"
 APP = "first-party-apps/app/fragment.json"
+ACTION_TESTS = "Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/ActionTests.swift"
 
 
 def git(cwd, *args):
@@ -104,7 +105,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         seed = work / "seed"
         git(work, "clone", "-q", "remote.git", "seed")
         git(seed, "checkout", "-q", "-b", "feat-cmux-next")
-        files = {SETTINGS: "k1", EXPORT: "old", SNAPSHOT: "old", SHORTCUTS: "old", SURFACES: "old", WEBVIEWS: "old", APP: "a1",
+        files = {SETTINGS: "k1", EXPORT: "old", SNAPSHOT: "old", SHORTCUTS: "old", SURFACES: "old", WEBVIEWS: "old", APP: "a1", ACTION_TESTS: "t1",
                  "README.md": "r", "unlisted/output.txt": "old",
                  "scripts/cmux-next/autofix-areas.sh": (ROOT / "scripts/cmux-next/autofix-areas.sh").read_text()}
         for path, text in files.items():
@@ -193,14 +194,25 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertEqual(landed[WEBVIEWS], "new")
         self.assertEqual(done.returncode, 1, out)
 
-    def test_outputs_built_from_a_left_out_export_wait_with_it(self):
-        # Greptile on #22474: an app-host input change leaves the action export out, and the shortcuts
-        # file built from that export must not land without it.
-        done, landed, out = self.push({APP: "changed"}, repair={SURFACES: "new", SHORTCUTS: "new", WEBVIEWS: "new"})
-        self.assertEqual(landed[SURFACES], "old")
+    def test_outputs_built_from_an_export_whose_inputs_moved_wait_for_the_tip(self):
+        # Greptile on #22474: the shortcuts file built from the action export at the run's commit must not
+        # land past a move of the export's inputs. The export itself lands as progress (run 39633520123:
+        # held, none landed), and base-autofix-land.sh makes the shortcuts again on the tip from it.
+        done, landed, out = self.push({ACTION_TESTS: "changed"},
+                                      repair={SURFACES: "new", SHORTCUTS: "new", WEBVIEWS: "new"})
+        self.assertEqual(landed[SURFACES], "new")
         self.assertEqual(landed[SHORTCUTS], "old")
         self.assertEqual(landed[WEBVIEWS], "new")
         self.assertEqual(done.returncode, 1, out)
+
+    def test_an_app_host_input_change_does_not_hold_the_action_export(self):
+        # The action exports read the actions area only (2026-10-21: held for areas they don't read,
+        # they never landed). The shortcuts file lands with the export it was built from.
+        done, landed, out = self.push({APP: "changed"}, repair={SURFACES: "new", SHORTCUTS: "new", WEBVIEWS: "new"})
+        self.assertEqual(landed[SURFACES], "new")
+        self.assertEqual(landed[SHORTCUTS], "new")
+        self.assertEqual(landed[WEBVIEWS], "new")
+        self.assertEqual(done.returncode, 0, out)
 
     def test_the_defaults_snapshot_never_lands_in_a_partial_repair(self):
         # defaults_guard.py also reads *Enabled flags and keybind lines across the sources, outside any area.
@@ -255,6 +267,22 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertIn("scripts/cmux-next/base-autofix-settings-exports.sh", step["run"])
         self.assertIn("made_at=", step["run"])
         self.assertEqual(job["outputs"]["settings_made_at"], "${{ steps.settings.outputs.made_at }}")
+
+    def test_the_mac_job_makes_the_action_exports_on_the_newest_tip(self):
+        # 2026-10-21: judged from the run's own commit, the action exports were held on every run
+        # (the Mac job queues for half an hour; the actions area moves every few minutes).
+        job = DOC["jobs"]["action-exports"]
+        step = next(s for s in job["steps"] if s.get("id") == "actions")
+        self.assertIn("scripts/cmux-next/base-autofix-action-exports.sh", step["run"])
+        self.assertIn("made_at=", step["run"])
+        self.assertIn("CMUX_BASE_AUTOFIX_ACTIONS_PREPARE", step["env"])
+        self.assertIn("timeout-minutes", step)
+        self.assertEqual(job["outputs"]["actions_made_at"], "${{ steps.actions.outputs.made_at }}")
+        push = next(s for s in DOC["jobs"]["autofix"]["steps"] if "base-autofix-land.sh" in s.get("run", ""))
+        self.assertEqual(push["env"]["ACTIONS_MADE_AT"], "${{ needs.action-exports.outputs.actions_made_at }}")
+        self.assertIn('"$SETTINGS_MADE_AT" "$ACTIONS_MADE_AT"', push["run"])
+        self.assertIn("scripts/cmux-next/base-autofix-action-exports.sh", DOC[True]["push"]["paths"])
+        self.assertGreaterEqual(job["timeout-minutes"], step["timeout-minutes"] + 40)
 
     def test_a_slow_settings_regeneration_never_costs_the_action_exports(self):
         # Up to three swift builds: the settings step has its own timeout, below the job's, so a slow
