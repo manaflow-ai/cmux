@@ -17,11 +17,8 @@ enum CoderouterCLIFailure: Error, Equatable, Sendable, LocalizedError {
     case planRequired
     /// The network or the control plane is down.
     case unreachable
-    /// Anything else.
+    /// Anything else, including a session or team change mid-command.
     case unavailable
-    /// The app's session was being revalidated or replaced while it was
-    /// captured. Transient: the next refresh retries, nothing is reported.
-    case sessionChanging
 
     var message: String {
         switch self {
@@ -37,21 +34,8 @@ enum CoderouterCLIFailure: Error, Equatable, Sendable, LocalizedError {
             return String(localized: "coderouter.failure.plan", defaultValue: "Coderouter needs a cmux Pro or Team plan.")
         case .unreachable:
             return String(localized: "coderouter.failure.network", defaultValue: "Coderouter is unreachable. Check your connection, then retry.")
-        case .unavailable, .sessionChanging:
+        case .unavailable:
             return String(localized: "coderouter.failure.unknown", defaultValue: "Coderouter accounts didn't load. Retry in a moment.")
-        }
-    }
-
-    /// The hint after a failed removal. Read-specific copy ("didn't load",
-    /// "can't load") is replaced; the rest already fits.
-    var removalMessage: String {
-        switch self {
-        case .outdated:
-            return String(localized: "coderouter.failure.removeOutdated", defaultValue: "This Coderouter version can't remove team accounts. Update cmux, then retry.")
-        case .unavailable, .sessionChanging:
-            return String(localized: "coderouter.failure.remove", defaultValue: "Coderouter couldn't remove this account. Retry in a moment.")
-        case .notInstalled, .signInRequired, .notMember, .planRequired, .unreachable:
-            return message
         }
     }
 
