@@ -189,6 +189,47 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("web lint", result.stderr)
 
+    def test_a_lint_error_in_the_pushed_commit_is_refused_when_the_working_tree_has_the_fix(self):
+        # The fix is made but not committed: linting the working tree passed this push (0b115ab).
+        before = self.remote_head()
+        self.write("webviews/src/app.ts", "export const app = BAD_LANE;\n")
+        self.commit("bad lane")
+        self.write("webviews/src/app.ts", "export const app = 3;\n")
+
+        result = self.push()
+
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.remote_head(), before, "the bad commit must not reach origin")
+        self.assertIn("browser lane import", result.stderr)
+
+    def test_a_clean_pushed_commit_passes_whatever_the_working_tree_holds(self):
+        self.write("webviews/src/app.ts", "export const app = 3;\n")
+        self.write("web/app/page.tsx", "export const page = 3;\n")
+        self.commit("clean")
+        self.write("webviews/src/app.ts", "export const app = BAD_LANE;\n")  # uncommitted, not pushed
+        self.write("webviews/src/draft.ts", "export const draft = BAD_FORMAT;\n")  # untracked, not pushed
+        self.write("web/app/page.tsx", "export const page = BAD_ESLINT;\n")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+        self.assertIn("BAD_LANE", (self.repo / "webviews/src/app.ts").read_text(), "the working tree is left alone")
+
+    def test_pushing_a_branch_that_is_not_checked_out_lints_that_branch(self):
+        self.git("checkout", "--quiet", "-b", "side")
+        self.write("web/app/page.tsx", "export const page = BAD_ESLINT;\n")
+        self.commit("bad web on side")
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        before = self.remote_head()
+
+        result = subprocess.run(["git", "-C", str(self.repo), "push", "origin", "side:feat-cmux-next"],
+                                env=self.env, text=True, capture_output=True)
+
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("app/page.tsx: error no-bad", result.stderr)
+
     def test_web_eslint_checks_only_the_changed_files(self):
         self.write("web/app/page.tsx", "export const page = 2;\n")
         self.commit("touch one web file")
