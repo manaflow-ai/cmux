@@ -65,6 +65,9 @@ export type AgentSessionTheme = {
   /// `data-status-indicators` on the root; under `static` no status loop runs and color-only
   /// marks draw a shape each. Absent means the stylesheet defaults (animated).
   statusIndicators?: "animated" | "static";
+  /// How agent work shows (Debug Settings `status.working`, CmuxNextDesign StatusWorkingLook): sets
+  /// `data-working-look` on the root. Absent means the stylesheet default, the breathing dot.
+  workingLook?: "breathe" | "shimmer" | "spinner";
 };
 
 export type AppContext = {
