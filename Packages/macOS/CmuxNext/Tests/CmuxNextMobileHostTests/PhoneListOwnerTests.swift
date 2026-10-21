@@ -4,7 +4,7 @@ import Foundation
 import Testing
 
 /// The one phone list (Settings > Mobile) has one owner for its user: the iPhone host's account.
-/// A team switch keeps the user's list, another user gets their own, and a sign-out lets no phone
+/// A team switch keeps the user's list, another user starts with an empty one, and a sign-out lets no phone
 /// in and forgets that user's phones. The Iroh link only reads it (PhoneAdmissionTests).
 @MainActor
 struct PhoneListOwnerTests {
@@ -32,7 +32,9 @@ struct PhoneListOwnerTests {
         #expect(host.pairedStore.current?.devices.isEmpty == true)
         host.accountChanged(nil)
         #expect(host.pairedStore.current == nil)
+        // The list is one user's: u's phones went when v signed in, so u starts empty and is asked again.
         host.accountChanged(Self.account("u", team: "personal-u"))
-        #expect(host.pairedStore.current?.devices.map(\.id) == [key])
+        #expect(host.pairedStore.current?.userID == "u")
+        #expect(host.pairedStore.current?.devices.isEmpty == true)
     }
 }
