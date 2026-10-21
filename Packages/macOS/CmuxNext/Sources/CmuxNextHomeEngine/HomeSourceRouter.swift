@@ -143,8 +143,15 @@ public nonisolated final class HomeSourceRouter: HomeSource {
     /// Attachments go to the owner of their conversation, like its ops. The
     /// protocol default refuses ("attachments unsupported"), so without
     /// these every photo sent to the local Chief failed "Not Delivered".
+    /// cmux Cloud stores no files: its refusal is named
+    /// (`cloud_attachments_unsupported`) so the composer says why.
     public func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
-        try await source(for: file.conversation).upload(file)
+        let owner = await owner(of: file.conversation)
+        do {
+            return try await (owner == .cloud ? cloud : local).upload(file)
+        } catch HomeRejection.invalid("attachments unsupported") where owner == .cloud {
+            throw HomeRejection.invalid("cloud_attachments_unsupported")
+        }
     }
 
     public func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool {

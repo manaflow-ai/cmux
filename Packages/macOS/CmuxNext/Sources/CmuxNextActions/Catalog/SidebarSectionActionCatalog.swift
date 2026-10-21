@@ -23,6 +23,21 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 // The Home row's own menu offers Remove from Sidebar.
                 surfacePlan: plan(exemption: .familyMember)
             ),
+            // The Chief item's subagent rows (`ChiefSidebar`): folded, only the working, waiting, failed
+            // or lost ones show; checked, the idle ones too. Only the Chief item's right-click menu shows it.
+            ActionDescriptor(
+                id: "sidebar.chief.toggleIdleSubagents",
+                title: t("action.sidebar.chief.toggleIdleSubagents", "Show Idle Chief Subagents"),
+                keywords: ["chief", "subagents", "agents", "sidebar", "idle", "show", "hide", "fold", "collapse", "expand"],
+                category: .sidebar, symbol: "list.bullet.indent", surfaces: [.palette, .keyboard, .contextMenu],
+                // A fold of this Mac's own sidebar view, nothing to script.
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarItem, .view, 50)])
+            ),
+            // Opens a Chief subagent (target: its row's sidebar item) as its row does; the Chief pane's Subagents menu runs it.
+            ActionDescriptor(id: "chief.openSubagent", title: t("action.chief.openSubagent", "Open Chief Subagent"),
+                             keywords: ["chief", "subagent", "agent", "open", "show", "chat"], category: .agents, symbol: "person.2",
+                             surfaces: [.keyboard], targets: [.sidebarItem],
+                             surfacePlan: plan(cli: .exempt(.focusMove), exemption: .focusMove, palette: .exempt(.focusMove))),
             ActionDescriptor(
                 id: "sidebar.item.add", title: t("action.sidebar.item.add", "Add to Sidebar…"),
                 keywords: ["sidebar", "section", "pin", "settings", "account", "history", "bookmarks", "notifications"],
@@ -209,6 +224,13 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 110)])
             ),
+            // The Priority view's bell (`sidebar.priorityView.shown`), while the view is installed.
+            ActionDescriptor(
+                id: "sidebar.priorityView.toggle", title: t("action.sidebar.priorityView.toggle", "Toggle Priority View"),
+                keywords: ["sidebar", "priority", "activity", "attention", "agents", "chats", "needs you", "bell"],
+                defaultShortcut: Shortcut("k", modifiers: [.option, .command]), category: .sidebar, symbol: "bell",
+                surfaces: [.palette, .keyboard], surfacePlan: plan(cli: .exempt(.guiOnly), exemption: .guiOnly)
+            ),
             // Leo (cx-wab7m): the bottom band's pieces hide the macOS way, Hide on the piece's
             // own menu and Show on the band's (`sidebar.showSpaces`, `sidebar.showProfileControl`).
             ActionDescriptor(
@@ -310,6 +332,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ("new_browser", t("argument.sidebar.builtin.newBrowser", "New Browser Tab")),
             ("new_agent_chat", t("argument.sidebar.builtin.newAgentChat", "New Agent Chat")),
             ("search_chats", t("argument.sidebar.builtin.searchChats", "Search Chats")),
+            ("chief", t("argument.sidebar.builtin.chief", "Chief")),
             ("customize", t("argument.sidebar.builtin.customize", "Customize Appearance")),
         ]
         // Free text with the built-ins offered: `workspace:<id>` and

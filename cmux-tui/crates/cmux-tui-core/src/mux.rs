@@ -501,7 +501,7 @@ pub struct Mux {
     next_notification_id: AtomicU64,
     next_active_at: AtomicU64,
     next_in_process_resize_owner: AtomicU64,
-    surface_options: Mutex<SurfaceOptions>,
+    pub(crate) surface_options: Mutex<SurfaceOptions>,
     provider_workspace: Mutex<ProviderWorkspaceState>,
     /// `provider_workspace.managed`, readable under the registry and state
     /// locks (the provider lock orders before them; the flag is one-way).
@@ -646,6 +646,8 @@ pub struct Mux {
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
+    /// Terminal output, outside the journal (output_store.rs).
+    pub(crate) output_store: crate::output_store::OutputStore,
     /// Periodic checkpoint, segment sealing and incremental vacuum worker
     /// (mux/journal_maintenance.rs); `None` for an in-memory session.
     journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,

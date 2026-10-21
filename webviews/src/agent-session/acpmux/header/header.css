@@ -1,9 +1,10 @@
-/* The chat header's tools (header/ChatHeaderTools.tsx): 26px small-radius buttons on the summary button's hover, press and focus steps, and the "..." menu (src/ui Menu) on the menu surface. */
-.acpmux-header-tools{flex:none;display:flex;align-items:center;gap:2px}
-.acpmux-header-tool-group{display:flex;align-items:center;gap:2px;min-width:0}
-.acpmux-header-separator{flex:none;width:.5px;height:16px;margin:0 3px;border:0;background:var(--agent-border);}
+/* The chat header's tools (header/ChatHeaderTools.tsx): 26px-tall small-radius buttons on the summary button's hover, press and focus steps, and the "..." menu (src/ui Menu) on the menu surface.
+   Buttons sit flush on a 24px pitch, as in a macOS or Codex toolbar: a 15px glyph leaves 9px between glyphs. */
+.acpmux-header-tools{flex:none;display:flex;align-items:center;gap:0}
+.acpmux-header-tool-group{display:flex;align-items:center;gap:0;min-width:0}
+.acpmux-header-separator{flex:none;width:.5px;height:16px;margin:0 4px;border:0;background:var(--agent-border);}
 .acpmux-header-tool{flex:none;display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-header-tool{width:26px}
+.acpmux-header-tool{width:24px}
 .acpmux-header-tool:disabled{color:var(--agent-muted)}
 .acpmux-header-tool:not(:disabled):hover,.acpmux-header-tool[data-popup-open]{background:color-mix(in srgb,currentColor 8%,transparent)}
 .acpmux-header-tool:not(:disabled):active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
@@ -38,6 +39,19 @@
 .acpmux-status{position:absolute;inset:0;display:flex;align-items:center;gap:5px;color:var(--agent-muted);font-size:var(--text-detail);overflow:hidden}
 .acpmux-status>svg{flex:none}
 .acpmux-status>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The Environment line (EnvironmentLine.tsx): machine · folder · branch in the status slot, as quiet
+   as the status label; each name ends in an ellipsis before the line could size the slot. */
+.acpmux-env-line{position:absolute;inset:0 auto 0 0;display:flex;align-items:center;gap:5px;max-width:100%;box-sizing:border-box;margin:0;padding:0 6px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);white-space:nowrap;overflow:hidden;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-env-line>svg{flex:none}
+.acpmux-env-line__machine,.acpmux-env-line__folder,.acpmux-env-line__branch{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.acpmux-env-line__machine{flex:0 1000 auto}
+.acpmux-env-line__folder{flex:0 1 auto}
+.acpmux-env-line__branch{flex:0 10 auto}
+.acpmux-env-line__dot{flex:none}
+button.acpmux-env-line:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
+button.acpmux-env-line:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
+/* In the pane's tab row it leads the tools: in the row's flow, never wider than a few tabs. */
+.acpmux-env-line.acpmux-env-line--compact{position:static;inset:auto;flex:0 1 auto;max-width:220px;height:26px;padding:0 4px}
 .acpmux-handoff-header-tools{flex:none}
 @media (prefers-reduced-motion:no-preference){.ui-popup.acpmux-chat-menu-popover{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 /* The right-click menu host (cx-00n1): no box of its own, so the tools keep their row. */

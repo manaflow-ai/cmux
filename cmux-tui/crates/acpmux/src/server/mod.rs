@@ -68,6 +68,9 @@ pub struct Conn {
     caller: std::sync::OnceLock<String>,
     /// The session a first unix `initialize` named with a token that did not prove it.
     pub(super) unproven_caller: std::sync::OnceLock<String>,
+    /// The ephemeral sessions it created, purged when it closes (`ephemeral.rs`);
+    /// None once it closed.
+    ephemeral: StdMutex<Option<Vec<String>>>,
 }
 
 impl Conn {
@@ -727,6 +730,7 @@ async fn serve_connection_from(
         holds_calls: std::sync::atomic::AtomicU32::new(0),
         caller: std::sync::OnceLock::new(),
         unproven_caller: std::sync::OnceLock::new(),
+        ephemeral: StdMutex::new(Some(Vec::new())),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -773,6 +777,7 @@ async fn serve_connection_from(
     }
     fan.abort();
     view::release_all(&hub, &conn);
+    ephemeral::release_all(&hub, &conn).await;
     tracing::debug!(conn = %conn.id, "client disconnected");
 }
 
@@ -953,6 +958,7 @@ mod agent_messages;
 mod change_kind;
 mod chats;
 pub mod conn_auth;
+mod ephemeral;
 mod fanout;
 pub use conn_auth::ConnAuth;
 mod fork_through;
@@ -960,11 +966,13 @@ mod harness_admin;
 mod harness_enable;
 mod inventory_watch;
 pub mod local_app;
+mod models_fanout;
 pub mod peer_auth;
 mod peer_forward;
 pub mod peer_text;
 mod pending;
 mod processes;
+mod worktrees;
 pub use pending::event_value;
 use pending::{is_permission_ask, peer_permission_pending, permission_pending};
 mod redact;

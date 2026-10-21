@@ -1,4 +1,4 @@
-// Settings > Agents > Chiefs (u2586): every Chief with its picture, name, role, backend and lock;
+// Settings > Chief > Chiefs (u2586): every Chief with its picture, name, role, backend and lock;
 // a row opens the same editor as Home (a page in the card, never a dialog), New Chief opens it
 // empty, and Save goes through the host's page relay (`cmux.chief.profile.*`).
 import { act } from "react";
@@ -14,7 +14,7 @@ const button = (scope: ParentNode, label: string) =>
   [...scope.querySelectorAll<HTMLButtonElement>("button")].find((node) => node.textContent === label)!;
 
 test("Chiefs lists every Chief: picture, name, role, backend and lock", async () => {
-  const page = await renderPage({ path: "/settings/agents" });
+  const page = await renderPage({ path: "/settings/chief" });
   const rows = [...card(page.container).querySelectorAll<HTMLElement>("[data-chief]")];
   expect(rows.map((row) => row.dataset.chief)).toEqual(["agent_chief", "agent_release"]);
   expect(rows[0]!.textContent).toContain("Chief");
@@ -29,7 +29,7 @@ test("Chiefs lists every Chief: picture, name, role, backend and lock", async ()
 
 test("a row names the backend the way Home and the Chief editor do, never by its raw id", async () => {
   const page = await renderPage({
-    path: "/settings/agents",
+    path: "/settings/chief",
     setup: (provider) => {
       provider.chiefs[0]!.engine = { harness: "default", model: "opus" };
       provider.chiefs[1]!.engine = { harness: "unii" };
@@ -45,7 +45,7 @@ test("a row names the backend the way Home and the Chief editor do, never by its
 
 test("a row shows a chosen model even when no harness is named", async () => {
   const page = await renderPage({
-    path: "/settings/agents",
+    path: "/settings/chief",
     setup: (provider) => {
       provider.chiefs[0]!.engine = { model: "opus" };
       provider.chiefs[1]!.engine = { harness: "default" };
@@ -60,7 +60,7 @@ test("a row shows a chosen model even when no harness is named", async () => {
 });
 
 test("a row opens the same editor as Home, and Save goes through the host's relay", async () => {
-  const page = await renderPage({ path: "/settings/agents" });
+  const page = await renderPage({ path: "/settings/chief" });
   await act(async () => card(page.container).querySelector<HTMLElement>('[data-chief="agent_release"]')!.click());
   await settle();
   const editor = card(page.container).querySelector<HTMLElement>("section.chief-editor");
@@ -87,7 +87,7 @@ test("a row opens the same editor as Home, and Save goes through the host's rela
 });
 
 test("New Chief opens the editor empty; Back returns to the list", async () => {
-  const page = await renderPage({ path: "/settings/agents" });
+  const page = await renderPage({ path: "/settings/chief" });
   await act(async () => button(card(page.container), "New Chief").click());
   await settle();
   const editor = card(page.container).querySelector<HTMLElement>('section.chief-editor[data-chief-page="new"]')!;
