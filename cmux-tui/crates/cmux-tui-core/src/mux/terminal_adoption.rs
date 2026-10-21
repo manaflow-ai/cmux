@@ -145,8 +145,7 @@ impl Mux {
         // Every host's row and public id under one registry lock: taken per
         // host, the lock waits on other startup threads cost about 7 ms each.
         let mut prefetched = {
-            let registry =
-                self.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             let mut rows = HashMap::new();
             for (_, record) in &records {
                 let row = registry.terminal_record(&record.terminal_id)?;
@@ -168,7 +167,7 @@ impl Mux {
                 None => (
                     self.workspace_registry
                         .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .unwrap_or_else(PoisonError::into_inner)
                         .terminal_record(&terminal_id)?,
                     None,
                 ),
@@ -266,7 +265,7 @@ impl Mux {
         // answer (plans/cmux-next/service-start-PERF.md 5b).
         let marked = {
             let mut registry =
-                self.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             let (marked, revision) = commit_terminals_adopting(&mut registry, &adopting)?;
             if let Some(revision) = revision {
                 self.emit_terminal_registry_changed(&registry, revision);
@@ -332,7 +331,11 @@ impl Mux {
             match public_id {
                 // An imported or recovered row has no prefetched id: read it now.
                 Some(public_id) => {
-                    self.set_pending_terminal_as(public_id, &terminal_id, PendingTerminal::Adopting)
+                    self.set_pending_terminal_as(
+                        public_id,
+                        &terminal_id,
+                        PendingTerminal::Adopting,
+                    );
                 }
                 None => {
                     self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting);
@@ -707,8 +710,7 @@ impl Mux {
             }
         };
         if let Some(public_id) = restored_public_id {
-            let mut names =
-                self.restored_tab_names.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut names = self.restored_tab_names.lock().unwrap_or_else(PoisonError::into_inner);
             for placement in state.placements_of_content(&ContentPublicId::Terminal(public_id)) {
                 if let (Some(name), Some(surface)) =
                     (names.remove(placement), state.surfaces.get(placement))

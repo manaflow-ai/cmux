@@ -420,7 +420,7 @@ impl Mux {
         mux.materialize_restored_browsers(&contents)?;
         // Set before adoption: a host that adopts on its own thread names its
         // surfaces from here (finish_terminal_adoption).
-        mux.restored_tab_names.lock().unwrap_or_else(std::sync::PoisonError::into_inner).extend(
+        mux.restored_tab_names.lock().unwrap_or_else(PoisonError::into_inner).extend(
             contents.iter().filter_map(|content| Some((content.slot, content.name.clone()?))),
         );
         #[cfg(any(unix, windows))]
@@ -428,8 +428,7 @@ impl Mux {
         {
             let mut state = mux.state.lock().unwrap();
             state.rebuild_resource_indexes();
-            let mut names =
-                mux.restored_tab_names.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut names = mux.restored_tab_names.lock().unwrap_or_else(PoisonError::into_inner);
             for content in &contents {
                 if let Some(surface) = state.surfaces.get(&content.slot) {
                     names.remove(&content.slot);

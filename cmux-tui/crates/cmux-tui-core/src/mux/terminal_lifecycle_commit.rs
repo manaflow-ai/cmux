@@ -49,6 +49,9 @@ pub(super) fn commit_terminal_lifecycle(
     Ok((terminal, commit.revision))
 }
 
+/// Each terminal's own result, then the last revision committed, if any.
+pub(super) type AdoptingCommit = (Vec<Result<(), String>>, Option<u64>);
+
 /// Mark every terminal in `terminals` adopting with its host's incarnation
 /// in one registry transaction: one commit each cost a daemon start 2.6 ms
 /// per surviving host before its first answer
@@ -58,7 +61,7 @@ pub(super) fn commit_terminal_lifecycle(
 pub(super) fn commit_terminals_adopting(
     registry: &mut WorkspaceRegistry,
     terminals: &[(RegistryTerminal, String)],
-) -> anyhow::Result<(Vec<Result<(), String>>, Option<u64>)> {
+) -> anyhow::Result<AdoptingCommit> {
     let generation = registry.generation().to_string();
     let mut intents = Vec::with_capacity(terminals.len());
     for (terminal, incarnation) in terminals {
