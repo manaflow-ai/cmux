@@ -23,4 +23,6 @@ public nonisolated enum SidebarContextTarget: Hashable, Sendable {
     case layoutItem(LayoutItemID)
     /// The header of a titled pinned section.
     case layoutSection(LayoutSectionID)
+    /// A row of the Priority view: its chat's session id.
+    case priorityChat(String)
 }

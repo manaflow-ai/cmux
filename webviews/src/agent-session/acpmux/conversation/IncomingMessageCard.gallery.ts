@@ -1,14 +1,23 @@
 // l10n-allow-file: gallery fixtures (sample messages and replies), not shipped UI.
 // Another agent's message to this chat as one quiet "Received message from <sender> ›" line, as
 // Claude desktop draws it, and a Claude Code task notification as one quiet line
-// (IncomingMessageCard.tsx, incomingMessage.ts).
+// (IncomingMessageCard.tsx, incomingMessage.ts). A message from a chat here also has Reply at the line's end, which
+// answers in place in the sender's chat and thread.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 
-const message = (name: string, text: string, raw = text, sessionId?: string) => ({
+const message = (
+  name: string,
+  text: string,
+  raw = text,
+  sessionId?: string,
+  ids: { msgId?: string; threadId?: string } = {},
+) => ({
   kind: "message" as const,
-  message: { name, text, raw, ...(sessionId ? { sessionId } : {}) },
+  message: { name, text, raw, ...(sessionId ? { sessionId } : {}), ...ids },
 });
+
+const gridFix = "The grid fix is on cmux/grid-fix; tests pass.";
 
 export default agentPaneEntry({
   id: "agent-pane.incoming-message",
@@ -23,8 +32,8 @@ export default agentPaneEntry({
         user("Split the grid fix into its own chat and report back", 9),
         assistant("Started Grid fix; it will message this chat when done.", 8.5),
         summary(8.5, { status: "completed" }),
-        user("The grid fix is on cmux/grid-fix; tests pass.", 6, {
-          incoming: message("Grid fix", "The grid fix is on cmux/grid-fix; tests pass.", undefined, "child-3"),
+        user(gridFix, 6, {
+          incoming: message("Grid fix", gridFix, undefined, "child-3"),
           untyped: true,
         }),
         assistant("Merged cmux/grid-fix into this branch.", 5.5),
@@ -40,6 +49,57 @@ export default agentPaneEntry({
         assistant("Reviewing #123 now.", 3.5),
         summary(3.5, { status: "completed" }),
       ]),
+    },
+    subsession: {
+      note: "A sub-session's chat: its first prompt and a later message from the chat that started it read Parent · coordinator, and a report from its own sub-session reads Sub-session · fixture; each name opens that chat beside this one.",
+      snapshot: chat(
+        [
+          user("Run the net tests and report which fail.", 9, {
+            incoming: {
+              kind: "message",
+              message: {
+                name: "claude-sr2/coordinator",
+                sessionId: "parent-1",
+                relation: "parent",
+                text: "Run the net tests and report which fail.",
+                raw: "Run the net tests and report which fail.",
+              },
+            },
+            untyped: true,
+          }),
+          assistant("Running them now; a sub-session is rebuilding the fixtures.", 8.5),
+          summary(8.5, { status: "completed" }),
+          user("Also check the retry tests.", 6, {
+            incoming: {
+              kind: "message",
+              message: {
+                name: "claude-sr2/coordinator",
+                sessionId: "parent-1",
+                relation: "parent",
+                text: "Also check the retry tests.",
+                raw: "Also check the retry tests.",
+              },
+            },
+            untyped: true,
+          }),
+          user("Fixtures rebuilt; 3 changed.", 4, {
+            incoming: {
+              kind: "message",
+              message: {
+                name: "fixture",
+                sessionId: "grandchild-1",
+                relation: "subsession",
+                text: "Fixtures rebuilt; 3 changed.",
+                raw: "Fixtures rebuilt; 3 changed.",
+              },
+            },
+            untyped: true,
+          }),
+          assistant("All 41 net tests pass with the new fixtures.", 3.5),
+          summary(3.5, { status: "completed" }),
+        ],
+        { title: "tests" },
+      ),
     },
     opened: {
       note: "› opens the message under its line, set off by a hairline.",
@@ -111,6 +171,19 @@ export default agentPaneEntry({
         }),
         assistant("sidebar-cleanup is in review; I'll merge it when the review passes.", 7.8),
         summary(7.8, { status: "completed" }),
+      ]),
+    },
+    reply: {
+      note: "A message from a chat here, with its id and thread: its name opens it beside, and Reply answers in its thread.",
+      snapshot: chat([
+        user("Split the grid fix out to its own chat and tell me when tests pass", 9, { seq: 1 }),
+        assistant("Started Grid fix; I'll hand back here when it reports.", 8.5),
+        summary(8.5, { seq: 3, status: "completed" }),
+        user(gridFix, 2, {
+          seq: 4,
+          incoming: message("Grid fix", gridFix, undefined, "child-3", { msgId: "m-1", threadId: "t-1" }),
+          untyped: true,
+        }),
       ]),
     },
     notice: {

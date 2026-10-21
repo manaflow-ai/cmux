@@ -18,7 +18,14 @@ extension ChatsFeed {
         turns.start(localHost: localHost)
         startChiefTurnStates(tag: services.environment.tag)
         SidebarSessionTreeFeed.shared.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: localHost)
-        return ChatsFeed(socketPath: environment.socketPath)
+        let feed = ChatsFeed(socketPath: environment.socketPath)
+        // The session tree's chat history: rows open through the shared Open Chat path.
+        let history = SidebarChatHistoryFeed.shared
+        feed.observe(history) { [weak feed] in if let feed { history.chats = feed.store } }
+        history.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: localHost,
+                      open: { [weak services] key in services?.chatsOpener.open(key) })
+        SidebarChatHistoryFeed.bind(into: services.registry)
+        return feed
     }
 
     /// The Chief home's acpmux watch (2026-10-20: every Chief subagent tab read "Agent"): the

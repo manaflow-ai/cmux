@@ -519,12 +519,12 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
 async fn a_linked_login_environment_cache_is_never_trusted() {
     let dir = scratch("cache-link", "echo run >> \"$HOME/shell-runs\"\nexport NO_PROXY=plain\n");
     let config = json!({"harnesses": {}, "permissionPolicy": "deny-all"});
+    // The readiness line comes before the login environment resolves (the
+    // shell runs in `finish_startup`), and no agent spawn waits for it here:
+    // wait for startup to finish before the daemon stops.
     {
-        let _d = start_config(&dir, config.clone(), &[]).await;
-        assert!(
-            cached_no_proxy(&dir, "plain", Duration::from_secs(10)).await,
-            "the ready listener does not mean background login warmup has finished"
-        );
+        let d = start_config(&dir, config.clone(), &[]).await;
+        startup_finished(&d).await;
     }
     let runs =
         || std::fs::read_to_string(dir.join("home/shell-runs")).unwrap_or_default().lines().count();
@@ -540,16 +540,28 @@ async fn a_linked_login_environment_cache_is_never_trusted() {
     std::fs::remove_file(&cache).unwrap();
     std::os::unix::fs::symlink(&planted, &cache).unwrap();
     {
-        let _d = start_config(&dir, config, &[]).await;
-        assert!(
-            cached_no_proxy(&dir, "plain", Duration::from_secs(10)).await,
-            "a linked cache must be replaced by a fresh login-shell result"
-        );
+        let d = start_config(&dir, config, &[]).await;
+        startup_finished(&d).await;
     }
     assert_eq!(runs(), 2, "the daemon trusted a linked login cache");
     assert_eq!(std::fs::read_to_string(&planted).unwrap(), planted_text);
     assert!(!std::fs::symlink_metadata(&cache).unwrap().file_type().is_symlink());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Wait until the daemon reports its startup complete (`_acpmux/status`
+/// `ready`): a login shell it had to wait for has run by then.
+async fn startup_finished(d: &Daemon) {
+    let mut rpc = Rpc::connect(&d.socket).await;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let status = rpc.call("_acpmux/status", json!({})).await;
+        if status["ready"] == true {
+            return;
+        }
+        assert!(Instant::now() < deadline, "the daemon never finished its startup: {status}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }
 
 /// Wait up to `limit` for the daemon's login cache to hold `NO_PROXY=want`.

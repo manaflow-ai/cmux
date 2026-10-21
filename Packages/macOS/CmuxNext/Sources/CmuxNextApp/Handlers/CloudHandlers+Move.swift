@@ -14,9 +14,22 @@ extension CloudHandlers {
         // A move a quit left unfinished says so in its chat, with Retry (``CloudMoveAsks``).
         services.cloud.moveAsks.offerUnfinished(services: services)
         // Files the person drops or pastes into a moved chat go to its machine (``CloudUploads``); in a
-        // chat on this Mac, files the composer can't attach are saved here (``AgentChatUploads``).
+        // chat of an ssh peer's acpmux, to that peer (``AgentPeerUploads``); in a chat on this Mac,
+        // files the composer can't attach are saved here (``AgentChatUploads``).
         services.agentTabs.uploader = { [weak services] tab in
-            services.flatMap { $0.cloud.uploads.uploader(tab: tab, services: $0) ?? AgentChatUploads.uploader(tab: tab, services: $0) }
+            services.flatMap {
+                $0.cloud.uploads.uploader(tab: tab, services: $0) ?? AgentPeerUploads.uploader(tab: tab, services: $0)
+                    ?? AgentChatUploads.uploader(tab: tab, services: $0)
+            }
+        }
+        // Files dropped or pasted from Finder into a chat on this Mac go as their own paths, never a
+        // copy (``AgentPaneDroppedPaths``); a moved or peer chat's still go to its machine. A New Tab page
+        // answers as the chat it starts: its tab's record names this Mac's acpmux, or another
+        // machine's, whose page model refuses first (``AgentPaneModel/remoteChat``).
+        services.agentTabs.localPaths = { [weak services] tab in
+            guard let services else { return false }
+            return services.cloud.uploads.uploader(tab: tab, services: services) == nil && AgentPeerUploads.target(tab: tab, services: services) == nil
+                && services.agentTabs.gitLink?(tab)?.isLocal == true
         }
         bind(CloudMove.action, registry, reason: reason) { invocation in
             if CloudMoveAsks.isAgent(invocation) { return try services.cloud.moveAsks.ask(invocation, services: services) }

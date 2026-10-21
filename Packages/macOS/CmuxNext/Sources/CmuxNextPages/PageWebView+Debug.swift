@@ -33,11 +33,14 @@ extension PageWebView {
         """
         // Whether a first click in an inactive window reaches this page (the view's own answer).
         let firstMouse = JSONValue.bool(webView.acceptsFirstMouse(for: nil))
-        guard let text = try? await webView.callAsyncJavaScript(script, contentWorld: .page) as? String,
+        guard let text = await callPageFunction(script) as? String,
               case .object(var members)? = try? JSONValue.parse(Data(text.utf8)) else {
             return ["error": "page not loaded", "accepts_first_mouse": firstMouse]
         }
         members["accepts_first_mouse"] = firstMouse
+        // Which engine shows the page, and why when it is WebKit (``PageEnginePolicy``).
+        members["engine"] = .string(chromiumSession != nil ? "chromium" : "webkit")
+        members["webkit_reason"] = chromiumSession != nil ? .null : engineDecision.webKitReason.map { .string($0.rawValue) } ?? .null
         return .object(members)
     }
 
@@ -78,7 +81,7 @@ extension PageWebView {
         visit(document);
         return JSON.stringify({ scrollers: document.documentElement.getAttribute('data-scrollers'), overflowing: out });
         """
-        guard let text = try? await webView.callAsyncJavaScript(script, contentWorld: .page) as? String,
+        guard let text = await callPageFunction(script) as? String,
               let value = try? JSONValue.parse(Data(text.utf8)) else { return ["error": "page not loaded"] }
         return value
     }
@@ -97,7 +100,7 @@ extension PageWebView {
 
     /// Whether a real AppKit key or mouse event reached the page in the last second: the same
     /// `PageCallContext.userGesture` a page call gets. DEBUG verb only.
-    public var debugHasRecentUserGesture: Bool { (webView as? PageWKWebView)?.hasRecentUserGesture() ?? false }
+    public var debugHasRecentUserGesture: Bool { recentUserGestureEvent() != nil }
 
     /// Clicks the first element matching `selector` from page script (not a user gesture);
     /// `metaKey` makes it a Cmd-click (a markdown link follows on Cmd-click while editing).
@@ -116,9 +119,51 @@ extension PageWebView {
         }
         return true;
         """
-        let clicked = try? await webView.callAsyncJavaScript(script, arguments: ["selector": selector, "metaKey": metaKey, "contextMenu": contextMenu],
-                                                             contentWorld: .page)
+        let clicked = await callPageFunction(script, arguments: ["selector": selector, "metaKey": metaKey, "contextMenu": contextMenu])
         return clicked as? Bool == true
+    }
+
+    /// Moves the mouse onto the center of the first element matching `selector` (scrolled into
+    /// view), so the page gets hover with no AppKit pointer: a capture slot's window never
+    /// activates, and macOS sends an inactive window no mouse moves. Chromium gets a trusted
+    /// DevTools `mouseMoved` (real `:hover`, `mouseenter`); WebKit gets page-script `mouseover`,
+    /// `mouseenter` and `mousemove` (React's `onMouseEnter` listens to `mouseover`, so it runs, but
+    /// `:hover` styles do not apply). Scrolling the element into view also scrolls its scrollers.
+    /// `{hovered, native, x, y}` in CSS pixels; `{hovered: false}` when nothing matches or another
+    /// element (an overlay, a clipping scroller) is at the element's center.
+    public func debugHover(_ selector: String) async -> JSONValue {
+        let script = """
+        const el = document.querySelector(selector); if (!el) { return null; }
+        el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+        const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2, y = r.top + r.height / 2;
+        const hit = el.contains(document.elementFromPoint(x, y));
+        if (hit && !native) {
+          for (const type of ['mouseover', 'mouseenter', 'mousemove']) {
+            el.dispatchEvent(new MouseEvent(type, { bubbles: type !== 'mouseenter', clientX: x, clientY: y, view: window }));
+          }
+        }
+        return JSON.stringify({ x, y, hit });
+        """
+        let page = chromiumSession?.page
+        let native = page != nil
+        guard let text = await callPageFunction(script, arguments: ["selector": selector, "native": native]) as? String,
+              case .object(let point)? = try? JSONValue.parse(Data(text.utf8)),
+              case .number(let x)? = point["x"], case .number(let y)? = point["y"] else { return ["hovered": false] }
+        guard point["hit"] == true else { return ["hovered": false, "error": "another element is at its center"] }
+        if let page {
+            // DevTools input is in the viewport's CSS pixels, as `getBoundingClientRect` gives them
+            // (Chromium applies the page's zoom itself, as link hints rely on).
+            guard (try? await page.devTools("Input.dispatchMouseEvent", params: [
+                "type": "mouseMoved", "x": x, "y": y, "button": "none", "buttons": 0, "modifiers": 0,
+            ])) != nil else { return ["hovered": false, "error": "mouse move failed"] }
+            // Only a hover the page now reports counts, so a move that missed never reads as one.
+            let check = "const el = document.querySelector(selector); return !!el && el.matches(':hover');"
+            guard await callPageFunction(check, arguments: ["selector": selector]) as? Bool == true else {
+                return ["hovered": false, "error": "the element is not hovered after the move"]
+            }
+        }
+        return ["hovered": true, "native": .bool(native), "x": .number(x), "y": .number(y)]
     }
 
     /// Every element matching `selector` in document order: its `data-*` attributes, classes and
@@ -128,7 +173,7 @@ extension PageWebView {
         return JSON.stringify([...document.querySelectorAll(selector)].map((el) => ({
           data: Object.assign({}, el.dataset), classes: [...el.classList], text: (el.innerText || '').slice(0, 120) })));
         """
-        guard let text = try? await webView.callAsyncJavaScript(script, arguments: ["selector": selector], contentWorld: .page) as? String,
+        guard let text = await callPageFunction(script, arguments: ["selector": selector]) as? String,
               let value = try? JSONValue.parse(Data(text.utf8)) else { return ["error": "query failed"] }
         return ["elements": value]
     }
@@ -143,13 +188,18 @@ extension PageWebView {
         el.focus();
         return document.execCommand('insertText', false, text);
         """
-        let inserted = try? await webView.callAsyncJavaScript(script, arguments: ["selector": selector ?? NSNull(), "text": text],
-                                                              contentWorld: .page)
+        let inserted = await callPageFunction(script, arguments: ["selector": selector ?? NSNull(), "text": text])
         return inserted as? Bool == true
     }
 
     /// Writes the page as WebKit rendered it to `url` as PNG.
     public func debugSnapshot(to url: URL) async -> Bool {
+        if let page = chromiumSession?.page {
+            guard let json = try? await page.devTools("Page.captureScreenshot", params: ["format": "png"]),
+                  let object = ChromiumPageHostWire.object(json), let base64 = object["data"] as? String,
+                  let png = Data(base64Encoded: base64) else { return false }
+            return (try? png.write(to: url)) != nil
+        }
         keepRenderingWhenCovered()
         let image: NSImage? = await withCheckedContinuation { continuation in
             webView.takeSnapshot(with: nil) { image, _ in continuation.resume(returning: image) }

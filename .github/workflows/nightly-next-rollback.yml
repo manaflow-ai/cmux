@@ -158,6 +158,49 @@ jobs:
           cmp -s "rollback/$NIGHTLY_APPCAST" rollback/after.xml || { echo "the public feed does not serve the pulled appcast yet" >&2; exit 1; }
           echo "ok: the feed serves build $SERVING"
 
+      # The app reads pulled.json next to the appcast with each update check; a Mac on a listed
+      # build offers its kept build ("Roll Back to ...") or waiting for the fix-forward build.
+      # Non-fatal: the feed is already pulled and read back, so the fix-forward must still run,
+      # and a re-run sees changed=false and would never retry this step.
+      - name: Record the pulled builds (pulled.json)
+        id: pulled_json
+        if: steps.plan.outputs.changed == 'true' && !inputs.dry_run
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          REASON: ${{ inputs.reason }}
+          PULLED: ${{ steps.plan.outputs.pulled }}
+          SERVING: ${{ steps.plan.outputs.serving }}
+        run: |
+          set -euo pipefail
+          key="${NIGHTLY_NEXT_R2_PREFIX}pulled.json"
+          python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
+          # 404 on the first pull: the list starts empty and the object is created write-once.
+          code="$(curl -sS --retry 3 -A "cmux-nightly-next-rollback/1" -H "Cache-Control: no-cache" \
+            -o rollback/pulled-live.json -w '%{http_code}' "${NIGHTLY_NEXT_FEED_BASE}/pulled.json?rollback=${GITHUB_RUN_ID}")"
+          mode=(--write-once)
+          if [ "$code" = 200 ]; then
+            mode=(--replace-sha256 "$(shasum -a 256 rollback/pulled-live.json | awk '{print $1}')")
+          elif [ "$code" = 404 ]; then
+            rm -f rollback/pulled-live.json
+          else
+            echo "::warning title=nightly-next rollback::pulled.json answered HTTP $code; the feed is pulled but the app banner list was not updated"
+            exit 1
+          fi
+          python3 scripts/ci/nightly_next_feed_rollback.py pulled --existing rollback/pulled-live.json \
+            --pulled "$PULLED" --serve "$SERVING" --reason "$REASON" \
+            --at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --out rollback/pulled.json
+          python3 scripts/ci/upload-r2-object.py --file rollback/pulled.json --endpoint-url "$R2_ENDPOINT" \
+            --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type application/json \
+            --cache-control "no-cache, no-store, must-revalidate" "${mode[@]}" --conflict-exit-code 3 || {
+            status=$?
+            echo "::warning title=nightly-next rollback::pulled.json upload failed (exit $status; 3 is a concurrent write); the feed is pulled but the app banner list was not updated"
+            exit "$status"
+          }
+
       - name: Summary
         if: always()
         env:
@@ -167,6 +210,7 @@ jobs:
           PULLED: ${{ steps.plan.outputs.pulled }}
           DRY_RUN: ${{ inputs.dry_run }}
           JOB_STATUS: ${{ job.status }}
+          PULLED_JSON: ${{ steps.pulled_json.outcome }}
         run: |
           {
             echo "### cmux NEXT feed rollback"
@@ -182,7 +226,11 @@ jobs:
             elif [ "$JOB_STATUS" = success ]; then
               echo "Pulled $PULLED. The feed serves $SERVING."
               echo ""
-              echo "Macs on a pulled build keep it until a newer build is published, or roll back to the build they kept (updates.rollback)."
+              if [ "$PULLED_JSON" = success ]; then
+                echo "Macs on a pulled build keep it until a newer build is published. pulled.json lists it, so the app offers its kept build (Roll Back to Previous Version) or waiting for the fix."
+              else
+                echo "pulled.json was not updated ($PULLED_JSON): Macs on the pulled build show no banner until it is written. Write it by hand with scripts/ci/nightly_next_feed_rollback.py pulled and scripts/ci/upload-r2-object.py; a re-run sees nothing to pull."
+              fi
             else
               echo "Failed before the pull of $PULLED was confirmed; check the feed."
             fi

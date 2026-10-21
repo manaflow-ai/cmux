@@ -48,6 +48,10 @@ extension SidebarListViewComponents {
                 // Keep the multi-selection so it can be dragged; collapse it
                 // on mouse-up if no drag happens.
                 press.deferredClick = id
+            } else if SidebarTunables.multiView.value {
+                // Multi-view (Leo, item D): a press selects nothing; the release on this row navigates, a drag
+                // moves the row and leaves the shown workspace where it is.
+                press.clickOnRelease = id
             } else {
                 model.click(id)
             }
@@ -107,6 +111,11 @@ extension SidebarListViewComponents {
         let point = convert(event.locationInWindow, from: nil)
         guard clickHit(at: point)?.key == press.key else { return syncRowStates() }
         switch press.key {
+        case let .workspace(id) where press.clickOnRelease == id:
+            let (oldItem, oldSelection) = (model.selectedItem, model.selection)
+            model.click(id)
+            if !patchSelection(from: oldItem, oldSelection: oldSelection) { reload(animated: true) }
+            return syncRowStates()
         case .workspace:
             // Mouse-down drew the click on the old and new rows (`patchSelection`) and moved no row: no layout here
             // (u2455: every click laid the whole list out and configured every row).

@@ -3,7 +3,7 @@
 // what was chosen, or that nothing was. The inverse of model.ts `reply`, per harness: Claude Code's
 // answers come keyed by question text, one comma-separated string per question; Codex's by
 // question id, `{answers: [label]}`; an ACP ask's answer is the permission option chosen.
-import type { AgentQuestion, Answer, Item, Selection } from "./model";
+import type { AgentQuestion, Answer, Item, Respondent, Selection } from "./model";
 
 /// The transcript row of a decided question; it draws under a finished turn's fold line, not in it
 /// (conversation/turns.ts `staysOut`).
@@ -90,8 +90,19 @@ export function answerFromOutcome(question: AgentQuestion, outcome: Json): Answe
   return { selections };
 }
 
-/// `question` as its decision left it: answered with what was chosen, else cancelled.
-export function decidedQuestion(question: AgentQuestion, outcome: Json): AgentQuestion {
+/// Who answered, from the record's `answeredBy`: a session above this one names itself
+/// (`{session, name}`, acpmux `hub/subsession_answer.rs`). A person's answer names no one here.
+function respondentOf(answeredBy: Json): Respondent | undefined {
+  if (!isObject(answeredBy) || typeof answeredBy.session !== "string") return undefined;
+  const name = typeof answeredBy.name === "string" && answeredBy.name ? answeredBy.name : answeredBy.session;
+  return { displayName: name, isRemote: false, isSession: true };
+}
+
+/// `question` as its decision left it: answered with what was chosen (and by whom, when a session
+/// above this one answered), else cancelled.
+export function decidedQuestion(question: AgentQuestion, outcome: Json, answeredBy?: Json): AgentQuestion {
   const answer = answerFromOutcome(question, outcome);
-  return { ...question, state: answer ? { kind: "answered", answer } : { kind: "cancelled" } };
+  const respondent = respondentOf(answeredBy);
+  const answered = answer && respondent ? { ...answer, respondent } : answer;
+  return { ...question, state: answered ? { kind: "answered", answer: answered } : { kind: "cancelled" } };
 }

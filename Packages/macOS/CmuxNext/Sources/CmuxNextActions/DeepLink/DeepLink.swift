@@ -41,7 +41,10 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         /// name (`claude`, `codex`, `opencode`, …) and the session is the id the
         /// harness gives it (`CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`). An
         /// address, not a credential: it opens only a tab this app already
-        /// shows that session in.
+        /// shows that session in. Its `?host=`, `?name=` and `?message=`
+        /// parameters, and what happens to one cmux cannot use, are
+        /// schemas/deeplinks/agent-link.json, the schema cmux.com's deeplink
+        /// page writes these links by.
         case agent(harness: String, session: String)
         /// Nightly's `workspace/<uuid>`: the durable workspace key, with the
         /// `stable_workspace_id` fallback.
@@ -70,6 +73,11 @@ public nonisolated struct DeepLink: Sendable, Hashable {
     /// An agent link's `?name=` display hint: the agent's name. Never used to
     /// find the session or to trust the link.
     public var nameHint: String?
+    /// An agent link's `?message=`: one message of that session to scroll to
+    /// and highlight once it opens, by the harness message id acpmux reports
+    /// for it. A message this machine's transcript does not have leaves the
+    /// view where it is; it never finds or trusts the session.
+    public var message: String?
 
     /// A link to `target`.
     ///
@@ -78,11 +86,14 @@ public nonisolated struct DeepLink: Sendable, Hashable {
     ///   - machine: The `machine_` id of a remote machine; nil for none.
     ///   - hostHint: An agent link's machine name for display; nil for none.
     ///   - nameHint: An agent link's agent name for display; nil for none.
-    public init(_ target: Target, machine: String? = nil, hostHint: String? = nil, nameHint: String? = nil) {
+    ///   - message: An agent link's message to scroll to; nil for none.
+    public init(_ target: Target, machine: String? = nil, hostHint: String? = nil, nameHint: String? = nil,
+                message: String? = nil) {
         self.target = target
         self.machine = machine
         self.hostHint = hostHint
         self.nameHint = nameHint
+        self.message = message
     }
 
     /// The host of the sign-in callback (`<scheme>://auth-callback`), which
@@ -109,8 +120,11 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         case .chiefSession(let home, let session): text += "chief/\(home)/session/\(session)"
         case .agent(let harness, let session):
             text += "agent/\(harness)/\(session)"
+            // The order schemas/deeplinks/agent-link.json states, so every emitter writes the
+            // same link for the same chat.
             if let hostHint { query.append("\(Self.hostHintKey)=\(hostHint)") }
             if let nameHint { query.append("\(Self.nameHintKey)=\(nameHint)") }
+            if let message { query.append("\(Self.messageKey)=\(message)") }
         case .legacyWorkspace(let workspace, let fallback):
             text += "workspace/\(workspace.uuidString)"
             if let fallback { query.append("stable_workspace_id=\(fallback.uuidString)") }
@@ -127,20 +141,46 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         return URL(string: text)
     }
 
+    /// The names of the parameters this link carries a value for.
+    ///
+    /// A reader that names what a link ignored never denies one of these: a stray name of its own
+    /// (`?host%20=x` beside `?host=big-red`) can be shown as a parameter's name, and saying that
+    /// name was ignored would contradict the chat the link opened
+    /// (schemas/deeplinks/agent-link.json `ignoredOrder`).
+    public var usedParameters: Set<String> {
+        var names: Set<String> = []
+        // An agent link carries its harness and session in the path, where the page carries them
+        // as parameters (schemas/deeplinks/agent-link.json `pathParams`), so a stray `?session=x`
+        // beside `cmux://agent/claude/s1` must not read as a session the link left out either.
+        if case .agent = target { names.formUnion(Self.agentPathKeys) }
+        if machine != nil { names.insert(Self.machineKey) }
+        if hostHint != nil { names.insert(Self.hostHintKey) }
+        if nameHint != nil { names.insert(Self.nameHintKey) }
+        if message != nil { names.insert(Self.messageKey) }
+        return names
+    }
+
     /// The fragment that names a turn: `#turn-<turnId>`.
     static let turnFragmentPrefix = "turn-"
+
+    /// What the page calls the two parts of an agent link's path
+    /// (schemas/deeplinks/agent-link.json `pathParams`).
+    static let agentPathKeys: Set<String> = ["harness", "session"]
 
     /// The query parameters of an agent link's display hints.
     static let hostHintKey = "host"
     static let nameHintKey = "name"
+    /// The query parameter that names one message of an agent link's session.
+    static let messageKey = "message"
 
     /// Whether every id fits its kind's grammar (``parse(_:scheme:)``).
     var isWellFormed: Bool {
         if let machine, !Self.isResourceID(machine, prefix: "machine_") { return false }
         if let hostHint, !Self.isHint(hostHint) { return false }
         if let nameHint, !Self.isHint(nameHint) { return false }
+        if let message, !Self.isAgentSession(message) { return false }
         // Only an agent link carries hints; any other would not parse back the same.
-        if hostHint != nil || nameHint != nil, !target.isAgent { return false }
+        if hostHint != nil || nameHint != nil || message != nil, !target.isAgent { return false }
         switch target {
         case .workspace(let id): return Self.isResourceID(id, prefix: "ws_")
         case .pane(let id): return Self.isResourceID(id, prefix: "pane_")

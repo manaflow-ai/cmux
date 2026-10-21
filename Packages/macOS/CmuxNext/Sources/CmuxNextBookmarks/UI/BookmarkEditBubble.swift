@@ -97,7 +97,7 @@ public final class BookmarkEditBubble: NSObject {
         let size = content.fittingSize
         let rect = window.convertToScreen(anchor.convert(CmuxPopoverAnchor.rect(in: anchor), to: nil))
         if popup.show(size: CGSize(width: ceil(size.width), height: ceil(size.height)), anchor: rect, in: window,
-                      preferred: .below, trailing: true, makeKey: true) != nil {
+                      preferred: anchor.toolbarPopupSide, trailing: true, makeKey: true) != nil {
             BookmarkEditBubble.current = self
             followPageTitle()
         }

@@ -1,7 +1,7 @@
 // Calls to one MCP tool, drawn as one line that says what they did ("Sent 4 messages to
 // Coordination hub"). Several calls open to a row each; a call opens to its request and response,
-// pretty-printed (mcpCalls.ts). Nothing of a call's JSON is drawn until it is opened, and opening
-// draws it at once, with no animation.
+// pretty-printed (mcpCalls.ts). Nothing of a call's JSON is drawn until it is opened; opening and
+// closing play the transcript's fold (fold.ts).
 import { useFindReveal } from "./chatFind";
 import { useContext, useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
@@ -14,6 +14,7 @@ import { isFailed, isRunning } from "./toolGroups";
 import { OutputMore, useOutput } from "./toolOutput";
 import { ToolImages } from "./ToolRow";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useFold } from "./fold";
 
 export function McpCallRows({ items, disclosureKey }: { items: readonly AcpmuxActivity[]; disclosureKey: string }) {
   return items.length === 1 ? (
@@ -28,6 +29,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
   const names = useContext(McpNamesContext);
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
   useFindReveal(items, () => setOpen(true));
+  const fold = useFold(open);
   const detailsId = useId();
   const calls = useMemo(() => items.map((item) => mcpCall(item.tool!)!), [items]);
   const running = items.some((item) => isRunning(item.tool!));
@@ -54,11 +56,13 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
-      {open && (
-        <div className="cv-tool-group" id={detailsId}>
-          {items.map((item, index) => (
-            <McpCallRow key={item.tool!.id || index} item={item} />
-          ))}
+      {fold.present && (
+        <div ref={fold.ref} className="cv-fold">
+          <div className="cv-tool-group" id={detailsId}>
+            {items.map((item, index) => (
+              <McpCallRow key={item.tool!.id || index} item={item} />
+            ))}
+          </div>
         </div>
       )}
     </>
@@ -77,6 +81,7 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
       setReveal((count) => count + 1);
     },
   );
+  const fold = useFold(open);
   const detailsId = useId();
   const tool = item.tool!;
   const call = useMemo(() => mcpCall(tool)!, [tool]);
@@ -108,7 +113,11 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
         />
       </button>
       {images.length > 0 && <ToolImages sources={images} />}
-      {open && <McpCallDetails id={detailsId} call={call} raw={raw} output={tool.output} reveal={reveal} />}
+      {fold.present && (
+        <div ref={fold.ref} className="cv-fold">
+          <McpCallDetails id={detailsId} call={call} raw={raw} output={tool.output} reveal={reveal} />
+        </div>
+      )}
     </>
   );
 }
