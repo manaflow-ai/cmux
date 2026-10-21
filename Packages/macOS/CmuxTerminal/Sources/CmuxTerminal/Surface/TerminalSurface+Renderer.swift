@@ -31,22 +31,34 @@ extension TerminalSurface {
     @MainActor
     public func recoverRendererAfterWake(reason: String) {
 #if os(macOS)
-        guard isRendererEffectivelyVisible, hasLiveSurface else {
+        guard rendererPortalVisible, hasLiveSurface else {
             pendingRendererWakeRecoveryReason = nil
             return
         }
 
-        guard isRendererPresentationReady else {
-            pendingRendererWakeRecoveryReason = reason
-            return
-        }
-
-        pendingRendererWakeRecoveryReason = nil
-        recoverRendererAfterWakeWhenReady(reason: reason)
+        pendingRendererWakeRecoveryReason = reason
+        _ = recoverPendingRendererAfterWakeIfReady()
 #endif
     }
 
 #if os(macOS)
+    @MainActor
+    @discardableResult
+    private func recoverPendingRendererAfterWakeIfReady() -> Bool {
+        guard let reason = pendingRendererWakeRecoveryReason else { return false }
+        guard hasLiveSurface else {
+            pendingRendererWakeRecoveryReason = nil
+            return false
+        }
+        guard isRendererEffectivelyVisible, isRendererPresentationReady else {
+            return false
+        }
+
+        pendingRendererWakeRecoveryReason = nil
+        recoverRendererAfterWakeWhenReady(reason: reason)
+        return true
+    }
+
     @MainActor
     private func recoverRendererAfterWakeWhenReady(reason: String) {
         guard let surface = liveSurfaceForGhosttyAccess(
@@ -165,13 +177,15 @@ extension TerminalSurface {
         guard rendererPortalVisible else { return }
         noteBecameVisibleForRendererReclamation()
         if visible {
+            if recoverPendingRendererAfterWakeIfReady() {
+                return
+            }
             if rendererPresentationPhase == .presented, renderHealth == .rendering {
                 setOcclusion(true)
             } else {
                 ensureRendererPresented()
             }
         } else {
-            pendingRendererWakeRecoveryReason = nil
             rendererPresentationState.recoveryAttempted = false
             setOcclusion(false)
         }
@@ -291,10 +305,7 @@ extension TerminalSurface {
     @MainActor
     public func rendererPresentationReadinessDidChange() {
         guard rendererPortalVisible, isRendererPresentationReady else { return }
-        if let reason = pendingRendererWakeRecoveryReason {
-            pendingRendererWakeRecoveryReason = nil
-            guard isRendererEffectivelyVisible else { return }
-            recoverRendererAfterWakeWhenReady(reason: reason)
+        if recoverPendingRendererAfterWakeIfReady() {
             return
         }
         ensureRendererPresented(presentationReady: true)

@@ -40,6 +40,21 @@ private func rendererRebuildCallCount() -> UInt32
         #expect(surface.renderHealth == .shellExited)
     }
 
+    @Test func wakeRecoveryWaitsForTheWindowToBecomeVisible() {
+        let fixture = PresentedSurfaceFixture()
+        defer { fixture.tearDown() }
+        let surface = fixture.surface
+        let initialRebuildCount = rendererRebuildCallCount()
+        surface.setRendererWindowVisible(false)
+
+        surface.recoverRendererAfterWake(reason: "test.systemWake")
+
+        #expect(rendererRebuildCallCount() == initialRebuildCount)
+        surface.setRendererWindowVisible(true)
+
+        #expect(rendererRebuildCallCount() == initialRebuildCount + 1)
+    }
+
     @Test func windowShowCanRecoverAfterAnEarlierEpisodeWasExhausted() {
         let fixture = PresentedSurfaceFixture()
         defer { fixture.tearDown() }

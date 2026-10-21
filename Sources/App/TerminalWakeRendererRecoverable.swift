@@ -2,7 +2,7 @@ import CmuxTerminal
 
 @MainActor
 protocol TerminalWakeRendererRecoverable: AnyObject {
-    var isRendererEffectivelyVisible: Bool { get }
+    var isRendererPortalVisible: Bool { get }
     func recoverRendererAfterWake(reason: String)
 }
 

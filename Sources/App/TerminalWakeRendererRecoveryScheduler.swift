@@ -27,7 +27,7 @@ final class TerminalWakeRendererRecoveryScheduler {
         guard !wakeEpisodeRecoveryRequested else { return }
         wakeEpisodeRecoveryRequested = true
         scheduler.schedule(zeroDelayPolicy: .yieldOnce) {
-            for surface in surfaces() where surface.isRendererEffectivelyVisible {
+            for surface in surfaces() where surface.isRendererPortalVisible {
                 surface.recoverRendererAfterWake(reason: reason)
             }
         }

@@ -12,15 +12,15 @@ import Testing
 @Suite(.serialized)
 struct TerminalWakeRendererRecoveryTests {
     private final class RecoveryProbe: TerminalWakeRendererRecoverable {
-        let isRendererEffectivelyVisible: Bool
+        let isRendererPortalVisible: Bool
         private let recoveredReasons: AsyncStream<String>.Continuation?
         private(set) var reasons: [String] = []
 
         init(
-            isRendererEffectivelyVisible: Bool,
+            isRendererPortalVisible: Bool,
             recoveredReasons: AsyncStream<String>.Continuation? = nil
         ) {
-            self.isRendererEffectivelyVisible = isRendererEffectivelyVisible
+            self.isRendererPortalVisible = isRendererPortalVisible
             self.recoveredReasons = recoveredReasons
         }
 
@@ -37,7 +37,7 @@ struct TerminalWakeRendererRecoveryTests {
         defer { recoveries.continuation.finish() }
         var recoveryIterator = recoveries.stream.makeAsyncIterator()
         let visible = RecoveryProbe(
-            isRendererEffectivelyVisible: true,
+            isRendererPortalVisible: true,
             recoveredReasons: recoveries.continuation
         )
         let observers = TerminalWakeRendererRecoveryObserver().install(
@@ -60,16 +60,16 @@ struct TerminalWakeRendererRecoveryTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func observerRecoversOncePerWakeEpisodeAndSkipsHiddenSurfaces() async throws {
+    func observerRecoversOncePerWakeEpisodeAndSkipsHiddenPortals() async throws {
         let notificationCenter = NotificationCenter()
         let recoveries = AsyncStream<String>.makeStream()
         defer { recoveries.continuation.finish() }
         var recoveryIterator = recoveries.stream.makeAsyncIterator()
         let visible = RecoveryProbe(
-            isRendererEffectivelyVisible: true,
+            isRendererPortalVisible: true,
             recoveredReasons: recoveries.continuation
         )
-        let hidden = RecoveryProbe(isRendererEffectivelyVisible: false)
+        let hidden = RecoveryProbe(isRendererPortalVisible: false)
         let deferredActionScheduler = MainActorDeferredActionScheduler()
         let scheduler = TerminalWakeRendererRecoveryScheduler(
             scheduler: deferredActionScheduler
