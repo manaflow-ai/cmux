@@ -48,6 +48,9 @@ pub struct Settings {
     /// Used share from which they shrink most (0.90).
     pub critical: f64,
     /// Hours a worktree is left alone after its last use, per pressure.
+    /// Long, because only registered programs (acpmux and Claude Code
+    /// sessions) are seen: a shell, build or editor working in a worktree
+    /// counts only through the files it touches.
     pub recent_hours: [u64; 3],
     /// Hours before a clean, pushed worktree goes.
     pub idle_pushed_hours: [u64; 3],
@@ -64,7 +67,7 @@ impl Default for Settings {
         Self {
             high: 0.80,
             critical: 0.90,
-            recent_hours: [6, 3, 1],
+            recent_hours: [24, 12, 6],
             idle_pushed_hours: [72, 24, 6],
             idle_unpushed_hours: [7 * 24, 72, 24],
             trim_hours: [72, 12, 3],
@@ -344,7 +347,7 @@ mod care_tests {
         let finished = Facts {
             unpushed: 3,
             finished: Some("HEAD's changes are already in origin/main".into()),
-            ..pushed(7)
+            ..pushed(30)
         };
         assert_eq!(
             decide_at(&worktree(finished.clone()), &[], Pressure::Normal).action,
