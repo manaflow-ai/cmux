@@ -128,7 +128,7 @@ test("a Chief with its own picture keeps it; the others wear the character", asy
     path: "/settings/chief",
     mock: { values: { "home.chiefPetMascot": "moon" } },
     setup: (provider) => {
-      provider.chiefs[1]!.avatar = "sha-release";
+      provider.chiefs[1]!.avatar = { sha256: "sha-release", media_type: "image/png" };
       provider.chiefAvatars.set("agent_release", { media_type: "image/png", data: "UkVM" });
     },
   });
