@@ -19,8 +19,9 @@ export function DomainListEditor({ row, value, disabled, labelId }: EditorProps)
   const [filter, setFilter] = useState("");
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
   // A press on the button while the list is open closes it as a press outside; the click that
-  // follows must not open it again (the button toggles, as the inline panel did).
-  const closedAt = useRef(0);
+  // follows must not open it again (the button toggles, as the inline panel did). Never closed
+  // yet: no guard, or a click in the page's first 400 ms would do nothing.
+  const closedAt = useRef(Number.NEGATIVE_INFINITY);
   const close = () => {
     closedAt.current = performance.now();
     setOpen(false);

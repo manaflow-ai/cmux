@@ -160,12 +160,12 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "workspaceGroup.closeWorkspaces",
-                title: String(localized: "action.workspaceGroup.closeWorkspaces", defaultValue: "Close All Workspaces in Group", bundle: .module),
+                title: String(localized: "action.workspaceGroup.closeWorkspaces", defaultValue: "Close Workspaces in Group", bundle: .module),
                 keywords: ["group", "remove"], category: .workspace, symbol: "xmark.square", surfaces: [.palette],
                 targets: [.workspaceGroup], cliName: "workspace-group close-workspaces",
                 destructive: true
             ),
-            // Close All Workspaces in Group for every other group of the window.
+            // Close Workspaces in Group for every other group of the window.
             ActionDescriptor(
                 id: "workspaceGroup.closeOthers",
                 title: String(localized: "action.workspaceGroup.closeOthers", defaultValue: "Close Other Groups", bundle: .module),
