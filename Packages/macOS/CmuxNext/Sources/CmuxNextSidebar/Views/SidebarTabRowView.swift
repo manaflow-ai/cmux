@@ -50,7 +50,8 @@ final class SidebarTabRowView: SidebarRowView {
         setAccessibilityRole(.row)
         let workspaceIdentifier = row.workspace?.rawValue ?? "unknown"
         setAccessibilityIdentifier("cmux.sidebar.tab.\(workspaceIdentifier).\(tab.id.rawValue)")
-        setAccessibilityLabel(tab.title)
+        // The dot is drawn only: the label says it ("zsh, Unread").
+        setAccessibilityLabel(tab.isUnread ? tab.title + ", " + Strings.unreadDot : tab.title)
         needsLayout = true
         needsDisplay = true
     }

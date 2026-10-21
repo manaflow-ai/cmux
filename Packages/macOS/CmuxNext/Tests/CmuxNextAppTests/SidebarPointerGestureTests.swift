@@ -147,7 +147,9 @@ import Testing
         let start = try Self.point(list, .workspace(WorkspaceID("a")))
         try Self.press(list, at: start, moves: [CGVector(dx: 0, dy: 10), CGVector(dx: 0, dy: 30)], release: false)
         #expect(list.drag != nil)
-        NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: NSApp)
+        // What the app resigning active or the window losing key calls (`observeFocusLoss`); a post to the
+        // process-global center would reach every other test's observers too.
+        list.pointerFocusLost()
         #expect(list.drag == nil, "the drag outlived the app's focus")
         if let landing = list.landing { list.finishLand(landing, then: nil) }
         #expect(Self.ids(list) == order, "a cancelled drag moved rows: \(Self.ids(list))")

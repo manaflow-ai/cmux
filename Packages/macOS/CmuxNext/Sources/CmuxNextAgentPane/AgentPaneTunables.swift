@@ -126,13 +126,23 @@ public nonisolated struct AgentPaneTunables {
         "agent.pageHost", PageTunables.section, "Agent pane on the page host",
         help: "New agent tabs load cmux-page://cmux.agent/ on the shared page host.",
         default: false, code: "AgentPaneTunables.pageHost")
-    /// The session side rail beside the chat (cx-ncc.101): Environment, Context and Outputs, with a
-    /// header button that shows and hides it. Off until it is promoted to a real setting. Listed in
-    /// TunableCatalog on its own line, outside `all`, so it does not churn with that list.
-    public static let sessionRail = Tunable<Bool>.toggle(
-        "agent.sessionRail", PageTunables.section, "Session side rail",
-        help: "A header button opens a rail beside the chat with its environment, context use and changed files.",
-        default: false, code: "AgentPaneTunables.sessionRail")
+    /// The agent chat engine spike (Leo 2026-10-20: should cmux's own pages use the Chromium we ship
+    /// for browser tabs?): new agent tabs go on the page host and its page leaves the
+    /// ``PageWebKitReason/agentChat`` hold, so it shows in Chromium when `browser.defaultEngine` is
+    /// Chromium. Measuring only: a Chromium page is an opaque child window, so window glass does not
+    /// show through it. The warmed spare stays WebKit.
+    public static let chromium = Tunable<Bool>.toggle(
+        "agent.chromium", PageTunables.section, "Agent chat in Chromium (spike)",
+        help: "New agent tabs show in Chromium instead of WebKit, on the page host, when the browser engine is Chromium.",
+        default: false, code: "AgentPaneTunables.chromium")
+    /// The Inspector at the right of every agent chat, Chief included (cx-ncc.101; Leo 2026-10-20):
+    /// Environment, Context, Connectors, Changes, Servers, Subagents, Background tasks and Outputs,
+    /// with a header toggle that shows and hides it. On by default; off brings back the summary card.
+    /// Listed in TunableCatalog on its own line, outside `all`, so it does not churn with that list.
+    public static let inspector = Tunable<Bool>.toggle(
+        "agent.inspector", PageTunables.section, "Inspector",
+        help: "A header toggle opens the Inspector at the right of the chat: its environment, context, pull requests, subagents, background tasks and outputs.",
+        default: true, code: "AgentPaneTunables.inspector")
 
     /// Leo 2026-10-15: "Terminal: maybe not a toggle. Clicking the terminal button adds another
     /// terminal on the right each time." On, the chat header's Terminal opens a split on every
@@ -141,6 +151,15 @@ public nonisolated struct AgentPaneTunables {
         "agentChat.terminalButtonAdds", .panes, "Terminal button adds a terminal",
         help: "Each click of an agent chat's Terminal button opens a new terminal right of the last one and focuses it, instead of closing the terminal it opened.",
         default: false, code: "AgentPaneTunables.terminalButtonAdds")
+
+    /// Leo 2026-10-20, "these buttons are kind of weird": one globe instead of Preview beside Browser.
+    /// On (the default), the chat header's Browser opens the chat's local page beside the chat when its
+    /// last turns named one, and Preview is not a button of its own. Off: Preview shows as its own
+    /// button and Browser always opens a plain browser, as before. Pushed with the header state.
+    public static let browserOpensPreview = Tunable<Bool>.toggle(
+        "agentChat.browserOpensPreview", .panes, "Browser button opens the chat's page",
+        help: "An agent chat's Browser button opens the local page the chat named (its preview) beside the chat, and Preview is not a separate button. Off: separate Preview and Browser buttons.",
+        default: true, code: "AgentPaneTunables.browserOpensPreview")
 
     /// How wide the chat's column draws on a wide pane (cx-ncc.107, a trial before real Settings).
     /// The page gets it with the theme (`AgentPaneTheme`, `chatWidth`), again on each change.
@@ -210,6 +229,15 @@ public nonisolated struct AgentPaneTunables {
         help: "While a long thought streams, it holds seven lines with its newest in view, then folds. Needs Fold long thoughts. New agent tabs.",
         default: true, code: "AgentPaneTunables.liveThoughtViewport")
 
+    /// A turn that started or mentioned a local web page gets a preview card under its answer
+    /// (webviews conversation/PreviewCard.tsx: the address, Load preview, Open in tab, Open in). Off
+    /// by default (Leo 2026-10-20: a mentioned dev server is not worth a card nobody asked for); the
+    /// address stays a link in the reply. New agent tabs read it.
+    public static let turnPreviewCards = Tunable<Bool>.toggle(
+        "agentPane.debug.turnPreviewCards", PageTunables.section, "Local page preview cards in the agent pane",
+        help: "A turn that started or mentioned a local web page shows a card under its answer with Load preview. New agent tabs.",
+        default: false, code: "AgentPaneTunables.turnPreviewCards")
+
     /// The top strip's look (webviews composerLocation.css): `default` sets nothing, so the page
     /// draws as before; the others set `data-top-strip` on `<html>`. New agent tabs read it.
     public static let topStripStyle = Tunable<AgentPaneTopStripStyle>.choice(
@@ -220,8 +248,8 @@ public nonisolated struct AgentPaneTunables {
     /// The answer footer's copy/retry/fork actions (the webview's `turnActionsPlacement`).
     public static let turnActionsPlacement = Tunable<AgentPaneTurnActionsPlacement>.choice(
         "agentPane.debug.turnActionsPlacement", PageTunables.section, "Turn footer actions",
-        help: "Place the answer footer's copy, retry and fork actions on the left or right.",
-        default: .right, code: "AgentPaneTunables.turnActionsPlacement")
+        help: "Place the answer footer's copy, retry and fork actions on the left, under the answer as Claude Code desktop does, or on the right.",
+        default: .left, code: "AgentPaneTunables.turnActionsPlacement")
 
     /// The composer footer's plain look (Claude Code desktop's footer): the model name muted, no
     /// brand mark or mode lock, Plan as accent text; a chip's wash only on hover, focus or an open
@@ -235,11 +263,13 @@ public nonisolated struct AgentPaneTunables {
     /// conversation/turns.ts `codexRuns`, cx-ncc.108): the run in flight is one line naming its
     /// newest call, and a run any later row follows settles into its summary line. Off keeps every
     /// call's row. The page gets it with the theme (`AgentPaneTheme`, `codexToolRuns`), again on
-    /// each change. The Debug toggle remains available for comparing the ungrouped presentation.
+    /// each change. Off by default: a running turn lists each call as it lands, as the Codex and
+    /// Claude Code desktop apps do (Leo 2026-10-20: "we're swallowing up a few too many of these").
+    /// The toggle stays for comparing the folded presentation.
     public static let codexToolRuns = Tunable<Bool>.toggle(
         "agentPane.debug.codexToolRuns", PageTunables.section, "Codex-style tool runs in the agent pane",
         help: "While a turn runs, each run of tool calls is one line: the newest call, then a summary once text follows.",
-        default: true, code: "AgentPaneTunables.codexToolRuns")
+        default: false, code: "AgentPaneTunables.codexToolRuns")
 
     /// Repaints every window when ``codexToolRuns`` changes, so open agent pages get it with the
     /// theme at once (as AppServices.observeBorders does for ``chatWidth``). The first theme push
@@ -262,19 +292,21 @@ public nonisolated struct AgentPaneTunables {
     static var documentAttributes: [String: String] {
         attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
                    thoughtHeader: thoughtHeader.value, liveThoughtViewport: liveThoughtViewport.value,
-                   thoughtFoldThreshold: thoughtFoldThreshold.value)
+                   thoughtFoldThreshold: thoughtFoldThreshold.value, turnPreviewCards: turnPreviewCards.value)
     }
 
     static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
                            thoughtHeader: AgentPaneThoughtHeader = .duration,
                            liveThoughtViewport: Bool = true,
-                           thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .viewport) -> [String: String] {
+                           thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .viewport,
+                           turnPreviewCards: Bool = false) -> [String: String] {
         var attributes: [String: String] = [:]
         if foldLongThoughts { attributes["fold-long-thoughts"] = "on" }
         if thoughtFoldThreshold != .viewport { attributes["thought-fold-threshold"] = thoughtFoldThreshold.rawValue }
         if thoughtHeader != .duration { attributes["thought-header"] = thoughtHeader.rawValue }
         if !liveThoughtViewport { attributes["live-thought-viewport"] = "off" }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
+        if turnPreviewCards { attributes["turn-preview-cards"] = "on" }
         return attributes
     }
 
@@ -339,7 +371,11 @@ public nonisolated struct AgentPaneTunables {
 
     public static var all: [TunableDescriptor] {
         [
+            agentPairGuard.descriptor,
+            agentPairCap.descriptor,
+            agentPairWindow.descriptor,
             chatWidth.descriptor,
+            chromium.descriptor,
             codexToolRuns.descriptor,
             composerPlainFooter.descriptor,
             escapeStopDoublePress.descriptor,
@@ -347,6 +383,8 @@ public nonisolated struct AgentPaneTunables {
             harnessSwitchInStartedChat.descriptor,
             liveThoughtViewport.descriptor,
             modelMenu.descriptor,
+            pagesFollowLinkPlacement.descriptor,
+            newTabPrivateChatLists.descriptor,
             newTabWidgets.descriptor,
             pageHost.descriptor,
             reasoningSlider.descriptor,
@@ -356,10 +394,13 @@ public nonisolated struct AgentPaneTunables {
             sideSessions.descriptor,
             suggestedTasks.descriptor,
             terminalButtonAdds.descriptor,
+            browserOpensPreview.descriptor,
             thoughtFoldThreshold.descriptor,
             thoughtHeader.descriptor,
             topStripStyle.descriptor,
+            turnPreviewCards.descriptor,
             turnActionsPlacement.descriptor,
+            agentLinks.descriptor,
         ]
     }
 }

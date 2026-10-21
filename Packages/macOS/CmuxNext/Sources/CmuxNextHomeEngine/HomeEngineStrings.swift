@@ -39,6 +39,10 @@ public nonisolated enum HomeEngineStrings {
     static var nextTurn: String { String(localized: "home.engine.nextTurn", defaultValue: "Changes apply from the next turn.", table: "Home", bundle: .module) }
     static var openTraces: String { String(localized: "home.engine.openTraces", defaultValue: "Show Traces", table: "Home", bundle: .module) }
     static var showMemory: String { String(localized: "home.engine.showMemory", defaultValue: "Show Memory", table: "Home", bundle: .module) }
+    /// The popover's link to Settings > Chief, the page with every Chief setting.
+    static var allChiefSettings: String {
+        String(localized: "home.engine.allChiefSettings", defaultValue: "All Chief Settings…", table: "Home", bundle: .module)
+    }
     static var brainFormat: String {
         String(localized: "home.engine.brain", defaultValue: "Runs on this Mac (%@). Tools: zoom, date, spawn, tell and the harness's own.", table: "Home", bundle: .module)
     }
@@ -48,6 +52,26 @@ public nonisolated enum HomeEngineStrings {
     }
     static var errorUnreachable: String {
         String(localized: "home.engine.error.unreachable", defaultValue: "The server with this Chief is not connected.", table: "Home", bundle: .module)
+    }
+    /// A hosted cloud Chief: the Cloud service did not answer.
+    static var errorCloudUnreachable: String {
+        String(localized: "home.engine.error.cloudUnreachable", defaultValue: "cmux could not reach the cloud for this Chief. Check your connection and try again.", table: "Home", bundle: .module)
+    }
+    /// A hosted cloud Chief: no account is signed in.
+    static var errorSignedOut: String {
+        String(localized: "home.engine.error.signedOut", defaultValue: "Sign in to cmux to change this Chief's settings.", table: "Home", bundle: .module)
+    }
+    /// A hosted cloud Chief on a Cloud service that runs no Chief brains.
+    static var errorCloudUnavailable: String {
+        String(localized: "home.engine.error.cloudUnavailable", defaultValue: "This cloud does not run Chiefs, so this Chief does not answer.", table: "Home", bundle: .module)
+    }
+    /// A hosted cloud Chief's turn cannot be stopped from this Mac yet.
+    static var errorCloudStopUnsupported: String {
+        String(localized: "home.engine.error.cloudStopUnsupported", defaultValue: "A cloud Chief's reply cannot be stopped from here yet.", table: "Home", bundle: .module)
+    }
+    /// A hosted cloud Chief whose brain is turned off.
+    static var hostedBrainOff: String {
+        String(localized: "home.engine.hostedBrainOff", defaultValue: "This Chief is turned off, so it does not answer messages.", table: "Home", bundle: .module)
     }
     /// This Mac's Chief: its owner daemon or brain host is not running.
     static var errorLocalUnreachable: String {
@@ -73,11 +97,34 @@ public nonisolated enum HomeEngineStrings {
     static var harness: String { String(localized: "home.engine.harness", defaultValue: "Harness", table: "Home", bundle: .module) }
     static var model: String { String(localized: "home.engine.model", defaultValue: "Model", table: "Home", bundle: .module) }
     static var effort: String { String(localized: "home.engine.effort", defaultValue: "Effort", table: "Home", bundle: .module) }
+    static var speed: String { String(localized: "home.engine.speed", defaultValue: "Speed", table: "Home", bundle: .module) }
+    /// The Speed row's fast tier (codex's priority processing: faster, more usage).
+    static var speedFast: String { String(localized: "home.engine.speed.fast", defaultValue: "Fast", table: "Home", bundle: .module) }
+    /// The Model menu's sections (``HomeChiefModelMenu``).
+    static var recentSection: String { String(localized: "home.engine.models.recent", defaultValue: "Recent", table: "Home", bundle: .module) }
+    static var planAndExecuteSection: String {
+        String(localized: "home.engine.models.planAndExecute", defaultValue: "Plan and Execute", table: "Home", bundle: .module)
+    }
+    static var otherModelsSection: String {
+        String(localized: "home.engine.models.other", defaultValue: "Other Models", table: "Home", bundle: .module)
+    }
+    static var olderModelsSection: String {
+        String(localized: "home.engine.models.older", defaultValue: "Older Models", table: "Home", bundle: .module)
+    }
+    /// Claude Code's `opusplan`: Opus while planning, Sonnet while carrying the plan out.
+    static var opusPlanTitle: String {
+        String(localized: "home.engine.models.opusPlan", defaultValue: "Opus Plans, Sonnet Executes", table: "Home", bundle: .module)
+    }
+    /// A model's context-window variant: "Opus 5.5 · 1M context" (the model, the window).
+    static var contextVariantFormat: String {
+        String(localized: "home.engine.models.contextVariant", defaultValue: "%1$@ · %2$@ context", table: "Home", bundle: .module)
+    }
 
     /// An effort level's name (the brain's ids: optchat-chief `EFFORTS`); one the app does not
     /// know shows as the brain names it.
     static func effortTitle(_ id: String) -> String {
         switch id {
+        case "off": String(localized: "home.engine.effort.off", defaultValue: "Off", table: "Home", bundle: .module)
         case "minimal": String(localized: "home.engine.effort.minimal", defaultValue: "Minimal", table: "Home", bundle: .module)
         case "low": String(localized: "home.engine.effort.low", defaultValue: "Low", table: "Home", bundle: .module)
         case "medium": String(localized: "home.engine.effort.medium", defaultValue: "Medium", table: "Home", bundle: .module)

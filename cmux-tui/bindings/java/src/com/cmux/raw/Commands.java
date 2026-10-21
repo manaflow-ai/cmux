@@ -68,6 +68,7 @@ public final class Commands {
     public static final CommandMetadata CLOUD_MUX_UNSUBSCRIBE = new CommandMetadata("cloud-mux-unsubscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_PARTICIPANT_AVATAR_GET = new CommandMetadata("cloud-participant-avatar-get", Authority.LOCAL_ADMIN, 12, "participant-avatars-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_REQUESTS_LIST = new CommandMetadata("cloud-requests-list", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_SELFHOST_INFO = new CommandMetadata("cloud-selfhost-info", Authority.LOCAL_ADMIN, 12, "cloud-selfhost-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_CLEAR = new CommandMetadata("cloud-session-clear", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_SET = new CommandMetadata("cloud-session-set", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_STATUS = new CommandMetadata("cloud-session-status", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -353,6 +354,7 @@ public final class Commands {
         values.put("cloud-mux-unsubscribe", CLOUD_MUX_UNSUBSCRIBE);
         values.put("cloud-participant-avatar-get", CLOUD_PARTICIPANT_AVATAR_GET);
         values.put("cloud-requests-list", CLOUD_REQUESTS_LIST);
+        values.put("cloud-selfhost-info", CLOUD_SELFHOST_INFO);
         values.put("cloud-session-clear", CLOUD_SESSION_CLEAR);
         values.put("cloud-session-set", CLOUD_SESSION_SET);
         values.put("cloud-session-status", CLOUD_SESSION_STATUS);

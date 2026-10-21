@@ -76,10 +76,15 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// The Computer Use socket and agent token now (`AcpmuxEnvironment.computerUse`),
     /// read at each daemon start, since Computer Use turns on and off while the app runs.
     private let computerUse: @Sendable () -> [String: String]
-    /// Whether the daemon gets the session offer tools now (`AcpmuxEnvironment.offersSessionTools`,
-    /// the `agent.suggestedTasks` Debug Settings toggle), read at each daemon start: a toggle applies to the next daemon
-    /// this app starts, never to the one already running.
+    /// Whether the daemon gets the session offer tools now (`AcpmuxEnvironment.offersSessionTools`:
+    /// `sessions.promptSuggestions` or the `agent.suggestedTasks` Debug Settings toggle), read at each
+    /// daemon start: a change applies to the next daemon this app starts, never to the one running.
     private let offersSessionTools: @Sendable () -> Bool
+    /// Whether the daemon keeps the agent message runaway guard on now (`AcpmuxEnvironment.agentPairGuard`,
+    /// the `agent.pairGuard` Debug Settings toggle), read at each daemon start like the offer tools.
+    private let agentPairGuard: @Sendable () -> Bool
+    /// The guard's cap and window in seconds now (`agent.pairCap`, `agent.pairWindow`), read with it.
+    private let agentPairCap: @Sendable () -> (messages: Int, windowSeconds: Int)
     /// Called with the daemon socket after each successful find or start, so
     /// the Computer Use helper v2 can register this daemon.
     private let daemonReady: @Sendable (String) async -> Void
@@ -104,6 +109,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.resolveEnvironment = { environment }
         self.computerUse = { [:] }
         self.offersSessionTools = { environment?.offersSessionTools ?? false }
+        self.agentPairGuard = { environment?.agentPairGuard ?? true }
+        self.agentPairCap = { (environment?.agentPairCap ?? 20, environment?.agentPairWindowSeconds ?? 600) }
         self.daemonReady = { _ in }
         self.startsDaemons = startsDaemons
         self.healReplaced = healReplaced
@@ -113,11 +120,19 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// off the main thread, at the first handshake that needs it.
     public init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
                 computerUse: @escaping @Sendable () -> [String: String] = { [:] },
-                offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneTunables.suggestedTasks.value },
+                offersSessionTools: @escaping @Sendable () -> Bool = {
+                    AgentPaneSuggestedTasks.forNextDaemon.isOn || AgentPaneTunables.suggestedTasks.value
+                },
+                agentPairGuard: @escaping @Sendable () -> Bool = { AgentPaneTunables.agentPairGuard.value },
+                agentPairCap: @escaping @Sendable () -> (messages: Int, windowSeconds: Int) = {
+                    (Int(AgentPaneTunables.agentPairCap.value), Int(AgentPaneTunables.agentPairWindow.value))
+                },
                 daemonReady: (@Sendable (String) async -> Void)? = nil) {
         self.resolveEnvironment = resolve
         self.computerUse = computerUse
         self.offersSessionTools = offersSessionTools
+        self.agentPairGuard = agentPairGuard
+        self.agentPairCap = agentPairCap
         self.daemonReady = daemonReady ?? { _ in }
         self.startsDaemons = true
         self.healReplaced = nil
@@ -161,6 +176,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         }
         environment.computerUse = computerUse()
         environment.offersSessionTools = offersSessionTools()
+        environment.agentPairGuard = agentPairGuard()
+        (environment.agentPairCap, environment.agentPairWindowSeconds) = agentPairCap()
         let daemonSocket = environment.socketPath
         Self.logger.info("acpmux environment resolved executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
         // task-owner: stored in inFlight and cleared when it settles; callers await its value

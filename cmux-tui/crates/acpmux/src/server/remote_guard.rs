@@ -150,7 +150,9 @@ pub(super) async fn check(
         .with_data(serde_json::json!({"reason": "route.origin_refused"})));
     }
     // So is a prompt's provenance (prompt_provenance.rs): no remote text passes as an agent's.
+    // The app pane's reply in place is checked there (`Sender::App`).
     if m == method::SESSION_PROMPT
+        && origin != super::Origin::LocalApp
         && crate::prompt_provenance::present(params.pointer("/_meta/acpmux"))
     {
         return Err(crate::prompt_provenance::origin_refused());
@@ -158,6 +160,12 @@ pub(super) async fn check(
     // And so is taking an agent message back (`hub/withdraw.rs`).
     if m == method::MUX_PROMPT_WITHDRAW {
         return Err(crate::prompt_provenance::withdraw_origin_refused());
+    }
+    // A paused agent pair is the person's to resume, on this machine (`hub/agent_pairs.rs`).
+    if m == method::MUX_AGENT_PAIR_RESUME && origin.web_class() {
+        return Err(RpcError::invalid_params(
+            "resuming agent pairs is accepted only from this machine's app or unix socket",
+        ));
     }
     // Which machines this daemon reaches with the user's ssh keys and
     // tokens changes over the unix socket only (LocalApp included).
