@@ -373,8 +373,25 @@ impl Hub {
         Ok(json!({"content": content}))
     }
 
+    /// The policy that answers `session`'s permission requests: its own, else the daemon's
+    /// (`config_policy`). While `sessions.allowFullAccess` is off, approve-all (the policy form
+    /// of full access, from config.json `permissionPolicy`, a preset, a profile default or a
+    /// session set before the switch went off) answers nothing itself: it runs as `ask`.
     pub(super) fn policy_for(
         &self,
+        session: &Session,
+        config_policy: PermissionPolicy,
+    ) -> PermissionPolicy {
+        let policy = Self::stored_policy_for(session, config_policy);
+        if super::start_mode::policy_is_full_access(policy) && !self.full_access_allowed() {
+            return PermissionPolicy::Ask;
+        }
+        policy
+    }
+
+    /// `policy_for` as stored, before `sessions.allowFullAccess` caps it: for the person rule,
+    /// which must not treat an approve-all session as asking while the switch is off.
+    pub(super) fn stored_policy_for(
         session: &Session,
         config_policy: PermissionPolicy,
     ) -> PermissionPolicy {
