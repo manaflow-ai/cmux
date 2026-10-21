@@ -25,6 +25,18 @@
    "cmux-tui-util": 1,
    "cmux-wg": 15
   },
+  "ffi_unwind": {
+   "cmux-app-ffi": 17,
+   "cmux-encode": 1,
+   "cmux-layout-reducer-ffi": 12,
+   "cmux-palette-ranker": 3,
+   "cmux-rd-ffi": 44,
+   "cmux-remote-browser-host": 28,
+   "cmux-terminal-client": 33,
+   "cmux-tui": 3,
+   "cmux-tui-core": 2,
+   "ghostty-vt": 10
+  },
   "panic_macro": {
    "acpmux": 2,
    "chatmux-relay": 1,

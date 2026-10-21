@@ -17,6 +17,8 @@ mod agent_start_host;
 mod app;
 #[cfg(unix)]
 mod app_identity;
+#[cfg(unix)]
+mod app_watch;
 mod browser_input;
 #[cfg(unix)]
 mod build_adopt;

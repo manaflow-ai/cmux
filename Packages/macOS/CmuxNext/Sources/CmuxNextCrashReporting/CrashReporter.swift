@@ -119,6 +119,25 @@ public final class CrashReporter: Sendable {
         CrashDeadline.arm()
     }
 
+    /// Starts this run's out-of-process watcher (`AppWatcher`, issue
+    /// #22844) off the main thread. Once, at launch, after the run marker's
+    /// crash handlers; `markerFolder` gets its `run.watch` and `watch.log`.
+    public static func startAppWatch(markerFolder: URL, launchedAsRestart: Bool) {
+        AppWatcher.start(markerFolder: markerFolder, launchedAsRestart: launchedAsRestart)
+    }
+
+    /// The main thread has been hung for the watchdog's hang threshold
+    /// (`began`), or returned to its run loop. Any thread; never waits.
+    public static func appWatchHang(began: Bool) {
+        if began { AppWatchChannel.hangBegan() } else { AppWatchChannel.hangEnded() }
+    }
+
+    /// A requested quit began: the watcher no longer ends a hang and does
+    /// not relaunch. Any thread; never waits.
+    public static func appWatchQuitBegan() {
+        AppWatchChannel.quitBegan()
+    }
+
     /// The first call of a fatal-signal handler: gives back Sentry's
     /// exception ports, then starts the crash deadline. Async-signal-safe.
     public static func fatalSignalBegan() {
@@ -161,6 +180,20 @@ public final class CrashReporter: Sendable {
               mach_port_insert_right(task, port, port, mach_msg_type_name_t(MACH_MSG_TYPE_MAKE_SEND)) == KERN_SUCCESS else { return }
         _ = task_set_exception_ports(task, exception_mask_t(EXC_MASK_BREAKPOINT), port,
                                      exception_behavior_t(EXCEPTION_DEFAULT), thread_state_flavor_t(THREAD_STATE_NONE))
+    }
+
+    /// `debug.crash.app {"signal": "suspended"}`: suspends every thread of
+    /// this process except the caller, as a crash reporter does while it
+    /// writes its report. The crash deadline thread stops with them.
+    public static func suspendOtherThreads() {
+        var threads: thread_act_array_t?
+        var count: mach_msg_type_number_t = 0
+        guard task_threads(mach_task_self_, &threads, &count) == KERN_SUCCESS, let threads else { return }
+        let me = mach_thread_self()
+        for index in 0..<Int(count) where threads[index] != me {
+            _ = thread_suspend(threads[index])
+        }
+        _ = mach_port_deallocate(mach_task_self_, me)
     }
 
     /// The main thread is inside `reportException:` for an exception AppKit survives.

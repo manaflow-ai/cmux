@@ -97,6 +97,15 @@ public final class MainThreadWatchdog: Sendable {
         set { stallSink.withLock { $0 = newValue } }
     }
     private let stallSink = Mutex<(@Sendable (HangRecord) -> Void)?>(nil)
+    /// Receives `true` on the watchdog thread when a stall reaches
+    /// `hangThreshold` (every hang, not rate limited like ``onHang``) and
+    /// `false` when that stall ends: the app's out-of-process watcher ends a
+    /// hang that lasts too long. It must not wait for the main thread.
+    public var onHangChange: (@Sendable (Bool) -> Void)? {
+        get { hangChangeSink.withLock { $0 } }
+        set { hangChangeSink.withLock { $0 = newValue } }
+    }
+    private let hangChangeSink = Mutex<(@Sendable (Bool) -> Void)?>(nil)
     private let hangNanos: UInt64
     private let hangIntervalNanos: UInt64
     private let hangAssertNanos: UInt64?
@@ -288,6 +297,7 @@ public final class MainThreadWatchdog: Sendable {
         var sampledBeat: UInt64 = .max
         var hang = HangState()
         while running.load(ordering: .acquiring) {
+            endHangIfOver(&hang)
             if mainAsleep.load(ordering: .acquiring) {
                 watchdogParked.store(true, ordering: .releasing)
                 // Re-check after publishing `parked`: the main thread may have woken in between.
@@ -332,6 +342,8 @@ public final class MainThreadWatchdog: Sendable {
     /// The watchdog thread's hang bookkeeping.
     private struct HangState {
         var reportedBeat: UInt64 = .max
+        /// The stall ``onHangChange`` was told began; `.max`: none.
+        var signaledBeat: UInt64 = .max
         var assertedBeat: UInt64 = .max
         var lastReportNanos: UInt64?
     }
@@ -345,6 +357,11 @@ public final class MainThreadWatchdog: Sendable {
         let started = beatNanos.load(ordering: .acquiring)
         guard now > started else { return }
         let elapsed = now - started
+        if elapsed >= hangNanos, state.signaledBeat != beat {
+            endHangIfOver(&state)
+            state.signaledBeat = beat
+            hangChangeSink.withLock { $0 }?(true)
+        }
         if elapsed >= hangNanos, state.reportedBeat != beat {
             state.reportedBeat = beat
             let duration = Duration.nanoseconds(Int64(clamping: elapsed))
@@ -365,6 +382,15 @@ public final class MainThreadWatchdog: Sendable {
             state.assertedBeat = beat
             assertionFailure("main thread hang: busy over \(configuration.hangAssertThreshold ?? .zero); see debug.hangs and the crash report")
         }
+    }
+
+    /// Tells ``onHangChange`` that the signaled hang ended: the heartbeat
+    /// moved past its stall, or the main run loop sleeps. Watchdog thread only.
+    private func endHangIfOver(_ state: inout HangState) {
+        guard state.signaledBeat != .max else { return }
+        guard state.signaledBeat != beatSequence.load(ordering: .acquiring) || mainAsleep.load(ordering: .acquiring) else { return }
+        state.signaledBeat = .max
+        hangChangeSink.withLock { $0 }?(false)
     }
 
     /// Main-thread CPU used since heartbeat `beat` began the stall (its

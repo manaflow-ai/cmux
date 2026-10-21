@@ -1,13 +1,18 @@
+import CmuxNextCrashReporting
 import Darwin
 import Dispatch
 
-/// Does nothing: the signal only has to be caught, not ignored, so that its
-/// default action does not end the process. `SignalRelay`'s dispatch source
-/// sees every delivery either way (kqueue `EVFILT_SIGNAL`).
-private let relayedSignalHandler: @convention(c) (Int32) -> Void = { _ in }
+/// The signal only has to be caught, not ignored, so that its default action
+/// does not end the process. `SignalRelay`'s dispatch source sees every
+/// delivery either way (kqueue `EVFILT_SIGNAL`). The relayed signals are
+/// requested quits: the app's watcher is told at once (one async-signal-safe
+/// write), so a quit asked for while the main thread is hung is never
+/// relaunched as a hang.
+private let relayedSignalHandler: @convention(c) (Int32) -> Void = { _ in CrashReporter.appWatchQuitBegan() }
 
 /// Delivers process signals on the main queue through a `DispatchSource`
-/// per signal; nothing runs in signal-handler context.
+/// per signal; in signal-handler context only the watcher's one-byte write
+/// runs.
 ///
 /// The signals are caught by a no-op handler instead of `SIG_IGN`: a caught
 /// signal returns to its default action in every child the app execs, while

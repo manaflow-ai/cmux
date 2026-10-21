@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCrashReporting
 import Foundation
 import os
 import CmuxNextCompat
@@ -31,6 +32,11 @@ final class CrashRecoveryService {
     init(bundleID: String?, marksRun: Bool) {
         marker = marksRun ? AppRunMarker(directory: AppRunMarker.standardDirectory(bundleID: bundleID)) : nil
         writer = CrashReportWriter.standard(bundleID: bundleID)
+        // Crash-only recovery: a separate process ends this run if a crash
+        // does not finish or the main thread stays hung, then relaunches it.
+        if let marker {
+            CrashReporter.startAppWatch(markerFolder: marker.folder, launchedAsRestart: marker.recovery.isRestart)
+        }
         if let previous = marker?.recovery.previous {
             logger.error("previous run ended unexpectedly signal=\(previous.signal ?? 0) exception=\(previous.exception?.name ?? "none", privacy: .public) safe=\(self.recovery.skipsBrowserPages)")
             reportTask = Task { [weak self, writer] in  // task-owner: stored in reportTask, cancelled with the service
