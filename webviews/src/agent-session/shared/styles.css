@@ -82,7 +82,8 @@ select {
    control took keyboard focus. Here:
    - a button takes no outline at all: the soft hover pill marks it, laid over its own fill as a
      background image (as a focused menu row takes its tint). A control that already marks its
-     keyboard focus with a wash of its own sets `--acpmux-focus-pill: transparent`;
+     keyboard focus with a wash of its own sets `--acpmux-focus-pill: transparent`; a solid-fill
+     one takes its hover step (below);
    - anything else that takes keyboard focus (a checkbox, a slider, a transcript row, a link) keeps
      the shared outline, now one hairline in the text color, never the accent;
    - text fields draw nothing themselves (desktop.css): the box that owns them shows focus, the
@@ -99,5 +100,25 @@ select {
       var(--acpmux-focus-pill, var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent))),
       var(--acpmux-focus-pill, var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent)))
     ) !important;
+  }
+  /* A solid fill in the text or accent color (a ready Send, Stop, a primary action) swallows that
+     text-colored wash, so keyboard focus there takes the control's hover step instead: the base at
+     12% over the fill, which paints `color-mix(fill 88%, base)` as `.acpmux-send-ready:hover` does. */
+  :root :focus-visible:where(
+      .acpmux-send-ready,
+      .acpmux-cancel,
+      .acpmux-question-submit,
+      .nt-player-play,
+      .acpmux-task-action[data-primary],
+      .acpmux-git-primary,
+      .acpmux-ask-action.is-primary,
+      .acpmux-harness-action.is-primary,
+      .acpmux-replay-continue,
+      .acpmux-recap__yes,
+      .acpmux-pr-merge-confirm,
+      .acpmux-permission-feedback-send,
+      .acpmux-permission-surface .acpmux-permission-buttons button:not(.acpmux-permission-deny)
+    ) {
+    --acpmux-focus-pill: color-mix(in srgb, var(--acpmux-base, Canvas) 12%, transparent);
   }
 }
