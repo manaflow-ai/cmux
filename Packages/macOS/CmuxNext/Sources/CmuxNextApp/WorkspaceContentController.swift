@@ -67,6 +67,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         observeAttention()
     }
 
+    /// Parked but on screen beside the shown workspace (`sidebar.multiView`): its attention rings draw, so it follows them.
+    func followAttention() { observeAttention() }
+
     /// Installed: one topology (the coordinator restores its pane), whose ring draws in this frame.
     func didShow() {
         sendTopology()

@@ -112,7 +112,7 @@ extension WindowState {
         id = record.id
         workspaceID = record.workspaceKey?.rawValue
         page = record.page.flatMap(TopPageRoute.init(rawValue:))
-        viewSet = record.multiView.flatMap(WorkspaceViewSet.init(record:))
+        viewSet = record.multiView.flatMap(WorkspaceViewSet.init(record:)).flatMap { Set($0.ids).count == $0.ids.count ? $0 : nil }
         machineID = record.machine ?? MachineRegistry.localID
         for (pane, tab) in record.selectedTabs { selection.select(tab, in: pane) }
         sidebarWidth = record.sidebarWidth

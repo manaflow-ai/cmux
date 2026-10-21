@@ -12,6 +12,8 @@ import CmuxNextSidebar
 extension WindowController {
     /// The gap between workspaces shown side by side.
     static var multiViewGap: CGFloat { Metrics.space2 }
+    /// The Debug toggle, read where the window's show observer tracks it, so turning it off goes back to one workspace.
+    static var multiViewEnabled: Bool { SidebarTunables.multiView.value }
 
     /// Puts `state.viewSet` on screen around `content` and tells the sidebar which workspaces are on screen. The set
     /// drops workspaces that closed or left the window, and ends (nil) once `content` is not in it or one is left.
@@ -42,8 +44,9 @@ extension WindowController {
         }
         let host = root.contentHost
         // Companions that left the set go off screen; the ones in it come on.
-        for (id, controller) in parked where views[id] == nil && controller.contentView.superview === host && id != state.workspaceID {
+        for (id, controller) in parked where views[id] == nil && controller.contentView.superview === host && !controller.contentView.isHidden && id != state.workspaceID {
             controller.contentView.isHidden = true
+            controller.park(serial: controller.parkedSerial)
         }
         for (id, view) in views {
             if view.superview !== host {
@@ -51,6 +54,8 @@ extension WindowController {
                 view.reparentRootedThemeScope()
                 parked[id]?.layoutView.syncWithModel()
             }
+            // A companion coming on screen draws its attention rings again (parking stopped following them).
+            if view.isHidden || view.superview !== host { parked[id]?.followAttention() }
             view.autoresizingMask = []
             view.isHidden = false
         }
@@ -84,11 +89,12 @@ extension WindowController {
     }
 
     /// A press in a workspace shown beside the focused one focuses it first, so the press lands in focused content.
+    /// The view the press hits decides, so a sheet, popover or floating pane over it keeps the press.
     func focusOnScreenWorkspace(at windowPoint: CGPoint) {
-        guard SidebarTunables.multiView.value, let set = state.viewSet, let shown = content?.workspace.id else { return }
+        guard SidebarTunables.multiView.value, let set = state.viewSet, let shown = content?.workspace.id,
+              let hit = window?.contentView?.hitTest(windowPoint) else { return }
         for id in set.ids where id != shown {
-            guard let view = parked[id]?.contentView, !view.isHiddenOrHasHiddenAncestor,
-                  view.convert(view.bounds, to: nil).contains(windowPoint) else { continue }
+            guard let view = parked[id]?.contentView, !view.isHiddenOrHasHiddenAncestor, hit.isDescendant(of: view) else { continue }
             services.windows.show(workspaceID: id, in: state)
             return
         }
@@ -113,7 +119,8 @@ extension WindowController {
         for (id, controller) in parked where controller.contentView.superview === host && id != state.workspaceID {
             controller.contentView.isHidden = true
         }
-        if let view = content?.contentView {
+        // The workspace a page covers fills the content area again too, so a page closing shows no half-size frame.
+        if let view = (content ?? state.workspaceID.flatMap { parked[$0] })?.contentView {
             view.frame = host.bounds
             view.autoresizingMask = [.width, .height]
         }
