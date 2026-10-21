@@ -32,7 +32,8 @@
 //! current mode (the start gate's inherit rule), on another family in the
 //! person's default start mode only when the parent runs with full access,
 //! else in that harness's own (asking) mode. What the tools read back of a
-//! child (its title, last reply and error) is masked (`secret_scan`).
+//! child (its title, last reply, error and running prompt) is masked
+//! (`secret_scan`).
 //!
 //! A chat the person starts from a suggested task (`offers.rs`) becomes the
 //! offering chat's sub-session too ([`Hub::offer_link`]), so the agent that
@@ -800,6 +801,11 @@ impl Hub {
         }
         if let Some(text) = row["lastTurn"]["errorText"].as_str() {
             row["lastTurn"]["errorText"] = json!(crate::secret_scan::mask(text));
+        }
+        // The running turn's prompt is the child's text too (a parent may
+        // have pasted a key into it, or named a file whose name is one).
+        if let Some(text) = row["turn"]["prompt"].as_str() {
+            row["turn"]["prompt"] = json!(crate::secret_scan::mask(text));
         }
         row
     }
