@@ -64,6 +64,9 @@ extension SidebarViewComponents {
             self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
         }
         region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
+        // Edit mode's ✕: the menu's Remove (one undo step, the document's own op).
+        region.onRemoveItem = { [weak self] id in self?.model.send(.layout(.itemRemove(id))) }
+        region.isEditing = isEditingItems && region !== footerRegion
     }
 
     /// Gives the three regions their sections: the band above the list,

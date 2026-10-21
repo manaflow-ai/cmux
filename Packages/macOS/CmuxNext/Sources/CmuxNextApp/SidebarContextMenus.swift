@@ -72,7 +72,8 @@ enum SidebarContextMenus {
     }
 
     /// A multi-selection's menu says what its rows do to every selected row: Pin pins them when
-    /// the right-clicked row is unpinned (the pin action's rule), Mute mutes them while one plays.
+    /// the menu's target (the first selected row) is unpinned, as the pin action decides, and Mute
+    /// mutes them while one plays.
     private static func nameSelection(_ menu: NSMenu, _ ids: [CmuxNextSidebar.WorkspaceID], _ services: AppServices) {
         let workspaces = ids.compactMap { services.workspace(id: $0.rawValue) }
         let pins = workspaces.first.map { !PinCommands(context: AppActionContext(services: services)).isWorkspacePinned($0) } ?? true
