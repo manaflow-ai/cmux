@@ -272,6 +272,7 @@ impl Hub {
         // its turn (`durable_agents.rs`). Release builds have no seam.
         #[cfg(debug_assertions)]
         if waiting && std::env::var_os("ACPMUX_TEST_EXIT_AFTER_DEQUEUE").is_some() {
+            // crash-allow: debug-build test seam; the test asks for this stop, like a crash
             std::process::exit(0);
         }
         // A prompt that took the turn lock first (a person's) supersedes the continuation.
