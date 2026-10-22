@@ -1,0 +1,14 @@
+{
+  "$comment": "The one row grid of every cmux NEXT menu (Leo 2026-10-21, on Lawrence's screenshots of the sidebar group menu and the pane [+] menu: \"idk if we generalized the left alignment across all stuff yet\"). Points from the menu's leading edge, or from its trailing edge for `trailing`. Right-click and ⋮ menus, the group editors, the palette's menus, page popups and the webviews' menus all read these. scripts/cmux-next/gen-menu-metrics.py writes the Swift copy (CmuxNextDesign/MenuMetrics.generated.swift) and the CSS copy (--cmux-menu-<name> in webviews/src/pages/shared/desktop.css); scripts/cmux-next/check-menu-metrics.py fails a menu that sets its own.",
+  "metrics": [
+    { "name": "highlightInset", "pt": 5, "for": "the hover highlight's distance from the menu's edges" },
+    { "name": "highlightRadius", "pt": 5, "for": "the hover highlight's corner radius" },
+    { "name": "separatorInset", "pt": 12, "for": "a separator's distance from the menu's edges, on both sides" },
+    { "name": "stateX", "pt": 10, "for": "a checkmark or dash" },
+    { "name": "iconX", "pt": 22, "for": "the icon column; also the text column of a menu with no icon" },
+    { "name": "iconSize", "pt": 16, "for": "an icon's side" },
+    { "name": "iconGap", "pt": 6, "for": "between the icon column and the text" },
+    { "name": "trailing", "pt": 12, "for": "a shortcut's or submenu chevron's distance from the trailing edge" },
+    { "name": "shortcutGap", "pt": 28, "for": "the least room between a title and its shortcut or chevron" }
+  ]
+}
