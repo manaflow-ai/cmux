@@ -92,6 +92,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var olderRequested = false
     private var reportedRead: Seq = 0
     private(set) var stopped = false
+    /// The observer of ``HomeSubagentLinks/didChange``: a newly known subagent's bare id links in
+    /// messages already shown.
+    private var subagentObserver: NSObjectProtocol?
     /// Return was pressed while only the cache knew this conversation: the
     /// send goes once the owner confirms it (`refresh`), in the thread that
     /// was open at the Return (`deferredThread`, nil root: the conversation), answering the
@@ -144,10 +147,22 @@ final class HomeProjection: @preconcurrency ChatIntents {
         refresh()
         noteObservedInputs()
         observe()
+        subagentObserver = NotificationCenter.default.addObserver(forName: HomeSubagentLinks.didChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.subagentLinksChanged() }
+        }
+    }
+
+    /// The known subagents changed (HomeSubagentLinks): the shown messages render again, so a
+    /// bare `a12` a Chief wrote before the app knew that subagent becomes its link.
+    func subagentLinksChanged() {
+        guard !stopped, !shown.isEmpty else { return }
+        rebuild()
     }
 
     func stop() {
         stopped = true
+        if let subagentObserver { NotificationCenter.default.removeObserver(subagentObserver) }
+        subagentObserver = nil
         homeStore.stopTyping(in: conversation)
         liveLine.stop()
         turnPopover?.close()

@@ -230,7 +230,9 @@ macro_rules! link_rule {
   `cmux://session/…`; files and folders use `file://` and the absolute path.
   When you lack the URL, look it up (`gh`, `cmux --json …`) before you write
   the number. A subagent id (`a12`) is the exception: write it bare, the app
-  links it.
+  links it. A workspace: copy the `cmux://workspace/ws_…` link its spawn
+  result gives, or look it up (`cmux --json workspace list`); never write a
+  workspace id from memory.
 - Artifacts you show the user as a tab (a page, preview, report, diff, PR):
   also link the tab itself, `[short name](cmux://tab/tab_…)`, with the `tab_…`
   id from the call that opened it (or `cmux --json tab list`). A tab link is

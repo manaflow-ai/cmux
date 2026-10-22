@@ -15,6 +15,7 @@
 //! here, so the host can rename the workspace later through the session
 //! daemon (`rename-workspace` by key).
 
+use std::collections::HashSet;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -59,6 +60,59 @@ pub trait Workspaces: Send + Sync {
     fn locate(&self, _key: &str) -> Option<WorkspaceRef> {
         None
     }
+    /// The public ids (`ws_…`) of every workspace this place holds, so a reply that names one
+    /// can be checked (`missing_workspace_ids`); None when this place cannot list them.
+    fn workspace_ids(&self) -> Option<HashSet<String>> {
+        None
+    }
+}
+
+/// Each workspace public id (`ws_` and 32 lowercase hex digits) `text` names that is not in
+/// `known`, in order, once each (Lawrence 2026-10-22: a reply named a workspace no session had).
+pub fn missing_workspace_ids(text: &str, known: &HashSet<String>) -> Vec<String> {
+    let b = text.as_bytes();
+    let mut missing: Vec<String> = Vec::new();
+    let mut from = 0;
+    while let Some(at) = text[from..].find("ws_").map(|i| from + i) {
+        from = at + 3;
+        let before = at.checked_sub(1).map(|i| b[i]);
+        if before.is_some_and(|c| c.is_ascii_alphanumeric() || c == b'_') {
+            continue;
+        }
+        let hex = &b[at + 3..];
+        let n = hex
+            .iter()
+            .take_while(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(c))
+            .count();
+        if n != 32
+            || hex
+                .get(32)
+                .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_')
+        {
+            continue;
+        }
+        let id = &text[at..at + 35];
+        if !known.contains(id) && !missing.iter().any(|m| m == id) {
+            missing.push(id.to_owned());
+        }
+        from = at + 35;
+    }
+    missing
+}
+
+/// What the Chief is told when its reply named workspaces that do not exist.
+pub fn missing_workspaces_warning(missing: &[String]) -> String {
+    format!(
+        "Your message named {} that the user's cmux session does not have (closed, or in \
+         another session the app does not show): {}. Never write a workspace id from memory. Use the workspace link a spawn result gives, or look it up with \
+         `cmux --json workspace list`, and correct it for the user.",
+        if missing.len() == 1 {
+            "a workspace id"
+        } else {
+            "workspace ids"
+        },
+        missing.join(", ")
+    )
 }
 
 /// A subagent workspace as the cmux CLI and MCP address it.
@@ -730,6 +784,14 @@ impl Workspaces for AppWorkspaces {
     fn place(&self) -> String {
         "the cmux app on this Mac".to_owned()
     }
+
+    fn locate(&self, key: &str) -> Option<WorkspaceRef> {
+        locate_by_key(&self.daemon, key)
+    }
+
+    fn workspace_ids(&self) -> Option<HashSet<String>> {
+        workspace_ids_on(&self.daemon)
+    }
 }
 
 /// The id the fallback group is made with (Lawrence 2026-10-18: "use groups
@@ -1055,6 +1117,10 @@ impl Workspaces for DaemonWorkspaces {
         locate_by_key(&self.daemon, key)
     }
 
+    fn workspace_ids(&self) -> Option<HashSet<String>> {
+        workspace_ids_on(&self.daemon)
+    }
+
     fn place(&self) -> String {
         // The app's daemon (tabs on `chief:<home id>`, the Chief home's acpmux): the user's
         // own session, beside the workspaces the user made (a423).
@@ -1087,6 +1153,26 @@ pub fn still_running(error: &str) -> bool {
 /// The origin of this host's workspace mutations: the session daemon needs one with every
 /// mutation_id (server.rs workspace_mutation), so a retried create replays instead of doubling.
 const MUTATION_ORIGIN: &str = "optchat-chief";
+
+/// The public ids (`ws_…`) of every workspace on the session daemon at `daemon`
+/// (`list-workspaces`); None when it does not answer.
+fn workspace_ids_on(daemon: &Path) -> Option<HashSet<String>> {
+    use cmux::raw::{Client, ClientConfig};
+    let mut client = Client::connect(ClientConfig::from_socket_path(daemon)).ok()?;
+    let mut request = serde_json::Map::new();
+    request.insert("cmd".into(), json!("list-workspaces"));
+    let tree = client.request_raw(request).ok();
+    client.close();
+    Some(
+        tree?["data"]["workspaces"]
+            .as_array()?
+            .iter()
+            .filter_map(|w| w["resource_id"].as_str())
+            .filter(|id| id.starts_with("ws_"))
+            .map(str::to_owned)
+            .collect(),
+    )
+}
 
 /// The public id and session name of workspace `key` on the session daemon at
 /// `daemon`: `list-workspaces` carries each workspace's key beside its

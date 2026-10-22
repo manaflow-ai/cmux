@@ -2000,6 +2000,19 @@ impl Brain {
         })
     }
 
+    /// The workspace ids (`ws_…`) `text` names that the user's cmux session does not hold
+    /// (`workspaces::missing_workspace_ids`): the Chief wrote one from memory or it is gone.
+    /// Empty when the text names none or the place cannot list its workspaces.
+    pub(super) fn missing_workspaces(&self, text: &str) -> Vec<String> {
+        if !text.contains("ws_") {
+            return Vec::new();
+        }
+        let Some(known) = self.workspaces.as_ref().and_then(|w| w.workspace_ids()) else {
+            return Vec::new();
+        };
+        crate::workspaces::missing_workspace_ids(text, &known)
+    }
+
     /// chief.stop {name}: subagent `name` stops as with chief.stop (its
     /// report comes quiet), the reference's "Stopped by the user: X.".
     pub(super) fn stop_subagent(&mut self, name: &str) -> Value {

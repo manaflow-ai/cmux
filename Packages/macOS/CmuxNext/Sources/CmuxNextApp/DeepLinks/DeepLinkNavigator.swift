@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -47,11 +48,9 @@ struct DeepLinkNavigator {
         case .session(let id, let turn):
             try openSession(id, turn: turn, intent)
         case .chiefSession(let home, let session):
-            // Only this app's Chief home, only a tab that shows that session there; never a
-            // new tab (the session runs in the Chief home's acpmux, not this Mac's).
-            let host = "chief:" + home
-            guard services.agentTabs.chiefHost == host, let shown = services.agentTabs.tab(showing: session, host: host),
-                  services.revealTab(shown, intent: intent) else { throw Self.gone }
+            // Only this app's Chief home; never a new tab (the session runs in the Chief home's
+            // acpmux, not this Mac's).
+            try openChiefSession(home: home, session: session, intent)
         case .agent(let harness, let session):
             try openAgent(harness: harness, session: session, message: link.message, intent)
         case .legacyWorkspace(let key, let fallback):
@@ -65,6 +64,20 @@ struct DeepLinkNavigator {
     }
 
     static var gone: ActionFailure { ActionFailure(message: RefusalStrings.linkTargetGone) }
+
+    /// A Chief subagent's chat (`cmux://chief/<home>/session/<session>`, Lawrence 2026-10-22:
+    /// "none of these worked"): the tab that shows the session on the Chief home's host, in any
+    /// session daemon's workspace; else the workspace its lane is bound to, wherever it is.
+    private func openChiefSession(home: String, session: String, _ intent: WindowActivation.Intent) throws {
+        let host = "chief:" + home
+        guard services.agentTabs.chiefHost == host else { throw Self.gone }
+        if let shown = services.agentTabs.tab(showing: session, host: host), services.revealTab(shown, intent: intent) { return }
+        guard let bound = AgentLaneStore.chief.lanes[session]?.workspaceID,
+              let workspace = services.workspace(id: bound)
+                ?? services.machines.allWorkspaces.map(\.0).first(where: { $0.resourceID?.rawValue == bound })
+        else { throw Self.gone }
+        try reveal(workspace: workspace.id, intent)
+    }
 
     /// A pane opens on its selected tab; a pane with none shows its workspace.
     private func reveal(_ pane: PaneModel, _ intent: WindowActivation.Intent) throws {
