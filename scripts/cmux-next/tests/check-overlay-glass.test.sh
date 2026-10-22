@@ -40,6 +40,32 @@ expect_pass comment '/// The popup surface (`Palette.popupSurface`) only under R
 expect_pass escaped '        // glass-opaque-allow: Reduce Transparency draws every surface solid.
         layer?.backgroundColor = (opaque ? Palette.elevatedBackground : veil).cgColor'
 
+# Hover card bodies (a file with HoverCardBody or HoverCardTextReporting) draw on the one glass
+# hover card window: no window or material of their own, and no fill a solid card could hide in.
+expect_fail hover-window hover-own-window 'final class DemoCardView: NSView, HoverCardTextReporting {
+    let popover = NSPopover()
+}'
+expect_fail hover-surface hover-own-window '        let body = HoverCardBody(view: Glass.makeOverlayPanel(content: card), placement: .beside, themeAnchor: self) {}'
+expect_fail hover-fill hover-body-fill 'final class DemoCardView: NSView, HoverCardTextReporting {
+    func applyColors() { layer?.backgroundColor = Palette.background.cgColor }
+}'
+expect_fail hover-ternary hover-body-fill 'final class DemoCardView: NSView, HoverCardTextReporting {
+    func applyColors() { layer?.backgroundColor = hovered ? Palette.hoverFill.cgColor : Palette.textPrimary.cgColor }
+}'
+expect_pass hover-glass 'final class DemoCardView: NSView, HoverCardTextReporting {
+    func applyColors() {
+        thumbnail.layer?.backgroundColor = Palette.hoverFill.cgColor
+        layer?.backgroundColor = hovered ? Palette.hoverFill.cgColor : NSColor.clear.cgColor
+        pill.layer?.backgroundColor = color.withAlphaComponent(0.14).cgColor
+    }
+}'
+expect_pass hover-escaped 'final class DemoCardView: NSView, HoverCardTextReporting {
+    // glass-opaque-allow: a status dot, not a card fill.
+    func applyColors() { dot.layer?.backgroundColor = tone.cgColor }
+}'
+# Only hover card bodies: the same fill elsewhere is not this rule'"'"'s business.
+expect_pass not-hover '        badge.layer?.backgroundColor = Palette.accent.cgColor'
+
 # A listed file that no longer paints the solid fill is a stale allowance.
 stale="$tmp/Packages/macOS/CmuxNext/Sources/CmuxNextTerminal"
 mkdir -p "$stale"

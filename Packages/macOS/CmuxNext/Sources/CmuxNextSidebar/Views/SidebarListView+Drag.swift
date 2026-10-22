@@ -16,9 +16,14 @@ extension SidebarListViewComponents {
         switch press.key {
         case let .workspace(id):
             guard !model.isPlaceholder(id) else { return }
-            let ids = model.selection.contains(id) ? model.orderedSelection : [id]
-            // A plain press's drag moves the row and leaves the shown workspace (and the selection) as it is.
-            if !model.selection.contains(id), press.clickOnRelease != id { model.click(id) }
+            let ids = model.selection.contains(id) && press.switchedOnPress == nil ? model.orderedSelection : [id]
+            // A plain press's drag moves the row and leaves the shown workspace (and the selection) as it was
+            // before the press: a press that switched on mouse-down switches back.
+            if let before = press.switchedOnPress {
+                if let shown = before.shown, shown != model.activeWorkspaceID { model.click(shown) }
+                model.selection = before.selection
+                if !patchSelection(from: .workspace(id), oldSelection: [id]) { reload(animated: false) }
+            } else if !model.selection.contains(id), press.clickOnRelease != id { model.click(id) }
             payload = .workspaces(ids)
             hidden = Set(ids.map(SidebarRowKey.workspace))
             origin = ids.first.flatMap { SidebarEdits.position(of: $0, in: model.sections) }.map(DropTarget.position)
@@ -40,7 +45,7 @@ extension SidebarListViewComponents {
             payload = .item(item)
             hidden = [press.key]
             origin = .position(DropPosition(section: row.section, group: row.group, index: row.siblingIndex)) // a group's member item: inside it
-        case .tab, .section, .emptySection, .folder, .block, .doneFold, .showMore, .status:
+        case .tab, .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .status:
             return
         }
         hidden.formUnion(Self.tabKeys(of: hidden, in: model))
@@ -62,8 +67,7 @@ extension SidebarListViewComponents {
         drag.grabOffsetX = press.point.x - rowFrame.minX
         drag.lastY = press.point.y
         drag.restFrame = rowFrame
-        // A nested group's row lifts at the list's inset; its gutter comes back only for a drop into
-        // a nested group (morphLift). A top-level group's rows already start there.
+        // A grouped row lifts at the list's inset; its indent comes back only for a drop into a group (morphLift).
         let stepIn = max(0, rowFrame.minX - inset)
         drag.restFrame.origin.x -= stepIn
         drag.restFrame.size.width += stepIn
@@ -112,6 +116,7 @@ extension SidebarListViewComponents {
         showDragLayout()
     }
     func finishDrag() {
+        showNestedDrop(nil)
         guard let drag else { return }
         autoscroll.stop()
         if SidebarListPinDrop.finish(self, drag) { return }
@@ -167,6 +172,8 @@ extension SidebarListViewComponents {
             drag.blockBases = blockBases()
             let base = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
             drag.docGeometry = doc.geometry(base, width: bounds.width, acceptance: drag.docAcceptance, blocks: drag.blockBases)
+            // The outliner rule: at a nested block's bottom edge the pointer's x picks the level (`SidebarIndent`).
+            drag.docGeometry?.0.outline = (indent, inset, indentWidth)
             if drag.groupHeadHeight != nil {
                 drag.groupBlocks = SidebarGroupReorder.blocks(of: base.rows)
                 drag.groupAnchors = SidebarGroupReorder.anchors(of: base.rows)
@@ -217,6 +224,7 @@ extension SidebarListViewComponents {
             return
         }
         drag.probe = SidebarDropProbe(hit, displayY: displayY, baseY: y)
+        showNestedDrop(nestedDropMark(hit, geometry: geometry, rows: rows))
         // A refused place keeps the last open gap (the drop goes there): the rows do not spring shut and open
         // again at every row the drop cannot take, and the card dims only while no gap shows.
         if hit.target == nil, drag.docTarget != nil, drag.target != nil || drag.blockTarget != nil { return }
@@ -256,8 +264,8 @@ extension SidebarListViewComponents {
         }
         if rest, case let .position(position)? = drag.target, let group = position.group,
            let header = displayed.row(for: .group(group)) {
-            // Into a group: where its members sit (a top-level group's at the inset, a nested one's in).
-            let stepIn = SidebarStyle.groupOffset(depth: header.depth + 1)
+            // Into a group: where its members sit, by the one indent rule (`SidebarIndent`).
+            let stepIn = indent.offset(level: header.depth + 1, width: indentWidth)
             shape.origin.x = inset + stepIn
             shape.size.width = max(0, shape.size.width - stepIn)
         }
@@ -272,6 +280,7 @@ extension SidebarListViewComponents {
     }
 
     func cancelDrag() {
+        showNestedDrop(nil)
         guard let drag else { return }
         autoscroll.stop()
         SidebarListPinDrop.end(self)
