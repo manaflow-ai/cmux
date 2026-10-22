@@ -54,12 +54,14 @@ fn busy_first_turn() -> Script {
 }
 
 /// A Chief turn runs for "start the work", held at the fake agent, with its
-/// session started (a steer could reach it).
+/// session started (a steer could reach it) and its prompt sent.
 fn busy(h: &mut Harness) {
     h.agents.hold(true);
     let before = h.agents.inner.lock().unwrap().prompts.len();
     h.say("user_local", "start the work");
     let deadline = Instant::now() + Duration::from_secs(10);
+    // The runner records the session (`TurnProgress`) just before it sends
+    // the prompt: step while inputs come, never block on one more.
     while h.agents.inner.lock().unwrap().prompts.len() <= before
         || h.brain
             .state()
@@ -69,7 +71,9 @@ fn busy(h: &mut Harness) {
             .is_none()
     {
         assert!(Instant::now() < deadline, "the Chief turn never started");
-        h.step();
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(10)) {
+            h.brain.step(input);
+        }
     }
 }
 
@@ -225,7 +229,9 @@ fn busy_chief_stops_for_a_message_before_its_session_starts() {
     let deadline = Instant::now() + Duration::from_secs(10);
     while h.brain.state().turn.is_none() {
         assert!(Instant::now() < deadline, "the Chief turn never started");
-        h.step();
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(10)) {
+            h.brain.step(input);
+        }
     }
     h.say("user_local", "use the other branch");
     h.agents.wait_cancels(1);

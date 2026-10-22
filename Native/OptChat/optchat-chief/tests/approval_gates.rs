@@ -318,6 +318,32 @@ fn another_persons_turn_refuses_local_effects_at_once_and_asks_nobody() {
     finish(&mut h);
 }
 
+/// The owner's message stops a turn that carries another person's text
+/// (Lawrence 2026-10-21: "we need to immediately interrupt"). The next turn
+/// answers both, so it carries that text too: it still runs with policy
+/// `ask`, never with the owner's approve-all.
+#[test]
+fn the_owners_message_that_stops_another_persons_turn_keeps_the_next_turn_asking() {
+    let mut h = shared(started());
+    teammate_turn(&mut h, "@Chief clean the build directory");
+    assert_eq!(policy(&h, 0), "ask");
+    // A group conversation: the owner mentions the Chief too.
+    deliver_mention(
+        &mut h,
+        "user_local",
+        "@Chief what did the teammate ask for?",
+    );
+    h.agents.wait_cancels(1);
+    finish(&mut h);
+    let specs = h.agents.inner.lock().unwrap().specs.len();
+    assert_eq!(specs, 2, "the stopped turn and the next one");
+    assert_eq!(
+        policy(&h, 1),
+        "ask",
+        "the next turn answers the teammate too"
+    );
+}
+
 #[test]
 fn a_refused_request_asked_for_again_and_again_stops_the_turn() {
     let mut h = shared(started());
