@@ -117,7 +117,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     }
 
     private func updateChatCompose() {
-        chatColumn.showsCompose = HomeSidebarHeaderLayout.isCompact(width: sidebarWidth) && !composing
+        chatColumn.showsCompose = !composing
     }
 
     private func place(_ width: CGFloat) {

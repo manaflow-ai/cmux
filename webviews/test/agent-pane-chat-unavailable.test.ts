@@ -55,6 +55,10 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     tabSessionId?: string;
     /// The attach waits for this, as a slow link would.
     attachHeld?: Promise<void>;
+    /// Sessions whose attach fails, as one on a machine that dropped again would.
+    attachFails?: Set<string>;
+    /// Sessions whose next attach fails once, then attaches.
+    attachFailsOnce?: Set<string>;
   };
   let scenario: Scenario = { sessions: [], peers: [] };
   const statusAsked: number[] = [];
@@ -63,6 +67,8 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
   const nextStatus = () => new Promise<void>((resolve) => statusWaiters.push(resolve));
   /// Resolves on the daemon's next `_acpmux/attach` request.
   let attachAsked: () => void = () => {};
+  /// Resolves on the daemon's next `_acpmux/detach` request (an open of a chat, leaving the one before).
+  let detachAsked: () => void = () => {};
   type Socket = { send(data: string): unknown };
   let socket: Socket | undefined;
 
@@ -83,6 +89,8 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
       case "_acpmux/attach": {
         const session = scenario.sessions.find((item) => item.sessionId === params.sessionId);
         if (!session) throw new Error("no such session");
+        if (scenario.attachFails?.has(session.sessionId)) throw new Error("peer_unreachable");
+        if (scenario.attachFailsOnce?.delete(session.sessionId)) throw new Error("peer_unreachable");
         return { session, events: events(session.sessionId), hasMore: false, lastSeq: 3 };
       }
       case "_acpmux/events":
@@ -109,6 +117,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
         async message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id === undefined) return;
+          if (message.method === "_acpmux/detach") detachAsked();
           if (message.method === "_acpmux/attach") {
             attachAsked();
             await scenario.attachHeld;
@@ -206,7 +215,9 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     const connecting = waiting.locator('[data-unavailable="connecting"]');
     await connecting.waitFor({ timeout: 60_000 });
     expect(await connecting.innerText()).toContain("Connecting to build-box");
-    expect(await connecting.locator("button").count()).toBe(0);
+    // Loading: nothing to reconnect or remove yet; the missing-chat line's Resume and Close Tab stay.
+    expect(await connecting.getByRole("button", { name: /Reconnect|Remove from Sidebar/ }).count()).toBe(0);
+    expect(await connecting.getByRole("button", { name: "Close Tab" }).count()).toBe(1);
     // The socket opens and acpmux is still in its handshake (it says `connected` before it has read
     // that machine's chats): still connecting, never "deleted". The pane reads the peers again every
     // 2 s while connecting; after two reads it has drawn the first.
@@ -231,8 +242,12 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
   });
 
   test("a deleted chat says so, names its machine, and offers Remove from Sidebar", async () => {
-    scenario = { sessions: [summary("chat-kept")], peers: [] };
+    // The tab's chat was here and leaves the list while every machine is connected: it was deleted.
+    scenario = { sessions: [summary("chat-kept"), summary("chat-gone")], peers: [] };
     const page = await open("chat-gone", "Studio");
+    await page.getByText("Opened chat-gone", { exact: true }).waitFor({ timeout: 60_000 });
+    scenario.sessions = [summary("chat-kept")];
+    notify("_acpmux/lagged", { watch: true, dropped: 1 });
     const shown = page.locator('[data-unavailable="deleted"]');
     await shown.waitFor({ timeout: 60_000 });
     expect(await shown.locator("h2").innerText()).toBe("This chat was deleted");
@@ -286,10 +301,10 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
   test("the unavailable state is centered in the chat column and drawn in the pane's own type", async () => {
     scenario = { sessions: [], peers: [] };
     const page = await open("chat-gone");
-    const shown = page.locator('[data-unavailable="deleted"]');
+    const shown = page.locator('[data-unavailable="notFound"]');
     await shown.waitFor({ timeout: 60_000 });
     const look = await page.evaluate(() => {
-      const box = document.querySelector('[data-unavailable="deleted"]') as HTMLElement;
+      const box = document.querySelector('[data-unavailable="notFound"]') as HTMLElement;
       const title = box.querySelector("h2") as HTMLElement;
       const button = box.querySelector("button") as HTMLElement;
       const column = box.parentElement!.getBoundingClientRect();
@@ -323,6 +338,160 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     // The pane's quiet button, not the UA's outset one.
     expect(look.buttonBorder).toBe("none");
     expect(look.buttonBackground).not.toBe("rgb(239, 239, 239)");
+    await page.close();
+  });
+
+  /// Sets the page's visibility as WebKit reports it for a hidden or shown web view.
+  const setVisibility = (page: Page, next: "hidden" | "visible") =>
+    page.evaluate((value) => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => value });
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => value === "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }, next);
+
+  test("it keeps the missing-chat line's session id, and Close Tab on a chat whose machine is down", async () => {
+    // What MissingChat.tsx (86dec887282) showed stays: which session it was, and Close Tab.
+    const chat = "01a1201b-d3c3-7be1-8c40-1f1cbc87b8dc";
+    scenario = {
+      sessions: [summary("chat-kept")],
+      peers: [{ name: "build-box", transport: "ssh", connected: false, state: "offline", attempts: 6 }],
+    };
+    const page = await open(chat);
+    const offline = page.locator('[data-unavailable="offline"]');
+    await offline.waitFor({ timeout: 60_000 });
+    expect(await offline.innerText()).toContain("Session 01a1201b-d3c3");
+    expect(await offline.innerText()).not.toContain(chat);
+    const close = offline.getByRole("button", { name: "Close Tab" });
+    expect(await close.count()).toBe(1);
+    expect(await offline.getByRole("button", { name: "Reconnect" }).count()).toBe(1);
+    expect(await offline.getByRole("button", { name: "Resume from Transcript…" }).count()).toBe(1);
+    await close.click();
+    await page.waitForFunction(() => ((globalThis as any).cmuxDevPaneActions ?? []).includes("closeTab"));
+    await page.close();
+
+    // A chat never listed here with every machine connected (a tab whose chat is in another acpmux,
+    // such as a Chief home's own): it is not found, never called deleted, and keeps both.
+    scenario = { sessions: [summary("chat-kept")], peers: [] };
+    const gone = await open(chat, "Studio");
+    const notFound = gone.locator('[data-unavailable="notFound"]');
+    await notFound.waitFor({ timeout: 60_000 });
+    expect(await notFound.locator("h2").innerText()).toBe("Can't find this chat");
+    expect(await notFound.innerText()).toContain("Studio doesn't have it.");
+    expect(await notFound.innerText()).toContain("Session 01a1201b-d3c3");
+    expect(await gone.getByText(/was deleted|Remove from Sidebar/).count()).toBe(0);
+    expect(await notFound.getByRole("button", { name: "Close Tab" }).count()).toBe(1);
+    await gone.close();
+  });
+
+  test("a missing chat whose open fails says why again, and Reconnect opens it", async () => {
+    scenario = {
+      sessions: [summary("chat-kept")],
+      peers: [{ name: "build-box", transport: "ssh", connected: false, state: "connecting", attempts: 0 }],
+    };
+    const page = await open("chat-on-box");
+    await page.locator('[data-unavailable="connecting"]').waitFor({ timeout: 60_000 });
+    // Its machine lists the chat, then drops again before the pane's attach is answered.
+    scenario.attachFails = new Set(["chat-on-box"]);
+    scenario.peers = [
+      {
+        name: "build-box",
+        transport: "ssh",
+        connected: false,
+        state: "reconnecting",
+        attempts: 3,
+        lastSeen: Date.now(),
+      },
+    ];
+    const listed = summary("chat-on-box", { peer: "build-box" });
+    scenario.sessions = [...scenario.sessions, listed];
+    notify("_acpmux/session_changed", { kind: "created", session: listed });
+    const offline = page.locator('[data-unavailable="offline"]');
+    await offline.waitFor({ timeout: 60_000 });
+    expect((await state(page)).sessionId).toBeNull();
+    expect((await state(page)).missingSession).toBe("chat-on-box");
+    // The machine is back: Reconnect opens the chat.
+    scenario.attachFails = undefined;
+    scenario.peers = [{ name: "build-box", transport: "ssh", connected: true, state: "connected" }];
+    await offline.getByRole("button", { name: "Reconnect" }).click();
+    await page.getByText("Opened chat-on-box", { exact: true }).waitFor({ timeout: 60_000 });
+    expect((await state(page)).sessionId).toBe("chat-on-box");
+    await page.close();
+  });
+
+  test("a failed reopen never undoes a newer open of the same chat", async () => {
+    scenario = {
+      sessions: [summary("chat-kept")],
+      peers: [{ name: "build-box", transport: "ssh", connected: false, state: "connecting", attempts: 0 }],
+    };
+    const page = await open("chat-on-box");
+    await page.locator('[data-unavailable="connecting"]').waitFor({ timeout: 60_000 });
+    // The chat is listed; the pane's own reopen waits on a slow attach that will fail.
+    let releaseAttach = () => {};
+    scenario.attachHeld = new Promise((resolve) => (releaseAttach = resolve));
+    scenario.attachFailsOnce = new Set(["chat-on-box"]);
+    scenario.peers = [{ name: "build-box", transport: "ssh", connected: true, state: "connected" }];
+    const listed = summary("chat-on-box", { peer: "build-box" });
+    scenario.sessions = [...scenario.sessions, listed];
+    const firstAttach = new Promise<void>((resolve) => (attachAsked = resolve));
+    notify("_acpmux/session_changed", { kind: "created", session: listed });
+    await firstAttach;
+    // The person opens the same chat again (the list, a link) while that attach is in flight. The
+    // pane draws the list once its switch hold ends (the attach is still in flight); the newer open
+    // leaves the chat before it first (its detach), so it has taken its selection by then.
+    await page.waitForFunction(() =>
+      (window as any).cmuxAcpmuxDebug
+        .chatState()
+        .sessions.some((session: { sessionId: string }) => session.sessionId === "chat-on-box"),
+    );
+    const reopened = new Promise<void>((resolve) => (detachAsked = resolve));
+    expect(await page.evaluate(() => (window as any).cmuxAcpmuxDebug.selectSession("chat-on-box"))).toEqual({
+      selected: "chat-on-box",
+    });
+    await reopened;
+    // The first attach fails, the second opens the chat: the stale failure must not undo it.
+    releaseAttach();
+    // The failure is answered first, on the same socket: by the time the chat draws, the stale
+    // handler has run. One painted frame more, for anything it drew.
+    await page.getByText("Opened chat-on-box", { exact: true }).waitFor({ timeout: 60_000 });
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))),
+    );
+    const now = await state(page);
+    expect(now.sessionId).toBe("chat-on-box");
+    expect(now.missingSession).toBeNull();
+    expect(await page.locator("[data-unavailable]").count()).toBe(0);
+    scenario.attachHeld = undefined;
+    await page.close();
+  });
+
+  test("a missing chat that comes back while the pane is hidden stays unread until it shows", async () => {
+    scenario = {
+      sessions: [summary("chat-kept")],
+      peers: [{ name: "build-box", transport: "ssh", connected: false, state: "connecting", attempts: 0 }],
+    };
+    const page = await open("chat-on-box");
+    await page.locator('[data-unavailable="connecting"]').waitFor({ timeout: 60_000 });
+    // The tab's workspace goes to the background, then its machine connects with a turn the person
+    // has not read: the pane opens the chat, but nobody has seen it.
+    await setVisibility(page, "hidden");
+    scenario.peers = [{ name: "build-box", transport: "ssh", connected: true, state: "connected" }];
+    const listed = summary("chat-on-box", { peer: "build-box", unread: true });
+    scenario.sessions = [...scenario.sessions, listed];
+    notify("_acpmux/session_changed", { kind: "created", session: listed });
+    await page.waitForFunction(() => (window as any).cmuxAcpmuxDebug.chatState().sessionId === "chat-on-box");
+    const unread = async () =>
+      ((await state(page)).sessions as { sessionId: string; unread: boolean }[]).find(
+        (session) => session.sessionId === "chat-on-box",
+      )?.unread;
+    expect(await unread()).toBe(true);
+    // Showing the page is seeing it.
+    await setVisibility(page, "visible");
+    await page.waitForFunction(
+      () =>
+        (window as any).cmuxAcpmuxDebug
+          .chatState()
+          .sessions.find((session: { sessionId: string }) => session.sessionId === "chat-on-box")?.unread === false,
+    );
     await page.close();
   });
 

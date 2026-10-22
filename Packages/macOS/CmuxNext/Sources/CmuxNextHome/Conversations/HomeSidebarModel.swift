@@ -55,14 +55,18 @@ public struct HomeSidebarItem: Hashable, Sendable, Identifiable {
 }
 
 /// The Home sidebar's content from the merged inbox (`HomeStore.rows`):
-/// the pinned grid, then every other conversation newest first; a search
-/// filters both and lists matching people the user has no DM with yet. In
+/// the pinned grid, then every other conversation newest first, then every
+/// team member the user has no DM with yet (``teammates``: everyone on the
+/// team is someone to chat to); a search filters both and lists matching
+/// people the user has no DM with yet (``people``). In
 /// the owner's order (`init(ordered:)`, its `home-inbox` rows) only the
 /// person's own pins are pinned; with this Mac's pins Chiefs are pinned by default.
 public struct HomeSidebarModel: Hashable, Sendable {
     public var pinned: [HomeSidebarItem]
     public var rows: [HomeSidebarItem]
     public var people: [HomeContact]
+    /// Team members the user has no DM with yet, listed after the conversations while no search runs.
+    public var teammates: [HomeContact] = []
     /// The Cloud rows' state from the owner (`home-inbox` `cloud`): only `unavailable` shows a quiet line.
     public var cloudState: String?
     /// The quiet line under the list (Cloud conversations not reachable), or nil.
@@ -134,9 +138,13 @@ public struct HomeSidebarModel: Hashable, Sendable {
         }
         pinned = needle.isEmpty ? pinnedRows.map { item($0, true) } : []
         self.rows = needle.isEmpty ? rest.map { item($0, false) } : pinnedRows.map { item($0, true) } + rest.map { item($0, false) }
-        guard !needle.isEmpty else { people = []; return }
-        // People the user has no DM with yet, by name.
+        // People the user has no DM with yet: by name in a search, else the whole team.
         let dmPeers = Set(rows.filter { $0.kind == .direct }.flatMap { $0.summary.participants.map(\.id) })
+        guard !needle.isEmpty else {
+            people = []
+            teammates = contacts.filter { $0.source == .team && $0.id != me && !dmPeers.contains($0.id) }
+            return
+        }
         people = contacts.filter { !dmPeers.contains($0.id) && $0.name.localizedStandardContains(needle) }
     }
 }

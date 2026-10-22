@@ -28,7 +28,9 @@ pub(super) const MIGRATING: &str = "ACPMUX_MIGRATING=";
 /// a socket always (a long one falls back to a path derived from the
 /// variable, not from the home). The unit's own drop-ins
 /// (`~/.config/systemd/user/<unit>.d/*.conf`, such as a memory limit) are
-/// copied; one named `10-migrated.conf` is refused. `daemon run` takes its listen address from `--listen`
+/// copied; one named `10-migrated.conf` is refused. Every later update
+/// script reads the carried pair back from the unit (`SERVICE_ENV`,
+/// `host_update.rs`). `daemon run` takes its listen address from `--listen`
 /// alone, so a `--listen` the home's config.json does not also name is
 /// refused rather than moved; `--log` is dropped, and any other argument is
 /// refused.

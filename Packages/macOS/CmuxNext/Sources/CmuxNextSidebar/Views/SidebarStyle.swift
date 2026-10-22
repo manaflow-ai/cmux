@@ -40,10 +40,11 @@ enum SidebarStyle {
     /// As tall as the status glyph beside it (`Metrics.statusMarkSize`).
     static var badgeHeight: CGFloat { Metrics.statusMarkSize }
     static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
-    /// The profile control's circle: its row-height square but a hairline, so the avatar reads as
-    /// big as the Search button's glyph beside it (Leo 2026-10-21: "make the icon slightly
-    /// bigger"; 22 pt at compact). It scales with the sidebar's density, as its square does.
-    static var avatarDiameter: CGFloat { SidebarDensityTokens.rowHeight - Metrics.space1 }
+    /// The profile control's circle at compact density (the icon box, 16 pt). The avatar lives in
+    /// the row-height square, so its click target scales with the display density. #23757 grew it
+    /// to the square but a hairline (22 pt); Lawrence 2026-10-21 reverted that: "bottom footer
+    /// thing too big, revert to old icon sizes".
+    static var avatarDiameter: CGFloat { iconBox }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
     /// The margin under everything the sidebar draws (Leo 2026-10-20: the account row, the last
     /// rows and the scroller sat on the window's bottom edge): space4, as the agent composer's.

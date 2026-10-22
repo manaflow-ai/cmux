@@ -5,7 +5,7 @@ import CmuxNextIcons
 /// The frame of an app's sidebar section in each `apps.section.look`
 /// prototype: `native` (a plain header with the section glyph, built-in
 /// rows), `card` (a subtle inset card with the app icon in the header),
-/// `minimal` (title only). The sidebar provider and store previews share it.
+/// `minimal` (title only). The sidebar provider uses it (the App Store is the web page, apps-web-DESIGN.md).
 /// In the sidebar the section header row already draws the title (and owns
 /// collapse), so the provider passes `showsHeader: false`; drawing both
 /// produced a doubled, overlapping title.
@@ -67,21 +67,5 @@ public struct AppSectionFrame<Content: View>: View {
         .foregroundStyle(colors.secondary)
         .padding(.horizontal, Metrics.space3 * 2)
         .frame(height: Metrics.sidebarHeaderHeight)
-    }
-}
-
-/// A status item as it sits in the titlebar: compact, on the chrome.
-struct AppStatusItemFrame<Content: View>: View {
-    let content: Content
-    @Environment(\.appSceneColors) private var colors
-
-    init(@ViewBuilder content: () -> Content) { self.content = content() }
-
-    var body: some View {
-        HStack(spacing: 0) { content }
-            .frame(height: Metrics.titlebarHeight - Metrics.space3)
-            .padding(.horizontal, Metrics.space2)
-            .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous).fill(colors.elevated))
-            .fixedSize()
     }
 }

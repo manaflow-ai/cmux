@@ -122,7 +122,11 @@ extension ActionRegistry {
     /// A right-click row's icon: its action's SF Symbol as a template, inked like the row's text.
     /// Nil for `ActionDescriptor`'s default symbol (`command`), so a row without its own icon shows none.
     static func menuIcon(_ symbol: String) -> NSImage? {
-        guard symbol != "command", let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) else { return nil }
+        // The menu font's size, as `NSImage.menuSymbol` (CmuxNextDesign) sizes every hand-built row's symbol.
+        let configuration = NSImage.SymbolConfiguration(pointSize: NSFont.menuFont(ofSize: 0).pointSize, weight: .regular, scale: .medium)
+        guard symbol != "command",
+              let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
+        else { return nil }
         image.isTemplate = true
         return image
     }
