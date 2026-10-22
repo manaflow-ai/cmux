@@ -744,6 +744,11 @@ pub struct Brain {
     /// The fleet controller cloud subagents' `fleet-wait` jobs are read
     /// from (fleet_wait.rs), how often, when last, and the subagents whose
     /// poll is running.
+    /// V2-5: how often a running subagent VM gets a fresh git token, and
+    /// when each last did (ms; the first tick only stamps: the VM's start
+    /// minted one).
+    git_refresh: std::time::Duration,
+    git_refreshed: std::collections::BTreeMap<String, u64>,
     fleet: Option<std::sync::Arc<dyn crate::fleet_wait::FleetJobs>>,
     fleet_every: std::time::Duration,
     fleet_polled_ms: u64,
@@ -950,6 +955,8 @@ impl Brain {
                 chief.cloud_delete_after_paused_days * 86_400,
             ),
             cloud_reaping: Default::default(),
+            git_refresh: crate::subagents::GIT_REFRESH,
+            git_refreshed: Default::default(),
             fleet: None,
             fleet_every: std::time::Duration::from_secs(30),
             fleet_polled_ms: 0,
@@ -1113,7 +1120,7 @@ impl Brain {
 
     /// How often a running subagent VM gets a fresh git token (V2-5).
     pub fn set_git_refresh(&mut self, every: std::time::Duration) {
-        let _ = every;
+        self.git_refresh = every;
     }
 
     pub fn set_cloud_reap(&mut self, after: std::time::Duration) {
@@ -1396,6 +1403,7 @@ impl Brain {
                 self.agent_key_tick();
                 self.cloud_reap_tick();
                 self.fleet_tick();
+                self.git_tick();
             }
             Input::FleetJobFinished { id, job, state } => {
                 self.fleet_job_finished(&id, &job, &state)

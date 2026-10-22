@@ -149,7 +149,10 @@ fn a_cloud_subagent_is_told_how_its_commits_land_without_a_git_credential() {
         text.contains("git -C /home/agent/work/a7 config cmux.land <branch>"),
         "{text}"
     );
-    assert!(text.contains("never a token"), "{text}");
+    // V2-5 (Lawrence, 2026-10-22): the VM may hold a 1-hour App token; the
+    // cmux.land path is the fallback without it.
+    assert!(text.contains("Without that file"), "{text}");
+    assert!(text.contains("Never print the token"), "{text}");
 }
 
 #[test]

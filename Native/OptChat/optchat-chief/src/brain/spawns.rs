@@ -237,6 +237,52 @@ impl Brain {
         }
     }
 
+    /// V2-5: a fresh git token on each running (not paused, not deleted)
+    /// subagent VM every `git_refresh`, off the brain thread. A paused VM
+    /// gets none: its token expires and its resume mints one.
+    pub(super) fn git_tick(&mut self) {
+        let Some(vms) = self.cloud_vms.clone() else {
+            return;
+        };
+        let now = now_ms();
+        let mut peers: Vec<String> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| !s.vm_deleted)
+            .filter_map(|s| s.peer.clone())
+            .filter(|p| crate::subagents::is_agent_peer(p))
+            .collect();
+        peers.sort_unstable();
+        peers.dedup();
+        let every = self.git_refresh.as_millis() as u64;
+        self.git_refreshed.retain(|p, _| peers.contains(p));
+        for peer in peers {
+            if self.cloud_paused.contains(&peer) {
+                self.git_refreshed.remove(&peer);
+                continue;
+            }
+            let Some(&last) = self.git_refreshed.get(&peer) else {
+                self.git_refreshed.insert(peer, now);
+                continue;
+            };
+            if now.saturating_sub(last) < every {
+                continue;
+            }
+            self.git_refreshed.insert(peer.clone(), now);
+            let vms = vms.clone();
+            let log = self.log.clone();
+            let _ = std::thread::Builder::new()
+                .name("git-token".into())
+                .spawn(move || {
+                    if let Err(e) = vms.refresh_git(&peer) {
+                        log(&format!("cloud: git token for {peer}: {e}"));
+                    }
+                });
+        }
+    }
+
     /// Polls the fleet jobs cloud subagents wait on (`fleet-wait`), every
     /// `fleet_every`, off the brain thread.
     pub(super) fn fleet_tick(&mut self) {

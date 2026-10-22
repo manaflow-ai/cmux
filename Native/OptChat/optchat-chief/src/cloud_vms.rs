@@ -142,6 +142,10 @@ impl CloudVms for CommandVms {
         self.run_with(&["agent-key-rm", peer, agent], None)
     }
 
+    fn refresh_git(&self, peer: &str) -> Result<(), String> {
+        self.run("git-token", peer)
+    }
+
     fn provision(&self, peer: &str, size: &str) -> Result<(), String> {
         if !self.has_tool() {
             return Err("no pool tool (~/.config/cloud-subagents/vm-cmd)".into());
