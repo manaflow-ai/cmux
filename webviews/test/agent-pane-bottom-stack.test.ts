@@ -148,7 +148,7 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
   /// The chat drew its history: the PR commands' run, folded under its line with the short note
   /// "Three PRs open." in it, as the run after the note (the merge in flight) joins it
   /// (conversation/turns.ts mergeShortNotes, Debug toggle agentPane.debug.codexToolRuns).
-  const drawn = (page: Page) => page.locator("button.cv-tool", { hasText: "Ran commands" });
+  const drawn = (page: Page) => page.locator("button.cv-tool", { hasText: "Ran 3 commands" });
 
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;

@@ -14,11 +14,19 @@ import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
 import { ThoughtRow } from "./ThoughtRow";
 import { toolGroups, type ToolGroup } from "./toolGroups";
-import { isFoldedRun } from "./toolRunSummary";
+import { isFoldedRun, toolRunCategory } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
-import { workedLabel } from "./turns";
+import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
 import { ChevronRight, Retry } from "./icons";
-import { ForkButton, MessageCopy, MessageTime, PinButton, ReadAloudButton, ROW_ICON } from "./MessageActions";
+import {
+  ForkButton,
+  MessageCopy,
+  MessageMore,
+  MessageTime,
+  PinButton,
+  ReadAloudButton,
+  ROW_ICON,
+} from "./MessageActions";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
@@ -57,8 +65,17 @@ export function WorkedFor({
 
 /// One entry of a run: a group, a message or sub-session card, a lone call or a thought. `live`: the entry is the
 /// last of the live turn's latest row, so a thought there may still stream. `folded`: the run is
-/// finished and draws no summary line of its own, so a group starts closed.
-function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean, folded = false): ReactNode {
+/// finished and draws no summary line of its own, so a group starts closed. `thoughts`: how many
+/// thoughts the row's earlier entries hold, so a thought is `${rowId}:thought:<n>` wherever it
+/// draws, on its own or inside a group a later call joined it to.
+function groupNode(
+  group: ToolGroup,
+  index: number,
+  rowId: string,
+  live: boolean,
+  folded = false,
+  thoughts = 0,
+): ReactNode {
   switch (group.type) {
     case "group":
       return (
@@ -68,6 +85,7 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
           items={group.items}
           folded={folded}
           disclosureKey={`group:${group.kind}:${group.items[0]!.tool!.id || `${rowId}:${index}`}`}
+          thoughtId={(n) => `${rowId}:thought:${thoughts + n}`}
         />
       );
     case "mcp":
@@ -93,39 +111,107 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
       return group.item.tool ? (
         <ToolRow key={group.item.tool.id || index} item={group.item} />
       ) : (
-        <ThoughtRow key={index} id={`${rowId}:${index}`} item={group.item} streaming={live} />
+        <ThoughtRow
+          key={`${rowId}:thought:${thoughts}`}
+          id={`${rowId}:thought:${thoughts}`}
+          item={group.item}
+          streaming={live}
+        />
       );
   }
 }
 
 /// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). The
 /// Codex-style runs (Debug toggle `agentPane.debug.codexToolRuns`, on by default) fold a finished
-/// run (`foldRun`) of two or more entries under one summary line (toolRunSummary.ts: "Read files,
-/// ran commands"), and a run that is one group under that group's closed line ("Ran 3 commands"),
-/// so finished work is one click away between the paragraphs. Off, each group and call keeps its
-/// own line.
-export function shouldFoldToolRun(
-  row: AcpmuxRow,
-  groups: readonly ToolGroup[],
-  items: readonly AcpmuxActivity[],
-): boolean {
-  // Coordination cards (a message, a sub-session started, messaged or waited on) stay visible
-  // beside tool calls so a settled run never hides the agent-to-agent receipt inside the generic
-  // tool summary.
-  return (
-    row.foldRun === true &&
-    groups.length > 1 &&
-    !groups.some((group) => group.type === "message" || group.type === "subsession") &&
-    isFoldedRun(items)
-  );
+/// run (`foldRun`) of two or more entries under one summary line (toolRunSummary.ts: "Read 6 files,
+/// ran 4 commands"), and a run that is one group under that group's closed line ("Ran 3 commands"),
+/// so finished work is one click away between the paragraphs; coordination cards and edits stay in
+/// sight between such lines (`runStretches`). Off, each group and call keeps its own line.
+/// Whether the whole run folds under one summary line.
+export function shouldFoldToolRun(row: AcpmuxRow, groups: readonly ToolGroup[]): boolean {
+  const stretches = runStretches(row, groups);
+  return stretches.length === 1 && stretches[0]!.fold;
 }
+
+/// A folded run's entries in stretches: a coordination card (a message, a sub-session started,
+/// messaged or waited on) and an edit stay in sight, each its own stretch, and the work between
+/// them folds under its own summary line ("Read 6 files, ran 4 commands") once it holds two calls
+/// in more than one entry, so one card or edit never leaves the whole run spread out as a list
+/// (Leo 2026-10-21: "it can consolidate a ton of these tool calls"). A run that is not folded
+/// (`foldRun`, the Codex-style runs) is one stretch that folds nothing.
+export type RunStretch = { from: number; groups: ToolGroup[]; items: AcpmuxActivity[]; fold: boolean };
+
+export function runStretches(row: AcpmuxRow, groups: readonly ToolGroup[]): RunStretch[] {
+  const stretches: RunStretch[] = [];
+  let current: RunStretch | undefined;
+  const close = () => {
+    if (current) current.fold = current.groups.length > 1 && isFoldedRun(current.items);
+    current = undefined;
+  };
+  groups.forEach((group, at) => {
+    const items = "items" in group ? group.items : [group.item];
+    if (row.foldRun === true && staysInSight(group)) {
+      close();
+      stretches.push({ from: at, groups: [group], items, fold: false });
+      return;
+    }
+    if (!current) stretches.push((current = { from: at, groups: [], items: [], fold: false }));
+    current.groups.push(group);
+    current.items.push(...items);
+  });
+  close();
+  if (row.foldRun !== true) for (const stretch of stretches) stretch.fold = false;
+  return stretches;
+}
+
+/// How many thoughts come before each entry of a run. A thought keeps its number as calls arrive
+/// (a run only grows at its end, and grouping keeps the order), so its open state stays with it when
+/// a call that finished joins it to a group (Codex review of #24075).
+export function thoughtIds(groups: readonly ToolGroup[]): number[] {
+  let thoughts = 0;
+  return groups.map((group) => {
+    const before = thoughts;
+    const items = "items" in group ? group.items : [group.item];
+    thoughts += items.filter((item) => !item.tool && item.kind !== "note").length;
+    return before;
+  });
+}
+
+/// An entry a folded run keeps in sight beside its summary lines: a coordination card or an edit.
+function staysInSight(group: ToolGroup): boolean {
+  if (group.type === "message" || group.type === "subsession") return true;
+  if (group.type === "group") return group.kind === "edits";
+  if (group.type === "item") return toolRunCategory(group.item.tool?.kind) === "edited" && Boolean(group.item.tool);
+  return false;
+}
+
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
   const items = row.items;
   const groups = useMemo(() => toolGroups(items ?? []), [items]);
-  const run = shouldFoldToolRun(row, groups, items ?? []);
-  const nodes = groups.map((group, at) =>
-    groupNode(group, at, row.id, row.live === true && at === groups.length - 1, row.foldRun === true && !run),
-  );
+  const stretches = useMemo(() => runStretches(row, groups), [row, groups]);
+  const thoughts = useMemo(() => thoughtIds(groups), [groups]);
+  const nodes = stretches.map((stretch) => {
+    const drawn = stretch.groups.map((group, offset) => {
+      const at = stretch.from + offset;
+      return groupNode(
+        group,
+        at,
+        row.id,
+        row.live === true && at === groups.length - 1,
+        row.foldRun === true && !stretch.fold,
+        thoughts[at],
+      );
+    });
+    if (!stretch.fold) return drawn;
+    // The first stretch keeps the run's own key, so a run that grew a card keeps its open state.
+    const first = stretch.items.find((item) => item.tool)?.tool?.id;
+    const key = stretch.from === 0 ? `run:${row.id}` : `run:${row.id}:${first || stretch.from}`;
+    return (
+      <ToolRun key={key} disclosureKey={key} items={stretch.items}>
+        {drawn}
+      </ToolRun>
+    );
+  });
   // Find opens what holds its current match in this row only (chatFind.ts).
   const reveal = useContext(FindReveal);
   // Ids an MCP call names, to the titles the run's other calls give them ("Read Coordination hub").
@@ -134,15 +220,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
     <TranscriptDisclosureProvider sessionId={sessionId}>
       <McpNamesContext.Provider value={names}>
         <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
-          <div className="cv-tools">
-            {run ? (
-              <ToolRun disclosureKey={`run:${row.id}`} items={items ?? []}>
-                {nodes}
-              </ToolRun>
-            ) : (
-              nodes
-            )}
-          </div>
+          <div className="cv-tools">{nodes}</div>
         </FindReveal.Provider>
       </McpNamesContext.Provider>
     </TranscriptDisclosureProvider>
@@ -165,6 +243,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const kind = failed ? failureKind(row.error, route) : undefined;
   // Only the CLI's own login (or an unexplained 401 on a direct route) asks to sign in (cx-w10a).
   const authenticationFailed = kind === "subscription-login" || kind === "auth";
+  const label = footerLabel(t, row);
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
   // into it (Codex, Claude desktop). The row is one quiet line under the answer's left edge; it
   // shows on hover or keyboard focus, and always for a failed turn (VirtualTranscript marks the
@@ -172,8 +251,16 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   return (
     <>
       {failed && <TurnFailure message={row.error} route={route} switchModel={switchModel} />}
-      <div className={failed ? "cv-turn-actions cv-turn-actions--failed" : "cv-turn-actions"}>
-        {!row.folded && <span className="cv-turn-summary">{workedLabel(t, row)}</span>}
+      <div
+        className={
+          failed
+            ? "cv-turn-actions cv-turn-actions--failed"
+            : isEmptyFooter(row)
+              ? "cv-turn-actions cv-turn-actions--empty"
+              : "cv-turn-actions"
+        }
+      >
+        {label && <span className="cv-turn-summary">{label}</span>}
         <span className="cv-turn-action-group">
           {text && <MessageCopy text={text} />}
           {failed && retry && prompt && (
@@ -196,6 +283,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           {fork && seq !== undefined && (forkAny || seq === forkSeq) && <ForkButton onFork={() => fork(seq)} />}
           <PinButton rowId={row.id} />
           {text && <ReadAloudButton id={row.id} text={text} />}
+          {text && row.answerId && <MessageMore rowId={row.answerId} />}
           {authenticationFailed && reauthenticate && (
             <button type="button" className="cv-turn-auth-action" onClick={reauthenticate}>
               {t("turn.signInAgain")}

@@ -6,7 +6,9 @@ public import Foundation
 /// a unit test.
 public nonisolated struct ImportCardDeck: Sendable {
     public nonisolated enum Surface: String, Sendable, CaseIterable {
-        /// Home and New Tab: only what one click can import now, a few at a time.
+        /// Home and New Tab: only a Chief's sign-in request, which answers a sign-in the person
+        /// just ran into. Nothing pops up by itself: what a scan found and the imports the person
+        /// started stay in Settings › Import.
         case home, newTab
         /// Settings › Import: everything found, dismissed ones too.
         case settings
@@ -20,9 +22,6 @@ public nonisolated struct ImportCardDeck: Sendable {
             }
         }
     }
-
-    /// A finished card stays on Home and New Tab this long, then only Settings lists it.
-    public static let doneLingers: TimeInterval = 24 * 3600
 
     public var findings: [ImportFinding]
     public var state: ImportSuggestionState
@@ -50,19 +49,17 @@ public nonisolated struct ImportCardDeck: Sendable {
             cards.append(card(for: request))
             placed.insert(request.id)
         }
+        // Everything else is an offer nobody asked for: only Settings › Import lists it.
+        guard surface == .settings else { return Array(cards.prefix(surface.limit)) }
         // Jobs: running and paused first, then failed, then finished.
         let order: [ImportJob.Phase: Int] = [.running: 0, .paused: 1, .failed: 2, .done: 3]
         for job in jobs.jobs.sorted(by: { (order[$0.phase] ?? 9, $1.updatedAt) < (order[$1.phase] ?? 9, $0.updatedAt) }) {
             guard !placed.contains(job.id) else { continue }
-            // A finished job past its linger leaves Home and New Tab, and so does its source's card.
             placed.insert(job.id)
-            if surface != .settings, job.phase == .done, now.timeIntervalSince(job.updatedAt) > Self.doneLingers { continue }
-            cards.append(card(for: job, finding: findings.first { $0.id == job.id }))
+            cards.append(card(for: job, finding: findings.first { $0.id == job.id }, surface: surface))
         }
         for finding in findings where !placed.contains(finding.id) {
-            let dismissed = state.hides(finding)
-            if surface != .settings, dismissed || finding.access != .ready { continue }
-            cards.append(card(for: finding, dismissed: dismissed, surface: surface))
+            cards.append(card(for: finding, dismissed: state.hides(finding), surface: surface))
         }
         return Array(cards.prefix(surface.limit))
     }
@@ -84,7 +81,8 @@ public nonisolated struct ImportCardDeck: Sendable {
             return "\(ImportSuggestionStrings.profiles(finding.profiles.count)) · \(kinds)"
         case .claudeCode: return ImportSuggestionStrings.sessions(finding.count)
         case .codex: return ImportSuggestionStrings.threads(finding.count)
-        case .cmuxClassic: return ImportSuggestionStrings.workspaces(finding.count)
+        case .cmuxClassic:
+            return finding.offersNothingNew ? ImportSuggestionStrings.classicAllHere : ImportSuggestionStrings.workspaces(finding.count)
         case .iterm2: return ImportSuggestionStrings.profiles(finding.count)
         case .ghostty: return ImportSuggestionStrings.inUse
         }
@@ -98,7 +96,7 @@ public nonisolated struct ImportCardDeck: Sendable {
                 : ImportSuggestionStrings.browserHistory(finding.name)
         case .claudeCode: return ImportSuggestionStrings.claudeCode
         case .codex: return ImportSuggestionStrings.codex
-        case .cmuxClassic: return ImportSuggestionStrings.classic
+        case .cmuxClassic: return finding.offersNothingNew ? ImportSuggestionStrings.classicAgain : ImportSuggestionStrings.classic
         case .iterm2: return ImportSuggestionStrings.iterm2
         case .ghostty: return ImportSuggestionStrings.ghostty
         }
@@ -116,7 +114,7 @@ public nonisolated struct ImportCardDeck: Sendable {
     }
 
     func card(for finding: ImportFinding, dismissed: Bool, surface: Surface) -> ImportCard {
-        var primary: ImportCard.Button? = Self.startButton(finding.kind)
+        var primary: ImportCard.Button? = finding.offersNothingNew ? .init(.start, ImportSuggestionStrings.importAgain) : Self.startButton(finding.kind)
         var secondary: [ImportCard.Button] = []
         var state = ImportCard.State.ready
         if finding.access == .needsFullDiskAccess {
@@ -128,7 +126,7 @@ public nonisolated struct ImportCardDeck: Sendable {
         if finding.kind == .browser, finding.access == .ready { secondary.append(.init(.more, ImportSuggestionStrings.more)) }
         if dismissed {
             secondary.append(.init(.restore, ImportSuggestionStrings.showAgain))
-        } else if finding.access != .inUse || surface != .settings {
+        } else if finding.access != .inUse {
             secondary.append(.init(.dismiss, ImportSuggestionStrings.notNow))
         }
         return ImportCard(id: finding.id, kind: finding.kind, app: app(finding), title: finding.name, facts: facts(finding),
@@ -144,7 +142,7 @@ public nonisolated struct ImportCardDeck: Sendable {
                    primary: .init(.start, ImportSuggestionStrings.importButton), secondary: [.init(.dismiss, ImportSuggestionStrings.notNow)])
     }
 
-    func card(for job: ImportJob, finding: ImportFinding?) -> ImportCard {
+    func card(for job: ImportJob, finding: ImportFinding?, surface: Surface) -> ImportCard {
         let name = finding?.name ?? job.browser?.displayName ?? job.kind.displayName
         let title = job.site.map { ImportSuggestionStrings.requestTitle(browser: name, site: $0) } ?? name
         let factsText = finding.map { self.facts($0) } ?? ""
@@ -176,7 +174,9 @@ public nonisolated struct ImportCardDeck: Sendable {
             switch job.kind {
             case .claudeCode, .codex: card.primary = .init(.open, ImportSuggestionStrings.showChats)
             case .iterm2: card.primary = .init(.open, ImportSuggestionStrings.openAppearance)
-            case .browser, .cmuxClassic, .ghostty: card.primary = nil
+            // Settings › Import runs it again while Classic has a saved session; the ledger brings nothing twice.
+            case .cmuxClassic: card.primary = surface == .settings && finding != nil ? .init(.start, ImportSuggestionStrings.importAgain) : nil
+            case .browser, .ghostty: card.primary = nil
             }
             card.secondary = [.init(.hide, ImportSuggestionStrings.done)]
         }
@@ -187,7 +187,7 @@ public nonisolated struct ImportCardDeck: Sendable {
         switch job.kind {
         case .claudeCode, .codex: return ImportSuggestionStrings.doneChats
         case .iterm2: return ImportSuggestionStrings.doneTheme
-        case .cmuxClassic: return ImportSuggestionStrings.doneClassic
+        case .cmuxClassic: return job.opened.map(ImportSuggestionStrings.importedSessions) ?? ImportSuggestionStrings.doneClassic
         case .ghostty: return ImportSuggestionStrings.doneNothing
         case .browser:
             var parts: [String] = []
