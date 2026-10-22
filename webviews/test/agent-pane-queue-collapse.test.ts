@@ -650,7 +650,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       await page.locator(".acpmux-queue-fold").waitFor({ timeout: 10_000 });
       const row = page.locator('.acpmux-queued[data-prompt-id="q-1"]');
       await row.hover();
-      await row.getByRole("button", { name: "Send now" }).click();
+      await row.getByRole("button", { name: "Steer" }).click();
       await page.waitForFunction(() => !document.querySelector('.acpmux-queued[data-prompt-id="q-1"]'));
       expect(await shown(page)).toEqual({ rows: ["1 two", "2 three"], fold: "3 more queued (false)" });
 

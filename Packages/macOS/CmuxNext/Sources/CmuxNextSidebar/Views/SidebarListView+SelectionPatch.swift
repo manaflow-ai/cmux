@@ -12,7 +12,7 @@ extension SidebarListViewComponents {
     /// Draws a selection change from `oldItem` / `oldSelection` to the model's
     /// on the old and new rows only, then reveals the new active row as a
     /// reload would. False (nothing changed) when the change moves rows (a
-    /// collapsed group draws a member it did not draw before) or a
+    /// collapsed group or a "Done (N)" row draws a member it did not draw before) or a
     /// drag holds the rows; the caller then reloads.
     func patchSelection(from oldItem: SidebarItem?, oldSelection: Set<WorkspaceID>) -> Bool {
         guard drag == nil, external == nil, settling == nil, landing == nil, !displayed.rows.isEmpty else { return false }
@@ -22,6 +22,8 @@ extension SidebarListViewComponents {
         for id in [oldActive, newActive].compactMap({ $0 }) where model.isInCollapsedGroup(id) && displayed.row(for: .workspace(id)) == nil {
             return false
         }
+        // A listed workspace the list does not draw (behind a "Done (N)" row) shows in its place once active.
+        if let newActive, model.filterText.isEmpty, displayed.row(for: .workspace(newActive)) == nil, model.lists(newActive) { return false }
         SidebarPerfCounters.add(.selectionPatches)
         let newKey: SidebarRowKey? = switch model.selectedItem {
         case let .workspace(id)?: displayed.row(for: .workspace(id)) == nil ? nil : .workspace(id)
