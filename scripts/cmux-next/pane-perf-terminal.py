@@ -31,6 +31,8 @@ parser.add_argument("--rounds", type=int, default=3)
 parser.add_argument("--scrollback", type=int, default=5000)
 parser.add_argument("--stream", action="store_true", help="keep output streaming in the first terminal")
 parser.add_argument("--record", action="store_true", help="record each action once (a separate, untimed pass)")
+parser.add_argument("--sample", default="", help="LAYOUT:ACTION[,...]: `sample` the app while it repeats ACTION")
+parser.add_argument("--sample-repeats", type=int, default=8)
 parser.add_argument("--json")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--gate", action="store_true", help="fail on the budget rows")
@@ -214,6 +216,49 @@ def record(name, label):
     time.sleep(2.2)  # test harness: the recording stops by itself
 
 
+def profile(name, label):
+    """Samples the app (`/usr/bin/sample`, 1 ms) while it repeats `name` (and its undo); prints the main
+    thread's heaviest frames (the report's "Sort by top of stack" list) and keeps the whole report."""
+    pair = {"split": ["split", "close"], "close": ["split", "close"], "column": ["column", "column-close"],
+            "column-close": ["column", "column-close"], "zoom": ["zoom", "unzoom"], "unzoom": ["zoom", "unzoom"],
+            "drag": ["drag"]}[name]
+    path = os.path.join(opts.out, f"sample-{label}.txt")
+    seconds = max(3, int(opts.sample_repeats * len(pair) * 1.0) + 1)
+    sampler = subprocess.Popen(["/usr/bin/sample", str(app.pid), str(seconds), "1", "-mayDie", "-file", path],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(0.5)  # test harness: the sampler attaches
+    for _ in range(opts.sample_repeats):
+        for step in pair:
+            perform(step)
+            time.sleep(0.45)  # test harness: each spring lands before the next press
+    sampler.wait(timeout=seconds + 60)
+    try:
+        text = open(path, errors="replace").read()
+    except OSError:
+        print(f"  (no sample for {label})", flush=True)
+        return
+    top = text.split("Sort by top of stack")
+    print(f"\n== sample {label}: heaviest frames (all threads, top of stack)", flush=True)
+    if len(top) > 1:
+        print("\n".join(top[1].splitlines()[:45]), flush=True)
+    # The main thread's call tree, the first levels deep enough to show who lays out and draws.
+    tree = text.split("Call graph:")
+    if len(tree) > 1:
+        body = tree[1].splitlines()
+        print(f"== sample {label}: main thread call graph (heavy branches)", flush=True)
+        shown = 0
+        for line in body[1:]:
+            if line.startswith("    ") and "Thread_" in line and shown > 0:
+                break  # the next thread
+            depth = len(line) - len(line.lstrip(" +!:|"))
+            count = line.strip(" +!:|").split(" ")[0]
+            if count.isdigit() and int(count) >= 20 and depth <= 80:
+                print(line[:220], flush=True)
+                shown += 1
+            if shown > 160:
+                break
+
+
 def cleanup():
     if os.environ.get("PANE_PERF_KEEP") or not LAUNCHED:
         return
@@ -273,6 +318,10 @@ def main():
                 if opts.json:
                     json.dump(report, open(opts.json, "w"), indent=1)
                 time.sleep(0.4)  # test harness: idle between runs
+        for wanted in filter(None, opts.sample.split(",")):
+            where, _, what = wanted.partition(":")
+            if where == name:
+                profile(what, f"{name}-{what}")
         if opts.record:
             for step in sequence:
                 record(step, f"{name}-{step}")
