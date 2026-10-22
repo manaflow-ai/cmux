@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxNextChiefPetWiring
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
@@ -24,12 +25,13 @@ extension HomeService {
                                   agents: HomeContact.agents(in: rows, me: me))
     }
 
-    /// New Message's list: its Chiefs (main first) and how each row draws (HomeChiefRoster+NewMessage).
+    /// New Message's list before anything is typed: its Chiefs (main first), then the team
+    /// (`HomeNewMessageDraft.idleSuggestions`); how each row draws is HomeChiefRoster+NewMessage.
     func newMessageChiefs(_ draft: HomeNewMessageDraft) -> [HomeContact] {
-        draft.chiefShortcuts(contacts: chiefRoster.mainFirst(contacts(), rows: homeStore.rows))
+        draft.idleSuggestions(contacts: chiefRoster.mainFirst(contacts(), rows: homeStore.rows))
     }
     func recipientLook(_ recipient: HomeRecipient) -> HomeRecipientLook {
-        chiefRoster.look(recipient, rows: homeStore.rows, avatars: directory.chiefAvatars,
+        chiefRoster.look(recipient, rows: homeStore.rows, avatars: chiefFaces,
                          fallback: HomeHostView.defaultTileAvatar(mascot: services.settings?.snapshot.homeChiefPetMascot),
                          harnesses: directory.chiefHarnesses)
     }
@@ -112,16 +114,20 @@ extension HomeService {
     /// The Home sidebar's data source (the vendored MessagesLab sidebar reads it):
     /// choosing a row shows its conversation on the Home page, a person starts a DM.
     func makeSidebarSource() -> HomeSidebarSource {
+        // The list's first frame is the last launch's list (HomeService+LaunchList).
+        primeHomeList()
         let store = homeStore
         let source = HomeSidebarSource(
             store: HomePinStore(), inboxes: [homeInbox, homeCloudInbox], account: { [weak self] in self?.pinAccount ?? "local" },
             rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
-            chiefAvatars: { [weak self] in self?.directory.chiefAvatars ?? [:] },
+            chiefAvatars: { [weak self] in self?.chiefFaces ?? [:] },
             defaultChiefAvatar: { [weak self] in HomeHostView.defaultTileAvatar(mascot: self?.services.settings?.snapshot.homeChiefPetMascot) },
             chiefHarnesses: { [weak self] in self?.directory.chiefHarnesses ?? [:] },
             chiefRoster: { [weak self] in self?.chiefRoster ?? HomeChiefRoster() })
         source.onSelect = { [weak self] id in self?.pendingSelection = id }
+        // The unread indicator outside Home reads `groupMuting`: a mark set in a page's own source reaches it.
+        source.onMarksChanged = { [weak self] in self?.groupMuting.reloadMarks() }
         source.onStart = { [weak self] contact in
             // task-owner: one dm.open; the page shows the DM once listed
             Task { _ = await self?.startConversation([.contact(contact)], title: "") }
@@ -150,5 +156,34 @@ extension HomeService {
             guard let self, directory.chiefAvatars != avatars else { return }
             directory.chiefAvatars = avatars
         }
+    }
+
+    /// Each listed Chief's avatar as its Home row, header and bubbles draw it: its own picture or
+    /// text, else the picture of its own pet character (``ChiefMascotPicks``), so a character picked
+    /// for one Chief never shows on another.
+    var chiefFaces: [String: HomeChiefAvatar] {
+        let picks = services.chiefMascotPicks, snapshot = services.settings?.snapshot
+        var chiefs = Set(homeStore.rows.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
+        #if DEBUG
+        chiefs.formUnion(debugChiefs)
+        #endif
+        return Self.chiefFaces(chiefs: chiefs, own: directory.chiefAvatars) {
+            ChiefPetSettingsRows.avatarURL(of: picks.mascot(of: $0, in: snapshot))
+        }
+    }
+
+    /// `own` (each Chief's own avatar), with each other Chief in `chiefs` wearing the `picture` of its character.
+    static func chiefFaces(chiefs: Set<String>, own: [String: HomeChiefAvatar], picture: (String) -> URL?) -> [String: HomeChiefAvatar] {
+        var faces = own
+        for chief in chiefs where faces[chief] == nil {
+            if let url = picture(chief) { faces[chief] = .picture(url) }
+        }
+        return faces
+    }
+
+    /// The participant id of the one Chief in `participants`; nil for none or several.
+    static func soleChief(of participants: [Participant]) -> String? {
+        let chiefs = participants.filter(\.isChief)
+        return chiefs.count == 1 ? chiefs[0].id.rawValue : nil
     }
 }

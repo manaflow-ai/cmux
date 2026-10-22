@@ -59,6 +59,7 @@
 //!
 //! The unix socket keeps today's behavior.
 
+use crate::no_panic::JsonExt;
 use crate::rpc::{RpcError, method};
 use serde_json::Value;
 use std::path::Path;
@@ -275,7 +276,7 @@ pub(super) async fn check(
             if !inside(&canonical) {
                 return Err(outside_roots("cwd"));
             }
-            params["cwd"] = Value::String(canonical);
+            params.set("cwd", Value::String(canonical));
         } else if web && m == method::SESSION_NEW {
             // An absent cwd means the home directory, which is never a root.
             return Err(outside_roots("cwd"));
@@ -293,7 +294,7 @@ pub(super) async fn check(
                 }
                 out.push(Value::String(c));
             }
-            params["additionalDirectories"] = Value::Array(out);
+            params.set("additionalDirectories", Value::Array(out));
         }
     }
     // The folder-trust question is the user's: a remote browser cannot answer
@@ -441,7 +442,10 @@ pub(super) async fn settle_web_session_mode(
         if asks(&s.meta()) {
             return Ok(());
         }
-        let start = crate::web_modes::BRIDGE_ASKING_MODES[0];
+        let Some(&start) = crate::web_modes::BRIDGE_ASKING_MODES.first() else {
+            let _ = hub.kill(s, true).await;
+            return Err(no_reviewed_asking_mode());
+        };
         if hub.set_mode(s, start).await.is_err() || !asks(&s.meta()) {
             let _ = hub.kill(s, true).await;
             return Err(no_reviewed_asking_mode());
@@ -589,7 +593,10 @@ async fn web_starts_asking(
         && params.get("policy").is_none_or(Value::is_null)
         && params.pointer("/_meta/acpmux/policy").is_none_or(Value::is_null)
     {
-        params["policy"] = Value::String("ask".into());
+        // Fail closed: params that are not an object cannot carry the forced policy.
+        if !params.set("policy", Value::String("ask".into())) {
+            return Err(RpcError::invalid_params("session/new params must be an object"));
+        }
     }
     let copies = matches!(
         m,

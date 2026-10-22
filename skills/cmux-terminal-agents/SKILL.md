@@ -61,6 +61,8 @@ $A close --all
   5. `screen`: the screen did not change for `--idle-seconds` (default 20; 0 turns it off) and
      shows no "esc to interrupt". This is the last resort and can be slow or wrong for an agent
      that thinks silently for a long time.
+  A hook or OSC 7501 signal ends the wait only after that same signal reported this turn running
+  (Codex's hook says idle right after submit, before working).
   A `--timeout` that passes returns `{"ended": false, "via": "timeout"}`; the agent keeps running,
   so wait again instead of sending the prompt again.
 - `read` prints the last assistant text. For Claude it comes from the transcript (complete, even
@@ -90,7 +92,7 @@ $A close --all
 
 ## Prompts: find and answer them yourself
 - `cmux-terminal-agents prompts [--terminal term_…]` lists agents stuck on a permission prompt or menu, with the prompt text.
-- `cmux-terminal-agents choose <name|term_…> N` picks option N when that choice is safe, then checks the menu went away (`verified: prompt_gone` or `menu_changed`); it exits 2 when no menu is on screen or the same menu stays. Some menus ignore digits (Codex's trust menu): then use `key ... down`/`key ... enter --expect ...`.
+- `cmux-terminal-agents choose <name|term_…> N` picks option N when that choice is safe, then checks the menu went away (`verified: prompt_gone` or `menu_changed`); it exits 2 when no menu is on screen or the same menu stays. When the menu ignores the digit (Codex's menus), it moves the selection with arrow keys, checking each step on screen, then presses Enter (`method: arrows`).
 - `cmux-terminal-agents steer <name|term_…> "instructions"` presses Esc (dismisses the prompt, or with `--esc 2` interrupts the turn), checks what the Esc did (`esc.verified`: `prompt_gone`, `turn_interrupted`, `still_busy`, `nothing_to_dismiss`), and then does a verified `send` of the instructions. Use this to redirect an agent instead of approving something risky.
 - Check `prompts` whenever an agent goes quiet. Ask the user only for money, legal, destructive or credential-minting steps.
 

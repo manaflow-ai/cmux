@@ -121,7 +121,7 @@ impl PeerTable {
             return Err(WgError::InvalidPeer("a mesh cannot peer with its own key"));
         }
         for (position, network) in peer.allowed_ips.iter().enumerate() {
-            if peer.allowed_ips[..position].iter().any(|earlier| overlaps(earlier, network)) {
+            if peer.allowed_ips.iter().take(position).any(|earlier| overlaps(earlier, network)) {
                 return Err(WgError::AllowedIpsOverlap(*network));
             }
             let taken = self.peers.iter().any(|(key, other)| {
