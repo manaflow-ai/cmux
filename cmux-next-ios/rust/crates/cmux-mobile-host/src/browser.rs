@@ -481,8 +481,13 @@ impl PageGuard<'_> {
             return PageVerdict::Swallow;
         }
         // The host left it: the same link followed again is taken back again.
-        self.blocked = None;
+        let returned = self.blocked.take().is_some();
         if self.shown.as_deref() == Some(url) {
+            // Back on the shown page after a take-back: it has to stay a while again
+            // before the count starts over (a page that bounces on load never does).
+            if returned {
+                self.shown_at = Some(Instant::now());
+            }
             return PageVerdict::Forward;
         }
         match self.check(url).await {
@@ -497,6 +502,11 @@ impl PageGuard<'_> {
                 PageVerdict::Forward
             }
             Err(blocked) => {
+                // The shown page stayed a while (the person tapped a link on it): a
+                // fresh count, so refused links on a page that stays never blank it.
+                if self.shown_at.is_some_and(|at| at.elapsed() >= SETTLED) {
+                    self.take_backs = 0;
+                }
                 tracing::info!(
                     ?blocked,
                     "browser: the page went somewhere the phone may not load; taking it back"
@@ -1236,6 +1246,23 @@ mod tests {
         let before = mac.0.load(Ordering::SeqCst);
         assert!(guard.navigate("https://cmux.com/").await.is_ok());
         assert_eq!(mac.0.load(Ordering::SeqCst), before);
+    }
+
+    #[tokio::test]
+    async fn refused_links_on_a_page_that_stays_never_blank_it() {
+        let mac = NoMac(Default::default());
+        let mut guard = PageGuard::new(&mac, None);
+        assert!(matches!(guard.page("https://example.com/", true).await, PageVerdict::Forward));
+        for i in 0..(MAX_TAKE_BACKS + 3) {
+            // The person reads the page a while, then taps a refused link.
+            guard.shown_at = guard.shown_at.map(|at| at - SETTLED);
+            let PageVerdict::TakeBack { to_host, .. } = guard.page(&format!("chrome://link-{i}"), true).await
+            else {
+                panic!("not taken back")
+            };
+            assert_eq!(rb_body(&to_host), serde_json::json!({"t": "rb.history", "op": "back"}), "link {i}");
+            assert!(matches!(guard.page("https://example.com/", true).await, PageVerdict::Forward));
+        }
     }
 
     #[tokio::test]
