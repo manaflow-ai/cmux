@@ -63,7 +63,7 @@ describe("notify body (0.13.0 fields)", () => {
     expect(Array.from(r.title!)).toHaveLength(200)
     expect(r.body).toHaveLength(400)
     expect(r.options).toHaveLength(6)
-    expect(r.options![0]).toEqual({ id: "o0", label: "L".repeat(60), kind: "allow_once" })
+    expect(r.options![0]).toEqual({ id: "o0", label: `${"L".repeat(59)}…`, kind: "allow_once" })
     expect(r.options![1]!.kind).toBeUndefined()
     expect(r.questions).toHaveLength(4)
     expect(r.questions![0]!.question).toHaveLength(200)

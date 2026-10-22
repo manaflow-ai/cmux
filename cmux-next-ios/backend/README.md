@@ -100,6 +100,12 @@ bunx drizzle-kit generate --name <change>       # after editing src/schema.ts
 DATABASE_URL="$(jq -r .database_url /private/path/role.json)" bunx drizzle-kit migrate
 ```
 
+Apply a migration to a database before deploying the Worker that reads it.
+API 0.13.0 needs `drizzle/0003_push_settings.sql` (the `muted_macs` and
+`previews` columns of `push_tokens`): a 0.13.0 Worker on a database without
+them fails every `PUT /v1/devices/:id/push` and every notify. The migration
+only adds columns, so the 0.12.0 Worker keeps working on a migrated database.
+
 ## Test and deploy
 
 ```bash
