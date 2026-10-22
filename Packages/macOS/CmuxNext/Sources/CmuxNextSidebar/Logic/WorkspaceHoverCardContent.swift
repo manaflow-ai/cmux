@@ -130,15 +130,17 @@ struct WorkspaceHoverCardContent: Equatable {
             card.timeline = Array(shown.prefix(options.historyRows))
             if options.showsTimings { card.stats = stats(timeline, now: now) }
         case .log:
-            // The history alone: only why the workspace waits stays above it.
-            card.facts.removeAll { $0.kind != "needsInput" && $0.kind != sinceLookedKind }
+            // The history alone: only why the workspace waits (its reason, else "Needs you") stays above it.
+            card.facts.removeAll { $0.kind != "needsInput" && $0.kind != needsYouKind && $0.kind != sinceLookedKind }
             card.timeline = Array(shown.prefix(options.historyRows))
             if options.showsTimings { card.stats = stats(timeline, now: now) }
         case .minimal:
-            card.facts.removeAll { $0.kind != "needsInput" && $0.kind != "task" && $0.kind != sinceLookedKind }
+            card.facts.removeAll { $0.kind != "needsInput" && $0.kind != needsYouKind && $0.kind != "task" && $0.kind != sinceLookedKind }
             if !card.facts.contains(where: { $0.kind == "task" }),
                let prompt = timeline.first(where: { $0.kind == .prompt && $0.text != nil })?.text {
-                card.facts.append(Fact(icon: .composerSend, text: prompt, lines: 2, kind: "task"))
+                // Above the "Needs you" line, which stays the card's last.
+                let at = card.facts.firstIndex { $0.kind == needsYouKind } ?? card.facts.count
+                card.facts.insert(Fact(icon: .composerSend, text: prompt, lines: 2, kind: "task"), at: at)
             }
         }
         return card

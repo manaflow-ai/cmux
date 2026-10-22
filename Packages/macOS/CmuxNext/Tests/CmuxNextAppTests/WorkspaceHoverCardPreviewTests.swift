@@ -20,9 +20,9 @@ import Testing
     }
 
     private static func card(_ workspace: SidebarWorkspace, pullRequests: SidebarPullRequestBadge? = nil,
-                             options: WorkspaceHoverCardOptions? = nil) -> WorkspaceHoverCardContent {
+                             options: WorkspaceHoverCardOptions? = nil, timeline: [SidebarTimelineEntry] = []) -> WorkspaceHoverCardContent {
         if let options {
-            return WorkspaceHoverCardContent.make(workspace, machine: nil, now: Date(), options: options, timeline: [],
+            return WorkspaceHoverCardContent.make(workspace, machine: nil, now: Date(), options: options, timeline: timeline,
                                                   pullRequests: pullRequests, home: home)
         }
         return WorkspaceHoverCardContent.make(workspace, machine: nil, now: Date(), pullRequests: pullRequests, home: home)
@@ -166,6 +166,22 @@ import Testing
         #expect(!Self.card(waiting).facts.contains { $0.kind == WorkspaceHoverCardContent.needsYouKind })
         #expect(!Self.card(Self.chat { $0.activity = .waiting(kind: nil); $0.lastMessage = nil }).facts
             .contains { $0.kind == WorkspaceHoverCardContent.needsYouKind })
+    }
+
+    /// Every layout keeps a needs-you chip's "Needs you" line as its last, never the raw reply,
+    /// including the history-only log and the one-line minimal card.
+    @Test(arguments: WorkspaceHoverCardOptions.Layout.allCases)
+    func eachLayoutKeepsNeedsYou(_ layout: WorkspaceHoverCardOptions.Layout) {
+        var options = WorkspaceHoverCardOptions()
+        options.layout = layout
+        let prompt = SidebarTimelineEntry(kind: .prompt, date: Date(), text: "Ship the OTA build")
+        let card = Self.card(Self.chat { $0.agentChip = .needsYou }, options: options, timeline: [prompt])
+        let last = card.facts.last
+        #expect(last?.kind == WorkspaceHoverCardContent.needsYouKind && last?.text == CmuxNextSidebar.Strings.priorityNeedsYou,
+                "kinds: \(card.facts.map(\.kind))")
+        #expect(card.facts.filter { $0.kind == WorkspaceHoverCardContent.needsYouKind }.count == 1)
+        #expect(!card.facts.contains { $0.kind == WorkspaceHoverCardContent.Fact.lastReplyKind })
+        if layout == .minimal { #expect(card.facts.map(\.kind) == ["task", WorkspaceHoverCardContent.needsYouKind]) }
     }
 
     /// A blank needs-input reason is no reason: no empty row, and the last reply still shows.
