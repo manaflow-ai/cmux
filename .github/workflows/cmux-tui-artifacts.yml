@@ -2704,6 +2704,40 @@ jobs:
           LEGACY_KEY: ${{ needs.tree-preflight.outputs.legacy_key }}
         run: scripts/ci/cmux-tui-mark-daemon-tested.sh "$KEY_V2" "$LEGACY_KEY"
 
+  # Linux hosts keep their daemon on the newest feat-cmux-next build by
+  # themselves (`acpmux host self-update`, run by their acpmux-update.timer):
+  # they read cmux-tui/channels/feat-cmux-next.json, the tree key, commit and
+  # acpmux sha256s of the newest feat-cmux-next push whose tree is published
+  # and daemon-tested. Every such push points it there, also one whose tree
+  # another run tested (publish-tree-tested is then skipped); the script
+  # checks the marker and moves the pointer only forward, failing closed. No
+  # concurrency group: GitHub would replace a pending job with the next one to
+  # queue, which may be an older push's. Runs that overlap are safe because the
+  # write is a compare-and-swap (tests/test_cmux_tui_point_channel.py).
+  point-feat-channel:
+    environment: artifacts
+    name: point the feat-cmux-next channel at this tree
+    needs: [tree-preflight, publish-tree-tested]
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && needs.publish-tree-tested.result != 'failure' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Point the channel at this tree once it is daemon-tested
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+        run: scripts/ci/cmux-tui-point-channel.sh feat-cmux-next "$KEY"
+
   # nightly-next is promoted only to a commit whose cmux-tui tree is published
   # and whose cmux-next Release compile passed, so the nightly builds its tip
   # with the tip's own nightly.yml and daemon. cmux-next.yml asks when the
