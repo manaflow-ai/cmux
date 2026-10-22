@@ -103,6 +103,15 @@ public nonisolated enum SidebarTunables {
         help: "Workspaces marked Done move into one Done row at the end of their group or list, in their order; click the row to show them.",
         default: true, code: "SidebarTunables.doneFold")
 
+    /// A group or list longer than this shows its first rows, the ones that need you and the active one, then a
+    /// "Show N more" row (`SidebarLayout+DoneFold`). 0, the default for now, shows every row.
+    public static let groupRowLimit = Tunable<Double>.number(
+        "sidebar.groupRowLimit", .sidebar, "Rows before Show more",
+        help: "A group or list longer than this shows its first rows, the ones that need you and the active one, then a Show more row. 0 shows every row.",
+        default: 0, range: 0...100, step: 1, unit: .count, code: "SidebarTunables.groupRowLimit")
+    /// `groupRowLimit` as a row count.
+    public static var rowLimit: Int { max(0, Int(groupRowLimit.value)) }
+
     /// The workspace hover card says what its agents did since the person last looked at it
     /// (`SidebarLookedStore`): turns done, questions, failures. On by default.
     public static let sinceLooked = Tunable<Bool>.toggle(
@@ -203,6 +212,7 @@ public nonisolated enum SidebarTunables {
             evenRowText.descriptor,
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
+            groupRowLimit.descriptor,
             laneStatus.descriptor,
             rowStatus.descriptor,
             pullRequestBadges.descriptor,
