@@ -43,8 +43,47 @@ final class MainPaneCardView: NSView {
     }
 
     override func resizeSubviews(withOldSize oldSize: NSSize) {
+        if let held = heldContentFrame { return placeContent(in: held) }
         super.resizeSubviews(withOldSize: oldSize)
         arrangeContent?(bounds)
+    }
+
+    /// One width for the content through a sidebar slide (`WindowRootView+ContentAreaMotion`):
+    /// the wider of its start and its landing, so a pane, terminal or page lays out once instead
+    /// of on every frame. The content rides the card's edge that moves (the sidebar's side) and the
+    /// card clips it at the other; nil at rest, and clearing it fits the content to the card again.
+    struct ContentHold: Equatable {
+        var width: CGFloat
+        /// The sidebar is on the right, so the card's trailing edge moves and the content rides it.
+        var ridesTrailingEdge: Bool
+    }
+
+    var contentHold: ContentHold? {
+        didSet {
+            guard contentHold != oldValue else { return }
+            if let held = heldContentFrame {
+                placeContent(in: held)
+            } else if oldValue != nil {
+                placeContent(in: bounds)
+                arrangeContent?(bounds)
+            }
+        }
+    }
+
+    /// Where the held content sits in the card; nil at rest. Several workspaces side by side
+    /// (`arrangeContent`) are placed by their own arrangement and never held.
+    var heldContentFrame: CGRect? {
+        guard let contentHold, arrangeContent == nil else { return nil }
+        let width = max(bounds.width, contentHold.width)
+        return CGRect(x: contentHold.ridesTrailingEdge ? bounds.width - width : 0, y: 0, width: width, height: bounds.height)
+    }
+
+    /// The content fills `rect`: what `show` sized to the card and left to the autoresizing mask.
+    /// A workspace withdrawn hidden has no mask and keeps its frame.
+    private func placeContent(in rect: CGRect) {
+        for view in subviews where view.autoresizingMask.contains(.width) && view.frame != rect {
+            view.frame = rect
+        }
     }
 
     /// Returns whether the radius changed. Square (0) does not clip, so the
