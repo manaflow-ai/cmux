@@ -151,12 +151,12 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 HStack(alignment: .bottom, spacing: 0) {
                     if shows(session) {
                         PinnedGrid(session: session, route: ChiefRoute(place: sources.primaryPlace), name: primaryName,
-                                   identifier: "home.chief", cloud: sources.isCloudReady ? sources : nil,
-                                   newChief: newChiefAction)
+                                   identifier: "home.chief", open: { open(.chief($0.place)) },
+                                   cloud: sources.isCloudReady ? sources : nil, newChief: newChiefAction)
                     }
                     if let mac = sources.secondary, shows(mac) {
                         PinnedGrid(session: mac, route: ChiefRoute(place: .mac), name: String(localized: "Mac Chief"),
-                                   identifier: "home.chief.mac")
+                                   identifier: "home.chief.mac", open: { open(.chief($0.place)) })
                     }
                 }
                 .listRowInsets(EdgeInsets())
@@ -375,12 +375,16 @@ struct PinnedGrid: View {
     var route = ChiefRoute()
     var name = String(localized: "Chief")
     var identifier = "home.chief"
+    /// Pushes `route`. Pins are buttons, not `NavigationLink`s: two links in
+    /// one `List` row (the Cloud and Mac Chiefs side by side) both fire on a
+    /// tap, which pushed the second Chief over the first.
+    var open: (ChiefRoute) -> Void = { _ in }
     /// The Cloud Chief's pin: its menu lists the account's other chiefs.
     var cloud: ChiefSources?
     var newChief: (() -> Void)?
 
     var body: some View {
-        NavigationLink(value: route) {
+        Button { open(route) } label: {
             pin
                 .frame(maxWidth: .infinity)
                 // The bubble rides above the avatar: room for it, so it
@@ -389,7 +393,6 @@ struct PinnedGrid: View {
                 .padding(.bottom, 10)
                 .contentShape(.rect)
         }
-        .navigationLinkIndicatorVisibility(.hidden)
         .buttonStyle(.plain)
         .contextMenu {
             if session.conversationID != nil {
