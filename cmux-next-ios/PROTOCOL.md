@@ -839,3 +839,82 @@ The content extension replaces the buttons with the payload's own options
 (`extensionContext.notificationActions`). Its option rows, Submit and its
 composer write the request to the App Group outbox and open the app, which
 sends it over that Mac's link and opens the chat.
+
+## Sealed pushes and the reply mailbox (API 0.13.0, `feat-cmux-next-ios-push-fallback`)
+
+Held for the #13742 decision (`verify/notifications-trust.md`). Every
+addition is optional: a phone or Mac without it keeps PR A's behavior.
+
+### Crypto (shared by hostd, the app and its service extension)
+
+- **Seal** (ECIES, P-256): an ephemeral P-256 key `E`; `z = ECDH(E, R)` for the
+  recipient key `R`; `k = HKDF-SHA256(ikm: z, salt: E_pub || R_pub, info:
+  context, 32 bytes)`; AES-256-GCM with a random 12-byte nonce and the
+  associated data `context`. Wire: base64url of
+  `0x01 || E_pub (65 bytes, X9.63) || nonce (12) || ciphertext || tag (16)`.
+- **Contexts**: a push `cmux-mobile-push-seal-v1 \0 mac \0 phone \0 eventId`; a
+  reply `cmux-mobile-reply-seal-v1 \0 mac \0 phone \0 replyId`.
+- **Mac box key**: hostd derives the P-256 scalar from its identity key:
+  `HKDF-SHA256(ikm: identity scalar, salt: "", info:
+  "cmux-mobile-mac-box-v1", 32 bytes)`, reduced into `[1, n-1]` (taken again
+  with a counter byte appended to `info` while it is out of range).
+- Signatures are ECDSA P-256 / SHA-256, raw `r || s`, lowercase hex, as
+  elsewhere.
+
+### Keys at pairing (`auth`)
+
+- The phone adds `pushKey` (X9.63 hex, its push key) and `pushKeySignature`
+  (identity key) over `cmux-mobile-push-key-v1 \0 mac \0 phone \0 pushKey` to
+  `auth` args. hostd keeps it for the paired phone (0600 state file) once
+  `auth` passes. A phone without it gets unsealed pushes.
+- The challenge adds `macBoxKey` and `macBoxSignature` (Mac identity key)
+  over `cmux-mobile-mac-box-v1 \0 mac \0 macBoxKey`. The phone verifies it with
+  the pinned Mac identity key and pins the box key with it.
+
+### Sealed notify (Mac → Worker → APNs)
+
+`POST /v1/devices/:macId/notify` adds `sealed: {"<phone device id>": {"box": "<sealed>", "sig": "<hex>"}}`,
+where `box` seals the v2 `cmuxMobile` object (plus `decisionNonce` and
+`personInstance` for an ask, so the phone can sign an answer offline) and
+`sig` is the Mac identity signature over `cmux-mobile-push-v1 \0 mac \0 phone \0
+eventId \0 box`. With `sealed`, the Mac sends no content fields; the Worker
+sends a phone listed there `{"aps": {"alert": {"title": "cmux", "body": "New
+notification from <Mac>"}, "mutable-content": 1, "category": …, "thread-id":
+<hash>}, "cmuxMobile": {"v": 3, "mac", "kind", "eventId", "box", "sig"}}`. The
+service extension checks `sig` against the pinned Mac key, opens `box` with
+the push key, and fills in the v2 content, category and thread. If it can't,
+the generic banner stays.
+
+### Reply mailbox
+
+- Phone → Worker: `POST /v1/devices/:macId/mailbox` `{id (uuid), from (the
+  phone's link device id), sealed}` → `{queued: true, delivered}`. The caller
+  must own `from` (a phone) and `:macId`; `sealed` at most 8 KB; at most 32
+  pending per Mac and 60 posts a minute per user. Kept in the user hub for
+  10 minutes.
+- Worker → Mac socket: `{"type":"mailbox","items":[{id, from, sealed, at}]}` at
+  once when the Mac's signaling socket is open, else right after its `hello`.
+  The Mac answers `{"type":"mailbox_ack","results":[{id, applied, reason?}]}`,
+  and the hub deletes each item.
+- Phone → Worker: `GET /v1/devices/:macId/mailbox/:id` → `{state: "queued" |
+  "applied" | "rejected" | "expired", reason?}`.
+- The sealed plaintext (canonical JSON, keys in byte order):
+  `{v: 1, id, mac, phone, kind, target: {sessionId?, permissionId?,
+  conversationId?, tabId?, notificationId?}, action: {type: "option" |
+  "answers" | "allow" | "deny" | "text", optionId?, answers?, text?},
+  approval?, nonce, issuedAt, expiresAt, sig}` where `approval` is the acpmux
+  `_meta.acpmux` decision the phone signed after Face ID (Allow, answers) and
+  `sig` is the phone identity signature over `cmux-mobile-reply-v1 \0 mac \0
+  phone \0 sha256(canonical JSON without sig)`. `expiresAt` is at most 600 s
+  after `issuedAt`; `text` at most 4096 bytes.
+- hostd applies it only after the checks in `verify/notifications-trust.md`
+  ("What the Mac checks"), and reports `applied` or the first failing check:
+  `unsealed`, `not_paired`, `bad_signature`, `expired`, `replayed`,
+  `not_pending`, `refused`.
+
+### Terminal replies
+
+The `daemon` policy allows `notification-reply {notification, text}` for a
+notification of the person's session (text at most 4096 bytes, no other
+field). The phone's `cmux.terminal.reply` action sends it over the link, or
+through the mailbox with `kind` `terminal`.
