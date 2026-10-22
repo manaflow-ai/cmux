@@ -772,7 +772,7 @@ mod tests {
         fake(
             "systemctl",
             &format!(
-                "case \"$2\" in show-environment) {};; cat) test -f \"$HOME/.config/systemd/user/$3\";; is-active) {};; enable) {};; restart) {};; *) exit 0;; esac",
+                "case \"$2\" in show-environment) {};; show) case \"$5\" in LoadState) echo not-found;; esac;; cat) test -f \"$HOME/.config/systemd/user/$3\";; is-active) {};; enable) {};; restart) {};; *) exit 0;; esac",
                 code(host.manager),
                 if host.active { "exit 0" } else { "exit 3" },
                 code(host.enables),
@@ -847,7 +847,8 @@ mod tests {
             .iter()
             .map(String::as_str)
             .filter(|c| {
-                !c.starts_with("systemctl --user show-environment")
+                // `show`: the timer install asks the manager about its units.
+                !c.starts_with("systemctl --user show")
                     && !c.starts_with("loginctl")
                     && *c != "acpmux --json daemon status"
             })

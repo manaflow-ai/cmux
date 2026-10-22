@@ -160,7 +160,8 @@ esac
 /// the build in `$HOME/old-build`), `$HOME/fails-<unit>` does not start,
 /// and a stop without `KillMode=process` (the unit's, or the migration's
 /// runtime drop-in) ends the agent host `$HOME/agents`. `$HOME/no-systemd`:
-/// no manager answers. A timer only needs its unit file. `show` (not
+/// no manager answers. A timer only needs its unit file; `show -p LoadState`
+/// and `-p FragmentPath` find a unit in `~/.config/systemd/user` only. `show` (not
 /// logged: every update script reads it) prints `acpmux.service`'s
 /// `Environment=` settings, its drop-ins' included, or `$HOME/unit-environment`
 /// as it is (what systemd prints for values it quotes). Like the daemon
@@ -170,6 +171,8 @@ esac
 #[cfg(unix)]
 const FAKE_SYSTEMCTL: &str = r#"#!/bin/sh
 d="$HOME/.config/systemd/user"; r="$XDG_RUNTIME_DIR/systemd/user"
+if [ "$2" = show ] && [ "$5" = LoadState ]; then if [ -f "$d/$3" ]; then echo loaded; else echo not-found; fi; exit 0; fi
+if [ "$2" = show ] && [ "$5" = FragmentPath ]; then if [ -f "$d/$3" ]; then echo "$d/$3"; fi; exit 0; fi
 if [ "$2" = show ] && [ -f "$HOME/unit-environment" ]; then cat "$HOME/unit-environment"; exit 0; fi
 if [ "$2" = show ]; then cat "$d/$3" "$d/$3.d/"*.conf 2>/dev/null | sed -n 's/^Environment=//p' | tr '\n' ' '; echo; exit 0; fi
 echo "systemctl $*" >> "$HOME/calls"

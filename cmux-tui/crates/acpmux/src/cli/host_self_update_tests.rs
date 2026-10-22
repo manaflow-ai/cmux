@@ -405,26 +405,36 @@ async fn a_self_update_whose_lease_another_update_took_changes_nothing_and_marks
     assert_eq!(peer.read(".acpmux/update.owner"), theirs, "the other update's lease stays");
 }
 
-/// [`install_script`] in `home` with a fake `systemctl` that logs its
-/// calls and a fake `systemd-analyze` that prints `$HOME/unit-paths` (when
-/// missing it fails, so the script uses its own list), the runtime directory
-/// `$HOME/run`: the calls and stderr.
+/// A user manager as the fake `systemctl` answers `show`: its unit search
+/// path is `$HOME/unit-paths` (default: `~/.config/systemd/user` and
+/// `$HOME/etc-user`), the first directory with the unit is where it loads
+/// from, a link to /dev/null there masks it, and with `$HOME/no-manager` it
+/// does not answer. Every other call is logged to `$HOME/calls`.
+const FAKE_MANAGER: &str = r#"if [ "$2" = show ]; then
+  [ -f "$HOME/no-manager" ] && exit 1
+  paths=$(cat "$HOME/unit-paths" 2>/dev/null) || paths="$HOME/.config/systemd/user $HOME/etc-user"
+  s=not-found; f=
+  for p in $paths; do
+    if [ -L "$p/$3" ] && [ "$(readlink "$p/$3")" = /dev/null ]; then s=masked; break; fi
+    if [ -e "$p/$3" ]; then s=loaded; f=$p/$3; break; fi
+  done
+  case "$5" in LoadState) echo $s;; FragmentPath) echo "$f";; esac
+  exit 0
+fi
+echo "systemctl $*" >> "$HOME/calls""#;
+
+/// [`install_script`] in `home` with [`FAKE_MANAGER`] as `systemctl`: the
+/// calls and stderr.
 fn install_units(home: &Path) -> (Vec<String>, String) {
     use std::os::unix::fs::PermissionsExt;
     let bin = home.join("fakebin");
     std::fs::create_dir_all(&bin).unwrap();
-    for (name, body) in [
-        ("systemctl", "echo \"systemctl $*\" >> \"$HOME/calls\""),
-        ("systemd-analyze", "cat \"$HOME/unit-paths\" 2>/dev/null"),
-    ] {
-        let path = bin.join(name);
-        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    let systemctl = bin.join("systemctl");
+    std::fs::write(&systemctl, format!("#!/bin/sh\n{FAKE_MANAGER}\n")).unwrap();
+    std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o755)).unwrap();
     let out = Command::new("sh")
         .args(["-c", &install_script()])
         .env("HOME", home)
-        .env("XDG_RUNTIME_DIR", home.join("run"))
         .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
         .output()
         .unwrap();
@@ -471,52 +481,43 @@ fn the_timer_units_install_once_and_a_unit_someone_else_wrote_is_left_alone() {
     assert_eq!(read("acpmux-update.timer"), theirs);
     assert!(!units.join("acpmux-update.service").exists());
 
-    // Review of #24232: a unit in another directory systemd reads (here
-    // ~/.local/share/systemd/user; /etc/systemd/user the same way) would be
-    // shadowed by the one written here, so neither is written.
+    // Review of #24232: a unit the running manager loads from another
+    // directory (/etc/systemd/user here; a runtime or $XDG_DATA_HOME
+    // directory the same way, whatever that manager reads) would be shadowed
+    // by the one written here, so neither is written.
     std::fs::remove_dir_all(&units).unwrap();
-    let shared = home.join(".local/share/systemd/user");
-    std::fs::create_dir_all(&shared).unwrap();
-    std::fs::write(shared.join("acpmux-update.service"), "[Service]\nExecStart=/bin/true\n")
-        .unwrap();
+    let etc = home.join("etc-user");
+    std::fs::create_dir_all(&etc).unwrap();
+    std::fs::write(etc.join("acpmux-update.service"), "[Service]\nExecStart=/bin/true\n").unwrap();
     let (calls, err) = install_units(&home);
     assert!(calls.is_empty(), "{calls:?}");
-    assert!(err.contains(".local/share/systemd/user/acpmux-update.service is a unit"), "{err}");
+    assert!(err.contains("etc-user/acpmux-update.service is a unit"), "{err}");
     assert!(!units.exists());
-    std::fs::remove_dir_all(home.join(".local")).unwrap();
+    std::fs::remove_dir_all(&etc).unwrap();
 
-    // Re-review: the runtime directory too, where a mask is a link to
-    // /dev/null.
-    let runtime = home.join("run/systemd/user");
-    std::fs::create_dir_all(&runtime).unwrap();
-    std::os::unix::fs::symlink("/dev/null", runtime.join("acpmux-update.timer")).unwrap();
-    let (calls, err) = install_units(&home);
-    assert!(calls.is_empty(), "{calls:?}");
-    assert!(err.contains("run/systemd/user/acpmux-update.timer is a unit"), "{err}");
-    assert!(!units.exists());
-
-    // systemd's own search path wins over the list: a directory only it
-    // names is checked, and one it leaves out is not.
-    let custom = home.join("custom-units");
+    // Re-review: the manager's own search path counts, not the shell's (a
+    // manager started with another XDG_DATA_HOME), and a mask counts too.
+    let custom = home.join("srv/units/systemd/user");
     std::fs::create_dir_all(&custom).unwrap();
-    std::fs::write(custom.join("acpmux-update.service"), "[Service]\n").unwrap();
-    let listed = format!("{}\n{}\n", units.display(), custom.display());
-    std::fs::write(home.join("unit-paths"), listed).unwrap();
+    std::os::unix::fs::symlink("/dev/null", custom.join("acpmux-update.timer")).unwrap();
+    let searched = format!("{} {}\n", units.display(), custom.display());
+    std::fs::write(home.join("unit-paths"), searched).unwrap();
     let (calls, err) = install_units(&home);
     assert!(calls.is_empty(), "{calls:?}");
-    assert!(err.contains("custom-units/acpmux-update.service is a unit"), "{err}");
-    std::fs::remove_dir_all(&custom).unwrap();
-    let (calls, _) = install_units(&home);
-    assert_eq!(
-        calls,
-        ["systemctl --user daemon-reload", enable],
-        "the runtime mask is not on that path"
-    );
+    assert!(err.contains("acpmux-update.timer (masked) is a unit"), "{err}");
+    assert!(!units.exists());
+    std::fs::remove_dir_all(home.join("srv")).unwrap();
     std::fs::remove_file(home.join("unit-paths")).unwrap();
-    std::fs::remove_dir_all(home.join("run")).unwrap();
+
+    // A manager that cannot say: nothing is written (fail closed).
+    std::fs::write(home.join("no-manager"), "").unwrap();
+    let (calls, err) = install_units(&home);
+    assert!(calls.is_empty(), "{calls:?}");
+    assert!(err.contains("no answer from the user manager"), "{err}");
+    assert!(!units.exists());
+    std::fs::remove_file(home.join("no-manager")).unwrap();
 
     // The opt-out stops the timer and writes nothing.
-    std::fs::remove_dir_all(&units).unwrap();
     std::fs::create_dir_all(home.join(".acpmux")).unwrap();
     std::fs::write(home.join(".acpmux").join(NO_AUTO_UPDATE), "").unwrap();
     let (calls, _) = install_units(&home);
