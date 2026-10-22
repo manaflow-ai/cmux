@@ -411,3 +411,51 @@ Limits to check before 200: the `deploy.sh` daily budget guard is 20 USD/day,
 which 50 running agents use in about 2.4 h (then new subagents run on the
 Mac); Freestyle's concurrent-VM limit on the Pro plan; Tailscale's device
 count for 200 more nodes. Raising any of them is a money decision for the user.
+
+### Base without a working tree (2026-10-22, cmuxterm-hq #2989)
+
+The base clone is now `--no-checkout` (depth 1, one branch, HEAD blobs kept
+in the pack, no `--filter`): subagents use their own worktrees, so the
+checkout in `~/src/cmux` was unused bytes. Base snapshot
+`sh-494cda79998f4c5e809f5180060690ec`: 6.42 GB used (was 7.44 GB). Fork test
+`chief-sub-a9465`: up in 8.7 s, `worktree add` in 8 s with no blob download
+(32,137 files), 7.48 GB used in total (was 8.49 GB), 1.06 GB its own; then
+deleted. The old base snapshot is deleted.
+
+### Base image v2 measured (2026-10-22)
+
+hq [#2993](https://github.com/manaflow-ai/cmuxterm-hq/pull/2993): base snapshot
+`sh-274a385d8c944d9895a8d3adc179119c`, 9.09 GB used (was 6.42 GB): cmux
+feat-cmux-next and cmuxterm-hq main (depth 1, no checkout), Node 22 + pnpm,
+Go 1.27.3, Rust 1.95.0, `cmux-ci`, cargo and Go module caches, Claude Code
+2.1.308. A small fork (`chief-sub-a9489`): up in 9.8 s; cmux worktree 10 s,
+hq worktree 4 s; `cargo fetch --offline` for cmux-tui 1 s; `cmux-ci status`
+answers from the VM over the tailnet; 1.56 GB own bytes; then deleted.
+
+### rift for per-agent workspaces (user idea, 2026-10-22)
+
+[rift](https://github.com/anomalyco/rift) v0.0.13 makes copy-on-write copies of
+a folder (APFS `clonefile` on the Mac, btrfs or `FICLONE` reflinks on Linux).
+Timed on a scratch clone of cmux (32,141 files, 958 MB) on this Mac (APFS), 3
+runs each:
+
+| How | Time | Notes |
+|---|---|---|
+| `git worktree add` | 9.5-12.3 s | shares the object store; `git status` in it 1.35 s |
+| `rift create` (filtered) | 8.1-9.4 s | walks the tree to drop `target`, `node_modules`, `dist`... |
+| `rift create --copy-all` | 0.64-0.82 s | one `clonefile` of the whole folder, `.git` too; `git status` 0.34 s |
+
+- In the VMs: no use. The VM disk is ext4 without reflink (`base.sh` logs
+  `fs=ext2/ext3 reflink=no`), so rift cannot copy on write there, and a
+  Freestyle fork already copies on write at the block level: one subagent per
+  VM needs one worktree, made in 10 s from the base clone. Pairing rift with
+  Freestyle fork adds nothing until a VM holds several agents.
+- On the Mac: `--copy-all` is about 13 times faster than `git worktree add`
+  and its `git status` is 4 times faster (its own index, no linked worktree).
+  Limits: it refuses a linked worktree as the source; it copies the source's
+  working state, so the source must be a clean seed clone, never the shared
+  main checkout (the user's edits would leak in); each copy is its own repo,
+  so its commits reach the branch only by push. Not adopted in this change:
+  local subagents are now only the Mac-only tasks. Next step when local
+  workspace time matters: one clean seed clone per repo, updated on each
+  spawn, `rift create --copy-all` from it.
