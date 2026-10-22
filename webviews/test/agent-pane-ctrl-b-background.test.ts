@@ -303,8 +303,16 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     // and liveLineBelow, on by default): the live line at the turn's foot names it and offers the
     // hint its row did (Thinking.tsx).
     const line = page.locator(".cv-worked.is-below");
-    await line.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
+    const hint = line.getByText("⌃B to run in background");
+    await hint.waitFor({ timeout: 5_000 });
     expect(await line.locator(".cv-thinking").textContent()).toBe("Running cargo test --workspace");
+    // The hint shows only while the pointer is on the line (Leo, 2026-10-21).
+    const opacity = () => hint.evaluate((node) => getComputedStyle(node).opacity);
+    expect(await opacity()).toBe("0");
+    await line.hover();
+    await page.waitForFunction(
+      () => getComputedStyle(document.querySelector(".cv-worked.is-below .cv-command__bg")!).opacity === "1",
+    );
     await page.close();
   });
 
