@@ -75,8 +75,14 @@ fn owner_tree() -> Value {
         {"id": 1, "key": "k-1", "kind": "normal", "name": "a421 · Panes performance", "group": "chief-topic-performance",
          "resource_id": "ws_old1", "screens": [{"panes": [{"id": 5, "tabs": [
             {"kind": "pty", "cwd": "/Users/x/fun/cmux", "title": "x@mac:~/fun/cmux", "dead": false, "conversation": null},
-            {"kind": "conversation", "conversation": {"agent_session": {"host": "chief:h0me", "host_name": "mac", "session": "sess-421", "harness": "claude"}}},
-            {"kind": "browser", "url": "https://example.com/", "browser_engine": "cef", "browser_profile_id": "default", "conversation": null}
+            // A page listed before the chat still moves (it opens after the chat's pane exists).
+            {"kind": "browser", "url": "https://example.com/", "browser_engine": "cef", "browser_profile_id": "default", "conversation": null},
+            {"kind": "conversation", "conversation": {"agent_session": {"host": "chief:h0me", "host_name": "mac", "session": "sess-421", "harness": "claude"}}}
+         ]}]}]},
+        // An idle shell and no chat: nothing worth moving; it stays.
+        {"id": 3, "key": "k-shell", "kind": "normal", "name": "Shell only", "group": null, "resource_id": "ws_old3",
+         "screens": [{"panes": [{"id": 7, "tabs": [
+            {"kind": "pty", "cwd": "/tmp", "title": "x@mac:/tmp", "dead": false, "conversation": null}
          ]}]}]},
         {"id": 2, "key": "k-busy", "kind": "normal", "name": "Busy one", "group": null, "resource_id": "ws_old2",
          "screens": [{"panes": [{"id": 6, "tabs": [

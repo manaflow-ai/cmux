@@ -256,8 +256,8 @@ fn a_chief_start_moves_a_workspace_without_re_creating_its_idle_shell() {
         json!({"cmd": "new-conversation-tab", "pane": placed["pane"],
         "agent_session": {"host": "chief:0a1b2c3d", "session": "sess-old"}}),
     );
-    // Its shell settles to an idle prompt (title `user@host:dir`) or stays
-    // untitled; either way it runs no command.
+    // An idle shell titles itself `user@host:dir`; busy_terminal reads an
+    // untitled live terminal as busy.
     let app_before = app.terminals();
 
     let moved = adopt_owner_workspaces(&owner.socket, &app.socket).unwrap();

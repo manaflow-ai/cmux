@@ -3,8 +3,8 @@
 //! subagent runs on this machine, so its workspace belongs to this machine's
 //! session (data-model.md 1.2), and every cmux app connected to that session
 //! shows it, even while the user's laptop sleeps. One workspace per
-//! subagent, named by the caller's key, with a terminal in the subagent's
-//! directory and the agent chat tab on the SAME acpmux session, owned by this
+//! subagent, named by the caller's key, holding only the agent chat tab on
+//! the SAME acpmux session (no shell; Lawrence 2026-10-21), owned by this
 //! install. A daemon without agent session tabs is refused, never half done.
 
 use std::io::{BufRead, BufReader, Write};
