@@ -32,10 +32,10 @@
    "unreachable": 2,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 787,
+   "indexing_slicing": 798,
    "string_slice": 99,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 970,
+   "arithmetic_side_effects": 971,
    "cast_possible_truncation": 110
   },
   "bindings-rust": {
@@ -708,7 +708,7 @@
    "unreachable": 30,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 965,
+   "indexing_slicing": 995,
    "string_slice": 82,
    "panic_in_result_fn": 0,
    "arithmetic_side_effects": 1104,
@@ -741,7 +741,7 @@
    "cast_possible_truncation": 1
   },
   "cmux-tui-core": {
-   "unwrap_used": 1434,
+   "unwrap_used": 1438,
    "expect_used": 267,
    "panic": 3,
    "unreachable": 35,
@@ -750,7 +750,7 @@
    "indexing_slicing": 1405,
    "string_slice": 55,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 867,
+   "arithmetic_side_effects": 869,
    "cast_possible_truncation": 91
   },
   "cmux-tui-hooks": {
