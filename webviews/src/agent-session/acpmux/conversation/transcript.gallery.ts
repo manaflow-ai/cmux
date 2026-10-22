@@ -1313,7 +1313,7 @@ export default agentPaneEntry({
               shellTool("grep -l chief /tmp/l*.txt"),
               tool("Read session.log", "read", "completed", { locations: [{ path: "/tmp/session.log" }] }),
               tool("Run", "execute", "completed", {
-                command: 'tell-coordinator "fleet: two sessions stuck on huge-blue, restarting them"',
+                command: 'tell-coordinator "fleet: two sessions stuck on build-box, restarting them"',
                 output: "delivered to coord-deputy\n",
               }),
               shellTool("acpmux restart stuck-1"),
