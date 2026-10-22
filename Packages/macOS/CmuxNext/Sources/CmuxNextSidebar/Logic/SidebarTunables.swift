@@ -99,6 +99,14 @@ public nonisolated enum SidebarTunables {
         help: "A workspace row's accessibility label says needs you, failed or lost, in the Priority view's words, for the most urgent agent chat in it on this Mac. The row itself draws no status words; its badge's dot says it.",
         default: true, code: "SidebarTunables.rowStatus")
 
+    /// Group by Status (Leo 2026-10-14, #20905): the list's rows under the Priority view's states, from the state each
+    /// row already carries from the Priority classifier, in manual order inside each (`SidebarLayout+Status`). Off by
+    /// default; it wins over Group Projects By while on.
+    public static let groupByStatus = Tunable<Bool>.toggle(
+        "sidebar.groupByStatus", .sidebar, "Group by status",
+        help: "Lists every computer's rows under the Priority view's states (Needs you, Done, Failed, CI failing, Working, Idle) with counts, in your order inside each. Rows move as their state changes; the active row stays put until another row is active.",
+        default: false, code: "SidebarTunables.groupByStatus")
+
     /// Workspaces marked Done fold into one "Done (N)" row at the end of their group or list (`SidebarLayout+DoneFold`).
     public static let doneFold = Tunable<Bool>.toggle(
         "sidebar.doneFold", .sidebar, "Fold Done workspaces",
@@ -135,7 +143,8 @@ public nonisolated enum SidebarTunables {
         default: false, code: "SidebarTunables.laneFixture")
 
     /// Every row carries its pull requests' badge, with or without the session tree
-    /// (`SidebarSessionTreeFeed`). On by default; the tree's nesting and keycaps stay opt-in.
+    /// (`SidebarSessionTreeFeed`), while the row's Pull Request element is on
+    /// (`sidebar.workspaceRow.pullRequest`, off by default). On by default; the tree's nesting and keycaps stay opt-in.
     public static let pullRequestBadges = Tunable<Bool>.toggle(
         "sidebar.pullRequestBadges", .sidebar, "Rows show their pull requests",
         help: "A workspace row shows a badge for the pull requests its agent chats opened or its folder's branch has, colored by their state, even with the session tree off.",
@@ -212,6 +221,7 @@ public nonisolated enum SidebarTunables {
             doneFold.descriptor,
             dragThreshold.descriptor,
             evenRowText.descriptor,
+            groupByStatus.descriptor,
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
             groupRowLimit.descriptor,

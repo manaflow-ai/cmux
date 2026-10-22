@@ -790,5 +790,6 @@ export function applySwitch(
     handoff: undefined,
     commands: [],
     missingSession: undefined,
+    missingReason: undefined,
   };
 }

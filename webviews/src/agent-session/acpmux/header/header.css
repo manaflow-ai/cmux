@@ -41,7 +41,9 @@
 /* The Environment line (EnvironmentLine.tsx): machine · folder · branch in the status slot, as quiet
    as the status label; each name ends in an ellipsis before the line could size the slot. */
 .acpmux-env-line{position:absolute;inset:0 auto 0 0;display:flex;align-items:center;gap:5px;max-width:100%;box-sizing:border-box;margin:0;padding:0 6px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);white-space:nowrap;overflow:hidden;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-env-line>svg{flex:none}
+/* The glyph and the names center on one line: a block glyph, and a line box tall enough for descenders. */
+.acpmux-env-line>svg{flex:none;display:block}
+.acpmux-env-line>span{line-height:16px}
 .acpmux-env-line__machine,.acpmux-env-line__folder,.acpmux-env-line__branch{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-env-line__machine{flex:0 1000 auto}
 .acpmux-env-line__folder{flex:0 1 auto}
