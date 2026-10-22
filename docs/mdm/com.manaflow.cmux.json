@@ -3602,7 +3602,7 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agentStatus" : {
-      "default" : true,
+      "default" : false,
       "description" : "The status agents and hooks report, one line each.",
       "title" : "Agent Status",
       "type" : "boolean"
@@ -3714,7 +3714,7 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.log" : {
-      "default" : true,
+      "default" : false,
       "description" : "The newest line agents and scripts log: cmux workspace log append <text>.",
       "title" : "Log",
       "type" : "boolean"
