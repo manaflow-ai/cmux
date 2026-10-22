@@ -30,9 +30,15 @@ Two engines run a turn (`OPTCHAT_CHIEF_ENGINE`):
   AskUserQuestion, EnterPlanMode and ExitPlanMode: acpmux keeps those for a
   human under every policy, and nobody answers them in a turn.
 
-A message sent while a turn works never stops it, on any engine (decision
-2026-10-09, parity with the reference client; it replaces the 2026-10-04
-stop). On the acpmux engine the brain steers the message into the running
+A message sent while a turn works is steered into it at once (user
+2026-10-21: "we need to immediately interrupt and steer"; it replaces the
+2026-10-09 "a message never stops a turn"). When a person's message cannot
+go in now (acpmux refuses the steer), or Claude Code has not read it within
+`OPTCHAT_STEER_DEADLINE_SECONDS` (default 3; 0 waits for the next tool
+boundary), the turn is stopped at once, even mid-tool; its end posts
+nothing and the next turn starts with the message. The host never posts a
+message of its own about it (the old front desk receipt "Got it. The Chief
+is busy with a turn ..." is gone: "no fake messages"). On the acpmux engine the brain steers the message into the running
 session (`brain/steer.rs`): acpmux's Claude Code adapter writes it to
 claude's stdin, where Claude Code reads it at its next tool boundary
 (`--replay-user-messages` confirms it), and codex-acp takes it as a steer;
@@ -41,12 +47,12 @@ order, and logged as `user` where it arrived: when Claude Code read it, and
 at once on codex-acp (which answers a steer only at the turn's end). A
 message too big to go in whole (over the view's 128,000 bytes or 20 images)
 is not steered. When the turn cannot take it (its session has not started,
-an item of another conversation is ahead, or acpmux refuses the steer), the
-message waits at the head of the queue and the next turn starts the moment
-this one ends. The native engine delivers it after the next tool results,
+an item of another conversation is ahead, or acpmux refuses a report's
+steer), the message waits at the head of the queue and the next turn starts
+the moment this one ends. The native engine delivers it after the next tool results,
 or the next turn takes it. Messages that arrive while a turn waits for
 settle go into that same call. Subagent reports
-follow the same rule. Only chief.stop stops a turn: the runner waits until
+are steered the same way but never stop a turn. chief.stop also stops one: the runner waits until
 no tool call runs, then sends `session/cancel` every second until the turn
 ends, and the end posts nothing to the chat or any bridge.
 
