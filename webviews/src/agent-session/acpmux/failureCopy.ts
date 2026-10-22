@@ -102,16 +102,15 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   if (DISK_FULL.test(message)) return "disk-full";
   // Capacity and network first: their messages often mention authentication or keys in passing.
   if (RATE.test(message)) return "rate-limited";
-  // An HTTP refusal came from a host that answered: the tailnet reached it. A failed dial outranks
-  // it, and only the words outside addresses count (a request to `…/oauth/token` that timed out).
-  const answered = !DIAL_FAILED.test(message) && ANSWERED.test(message.replace(ADDRESSES, " "));
-  if (
-    TAILSCALE.test(message) &&
-    !answered &&
-    (DIAL_FAILED.test(message) || UNREACHABLE.test(message) || TAILNET_DOWN.test(message))
-  )
+  // Connection words count only outside addresses: a URL's path or query (`…/oauth/token`,
+  // `?error=ETIMEDOUT`) names what was asked, not what happened.
+  const words = message.replace(ADDRESSES, " ");
+  // An HTTP refusal came from a host that answered: the tailnet reached it. A failed dial outranks it.
+  const dialFailed = DIAL_FAILED.test(words);
+  const answered = !dialFailed && ANSWERED.test(words);
+  if (TAILSCALE.test(message) && !answered && (dialFailed || UNREACHABLE.test(words) || TAILNET_DOWN.test(words)))
     return "tailscale";
-  if (UNREACHABLE.test(message)) return "unreachable";
+  if (UNREACHABLE.test(words)) return "unreachable";
   const via = failureVia(message, route);
   // A signed-out Claude CLI says "Invalid API key · Please run /login": its way out is the login.
   if (INVALID_KEY.test(message) && !(SUBSCRIPTION.test(message) && !via)) return "invalid-key";
