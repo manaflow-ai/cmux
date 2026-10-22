@@ -14,10 +14,10 @@ import Testing
 /// puts it back to off, and a card follows a write made anywhere else.
 @MainActor @Suite(.serialized) struct AppStoreFeaturesTests {
     /// Keys whose PR has not landed: the tab hides their cards until the schema lists them
-    /// (tabs.newTabWidgets.*, #22674 and #22775; the Priority view's key, lane priority-view).
+    /// (tabs.newTabWidgets.*, #22674 and #22775).
     static let pendingKeys: Set<String> = [
-        "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.modeSwitch",
-        "tabs.newTabWidgets.weather", "tabs.newTabWidgets.machines", "sidebar.priorityView.enabled",
+        "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats",
+        "tabs.newTabWidgets.weather", "tabs.newTabWidgets.machines",
     ]
 
     static func make(_ json: String = "{}", recommended: [String: JSONValue] = [:]) async throws -> (SettingsController, URL) {
@@ -63,6 +63,26 @@ import Testing
                         "\(feature.id) is on by default, so Remove could not turn it off")
             }
         }
+    }
+
+    /// The Appearance, Editor and Mac & Phone cards (and the off-by-default toggles beside them)
+    /// are landed keys, so the tab lists them, each under its own category chip.
+    @Test func theOffByDefaultSettingsHaveCardsInTheirCategories() throws {
+        let expected: [String: AppFeature.Category] = [
+            "appearance.ultraCompact": .appearance, "appearance.calm": .appearance,
+            "appearance.brailleStatus": .appearance, "appearance.runningCommands": .appearance,
+            "chief.suggestedTasks": .chief, "chief.githubFeed": .chief,
+            "editor.splitDiff": .editor, "editor.minimap": .editor,
+            "devices.phoneAccess": .devices, "devices.globalHotKey": .devices,
+        ]
+        let bridge = SettingsAppFeatures(settings: { nil })
+        for (id, category) in expected {
+            let feature = try Self.feature(id)
+            #expect(feature.category == category, "\(id) is under \(feature.category)")
+            #expect(bridge.isAvailable(feature), "\(feature.setting) is not in the schema")
+            #expect(!Self.pendingKeys.contains(feature.setting))
+        }
+        #expect(AppFeature.Category.allCases.allSatisfy { !AppsStrings.featureCategory($0).isEmpty })
     }
 
     /// The Chief Pet card's Settings… link opens Settings > Chief Pet (Settings on its key's rows);
