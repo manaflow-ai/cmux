@@ -86,6 +86,17 @@ struct RemoteTmuxPaneTitleMetadataTests {
         ))
     }
 
+    @Test func parsesOctalSeparatorsFromTmux35CommandReplies() {
+        // Captured from Haven's tmux 3.5a with LC_ALL=C and tmux -u -CC.
+        let parsed = RemoteTmuxPaneTitleMetadata.paneRectLabel(
+            from: #"headercmux_title_metadata_v1\037slash\\\\037\ and\ \|\ space\037haven\037haven"#
+        )
+        #expect(parsed?.header == "header")
+        #expect(parsed?.metadata == RemoteTmuxPaneTitleMetadata(
+            title: #"slash\\037 and | space"#, host: "haven", hostShort: "haven"
+        ))
+    }
+
     @Test func rejectsExtraRawSeparatorsInPaneRectMetadata() {
         let parsed = RemoteTmuxPaneTitleMetadata.paneRectLabel(
             from: "headercmux_title_metadata_v1\u{1f}build\u{1f}unexpected\u{1f}host.example\u{1f}host"
