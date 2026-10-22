@@ -1,5 +1,6 @@
 import AppKit
 import ObjectiveC
+import os
 
 /// Hides macOS's caret accessory in Chromium's view of a cmux page.
 ///
@@ -16,14 +17,23 @@ import ObjectiveC
 /// system's placement when it had none) for a web page in a browser tab.
 nonisolated enum ChromiumPageTextAccessory {
     /// `-[NSTextInputClient preferredTextAccessoryPlacement]`.
-    static let selector = NSSelectorFromString("preferredTextAccessoryPlacement")
+    static let selector = #selector(getter: NSTextInputClient.preferredTextAccessoryPlacement)
 
     private typealias Getter = @convention(c) (AnyObject, Selector) -> Int
 
+    /// The classes that already carry the answer: a second install is a no-op.
+    private static let installed = OSAllocatedUnfairLock<Set<ObjectIdentifier>>(initialState: [])
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
+
     /// Gives `viewClass` a `preferredTextAccessoryPlacement` that answers
     /// `.invisible` where `hides(view)` is true and the class's earlier answer
-    /// elsewhere. Safe to call again.
-    static func install(on viewClass: AnyClass, hides: @escaping @MainActor (NSView) -> Bool) {
+    /// elsewhere. Installing on the same class again changes nothing (the first
+    /// `hides` stays); returns whether this call installed it.
+    @discardableResult
+    static func install(on viewClass: AnyClass, hides: @escaping @MainActor (NSView) -> Bool) -> Bool {
+        let id = ObjectIdentifier(viewClass)
+        guard installed.withLock({ $0.insert(id).inserted }) else { return false }
         let existing = class_getInstanceMethod(viewClass, selector)
         let earlier: Getter? = existing.map { unsafeBitCast(method_getImplementation($0), to: Getter.self) }
         let sel = Self.selector
@@ -40,15 +50,19 @@ nonisolated enum ChromiumPageTextAccessory {
         } else {
             _ = class_replaceMethod(viewClass, sel, imp, "q@:")
         }
+        return true
     }
 
     /// Installs the answer on Chromium's `RenderWidgetHostViewCocoa` once CEF's
-    /// classes exist; `hides` says whether a view shows a cmux page.
+    /// classes exist; `hides` says whether a view shows a cmux page. Logs when
+    /// the class is missing (a renamed class would bring the bubble back).
     @discardableResult
     static func install(hides: @escaping @MainActor (NSView) -> Bool) -> Bool {
-        guard let viewClass = NSClassFromString("RenderWidgetHostViewCocoa") else { return false }
-        install(on: viewClass, hides: hides)
-        return true
+        guard let viewClass = NSClassFromString("RenderWidgetHostViewCocoa") else {
+            logger.error("caret accessory: RenderWidgetHostViewCocoa missing; cmux pages in Chromium keep the system caret bubble")
+            return false
+        }
+        return install(on: viewClass, hides: hides)
     }
 }
 

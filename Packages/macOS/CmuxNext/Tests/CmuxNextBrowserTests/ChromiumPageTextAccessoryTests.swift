@@ -49,11 +49,14 @@ import Testing
         #expect(try Self.placement(of: cls.init(frame: .zero)) == .center)
     }
 
-    @Test func installingAgainIsHarmless() throws {
+    /// A second install leaves the first answer alone: no second wrapper, and its rule is ignored.
+    @Test func installingAgainIsANoOp() throws {
         let cls = try Self.viewClass()
         let page = cls.init(frame: .zero)
-        ChromiumPageTextAccessory.install(on: cls) { $0 === page }
-        ChromiumPageTextAccessory.install(on: cls) { $0 === page }
+        #expect(ChromiumPageTextAccessory.install(on: cls) { $0 === page })
+        let imp = class_getMethodImplementation(cls, ChromiumPageTextAccessory.selector)
+        #expect(!ChromiumPageTextAccessory.install(on: cls) { _ in true })
+        #expect(class_getMethodImplementation(cls, ChromiumPageTextAccessory.selector) == imp)
         #expect(try Self.placement(of: page) == .invisible)
         #expect(try Self.placement(of: cls.init(frame: .zero)) == .unspecified)
     }
