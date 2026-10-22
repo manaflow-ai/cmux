@@ -110,6 +110,10 @@ impl CommandVms {
 }
 
 impl CloudVms for CommandVms {
+    fn available(&self) -> bool {
+        std::fs::read_to_string(&self.file).is_ok_and(|c| !c.trim().is_empty())
+    }
+
     fn resume(&self, peer: &str) -> Result<(), String> {
         self.run("resume", peer)
     }

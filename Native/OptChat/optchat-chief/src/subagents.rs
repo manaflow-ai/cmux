@@ -287,10 +287,6 @@ pub const PER_AGENT: &str = "freestyle";
 /// `SIZES`): small 2 vCPU / 4 GiB, medium 4 / 8, large 8 / 16.
 pub const SIZES: [&str; 3] = ["small", "medium", "large"];
 
-/// How long a finished subagent's own VM is kept (paused) for a follow-up
-/// tell before it is deleted.
-pub const REAP_AFTER_DONE: std::time::Duration = std::time::Duration::from_secs(30 * 60);
-
 /// Subagent `id`'s own VM and acpmux peer.
 pub fn agent_peer(id: &str) -> String {
     format!("chief-sub-{id}")

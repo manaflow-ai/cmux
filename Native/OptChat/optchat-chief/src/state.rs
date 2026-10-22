@@ -325,6 +325,11 @@ pub struct SubRecord {
     /// its work was pushed: a tell can no longer reach it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub vm_deleted: bool,
+    /// When its own VM was last seen with this subagent not live (ms since
+    /// the epoch); the VM is deleted `cloud.deleteAfterPausedDays` after
+    /// it. Saved, so a host restart does not start the wait again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vm_idle_since: Option<u64>,
     pub status: SubStatus,
     /// The report waiting for the log.
     #[serde(default)]

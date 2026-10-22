@@ -730,7 +730,6 @@ pub struct Brain {
     /// (paused) before it is deleted, since when each is done, and the
     /// deletes in flight.
     cloud_reap: std::time::Duration,
-    cloud_reap_since: std::collections::BTreeMap<String, u64>,
     cloud_reaping: std::collections::BTreeSet<String>,
     /// Revokes cloud subagents' sandbox keys (agent_keys.rs); since when each
     /// keyed subagent is done, and the revokes in flight.
@@ -930,8 +929,9 @@ impl Brain {
             cloud_idle: std::time::Duration::from_secs(chief.cloud_auto_pause_idle_secs),
             cloud_paused: Default::default(),
             cloud_idle_since: Default::default(),
-            cloud_reap: crate::subagents::REAP_AFTER_DONE,
-            cloud_reap_since: Default::default(),
+            cloud_reap: std::time::Duration::from_secs(
+                chief.cloud_delete_after_paused_days * 86_400,
+            ),
             cloud_reaping: Default::default(),
             agent_keys: None,
             agent_key_done_since: Default::default(),
@@ -1079,8 +1079,8 @@ impl Brain {
         self.cloud_idle = idle;
     }
 
-    /// How long a finished subagent's own VM is kept before it is deleted
-    /// (default [`REAP_AFTER_DONE`](crate::subagents::REAP_AFTER_DONE)).
+    /// How long a finished subagent's own VM is kept (paused) before it is
+    /// deleted (`cloud.deleteAfterPausedDays`, default 7 days).
     pub fn set_cloud_reap(&mut self, after: std::time::Duration) {
         self.cloud_reap = after;
     }
@@ -1363,10 +1363,7 @@ impl Brain {
             }
             Input::CloudPauseFailed { peer } => self.cloud_pause_failed(&peer),
             Input::CloudVmDeleted { peer } => self.cloud_vm_deleted(&peer),
-            Input::CloudVmDeleteFailed { peer } => {
-                self.cloud_reaping.remove(&peer);
-                self.cloud_reap_since.remove(&peer);
-            }
+            Input::CloudVmDeleteFailed { peer } => self.cloud_vm_delete_failed(&peer),
             Input::SubagentPlacedHere { id, why } => self.sub_placed_here(&id, &why),
             Input::SubTick => {
                 self.sub_tick();
@@ -1566,6 +1563,17 @@ impl Brain {
             CACHE_TTL, CLOUD_AUTO_PAUSE_IDLE_SECONDS, REPLY_THREADS, SHOW_AFTER_REPORT, parse_bool,
             parse_reply_threads, parse_ttl,
         };
+        if key == crate::chief_settings::CLOUD_DELETE_AFTER_PAUSED_DAYS {
+            let days = crate::chief_settings::parse_paused_days(value)?;
+            let mut next = self.chief;
+            next.cloud_delete_after_paused_days = days;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            self.cloud_reap = std::time::Duration::from_secs(days * 86_400);
+            (self.log)(&format!("setting {key} = {days}"));
+            return Ok(format!("{key} = {days}"));
+        }
         if key == CLOUD_AUTO_PAUSE_IDLE_SECONDS {
             let secs = crate::chief_settings::parse_idle_secs(value)?;
             let mut next = self.chief;

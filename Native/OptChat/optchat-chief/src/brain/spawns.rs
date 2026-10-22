@@ -56,10 +56,19 @@ impl Brain {
                 .collect()
         };
         let saved = self.state.cloud_peer.clone();
-        let peers = match saved.as_deref() {
+        let mut peers = match saved.as_deref() {
             Some(p) if !p.is_empty() => list(p),
             _ => env.map(list).unwrap_or_default(),
         };
+        // v2: cloud by default. Nothing saved, no env peer and a pool tool
+        // set up: each subagent gets its own VM (`needs_mac` keeps Mac
+        // tasks here). A saved `control cloud off` stays off.
+        if peers.is_empty()
+            && saved.is_none()
+            && self.cloud_vms.as_ref().is_some_and(|v| v.available())
+        {
+            peers = vec![crate::subagents::PER_AGENT.to_owned()];
+        }
         match place {
             Some("local") => Ok(Vec::new()),
             Some("cloud") if peers.is_empty() => Err(
@@ -113,16 +122,28 @@ impl Brain {
             if self.cloud_paused.contains(&peer) {
                 continue;
             }
+            // A subagent's own VM pauses as soon as its run ends (its final
+            // report); a shared peer after `cloud.autoPauseIdleSeconds`.
+            let own = crate::subagents::is_agent_peer(&peer);
+            let wait = if own {
+                0
+            } else {
+                self.cloud_idle.as_millis() as u64
+            };
             let since = *self.cloud_idle_since.entry(peer.clone()).or_insert(now);
-            if now.saturating_sub(since) < self.cloud_idle.as_millis() as u64 {
+            if now.saturating_sub(since) < wait {
                 continue;
             }
             self.cloud_paused.insert(peer.clone());
             self.cloud_idle_since.remove(&peer);
-            (self.log)(&format!(
-                "cloud: pausing {peer} (no live cloud subagent for {} s)",
-                self.cloud_idle.as_secs()
-            ));
+            if own {
+                (self.log)(&format!("cloud: pausing {peer} (its subagent's run ended)"));
+            } else {
+                (self.log)(&format!(
+                    "cloud: pausing {peer} (no live cloud subagent for {} s)",
+                    self.cloud_idle.as_secs()
+                ));
+            }
             let vms = vms.clone();
             let log = self.log.clone();
             let tx = self.tx.clone();
@@ -146,46 +167,58 @@ impl Brain {
     }
 
     /// One VM per subagent: deletes the own VM (`chief-sub-<id>`) of each
-    /// subagent done (not starting, queued or running) for `cloud_reap`, off
-    /// the brain thread. The pool tool refuses while a worktree there holds
-    /// unpushed commits or edits (it pauses the VM instead); that delete is
-    /// tried again after another wait. [`CLOUD_TICK`](super::control::CLOUD_TICK) runs it.
+    /// subagent not live (not starting, queued or running) for
+    /// `cloud_reap` (`cloud.deleteAfterPausedDays`), off the brain thread.
+    /// The wait starts when the host first sees it not live and is saved
+    /// with the subagent, so a host restart does not start it again. The
+    /// pool tool refuses while a worktree there holds unpushed commits or
+    /// edits (it pauses the VM instead); that delete is tried again a day
+    /// later. [`CLOUD_TICK`](super::control::CLOUD_TICK) runs it.
     pub(super) fn cloud_reap_tick(&mut self) {
         let Some(vms) = self.cloud_vms.clone() else {
             return;
         };
         let now = now_ms();
-        let own: Vec<(String, bool)> = self
+        let reap = self.cloud_reap.as_millis() as u64;
+        let mut due = Vec::new();
+        let mut changed = false;
+        for sub in self
             .state
             .spawns
-            .values()
-            .flat_map(|r| r.subs.iter())
+            .values_mut()
+            .flat_map(|r| r.subs.iter_mut())
             .filter(|s| !s.vm_deleted)
-            .filter_map(|s| {
-                let peer = s
-                    .peer
-                    .clone()
-                    .filter(|p| crate::subagents::is_agent_peer(p))?;
-                let live = matches!(
-                    s.status,
-                    SubStatus::Starting | SubStatus::Queued | SubStatus::Running
-                );
-                Some((peer, live))
-            })
-            .collect();
-        for (peer, live) in own {
+        {
+            let Some(peer) = sub
+                .peer
+                .clone()
+                .filter(|p| crate::subagents::is_agent_peer(p))
+            else {
+                continue;
+            };
+            let live = matches!(
+                sub.status,
+                SubStatus::Starting | SubStatus::Queued | SubStatus::Running
+            );
             if live {
-                self.cloud_reap_since.remove(&peer);
+                changed |= sub.vm_idle_since.take().is_some();
                 continue;
             }
-            if self.cloud_reaping.contains(&peer) {
+            let since = *sub.vm_idle_since.get_or_insert_with(|| {
+                changed = true;
+                now
+            });
+            if now.saturating_sub(since) >= reap {
+                due.push(peer);
+            }
+        }
+        if changed {
+            self.save();
+        }
+        for peer in due {
+            if !self.cloud_reaping.insert(peer.clone()) {
                 continue;
             }
-            let since = *self.cloud_reap_since.entry(peer.clone()).or_insert(now);
-            if now.saturating_sub(since) < self.cloud_reap.as_millis() as u64 {
-                continue;
-            }
-            self.cloud_reaping.insert(peer.clone());
             let vms = vms.clone();
             let log = self.log.clone();
             let tx = self.tx.clone();
@@ -204,10 +237,28 @@ impl Brain {
         }
     }
 
+    /// The pool tool refused to delete `peer` (unpushed work there): it is
+    /// tried again a day later (or after `cloud_reap`, when shorter).
+    pub(super) fn cloud_vm_delete_failed(&mut self, peer: &str) {
+        self.cloud_reaping.remove(peer);
+        let reap = self.cloud_reap.as_millis() as u64;
+        let retry = reap.min(86_400_000);
+        let now = now_ms();
+        for sub in self
+            .state
+            .spawns
+            .values_mut()
+            .flat_map(|r| r.subs.iter_mut())
+            .filter(|s| s.peer.as_deref() == Some(peer))
+        {
+            sub.vm_idle_since = Some(now.saturating_sub(reap).saturating_add(retry));
+        }
+        self.save();
+    }
+
     /// `peer` (a subagent's own VM) is gone: its subagent is marked so.
     pub(super) fn cloud_vm_deleted(&mut self, peer: &str) {
         self.cloud_reaping.remove(peer);
-        self.cloud_reap_since.remove(peer);
         self.cloud_paused.remove(peer);
         self.cloud_idle_since.remove(peer);
         for sub in self
@@ -598,6 +649,7 @@ impl Brain {
             self.deliver(&spawn);
         }
         self.start_queued();
+        self.pause_own_vm(id);
     }
 
     pub(super) fn sub_answer(&mut self, id: &str, answer: &Result<Value, String>) {
@@ -794,6 +846,20 @@ impl Brain {
         // A tell that could not reach its run goes as its next prompt.
         self.flush_inbox(id);
         self.start_queued();
+        self.pause_own_vm(id);
+    }
+
+    /// Subagent `id`'s run ended: its own VM (`chief-sub-<id>`) pauses now,
+    /// unless a tell already started it again.
+    fn pause_own_vm(&mut self, id: &str) {
+        let own = self
+            .state
+            .sub(id)
+            .and_then(|(_, s)| s.peer.clone())
+            .is_some_and(|p| crate::subagents::is_agent_peer(&p));
+        if own {
+            self.cloud_tick();
+        }
     }
 
     /// A tell that neither steered nor prompted (``Input::TellUndelivered``):
