@@ -2743,7 +2743,7 @@ export function VirtualTranscript({
     const node = ref.current;
     const host = thread.current;
     if (!fold || !node || !host) return;
-    const placed = { ids: rows.map((row) => row.id), tops: layout.tops };
+    const placed = { count: rows.length, idAt: (index: number) => rows[index]?.id, tops: layout.tops };
     if (playTurnFold(fold, host, placed, sessionId, foldGhosts.current)) return;
     // Over, or another chat shows: nothing of it is left drawn over the new rows.
     settleTurnFold(host, fold, foldGhosts.current);
@@ -2764,16 +2764,14 @@ export function VirtualTranscript({
   const toggleRow = useCallback(
     (id: string) => {
       const node = ref.current;
+      const shown = rowsRef.current;
       settleTurnFold(thread.current, turnFold.current, foldGhosts.current);
       turnFold.current = node
         ? startTurnFold(
             thread.current,
             id,
             !foldInputs.current.expanded.has(id),
-            {
-              ids: rowsRef.current.map((row) => row.id),
-              tops: foldInputs.current.layout.tops,
-            },
+            { count: shown.length, idAt: (index) => shown[index]?.id, tops: foldInputs.current.layout.tops },
             foldInputs.current.sessionId,
           )
         : undefined;
@@ -3164,15 +3162,20 @@ export function VirtualTranscript({
     for (const name of inputs) node?.addEventListener(name, reader, { passive: true });
     // A click on a disclosure line holds it where it is (foldAnchor.ts), before the row's own handler
     // opens it.
-    // A turn fold still sliding rows lands first: the hold reads the line where it stays.
-    const settleFold = () => {
+    // A turn fold still sliding rows lands first, and the offset takes up however far that moved the
+    // clicked line, so the hold keeps it on the pixel it was clicked at.
+    const settleFold = (line: HTMLElement) => {
+      if (!turnFold.current) return;
+      const before = line.getBoundingClientRect().top;
       settleTurnFold(thread.current, turnFold.current, foldGhosts.current);
       turnFold.current = undefined;
+      const moved = line.getBoundingClientRect().top - before;
+      if (node && Math.abs(moved) >= 0.5) node.scrollTop += moved;
     };
     const holdClicked = (event: MouseEvent) => {
       const toggle = node ? foldToggleAt(event.target, node) : undefined;
       if (!toggle) return;
-      settleFold();
+      settleFold(toggle);
       foldAnchor.current = holdFold(toggle);
     };
     // A collapsible's header that asks to be held (useAnchoredCollapse.ts): a toggle from the keyboard
@@ -3182,7 +3185,7 @@ export function VirtualTranscript({
       if (!node || typeof header?.closest !== "function" || !node.contains(header) || !header.closest(".acpmux-row"))
         return;
       event.preventDefault();
-      settleFold();
+      settleFold(header);
       foldAnchor.current = holdFold(header);
     };
     // The reader scrolling lets go of it.
