@@ -24,8 +24,14 @@ struct RemoteTmuxPaneHistoryPlan: Equatable {
 
     /// The most history rows one load reads.
     static let maximumRows = 100_000
-    /// Cells per chunk; a wide pane gets proportionally fewer rows.
-    static let maximumChunkCells = 400_000
+    /// The most bytes one cell can take in `capture-pane -e` output. tmux 3.7 writes 55
+    /// for a cell that changes bold, italic, underline, strikethrough and its 24-bit
+    /// foreground, background and underline colors; this rounds that up.
+    static let maximumEncodedBytesPerCell = 64
+    /// Cells per chunk, so that a chunk of the densest output fills at most half a
+    /// command block. A wide pane gets proportionally fewer rows.
+    static let maximumChunkCells =
+        RemoteTmuxControlStreamParser.defaultMaximumCommandBlockBytes / 2 / maximumEncodedBytesPerCell
     static let maximumChunkRows = 2_000
     static let minimumChunkRows = 32
 

@@ -59,25 +59,59 @@ extension RemoteTmuxControlConnection {
               pendingPaneSeeds[paneId]?.first?.isCaptureInstalled == false else { return }
         guard reservePendingPaneSeedBytes(screenClear.count + data.count, paneId: paneId) else { return }
         pendingPaneSeeds[paneId]![0].snapshot.append(screenClear)
-        pendingPaneSeeds[paneId]![0].snapshot.append(pendingPaneSeeds[paneId]![0].historyRows)
-        pendingPaneSeeds[paneId]![0].historyRows = Data()
+        for row in pendingPaneSeeds[paneId]![0].historyRows {
+            pendingPaneSeeds[paneId]![0].snapshot.append(row)
+        }
+        // The rows moved into the snapshot, which now counts their bytes.
+        pendingPaneSeeds[paneId]![0].paintedHistoryRows = pendingPaneSeeds[paneId]![0].historyRows.count
+        pendingPaneSeeds[paneId]![0].historyRows = []
+        pendingPaneSeeds[paneId]![0].historyByteCount = 0
         pendingPaneSeeds[paneId]![0].snapshot.append(data)
         pendingPaneSeeds[paneId]![0].isCaptureInstalled = true
     }
 
     /// Adds one chunk of history rows to a full-history seed whose screen capture
     /// has not arrived yet.
+    ///
+    /// Chunks arrive oldest first. Once the rows pass ``fullHistorySeeds.byteBudget`` the
+    /// oldest are dropped, so the seed keeps the newest rows that fit and the consumer
+    /// can still deliver it. A chunk the pending-seed budget cannot hold ends the seed:
+    /// painting the screen without it would leave a hole in the history.
     func appendPaneSeedHistory(paneId: Int, seedID: UUID, lines: [String]) {
         guard !lines.isEmpty,
               pendingPaneSeeds[paneId]?.first?.id == seedID,
               pendingPaneSeeds[paneId]?.first?.isCaptureInstalled == false else { return }
-        var rows = Data()
-        for line in lines {
-            rows.append(contentsOf: line.utf8)
-            rows.append(contentsOf: [0x0d, 0x0a])
+        var rows = lines.map { line -> Data in
+            var row = Data(line.utf8)
+            row.append(contentsOf: [0x0d, 0x0a])
+            return row
         }
-        guard reservePendingPaneSeedBytes(rows.count, paneId: paneId) else { return }
-        pendingPaneSeeds[paneId]![0].historyRows.append(rows)
+        var incoming = rows.reduce(0) { $0 + $1.count }
+        var dropped = 0
+        while incoming > fullHistorySeeds.byteBudget, !rows.isEmpty {
+            incoming -= rows.removeFirst().count
+            dropped += 1
+        }
+        guard reservePendingPaneSeedBytes(incoming, paneId: paneId) else {
+            if pendingPaneSeeds[paneId]?.first?.id == seedID {
+                recoverPaneSeedBudget(paneId: paneId, event: "pane-full-history-seed-overflow")
+            }
+            return
+        }
+        pendingPaneSeeds[paneId]![0].historyRows.append(contentsOf: rows)
+        pendingPaneSeeds[paneId]![0].historyByteCount += incoming
+        pendingPaneSeeds[paneId]![0].droppedHistoryRows += dropped
+        var released = 0
+        var oldest = 0
+        while pendingPaneSeeds[paneId]![0].historyByteCount - released > fullHistorySeeds.byteBudget {
+            released += pendingPaneSeeds[paneId]![0].historyRows[oldest].count
+            oldest += 1
+        }
+        guard oldest > 0 else { return }
+        pendingPaneSeeds[paneId]![0].historyRows.removeFirst(oldest)
+        pendingPaneSeeds[paneId]![0].historyByteCount -= released
+        pendingPaneSeeds[paneId]![0].droppedHistoryRows += oldest
+        releasePendingPaneSeedBytes(released)
     }
 
     /// Absorbs live bytes until the capture/state transaction resolves. Bytes
@@ -118,7 +152,12 @@ extension RemoteTmuxControlConnection {
             emitBufferedPaneOutput(completed, paneId: paneId)
             return
         }
-        defer { resolveFullHistorySeed(seedID, installed: true) }
+        defer {
+            resolveFullHistorySeed(
+                seedID,
+                painted: .init(historyRows: completed.paintedHistoryRows, droppedRows: completed.droppedHistoryRows)
+            )
+        }
         observers.emitPaneSeed(
             paneId,
             RemoteTmuxPaneSeed(
@@ -272,7 +311,7 @@ extension RemoteTmuxControlConnection {
     func resolveReconnectSeed(_ seedID: UUID) {
         // Every seed's end passes through here, so a full-history load waiting on
         // this seed learns it ended without the capture (a success resolved first).
-        resolveFullHistorySeed(seedID, installed: false)
+        resolveFullHistorySeed(seedID, painted: nil)
         guard pendingReconnectSeedIDs.remove(seedID) != nil else { return }
         pumpReconnectPaneSeeds()
         notifyReconnectReadyIfSeedBatchDrained()

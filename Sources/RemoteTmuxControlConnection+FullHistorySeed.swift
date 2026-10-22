@@ -3,6 +3,10 @@ import Foundation
 
 @MainActor
 extension RemoteTmuxControlConnection {
+    /// The most history bytes one full-history seed holds. The rest of a seed's
+    /// snapshot budget (``maximumPaneSeedSnapshotBytes``) is left for the screen capture.
+    nonisolated static let maximumFullHistoryBytes = maximumPaneSeedSnapshotBytes - 4 * 1_024 * 1_024
+
     /// The `display-message` line that reads a pane's history length, width and screen.
     nonisolated static func paneHistoryShapeQueryCommand(paneId: Int) -> String {
         "display-message -p -t %\(paneId) -F \"\(RemoteTmuxPaneHistoryShape.format)\""
@@ -31,11 +35,13 @@ extension RemoteTmuxControlConnection {
         if shape.isAlternateScreen { return .alternateScreen }
         let plan = RemoteTmuxPaneHistoryPlan(historySize: shape.historySize, paneWidth: shape.paneWidth)
         return await withCheckedContinuation { continuation in
-            let started = startFullHistorySeed(paneId: paneId, plan: plan) { installed in
+            let started = startFullHistorySeed(paneId: paneId, plan: plan) { painted in
+                guard let painted else { return continuation.resume(returning: .failed) }
                 continuation.resume(
-                    returning: installed
-                        ? .loaded(historyRows: plan.historyRows, truncated: plan.isTruncated)
-                        : .failed
+                    returning: .loaded(
+                        historyRows: painted.historyRows,
+                        truncated: plan.isTruncated || painted.droppedRows > 0
+                    )
                 )
             }
             if !started { continuation.resume(returning: .failed) }
@@ -48,14 +54,17 @@ extension RemoteTmuxControlConnection {
     private func startFullHistorySeed(
         paneId: Int,
         plan: RemoteTmuxPaneHistoryPlan,
-        completion: @escaping (Bool) -> Void
+        completion: @escaping (RemoteTmuxPaintedFullHistory?) -> Void
     ) -> Bool {
         guard connectionState == .connected,
               let seedID = beginPaneSeed(paneId: paneId, clearScrollback: true, kind: .fullHistory)
         else { return false }
         // Keyed by the seed id in the tracked-send table, so a stream reset fails
         // it with every other tracked block (``failPendingTrackedSends()``).
-        trackedSendCompletions[seedID] = completion
+        trackedSendCompletions[seedID] = { [weak self] installed in
+            let painted = self?.fullHistorySeeds.painted.removeValue(forKey: seedID)
+            completion(installed ? painted : nil)
+        }
         var commands = [
             Self.paneOutputPauseCommand(paneId: paneId),
             Self.paneAltScreenQueryCommand(paneId: paneId),
@@ -83,13 +92,16 @@ extension RemoteTmuxControlConnection {
             // A refused write may already have reset the stream, which resolves the
             // completion; both calls below are no-ops in that case.
             cancelPaneSeed(paneId: paneId, seedID: seedID)
-            resolveFullHistorySeed(seedID, installed: false)
+            resolveFullHistorySeed(seedID, painted: nil)
         }
         return true
     }
 
-    /// Fires a waiting full-history load's completion once.
-    func resolveFullHistorySeed(_ seedID: UUID, installed: Bool) {
-        trackedSendCompletions.removeValue(forKey: seedID)?(installed)
+    /// Fires a waiting full-history load's completion once: with what was painted,
+    /// or nil when the seed ended without painting.
+    func resolveFullHistorySeed(_ seedID: UUID, painted: RemoteTmuxPaintedFullHistory?) {
+        guard let completion = trackedSendCompletions.removeValue(forKey: seedID) else { return }
+        if let painted { fullHistorySeeds.painted[seedID] = painted }
+        completion(painted != nil)
     }
 }
