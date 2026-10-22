@@ -883,7 +883,7 @@ export default agentPaneEntry({
       }),
     },
     "queued-from-agent-open": {
-      note: "Play: the queued agent's message opened: the message as a glass card under its line, as Markdown.",
+      note: "Play: the queued agent's message opened: the message as a glass card under its line, as Markdown, the queue as tall as it.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -897,7 +897,14 @@ export default agentPaneEntry({
       }),
       play: async (ctx) => {
         await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] .cv-received__toggle' });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued .cv-received__body") !== null);
+        // Whole: the list fits its height to the opened card, not just a sliver of it.
+        await ctx.waitFor(() => {
+          const body = ctx.document.querySelector(".acpmux-queued .cv-received__body");
+          const list = ctx.document.querySelector(".acpmux-composer-queue");
+          return Boolean(
+            body && list && body.getBoundingClientRect().bottom <= list.getBoundingClientRect().bottom + 1,
+          );
+        });
       },
     },
     "queued-images": {

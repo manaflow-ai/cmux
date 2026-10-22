@@ -44,6 +44,7 @@ export function IncomingMessageLine({
   onReply,
   actions,
   githubRepository,
+  onToggle,
 }: {
   /// The row's id, which keeps the line open across remounts.
   id: string;
@@ -57,6 +58,9 @@ export function IncomingMessageLine({
   actions?: ReactNode;
   /// The repository a bare `#123` in the message names (MessageRow's).
   githubRepository?: string;
+  /// The message opened or closed: a host that fits its height to its rows (the composer's queue)
+  /// fits again.
+  onToggle?(open: boolean): void;
 }) {
   const t = useT();
   const key = `${useContext(PromptMarksSession) ?? ""}\u0000${id}`;
@@ -65,6 +69,7 @@ export function IncomingMessageLine({
     if (next) opened.add(key);
     else opened.delete(key);
     setOpen(next);
+    onToggle?.(next);
   };
   const toggleButton = useRef<HTMLButtonElement>(null);
   const bodyId = useId();

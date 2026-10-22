@@ -145,6 +145,8 @@ export function ComposerQueue({
   const [editing, setEditingId] = useState<string>();
   // The images the open edit drops from its prompt.
   const [dropped, setDropped] = useState<ReadonlySet<string>>(new Set());
+  // An agent's message line opened or closed (its own state): the list fits again after it draws.
+  const [, refit] = useState(0);
   const setEditing = (id: string | undefined) => {
     setDropped(new Set());
     setEditingId(id);
@@ -426,6 +428,7 @@ export function ComposerQueue({
       </span>
     );
   // Another agent's message: its received line, which finds its sender among the listed chats.
+  // Opening or closing it draws the queue again, so the list fits its new height.
   const received = (entry: QueuedEntry, message: NonNullable<QueuedEntry["message"]>) => {
     const line = (
       <IncomingMessageLine
@@ -433,6 +436,7 @@ export function ComposerQueue({
         message={message}
         onOpen={(sessionId) => subsessions?.open(sessionId)}
         actions={actions(entry)}
+        onToggle={() => refit((count) => count + 1)}
       />
     );
     return subsessions ? <SubsessionContext.Provider value={subsessions}>{line}</SubsessionContext.Provider> : line;
