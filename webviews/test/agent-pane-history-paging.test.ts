@@ -559,7 +559,7 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
           else if (message.method === "_acpmux/attach") {
             longRequests.push({ method: message.method, params });
             reply = { result: { session: { ...longSession, lastSeq: longEvents.length }, ...longPage(params) } };
-            delay = 400;
+            delay = 1_500;
             answered = () => (attachAnsweredAt ||= performance.now());
           } else if (message.method === "_acpmux/events") {
             const older = Array.isArray(params.kinds) && params.kinds.includes("transcript");
@@ -568,7 +568,7 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
               staleReads++;
               longRequests.push({ method: message.method, params, dropped: true });
               reply = { result: longPage(params) };
-              delay = 1_200;
+              delay = 2_500;
               answered = () => (staleAnsweredAt = performance.now());
             } else if (older && !failedOnce) {
               // The first older transcript read after the attach fails, as one over a dropped connection does.

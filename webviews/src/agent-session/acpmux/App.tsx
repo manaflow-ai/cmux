@@ -3120,6 +3120,9 @@ export function VirtualTranscript({
   /// An older page asked for has not settled yet; and the check that follows one that brought nothing.
   const olderAsking = useRef(false);
   const olderRecheck = useRef<ReturnType<typeof setTimeout>>(undefined);
+  /// The latest ask: only its settling re-arms the check, so a late answer to an earlier one (a
+  /// chat switched away from) cannot cancel the recheck of the ask that followed it.
+  const olderAsk = useRef(0);
   // The check reads the scroller's live offset, and runs on every scroll event as well as after
   // each commit: a page that lands moves the view down (the anchoring above) and the reader's
   // scroll back to the top could land in the same frame, so the rendered offset never changed
@@ -3141,12 +3144,14 @@ export function VirtualTranscript({
     const asked = olderLoadKey;
     olderLoadRequested.current = asked;
     olderAsking.current = true;
+    const ask = ++olderAsk.current;
     // A page that lands changes the key in the commit it brings, and the check after it asks for
     // the next. An ask that brought nothing (a read that failed, or one the client dropped) leaves
     // the key as it was: ask once more a moment later, as long as the view is still near the top.
     // At the very top no scroll event comes to ask for it, and a check on every render would ask
     // on every streamed chunk (Leo 2026-10-21: a 720-turn chat stopped paging for good).
     const settled = () => {
+      if (ask !== olderAsk.current) return;
       olderAsking.current = false;
       clearTimeout(olderRecheck.current);
       olderRecheck.current = setTimeout(() => {

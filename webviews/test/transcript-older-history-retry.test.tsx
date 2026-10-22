@@ -108,8 +108,9 @@ const streamed = (frame: number) => [
 ];
 
 /// A transcript at the very top of its loaded history; `onLoadOlder` is called fresh each draw, as
-/// the pane passes a new closure on every render.
-async function atTop(onLoadOlder: () => () => Promise<void>) {
+/// the pane passes a new closure on every render (a test that hands the same function each draw
+/// leaves no effect to re-run when the ask settles).
+async function atTop(onLoadOlder: () => () => Promise<void>, chat = { id: "s-retry" }) {
   const root = createRoot(dom.window.document.getElementById("root")!);
   const draw = (frame: number) =>
     act(async () =>
@@ -121,7 +122,7 @@ async function atTop(onLoadOlder: () => () => Promise<void>) {
           canLoadOlder
           historyFrom={1_000}
           onLoadOlder={onLoadOlder()}
-          sessionId="s-retry"
+          sessionId={chat.id}
         />,
       ),
     );
@@ -195,6 +196,37 @@ test("a wheel up at the top asks for older history; a wheel down does not", asyn
     expect(asked).toBe(1);
     await wheel(-120);
     expect(asked).toBe(2);
+  } finally {
+    await act(async () => root.unmount());
+    jest.useRealTimers();
+  }
+});
+
+test("a late answer for the chat before does not cancel the next chat's ask again", async () => {
+  jest.useFakeTimers();
+  const chat = { id: "s-before" };
+  const asked: string[] = [];
+  let answerBefore = () => {};
+  const { root, draw, scroller } = await atTop(
+    () => () => {
+      asked.push(chat.id);
+      // The chat before's read is still out (waiting out its back-off); the next chat's brings nothing.
+      return chat.id === "s-before" ? new Promise<void>((resolve) => (answerBefore = resolve)) : Promise.resolve();
+    },
+    chat,
+  );
+  try {
+    expect(asked).toEqual(["s-before"]);
+    chat.id = "s-next";
+    await draw(1);
+    await act(async () => {
+      scroller().scrollTop = 0;
+      scroller().dispatchEvent(new dom.window.Event("scroll"));
+    });
+    expect(asked).toEqual(["s-before", "s-next"]);
+    await act(async () => answerBefore());
+    await stream(draw, 700);
+    expect(asked).toEqual(["s-before", "s-next", "s-next"]);
   } finally {
     await act(async () => root.unmount());
     jest.useRealTimers();
