@@ -506,8 +506,8 @@ fn a_finished_turn_banner_previews_the_last_message_in_memory_only() {
 }
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_millis()
         .try_into()
