@@ -20,6 +20,7 @@ import {
   type CardInput,
   type CardState,
 } from "./cardState";
+import { HtmlPreview } from "./HtmlPreview";
 import {
   declineReply,
   hasPreviews,
@@ -381,11 +382,22 @@ function PendingQuestion({
           )}
         </div>
         {showPreview && previewOption && (
-          <section className="acpmux-question-preview" aria-labelledby={previewId}>
+          <section
+            className="acpmux-question-preview"
+            data-format={previewOption.preview?.format}
+            aria-labelledby={previewId}
+          >
             <span id={previewId} className="acpmux-question-preview-label">
               {t("question.preview", { option: previewOption.label })}
             </span>
-            <pre>{previewOption.preview?.text ?? ""}</pre>
+            {previewOption.preview?.format === "html" ? (
+              <HtmlPreview
+                html={previewOption.preview.text}
+                title={t("question.preview", { option: previewOption.label })}
+              />
+            ) : (
+              <pre>{previewOption.preview?.text ?? ""}</pre>
+            )}
           </section>
         )}
       </div>

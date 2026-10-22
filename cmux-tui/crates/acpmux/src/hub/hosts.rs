@@ -311,6 +311,9 @@ impl Hub {
             let all = profile.is_some_and(|p| {
                 crate::agent_tools::lists_all_tools(&meta.harness, p, &env, &meta.cwd)
             });
+            if let Some(p) = profile {
+                self.note_preview_format(session, p);
+            }
             (all, profile.map(|p| p.kind))
         };
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
@@ -729,7 +732,7 @@ impl Hub {
     ) {
         // A record from a daemon without question normalization gets it here,
         // so its answers are checked like a new ask's.
-        super::questions::normalize(&mut request);
+        super::questions::normalize(&mut request, Self::preview_format(session));
         let (tx, rx) = oneshot::channel();
         let decision_nonce = super::person::new_nonce();
         session.permissions.lock().unwrap().pending.insert(

@@ -213,6 +213,17 @@ pub(crate) fn harness_command(
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
     }
+    // Claude Code's question previews in the format the hub labels them with
+    // (`hub/questions.rs` `PreviewFormat`, from the profile's own env): set
+    // last, so a login or daemon value can never make the agent write HTML
+    // the hub would show as text, or the reverse. `markdown` is Claude Code's
+    // own default for this entrypoint.
+    if profile.kind == crate::config::HarnessKind::ClaudeStdio {
+        cmd.env(
+            crate::hub::PREVIEW_FORMAT_ENV,
+            crate::hub::PreviewFormat::of(true, &profile.env).claude_value(),
+        );
+    }
     // A Claude agent's sign-in inputs, for a clear message if it has none.
     match (family == Some("claude"), session) {
         (true, Some((id, _))) => {

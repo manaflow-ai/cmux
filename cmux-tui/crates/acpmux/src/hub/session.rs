@@ -68,6 +68,9 @@ pub struct Session {
     /// launched yet, 1: with, 2: without), so forum rules follow the launch,
     /// not a profile reloaded since (`hub/tools.rs`).
     pub(super) launched_with_tools: std::sync::atomic::AtomicU8,
+    /// Its agent writes question previews as HTML (`questions.rs`
+    /// `PreviewFormat`), decided by the profile it started or was adopted with.
+    pub(super) html_previews: AtomicBool,
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,
