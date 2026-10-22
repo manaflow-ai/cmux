@@ -406,17 +406,25 @@ async fn a_self_update_whose_lease_another_update_took_changes_nothing_and_marks
 }
 
 /// [`install_script`] in `home` with a fake `systemctl` that logs its
-/// calls: the calls and stderr.
+/// calls and a fake `systemd-analyze` that prints `$HOME/unit-paths` (when
+/// missing it fails, so the script uses its own list), the runtime directory
+/// `$HOME/run`: the calls and stderr.
 fn install_units(home: &Path) -> (Vec<String>, String) {
     use std::os::unix::fs::PermissionsExt;
     let bin = home.join("fakebin");
     std::fs::create_dir_all(&bin).unwrap();
-    let systemctl = bin.join("systemctl");
-    std::fs::write(&systemctl, "#!/bin/sh\necho \"systemctl $*\" >> \"$HOME/calls\"\n").unwrap();
-    std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o755)).unwrap();
+    for (name, body) in [
+        ("systemctl", "echo \"systemctl $*\" >> \"$HOME/calls\""),
+        ("systemd-analyze", "cat \"$HOME/unit-paths\" 2>/dev/null"),
+    ] {
+        let path = bin.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     let out = Command::new("sh")
         .args(["-c", &install_script()])
         .env("HOME", home)
+        .env("XDG_RUNTIME_DIR", home.join("run"))
         .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
         .output()
         .unwrap();
@@ -477,7 +485,38 @@ fn the_timer_units_install_once_and_a_unit_someone_else_wrote_is_left_alone() {
     assert!(!units.exists());
     std::fs::remove_dir_all(home.join(".local")).unwrap();
 
+    // Re-review: the runtime directory too, where a mask is a link to
+    // /dev/null.
+    let runtime = home.join("run/systemd/user");
+    std::fs::create_dir_all(&runtime).unwrap();
+    std::os::unix::fs::symlink("/dev/null", runtime.join("acpmux-update.timer")).unwrap();
+    let (calls, err) = install_units(&home);
+    assert!(calls.is_empty(), "{calls:?}");
+    assert!(err.contains("run/systemd/user/acpmux-update.timer is a unit"), "{err}");
+    assert!(!units.exists());
+
+    // systemd's own search path wins over the list: a directory only it
+    // names is checked, and one it leaves out is not.
+    let custom = home.join("custom-units");
+    std::fs::create_dir_all(&custom).unwrap();
+    std::fs::write(custom.join("acpmux-update.service"), "[Service]\n").unwrap();
+    let listed = format!("{}\n{}\n", units.display(), custom.display());
+    std::fs::write(home.join("unit-paths"), listed).unwrap();
+    let (calls, err) = install_units(&home);
+    assert!(calls.is_empty(), "{calls:?}");
+    assert!(err.contains("custom-units/acpmux-update.service is a unit"), "{err}");
+    std::fs::remove_dir_all(&custom).unwrap();
+    let (calls, _) = install_units(&home);
+    assert_eq!(
+        calls,
+        ["systemctl --user daemon-reload", enable],
+        "the runtime mask is not on that path"
+    );
+    std::fs::remove_file(home.join("unit-paths")).unwrap();
+    std::fs::remove_dir_all(home.join("run")).unwrap();
+
     // The opt-out stops the timer and writes nothing.
+    std::fs::remove_dir_all(&units).unwrap();
     std::fs::create_dir_all(home.join(".acpmux")).unwrap();
     std::fs::write(home.join(".acpmux").join(NO_AUTO_UPDATE), "").unwrap();
     let (calls, _) = install_units(&home);
