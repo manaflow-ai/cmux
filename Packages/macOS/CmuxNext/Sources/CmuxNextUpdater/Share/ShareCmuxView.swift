@@ -32,7 +32,9 @@ public final class ShareCmuxView: NSView {
     private let bodyLabel = ChromeLabel(wrappingLabelWithString: ShareCmuxStrings.body)
     private let messageScroll = NSScrollView()
     private let stack = NSStackView()
-    /// The modal's material, below the lines (like the tip card, cx-367y).
+    /// The modal's material, below the lines (like the tip card, cx-367y): this Mac's glass with
+    /// no card fill, like every overlay since #23801, solid only under Reduce Transparency (Leo 2026-10-21: "glass is never
+    /// opaque (the only exception is the Reduce Transparency fallback)").
     let surface: OverlaySurfaceView
     private let writeToPasteboard: @MainActor (String) -> Void
 
@@ -40,7 +42,7 @@ public final class ShareCmuxView: NSView {
     /// (tests record it instead).
     public init(writeToPasteboard: @escaping @MainActor (String) -> Void = ShareCmuxView.writeToGeneralPasteboard) {
         self.writeToPasteboard = writeToPasteboard
-        surface = OverlaySurfaceView(material: .opaque, interactive: true)
+        surface = OverlaySurfaceView(interactive: true)
         copyButton = CmuxDialogButtonView(CmuxDialogButton(id: "copy-link", title: ShareCmuxStrings.copyLink, role: .default),
                                           hint: .return,
                                           target: nil, action: #selector(ShareCmuxView.copyMessage))
