@@ -61,17 +61,19 @@ export function NeedsYouButton({
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const trigger = usePopoverTrigger(open, setOpen);
   // A `cmux://needs-you/<id>` chip in a reply opens the list on its ask (links.ts). Off (the App
-  // Store item not installed) registers no opener, so nothing can open a list that is not drawn.
-  useEffect(
-    () =>
-      mode === "off"
-        ? undefined
-        : onOpenNeedsYou((itemId) => {
-            setFocus(itemId);
-            setOpen(true);
-          }),
-    [mode],
-  );
+  // Store item not installed) registers no opener, so nothing can open a list that is not drawn,
+  // and closes a list left open, so reinstalling the item does not reopen it by itself.
+  useEffect(() => {
+    if (mode === "off") {
+      setOpen(false);
+      setFocus(undefined);
+      return undefined;
+    }
+    return onOpenNeedsYou((itemId) => {
+      setFocus(itemId);
+      setOpen(true);
+    });
+  }, [mode]);
   if (mode === "off") return null;
   const count = items.length;
   const label = count > 0 ? t("needsYou.badgeLabel", { n: count }) : t("needsYou.title");

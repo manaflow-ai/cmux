@@ -3,8 +3,9 @@
 // the host then pushes each change as the `needsYou` event (old host:
 // `cmuxAcpmuxBridge.applyNeedsYou`), so installing the App Store item, or changing the Debug choice,
 // reaches an open chat without a reload. The attribute stays the one value: a push writes it, so
-// links.ts `needsYouListOff` (a reply's Markdown) agrees with the header. Kept apart from NeedsYou.tsx
-// so the page host's event handler does not load the list.
+// links.ts `needsYouListOff` agrees, and a reply's needs-you links (conversation/Markdown.tsx
+// `NeedsYouLink`) redraw with the header. Kept apart from NeedsYou.tsx so the page host's event
+// handler and a reply's Markdown do not load the list.
 import { useSyncExternalStore } from "react";
 
 /// The Debug choice `agentPane.debug.needsYou`: `pinned` (the default) draws each ask with its
@@ -44,5 +45,6 @@ function subscribe(listener: () => void) {
 
 /// The mode; re-renders when the host pushes a new one.
 export function useNeedsYouMode(): NeedsYouMode {
-  return useSyncExternalStore(subscribe, () => needsYouMode());
+  // The server snapshot too: a reply's Markdown is also drawn to static markup.
+  return useSyncExternalStore(subscribe, needsYouMode, needsYouMode);
 }

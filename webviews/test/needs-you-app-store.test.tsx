@@ -133,6 +133,8 @@ test("a reply's needs-you link is a chip while installed and its plain text whil
 
 test("the host's needsYou event shows the inbox in an open chat and takes it away, with no reload", async () => {
   const { createRoot } = await import("react-dom/client");
+  const { memo } = await import("react");
+  const { renderInline } = await import("../src/agent-session/acpmux/conversation/Markdown");
   const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
   const { NeedsYouButton } = await import("../src/agent-session/acpmux/needsYou/NeedsYou");
   const { useNeedsYou } = await import("../src/agent-session/acpmux/needsYou/useNeedsYou");
@@ -154,15 +156,28 @@ test("the host's needsYou event shows the inbox in an open chat and takes it awa
       </header>
     );
   }
+  // A reply drawn once, memoized as the transcript's blocks are: its link follows the mode too.
+  const Reply = memo(() => <p>{renderInline("see [the deploy ask](cmux://needs-you/abc)")}</p>);
   root = createRoot(host);
-  await act(async () => root!.render(<Header />));
+  await act(async () =>
+    root!.render(
+      <>
+        <Header />
+        <Reply />
+      </>,
+    ),
+  );
   const inbox = () => host.querySelector(".acpmux-needs-you-button");
+  const chip = () => host.querySelector(".is-needs-you");
   expect(inbox()).toBeNull();
+  expect(chip()).toBeNull();
+  expect(host.textContent).toContain("the deploy ask");
 
   // Installed in the App Store: the host pushes the Debug choice.
   await act(async () => applyHostEvent({ kind: "needsYou", value: "pinned" }));
   expect(inbox()).not.toBeNull();
   expect(inbox()?.getAttribute("aria-label")).toBe("Needs you");
+  expect(chip()).not.toBeNull();
   // The attribute follows, so a reply's links and the header agree.
   expect(document.documentElement.dataset.needsYou).toBe("pinned");
   expect(needsYouListOff()).toBe(false);
@@ -170,6 +185,8 @@ test("the host's needsYou event shows the inbox in an open chat and takes it awa
   // Uninstalled: the inbox goes, and nothing can open the hidden list.
   await act(async () => applyHostEvent({ kind: "needsYou", value: "off" }));
   expect(inbox()).toBeNull();
+  expect(chip()).toBeNull();
+  expect(host.textContent).toContain("the deploy ask");
   expect(needsYouListOff()).toBe(true);
   expect(openNeedsYou("acpmux:abc")).toBe(false);
 
