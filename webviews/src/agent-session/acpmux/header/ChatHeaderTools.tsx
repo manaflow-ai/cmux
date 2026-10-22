@@ -154,8 +154,8 @@ export function ChatHeaderTools({
   onApplyWorktree?: (key: string) => Promise<unknown>;
   /// Remove on the worktree pill (cx-lyqio.5): `git.worktree.remove` for the chat's session.
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
-  /// The Inspector's toggle (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx): the
-  /// header's last, top-right button, as Claude Code desktop's panel toggle is.
+  /// The Inspector's toggle (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx): with it,
+  /// the right-side panel's toggle in the summary's place, the first of the icons.
   inspector?: ReactNode;
 }) {
   const t = useT();
@@ -402,6 +402,10 @@ export function ChatHeaderTools({
       {pullRequest && pullRequestChip !== false && (
         <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
       )}
+      {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop: one row of buttons on one
+          pitch, no separators. */}
+      {inspector}
+      {summary}
       {buttons ? (
         <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
           {onCustomize ? (
@@ -429,18 +433,13 @@ export function ChatHeaderTools({
           )}
         </div>
       ) : null}
-      {buttons ? <hr className="acpmux-header-separator" aria-orientation="vertical" /> : null}
-      <div className="acpmux-header-tool-group acpmux-header-tool-group-meta">
-        {summary}
-        <ChatMenu
-          items={rows}
-          disabled={rows().length === 0}
-          onOpen={onMenuOpen}
-          expand={expand}
-          onExpanded={onExpanded}
-        />
-        {inspector}
-      </div>
+      <ChatMenu
+        items={rows}
+        disabled={rows().length === 0}
+        onOpen={onMenuOpen}
+        expand={expand}
+        onExpanded={onExpanded}
+      />
     </div>
   );
 }

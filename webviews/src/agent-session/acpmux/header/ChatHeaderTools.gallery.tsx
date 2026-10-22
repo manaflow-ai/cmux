@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
 import type { ChatMenuItem } from "./ChatHeaderTools";
+import { PanelToggle } from "./PanelToggle";
 import type { QuickAction } from "./quickActions";
 
 type HeaderToolsProps = {
@@ -73,11 +74,13 @@ const menuRows = (): ChatMenuItem[] => [
   { key: "close", label: "Close", icon: "tab.close", shortcutAction: "closeTab", onSelect: () => undefined },
 ];
 
-const summary = createElement(
-  "button",
-  { type: "button", className: "acpmux-summary-button", "aria-label": "Turn summary" },
-  "Completed",
-);
+// The summary's panel toggle as the App passes it (summary/SummaryButton.tsx), closed.
+const summary = createElement(PanelToggle, {
+  className: "acpmux-summary-button",
+  label: "Summary",
+  shown: false,
+  onToggle: () => undefined,
+});
 
 const openMenu: Play = async (ctx) => {
   await ctx.focus({ role: "button", name: "Chat actions" });

@@ -36,6 +36,7 @@ import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { PanelToggle } from "../header/PanelToggle";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { registerPicker } from "../pickerOpeners";
 import { subagentsIn } from "../subagents/subagentRows";
@@ -185,18 +186,7 @@ export function useChatInspector({
   return {
     on: true,
     reveal,
-    button: (
-      <button
-        type="button"
-        className="acpmux-header-tool acpmux-chat-inspector-toggle"
-        aria-label={label}
-        aria-pressed={shown}
-        title={label}
-        onClick={toggle}
-      >
-        <Icon name="pane.split.right" size={15} />
-      </button>
-    ),
+    button: <PanelToggle className="acpmux-chat-inspector-toggle" label={label} shown={shown} onToggle={toggle} />,
     panel: (
       <InspectorPresence
         shown={shown}
