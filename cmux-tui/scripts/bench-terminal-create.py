@@ -362,7 +362,8 @@ def main():
         log.close()
         if args.out:
             shutil.copy(os.path.join(root, "daemon.log"), args.out + ".daemon.log")
-        os.close(marker.fd)
+        # No close(marker.fd): on macOS close() of a FIFO waits for the
+        # reader thread's read(), which never returns; the fd ends with us.
         shutil.rmtree(root, ignore_errors=True)
     if args.out:
         with open(args.out, "w") as f:
