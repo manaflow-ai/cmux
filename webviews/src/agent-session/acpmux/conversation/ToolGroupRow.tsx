@@ -73,6 +73,12 @@ export function ToolGroupRow({
     () => setAll(true),
   );
   const shown = cut ? items.slice(cut) : items;
+  // A thought between calls is named by its place in the whole group, which a call appended after
+  // it or "+K more" never moves, so its open state stays with it (ThoughtRow keeps it by `id`).
+  const thoughtRow = (item: AcpmuxActivity) => {
+    const at = items.indexOf(item);
+    return <ThoughtRow key={`thought:${at}`} id={`${disclosureKey}:thought:${at}`} item={item} />;
+  };
   const detailsId = useId();
   const tools = useMemo(() => groupCalls(items).map((item) => item.tool!), [items]);
   const files = useMemo(() => (kind === "edits" ? toolFiles(tools) : []), [kind, tools]);
@@ -137,11 +143,7 @@ export function ToolGroupRow({
             )}
             {kind === "commands"
               ? shown.map((item, index) =>
-                  item.tool ? (
-                    <CommandRow key={item.tool.id || index} item={item} />
-                  ) : (
-                    <ThoughtRow key={`thought:${index}`} id={`${disclosureKey}:thought:${index}`} item={item} />
-                  ),
+                  item.tool ? <CommandRow key={item.tool.id || index} item={item} /> : thoughtRow(item),
                 )
               : [
                   ...files.map((file) => <EditDiff key={file.path} file={file} />),
@@ -149,11 +151,7 @@ export function ToolGroupRow({
                   ...shown
                     .filter((item) => !files.length || !item.tool?.diffs?.length)
                     .map((item, index) =>
-                      item.tool ? (
-                        <ToolRow key={item.tool.id || index} item={item} />
-                      ) : (
-                        <ThoughtRow key={`thought:${index}`} id={`${disclosureKey}:thought:${index}`} item={item} />
-                      ),
+                      item.tool ? <ToolRow key={item.tool.id || index} item={item} /> : thoughtRow(item),
                     ),
                 ]}
           </div>
