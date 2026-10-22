@@ -9,7 +9,8 @@ extension InternalPageID {
 
 /// New Chief… as a page tab (Leo 2026-10-21, "Chief: sheet as workspace"): the New Chief card
 /// (``HomeNewChiefSheet`` in a ``HomeSheetPageView``) in a tab beside your work, or beside the
-/// Chief on Home (`pageTabPane`), instead of a sheet over Home. Create makes the Chief through
+/// Chief on Home when another column shows there (`pageTabPane`), instead of a sheet over Home.
+/// Home's Chief dock alone keeps the sheet (`holdsTab(in:)`). Create makes the Chief through
 /// Home's one create path (`HomeService.createChief`), closes the tab and shows the new Chief's
 /// conversation in Home; Cancel closes the tab. One tab per window: New Chief… again selects it.
 /// `HomeTunables.newChiefSheet` brings the sheet back for one release.
