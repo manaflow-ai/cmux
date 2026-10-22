@@ -16,6 +16,7 @@
 //! the server-directed backpressure the JS relay read from `ws.bufferedAmount`.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -65,6 +66,7 @@ const MAX_PTY_INGRESS_FRAMES: usize = 64;
 const MAX_INBOUND_FRAME_BYTES: usize = 4 << 20;
 const CONNECTION_TASK_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 const CONNECTION_TASK_ABORT_TIMEOUT: Duration = Duration::from_secs(1);
+const PTY_DETACH_TIMEOUT: Duration = Duration::from_secs(2);
 /// One suspend/read-liveness sample per period while a socket is open.
 const LIVENESS_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 /// Wall clock moving more than this relative to the monotonic clock between
@@ -96,6 +98,7 @@ struct AuthSnapshot {
     trust: String,
     roots: Option<Vec<String>>,
     owner: Option<String>,
+    version: u64,
 }
 
 pub(crate) struct OutboundFrame {
@@ -551,12 +554,14 @@ fn make_context(
     out: &OutboundSink,
     pending: &Arc<AtomicU64>,
     auth: &AuthSnapshot,
+    live_auth: &Arc<std::sync::Mutex<AuthSnapshot>>,
     transport_id: &str,
     cancellation: &CancellationToken,
 ) -> FrameContext {
     let sender = out.clone();
     let pending_send = Arc::clone(pending);
     let pending_probe = Arc::clone(pending);
+    let live_auth = Arc::clone(live_auth);
     FrameContext {
         send: Arc::new(move |frame: Value| {
             let size = serde_json::to_string(&frame).map(|text| text.len() as u64).unwrap_or(0);
@@ -584,6 +589,15 @@ fn make_context(
         trust: auth.trust.clone(),
         local_roots: auth.roots.clone(),
         owner_user_id: auth.owner.clone(),
+        live_auth: Arc::new(move || {
+            let snapshot = live_auth.lock().expect("auth lock");
+            crate::pty::LiveAuth {
+                trust: snapshot.trust.clone(),
+                roots: snapshot.roots.clone(),
+                owner_user_id: snapshot.owner.clone(),
+                version: snapshot.version,
+            }
+        }),
         transport_id: Some(transport_id.to_owned()),
         cancellation: cancellation.clone(),
     }
@@ -678,7 +692,7 @@ async fn relay_session(
                 };
                 let snapshot = auth.lock().expect("auth lock").clone();
                 let context =
-                    make_context(&out, &pending, &snapshot, &transport, &connection_token);
+                    make_context(&out, &pending, &snapshot, &auth, &transport, &connection_token);
                 tokio::select! {
                     biased;
                     _ = connection_token.cancelled() => break,
@@ -973,6 +987,7 @@ async fn relay_session(
                             snapshot.trust = effective_trust;
                             snapshot.roots = local_roots.clone();
                             snapshot.owner = config.owner_user_id.clone();
+                            snapshot.version = snapshot.version.wrapping_add(1);
                             workspace.set_local_observe(local_observe);
                         }
                         let cadence = Duration::from_millis(hello.heartbeat_interval_ms);
@@ -1033,7 +1048,9 @@ async fn relay_session(
                         if !state.managed {
                             save(config, config_path);
                         }
-                        auth.lock().expect("auth lock").trust = ack.as_str().to_owned();
+                        let mut auth = auth.lock().expect("auth lock");
+                        auth.trust = ack.as_str().to_owned();
+                        auth.version = auth.version.wrapping_add(1);
                         workspace.set_local_observe(ack == Trust::Observe);
                         println!("Trust level set to {ack}.");
                     }
@@ -1159,6 +1176,7 @@ async fn relay_session(
                                     &out_tx,
                                     &pending,
                                     &snapshot,
+                                    &auth_direct,
                                     &transport_id,
                                     &connection_cancellation,
                                 );
@@ -1290,8 +1308,40 @@ async fn relay_session(
     // managed tunnel listener's attachments are another transport's — a
     // reconnect must never detach them (docs/TERMINAL.md).
     #[cfg(unix)]
-    runtime.pty.detach_transport(&transport_id);
+    {
+        let manager = Arc::clone(&runtime.pty);
+        let transport = transport_id.clone();
+        if !run_owned_cleanup(
+            async move { manager.detach_transport_async(&transport).await },
+            PTY_DETACH_TIMEOUT,
+        )
+        .await
+        {
+            eprintln!("Some terminal sessions did not close. Reconnect to the relay and retry.");
+        }
+    }
     result
+}
+
+/// Run teardown in an owned task. On timeout, abort and collect the task so
+/// connection shutdown does not leave untracked cleanup work behind.
+async fn run_owned_cleanup<F>(cleanup: F, deadline: Duration) -> bool
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    let mut task = tokio::spawn(cleanup);
+    match timeout(deadline, &mut task).await {
+        Ok(Ok(())) => true,
+        Ok(Err(error)) => {
+            eprintln!("Owned PTY cleanup task failed: {error}");
+            false
+        }
+        Err(_) => {
+            task.abort();
+            let _ = task.await;
+            false
+        }
+    }
 }
 
 #[cfg(all(test, not(unix)))]
@@ -1380,7 +1430,9 @@ mod liveness_tests {
 
 #[cfg(test)]
 mod cancellation_tests {
-    use super::{send_socket_text, shutdown_connection_tasks, wait_for_reconnect};
+    use super::{
+        run_owned_cleanup, send_socket_text, shutdown_connection_tasks, wait_for_reconnect,
+    };
     use futures_util::Sink;
     use std::pin::Pin;
     use std::sync::Arc;
@@ -1497,6 +1549,35 @@ mod cancellation_tests {
         process_cancellation.cancel();
         assert!(send.await.expect("send task joined").is_err());
         assert!(!connection_cancellation.is_cancelled());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn timed_out_cleanup_is_cancelled_and_reaped() {
+        struct DropSignal(Arc<AtomicBool>);
+
+        impl Drop for DropSignal {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+
+        let started = Arc::new(AtomicBool::new(false));
+        let dropped = Arc::new(AtomicBool::new(false));
+        let task_started = Arc::clone(&started);
+        let task_dropped = Arc::clone(&dropped);
+        assert!(
+            !run_owned_cleanup(
+                async move {
+                    let _drop_signal = DropSignal(task_dropped);
+                    task_started.store(true, Ordering::Release);
+                    std::future::pending::<()>().await;
+                },
+                Duration::from_millis(20),
+            )
+            .await
+        );
+        assert!(started.load(Ordering::Acquire));
+        assert!(dropped.load(Ordering::Acquire));
     }
 }
 
