@@ -540,15 +540,13 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-floating-title{flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:var(--text-control);font-weight:600;color:var(--agent-text)}
 .acpmux-floating-header .acpmux-floating-title{flex:1 1 auto}
 .acpmux-floating-status{flex:none;width:6px;height:6px;margin-inline-end:6px;border-radius:50%;background:var(--agent-muted)}
-.acpmux-floating-status[data-status=streaming]{background:var(--agent-accent);animation:acpmux-floating-breathe 1.4s var(--agent-ease-out,ease-out) infinite alternate}
+/* A working chat is a still accent dot: status dots never breathe or blink (Leo 2026-10-21; no-breathing-dots.test.ts). */
+.acpmux-floating-status[data-status=streaming]{background:var(--agent-accent)}
 .acpmux-floating-status[data-status=attention]{background:var(--acpmux-needs-you-mark)}
-@keyframes acpmux-floating-breathe{from{opacity:1}to{opacity:.35}}
-@media (prefers-reduced-motion:reduce){.acpmux-floating-status[data-status=streaming]{animation:none}}
 .acpmux-quick[data-floating=compact]{justify-content:stretch}
 .acpmux-quick-compact-bar{flex:1;min-height:0;display:flex;align-items:center}
-/* Static status indicators (cx-sya4n): no breathing, and a shape per state, not color alone: a solid dot
-   while it works, a triangle when it needs you, in the dot's own 6px box (nothing beside it moves). */
-:root[data-status-indicators=static] .acpmux-floating-status[data-status=streaming]{animation:none}
+/* Static status indicators (cx-sya4n): a shape per state, not color alone: a solid dot while it works,
+   a triangle when it needs you, in the dot's own 6px box (nothing beside it moves). */
 :root[data-status-indicators=static] .acpmux-floating-status[data-status=attention]{border-radius:0;clip-path:polygon(50% 0,100% 100%,0 100%)}
 .acpmux-floating-bar{display:flex;align-items:center;gap:4px;height:100%;box-sizing:border-box;padding:12px 8px 0 4px}
 .acpmux-floating-bar-open{flex:1;min-width:0;display:flex;align-items:center;gap:8px;height:32px;padding:0 8px;border:0;border-radius:6px;background:none;color:inherit;font:inherit;text-align:start;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
@@ -630,7 +628,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-chief-card-copy small{color:color-mix(in srgb,var(--agent-text) 68%,var(--agent-muted));font-size:var(--text-control);line-height:var(--text-control--line-height)}
 .acpmux-chief-card-queue{flex:none;min-width:17px;height:17px;padding:0 4px;border-radius:6px;background:color-mix(in srgb,var(--agent-accent) 18%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:17px;text-align:center;font-variant-numeric:tabular-nums}
 .acpmux-chief-dock-status{flex:none;display:inline-flex;align-items:center;justify-content:center;width:21px;height:21px;color:var(--agent-muted)}
-.acpmux-chief-dock-status[data-status=streaming]{color:var(--agent-accent);animation:acpmux-floating-breathe 1.4s var(--agent-ease-out,ease-out) infinite alternate}
+.acpmux-chief-dock-status[data-status=streaming]{color:var(--agent-accent)}
 .acpmux-chief-dock-status[data-status=attention]{color:var(--acpmux-needs-you-mark)}
 .acpmux-chief-dock-status[data-status=error]{color:var(--agent-danger,var(--agent-warning))}
 .acpmux-chief-dock-status[data-status=complete]{color:var(--agent-success,var(--acpmux-add,#3fb950))}
