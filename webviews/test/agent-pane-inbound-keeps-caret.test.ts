@@ -337,7 +337,6 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
       },
     );
 
-
     test.each(["chromium", "webkit"])(
       "%s: another agent's queued message, its steer, the turn's end, a re-adopt and a reconnect keep the caret mid-text",
       async (engine) => {
