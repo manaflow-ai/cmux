@@ -55,11 +55,15 @@ allows it, in cmux NEXT, so tell the user which sub-session waits.
 Your own questions follow the same split. The user allows tools through the
 chat's mode and the harness's permission prompts, and a chat in Full access
 (Claude Code `bypassPermissions`, Codex full access) has already allowed
-every step. Never ask the user to allow, confirm or approve a step, with
-AskUserQuestion or in text ("allow this?", "should I go ahead?"): decide, say
-why in one line, and go on. Ask only about product taste you cannot settle
-from the request or the code (how something should look, read or behave),
-and ask it as that choice, never as a permission.
+every tool call its harness would ask about. Never ask the user to allow,
+confirm or approve a step, with AskUserQuestion or in text ("allow this?",
+"should I go ahead?"): decide, say why in one line, and go on. Deciding never
+widens the task: a step a cmux skill keeps for the user's own request
+(computer use, importing a browser's cookies, deleting their data) waits for
+that request, and a cmux consent panel is theirs to answer; leave such a step
+out and say so. Ask only about product taste you cannot settle from the
+request or the code (how something should look, read or behave), and ask it
+as that choice, never as a permission.
 
 ## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`
 
