@@ -1,16 +1,17 @@
 // A message to another agent (tell-coordinator, cmux send, a mailbox write, SendMessage) as one
 // collapsed line, the shared agent message row (AgentMessageRow.tsx) that a received message
 // draws too: the envelope, "Sent to <recipient>", the message's first line muted, the chevron,
-// and how far it got as one muted word at the line's end (Sent, Queued, Delivered, Failed;
-// agentMessages.ts `messageDelivery`). The recipient is a name, never an id (agentNames.ts). Copy
-// is in the line's hover row. Opened, the message grows in place: its whole text under the line,
-// with no box around it, capped near eight lines and scrolling past them under a fade, and
-// nothing else (Leo 2026-10-21: the result's JSON under it was "immediately TMI"). Whether it is open lasts across
-// the virtualized transcript (transcriptDisclosure.tsx), and Find in Chat opens it.
+// and how far it got at the line's end, muted (Sent, Queued, Delivered; agentMessages.ts
+// `messageDelivery`), or why it did not arrive ("Not delivered: agent stopped"). The recipient is
+// a name, never an id (agentNames.ts). Copy is in the line's hover row. Opened, the message grows
+// in place: its whole text under the line, with no box around it, capped near eight lines and
+// scrolling past them under a fade, and nothing else (Leo 2026-10-21: the result's JSON under it
+// was "immediately TMI"). Whether it is open lasts across the virtualized transcript
+// (transcriptDisclosure.tsx), and Find in Chat opens it.
 import { useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
-import { messageDelivery, type AgentMessage, type Delivery } from "./agentMessages";
+import { messageDelivery, notDeliveredReason, type AgentMessage, type Delivery } from "./agentMessages";
 import { AgentMessageRow, messagePreview } from "./AgentMessageRow";
 import { AgentNamesContext, recipientName } from "./agentNames";
 import { useFindReveal } from "./chatFind";
@@ -32,7 +33,7 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
   const delivery = messageDelivery(tool);
   const running = delivery === "sending";
   const failed = delivery === "failed";
-  const status = deliveryWord(t, delivery);
+  const status = deliveryWord(t, delivery, tool);
   return (
     <AgentMessageRow
       direction="sent"
@@ -58,8 +59,14 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
   );
 }
 
-/// The one muted word a send's line ends with; none while it goes out (the line reads "Sending to").
-function deliveryWord(t: ReturnType<typeof useT>, delivery: Delivery): string | undefined {
+/// How far a send got, at its line's end: one muted word (Sent, Queued, Delivered), none while it
+/// goes out (the line reads "Sending to"), and for a send that did not arrive, why, in the muted
+/// warning tone: "Not delivered: agent stopped", "Not delivered: no such agent", "Not delivered".
+function deliveryWord(
+  t: ReturnType<typeof useT>,
+  delivery: Delivery,
+  tool: NonNullable<AcpmuxActivity["tool"]>,
+): string | undefined {
   switch (delivery) {
     case "sending":
       return undefined;
@@ -70,7 +77,14 @@ function deliveryWord(t: ReturnType<typeof useT>, delivery: Delivery): string | 
     case "delivered":
       return t("message.deliveredShort");
     case "failed":
-      return t("message.failed");
+      switch (notDeliveredReason(tool)) {
+        case "stopped":
+          return t("message.notDeliveredStopped");
+        case "noAgent":
+          return t("message.notDeliveredNoAgent");
+        case "other":
+          return t("message.notDelivered");
+      }
   }
 }
 

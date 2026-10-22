@@ -193,6 +193,33 @@ function deliveryWords(text: string): Delivery {
   return "sent";
 }
 
+/// Why a send was not delivered, when its result says (Leo 2026-10-21: a card read "Sent" over a
+/// `success:false` result, "was stopped by the user and won't be resumed"): the agent it went to
+/// was stopped, no agent goes by that name, or (`other`) the result does not say.
+export type NotDelivered = "stopped" | "noAgent" | "other";
+
+export function notDeliveredReason(tool: Pick<Tool, "output">): NotDelivered {
+  const output = (tool.output ?? "").trim();
+  const value = parseJson(output);
+  const result = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const said =
+    [result.error, result.message, result.reason, result.result].find((part) => typeof part === "string") ?? output;
+  const text = String(said);
+  if (
+    /\bno (?:such |agent |session )?(?:agent|session|teammate|recipient)\b|\bno_session\b|\b(?:agent|session|recipient|teammate)\b[^.\n]{0,40}\bnot found\b|\bunknown (?:agent|session|recipient|teammate)\b/i.test(
+      text,
+    )
+  )
+    return "noAgent";
+  if (
+    /\b(?:stopped|won['’]t be resumed|not running|no longer running|has exited|exited|was killed|has ended|terminated)\b/i.test(
+      text,
+    )
+  )
+    return "stopped";
+  return "other";
+}
+
 function parseJson(text: string): unknown {
   if (!text.startsWith("{")) return undefined;
   try {

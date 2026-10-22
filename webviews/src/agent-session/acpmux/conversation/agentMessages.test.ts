@@ -67,3 +67,17 @@ test("a recipient id nothing names is never shown", async () => {
   expect(recipientName("a5f0c2b9e1d4a7c3b", names)).toBeUndefined();
   expect(recipientName("grid-fix", names)).toBe("grid-fix");
 });
+
+test("why a send was not delivered, read from its result", async () => {
+  const { notDeliveredReason } = await import("./agentMessages");
+  const reason = (output: string) => notDeliveredReason({ output });
+  expect(
+    reason(JSON.stringify({ success: false, message: "Agent x was stopped by the user and won't be resumed." })),
+  ).toBe("stopped");
+  expect(reason(JSON.stringify({ success: false, error: "No agent named grid-fix" }))).toBe("noAgent");
+  expect(reason(JSON.stringify({ success: false, error: "Recipient grid-fix not found" }))).toBe("noAgent");
+  expect(reason("error: no_session: grid\n")).toBe("noAgent");
+  expect(reason("error: session grid has exited\n")).toBe("stopped");
+  expect(reason(JSON.stringify({ success: false }))).toBe("other");
+  expect(reason("")).toBe("other");
+});
