@@ -12,6 +12,6 @@ pub(crate) use crate::resource_selector::{
     ResolvedResourceSlots, ResourceSelectorContext, resolve_resource_selectors,
 };
 pub(crate) use crate::workspace_registry::{
-    ResourcePatchCommit, ResourceWorkspaceLedger, TerminalLifecycle, WorkspaceMutation,
+    ResourcePatchCommit, ResourceWorkspaceLedger, WorkspaceMutation,
 };
 pub(crate) use crate::{PaneId, ScreenId, SurfaceId, SurfaceKind, WorkspaceId};

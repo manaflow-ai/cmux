@@ -116,6 +116,12 @@
       "title" : "Files Outside the Project",
       "type" : "string"
     },
+    "agentPane.needsYou.enabled" : {
+      "default" : false,
+      "description" : "A badge in the chat header counts what your agents wait on; a click lists every ask with its answers. New agent tabs.",
+      "title" : "Needs You",
+      "type" : "boolean"
+    },
     "agentPane.showContextUsage" : {
       "default" : true,
       "description" : "The ring beside the model that fills as the chat uses its context window.",
@@ -1639,6 +1645,12 @@
       "title" : "Expand Unchanged Lines",
       "type" : "boolean"
     },
+    "diff.groupByKind" : {
+      "default" : false,
+      "description" : "diff.groupByKind",
+      "title" : "Group Files by Kind",
+      "type" : "boolean"
+    },
     "diff.layout" : {
       "default" : "unified",
       "description" : "diff.layout",
@@ -2348,7 +2360,7 @@
     },
     "layout.linkPlacement" : {
       "default" : "split-right",
-      "description" : "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane.",
+      "description" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one.",
       "enum" : [
         "split-right",
         "new-column",
@@ -3342,6 +3354,12 @@
       "title" : "Show Now Playing",
       "type" : "boolean"
     },
+    "sidebar.nowPlaying.otherApps" : {
+      "default" : false,
+      "description" : "Also show what plays in other apps, such as Spotify, Music or another browser. Off: only what plays in cmux.",
+      "title" : "Include Other Apps in Now Playing",
+      "type" : "boolean"
+    },
     "sidebar.numbering" : {
       "default" : "allItems",
       "description" : "Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1.",
@@ -3482,6 +3500,16 @@
       "description" : "Past the last item, the next item is the first again.",
       "title" : "Wrap Around",
       "type" : "boolean"
+    },
+    "sidebar.style" : {
+      "default" : "standard",
+      "description" : "Rail shrinks the sidebar to a thin strip with a mark for each workspace. Point at the strip to open the full sidebar over your work.",
+      "enum" : [
+        "standard",
+        "rail"
+      ],
+      "title" : "Sidebar Style",
+      "type" : "string"
     },
     "sidebar.topBandMaxShare" : {
       "default" : 0.3333333333333333,
@@ -3978,7 +4006,7 @@
       "type" : "boolean"
     },
     "tabs.newTabNowPlaying" : {
-      "default" : true,
+      "default" : false,
       "description" : "A player for what is playing, on the New Tab page.",
       "title" : "Show Now Playing on New Tab",
       "type" : "boolean"
@@ -4027,6 +4055,24 @@
       "description" : "A short greeting over the composer.",
       "title" : "Show Greeting on New Tab",
       "type" : "boolean"
+    },
+    "tabs.newTabWidgets.order" : {
+      "default" : [
+        "projects",
+        "actions",
+        "chats"
+      ],
+      "description" : "The order of the widgets on New Tab. Right-click New Tab and choose Edit New Tab to drag them.",
+      "items" : {
+        "enum" : [
+          "projects",
+          "actions",
+          "chats"
+        ],
+        "type" : "string"
+      },
+      "title" : "New Tab Widget Order",
+      "type" : "array"
     },
     "tabs.newTabWidgets.projects" : {
       "default" : false,

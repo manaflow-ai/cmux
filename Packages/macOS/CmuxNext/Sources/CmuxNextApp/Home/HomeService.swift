@@ -24,6 +24,10 @@ final class HomeService {
     /// The Chief conversation whose settings open once its Home view shows it: Toggle Chief
     /// Settings with no Home in front brings Home forward there (`HomeChiefActions`).
     @ObservationIgnored var pendingChiefSettings: ConversationID?
+    #if DEBUG
+    /// DEBUG: the Chiefs of `debug.home.sidebar_fixture`'s rows, which wear their own characters too.
+    var debugChiefs: Set<String> = []
+    #endif
     /// While a Chief turn waits for the compactor (ChiefSettleWatch).
     var settleNotice: String?
     @ObservationIgnored var settleWatch: ChiefSettleWatch?
@@ -97,6 +101,15 @@ final class HomeService {
     /// The Home list rows (`home-inbox`) the Messages list maps: local from the Chief home, Cloud from the build daemon.
     @ObservationIgnored let homeInbox = HomeInboxSource(owners: ["local"])
     @ObservationIgnored let homeCloudInbox = HomeInboxSource(owners: ["cloud"])
+    /// The Home list's last state beyond the conversations, for the next launch's first frame
+    /// (HomeService+LaunchList), kept beside the conversations' cache of the same Chief owner.
+    @ObservationIgnored private(set) lazy var sidebarLaunch = HomeSidebarLaunchCache.standard(owner: chief.home.session)
+    /// The last launch's Chief roster, used until the cloud Chiefs are read (`chiefRoster`).
+    @ObservationIgnored var launchRoster: HomeChiefRoster?
+    /// The cloud Chiefs were read this launch (`setCloudChiefs`). Observed: the roster changes with it.
+    var cloudChiefsRead = false
+    @ObservationIgnored var homeListPrimed = false
+    @ObservationIgnored var launchListObservation: Task<Void, Never>?
     /// This Mac's old Messages-list pins, moved into those owners once (cx-frn2y).
     @ObservationIgnored private(set) lazy var pinMigration = HomePinMigration(account: { [weak self] in self?.pinAccount ?? "local" })
     /// The docked Home's shown view: the sidebar marks its Home or Channels entry by it (cx-frn2y).
@@ -153,6 +166,7 @@ final class HomeService {
             if case .cloudConversations = event { self?.handle(event) }
         }
         installChiefMigration()
+        primeHomeList()
         pinMigration.attach([homeInbox, homeCloudInbox])
         settleWatch = ChiefSettleWatch(home: chief.home) { [weak self] text in
             if self?.settleNotice != text { self?.settleNotice = text }
@@ -176,6 +190,7 @@ final class HomeService {
         startCloud()
         // task-owner: lives as long as the service; event-driven (Observation)
         homeStore.start()
+        keepHomeListForLaunch()
         availability = Task { [weak self] in
             for await connection in ObservationStream({ chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil }) {
                 guard let self else { continue }
@@ -207,6 +222,7 @@ final class HomeService {
 
     /// Records the cloud Chiefs the last read found (HomeService+Workspace).
     func setCloudChiefs(_ chiefs: HomeCloudChiefs) {
+        if !cloudChiefsRead { cloudChiefsRead = true }
         if cloudChiefs != chiefs { cloudChiefs = chiefs }
     }
 
