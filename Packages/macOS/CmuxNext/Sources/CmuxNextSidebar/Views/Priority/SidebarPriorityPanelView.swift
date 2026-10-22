@@ -6,6 +6,8 @@ import CmuxNextWakeups
 /// what needs the person (the App ranks them), a header that folds it to one line with a count, and
 /// its own scroll past its share of the sidebar's height. When a chat's rank changes its row slides
 /// to its new place on the sidebar's move spring; a new row opens its slot and a leaving row closes its.
+/// The person can drag a row to another place; it stays there (the App keeps it, `.place`), and the
+/// other chats rank around it (Leo 2026-10-21).
 final class SidebarPriorityPanelView: NSView {
     var onAction: ((SidebarPriorityAction) -> Void)?
     /// The panel's height changed (rows came or went, it folded): the sidebar lays out again.
@@ -17,7 +19,7 @@ final class SidebarPriorityPanelView: NSView {
     private let scroll = NSScrollView()
     private lazy var fade = ScrollEdgeFadeView(scrollView: scroll)
     private let document = FlippedDocument()
-    private var rows: [String: SidebarPriorityRowView] = [:]
+    private(set) var rows: [String: SidebarPriorityRowView] = [:]
     /// Rows that left and still close their slot; they go when their move ends. They take no clicks
     /// (`FlippedDocument.hitTest`), so a right-click there opens no menu for a chat that left.
     private var closing: [SidebarPriorityRowView] = []
@@ -99,6 +101,7 @@ final class SidebarPriorityPanelView: NSView {
             let top = runTop ?? frame.minY
             runTop = top
             row.onAction = nil
+            row.onDrag = nil
             opensUntil[ObjectIdentifier(row)] = nil
             leaving.append((row, NSRect(x: frame.minX, y: top, width: frame.width, height: 0)))
         }
@@ -114,6 +117,7 @@ final class SidebarPriorityPanelView: NSView {
             } else {
                 let row = SidebarPriorityRowView(entry: entry)
                 row.onAction = { [weak self] action in self?.onAction?(action) }
+                row.onDrag = { [weak self] row, offset, ended in self?.drag(row, offset: offset, ended: ended) }
                 document.addSubview(row)
                 rows[entry.id] = row
                 let top = runTop ?? y
@@ -169,6 +173,36 @@ final class SidebarPriorityPanelView: NSView {
                 row.clipsToBounds = false
             }
         })
+    }
+
+    /// The row follows the pointer over the others; released, it takes the slot its middle is in
+    /// (past the middle of a row it passed), the view shows that order at once and the App keeps it.
+    /// A drop back in its own slot changes nothing.
+    private func drag(_ row: SidebarPriorityRowView, offset: CGFloat, ended: Bool) {
+        guard let from = panel.entries.firstIndex(where: { $0.id == row.entry.id }) else { return }
+        let heights = panel.entries.map { SidebarPriorityRowView.height(hasPreview: $0.preview != nil) }
+        let top = heights[..<from].reduce(0, +)
+        let middle = top + heights[from] / 2 + offset
+        var slot = 0, y: CGFloat = 0
+        for (index, height) in heights.enumerated() {
+            if index != from, y + height / 2 < middle { slot += 1 }
+            y += height
+        }
+        guard ended else {
+            Motion.withoutAnimation {
+                row.layer?.zPosition = 1
+                row.animator().frame.origin.y = min(max(0, top + offset), max(0, y - heights[from]))
+            }
+            return
+        }
+        row.layer?.zPosition = 0
+        var order = panel.entries
+        let entry = order.remove(at: from)
+        order.insert(entry, at: slot)
+        guard slot != from else { return placeRows(animated: window != nil) }
+        panel.entries = order
+        placeRows(animated: window != nil)
+        onAction?(.place(entry.id, order: order.map(\.id)))
     }
 
     /// A chip says minutes: one redraw a minute while a row works, none otherwise.

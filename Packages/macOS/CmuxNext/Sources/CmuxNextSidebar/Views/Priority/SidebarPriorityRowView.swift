@@ -3,11 +3,18 @@ import CmuxNextDesign
 
 /// One chat in the Priority view: the title and its project or machine tag on the first line with
 /// the state chip at the right, then up to two lines of its latest message. The pointer over the
-/// row swaps the chip for its actions (mark read, pin, snooze, archive); a click opens the chat.
-/// The buttons and the right-click menu run the same registered actions (the App maps them).
+/// row swaps the chip for its actions (mark read, pin, snooze, archive); a click opens the chat, and
+/// a press that moves past the sidebar's drag threshold drags the row instead (`onDrag`). The
+/// buttons and the right-click menu run the same registered actions (the App maps them).
 final class SidebarPriorityRowView: NSView {
     private(set) var entry: SidebarPriorityEntry
     var onAction: ((SidebarPriorityAction) -> Void)?
+    /// The row is dragged: how far the pointer moved down since the press (up is negative), and
+    /// whether it was released there.
+    var onDrag: ((SidebarPriorityRowView, _ offset: CGFloat, _ ended: Bool) -> Void)?
+    /// Where the press went down (window points), and whether it has moved far enough to drag.
+    private var pressStart: NSPoint?
+    private var dragging = false
 
     private let title = ChromeLabel(labelWithString: "")
     private let placeLabel = ChromeLabel(labelWithString: "")
@@ -189,7 +196,18 @@ final class SidebarPriorityRowView: NSView {
         return SidebarStyle.color(colors[sum % colors.count])
     }
 
-    override func mouseDown(with event: NSEvent) {}
+    override func mouseDown(with event: NSEvent) {
+        pressStart = event.locationInWindow
+        dragging = false
+    }
+
+    /// Past the threshold (a click's jitter never drags, as in the main list) the press drags the row.
+    override func mouseDragged(with event: NSEvent) {
+        guard let start = pressStart else { return }
+        let point = event.locationInWindow
+        if !dragging { dragging = SidebarPress.movedPastThreshold(from: start, to: point) }
+        if dragging { onDrag?(self, start.y - point.y, false) }
+    }
 
     /// The App's menu for the row's chat (`SidebarContextTarget.priorityChat`): the same actions as
     /// the hover buttons.
@@ -199,6 +217,13 @@ final class SidebarPriorityRowView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        let start = pressStart, dragged = dragging
+        pressStart = nil
+        dragging = false
+        if dragged, let start {
+            onDrag?(self, start.y - event.locationInWindow.y, true)
+            return
+        }
         guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
         onAction?(.open(entry.id))
     }
