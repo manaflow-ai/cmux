@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 extension PageWebView {
@@ -8,3 +9,13 @@ extension PageWebView {
         if hasPainted { body() } else { paintWaiters.append(body) }
     }
 }
+
+#if DEBUG
+extension PageWebView {
+    /// A ``ChatOpenTrace`` mark of this page, when it is an agent chat's page.
+    func traceMark(_ mark: ChatOpenTrace.Mark) {
+        guard ChatOpenTrace.shared.isArmed, descriptor.id == PageDescriptor.agent.id else { return }
+        ChatOpenTrace.shared.mark(mark, page: self)
+    }
+}
+#endif

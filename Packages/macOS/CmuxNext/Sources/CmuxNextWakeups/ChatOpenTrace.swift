@@ -129,6 +129,12 @@ public final class ChatOpenTrace {
     }
 
     public private(set) var isArmed = false
+    /// The traced chat's page: the first agent page that marks after arming. Page marks of any
+    /// other page are not this open's.
+    private var page: ObjectIdentifier?
+    /// The Chromium pane key of the traced chat's page (`ChromiumPageHost`), for the marks of the
+    /// Chromium window and its first contentful paint.
+    public var chromiumPane: String?
     private var current: Record?
     private var finished: [Record] = []
     private var nextID = 1
@@ -144,6 +150,8 @@ public final class ChatOpenTrace {
         nextID += 1
         surface = nil
         engine = nil
+        page = nil
+        chromiumPane = nil
         isArmed = true
         return true
     }
@@ -155,14 +163,33 @@ public final class ChatOpenTrace {
         if mark == .loadingLeft || mark == .holdEnd { resumeIfShown() }
     }
 
+    /// Records `mark` of `page` (an agent page): the first one to mark binds the trace.
+    public func mark(_ mark: Mark, page: AnyObject) {
+        guard isArmed else { return }
+        let id = ObjectIdentifier(page)
+        if self.page == nil { self.page = id }
+        if self.page == id { self.mark(mark) }
+    }
+
+    /// Records `mark` of the Chromium pane `pane`, when it is the traced chat's.
+    public func mark(_ mark: Mark, chromiumPane pane: String?) {
+        guard isArmed, let pane, pane == chromiumPane else { return }
+        self.mark(mark)
+    }
+
     /// Whether the running trace recorded `mark`.
     public func has(_ mark: Mark) -> Bool { current?.marks[mark.rawValue] != nil }
 
-    /// The first pane made after arming binds the trace: `surface` is sampled every frame of
+    /// The pane of the traced page (the first pane made after arming, without a page) binds the trace: `surface` is sampled every frame of
     /// `view`'s display and `engine` read at the end. Later panes are not this open's.
     @discardableResult
-    public func bind(view: NSView, surface: @escaping () -> Surface, engine: @escaping () -> String) -> Bool {
+    public func bind(view: NSView, page: AnyObject?, surface: @escaping () -> Surface, engine: @escaping () -> String) -> Bool {
         guard isArmed, self.surface == nil else { return false }
+        if let page {
+            let id = ObjectIdentifier(page)
+            if self.page == nil { self.page = id }
+            guard self.page == id else { return false }
+        }
         self.surface = surface
         self.engine = engine
         mark(.paneMade)

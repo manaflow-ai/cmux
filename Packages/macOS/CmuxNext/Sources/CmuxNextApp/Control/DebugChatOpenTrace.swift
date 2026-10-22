@@ -11,10 +11,12 @@ import Foundation
 /// black screen for a while".
 ///
 /// `action`:
-/// - `run`: arms a trace, performs `palette.newAgentChat` as a person does, waits until the chat
-///   shows (its loading cover left and no hold keeps it hidden) or `timeout_ms` (default 10000, at
-///   most 15000), samples `settle_ms` more of frames (default 300), and returns the trace.
-/// - `arm`: arms a trace with no action, for an open driven another way; `finish` ends it.
+/// - `arm`: arms a trace and marks `action` now; the caller then opens a chat its own way (an
+///   `action.run` of `palette.newAgentChat`, a sidebar click).
+/// - `wait`: waits until the armed trace's chat shows (its loading cover left and no hold keeps it
+///   hidden) or `timeout_ms` (default 10000, at most 15000), samples `settle_ms` more of frames
+///   (default 300), finishes the trace and returns it.
+/// - `finish`: finishes the running trace now (a launch trace) and returns it.
 /// - `get` (default): the last `count` traces (default 10), oldest first, the running one last.
 ///
 /// `CMUX_CHAT_OPEN_TRACE_LAUNCH=1` or `--chat-open-trace-launch` arms a trace at launch
@@ -38,33 +40,30 @@ enum DebugChatOpenTrace {
     }
 
     static func handle(_ params: [String: JSON], _ services: AppServices?) async -> JSON {
-        guard let services else { return .null }
+        guard services != nil else { return .null }
         let trace = ChatOpenTrace.shared
         switch params["action"]?.stringValue ?? "get" {
-        case "run":
-            return await run(params, services)
         case "arm":
-            return .object(["armed": .bool(trace.begin())])
+            guard trace.begin() else { return .object(["error": .string("a trace is already running")]) }
+            trace.mark(.action)
+            return .object(["armed": .bool(true)])
+        case "wait":
+            return await wait(params)
         case "finish":
             return trace.finish(timedOut: false).map(json) ?? .null
         case "get":
             let count = min(max(params["count"]?.intValue ?? 10, 1), ChatOpenTrace.capacity)
             return .object(["traces": .array(trace.recent(count).map(json))])
         default:
-            return .object(["error": .string("unknown action; use run, arm, finish or get")])
+            return .object(["error": .string("unknown action; use arm, wait, finish or get")])
         }
     }
 
-    private static func run(_ params: [String: JSON], _ services: AppServices) async -> JSON {
+    private static func wait(_ params: [String: JSON]) async -> JSON {
         let trace = ChatOpenTrace.shared
-        guard trace.begin() else { return .object(["error": .string("a trace is already running")]) }
+        guard trace.isArmed else { return .object(["error": .string("no trace is armed")]) }
         let timeout = min(max(params["timeout_ms"]?.intValue ?? 10_000, 100), 15_000)
         let settle = min(max(params["settle_ms"]?.intValue ?? 300, 0), 2_000)
-        trace.mark(.action)
-        guard services.registry.perform("palette.newAgentChat", invocation: ActionInvocation(origin: .user)) else {
-            _ = trace.finish(timedOut: false)
-            return .object(["error": .string("palette.newAgentChat did not run")])
-        }
         let shown = await trace.waitUntilShown(timeout: .milliseconds(timeout))
         await trace.settle(for: .milliseconds(settle))
         return trace.finish(timedOut: !shown).map(json) ?? .null

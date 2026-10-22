@@ -14,7 +14,7 @@ extension PageWebView {
     /// A new main-frame document committed (either engine).
     func documentCommitted() {
         #if DEBUG
-        ChatOpenTrace.shared.mark(.committed)
+        traceMark(.committed)
         #endif
         // A new document: the old one's subscriptions and host calls end with it, and it has not
         // painted yet.

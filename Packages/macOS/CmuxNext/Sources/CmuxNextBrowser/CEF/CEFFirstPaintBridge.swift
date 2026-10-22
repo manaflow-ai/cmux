@@ -63,7 +63,7 @@ final class CEFFirstPaintBridge {
     func handle(_ json: String) -> Bool {
         if Self.isFirstContentfulPaint(json, mainFrame: mainFrame) {
             #if DEBUG
-            ChatOpenTrace.shared.mark(.firstContentfulPaint)
+            ChatOpenTrace.shared.mark(.firstContentfulPaint, chromiumPane: tab?.host.key.pane.rawValue)
             #endif
             tab?.documentDidSettle()
         }

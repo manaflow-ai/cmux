@@ -331,7 +331,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             startChromium(hosting: hosting)
         } else {
             #if DEBUG
-            ChatOpenTrace.shared.mark(.navigationStart)
+            traceMark(.navigationStart)
             #endif
             webView.load(URLRequest(url: descriptor.url(route: route)))
         }
@@ -340,7 +340,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The current document painted its first frame (``PagePaintProbe``, either engine).
     func notePainted() {
         #if DEBUG
-        ChatOpenTrace.shared.mark(.pagePainted)
+        traceMark(.pagePainted)
         #endif
         paintedUptime = ProcessInfo.processInfo.systemUptime
         let waiters = paintWaiters

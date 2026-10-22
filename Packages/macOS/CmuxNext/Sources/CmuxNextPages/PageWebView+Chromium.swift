@@ -75,7 +75,7 @@ extension PageWebView {
     /// page does not reach the host in time.
     func startChromium(hosting: any PageChromiumHosting) {
         #if DEBUG
-        ChatOpenTrace.shared.mark(.chromiumStart)
+        traceMark(.chromiumStart)
         #endif
         webView.isHidden = true
         let scripts = PageChromiumDocumentScripts(controller: webView.configuration.userContentController)
@@ -93,7 +93,7 @@ extension PageWebView {
                 return
             }
             #if DEBUG
-            ChatOpenTrace.shared.mark(.browserCreated)
+            traceMark(.browserCreated)
             #endif
             await self.attachChromium(page, scripts: scripts)
         }
@@ -120,7 +120,7 @@ extension PageWebView {
             return
         }
         #if DEBUG
-        ChatOpenTrace.shared.mark(.setupDone)
+        traceMark(.setupDone)
         #endif
         bridge.install { [weak self] message in await self?.receive(message) }
         bridge.onMessage = { [weak self] name, body in self?.chromiumMessage(name, body: body) }
@@ -141,7 +141,7 @@ extension PageWebView {
         applyNativeRects()
         page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
         #if DEBUG
-        ChatOpenTrace.shared.mark(.navigationStart)
+        traceMark(.navigationStart)
         #endif
         page.load(descriptor.url(route: route))
         let wait = chromiumDeadline

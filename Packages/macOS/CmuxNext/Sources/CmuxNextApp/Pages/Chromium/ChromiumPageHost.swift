@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// The app's ``PageChromiumHosting``: cmux's own React pages in CEF tabs, so `browser.defaultEngine`
@@ -47,6 +48,11 @@ final class ChromiumPageHost: PageChromiumHosting {
         pageProfile = profile
         // Its own pane id: a page is never a tab of a browser pane's Chromium window.
         let configuration = BrowserTabConfiguration(profile: profile, pane: BrowserPaneID(rawValue: "cmux-page-" + UUID().uuidString))
+        #if DEBUG
+        // The first agent page made while a chat open is traced is that open's (``ChatOpenTrace``).
+        let trace = ChatOpenTrace.shared
+        if trace.isArmed, trace.chromiumPane == nil, page.id == PageDescriptor.agent.id { trace.chromiumPane = configuration.pane?.rawValue }
+        #endif
         let made = try await cef.makeTab(configuration)
         guard let tab = made as? CEFTab else {
             made.close()

@@ -210,7 +210,7 @@ final class CEFPaneHost {
             // workspace), which may differ from the app theme.
             shim.setBackgroundColor(PageBackground.themeARGB(in: hostView))
             #if DEBUG
-            ChatOpenTrace.shared.mark(.cefWindowCreate)
+            ChatOpenTrace.shared.mark(.cefWindowCreate, chromiumPane: key.pane.rawValue)
             #endif
             let initialURL = tab.takeInitialURLString()
             let started = CEFStartSteps.shared.createWindow {
@@ -251,7 +251,7 @@ final class CEFPaneHost {
         CEFStartSteps.shared.firstWindowEnded()
         guard case .creating(let expected) = window, expected == request, let tab = windowTab else { return }
         #if DEBUG
-        ChatOpenTrace.shared.mark(.cefWindowCreated)
+        ChatOpenTrace.shared.mark(.cefWindowCreated, chromiumPane: key.pane.rawValue)
         #endif
         let windowID = runtime.shim?.tabWindowID(browser) ?? 0
         window = .live(window: windowID)

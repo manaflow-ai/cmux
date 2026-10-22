@@ -188,7 +188,7 @@ extension AgentPaneView {
         loadingView.showMarkLater()
         model.whenPainted { [weak self] in self?.endLoadingState() }
         #if DEBUG
-        ChatOpenTrace.shared.bind(view: self, surface: { [weak self] in self?.traceSurface ?? .gone },
+        ChatOpenTrace.shared.bind(view: self, page: page, surface: { [weak self] in self?.traceSurface ?? .gone },
                                   engine: { [weak self] in self?.engineName ?? "gone" })
         #endif
         loadingView.giveUpWhenSeenUnpainted { [weak self] in
