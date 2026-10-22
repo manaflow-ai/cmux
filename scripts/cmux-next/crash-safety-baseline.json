@@ -10,7 +10,7 @@
    "cmux-tui": 1
   },
   "expect": {
-   "acpmux": 10,
+   "acpmux": 5,
    "chatmux-relay": 81,
    "cmux-app-host": 2,
    "cmux-browser-host": 1,
@@ -18,7 +18,7 @@
    "cmux-remote": 57,
    "cmux-terminal-client": 1,
    "cmux-tui": 76,
-   "cmux-tui-core": 283,
+   "cmux-tui-core": 191,
    "cmux-tui-hooks": 11,
    "cmux-tui-platform": 1,
    "cmux-tui-remote-access": 1,
@@ -30,15 +30,15 @@
    "chatmux-relay": 1,
    "cmux-remote": 11,
    "cmux-tui": 33,
-   "cmux-tui-core": 36
+   "cmux-tui-core": 26
   },
   "unwrap": {
-   "acpmux": 179,
+   "acpmux": 140,
    "chatmux-relay": 7,
    "cmux-remote": 25,
    "cmux-terminal-client": 30,
    "cmux-tui": 435,
-   "cmux-tui-core": 1584,
+   "cmux-tui-core": 1162,
    "cmux-tui-image-paste": 22,
    "cmux-tui-platform": 17,
    "cmux-tui-remote-access": 5,

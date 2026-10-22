@@ -175,9 +175,10 @@ pub(crate) fn adopt_pty_fd(args: &[String]) -> anyhow::Result<Option<RawFd>> {
 pub(super) fn adopt_pty_fd_from_process_args() -> Option<RawFd> {
     // args_os: a non-UTF-8 executable path must not panic the host.
     let args = std::env::args_os().collect::<Vec<_>>();
-    args.windows(2)
-        .find(|pair| pair[0] == ADOPT_PTY_FD_FLAG)
-        .and_then(|pair| pair[1].to_str().and_then(parse_fd))
+    args.windows(2).find_map(|pair| match pair {
+        [flag, value] if flag == ADOPT_PTY_FD_FLAG => value.to_str().and_then(parse_fd),
+        _ => None,
+    })
 }
 
 /// Both `Launch` (with its optional respawn seed, cx-6so.49 L2) and
@@ -324,11 +325,10 @@ fn spawn_adopting_host(
         None => crate::host_exe::spawn_host(configure),
     }
     .context("spawn adopting terminal-host process")?;
-    let mut process = SpawnedHostProcess { child: Some(child) };
-    host_scope::place_host(process.child_mut().id());
-    let stdin = process.child_mut().stdin.take().context("open terminal-host bootstrap stdin")?;
-    let stdout =
-        process.child_mut().stdout.take().context("open terminal-host bootstrap stdout")?;
+    host_scope::place_host(child.id());
+    let (process, stdin, stdout) = SpawnedHostProcess::with_pipes(child);
+    let stdin = stdin.context("open terminal-host bootstrap stdin")?;
+    let stdout = stdout.context("open terminal-host bootstrap stdout")?;
     Ok((process, (stdin, stdout)))
 }
 

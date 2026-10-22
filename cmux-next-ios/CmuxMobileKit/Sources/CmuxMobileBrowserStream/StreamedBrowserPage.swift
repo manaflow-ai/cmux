@@ -36,18 +36,25 @@ public struct StreamedBrowserPage: View {
                 }
             } else if model.phase == .connecting {
                 status("Opening on your Mac…")
+            } else if let notice = model.notice {
+                refusal(notice)
             }
-            Button {
-                keyboard.toggle()
-            } label: {
-                Image(systemName: keyboard ? "keyboard.chevron.compact.down" : "keyboard")
-                    .font(.system(size: 17, weight: .medium))
-                    .frame(width: 44, height: 44)
+            // Opens the keyboard; while it shows, the bar above it has Hide Keyboard
+            // (this button would sit under the keyboard).
+            if !keyboard {
+                Button {
+                    keyboard = true
+                } label: {
+                    Image(systemName: "keyboard")
+                        .font(.system(size: 17, weight: .medium))
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .padding(12)
+                .accessibilityLabel(Text("Keyboard"))
+                .accessibilityIdentifier("browser.keyboard")
             }
-            .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .circle)
-            .padding(12)
-            .accessibilityIdentifier("browser.keyboard")
             if StreamedBrowserOverlay.enabled {
                 StreamedBrowserOverlay(model: model)
                     // Bottom left, clear of the page's own top area (a page clock).
@@ -97,6 +104,23 @@ public struct StreamedBrowserPage: View {
         .padding(.horizontal, 16).padding(.vertical, 12)
         .glassEffect(.regular, in: .rect(cornerRadius: 18))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// The Mac did not load an address: why, over the live page, until the next
+    /// navigation or a tap.
+    private func refusal(_ text: String) -> some View {
+        Button { model.dismissNotice() } label: {
+            Label(text, systemImage: "lock")
+                .font(.footnote)
+                .multilineTextAlignment(.leading)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
+        .padding(.horizontal, 16).padding(.top, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .accessibilityIdentifier("browser.refused")
+        .accessibilityHint(Text("Dismisses this message"))
     }
 
     private func status(_ text: String) -> some View {
@@ -189,7 +213,10 @@ struct StreamSurface: UIViewRepresentable {
     func updateUIView(_ view: StreamView, context: Context) {
         view.reportScroll = reportScroll
         if keyboard, !view.isFirstResponder {
-            view.becomeFirstResponder()
+            // Not in a window yet, or focus held elsewhere: the button comes back.
+            if !view.becomeFirstResponder() {
+                DispatchQueue.main.async { keyboard = false }
+            }
         } else if !keyboard, view.isFirstResponder {
             view.resignFirstResponder()
         }
@@ -207,6 +234,13 @@ final class StreamView: UIView, UIKeyInput {
     private var velocity: CGPoint = .zero
     private var momentumAt: CGPoint = .zero
     private var lastStep: CFTimeInterval = 0
+    /// How much of the view the software keyboard covers: the page lays out above it,
+    /// so the field being typed in stays in sight (as Safari's page shrinks).
+    private var covered: CGFloat = 0
+    /// The software keyboard's frame on the screen, when it shows: `covered` is
+    /// worked out again at each layout (rotation, split view), not only per notification.
+    private var keyboardOnScreen: CGRect?
+    private lazy var keyBar = StreamKeyBar(target: self)
 
     init(model: StreamedBrowserModel) {
         self.model = model
@@ -225,6 +259,34 @@ final class StreamView: UIView, UIKeyInput {
         isAccessibilityElement = true
         accessibilityTraits = .allowsDirectInteraction
         accessibilityIdentifier = "browser.page"
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardFrame(_:)),
+                                               name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardHidden(_:)),
+                                               name: UIResponder.keyboardWillHideNotification, object: nil)
+    }
+
+    /// The visible page: the view less what the keyboard covers.
+    private var pageSize: CGSize { CGSize(width: bounds.width, height: max(64, bounds.height - covered)) }
+
+    @objc private func keyboardFrame(_ note: Notification) {
+        guard isFirstResponder,
+              let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
+        keyboardOnScreen = end
+        setNeedsLayout()
+    }
+
+    @objc private func keyboardHidden(_ note: Notification) { cover(nil) }
+
+    private func cover(_ keyboard: CGRect?) {
+        keyboardOnScreen = keyboard
+        setNeedsLayout()
+    }
+
+    /// How much of this view the keyboard covers now.
+    private func coveredNow() -> CGFloat {
+        guard let window, let keyboard = keyboardOnScreen else { return 0 }
+        return StreamedBrowserKey.covered(page: convert(bounds, to: window),
+                                          keyboard: window.convert(keyboard, from: window.screen.coordinateSpace))
     }
 
     @available(*, unavailable)
@@ -232,14 +294,15 @@ final class StreamView: UIView, UIKeyInput {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        covered = coveredNow()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        video.frame = bounds
+        video.frame = CGRect(origin: .zero, size: pageSize)
         CATransaction.commit()
-        model.layout(points: bounds.size, screenScale: Double(window?.screen.scale ?? traitCollection.displayScale))
+        model.layout(points: pageSize, screenScale: Double(window?.screen.scale ?? traitCollection.displayScale))
     }
 
-    private func css(_ point: CGPoint) -> (x: Double, y: Double) { model.css(point, in: bounds.size) }
+    private func css(_ point: CGPoint) -> (x: Double, y: Double) { model.css(point, in: pageSize) }
 
     @objc private func tapped(_ gesture: UITapGestureRecognizer) {
         stopMomentum()
@@ -325,32 +388,106 @@ final class StreamView: UIView, UIKeyInput {
         return became
     }
 
+    /// Dismissing the keyboard only hides it: the page's focus on the Mac stays.
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
-        if resigned { keyboardChanged?(false) }
+        if resigned {
+            keyboardChanged?(false)
+            cover(nil)
+        }
         return resigned
     }
+
+    /// The keys iOS lacks (Escape, Tab, arrows, shortcuts), Paste and Done.
+    override var inputAccessoryView: UIView? { keyBar }
 
     var hasText: Bool { true }
     var autocorrectionType: UITextAutocorrectionType { get { .no } set {} }
     var autocapitalizationType: UITextAutocapitalizationType { get { .none } set {} }
+    var spellCheckingType: UITextSpellCheckingType { get { .no } set {} }
+    var smartQuotesType: UITextSmartQuotesType { get { .no } set {} }
+    var smartDashesType: UITextSmartDashesType { get { .no } set {} }
     var keyboardType: UIKeyboardType { get { .default } set {} }
 
     func insertText(_ text: String) {
-        if text == "\n" {
-            key("Enter", key: "Enter", text: "\r")
-        } else if text == "\t" {
-            key("Tab", key: "Tab", text: "\t")
-        } else {
-            model.input(model.wire.commit(text))
+        for event in StreamedBrowserKey.typed(text, wire: model.wire) { model.input(event) }
+    }
+
+    func deleteBackward() {
+        model.input(model.wire.key("Backspace", key: "Backspace", down: true))
+        model.input(model.wire.key("Backspace", key: "Backspace", down: false))
+    }
+
+    func send(_ key: StreamedBrowserKey) {
+        for event in key.events(model.wire) { model.input(event) }
+    }
+
+    /// The phone's clipboard text into the page (the Mac's own Paste would paste the
+    /// Mac's clipboard). iOS asks the person before an app reads it.
+    func pastePhoneClipboard() {
+        guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
+        model.input(model.wire.commit(text))
+    }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        action == #selector(paste(_:)) ? UIPasteboard.general.hasStrings : super.canPerformAction(action, withSender: sender)
+    }
+
+    override func paste(_ sender: Any?) { pastePhoneClipboard() }
+
+    func done() { _ = resignFirstResponder() }
+}
+
+/// The bar above the keyboard of a streamed page.
+final class StreamKeyBar: UIInputView {
+    init(target: StreamView) {
+        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 46), inputViewStyle: .keyboard)
+        allowsSelfSizing = true
+        let scroll = UIScrollView()
+        scroll.showsHorizontalScrollIndicator = false
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.spacing = 2
+        func button(_ symbol: String, _ title: String, id: String, _ action: @escaping () -> Void) -> UIButton {
+            var config = UIButton.Configuration.plain()
+            config.image = UIImage(systemName: symbol)
+            config.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10)
+            let button = UIButton(configuration: config, primaryAction: UIAction { _ in action() })
+            button.accessibilityLabel = title
+            button.accessibilityIdentifier = "browser.key.\(id)"
+            return button
         }
+        for key in StreamedBrowserKey.allCases {
+            stack.addArrangedSubview(button(key.symbol, key.title, id: key.rawValue) { [weak target] in target?.send(key) })
+        }
+        stack.addArrangedSubview(button("doc.on.clipboard", String(localized: "Paste"), id: "paste") { [weak target] in
+            target?.pastePhoneClipboard()
+        })
+        let done = button("keyboard.chevron.compact.down", String(localized: "Hide Keyboard"), id: "done") { [weak target] in
+            target?.done()
+        }
+        for view in [scroll, stack, done] { view.translatesAutoresizingMaskIntoConstraints = false }
+        scroll.addSubview(stack)
+        addSubview(scroll)
+        addSubview(done)
+        NSLayoutConstraint.activate([
+            scroll.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 4),
+            scroll.trailingAnchor.constraint(equalTo: done.leadingAnchor),
+            scroll.topAnchor.constraint(equalTo: topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
+            stack.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
+            done.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -4),
+            done.centerYAnchor.constraint(equalTo: centerYAnchor),
+            heightAnchor.constraint(equalToConstant: 46),
+        ])
+        accessibilityIdentifier = "browser.keys"
     }
 
-    func deleteBackward() { key("Backspace", key: "Backspace") }
-
-    private func key(_ code: String, key: String, text: String = "") {
-        model.input(model.wire.key(code, key: key, text: text, down: true))
-        model.input(model.wire.key(code, key: key, text: text, down: false))
-    }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 }
 #endif

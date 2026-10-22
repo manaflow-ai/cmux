@@ -692,6 +692,11 @@ pub struct Mux {
     agent_cli_job_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
+    /// Notified when an id leaves `terminal_adoptions` (its adoption ended).
+    terminal_adoption_ended: Condvar,
+    /// Terminals a request waits on (`wait_for_terminal_adoption`): their
+    /// adoption starts without waiting for the owner to say ready.
+    terminal_adoptions_now: Mutex<HashSet<String>>,
     /// Restored tab names, by tab slot, for terminals that adopt after the
     /// start: the surface takes its tab's name when it arrives. A leaf lock.
     restored_tab_names: Mutex<HashMap<SurfaceId, String>>,

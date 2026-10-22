@@ -37,6 +37,22 @@ struct FileOpenKindTests {
         #expect(!FileOpenKind.editor.needsUserChoice)
     }
 
+    /// u9489 (Oct 21): "right-click and open it as text instead of as the HTML page … in Monaco".
+    /// A page cmux renders (Markdown, HTML, SVG) also opens as its source; other kinds already
+    /// open as text or have none.
+    @Test(arguments: [
+        ("index.html", true), ("page.HTM", true), ("logo.svg", true), ("README.md", true), ("notes.markdown", true),
+        ("notes.txt", false), ("main.swift", false), ("shot.png", false), ("spec.pdf", false), ("archive.zip", false),
+    ])
+    func renderedPagesAlsoOpenAsText(name: String, expected: Bool) {
+        #expect(FileOpenKind(fileName: name, isDirectory: false, isPackage: false).opensAsText == expected)
+    }
+
+    @Test func foldersAndAppsHaveNoText() {
+        #expect(!FileOpenKind(fileName: "site.html", isDirectory: true, isPackage: false).opensAsText)
+        #expect(!FileOpenKind(fileName: "Xcode.app", isDirectory: true, isPackage: true).opensAsText)
+    }
+
     @Test func classifiesAURLOnDisk() throws {
         let temp = try TempFolder()
         let page = try temp.file("index.html", bytes: 3)

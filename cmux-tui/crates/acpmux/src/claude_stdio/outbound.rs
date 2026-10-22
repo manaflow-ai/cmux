@@ -1,6 +1,7 @@
 //! ACP → claude stdin: requests from the hub become stream-json lines.
 
 use super::*;
+use crate::no_panic::JsonExt;
 
 impl Translator {
     /// Translate one ACP request from the hub into zero or more lines for
@@ -71,7 +72,7 @@ impl Translator {
                                 Some("text") => {
                                     let mut text = json!({"type": "text", "text": b.get("text").and_then(Value::as_str).unwrap_or("")});
                                     if let Some(marker) = b.get("cache_control").filter(|m| !m.is_null()) {
-                                        text["cache_control"] = marker.clone();
+                                        text.set("cache_control", marker.clone());
                                     }
                                     text
                                 }
@@ -79,7 +80,7 @@ impl Translator {
                                 Some("document") => {
                                     let mut document = json!({"type": "document", "source": {"type": "base64", "media_type": b.get("mimeType").and_then(Value::as_str).unwrap_or("application/pdf"), "data": b.get("data").and_then(Value::as_str).unwrap_or("")}});
                                     if let Some(name) = b.get("name").and_then(Value::as_str).filter(|name| !name.is_empty()) {
-                                        document["title"] = json!(name);
+                                        document.set("title", json!(name));
                                     }
                                     document
                                 }
@@ -89,7 +90,7 @@ impl Translator {
                                     if mime == "application/pdf" {
                                         let mut document = json!({"type": "document", "source": {"type": "base64", "media_type": mime, "data": resource.get("blob").and_then(Value::as_str).unwrap_or("")}});
                                         if let Some(uri) = resource.get("uri").and_then(Value::as_str).filter(|uri| !uri.is_empty()) {
-                                            document["title"] = json!(uri.strip_prefix("attachment://").unwrap_or(uri));
+                                            document.set("title", json!(uri.strip_prefix("attachment://").unwrap_or(uri)));
                                         }
                                         document
                                     } else {
@@ -108,9 +109,10 @@ impl Translator {
                             // and echoes it; the echo answers this request.
                             self.steers.lock().await.push_back((uuid, id.to_string()));
                             // Sent now (`_meta.steerNow`): the current step stops, so it
-                            // reads the line at once; the turn runs on.
+                            // reads the line at once; the turn runs on. Not while a subagent
+                            // or a background shell runs (`interrupt_ends_work`).
                             let now = p.pointer("/_meta/steerNow").and_then(Value::as_bool);
-                            if now == Some(true) {
+                            if now == Some(true) && !self.interrupt_ends_work().await {
                                 return Outbound::Lines(vec![line, self.step_interrupt(None)]);
                             }
                             return Outbound::Lines(vec![line]);
@@ -286,7 +288,7 @@ impl Translator {
                             .insert(id.to_string(), Pending::Background(asked, deadline));
                         let mut request = json!({"subtype": "background_tasks"});
                         if let Some(tool) = tool {
-                            request["tool_use_id"] = json!(tool);
+                            request.set("tool_use_id", json!(tool));
                         }
                         Outbound::Lines(vec![
                             json!({"type": "control_request", "request_id": format!("bg-{}", id), "request": request}),
@@ -294,10 +296,12 @@ impl Translator {
                     }
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
                     // Send now on a steer Claude Code has not read: its step stops, so it
-                    // reads the steer; with none waiting nothing stops.
+                    // reads the steer; with none waiting, or while a subagent or a background
+                    // shell runs (`interrupt_ends_work`), nothing stops.
                     method::MUX_STEP_NOW => {
                         if !self.in_turn.load(Ordering::SeqCst)
                             || self.steers.lock().await.is_empty()
+                            || self.interrupt_ends_work().await
                         {
                             return Outbound::Reply(Message::ok(
                                 id.clone(),
@@ -374,7 +378,7 @@ impl Translator {
                     if selected == "allow_always"
                         && let Some(rules) = suggested
                     {
-                        allow["updatedPermissions"] = rules;
+                        allow.set("updatedPermissions", rules);
                     }
                     allow
                 };
@@ -383,6 +387,15 @@ impl Translator {
                 ])
             }
         }
+    }
+
+    /// Whether Claude Code's `interrupt` would end more than the current step: it kills every
+    /// running subagent (background ones too) and every background shell, so Send now never
+    /// writes it while one runs (cosmic-gray, 2026-10-21: a Send now killed two background
+    /// subagents). The steer is then read at the next tool boundary instead.
+    async fn interrupt_ends_work(&self) -> bool {
+        !self.subagents.lock().await.is_empty()
+            || self.background_shells.lock().await.values().any(|shell| shell.background)
     }
 
     /// The interrupt that stops Claude Code's current step for a steer sent now: unlike a Stop

@@ -20,7 +20,7 @@ import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
 import { GROUP_TAIL } from "./ToolGroupRow";
-import { isRunning, toolGroups } from "./toolGroups";
+import { isDraftCall, isRunning, toolGroups } from "./toolGroups";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -69,6 +69,24 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
   const time = formatDuration(row.durationMs);
   return row.status === "cancelled" ? t("turn.stopped", { time }) : t("turn.worked", { time });
 }
+
+/// What a turn's footer says before its buttons, or nothing: a turn whose work folds under "Worked
+/// for" says it there, and a turn under a second says nothing, since "Worked for 0s" is no news
+/// (Leo, 2026-10-21: "IF WE 0 SECONDS THEN IT DOESNT NEED TO TAKE UP SPACE"). A stopped turn still
+/// says it stopped, and a footer without timing (history paged in mid-turn) its count.
+export function footerLabel(t: Translate, row: AcpmuxRow): string | undefined {
+  return footerSays(row) ? workedLabel(t, row) : undefined;
+}
+const footerSays = (row: AcpmuxRow) =>
+  !row.folded &&
+  (row.previous !== undefined || row.durationMs === undefined || row.durationMs >= 1000 || row.status === "cancelled");
+
+/// A footer with nothing to show at rest and only hover controls (Pin, Fork, its age): no label, no
+/// answer to copy or read aloud, and the turn did not fail. It takes no line in the transcript
+/// (conversation.css `.cv-turn-actions--empty`, model.ts fallbackRowHeight); pointed at, its controls
+/// show over the turn gap below, so nothing moves.
+export const isEmptyFooter = (row: AcpmuxRow) =>
+  row.kind === "turnSummary" && row.status !== "failed" && row.status !== "error" && !row.text && !footerSays(row);
 
 const isEditTool = (tool: { kind?: string } | undefined) => tool?.kind === "edit" || tool?.kind === "fileChange";
 const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).some((item) => isEditTool(item.tool));
@@ -387,7 +405,7 @@ function shapeTurn(
     return live
       ? liveTurn(user, turn, clockOffset, liveRuns, sessionStatus, lineBelow)
       : last
-        ? turn.map(endedPlan)
+        ? turn.flatMap(withoutDrafts).map(endedPlan)
         : settledWithoutSummary(turn);
   const summary = turn[end]!;
   const body = turn.slice(0, end);
@@ -447,7 +465,7 @@ function shapeTurn(
       // running turn (codexRuns).
       if (open)
         shaped.push(
-          ...(liveRuns ? mergeShortNotes(work) : work).map((row) => ({
+          ...(liveRuns ? mergeShortNotes(work) : work).flatMap(withoutDrafts).map((row) => ({
             ...row,
             id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
             settled: true,
@@ -482,8 +500,14 @@ function shapeTurn(
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.
-  // A turn the agent started on its own while still working keeps its plan live.
-  shaped.push(...turn.slice(end + 1).map(live ? (row) => row : endedPlan));
+  // A turn the agent started on its own while still working keeps its plan live. Once it runs tools
+  // the Codex layout draws it as a running turn (a task notification's work, Leo 2026-10-21: four
+  // bare command rows stacked under "Worked for 1s"): its finished runs folded, the call in
+  // flight on the one live line under them, timed from the summary.
+  const tail = turn.slice(end + 1);
+  if (live && liveRuns && lineBelow && tail.some((row) => row.kind === "activity"))
+    shaped.push(...liveTurn(summary, tail, clockOffset, liveRuns, sessionStatus, lineBelow));
+  else shaped.push(...(live ? tail : tail.flatMap(withoutDrafts).map(endedPlan)));
   return shaped;
 }
 
@@ -583,7 +607,26 @@ const endedPlan = (row: AcpmuxRow): AcpmuxRow =>
 /// Its edits still close it as one card, which offers Undo.
 function settledWithoutSummary(turn: AcpmuxRow[]): AcpmuxRow[] {
   const rows = turn.filter((row) => row.kind !== "typing");
-  return [...rows.filter((row) => !isEdit(row)).map(endedPlan), ...editsCard(rows.filter(isEdit))];
+  return [
+    ...rows
+      .filter((row) => !isEdit(row))
+      .flatMap(withoutDrafts)
+      .map(endedPlan),
+    ...editsCard(rows.filter(isEdit)),
+  ];
+}
+
+/// An activity row without the calls it has nothing to show for yet (toolGroups.ts `isDraftCall`),
+/// or no row when they were all it held, so bare "Running a command" rows never stack up (Leo,
+/// 2026-10-21: they should replace each other, as Thinking does). A running turn's live line names
+/// the newest (codexLiveTurn); an ended turn's never got their input. Which calls it drops follows
+/// from the row's items, so its version stands.
+function withoutDrafts(row: AcpmuxRow): AcpmuxRow[] {
+  if (row.kind !== "activity") return [row];
+  const items = row.items ?? [];
+  const kept = items.filter((item) => !(item.tool && isDraftCall(item.tool)));
+  if (kept.length === items.length) return [row];
+  return kept.length ? [{ ...row, items: kept }] : [];
 }
 
 /// The live status. With `lineBelow` (the default in the app, Debug Settings
@@ -838,7 +881,14 @@ function codexRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
   while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
   return rows.flatMap((row, index) => {
     if (row.kind !== "activity" || isEdit(row)) return [row];
-    if (index !== latest) return [{ ...row, settled: true, foldRun: true, version: row.version * 4 + 2 }];
+    // An earlier run draws no call that has nothing to show yet; its row comes with its input.
+    if (index !== latest)
+      return withoutDrafts(row).map((kept) => ({
+        ...kept,
+        settled: true,
+        foldRun: true,
+        version: row.version * 4 + 2,
+      }));
     // The latest run: what is happening now leaves it for the live line, so the run holds only
     // finished steps and never grows a stack of live rows (Leo 2026-10-20: "rows pile up instead
     // of replacing each other").

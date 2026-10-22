@@ -136,7 +136,8 @@
               "diff.wordDiffs",
               "diff.lineNumbers",
               "diff.showBackgrounds",
-              "diff.expandUnchanged"
+              "diff.expandUnchanged",
+              "diff.groupByKind"
             ],
             "title" : {
               "key" : "settings.group.diffViewer",
@@ -6281,7 +6282,7 @@
       },
       "help" : {
         "key" : "settings.layout.linkPlacement.help",
-        "text" : "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane."
+        "text" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."
       },
       "kept_on_reset_all" : false,
       "key" : "layout.linkPlacement",
@@ -16489,6 +16490,53 @@
       "title" : {
         "key" : "settings.diff.expandUnchanged",
         "text" : "Expand Unchanged Lines"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.groupByKind",
+      "keywords" : [
+        "diff",
+        "group",
+        "kind",
+        "tests",
+        "generated",
+        "order",
+        "sort"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "diff",
+        "groupByKind"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.diff.groupByKind",
+        "text" : "Group Files by Kind"
       },
       "validation" : "portable"
     },

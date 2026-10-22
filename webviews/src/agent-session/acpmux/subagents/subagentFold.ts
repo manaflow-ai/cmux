@@ -59,6 +59,13 @@ export class SubagentFold {
   private readonly versions = new Map<string, number>();
   /// The subagents spawned since the current turn started, which its stop ends.
   private turn = new Set<string>();
+  /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
+  /// report that trails it (Claude's last task_progress) does not run one again.
+  private readonly ended = new Set<string>();
+  /// Each subagent's newest tool call, and every call it made: an update to an older one does not
+  /// take its action back.
+  private readonly latestCall = new Map<string, string>();
+  private readonly calls = new Set<string>();
   /// The subagents a tool call started (Claude's Agent call, which its turn waits on): only these
   /// end with a completed turn. Codex's native children have none and outlive their turn.
   private readonly called = new Set<string>();
@@ -72,10 +79,21 @@ export class SubagentFold {
     for (const change of events) this.apply(change, event, spawn);
     const owner = typeof mux?.subagent === "string" ? this.agents.get(mux.subagent) : undefined;
     if (owner) {
-      if ((update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") && update.title)
-        owner.action = String(update.title);
+      // What it does now is its newest call: a later update of an older call (its end) keeps it.
+      const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
+      // A call met first through its update (a harness that sends no tool_call) is new too.
+      const tool = update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update";
+      if (tool && call && (update.sessionUpdate === "tool_call" || !this.calls.has(`${owner.id}\u0000${call}`))) {
+        this.calls.add(`${owner.id}\u0000${call}`);
+        this.latestCall.set(owner.id, call);
+      }
+      const newest = call === undefined || (this.latestCall.get(owner.id) ?? call) === call;
+      if (tool && update.title && newest) owner.action = String(update.title);
       const kind = update?.sessionUpdate;
-      if (kind !== "subagent_spawned" && kind !== "subagent_state_update") this.record(owner.id, { event, update });
+      // The Agent call that spawned it is the parent's, not a step of its own.
+      const spawnCall = typeof update?.toolCallId === "string" && this.spawnCalls.has(update.toolCallId);
+      if (kind !== "subagent_spawned" && kind !== "subagent_state_update" && !spawnCall)
+        this.record(owner.id, { event, update });
       this.touch(owner);
       return true;
     }
@@ -210,7 +228,11 @@ export class SubagentFold {
     const started = count(change.agents?.started);
     if (done !== undefined && started !== undefined) agent.agents = { done, started };
     const state = text(change.state);
-    if (state && state !== agent.state) {
+    // An end the harness reported holds against a progress report that trails it; a spawn or a
+    // state update saying it runs again still does.
+    if (state && state !== "running" && spawn) this.ended.add(agent.id);
+    else if (state === "running" && spawn) this.ended.delete(agent.id);
+    if (state && state !== agent.state && !(state === "running" && !spawn && this.ended.has(agent.id))) {
       agent.state = state;
       agent.endedAt = state === "running" ? undefined : event.at;
     }

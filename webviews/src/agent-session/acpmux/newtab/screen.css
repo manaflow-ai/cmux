@@ -328,6 +328,11 @@
   width: 24px;
   height: 24px;
 }
+/* Send is the mic's plain glyph at the mic's size (Leo 2026-10-21: no disc; composerStates.css). */
+.nt-pickers .acpmux-send .acpmux-icon {
+  width: 18px;
+  height: 18px;
+}
 /* The style dots (StyleSwitch.tsx, Leo 2026-10-14): a 24px target per style around a 6px round dot,
    the rest dim on the text ink and the current one under the accent dot that slides to a pick. A
    name shows over a dot while pointed at, and over a pick for a moment; it is out of the row's flow,

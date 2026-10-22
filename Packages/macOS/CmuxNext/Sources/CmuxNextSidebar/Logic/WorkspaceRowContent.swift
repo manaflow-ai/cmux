@@ -62,6 +62,10 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var keycap: Int?
     /// The session tree: the row's pull requests, a glyph and a count in their status color.
     public var pullRequests: SidebarPullRequestBadge?
+    /// The session tree: a parent's chevron (nil without children).
+    public var treeFold: SidebarTreeFold?
+    /// The session tree: a folded parent's descendants by state, drawn as chips.
+    public var rollUp: SidebarTreeRollUp?
     /// The Priority view's chip (`SidebarWorkspace.agentChip`) when it asks for something
     /// (`rowChip`), for the row's accessibility label. Never drawn: a row shows no status words
     /// (Leo 2026-10-21); needs you is the badge's yellow dot.

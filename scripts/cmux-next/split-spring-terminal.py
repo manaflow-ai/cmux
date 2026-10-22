@@ -77,7 +77,7 @@ def rpc(method, params=None, timeout=30):
 
 
 def action(name, args=None, settle=0.0, timeout=60):
-    reply = rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "user"}, timeout=timeout)
+    reply = rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "script"}, timeout=timeout)
     if settle:
         time.sleep(settle)  # test harness: the layout settles before the next step
     return reply
@@ -124,7 +124,7 @@ def measure(label, verb):
         delay = start + press * opts.interval / 1000 - time.time()
         if delay > 0:
             time.sleep(delay)  # test harness: presses opts.interval ms apart
-        reply = rpc("action.run", {"action": verb, "args": {}, "focus": True, "origin": "user"}, timeout=30)
+        reply = rpc("action.run", {"action": verb, "args": {}, "focus": True, "origin": "script"}, timeout=30)
         if isinstance(reply, dict) and reply.get("error"):
             errors.append(str(reply.get("error")))
     time.sleep(1.5)  # test harness: the split spring lands (rest is under 0.5 s) and the PTY owner answers

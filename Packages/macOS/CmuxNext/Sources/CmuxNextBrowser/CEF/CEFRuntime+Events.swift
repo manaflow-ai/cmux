@@ -202,7 +202,9 @@ extension CEFRuntime {
         }
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
         siteReplies.failAll(where: { siteReplyBrowsers[$0] == browser }, with: BrowserTabError.closed)
-        shutdownSequence?.browserClosed(remaining: tabsByBrowser.count)
+        // The fork counts a browser's window until its destructor, after this close.
+        if let shim { shutdownSequence?.windowsOpen(Int(shim.windowCount())) }
+        shutdownSequence?.browserClosed(remaining: tabsByBrowser.count + pendingWindows.count)
         shutdownProgressed()
         pump?.scheduleNow()
     }
@@ -314,7 +316,9 @@ extension CEFRuntime {
         }
         // A second quit while the first waits would replace its waiter.
         guard state == .ready, shutdownSequence == nil, let shim else { return }
-        var sequence = CEFShutdownSequence(liveBrowsers: tabsByBrowser.count, windows: Int(shim.windowCount()))
+        // A pane's browser still being made (`pendingWindows`) counts as live: Chromium makes it after
+        // `closeAll`, and `browserCreated` closes it.
+        var sequence = CEFShutdownSequence(liveBrowsers: tabsByBrowser.count + pendingWindows.count, windows: Int(shim.windowCount()))
         sequence.begin()
         shutdownSequence = sequence
         shim.closeAll()
@@ -345,10 +349,13 @@ extension CEFRuntime {
         logger.notice("CEF shutdown complete")
     }
 
-    /// Called after every close/destroy event during shutdown.
+    /// Called after every close/destroy event during shutdown. A pane's browser still being made
+    /// (`pendingWindows`) holds it too, while its Chromium window may not exist yet: its browser is
+    /// closed when Chromium makes it (`browserCreated`), and `shutdown`'s timeout bounds the wait.
+    /// Without it, no open window let quit call CefShutdown under the creation.
     func shutdownProgressed() {
         guard shutdownSequence != nil else { return }
-        if let shim, shim.windowCount() == 0, tabsByBrowser.isEmpty {
+        if let shim, shim.windowCount() == 0, tabsByBrowser.isEmpty, pendingWindows.isEmpty {
             shutdownSequence?.windowDestroyed(remaining: 0)
         }
         if shutdownSequence?.phase == .readyToShutdown { resumeShutdownWaiter() }

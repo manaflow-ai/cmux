@@ -251,41 +251,28 @@
   outline-offset: 2px;
 }
 
-/* Send is the one filled control, in the theme's own ink as Claude Code's (Leo 2026-10-19: no
-   system or iMessage blue anywhere): the text color's disc with the composer's surface for its
-   arrow (styles.css --acpmux-send-fill); Stop is the same disc (composerLocation.css). Each steps toward the
-   base on hover and further on press. */
-.acpmux-send.acpmux-send-ready:hover {
-  background: color-mix(in srgb, var(--acpmux-send-fill) 88%, var(--acpmux-base));
+/* Send, Stop and ↵ are plain glyphs, as the mic is (Leo 2026-10-21: "no solid discs"; Claude Code
+   desktop's): at rest the glyph alone (styles.css), hovered or keyboard-focused the mic's soft pill,
+   and a press adds nothing (Leo 2026-10-19: no mousedown feedback). Hover only under a fine pointer,
+   so a tap never leaves a wash behind. */
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-send:not(:disabled):hover {
+    background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
+  }
 }
-.acpmux-send.acpmux-send-ready:active {
-  background: color-mix(in srgb, var(--acpmux-send-fill) 76%, var(--acpmux-base));
+.acpmux-send:focus-visible {
+  background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
 }
-.acpmux-composer-bar .acpmux-send.acpmux-cancel:hover {
-  background: color-mix(in srgb, var(--agent-text) 88%, var(--acpmux-base));
-}
-.acpmux-composer-bar .acpmux-send.acpmux-cancel:active {
-  background: color-mix(in srgb, var(--agent-text) 76%, var(--acpmux-base));
-}
-/* The first Esc of the double press (escapeStop.ts): Stop's disc widens into a pill that names the
-   key, "Esc", until a second Esc stops the turn or anything else puts Stop back. */
+/* The first Esc of the double press (escapeStop.ts): Stop keeps its glyph and footprint and takes the
+   theme's accent until a second Esc stops the turn or anything else puts Stop back; its name and the
+   prompt's placeholder say "Press Esc again to stop". */
 .acpmux-composer-bar .acpmux-send.acpmux-cancel[data-escape-armed] {
-  width: auto;
-  min-width: 28px;
-  padding: 0 9px;
-  border-radius: 14px;
-}
-.acpmux-escape-key {
-  font-size: var(--text-detail);
-  font-weight: 600;
-  line-height: 1;
-  white-space: nowrap;
+  color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
 }
 
-/* Send off (the folder's trust question is open, useFolderTrustAsk.ts): the empty draft's off disc
-   (styles.css, --acpmux-send-off-*), one disabled look, with no step on hover. */
+/* Send off (the folder's trust question is open, useFolderTrustAsk.ts): the empty draft's dimmed
+   glyph (styles.css, --acpmux-send-off-fg), one disabled look, with no pill on hover. */
 button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
-  background: var(--acpmux-send-off-bg);
   color: var(--acpmux-send-off-fg);
   cursor: default;
 }
@@ -619,20 +606,27 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 /* Over art or a see-through window the queued prompts' band and its fold are glass, as the card is
    (Leo 2026-10-20: "we want the glass, a lot of glass"): every fill they take (here and in each
    top-strip layout, focused or not) is --acpmux-queue-fill, so band and card read as one surface, not
-   an opaque two-tone (layout pass, 2026-10-20). Under Lens and Spectrum that is the card's glass tint
-   (.ui-glass, ComposerQueue.tsx); under Plain glass their tray tone at 60%, as before the lens, with
-   no blur. Reduce Transparency keeps them solid. */
+   an opaque two-tone (layout pass, 2026-10-20). In every glass mode that is the card's own glass
+   (.ui-glass, ComposerQueue.tsx): its tint and its blur, which the band inherits from the composer.
+   Under Plain glass the band used to be the tray tone at 60% with no blur; the tray is the text at 9%
+   over a page that is transparent here, so the art showed through almost untouched and the "Queued"
+   label and the prompts were hard to read (Leo 2026-10-21: "this is also maybe a little too...
+   glassy?"; queued-glass.test.ts). It is still glass, never opaque. Reduce Transparency makes it
+   the card's solid fill (--glass-opaque, the composer's solid surface): the tray is mixed over the
+   page, which is transparent over art, so without this the band stayed a 9% film under an opaque
+   card. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root[data-cmux-see-through]:not([data-reduce-transparency]) {
-    --acpmux-queue-glass: 60%;
-  }
-  :root[data-cmux-see-through]:not([data-reduce-transparency]):is([data-glass="lens"], [data-glass="spectrum"])
-    .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
+  :root[data-cmux-see-through]:not([data-reduce-transparency]) .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
     --acpmux-queue-fill: var(--glass-tint);
   }
 }
-:root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
-  --glass-backdrop: none;
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
+    --acpmux-queue-fill: var(--glass-opaque);
+  }
+}
+:root[data-reduce-transparency] .acpmux-composer > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
+  --acpmux-queue-fill: var(--glass-opaque);
 }
 .acpmux-queue-fold {
   height: 24px;

@@ -3,6 +3,7 @@ import Testing
 
 /// Debug Settings' Needs you list and pill: both on by default, so the defaults set no attribute;
 /// the other choices set `data-needs-you` / `data-needs-you-pill` for the page (needsYou/NeedsYou.tsx).
+/// The list shows only while its App Store item is installed (``AgentPaneTunables/needsYouStyle(installed:debug:)``).
 struct AgentPaneNeedsYouTunablesTests {
     @Test func defaultsAreOnAndSetNoAttribute() {
         #expect(AgentPaneTunables.needsYou.descriptor.key == "agentPane.debug.needsYou")
@@ -16,6 +17,18 @@ struct AgentPaneNeedsYouTunablesTests {
     func otherStylesSetTheirAttribute(style: AgentPaneNeedsYouStyle) {
         #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, needsYou: style)
             == ["needs-you": style.rawValue])
+    }
+
+    /// Needs you is an App Store item (`agentPane.needsYou.enabled`, off by default; Leo
+    /// 2026-10-22): not installed, a new page gets `needs-you="off"` whatever Debug Settings says;
+    /// installed, the Debug choice applies as before.
+    @Test(arguments: AgentPaneNeedsYouStyle.allCases)
+    func notInstalledIsOffWhateverTheDebugChoice(debug: AgentPaneNeedsYouStyle) {
+        let style = AgentPaneTunables.needsYouStyle(installed: false, debug: debug)
+        #expect(style == .off)
+        #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: .default, needsYou: style)
+            == ["needs-you": "off"])
+        #expect(AgentPaneTunables.needsYouStyle(installed: true, debug: debug) == debug)
     }
 
     @Test func pillOffSetsItsAttribute() {

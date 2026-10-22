@@ -292,6 +292,7 @@ export default componentEntry<HeaderToolsProps>({
     "agent-session/acpmux/header/WorktreePill.tsx#WorktreePill",
     "agent-session/acpmux/header/WorktreeApply.tsx#WorktreeApply",
     "agent-session/acpmux/header/WorktreeRemove.tsx#WorktreeRemove",
+    "agent-session/acpmux/header/PanelToggle.tsx#PanelToggle",
   ],
   load: () => import("./ChatHeaderTools").then((module) => module.ChatHeaderTools),
   // The pane's own stylesheets, as the app ships them (build-agent-pane-web.sh): its theme variables,

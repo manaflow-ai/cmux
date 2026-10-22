@@ -19,14 +19,22 @@ export const sampleNotes: ReleaseNotes[] = [
       { group: "new", title: "Undo a tab close from a toast" },
       { group: "fixed", title: "The App Store always opens in your window" },
     ],
-    changes: ["updates: R114 install gate", "sidebar: card stack above the spaces dots"],
+    changes: [
+      "cmux-next updates: confirm before Roll Back from the pulled-build banner (#23599)",
+      "cmux NEXT sidebar: the Chief row never says Update available (#23853)",
+    ],
+    items: [
+      { title: "cmux-next updates: confirm before Roll Back from the pulled-build banner", pr: 23599 },
+      { title: "cmux NEXT sidebar: the Chief row never says Update available", pr: 23853 },
+    ],
   },
   {
     build: "3720357958801",
     shortVersion: "1.0.0-nightly.3720357958801",
     date: "2026-10-04",
     highlights: [],
-    changes: ["browser: faster tab restore"],
+    changes: ["cmux NEXT sidebar: the workspace hover card's top lines up with its row's top (#23729)"],
+    items: [{ title: "cmux NEXT sidebar: the workspace hover card's top lines up with its row's top", pr: 23729 }],
   },
 ];
 

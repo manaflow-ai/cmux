@@ -9,8 +9,6 @@ final class FileExplorerTableView: NSTableView {
     var perform: (@MainActor (String) -> Void)?
     /// The rows of the right-click menu, made for the clicked row.
     var contextMenu: (@MainActor () -> NSMenu?)?
-    /// Cmd-Delete: Move to Trash, as in Finder.
-    var trash: (@MainActor () -> Void)?
 
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -18,7 +16,7 @@ final class FileExplorerTableView: NSTableView {
         case (36, []), (76, []): perform?("fileExplorerOpenSelection")
         case (125, [.command]), (125, [.command, .numericPad, .function]), (125, [.command, .function]):
             perform?("fileExplorerOpenSelectionFinderAlias")
-        case (51, [.command]): trash?()
+        case (51, [.command]): perform?("fileExplorerMoveToTrash") // Cmd-Delete, as in Finder
         default: super.keyDown(with: event)
         }
     }

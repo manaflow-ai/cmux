@@ -73,6 +73,8 @@ mod skew;
 #[cfg(unix)]
 mod status;
 mod surface;
+#[cfg(unix)]
+mod terminal_talk;
 mod topology_help;
 mod wire;
 use surface::MACHINE_CATALOG_HELP;

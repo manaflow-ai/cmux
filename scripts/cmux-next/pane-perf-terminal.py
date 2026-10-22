@@ -33,6 +33,8 @@ parser.add_argument("--stream", action="store_true", help="keep output streaming
 parser.add_argument("--record", action="store_true", help="record each action once (a separate, untimed pass)")
 parser.add_argument("--sample", default="", help="LAYOUT:ACTION[,...]: `sample` the app while it repeats ACTION")
 parser.add_argument("--sample-repeats", type=int, default=8)
+parser.add_argument("--content", default="terminal", choices=["terminal", "chromium"],
+                    help="what the workspace's first pane shows: a terminal, or a Chromium page (splits start from it)")
 parser.add_argument("--json")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--gate", action="store_true", help="fail on the budget rows")
@@ -47,6 +49,27 @@ open(os.path.join(SCRATCH, "ghostty"), "w").close()
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 open(CONFIG, "w").write("{}\n")
 WINDOW = (80, 80, 1600, 1000)
+PAGE = None  # a local page for a Chromium pane (`serve_page`)
+
+
+def serve_page():
+    """Serves one page with text and layout on 127.0.0.1 for the Chromium pane; returns its URL."""
+    import http.server, threading
+    body = ("<!doctype html><title>pane</title><h1>pane</h1>" + "<p>" + "lorem ipsum dolor sit amet " * 600 + "</p>").encode()
+
+    class Page(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Page)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{server.server_address[1]}/"
 ROWS, LAUNCHED = [], []
 app = None
 
@@ -72,7 +95,7 @@ def rpc(method, params=None, timeout=30):
 
 
 def action(name, args=None, settle=0.0, timeout=60):
-    reply = rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "user"}, timeout=timeout)
+    reply = rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "script"}, timeout=timeout)
     if settle:
         time.sleep(settle)  # test harness: the layout settles before the next step
     return reply
@@ -108,6 +131,11 @@ def layout(columns, rows):
     """A fresh workspace of columns x rows terminals, each fed; ends focused on the top-left one."""
     action("workspace.newAtBottom", settle=1.5)
     feed(opts.stream)
+    if opts.content == "chromium":
+        global PAGE
+        PAGE = PAGE or serve_page()
+        reply = action("openBrowser", {"url": PAGE, "engine": "chromium"}, settle=3.0)
+        print(f"  (chromium pane: {reply})", flush=True)
     for _ in range(columns - 1):
         action("splitRight", settle=0.6)
         feed()
@@ -153,7 +181,7 @@ def drag_divider():
 
 def perform(name):
     """Runs one action; returns an error string or None."""
-    verbs = {"split": "splitRight", "close": "closePane", "column": "newColumn", "column-close": "closePane",
+    verbs = {"split": "splitRight", "split-down": "splitDown", "close": "closePane", "close-down": "closePane", "column": "newColumn", "column-close": "closePane",
              "zoom": "toggleSplitZoom", "unzoom": "toggleSplitZoom"}
     if name == "drag":
         return drag_divider()
@@ -192,7 +220,7 @@ def measure(label, name):
     return result
 
 
-SEQUENCE = {"split": ["split", "close"], "close": [], "column": ["column", "column-close"], "zoom": ["zoom", "unzoom"],
+SEQUENCE = {"split": ["split", "close"], "split-down": ["split-down", "close-down"], "close": [], "column": ["column", "column-close"], "zoom": ["zoom", "unzoom"],
             "drag": ["drag"]}
 
 
@@ -219,7 +247,7 @@ def record(name, label):
 def profile(name, label):
     """Samples the app (`/usr/bin/sample`, 1 ms) while it repeats `name` (and its undo); prints the main
     thread's heaviest frames (the report's "Sort by top of stack" list) and keeps the whole report."""
-    pair = {"split": ["split", "close"], "close": ["split", "close"], "column": ["column", "column-close"],
+    pair = {"split": ["split", "close"], "close": ["split", "close"], "split-down": ["split-down", "close-down"], "column": ["column", "column-close"],
             "column-close": ["column", "column-close"], "zoom": ["zoom", "unzoom"], "unzoom": ["zoom", "unzoom"],
             "drag": ["drag"]}[name]
     path = os.path.join(opts.out, f"sample-{label}.txt")
@@ -237,26 +265,93 @@ def profile(name, label):
     except OSError:
         print(f"  (no sample for {label})", flush=True)
         return
+    print(f"\n== sample {label}: main thread, inclusive share by subsystem", flush=True)
+    for line in main_thread_buckets(text):
+        print(line, flush=True)
     top = text.split("Sort by top of stack")
-    print(f"\n== sample {label}: heaviest frames (all threads, top of stack)", flush=True)
     if len(top) > 1:
-        print("\n".join(top[1].splitlines()[:45]), flush=True)
-    # The main thread's call tree, the first levels deep enough to show who lays out and draws.
-    tree = text.split("Call graph:")
-    if len(tree) > 1:
-        body = tree[1].splitlines()
-        print(f"== sample {label}: main thread call graph (heavy branches)", flush=True)
-        shown = 0
-        for line in body[1:]:
-            if line.startswith("    ") and "Thread_" in line and shown > 0:
-                break  # the next thread
-            depth = len(line) - len(line.lstrip(" +!:|"))
-            count = line.strip(" +!:|").split(" ")[0]
-            if count.isdigit() and int(count) >= 20 and depth <= 80:
-                print(line[:220], flush=True)
-                shown += 1
-            if shown > 160:
+        print(f"== sample {label}: heaviest frames (all threads, top of stack)", flush=True)
+        print("\n".join(top[1].splitlines()[:30]), flush=True)
+
+
+# Subsystems of a main-thread stack, first match wins per frame; a frame counts for a bucket only at the
+# shallowest frame of that bucket on its path (inclusive time, never twice for one sample).
+BUCKETS = [
+    ("idle", ("mach_msg2_trap", "mach_msg_trap", "__CFRunLoopServiceMachPort")),
+    ("ghostty", ("ghostty_", "renderer.", "Metal.", "IOSurfaceLayer", "terminal.", "font.")),
+    ("chromium", ("CEF", "cef_", "Chromium", "chrome::", "content::", "blink::", "viz::", "CmuxNextBrowser")),
+    ("ca-commit", ("CA::Transaction::commit", "CA::Context::commit", "CA::Layer::layout_and_display")),
+    ("appkit-layout", ("_layoutSubtree", "layoutSubtreeIfNeeded", "NSView layout]", "_NSViewLayout", "updateConstraints")),
+    ("appkit-display", ("_displayRectIgnoringOpacity", "displayIfNeeded", "drawRect", "NSViewDrawRect")),
+    ("swiftui", ("SwiftUI", "AttributeGraph", "AG::")),
+    ("layout(ours)", ("CmuxNextLayout", "ScreenContentView", "LayoutRootView", "PaneHostView", "SplitMotion")),
+    ("store(ours)", ("DaemonStore", "CmuxNextDaemon", "WorkspaceContentController", "PaneController")),
+]
+
+
+def main_thread_buckets(text):
+    graph = text.split("Call graph:", 1)
+    if len(graph) < 2:
+        return ["  (no call graph)"]
+    lines = graph[1].splitlines()
+    import re
+    node = re.compile(r"^([ +!:|]*)(\d+) (.*)$")
+    start = next((i for i, l in enumerate(lines) if "Thread_" in l and "com.apple.main-thread" in l), None)
+    if start is None:  # the first thread of the call graph is the main thread
+        start = next((i for i, l in enumerate(lines) if "Thread_" in l), None)
+    if start is None:
+        return ["  (no main thread)"]
+    head = node.match(lines[start])
+    total, base = int(head.group(2)), len(head.group(1))
+    sums = {name: 0 for name, _ in BUCKETS}
+    path = []  # (depth, bucket or None)
+    for line in lines[start + 1:]:
+        m = node.match(line)
+        if not m:
+            continue
+        depth = len(m.group(1))
+        if depth <= base:
+            break  # the next thread
+        while path and path[-1][0] >= depth:
+            path.pop()
+        symbol = m.group(3)
+        bucket = next((name for name, keys in BUCKETS if any(k in symbol for k in keys)), None)
+        if bucket and all(b != bucket for _, b in path):
+            sums[bucket] += int(m.group(2))
+        path.append((depth, bucket))
+    # Self time per symbol (leaves of the main thread's tree), the heaviest first.
+    leaves, rows = {}, []
+    for line in lines[start + 1:]:
+        m = node.match(line)
+        if not m:
+            continue
+        if len(m.group(1)) <= base:
+            break
+        rows.append((len(m.group(1)), int(m.group(2)), m.group(3)))
+    for i, (depth, count, symbol) in enumerate(rows):
+        child = sum(c for d, c, _ in rows[i + 1:next((j for j in range(i + 1, len(rows)) if rows[j][0] <= depth), len(rows))] if d == min((r[0] for r in rows[i + 1:i + 2]), default=depth + 1))
+        own = count - child if i + 1 < len(rows) and rows[i + 1][0] > depth else count
+        name = symbol.split("  (in ")[0][:140]
+        leaves[name] = leaves.get(name, 0) + max(own, 0)
+    out = [f"  main thread samples {total} (1 ms each)"]
+    for name, _ in BUCKETS:
+        out.append(f"  {name:<15} {sums[name]:>6}  {100.0 * sums[name] / max(total, 1):5.1f}%")
+    out.append("  main thread self time, heaviest (not idle):")
+    idle = ("mach_msg2_trap", "mach_msg_trap", "__psynch_cvwait", "semaphore_wait_trap", "kevent")
+    for name, count in sorted(leaves.items(), key=lambda kv: -kv[1])[:40]:
+        if not name.startswith(idle) and count > 0:
+            out.append(f"    {count:>6}  {name}")
+    # The busiest non-idle branches of the main thread, to read who calls the heavy leaves.
+    out.append("  main thread heavy branches (>= 1% of non-idle):")
+    busy = max(total - sums.get("idle", 0), 1)
+    shown = 0
+    for depth, count, symbol in rows:
+        if count * 100 >= busy and not any(k in symbol for k in idle) and depth - base <= 120:
+            out.append("    " + " " * ((depth - base) // 2) + f"{count} {symbol.split('  (in ')[0][:150]}")
+            shown += 1
+            if shown >= 140:
                 break
+    return out
 
 
 def cleanup():
@@ -275,7 +370,7 @@ def cleanup():
 
 
 def main():
-    global app
+    global app, SOCKET
     if os.path.exists(SOCKET):
         os.remove(SOCKET)
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
@@ -289,9 +384,31 @@ def main():
     macos = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
     host = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip()
     print(f"launched pid {app.pid} macOS {macos} host {host}", flush=True)
-    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
-        print(f"the tagged app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)} "
-              f"debug.windows={rpc('debug.windows')} alive={app.poll() is None}", flush=True)
+    state_socket = os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{TAG}.sock")
+
+    def up():
+        global SOCKET
+        for path in (f"/tmp/cmux-debug-{TAG}.sock", state_socket):
+            if os.path.exists(path):
+                SOCKET = path
+                if (rpc("debug.windows") or {}).get("windows"):
+                    return True
+        return False
+    if not wait(up, 120):
+        print(f"the tagged app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)} state socket "
+              f"{state_socket} exists={os.path.exists(state_socket)} debug.windows={rpc('debug.windows')} "
+              f"alive={app.poll() is None}", flush=True)
+        if app.poll() is None:
+            # Why: the main thread's stack while it does not answer.
+            stuck = os.path.join(opts.out, "sample-launch.txt")
+            subprocess.run(["/usr/bin/sample", str(app.pid), "3", "-file", stuck], capture_output=True, timeout=60)
+            try:
+                text = open(stuck, errors="replace").read()
+                graph = text.split("Call graph:", 1)[-1].splitlines()
+                print("== main thread while the socket is missing", flush=True)
+                print("\n".join(l[:200] for l in graph[:70]), flush=True)
+            except OSError:
+                pass
         log.flush()
         print(open(os.path.join(opts.out, f"app-{TAG}.log"), errors="replace").read()[-6000:], flush=True)
         sys.exit(1)
@@ -356,6 +473,9 @@ except Exception:  # the step log is stdout only
     traceback.print_exc(file=sys.stdout)
 finally:
     cleanup()
+    # One artifact with everything (report, samples, pictures, recordings): artifacts/.../out.tgz.
+    subprocess.run(["tar", "-czf", os.path.join(opts.out, "out.tgz"), "-C", opts.out]
+                   + [p for p in os.listdir(opts.out) if p.endswith((".json", ".txt", ".png")) or p == "frames"], capture_output=True)
     if opts.record and os.path.isdir(os.path.join(opts.out, "frames")):
         # One artifact: the recordings and snapshots beside the report.
         subprocess.run(["tar", "-czf", os.path.join(opts.out, "frames.tgz"), "-C", opts.out, "frames"]
@@ -364,4 +484,5 @@ finally:
         # The step log keeps the numbers even when a row failed (no artifact comes back then).
         print("REPORT-JSON " + json.dumps(json.load(open(opts.json)).get("summary") or []), flush=True)
     print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
-    sys.exit(0 if ROWS and all(r[3] for r in ROWS) else 1)
+    # Without --gate a row is information: the run passes when it measured (its artifact comes back).
+    sys.exit(0 if ROWS and (all(r[3] for r in ROWS) or not opts.gate) else 1)
