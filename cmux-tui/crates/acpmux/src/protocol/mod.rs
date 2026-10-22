@@ -311,6 +311,11 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peer_lease", Request),
         untyped("_acpmux/peer_reconnect", Request),
         untyped("_acpmux/peer_remove", Request),
+        untyped(method::MUX_PAIR_TICKET_NEW, Request),
+        untyped(method::MUX_PAIR_LIST, Request),
+        untyped(method::MUX_PAIR_REVOKE, Request),
+        untyped(method::MUX_PAIR_ISSUE, Request),
+        untyped(method::MUX_PAIR_REDEEM, Request),
         // Notifications.
         notification::<events::SessionEvent>(method::MUX_EVENT),
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),

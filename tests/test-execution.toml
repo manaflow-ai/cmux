@@ -1570,11 +1570,19 @@ path = "tests/test_cmux_next_base_autofix_finishes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_tip_swift_suite.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_debug_only_controls.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_feed_rollback.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_ring.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1587,6 +1595,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_train.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_train_drive_pin.py"
 lane = "linux-guard"
 
 [[test]]

@@ -24,8 +24,9 @@ extension UpdaterService {
     }
 
     /// One click installs (footer pill, palette, `cmux update install`): at
-    /// once, or when the download finishes. Running agents never hold it:
-    /// the relaunch keeps them (`willRelaunch` records keep sessions).
+    /// once, or when the download finishes. The relaunch waits only for busy
+    /// agents and running commands (the quiet-input and daemon-mirror holds are
+    /// for idle installs); `willRelaunch` records keep sessions.
     public func installClicked() {
         #if DEBUG
         UpdateHarness.mark("install_clicked")
@@ -66,6 +67,7 @@ extension UpdaterService {
             #if DEBUG
             UpdateHarness.mark("install_started")
             #endif
+            automaticInstallInFlight = false
             if let failure = installPreflightFailure() {
                 failInstall(failure)
                 return
@@ -106,6 +108,11 @@ extension UpdaterService {
         case .ready:
             recordStagedUpdate()
             keepRunningBuildForRollback()
+        case .note where wasInstalling && automaticInstallInFlight:
+            // An install nobody clicked failed: nothing opens over the person's work; the
+            // log keeps it and the next check offers the update again.
+            automaticInstallInFlight = false
+            log.append("automatic install ended without a relaunch (not shown)")
         case .note where wasInstalling || (wasReady && clickedInstall):
             // The install failed: no relaunch comes. The windows come back and the failure's
             // sheet opens with Retry and Download Manually, so the click never ends in silence.
@@ -138,10 +145,17 @@ extension UpdaterService {
 extension UpdaterService {
     /// Applies `updates.checkAutomatically`, `checkIntervalSeconds`,
     /// `downloadAutomatically`, `meteredNetwork` and, when given, `channel`
-    /// (``follow(ring:)``) to Sparkle. The ring is kept without a driver too (the probe reads it).
+    /// (``follow(ring:)``) to Sparkle, and when given the idle install's wait cap and quiet window
+    /// (`idleInstallMaxWaitSeconds`, `idleInstallQuietSeconds`). The ring is kept without a driver
+    /// too (the probe reads it).
     public func configure(checkAutomatically: Bool, checkInterval: TimeInterval, downloadAutomatically: Bool,
-                          metered: UpdateMeteredMode = .deferLowData, ring: String? = nil) {
+                          metered: UpdateMeteredMode = .deferLowData, ring: String? = nil,
+                          idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil) {
         if let ring { follow(ring: ring) }
+        if let idleInstall {
+            idleInstallQuiet = .seconds(idleInstall.quiet)
+            controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
+        }
         downloadSetting = (downloadAutomatically, metered)
         if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
         guard let controller else { return }

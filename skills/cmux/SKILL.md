@@ -32,6 +32,10 @@ cmux tab tab_… move --workspace ws_… --screen screen_… --pane pane_… --i
 cmux pane flash-focused                            # attention cue (app action)
 ```
 
+## Show UI in a chat reply
+
+Embed screenshots instead of describing a UI change: a cmux chat draws `![alt](/abs/path.png)`, a bare image path, a `file://` URL or an https image address (PR media) as a thumbnail that opens full size on click. Put a before/after pair in one paragraph (`![Before](/tmp/a.png) ![After](/tmp/b.png)`, or `Before: /tmp/a.png` and `After: /tmp/b.png` on two lines) and it draws side by side. `#N`, `owner/repo#N`, `hq#N`, commit SHAs and `path/to/file.ts:42` become links.
+
 ## Which `cmux` to run
 
 Inside a cmux terminal, `$CMUX_BUNDLED_CLI_PATH` is the CLI that ships with the running app. A login shell (`zsh -lc`, which Codex and other agents use) can put an older `cmux` first on `PATH`, for example a `uv tool` or `pipx` install of the PyPI `cmux` package. That CLI can lack verbs such as `browser page`. When a verb or flag that this skill documents is missing, run `"$CMUX_BUNDLED_CLI_PATH"` instead, or define `cmux() { "${CMUX_BUNDLED_CLI_PATH:-cmux}" "$@"; }` once per shell. Do not run `cmux daemon stop` to cure a version mismatch: it stops the user's session.

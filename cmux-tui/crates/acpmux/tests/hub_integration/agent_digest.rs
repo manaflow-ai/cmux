@@ -403,3 +403,26 @@ async fn an_agent_slash_command_goes_in_alone() {
     assert_eq!(echoes[1], "echo: /compact");
     assert_eq!(echoes[2], "echo: from c");
 }
+
+/// Agent messages a failed turn held never wait for a person, nor for a turn that may never come
+/// (an agent that died does not complete one): they go in again by themselves after the
+/// `autoResumeDelaysMs` wait, with no Resume. The person's held prompt still waits for them.
+#[tokio::test]
+async fn agent_messages_a_failed_turn_held_go_in_by_themselves() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![50]);
+    let id = busy(&mut c).await;
+    queue(&mut c, person(&id, "p-f", "fail-streamed: boom")).await;
+    queue(&mut c, from_agent(&id, "p-a", "lane-a", "held from a")).await;
+    queue(&mut c, from_agent(&id, "p-b", "lane-b", "held from b")).await;
+    queue(&mut c, person(&id, "p-me", "mine")).await;
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "boom").await;
+
+    // Nobody sends anything: the held agent messages go in together.
+    let echoes = echoes_until(&mut c, "held from b").await;
+    assert_eq!(echoes.len(), 1, "{echoes:?}");
+    assert!(echoes[0].contains("held from a") && echoes[0].contains("[agent message 2 of 2]"));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(queue_order(&mut c, &id).await, ["p-me"], "the person's held prompt still waits");
+}

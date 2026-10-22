@@ -22,11 +22,11 @@ struct AgentSubsessionFamilyTests {
         guard case .page(_, _, _, _, _, _, _, let links) = page else { Issue.record("not a page: \(String(describing: page))"); return }
         #expect(links == ["c1": "root"])
         let change = message(#"{"method":"_acpmux/session_changed","params":{"sessionId":"c1","session":{"sessionId":"c1","startedBy":"root"}}}"#)
-        guard case .change(let session, _, _, _, _, _, _, _, let parent) = change else { Issue.record("not a change: \(String(describing: change))"); return }
+        guard case .change(let session, _, _, _, _, _, _, _, let parent, _) = change else { Issue.record("not a change: \(String(describing: change))"); return }
         #expect(session == "c1")
         #expect(parent == "root")
         let purge = message(#"{"method":"_acpmux/session_changed","params":{"sessionId":"c1","kind":"purged"}}"#)
-        guard case .change(_, _, _, _, _, _, _, _, let purged) = purge else { Issue.record("not a change: \(String(describing: purge))"); return }
+        guard case .change(_, _, _, _, _, _, _, _, let purged, _) = purge else { Issue.record("not a change: \(String(describing: purge))"); return }
         #expect(purged == nil, "a purged session keeps no parent")
     }
 
