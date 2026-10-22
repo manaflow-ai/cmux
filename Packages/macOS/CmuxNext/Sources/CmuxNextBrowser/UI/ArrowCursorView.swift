@@ -101,8 +101,8 @@ public class ArrowCursorView: NSView, ClickableCursorHost {
     /// is inside the row's visible rect, in the top window under it, and the row shows.
     public func clickableStateDidChange(_ view: NSView) {
         guard pointerPoint != nil else { return }
-        guard window != nil, !isHiddenOrHasHiddenAncestor, let point = currentPointer(self),
-              visibleRect.contains(convert(point, from: nil)) else {
+        guard window != nil, let point = currentPointer(self),
+              ClickableButton.cursorRect(of: self)?.contains(convert(point, from: nil)) == true else {
             pointerPoint = nil
             return
         }

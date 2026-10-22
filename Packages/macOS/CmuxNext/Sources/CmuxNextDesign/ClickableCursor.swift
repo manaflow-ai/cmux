@@ -55,10 +55,12 @@ open class ClickableButton: NSButton {
 
     /// Where a clickable view's cursor rect goes: its visible rect, as `addCursorRect` requires, so
     /// a button clipped by a scroller or a narrow container claims only what shows; nil while the
-    /// view is hidden or nothing of it shows.
+    /// view is hidden or nothing of it shows. `visibleRect` alone is not enough: a view that does
+    /// not clip to its bounds (the macOS 14 default) reports the visible part of its ancestors,
+    /// so the rect is cut to the view's own bounds.
     public static func cursorRect(of view: NSView) -> NSRect? {
         guard !view.isHiddenOrHasHiddenAncestor else { return nil }
-        let rect = view.visibleRect
+        let rect = view.visibleRect.intersection(view.bounds)
         return rect.isEmpty ? nil : rect
     }
 }

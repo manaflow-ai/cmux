@@ -116,7 +116,7 @@ struct OmnibarPointerButtonTests {
         let host = row(with: star)
         star.recordedCursorRects = []
         star.resetCursorRects()
-        #expect(star.recordedCursorRects?.map(\.rect) == [star.visibleRect])
+        #expect(star.recordedCursorRects?.map(\.rect) == [star.bounds])
         #expect(star.recordedCursorRects?.map(\.cursor) == [NSCursor.pointingHand])
         #expect(!star.visibleRect.isEmpty)
         star.isHidden = true

@@ -71,7 +71,6 @@ struct ClickableCursorTests {
         let rects = button.recordedRects()
         #expect(rects.count == 1)
         #expect(rects.first?.rect == NSRect(x: 0, y: 0, width: 20, height: 20))
-        #expect(rects.first?.rect == button.visibleRect)
         withExtendedLifetime(host) {}
     }
 
