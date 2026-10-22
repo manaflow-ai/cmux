@@ -143,7 +143,12 @@ impl Hub {
                     let title = cmux_chat_index::without_client_context(title).trim_end();
                     if !title.is_empty() {
                         m.title = Some(title.to_owned());
-                        m.title_source = Some(super::titles::HARNESS.to_owned());
+                        // A chat the person named stays named: its harness still
+                        // shows a title, but no model makes one, now or after a
+                        // reload (`Hub::harness_may_title`).
+                        if m.title_source.as_deref() != Some(super::titles::NAMED) {
+                            m.title_source = Some(super::titles::HARNESS.to_owned());
+                        }
                     }
                 }
                 // Claude Code's system/init: its MCP servers, plugins and skills.

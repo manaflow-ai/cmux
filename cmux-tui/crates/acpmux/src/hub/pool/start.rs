@@ -124,7 +124,7 @@ impl Hub {
                     child
                         .request(
                             method::SESSION_NEW,
-                            self.acp_params(&session_id, draft, &spec.spawn, None, &child),
+                            self.acp_params(&session_id, draft, &spec.spawn, None, &child).await,
                         )
                         .await?,
                 )

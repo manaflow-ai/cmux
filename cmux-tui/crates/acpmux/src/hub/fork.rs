@@ -121,7 +121,14 @@ impl Hub {
             let res = child
                 .request(
                     method::SESSION_FORK,
-                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::agent_tools::acp_servers_for(parent_meta.remote_origin, &fork_env, &id, all)}),
+                    {
+                        let mut params = json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::agent_tools::acp_servers_for(parent_meta.remote_origin, &fork_env, &id, all)});
+                        // The fork is a new chat nobody named: only the setting decides.
+                        if self.config.read().await.titles.generate == Some(false) {
+                            params["_meta"] = json!({"cmux": {"generateTitle": false}});
+                        }
+                        params
+                    },
                 )
                 .await
                 // The agent's own error is often bare ("Internal error"): say whose fork failed,

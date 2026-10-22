@@ -9,7 +9,7 @@ impl Hub {
     /// `session/new` or `session/load` params for acpmux session `id`'s ACP
     /// harness: its folder and cmux's MCP servers (agent_tools.rs), none for
     /// a remote origin or an isolated profile.
-    pub(super) fn acp_params(
+    pub(super) async fn acp_params(
         &self,
         id: &str,
         meta: &SessionMeta,
@@ -27,7 +27,18 @@ impl Hub {
         if let Some(id) = session_id {
             params["sessionId"] = json!(id);
         }
+        if !self.harness_may_title(meta).await {
+            params["_meta"] = json!({"cmux": {"generateTitle": false}});
+        }
         params
+    }
+
+    /// Whether the session's harness may make a title of its own with a model
+    /// call (the Codex bridge after the first turn): never with
+    /// `titles.generate` off, and never for a chat the person named.
+    pub(super) async fn harness_may_title(&self, meta: &SessionMeta) -> bool {
+        meta.title_source.as_deref() != Some(super::titles::NAMED)
+            && self.config.read().await.titles.generate != Some(false)
     }
 
     /// The profile as it is spawned for this session: family and profile

@@ -140,8 +140,15 @@ impl Hub {
         // A pooled harness started without this session's env: never claimed.
         let pooled = match &adopt {
             // A pooled harness was started without this chat's route or its
-            // disallowed tools: never claimed.
-            None if meta.session_env.is_empty() && route.is_none() && meta.tools.off.is_empty() => {
+            // disallowed tools: never claimed. Nor a pooled Codex bridge for a
+            // chat the person names, or with titles off: it opened its session
+            // ready to make a title.
+            None if meta.session_env.is_empty()
+                && route.is_none()
+                && meta.tools.off.is_empty()
+                && !(crate::codex_app_server::is_profile_launch(&profile.argv)
+                    && (name.is_some() || self.config.read().await.titles.generate == Some(false))) =>
+            {
                 self.pool_claim(&meta, &profile, &defaults.env).await
             }
             _ => None,
@@ -738,7 +745,7 @@ impl Hub {
                 let res = child
                     .request(
                         method::SESSION_LOAD,
-                        self.acp_params(&session.id, &meta, profile, Some(&sid), &child),
+                        self.acp_params(&session.id, &meta, profile, Some(&sid), &child).await,
                     )
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
@@ -763,7 +770,7 @@ impl Hub {
             let res = match child
                 .request(
                     method::SESSION_NEW,
-                    self.acp_params(&session.id, &meta, profile, None, &child),
+                    self.acp_params(&session.id, &meta, profile, None, &child).await,
                 )
                 .await
             {

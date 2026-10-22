@@ -17,8 +17,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Output;
 
-fn scratch() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("amx-cxc-{}", std::process::id()));
+fn scratch(tag: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("amx-cxc{tag}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(dir.join("p")).unwrap();
     dir
@@ -52,9 +52,9 @@ impl Drop for Shutdown<'_> {
     }
 }
 
-#[test]
-fn codex_slash_commands_reach_the_person_through_the_bridge() {
-    let dir = scratch();
+/// A home whose `codex-fixture` harness runs the fixture app-server; `extra`
+/// goes into config.json beside it. Returns the fixture's log path.
+fn home(dir: &Path, extra: Value) -> PathBuf {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fake_codex_stream.py");
     let codex = dir.join("codex");
     fs::write(
@@ -64,13 +64,49 @@ fn codex_slash_commands_reach_the_person_through_the_bridge() {
     .unwrap();
     fs::set_permissions(&codex, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     let log = dir.join("fixture.log");
-    fs::write(
-        dir.join("config.json"),
-        json!({"harnesses": {"codex-fixture": {"argv": [codex, "app-server"], "family": "codex",
-            "env": {"FIX_LOG": log}}}})
-        .to_string(),
-    )
-    .unwrap();
+    let mut config = json!({"harnesses": {"codex-fixture": {"argv": [codex, "app-server"], "family": "codex",
+        "env": {"FIX_LOG": log}}}});
+    if let (Some(c), Value::Object(extra)) = (config.as_object_mut(), extra) {
+        c.extend(extra);
+    }
+    fs::write(dir.join("config.json"), config.to_string()).unwrap();
+    log
+}
+
+/// The fixture log after an unnamed Codex chat's first turn and one more
+/// prompt (by then a title call after the first turn is in the log).
+fn unnamed_chat_calls(tag: &str, extra: Value) -> String {
+    let dir = scratch(tag);
+    let log = home(&dir, extra);
+    let _shutdown = Shutdown(&dir);
+    let first = cli(
+        &dir,
+        &["--json", "run", "-m", "codex-fixture", "--policy", "approve-all", "hello from the test"],
+    );
+    assert!(first.status.success(), "first turn: {}", String::from_utf8_lossy(&first.stderr));
+    let out: Value = serde_json::from_slice(&first.stdout).unwrap_or(Value::Null);
+    let name = out["name"].as_str().unwrap_or_else(|| panic!("no name: {out}")).to_owned();
+    let next = cli(&dir, &["--json", "send", &name, "/mcp"]);
+    assert!(next.status.success(), "/mcp: {}", String::from_utf8_lossy(&next.stderr));
+    fs::read_to_string(&log).unwrap_or_default()
+}
+
+/// An unnamed chat gets the bridge's generated title, as the codex-acp
+/// adapter gave it; `titles.generate: false` stops that model call
+/// (Lawrence 2026-10-21) and the chat keeps its first prompt as its title.
+#[test]
+fn titles_generate_decides_the_codex_title_call() {
+    let on = unnamed_chat_calls("on", json!({}));
+    assert!(on.contains("title-turn model=gpt-5.6-luna schema=True"), "no title call:\n{on}");
+    let off = unnamed_chat_calls("off", json!({"titles": {"generate": false}}));
+    assert!(!off.contains("title-turn"), "the title model was asked:\n{off}");
+    assert!(!off.contains("\"name\": \"Greeting"), "a generated title was set:\n{off}");
+}
+
+#[test]
+fn codex_slash_commands_reach_the_person_through_the_bridge() {
+    let dir = scratch("");
+    let log = home(&dir, json!({}));
     let _shutdown = Shutdown(&dir);
 
     let first = cli(
@@ -113,7 +149,6 @@ fn codex_slash_commands_reach_the_person_through_the_bridge() {
         "account/rateLimits/read",
         r#"review/start {"delivery": "inline", "target": {"branch": "main", "type": "baseBranch"}}"#,
         r#"thread/name/set {"name": "Release prep"}"#,
-        "title-turn model=gpt-5.6-luna schema=True",
     ] {
         assert!(calls.contains(call), "the app-server never got {call}:\n{calls}");
     }
@@ -132,4 +167,15 @@ fn codex_slash_commands_reach_the_person_through_the_bridge() {
         .unwrap_or("")
         .to_owned();
     assert_eq!(title, "Release prep", "acpmux ls: {sessions}");
+
+    // A chat the person named (`-n cx`) never gets a generated title, also
+    // after its harness titled it and the daemon started it again (session/load).
+    let stop = cli(&dir, &["daemon", "shutdown", "--end-agents"]);
+    assert!(stop.status.success(), "shutdown: {}", String::from_utf8_lossy(&stop.stderr));
+    // (The fixture keeps no thread name across processes: the title is checked above.)
+    send(&dir, "hello again after a restart");
+    send(&dir, "/mcp");
+    let calls = fs::read_to_string(&log).unwrap_or_default();
+    assert!(calls.contains("thread/resume"), "no reload:\n{calls}");
+    assert!(!calls.contains("title-turn"), "a named chat's title was generated:\n{calls}");
 }
