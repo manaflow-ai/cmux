@@ -84,7 +84,7 @@ import Testing
     }
 
     @Test(arguments: [("~/wt/glass-regressions--hover-card-polish", "glass-regressions/hover-card-polish"),
-                      ("~/wt/fix-card", "lane/fix-card"), ("~/code/Fix_Card", "fix-card")])
+                      ("~/wt/lane--fix-card", "lane/fix-card"), ("~/code/Fix_Card", "fix-card")])
     func aWorktreeNamedAfterItsBranchReadsAsTheBranch(_ directory: String, _ branch: String) {
         let card = Self.card(Self.chat { $0.directory = directory; $0.branch = branch })
         #expect(card.facts.first { $0.kind == "branch" }?.text == branch)
@@ -122,6 +122,14 @@ import Testing
 
     // MARK: The preview: the latest status, else the last reply
 
+    /// A folder that only matches the branch's last part is an ordinary repository, not a worktree.
+    @Test(arguments: [("~/code/card", "feature/card", "card · feature/card"),
+                      ("~/code/cmux", "lane/cmux", "cmux · lane/cmux")])
+    func aRepositoryNamedLikeItsBranchTailKeepsItsName(_ directory: String, _ branch: String, _ text: String) {
+        let card = Self.card(Self.chat { $0.directory = directory; $0.branch = branch })
+        #expect(card.facts.first { $0.kind == "branch" }?.text == text)
+    }
+
     @Test func withNoStatusThePreviewIsTheLastReply() throws {
         let workspace = Self.chat()
         #expect(WorkspaceHoverCardContent.preview(workspace, pullRequests: nil) == .message(try #require(workspace.lastMessage)))
@@ -156,6 +164,16 @@ import Testing
         #expect(!Self.card(waiting).facts.contains { $0.kind == WorkspaceHoverCardContent.needsYouKind })
         #expect(!Self.card(Self.chat { $0.activity = .waiting(kind: nil); $0.lastMessage = nil }).facts
             .contains { $0.kind == WorkspaceHoverCardContent.needsYouKind })
+    }
+
+    /// A blank needs-input reason is no reason: no empty row, and the last reply still shows.
+    @Test(arguments: ["", "  ", "\n"])
+    func aBlankReasonIsNoWait(_ reason: String) throws {
+        let workspace = Self.chat { $0.detail.needsInput = reason }
+        #expect(WorkspaceHoverCardContent.preview(workspace, pullRequests: nil) == .message(try #require(workspace.lastMessage)))
+        let card = Self.card(workspace)
+        #expect(!card.facts.contains { $0.kind == "needsInput" })
+        #expect(card.facts.last?.kind == WorkspaceHoverCardContent.Fact.lastReplyKind)
     }
 
     @Test func aWaitWinsOverAPullRequest() {
