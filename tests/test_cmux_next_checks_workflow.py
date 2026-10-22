@@ -1159,7 +1159,9 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'", runs_on)
         self.assertTrue(runs_on.endswith("'blacksmith-32vcpu-ubuntu-2404' }}"), runs_on)
         self.assertNotIn("vars.", runs_on, "an ephemeral Linux VM, never a reused mini")
-        self.assertEqual(cargo["if"], mac["if"])
+        # The same gate, except that the Mac half also follows the route (MacFastTierFollowsTheRoute).
+        self.assertEqual(cargo["if"], mac["if"].replace(" && needs.path_route.outputs.macos != 'false'", ""))
+        self.assertNotEqual(cargo["if"], mac["if"])
         self.assertEqual(cargo["needs"], ["push-head-preflight"])
         self.assertEqual(cargo["concurrency"]["group"], mac["concurrency"]["group"].replace("-fast-tier'", "-fast-tier-cargo'"))
         self.assertNotEqual(cargo["name"], mac["name"])
@@ -1229,6 +1231,68 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertEqual(len(reset), 1)
         self.assertEqual(reset[0]["run"].strip(), "scripts/ci/reset-stale-submodules.sh",
                          "the Swift entries need no submodule: drop them all")
+
+
+class MacFastTierFollowsTheRoute(unittest.TestCase):
+    """A pull request whose diff the router sends to no Mac tier (only web or CI files: ci-web,
+    actionlint and the CI tests cover it) starts no Mac fast tier: no fast-tier entry builds or
+    reads those files, so its result is the base's. The cargo half keeps running (Linux, and
+    next-autoland waits for it on any Rust file), the feat-cmux-next push still runs every
+    tier, and a route with no answer (a failed path_route) runs the fast tier as before."""
+
+    def setUp(self):
+        sys.path.insert(0, str(ROOT / "tests"))
+        from test_seed_derived_data import evaluate
+        self.evaluate = evaluate
+        self.jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+
+    def runs(self, job: str, event: str, macos: str | None) -> bool:
+        expression = self.jobs[job]["if"].replace("!cancelled()", "true")
+        pull = event == "pull_request"
+        context = {
+            "github": {
+                "event_name": event, "repository_owner": "manaflow-ai", "repository": "manaflow-ai/cmux",
+                "base_ref": "feat-cmux-next" if pull else "", "run_attempt": 1,
+                "ref": "refs/pull/1/merge" if pull else "refs/heads/feat-cmux-next",
+                "event": {"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}} if pull else {},
+            },
+            "inputs": {"same_tree_sha": "", "dev_daily": False},
+            "vars": {"CI_PR_POOL_OWNED": "1"},
+            "needs": {
+                "push-head-preflight": {"outputs": {"current": "true"}},
+                "path_route": {"outputs": {} if macos is None else {"macos": macos}},
+            },
+        }
+        return bool(self.evaluate(expression, context))
+
+    def route_macos(self, changed: list[str]) -> str:
+        import cmux_next_route
+        return cmux_next_route.outputs(cmux_next_route.route(ROOT, "pull_request", changed, set()))["macos"]
+
+    def test_a_web_or_ci_only_pull_request_starts_no_mac_fast_tier(self):
+        for changed in (["web/app/page.tsx"], [".github/workflows/web-validation.yml"], ["docs/ci/merge-main.md"]):
+            with self.subTest(changed=changed):
+                macos = self.route_macos(changed)
+                self.assertEqual(macos, "false")
+                self.assertFalse(self.runs("fast-tier", "pull_request", macos))
+                self.assertFalse(self.runs("macos-placement", "pull_request", macos))
+                self.assertTrue(self.runs("fast-tier-cargo", "pull_request", macos))
+
+    def test_a_pull_request_with_a_mac_tier_runs_the_mac_fast_tier(self):
+        macos = self.route_macos(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WindowRootView.swift"])
+        self.assertEqual(macos, "true")
+        self.assertTrue(self.runs("fast-tier", "pull_request", macos))
+        self.assertTrue(self.runs("macos-placement", "pull_request", macos))
+
+    def test_no_route_answer_and_the_base_push_still_run_it(self):
+        self.assertTrue(self.runs("fast-tier", "pull_request", None))
+        for macos in ("true", None):
+            with self.subTest(macos=macos):
+                self.assertTrue(self.runs("fast-tier", "push", macos))
+                self.assertTrue(self.runs("fast-tier-cargo", "push", macos))
+
+    def test_the_mac_fast_tier_waits_for_the_route(self):
+        self.assertIn("path_route", self.jobs["fast-tier"]["needs"])
 
 
 SEED_WORKFLOW = WORKFLOW.parent / "cmux-next-fast-tier-seed.yml"

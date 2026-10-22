@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { HEADER_GLYPH } from "../header/ChatHeaderTools";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { registerPicker } from "../pickerOpeners";
@@ -16,13 +17,13 @@ export function SummaryButton({ card }: { card: SummaryCardControl }) {
     <span className="acpmux-summary">
       <button
         type="button"
-        className="acpmux-summary-button"
+        className="acpmux-header-tool acpmux-summary-button"
         aria-label={label}
         title={label}
         aria-pressed={card.shown}
         onClick={card.toggle}
       >
-        <Icon name="view.list" size={15} />
+        <Icon name="view.list" size={HEADER_GLYPH} />
       </button>
     </span>
   );

@@ -117,6 +117,7 @@ pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub use subsession_send::Delivery;
 mod drafts;
+pub(crate) mod outbox;
 pub mod rules;
 mod transcript;
 mod transfer;
@@ -146,6 +147,21 @@ use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
 use crate::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus, Store, now_ms};
 use anyhow::Result;
 use serde_json::{Value, json};
+
+/// True when a permission request is an agent's question (`questions.rs`): what tells the
+/// person about it says the agent asks, never that it needs a permission.
+pub(crate) fn is_question(request: &Value) -> bool {
+    questions::needs_person(request)
+}
+
+/// The first prompt of an agent's question: the normalized copy, else Claude Code's own input.
+pub(crate) fn question_prompt(request: &Value) -> Option<&str> {
+    questions::question(request)
+        .and_then(|q| q.pointer("/items/0/prompt"))
+        .or_else(|| request.pointer("/toolCall/rawInput/questions/0/question"))
+        .and_then(Value::as_str)
+        .filter(|p| !p.is_empty())
+}
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -398,6 +414,10 @@ pub struct Hub {
     pub(super) secrets: secrets::Secrets,
     /// Sub-session starts waiting on a folder's trust card, and Not nows (`trust_wait.rs`).
     pub(super) trust_waits: trust_wait::Waits,
+    /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
+    /// acceptance (`outbox.rs`).
+    pub(crate) outbox: outbox::Outbox,
+    pub(crate) peer_accepts: outbox::PeerAccepts,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
     /// Pairing tickets and paired machines (`crate::pairing`).
@@ -485,6 +505,8 @@ impl Hub {
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
             trust_waits: Default::default(),
+            outbox: Default::default(),
+            peer_accepts: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
         });

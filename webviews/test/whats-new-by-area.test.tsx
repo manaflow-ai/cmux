@@ -4,8 +4,8 @@
 // span with no curated lines even when it had user-visible commits, and kept internal work as a
 // bare count ("2 internal changes"). Now the span's changes are open, grouped by area ("Sidebar",
 // "Composer", then "Other"), each with its pull request, and internal work is listed, with its pull
-// requests, under a collapsed "Under the hood". The fold itself is closed in the update section since
-// the update reads as happy news (whats-new-happy-news.test.tsx).
+// requests, under a collapsed "Under the hood". An update with curated notes folds them under its lead
+// changes and cards (whats-new-happy-news.test.tsx); this one has none, so its changes stay open.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -98,9 +98,9 @@ test("What's New lists the update's changes by area with their pull requests, in
   expect(section).not.toBeNull();
   // The span has user-visible changes: never "Maintenance and fixes" over them.
   expect(section?.querySelector(".cl-maintenance")).toBeNull();
-  // Every change stays one click away, folded: the update reads as its lead changes and cards.
+  // No curated notes: the changes are the news, so they are open.
   const fold = section?.querySelector<HTMLDetailsElement>("details.cl-changes");
-  expect(fold?.open).toBe(false);
+  expect(fold?.open).toBe(true);
   const areas = [...(fold?.querySelectorAll(".cl-area") ?? [])];
   expect(areas.map((a) => a.querySelector("h4")?.textContent)).toEqual(["Sidebar", "Composer", "Other"]);
   expect(rows(areas[0]?.querySelector("ul"))).toEqual([
@@ -108,6 +108,8 @@ test("What's New lists the update's changes by area with their pull requests, in
     ["A click never drags", pull(301)],
   ]);
   expect(rows(areas[1]?.querySelector("ul"))).toEqual([["Return steers a running turn", pull(202)]]);
+  // The title links its pull request too, not only the trailing number.
+  expect(areas[1]?.querySelector<HTMLAnchorElement>("a.cl-change-link")?.href).toBe(pull(202));
   expect(rows(areas[2]?.querySelector("ul"))).toEqual([["Enroll Computer Use after peer check", pull(302)]]);
   // The installed build's own change is not part of the update.
   expect(fold?.textContent).not.toContain("installed build");

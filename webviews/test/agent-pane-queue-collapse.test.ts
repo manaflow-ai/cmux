@@ -593,9 +593,9 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     });
 
     /// Rests the opened list half a row down, so its bottom edge cuts row 4, and returns the middle
-    /// of the shown part of that row's `action` button.
-    async function cutRowAction(page: Page, action: string) {
-      return page.evaluate((action) => {
+    /// of the shown part of that row's control that `control` selects.
+    async function cutRowAction(page: Page, control: string) {
+      return page.evaluate((control) => {
         const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
         const rows = [...list.querySelectorAll<HTMLElement>(".acpmux-queued")];
         list.scrollTop = rows[0].getBoundingClientRect().height / 2;
@@ -604,28 +604,30 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
           const rect = row.getBoundingClientRect();
           return rect.top < box.bottom - 2 && rect.bottom > box.bottom + 1;
         })!;
-        const button = cut.querySelector<HTMLElement>(`[data-action="${action}"]`)!.getBoundingClientRect();
+        const button = cut.querySelector<HTMLElement>(control)!.getBoundingClientRect();
         return {
           id: cut.dataset.promptId!,
           x: button.left + button.width / 2,
           y: (button.top + Math.min(button.bottom, box.bottom)) / 2,
         };
-      }, action);
+      }, control);
     }
 
     test("Remove and Edit on a row the list's edge cuts do what they say (Leo, 2026-10-20)", async () => {
       // The press focused the row, which scrolled the list to show it whole before the release: the
       // click landed on another row or none.
       const page = await openedQueue();
-      const remove = await cutRowAction(page, "remove");
+      const remove = await cutRowAction(page, '[data-action="delete"]');
       await page.mouse.click(remove.x, remove.y);
       await page.waitForFunction((id) => !document.querySelector(`.acpmux-queued[data-prompt-id="${id}"]`), remove.id, {
         timeout: 5_000,
       });
       expect(edits).toEqual([{ op: "remove", promptId: remove.id }]);
 
-      const edit = await cutRowAction(page, "edit");
+      // Edit message is in the row's ⋯ menu: the press on the ⋯ must open that row's menu.
+      const edit = await cutRowAction(page, '[data-menu="queued-more"]');
       await page.mouse.click(edit.x, edit.y);
+      await page.getByRole("menuitem", { name: /Edit message/ }).click();
       const field = page.locator(`.acpmux-queued[data-prompt-id="${edit.id}"] textarea`);
       await field.waitFor({ timeout: 5_000 });
       await page.keyboard.press("ControlOrMeta+a");

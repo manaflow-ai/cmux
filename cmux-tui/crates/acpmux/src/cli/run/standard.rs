@@ -527,16 +527,33 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             stall,
             prompt_id,
             from,
+            status,
             supersede,
         } => {
+            let client = connect(true).await?;
+            if let Some(delivery) = status {
+                return super::send_async::status(&client, &delivery, json_out).await;
+            }
+            let session = session.ok_or_else(|| anyhow!("a session is required"))?;
             let mut prompt_id = PromptId::new(prompt_id);
             prompt_id.from_agent = from;
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
             // A message (--no-wait) steers; a send that waits for its reply queues.
             let steer = send_steers(steer, no_steer, no_wait);
-            let client = connect(true).await?;
             let text = arg_or_stdin(&prompt)?;
+            if no_wait {
+                return super::send_async::queue(
+                    &client,
+                    &session,
+                    &text,
+                    steer,
+                    &prompt_id,
+                    superseding,
+                    json_out,
+                )
+                .await;
+            }
             let id = resolve_id(&client, &session).await?;
             let on_permission = OnPermission::parse(&on_permission)?;
             // Never refuse: report what the prompt queues behind.
@@ -565,26 +582,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     ));
                 }
                 eprintln!("queued behind {}", parts.join(" and "));
-            }
-            if no_wait {
-                // Return once the daemon recorded the prompt, not after a guess.
-                let accepted = queue_prompt(client, &id, &text, steer, None, &prompt_id).await?;
-                let steered = accepted.get("steer") == Some(&json!(true));
-                if json_out {
-                    let mut out = json!({"sessionId": id, "queued": !steered, "steered": steered, "queuedBehind": behind, "promptId": prompt_id.id, "accepted": accepted});
-                    if superseding {
-                        // null when the daemon did not report it (one that predates the key).
-                        out["replaced"] = accepted.get("replaced").cloned().unwrap_or(Value::Null);
-                        out["replacedPromptIds"] =
-                            accepted.get("replacedPromptIds").cloned().unwrap_or(Value::Null);
-                    }
-                    print_json(&out);
-                } else {
-                    for line in sent_lines(&accepted, superseding) {
-                        println!("{line}");
-                    }
-                }
-                return Ok(());
             }
             let opts = CollectOpts { timeout, on_permission, stall_secs: stall, retries: 0 };
             if quiet || json_out {

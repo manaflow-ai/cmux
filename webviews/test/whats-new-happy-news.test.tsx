@@ -91,3 +91,9 @@ test("Security keeps its own open list", () => {
   expect(doc.querySelector(".cl-group h3")?.textContent).toBe("Security");
   expect(doc.querySelector(".cl-group .cl-row-title")?.textContent).toBe("Title s1");
 });
+
+test("a fix keeps its Learn more link", () => {
+  const fix = item("f1", "fixed", { docs: "https://cmux.com/docs/fix" });
+  const doc = render(view(undefined, [{ category: "fixed", items: [fix] }]));
+  expect(doc.querySelector<HTMLAnchorElement>(".cln-fixed .cl-row-link")?.href).toBe("https://cmux.com/docs/fix");
+});
