@@ -6818,7 +6818,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         url: URL,
         status: SidebarPullRequestStatus,
         branch: String? = nil,
-        isStale: Bool = false
+        isStale: Bool = false,
+        deliveryStatus: SidebarPullRequestDeliveryStatus? = nil
     ) {
         if cloudDirectoryProvenanceRequired(panelId: panelId) {
             clearPanelPullRequest(panelId: panelId)
@@ -6843,13 +6844,24 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
             return existing.branch
         }()
+        let resolvedDeliveryStatus = deliveryStatus ?? {
+            guard let existing,
+                  existing.number == number,
+                  existing.label == label,
+                  existing.url == url,
+                  existing.status == status else {
+                return nil
+            }
+            return existing.deliveryStatus
+        }()
         let state = SidebarPullRequestState(
             number: number,
             label: label,
             url: url,
             status: status,
             branch: resolvedBranch,
-            isStale: isStale
+            isStale: isStale,
+            deliveryStatus: resolvedDeliveryStatus
         )
         reconcileManualPullRequest(with: state)
         if existing != state {
