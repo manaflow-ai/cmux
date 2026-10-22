@@ -195,7 +195,7 @@ nonisolated extension ActionSurfaceCatalog {
             "diffViewerPreviousLine", "diffViewerHalfPageDown", "diffViewerHalfPageUp", "diffViewerNextHunk",
             "diffViewerPreviousHunk", "diffViewerGoToBottom", "diffViewerGoToTop", "diffViewerSearch",
             "diffViewerNextFile", "diffViewerPreviousFile", "fileEditorGotoLine", "fileEditorReplace", "fileEditorAction", "fileExplorerOpenSelection",
-            "fileExplorerOpenSelectionFinderAlias", "fileExplorerOpenInCmux", "fileExplorerReveal",
+            "fileExplorerOpenSelectionFinderAlias", "fileExplorerOpenInCmux", "fileExplorerOpenAsText", "fileExplorerReveal",
             "fileExplorerCopyPath", "fileExplorerCopyRelativePath", "fileExplorerOpenWith", "fileExplorerNewFile",
             "fileExplorerNewFolder", "fileExplorerRename", "fileExplorerMoveToTrash", "vaultOpenSession",
             "vaultResumeInNewWorkspace", "vaultCopyResumeCommand", "vaultOpenPullRequest",
