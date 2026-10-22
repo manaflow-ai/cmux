@@ -478,8 +478,10 @@ def require_pull_request(pr: int, repo: str, runner=None) -> None:
 
 
 # ffmpeg parses media a PR made, so it runs without the publish step's environment (the private terms list,
-# GH_TOKEN): only what it needs to find itself, its temp dir and a locale.
-TOOL_ENV_KEYS = ("PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE")
+# GH_TOKEN): only what it needs to find itself, its temp dir, a locale and (for the reel's drawtext cards)
+# fontconfig.
+TOOL_ENV_KEYS = ("PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE",
+                 "FONTCONFIG_FILE", "FONTCONFIG_PATH", "XDG_CACHE_HOME")
 
 
 def tool_env() -> dict[str, str]:
