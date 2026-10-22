@@ -124,3 +124,37 @@ test("the store follows sub-sessions only, and tells its readers only when one's
   expect(calls).toBe(3);
   expect(store.get("a")).toBeUndefined();
 });
+
+test("another agent's message finds its sender's chat by name, and that chat's harness", () => {
+  const store = new SubsessionStore();
+  let notified = 0;
+  let renamed = 0;
+  store.subscribe(() => notified++);
+  store.subscribeNames(() => renamed++);
+  store.set([
+    summary("old", { name: "coord-deputy", tags: ["archived"], harness: "codex" }),
+    summary("deputy", { name: "coord-deputy", harness: "claude" }),
+    summary("child", { startedBy: "chat", shortName: "tests", harness: "codex" }),
+  ]);
+  // A live chat's name before an archived one's; a sub-session by its short name too.
+  expect(store.find("coord-deputy")).toBe("deputy");
+  expect(store.find(" tests ")).toBe("child");
+  expect(store.find("nobody")).toBeUndefined();
+  expect(store.harness("deputy")).toBe("claude");
+  expect(renamed).toBe(1);
+  // Sub-session cards hear of the one sub-session, not of every chat's name.
+  expect(notified).toBe(1);
+  // The same list again changes nothing.
+  store.set([
+    summary("old", { name: "coord-deputy", tags: ["archived"], harness: "codex" }),
+    summary("deputy", { name: "coord-deputy", harness: "claude" }),
+    summary("child", { startedBy: "chat", shortName: "tests", harness: "codex" }),
+  ]);
+  expect(renamed).toBe(1);
+  expect(notified).toBe(1);
+  // A chat leaving the list takes its name with it.
+  store.set([summary("child", { startedBy: "chat", shortName: "tests", harness: "codex" })]);
+  expect(store.find("coord-deputy")).toBeUndefined();
+  expect(renamed).toBe(2);
+  expect(notified).toBe(1);
+});

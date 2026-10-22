@@ -101,18 +101,27 @@
   transition-duration: var(--ui-popup-close);
 }
 
-/* Every popup is the solid popup surface (--surface-popup, pages/shared/desktop.css) on the
-   dropdown layer by default (webviews/src/ui/README.md, "Layers and transparency"): opaque and
-   unblurred, so the page under it never shows through. Zero-specificity defaults: a feature's
-   own surface class still wins, and draws on the same token. A host maps --ui-popup-fg to its
-   ink (the agent pane: acpmux/styles.css), so a popup that names no surface (a nested submenu,
-   a new menu) still gets the same look. */
+/* Every popup is the liquid glass (.ui-glass, ui/glass/glass.css: Menu, Popover, ContextMenu,
+   Combobox and the agent pane's own popups add the class) on the dropdown layer by default
+   (webviews/src/ui/README.md, "Layers and transparency"), never opaque: the glass's tint and frost,
+   its rim with the popup's one hairline as its edge, and the shared popup drop. Plain glass is
+   glass too, under the same hairline and drop; only Reduce Transparency makes it the solid popup
+   surface (--surface-popup, pages/shared/desktop.css). A feature's own surface class draws
+   on these tokens and never paints its own fill or shadow. A host maps --ui-popup-fg to its ink
+   (the agent pane: acpmux/styles.css), so a popup that names no surface (a nested submenu, a new
+   menu) still gets the same look. */
 :where(.ui-positioner) {
   z-index: var(--layer-dropdown);
 }
 :where(.ui-popup) {
-  background-color: var(--surface-popup);
+  background-color: var(--glass-tint);
   color: var(--ui-popup-fg, var(--ui-fg, CanvasText));
+}
+.ui-popup {
+  --glass-elevation: var(--ui-popup-drop);
+  --glass-edge: var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));
+  /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque: var(--surface-popup);
 }
 
 /* The shipped agent pane loads this shared surface sheet without ui.css. Keep modal layers here

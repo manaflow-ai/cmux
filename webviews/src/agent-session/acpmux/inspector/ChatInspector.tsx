@@ -305,7 +305,7 @@ function InspectorPresence({
       placement={push ? "push" : "overlay"}
       // Over the chat it starts under the chat header (styles.css --acpmux-header-height; in the
       // pane's tab row, the row's height), so the header's tools, its own toggle among them, stay in reach.
-      under={tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height)"}
+      under={tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)"}
       presence={presence}
     >
       {/* Another chat's sections start drawn with what that chat has: none of its rows drops in. */}
@@ -369,7 +369,7 @@ export function InspectorPanel({
         presence?.props.ref(node);
       }}
       inert={presence?.leaving}
-      className="acpmux-chat-inspector"
+      className={placement === "overlay" ? "ui-glass acpmux-chat-inspector" : "acpmux-chat-inspector"}
       data-placement={placement}
       style={under ? ({ width, "--acpmux-inspector-top": under } as CSSProperties) : { width }}
       aria-label={t("chatInspector.title")}

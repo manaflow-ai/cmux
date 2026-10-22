@@ -19,7 +19,9 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Command {
     /// Create a session and optionally send a first prompt. `run` is the
-    /// same with --quiet: it prints only the final reply.
+    /// same with --quiet: it prints only the final reply. With --worktree,
+    /// --prompt-file, --report-to and --group it starts an agent on a task
+    /// in one step; running it again reuses everything and sends nothing.
     #[command(alias = "new-session", alias = "run", alias = "exec")]
     New(NewArgs),
     /// Block until a session resolves: its turn ends or it needs a permission
@@ -166,6 +168,10 @@ pub enum Command {
         /// named without it.
         #[arg(long, value_name = "NAME")]
         from: Option<String>,
+        /// Replace your prompt still queued under KEY: a correction is never read after the
+        /// order it corrects. Prints how many it replaced. A prompt whose turn started stays.
+        #[arg(long, value_name = "KEY")]
+        supersede: Option<String>,
     },
     /// List sessions on every host.
     #[command(alias = "list", alias = "list-sessions")]
@@ -348,6 +354,8 @@ pub enum Command {
     },
     #[command(hide = true)]
     RestartAgent { session: String },
+    #[command(hide = true)]
+    ResumeQueue { session: String },
     #[command(hide = true, alias = "rename-session")]
     Rename { session: String, new_name: String },
     #[command(hide = true)]
@@ -610,6 +618,9 @@ pub enum SessionCmd {
     Restart { session: String },
     /// Rename a session.
     Rename { session: String, new_name: String },
+    /// Run the queued prompts a failed turn held. An agent or a script may resume a
+    /// queue; only answering a permission or a question needs the cmux app.
+    Resume { session: String },
     /// Fork a session into a new one that shares the history so far.
     Fork {
         session: String,
@@ -781,7 +792,8 @@ pub enum PeerCmd {
     /// as NAME/session.
     Add {
         name: String,
-        url: String,
+        /// Default: ssh://NAME, the machine's one daemon as your ssh config reaches it.
+        url: Option<String>,
         #[arg(long)]
         token: Option<String>,
     },
@@ -789,6 +801,25 @@ pub enum PeerCmd {
     Ls,
     /// Remove a peer.
     Rm { name: String },
+    /// Pairing tickets for adding a machine with one pasted line: `new`
+    /// mints one, `ls` lists tickets and paired machines, `revoke` ends one.
+    #[command(subcommand)]
+    Ticket(TicketCmd),
+    /// Redeem a pairing ticket from another machine and pair in its role
+    /// (the install script runs this with the pasted ticket).
+    Join {
+        ticket: String,
+        /// This machine's name on the other one (default: the host name's first label).
+        #[arg(long)]
+        name: Option<String>,
+        /// The other machine's peer name here (default: its name in the ticket).
+        #[arg(long)]
+        peer_name: Option<String>,
+        /// A daemon-role ticket: the wss:// URL (or ws:// to a loopback host)
+        /// the other machine reaches this daemon at.
+        #[arg(long)]
+        advertise: Option<String>,
+    },
     /// Install this binary and a daemon on a machine over ssh, then add it as a peer.
     Setup {
         /// ssh target, e.g. cmux-lawrence or user@host
@@ -861,6 +892,33 @@ pub enum PeerCmd {
         #[arg(long)]
         probe: bool,
     },
+}
+
+#[derive(Subcommand)]
+pub enum TicketCmd {
+    /// Mint a single-use ticket; prints the line to run on the new machine.
+    New {
+        /// daemon (this machine drives the new one), client (the new one
+        /// drives this one) or read-only (the new one only watches).
+        #[arg(long, default_value = "client")]
+        role: String,
+        /// How long the ticket lives: 900, 15m or 2h (at most 24h).
+        #[arg(long, default_value = "15m")]
+        ttl: String,
+        /// The wss:// URL the new machine dials (default: this daemon's
+        /// listener, when it listens on loopback).
+        #[arg(long)]
+        url: Option<String>,
+        /// A note shown in `ticket ls`.
+        #[arg(long)]
+        label: Option<String>,
+    },
+    /// Tickets and paired machines (no secrets).
+    #[command(alias = "list")]
+    Ls,
+    /// Revoke a ticket, or a paired machine by id or name; its open
+    /// connections close at once.
+    Revoke { id: String },
 }
 
 #[derive(Args)]
@@ -950,6 +1008,7 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Stop { session, purge } => Command::Kill { session, purge },
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
+            SessionCmd::Resume { session } => Command::ResumeQueue { session },
             SessionCmd::Fork { session, name, cwd } => Command::Fork { session, name, cwd },
             SessionCmd::Set { session, assignment } => Command::Set { session, assignment },
             SessionCmd::Allow { session, option } => Command::Allow { session, option },

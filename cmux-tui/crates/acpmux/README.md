@@ -115,11 +115,11 @@ Five everyday commands, three groups for the rest:
 | --- | --- |
 | `acpmux` | Open the TUI. Starts the daemon if needed. |
 | `new [-m harness[/model]] [-n name] [--cwd dir] [--policy p] [prompt]` | Create a session. Opens the TUI unless `-d`. |
-| `send NAME "text" [--steer\|--no-steer] [--no-wait] [-q]` | Prompt and stream the reply. With `--no-wait` it steers into a running turn by default (read at the agent's next tool boundary, never stopping it); it queues when the agent does not steer. |
+| `send NAME "text" [--steer\|--no-steer] [--no-wait] [-q]` | Prompt and stream the reply. With `--no-wait` it steers into a running turn by default (read at the agent's next tool boundary, never stopping it); it queues when the agent does not steer. `--supersede KEY` replaces the sender's own prompt still queued under KEY (never one whose turn started); with `--no-wait` it prints `replaced N queued` (`?` from a daemon that predates it) and `--json` adds `replaced` and `replacedPromptIds`. The sender is the agent (`--from`, or the session `send` runs in) or, for anything else, the person. |
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
 | `web [--no-open] [--rotate-token]` | Print the dashboard URL and open it; `--rotate-token` replaces the token first. |
-| `host setup HOST` / `host update [--all] [--if-idle] [--binary-dir DIR]` / `host add NAME URL` / `host ls` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…`. |
+| `host setup HOST` / `host update [--all] [--if-idle] [--binary-dir DIR]` / `host add NAME [URL]` / `host ls` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. |
 | `host enroll HOST [--harness ID]… [--reverse]` / `host doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `daemon run\|status\|shutdown\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
@@ -189,9 +189,15 @@ unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 session load or new, config replay): past it the request fails with code -32000 and
 `data.reason` `deadline_exceeded` (`data.wait` `agent_start`), the agent is ended, the
 session stays open, and the log gets `agent_start_timed_out`.
-`silentTurnMs` (default 90000; 0 turns it off): a turn whose agent sends nothing at all
-for that long after its prompt (a stalled model) logs `turn_silent` {turnId, silentMs}
-once, so a client can say the model has not answered.
+`silentTurnMs` (default 90000; 0 turns it off): a turn whose model shows no sign of work
+(no message, thought, tool call, plan, compaction or request, and no harness line only a
+responding model produces, such as Claude's stream and thinking or Codex's moderation
+notice; the agent's own usage and turn notices do not count) for that long after its
+prompt (a stalled model) logs `turn_silent` {turnId, silentMs} once, so a client can say
+the model has not answered. The model's first sign after it logs `turn_heard` {turnId}.
+Files dropped into a chat (`_acpmux/file_put`, under `<home>/uploads/<session>/`) are
+deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMaxAgeDays`
+(default 30; 0 keeps them), checked at the daemon's start and daily.
 
 A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
 event) gets a 3-6 word title once, after its first completed turn, logged as `titled`.

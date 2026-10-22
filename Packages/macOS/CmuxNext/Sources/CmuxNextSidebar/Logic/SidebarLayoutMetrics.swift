@@ -140,11 +140,17 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// `sidebar.sessionTree`: a workspace started by another's agent lists under it, and rows
     /// carry their pull requests and keycaps. Nil (off) draws the list as before.
     public var sessionTree: SidebarSessionTreeState?
+    /// Each row's pull request badge (`sidebar.pullRequestBadges`), drawn with the tree off too.
+    public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
     /// The session tree's keycaps: each workspace's Command-number (`SidebarItemOrder`).
     public var keycaps: [WorkspaceID: Int] = [:]
     /// The session tree's chat history (`SidebarChatHistoryState`): Pinned above the workspaces,
     /// Earlier under them. Nil (the tree off, or a filter) draws neither.
     public var chatHistory: SidebarChatHistoryState?
+    /// `sidebar.doneFold`: workspaces marked Done fold into a "Done (N)" row at the end of their list.
+    public var foldsDone = false
+    /// The "Done (N)" rows the person opened: their workspaces list below them.
+    public var openDoneFolds: Set<SidebarDoneFoldID> = []
 
     public init() {}
 }
@@ -164,14 +170,15 @@ nonisolated extension SidebarLayoutOptions {
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
-        if let sessionTree {
-            content.keycap = keycaps[ws.id]
-            content.pullRequests = sessionTree.pullRequests[ws.id]
-        }
+        if let sessionTree { content.keycap = keycaps[ws.id] }
+        content.pullRequests = sessionTree?.pullRequests[ws.id] ?? pullRequests[ws.id]
         if !showsTimestamps { (content.time, content.badgeTime) = (nil, nil) }
         // What the agent needs outranks the row's age and one-line status on the name's line; the
         // row view words it (localized on the main actor, so the layout stays nonisolated).
         if !minimal, let chip = ws.agentChip { (content.chip, content.time) = (chip, nil) }
+        // A row that already has a second line says there what its agent does now; a one-line row
+        // keeps its height, so rows do not grow and shrink as agents start and stop.
+        if !minimal, content.detail != nil, let step = ws.agentStep { (content.now, content.detail) = (step, step) }
         return content
     }
 
@@ -192,5 +199,24 @@ nonisolated extension SidebarLayoutOptions {
         content.badgeTime = nil
         content.status = nil
         return content
+    }
+}
+
+nonisolated extension SidebarLayoutOptions {
+    /// Whether the list draws workspace `ws`: not dragged out, and a match while filtering.
+    func visible(_ ws: SidebarWorkspace) -> Bool {
+        !excludedWorkspaces.contains(ws.id) && (filterMatches?.contains(ws.id) ?? true)
+    }
+
+    /// `showWorkspaceTabs` lists every workspace's tabs, except those the user collapsed with the row's disclosure.
+    func listsTabs(_ ws: SidebarWorkspace) -> Bool {
+        showWorkspaceTabs && !collapsedWorkspaces.contains(ws.id)
+    }
+
+    /// A workspace row's tab disclosure; nil when the list shows no tabs.
+    func disclosure(_ ws: SidebarWorkspace) -> SidebarTabDisclosure? {
+        guard showWorkspaceTabs else { return nil }
+        if ws.tabs.isEmpty { return .empty }
+        return collapsedWorkspaces.contains(ws.id) ? .collapsed : .expanded
     }
 }

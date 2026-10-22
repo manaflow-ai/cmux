@@ -86,6 +86,22 @@ const pictured = {
   ],
 };
 
+// A turn that took two steers, one the agent read and one it has not yet, and a prompt sent now
+// to an agent that cannot steer (it goes on with the turn).
+const steerMarks = () =>
+  chat(
+    [
+      user("Add retries", 6),
+      user("Use the cache dir, not tmp", 5, { steer: "landed" }),
+      assistant("Using the cache dir now.", 4),
+      user("Stop and fix the space thing first", 3, { continues: true }),
+      assistant("Fixing the space handling…", 2),
+      user("Also keep the old flag working", 1, { steer: "waiting", steerPromptId: "p-steer" }),
+      assistant("Reading the flag parser…", 0.5, { streaming: true }),
+    ],
+    { isWorking: true },
+  );
+
 // A running turn of an agent that steers (Claude Code, Codex) or not (acpmux `steering`).
 const steering = (steers: boolean) => {
   const running = chat(working, { isWorking: true });
@@ -580,6 +596,27 @@ export default agentPaneEntry({
         await new Promise((resolve) => setTimeout(resolve, 300));
       },
     },
+    // Leo (2026-10-21), as in Claude: a huge paste is a chip with its first words and line count,
+    // the prompt as typed; a click puts it back in the prompt, × removes it (pastedText.ts).
+    "text-pasted": {
+      note: "A 40-line paste: a Pasted text chip (first words, Pasted text · 40 lines) over the typed prompt, × on hover.",
+      ready: { draft: "Why does the build fail?" },
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const data = new view.DataTransfer();
+        const log = Array.from(
+          { length: 40 },
+          (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
+        );
+        data.setData("text/plain", log.join("\n"));
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: data });
+        ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-pasted"));
+        await ctx.hover({ selector: ".acpmux-attachment-pasted" });
+      },
+    },
     "quick-image-attached": {
       note: "Quick Composer: clicking a pasted image thumbnail opens the same image viewer as a full chat.",
       ready: { surface: "quick" },
@@ -828,16 +865,30 @@ export default agentPaneEntry({
         ],
       }),
     },
+    // Leo, 2026-10-21 ("this is what ChatGPT has"): each queued row shows Steer, the trash can and ⋯.
+    "queued-actions": {
+      note: "Queued prompts as ChatGPT and Codex show them: each row ends in Steer (its ↪ glyph and its word), a trash can that deletes it, and ⋯; plain glyphs, a soft pill on hover only.",
+      snapshot: { ...steering(true), queue: waiting.slice(0, 2) },
+    },
+    "queued-actions-menu": {
+      note: "Play: ⋯ on a queued prompt opens the composer menus' glass menu: Edit message, Open in side chat (where the chat opens side chats) and Turn off queueing.",
+      snapshot: { ...steering(true), queue: waiting.slice(0, 2) },
+      play: async (ctx) => {
+        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] [data-menu="queued-more"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-queued-more [role="menuitem"]'));
+      },
+    },
     "queued-images": {
       note: "A prompt queued with two screenshots: small thumbnails under its text, each opening the image viewer.",
       snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
     },
     "queued-images-edit": {
-      note: "Play: Edit on a queued prompt with images: each thumbnail shows its remove control; removing one and saving keeps the other.",
+      note: "Play: Edit message (the ⋯ menu) on a queued prompt with images: each thumbnail shows its remove control; removing one and saving keeps the other.",
       snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
       native: { "chat.queue.edit": { ok: true } },
       play: async (ctx) => {
-        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] .acpmux-queued-action[data-action="edit"]' });
+        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] [data-menu="queued-more"]' });
+        await ctx.click({ role: "menuitem", name: /^Edit message/ });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued-image-remove").length === 2);
       },
     },
@@ -854,7 +905,7 @@ export default agentPaneEntry({
       })(),
     },
     "queued-keyboard": {
-      note: "Play: ↑ from the empty prompt reaches the last queued prompt, ↑ again the one before; Return edits it in its row (Return saves, Esc cancels). On a row, ⌥↑/⌥↓ move it and Delete removes it; ⌘Return does nothing there (Send now is the row's button).",
+      note: "Play: ↑ from the empty prompt reaches the last queued prompt, ↑ again the one before; Return edits it in its row (Return saves, Esc cancels). On a row, ⌥↑/⌥↓ move it and Delete removes it; ⌘Return does nothing there (Steer is the row's button).",
       snapshot: { ...steering(true), queue: waiting },
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-prompt" });
@@ -891,26 +942,32 @@ export default agentPaneEntry({
       },
     },
     "queued-steering": {
-      note: "A prompt sent now (its Send now button) to an agent that cannot steer waits first under Steering and runs next; the turn runs on. The queued prompts stay under Queued and count from 1.",
+      note: "A prompt sent now (its Steer button) to an agent that cannot steer waits first under Steering and runs next; the turn runs on. The queued prompts stay under Queued and count from 1.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [{ id: "q0", prompt: "Stop and fix the space thing first", next: true }, ...waiting],
       }),
     },
     "steer-marks": {
-      note: "Under a steer's bubble: while the agent has not read it, no label (it shows as any sent prompt), only a faint clock and Send now (stops the agent's current step so it reads the steer at once; the turn goes on); Steered once it has. A prompt sent now to an agent that cannot steer goes on with the turn and carries no mark.",
-      snapshot: chat(
-        [
-          user("Add retries", 6),
-          user("Use the cache dir, not tmp", 5, { steer: "landed" }),
-          assistant("Using the cache dir now.", 4),
-          user("Stop and fix the space thing first", 3, { continues: true }),
-          assistant("Fixing the space handling…", 2),
-          user("Also keep the old flag working", 1, { steer: "waiting", steerPromptId: "p-steer" }),
-          assistant("Reading the flag parser…", 0.5, { streaming: true }),
-        ],
-        { isWorking: true },
-      ),
+      note: "A steer never carries a label: it looks like any sent prompt. While the agent has not read it, a faint clock and Send now sit under it (Send now stops the agent's current step so it reads the steer at once; the turn goes on); once read, nothing. On hover it shows the row every prompt shows, with the same read check (one while it waits, two once read) and the detail in its tooltip. A prompt sent now to an agent that cannot steer goes on with the turn and carries no mark.",
+      snapshot: steerMarks(),
+    },
+    "steer-read-hover": {
+      note: "Play: hover the steer the agent read: the same row as any prompt (age, two checks, Copy, Retry, Pin), and the check's tooltip says who read it. No Steered or Steering text anywhere in the transcript.",
+      snapshot: steerMarks(),
+      play: async (ctx) => {
+        const steer = ctx.find({ text: "Use the cache dir, not tmp" }).closest(".cv-user");
+        const receipt = steer?.querySelector('.cv-user__read[data-read="true"]');
+        if (!receipt) throw new Error("the read steer shows no read check");
+        receipt.setAttribute("data-gallery-target", "steer-read");
+        await ctx.hover({ selector: '[data-gallery-target="steer-read"]' });
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector(".ui-title-tooltip:not([hidden])")?.textContent?.startsWith("Read by") ?? false,
+        );
+        const transcript = ctx.document.querySelector(".acpmux-scroll")?.textContent ?? "";
+        if (/Steered|Steering/.test(transcript)) throw new Error("a steer is labeled in the transcript");
+      },
     },
     "queued-long": {
       note: 'Many queued prompts fold: the next two show, then one "3 more queued" row. The cut-off one shows a tooltip on hover and opens whole on click.',
@@ -990,7 +1047,7 @@ export default agentPaneEntry({
       },
       play: async (ctx) => {
         await ctx.hover({ text: "Then add a test for the 429 path" });
-        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] button[aria-label="Remove queued prompt"]' });
+        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] [data-action="delete"]' });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 2);
         await ctx.click({ role: "button", name: "Stop" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued").length === 1);
@@ -1518,7 +1575,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-codex": {
-      note: "Play: open Codex's model button menu and check Fast mode (Codex's Fast service tier), its one place; Effort lists Low to Ultra (Xhigh reads Extra High).",
+      note: "Play: Codex keeps its bolt just left of the mic (Leo 2026-10-21), an outline glyph; the model button's menu has no Fast mode row; a click on the bolt sends Fast.",
       snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex reasoning" }), {
         configOptions: [
           {
@@ -1539,11 +1596,17 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
+        const bolt = { selector: ".acpmux-composer-actions .acpmux-fast" };
+        await ctx.waitFor(() => ctx.document.querySelector(bolt.selector));
+        if (ctx.find(bolt).getAttribute("aria-pressed") !== "false") throw new Error("the bolt must start off");
+        if (!ctx.find(bolt).nextElementSibling?.querySelector(".acpmux-mic"))
+          throw new Error("the bolt must sit just left of the mic");
         await openModelMenu(ctx);
-        const fast = { selector: ".acpmux-quick-menu .acpmux-quick-fast" };
-        await ctx.waitFor(() => ctx.document.querySelector(fast.selector));
-        if (ctx.find(fast).getAttribute("aria-checked") !== "false") throw new Error("Fast mode must start unchecked");
-        await ctx.click(fast);
+        if (ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast"))
+          throw new Error("Codex's Fast mode is the bolt, not a menu row as well");
+        await ctx.press("Escape");
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-quick-menu"));
+        await ctx.click(bolt);
       },
     },
     "model-menu-keyboard": {
