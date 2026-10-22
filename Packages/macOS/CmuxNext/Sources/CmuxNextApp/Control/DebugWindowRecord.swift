@@ -147,11 +147,12 @@ enum DebugWindowRecord {
                 guard window.isVisible else { return true }
             }
             let t0 = start0 ?? now
-            start0 = t0
             guard now - t0 <= seconds else { finish(); return false }
             // The window's first link frame can report the frame taken at start.
             if let last = times.last, now - t0 <= last { return true }
             guard let image = window.compositedSnapshot(adding: overlayPanels()) else { return true }
+            // Time zero is the first frame captured, not the first tick that found the window.
+            start0 = t0
             let index = times.count
             times.append(now - t0)
             if sinceLaunch { processMs.append(DebugTimings.millisecondsSinceProcessStart()) }
