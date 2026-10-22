@@ -208,6 +208,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
             item.title = page.title
             item.icon = page.icon
         }
+        // A chat's changes tab names what it shows; its hover card names the chat (claude-sr2 2026-10-22).
+        if let changes = titles.changesTitle(tab) { (item.subtitle, item.title) = (item.title, changes) }
         item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }
         if !DesignSettings.shared.attention.showsOnTab { item.isUnread = false }
         item.isDormant = services.cache.dormantTabs.contains(tab.id)

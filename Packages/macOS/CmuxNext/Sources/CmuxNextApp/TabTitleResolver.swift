@@ -19,6 +19,8 @@ struct TabTitleResolver {
     var newTabPageTitle: @MainActor (TabModel) -> String? = { _ in nil }
     /// An agent chat's title before the user names it (`AgentChatTabTitle`).
     var chatTitle: @MainActor (TabModel) -> String = { AgentChatTabTitle.untitled($0.agentSession) }
+    /// Whether an agent tab is its chat's changes tab (``AgentChangesPane``), titled "Changes".
+    var showsChanges: @MainActor (TabModel) -> Bool = { _ in false }
     /// The name of the workspace an asked tab is in, when the caller knows it: an agent chat
     /// with no title yet reads as it (`AgentChatTabTitle`).
     var workspaceName: String?
@@ -35,6 +37,7 @@ struct TabTitleResolver {
         let agentTabs = services.agentTabs
         showsNewTabPage = { [weak agentTabs] tab in agentTabs.map { RestoredNewTabPages.shows(tab, in: $0, workspace: workspace) } ?? false }
         newTabPageTitle = { [weak services] tab in services.flatMap { AgentHistoryPage.title(tab.id, $0) } }
+        showsChanges = { [weak agentTabs] tab in agentTabs?.showsChanges(tab) ?? false }
         conversationTitle = { [weak services] tab in services?.home.tabTitle(for: tab) ?? Strings.untitledBrowser }
         page = { [weak services] tab in
             guard let services else { return nil }
@@ -52,6 +55,7 @@ struct TabTitleResolver {
     init(agentTabs: AgentTabStore, pages: InternalPageTabStore? = nil) {
         self.init(pages: pages)
         showsNewTabPage = { RestoredNewTabPages.shows($0, in: agentTabs) }
+        showsChanges = { agentTabs.showsChanges($0) }
     }
 
     /// Fixed sources (tests).
@@ -81,9 +85,16 @@ struct TabTitleResolver {
         }
     }
 
+    /// The title of a chat's changes tab, which would otherwise read as its chat (that chat's
+    /// title is its hover card's place line); nil for every other tab.
+    func changesTitle(_ tab: TabModel) -> String? {
+        tab.agentSession != nil && showsChanges(tab) ? AgentPaneModel.changesTabTitle : nil
+    }
+
     /// The name `tab` shows.
     func title(_ tab: TabModel) -> String {
         if let page = page(tab) { return page.title }
+        if let changes = changesTitle(tab) { return changes }
         if let incognito = incognitoTitle(tab) { return incognito ?? Strings.untitledBrowser }
         return TabItemMapping.shared.title(tab, fallbackTitle: untitled(tab))
     }

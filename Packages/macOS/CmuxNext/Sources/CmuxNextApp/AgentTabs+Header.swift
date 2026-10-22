@@ -88,6 +88,11 @@ extension AgentTabStore {
         if !opened { changes.ended() }
         return opened
     }
+    /// Whether `tab` is the changes tab of the chat it shows (``AgentChangesPane``).
+    func showsChanges(_ tab: TabModel) -> Bool {
+        guard let session = tab.agentSession?.session, let key = AgentChangesPane.tab(of: session) else { return false }
+        return resolve(key) == tab.id
+    }
     /// A tab in chat tab `provisional`'s pane, then moved to a new split on its right when `split`; else a tab there, focused when `created` is set.
     /// A split asked for chat `main` when that chat is its screen's main pane (``openInMainPane``) is a tab in the column on its right instead.
     @discardableResult

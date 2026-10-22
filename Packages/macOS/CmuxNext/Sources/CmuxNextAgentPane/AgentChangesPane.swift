@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 /// The agent pane a chat's turn changes open in (`chat.changesPane`), one tracker per acpmux
 /// session, so every pane on that session asks the same one (Leo 2026-10-21: "why's the diff viewer
@@ -7,12 +8,12 @@ import Foundation
 /// webviews/src/agent-session/acpmux/turnChanges/changesPane.ts); a later one shows its turn in that
 /// tab while it is open, instead of opening another. While that tab is still being made, later
 /// requests wait for it and the tab shows the newest one, so two quick clicks open one pane. Closing
-/// the changes there closes the tab.
-@MainActor
+/// the changes there closes the tab. Observed: the tab strip titles the tab once it is recorded.
+@MainActor @Observable
 public final class AgentChangesPane {
     private var tab: String?
     /// The reveal the tab being made shows once it exists: the newest request's. Nil while none is made.
-    private var waiting: String?
+    @ObservationIgnored private var waiting: String?
 
     public init() {}
 
@@ -25,6 +26,10 @@ public final class AgentChangesPane {
         sessions[id] = pane
         return pane
     }
+
+    /// The changes tab of acpmux session `id` while one is recorded, without making a tracker: the
+    /// tab strip titles that tab for what it shows instead of its chat's title.
+    public static func tab(of id: String) -> String? { sessions[id]?.tab }
 
     /// The open changes tab; `isOpen` says whether a tab key still exists.
     public func tab(isOpen: (String) -> Bool) -> String? {

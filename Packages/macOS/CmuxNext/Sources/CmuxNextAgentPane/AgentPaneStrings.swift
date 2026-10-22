@@ -11,6 +11,11 @@ extension AgentPaneModel {
         String(localized: "agentPane.tab.title", defaultValue: "Agent", bundle: .module)
     }
 
+    /// Tab strip title of a chat's changes tab (``AgentChangesPane``), whichever turn or scope it shows.
+    public static var changesTabTitle: String {
+        String(localized: "agentPane.tab.changesTitle", defaultValue: "Changes", bundle: .module)
+    }
+
     /// The page's file.open was refused or failed.
     static var openFileFailedMessage: String {
         String(localized: "agentPane.error.openFile", defaultValue: "The file could not be opened.", bundle: .module)
