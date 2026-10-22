@@ -1,0 +1,44 @@
+# Debug toggles (Bool Tunables) that default on. A new toggle defaults off (cmux#22662); one
+# Leo ruled on is added here with `# ruling: <link>`. This list only shrinks without a ruling.
+# The toggles below were on when the check started (2026-10-21).
+AgentPaneTunables.agentLinks
+AgentPaneTunables.agentPairGuard
+AgentPaneTunables.browserOpensPreview
+AgentPaneTunables.chromium
+AgentPaneTunables.codexToolRuns
+AgentPaneTunables.composerPlainFooter
+AgentPaneTunables.escapeStopDoublePress
+AgentPaneTunables.foldLongThoughts
+AgentPaneTunables.inspector
+AgentPaneTunables.liveLineBelow
+AgentPaneTunables.liveThoughtViewport
+AgentPaneTunables.needsYouPill
+AgentPaneTunables.openOutsideChatsViewOnly
+AgentPaneTunables.streamWords
+AgentPaneTunables.subagentTray
+AgentPaneTunables.suggestedTasks
+BrowserImportTunables.folderGrant
+BrowserImportTunables.suggestionCards
+BrowserPageTunables.loadingBackground
+BrowserResizeTunables.pageBackdrop
+ChiefViewsTunables.gallery
+ChromeTunables.mainPaneCurved
+ChromeTunables.tabRowTools
+HibernationTunables.compressedSnapshots
+HomeTunables.firstRunHero
+HomeTunables.headerPanelToggles
+HomeTunables.launchIntoHome
+HomeTunables.richTables
+HomeTunables.voiceInput
+LayoutTunables.holdsContentInMotion
+NavigationTunables.mouseSideButtons
+NavigationTunables.swipeNavigation
+PageTunables.webDevOverride
+SidebarTunables.doneFold
+SidebarTunables.evenRowText
+SidebarTunables.laneStatus
+SidebarTunables.nowLine
+SidebarTunables.pullRequestBadges
+SidebarTunables.pullRequestCard
+SidebarTunables.rowStatus
+SidebarTunables.sinceLooked

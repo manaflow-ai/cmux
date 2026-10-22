@@ -1,0 +1,338 @@
+{
+  "about": "UI patterns Leo killed. CI runs every checker (leo_bans.py, cmux-next-guards.yml job 'cmux-next Leo bans'); README.md says how to add one.",
+  "bans": [
+    {
+      "id": "no-breathing-dot",
+      "description": "Agent work shows the spinner, never a breathing, pulsing or blinking dot.",
+      "quote": "we need to guarantee the breathing dot doesnt come back",
+      "quote_source": "leo-asks log 68f592c680755fed, 2026-10-21T23:00:06Z; also a17cb83826047936 (21:02:40Z): \"WE SAID NO … BLINKING … WE SAID … SPINNER\"",
+      "date": "2026-10-21",
+      "fix_pr": "https://github.com/manaflow-ai/cmux/pull/23776",
+      "checkers": [
+        {
+          "kind": "tunable-default",
+          "code": "StatusWorkingLook.tunable",
+          "default": ".spinner"
+        },
+        {
+          "kind": "grep",
+          "why_grep": "static-status-loops.test.ts still asserts the breathing default (#23870 rewrites it); this catches an infinite breathe, pulse or blink loop in any app stylesheet.",
+          "pattern": "animation(?:-name)?\\s*:\\s*[\\w-]*(?:breath|pulse|blink)",
+          "paths": ["webviews/src/**/*.css"],
+          "exclude": ["webviews/src/prototypes/**"],
+          "must_catch": ["animation: cmux-breathe var(--cmux-breath-period, 2.4s) ease-in-out infinite;", "animation:acpmux-floating-breathe 1.4s infinite alternate"],
+          "pending": "https://github.com/manaflow-ai/cmux/pull/23870 (transcript default); the floating chat and Chief dock marks (acpmux/styles.css), Inspector subagent avatars (inspector.css), Apps skeleton and Channels ledger have no fix PR yet"
+        }
+      ]
+    },
+    {
+      "id": "no-done-on-rows",
+      "description": "A sidebar workspace row never says Done (or any status word).",
+      "quote": "WHO BROUGHT BACK THE … DONE AND THE TIMERS",
+      "quote_source": "leo-asks log b16697a00da7f875, 2026-10-21T20:56:46Z; also 9178da360715339f (21:17:39Z): \"MAKE SURE YOU … REMOVE THE DONE\"",
+      "date": "2026-10-21",
+      "fix_pr": "https://github.com/manaflow-ai/cmux/pull/23767",
+      "checkers": [
+        {
+          "kind": "grep",
+          "why_grep": "the row is AppKit (WorkspaceRowView); its Swift tests run only on macOS, and SidebarRowStatusTests still expects Done until #23767.",
+          "pattern": "chipText\\(",
+          "paths": ["Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceRowView.swift", "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceRowView+Rendering.swift"],
+          "must_catch": ["let trailingText = shown.chip.map { SidebarPriorityRowView.chipText($0, now: Date()) }"],
+          "pending": "https://github.com/manaflow-ai/cmux/pull/23767"
+        }
+      ]
+    },
+    {
+      "id": "no-row-timers",
+      "description": "A sidebar row shows no working-minutes or age timer (\"4m\", \"1h 3m\").",
+      "quote": "WHO BROUGHT BACK THE … DONE AND THE TIMERS",
+      "quote_source": "leo-asks log b16697a00da7f875, 2026-10-21T20:56:46Z",
+      "date": "2026-10-21",
+      "fix_pr": "https://github.com/manaflow-ai/cmux/pull/23812",
+      "checkers": [
+        {
+          "kind": "grep",
+          "why_grep": "the timer is AppKit (WorkspaceRowView+Elapsed.swift); WorkspaceRowElapsedTests asserts it until #23812 deletes it.",
+          "pattern": "\\b(?:workingElapsed|elapsedLabel|elapsedTicker)\\b",
+          "paths": ["Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/**/*.swift"],
+          "must_catch": ["let elapsedLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)", "WorkspaceRowContent.workingElapsed(since: $0, now: now)"],
+          "pending": "https://github.com/manaflow-ai/cmux/pull/23812"
+        }
+      ]
+    },
+    {
+      "id": "no-blue-focus-ring",
+      "description": "No blue or system focus ring in the agent pane; focus is at most a hairline.",
+      "quote": "WTF IS THIS BLUE FOCUS RING CONSTANTLY APPEARING",
+      "quote_source": "leo-asks log 3b6b97d7340fca85, 2026-10-21T20:27:27Z; also 1bc45d9820333193 (20:28:29Z): \"I … HATE THE APPEARANCE OF THIS FOCUS RING\"",
+      "date": "2026-10-21",
+      "fix_pr": "https://github.com/manaflow-ai/cmux/pull/22353",
+      "checkers": [
+        {
+          "kind": "command",
+          "argv": ["python3", "../scripts/cmux-next/check-text-focus-rings.py"],
+          "cwd": "webviews"
+        },
+        {
+          "kind": "grep",
+          "why_grep": "the Swift side has no Linux-runnable test; the system accent colors are what draws a blue ring.",
+          "pattern": "\\b(?:controlAccentColor|keyboardFocusIndicatorColor)\\b|\\bColor\\.accentColor\\b|focusRingType\\s*=\\s*\\.(?:default|exterior)",
+          "paths": ["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/**/*.swift", "Packages/macOS/CmuxNext/Sources/CmuxNextAgentEngine/**/*.swift", "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/**/*.swift"],
+          "must_catch": ["field.focusRingType = .default", "layer.borderColor = NSColor.controlAccentColor.cgColor"]
+        },
+        {
+          "kind": "grep",
+          "why_grep": "#23745's rendered test (agent-pane-hairline-focus.test.ts) needs Chromium; until it lands this catches a focus rule in the agent pane's stylesheets drawing an outline or shadow 1.5px or wider.",
+          "pattern": ":focus(?:-visible|-within)?[^{}]*\\{[^}]*?(?:outline|box-shadow)\\s*:[^;}]*?(?<![\\d.])(?:1\\.5|[2-9](?:\\.\\d+)?)px",
+          "multiline": true,
+          "paths": ["webviews/src/agent-session/**/*.css"],
+          "must_catch": [".acpmux-row:focus-visible { outline: 2px solid var(--agent-accent); }", "button:focus-visible{box-shadow:0 0 0 1.5px var(--cmux-focus-ring)}"],
+          "pending": "https://github.com/manaflow-ai/cmux/pull/23745"
+        }
+      ]
+    },
+    {
+      "id": "glass-not-solid",
+      "description": "Cards, menus, popovers and hover cards are glass, never a solid or opaque fill.",
+      "quote": "STOP DOING SOLID WE HAVE GLASS SO JUST … USE GLASS",
+      "quote_source": "leo-asks log 9178da360715339f, 2026-10-21T21:17:39Z; also 1bc45d9820333193 (20:28:29Z): \"WHY … IS THIS SOLID COLOR AGAIN AND THE SIDEBAR HOVER PREVIEWS STILL BEING SOLID\"",
+      "date": "2026-10-21",
+      "fix_pr": "https://github.com/manaflow-ai/cmux/pull/23477",
+      "checkers": [
+        {
+          "kind": "bun-test",
+          "file": "test/glass-never-opaque.test.ts"
+        },
+        {
+          "kind": "grep",
+          "why_grep": "the native overlay panel is AppKit (Glass.swift); FloatingSurfacesStayGlassTests runs only on macOS.",
+          "pattern": "cardFill\\s*:\\s*Bool\\s*=\\s*true",
+          "paths": ["Packages/macOS/CmuxNext/Sources/CmuxNextDesign/**/*.swift"],
+          "must_catch": ["        cardFill: Bool = true"],
+          "pending": "https://github.com/manaflow-ai/cmux/pull/23801"
+        }
+      ]
+    },
+    {
+      "id": "chat-scrollbar-visible",
+      "description": "The agent chat's scrollbar shows while there is something to scroll; it does not hide itself by default.",
+      "quote": "WHY DOES THE … SCROLLBAR IN THE CHAT AREA KEEP … HIDING ITSELF ON THE RIGHT … IT SHOULD … SHOW",
+      "quote_source": "leo-asks log badb94785b3e0662, 2026-10-21T21:06:23Z",
+      "date": "2026-10-21",
+      "fix_pr": "https://github.com/manaflow-ai/cmux/pull/23854",
+      "checkers": [
+        {
+          "kind": "grep",
+          "why_grep": "thin-scrollers.test.ts and check-scrollbars.sh still enforce hidden-at-rest (their rewrite belongs to the chat-load lane); this requires the transcript scroller to carry #23854's minimal-scroller attribute, which keeps the thumb while content overflows.",
+          "expect": "present",
+          "pattern": "className=\"acpmux-scroll\"(?:(?!/?>).){0,1500}?MINIMAL_SCROLLER_ATTRIBUTE",
+          "multiline": true,
+          "paths": ["webviews/src/agent-session/acpmux/App.tsx"],
+          "pending": "no fix PR yet: #23854 gives the composer the minimal scroller; the transcript (.acpmux-scroll in App.tsx) still hides its thumb at rest"
+        }
+      ]
+    },
+    {
+      "id": "no-turn-end-ring",
+      "description": "An agent chat's pane does not ring, pulse or glow when a turn ends (default off; on, a neutral hairline).",
+      "quote": "no, I MEAN THE … MODEL RESPONSE DOES A DOUBLE BLUE RING PULSE",
+      "quote_source": "leo-asks log 19e1c05824036fb6, 2026-10-21T21:04:13Z; also afa0a225dcb436e9 (22:59:08Z): \"i dont think we should have blinky on turn end for gui\"",
+      "date": "2026-10-21",
+      "fix_pr": "https://github.com/manaflow-ai/cmux/pull/23754",
+      "checkers": [
+        {
+          "kind": "tunable-default",
+          "code": "AgentTurnRing.tunable",
+          "default": "false"
+        },
+        {
+          "kind": "grep",
+          "why_grep": "AgentTurnRingTests runs only on macOS; this keeps the turn-end path behind the toggle.",
+          "expect": "present",
+          "count": 1,
+          "pattern": "guard rings else \\{ return \\}",
+          "paths": ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/NotificationCenterService.swift"]
+        }
+      ]
+    },
+    {
+      "id": "no-compaction-row",
+      "description": "No \"cmux manages compaction\" row in the agent chat.",
+      "quote": "WHY THE … DOES IT SAY CMUX MANAGES COMPACTION!?",
+      "quote_source": "leo-asks log c1b6bca1cc3b22c5, 2026-10-21T20:44:22Z",
+      "date": "2026-10-21",
+      "fix_pr": "https://github.com/manaflow-ai/cmux/pull/23749",
+      "checkers": [
+        {
+          "kind": "bun-test",
+          "file": "src/agent-session/acpmux/conversation/SessionStartNote.test.tsx",
+          "name": "no compaction"
+        },
+        {
+          "kind": "grep",
+          "why_grep": "the test covers SessionStartNote only; this keeps the words out of every web catalog.",
+          "pattern": "\"sessionStart\\.compaction|[Mm]anages compaction",
+          "paths": ["webviews/src/**/*.xcstrings"],
+          "must_catch": ["\"sessionStart.compaction.title\" : {", "\"value\" : \"cmux manages compaction\""]
+        }
+      ]
+    },
+    {
+      "id": "no-steered-caption",
+      "description": "No \"Steered · the agent read it\" (or \"Steering ·\") caption under a steered message.",
+      "quote": "WTF IS THIS \"THE AGENT READ IT\" I THOUGHT WE REMOVED THAT",
+      "quote_source": "leo-asks log 9048bf1e49a11edb, 2026-10-21T20:37:43Z",
+      "date": "2026-10-21",
+      "fix_pr": "https://github.com/manaflow-ai/cmux/pull/22773",
+      "checkers": [
+        {
+          "kind": "bun-test",
+          "file": "test/steer-no-caption.test.tsx"
+        },
+        {
+          "kind": "grep",
+          "why_grep": "the test reads the agent pane's catalog only; this covers every catalog in the repo.",
+          "pattern": "\"steer\\.landed\"|\"value\" : \"Steered|[Tt]he agent read it",
+          "paths": ["**/*.xcstrings"],
+          "must_catch": ["\"steer.landed\" : {", "\"value\" : \"Steered · the agent read it\""]
+        }
+      ]
+    },
+    {
+      "id": "no-send-disc",
+      "description": "Send, Stop and Queue are plain glyphs, no filled circle behind them.",
+      "quote": "WHY ARE THERE CIRCLES",
+      "quote_source": "leo-asks log 1bc45d9820333193, 2026-10-21T20:28:29Z; also 133c4f4871ce7f09 (22:56:26Z): \"removnig the circle from this send... just making it line would be fine\"",
+      "date": "2026-10-21",
+      "fix_pr": "https://github.com/manaflow-ai/cmux/pull/23763",
+      "checkers": [
+        {
+          "kind": "grep",
+          "why_grep": "#23763's rendered test (composer-plain-glyphs.test.ts) needs Chromium and WebKit; these custom properties are the disc's fill.",
+          "pattern": "--acpmux-send-(?:fill|ink|off-bg)\\b",
+          "paths": ["webviews/src/**/*.css", "webviews/src/**/*.ts", "webviews/src/**/*.tsx"],
+          "exclude": ["webviews/src/prototypes/**"],
+          "must_catch": [".acpmux-send{border-radius:50%;background:var(--acpmux-send-fill)}"],
+          "pending": "https://github.com/manaflow-ai/cmux/pull/23763"
+        }
+      ]
+    },
+    {
+      "id": "no-reasoning-dropdown",
+      "description": "One model button carries model, effort and account; no separate Reasoning dropdown beside it.",
+      "quote": "It's one … drop down, drop up. … who the … said to … label it as … reasoning? Unacceptable.",
+      "quote_source": "leo-asks log 2c5ec02877ae265f, 2026-10-20T21:41:42Z; also 3b6b97d7340fca85 (2026-10-21T20:27:27Z): \"WHERE IS THE SINGLE DROPDOWN MODEL PICKER\"",
+      "date": "2026-10-20",
+      "fix_pr": "https://github.com/manaflow-ai/cmux/pull/22800",
+      "checkers": [
+        {
+          "kind": "bun-test",
+          "file": "test/composer-fast-toggle.test.tsx",
+          "name": "no control but the model button names the effort"
+        },
+        {
+          "kind": "bun-test",
+          "file": "test/model-menu-compact.test.tsx",
+          "name": "an unresolved effort draws no Reasoning"
+        },
+        {
+          "kind": "grep",
+          "why_grep": "the old EffortPicker component still exists for its gallery entry; rendering it from product code is how the dropdown would come back.",
+          "pattern": "<EffortPicker\\b",
+          "paths": ["webviews/src/**/*.tsx"],
+          "exclude": ["webviews/src/**/*.gallery.tsx", "webviews/src/**/*.test.tsx", "webviews/src/prototypes/**"],
+          "must_catch": ["<EffortPicker value={effort} onChange={setEffort} />"]
+        }
+      ]
+    },
+    {
+      "id": "no-claude-bolt",
+      "description": "Claude's composer shows no lightning bolt (fast-mode toggle); Codex keeps it, Claude has Fast mode in the model menu.",
+      "quote": "I TOLD YOU TO REMOVE IT FOR CLAUDE, KEEP IT FOR CODEX",
+      "quote_source": "leo-asks log 3b6b97d7340fca85, 2026-10-21T20:27:27Z; also b0915e777e567892 (2026-10-20T22:00:41Z): \"you add the lightning bolt to the left. If it's Codex. … But like Opus, I don't think we need to show it.\"",
+      "date": "2026-10-21",
+      "fix_pr": "https://github.com/manaflow-ai/cmux/pull/23742",
+      "checkers": [
+        {
+          "kind": "bun-test",
+          "file": "test/composer-fast-toggle.test.tsx",
+          "name": "Claude: the composer draws no bolt"
+        }
+      ]
+    },
+    {
+      "id": "no-orange-accent",
+      "description": "The accent is never orange and never the macOS system accent (orange when the person picks orange); only themes in orange-accent-allowlist.json may be orange.",
+      "quote": null,
+      "quote_checked": "leo-asks log.jsonl (all prompts), leo-asks memory.jsonl and asks.json, agent-memory search (orange accent, never orange, accent color), the memory folders, the #23133 body (\"pending Leo\"); the rule first appears in a coordinator brief, 2026-10-21T11:37Z",
+      "date": "2026-10-21",
+      "fix_pr": "https://github.com/manaflow-ai/cmux/pull/23133",
+      "checkers": [
+        {
+          "kind": "grep",
+          "why_grep": "accent-glass-invariants.test.ts covers the web pages with Chromium (react-apps-check); SystemAccentOrangeTests runs only on macOS. This catches the native accent turning orange.",
+          "pattern": "[Aa]ccent[\\w.]*\\s*[:=][^\\n]{0,80}?(?:systemOrange|\\.orange\\b)",
+          "paths": ["Packages/macOS/CmuxNext/Sources/**/*.swift"],
+          "must_catch": ["static let accent = NSColor.systemOrange", "accentColor: Color = .orange"]
+        },
+        {
+          "kind": "grep",
+          "why_grep": "check-system-blue.py only warns; the CSS system color AccentColor is the macOS accent, which is orange when the person picks orange.",
+          "pattern": "(?<![\\w-])(?:AccentColor|-apple-system-control-accent)\\b",
+          "paths": ["webviews/src/**/*.css", "webviews/src/**/*.ts", "webviews/src/**/*.tsx"],
+          "exclude": ["webviews/src/prototypes/**"],
+          "must_catch": ["--import-accent: var(--agent-accent, var(--cmux-accent, AccentColor));"],
+          "pending": "no fix PR yet: webviews/src/ui/importCards.css falls back to AccentColor (#22710)"
+        }
+      ]
+    },
+    {
+      "id": "dev-surfaces-default-off",
+      "description": "A dev-only surface (Lanes, agent lists, inspectors, Debug toggles) ships off by default; a question from Leo is not an order to turn one on (cmux#22662).",
+      "quote": "so how did lanes get in anyways? it's kinda bad",
+      "quote_source": "claude-sr2 session 01a15779 transcript, 2026-10-21T05:36:24Z; also 05:37:50Z: \"wtf 22662 was so stupid\"",
+      "date": "2026-10-21",
+      "fix_pr": "https://github.com/manaflow-ai/cmux/commit/859e5cb73826c15e9d2122f341f82d500f71a0f3",
+      "checkers": [
+        {
+          "kind": "bun-test",
+          "file": "test/agent-activity-no-lanes.test.tsx"
+        },
+        {
+          "kind": "grep",
+          "why_grep": "NoLanesTests runs only on macOS; these are the Lanes item's names.",
+          "pattern": "transientPrefix \\+ \"lanes\"|SidebarTransientItem\\.lanes\\b|lanesShowFleet",
+          "paths": ["Packages/macOS/CmuxNext/Sources/**/*.swift", "webviews/src/**/*.ts", "webviews/src/**/*.tsx"],
+          "must_catch": ["static let lanes = transientPrefix + \"lanes\"", "case SidebarTransientItem.lanes:"]
+        },
+        {
+          "kind": "python",
+          "function": "default_on_tunables"
+        }
+      ]
+    }
+  ],
+  "escape_rulings": {
+    "description": "Every lint escape comment carries `ruling: <link>` on its line: a link to Leo's ruling (a PR, issue or comment) that allows the exception.",
+    "markers": [
+      "text-focus-allow:",
+      "glass-opaque-allow:",
+      "theme-fixed:",
+      "hairline-allow:",
+      "ui-allow:",
+      "tooltip-allow:",
+      "motion-allow:",
+      "motion: allow"
+    ],
+    "ruling": "ruling:\\s*https?://\\S+",
+    "scan": ["Packages/**", "webviews/src/**", "cmux-tui/**", "web/**", "App/**", "ios/**"],
+    "exclude": ["**/*.md", "**/Tests/**", "**/*.test.ts", "**/*.test.tsx", "**/test/**", "**/tests/**"],
+    "baseline": "escape-rulings-baseline.tsv"
+  },
+  "default_on_tunables": {
+    "paths": ["Packages/**/*.swift"],
+    "exclude": ["**/Tests/**"],
+    "baseline": "tunables-default-on.txt"
+  }
+}
