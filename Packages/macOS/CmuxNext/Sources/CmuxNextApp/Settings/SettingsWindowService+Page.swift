@@ -45,6 +45,8 @@ extension SettingsWindowService {
             // Computer Use Setup (Agents): the helper's grants, the same state as the palette action.
             "computer_use": services.onboarding.computerUseSetup.pageJSON,
             "iphone": services.iphone.pageJSON,
+            // Accounts > This Mac on Your Tailnet: null while Labs (labs.previewFeatures) is off.
+            "tailnet": services.tailnetNode.pageJSON(enabled: services.settings?.snapshot.previewFeatures == true),
             "import_suggestions": ImportSuggestionsCenter.shared.settingsJSON,
             // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).
             "voice_input": ChiefVoiceInputPageRoute().hostJSON,

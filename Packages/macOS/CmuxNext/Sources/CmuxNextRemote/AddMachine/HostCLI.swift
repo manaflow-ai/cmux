@@ -42,6 +42,20 @@ public struct HostCLI: Sendable {
         return Data(result.stdout.utf8)
     }
 
+    /// `acp host ticket new --role client --url URL --json` (pairing tickets, #23297): a single-use
+    /// ticket another machine redeems at `url`; the run's own words when it fails.
+    public func clientTicket(url: String, label: String) async throws -> String {
+        let argv = [binary.path, "acp", "host", "ticket", "new", "--role", "client", "--url", url, "--label", label, "--json"]
+        let result = try await SSHProcessRunner.run(argv, environment: await Self.grouped(environment()), deadline: .seconds(15),
+                                                    label: "host ticket new", stop: Self.stop)
+        let reply = try? JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        guard result.status == 0, let ticket = reply?["ticket"] as? String else {
+            let message = result.stderr.split(whereSeparator: \.isNewline).last.map(String.init) ?? "host ticket new"
+            throw HostCLIStop(status: result.status, message: message)
+        }
+        return ticket
+    }
+
     /// The stdout lines of `cmux-tui <arguments>` (an `acp host enroll|doctor --json` run). A run that
     /// exits non-zero ends the stream with ``HostCLIStop``; a run whose report says not ok exits
     /// non-zero too, after its report line.
