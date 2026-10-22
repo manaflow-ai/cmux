@@ -118,10 +118,14 @@ async function composer(snapshot: AcpmuxSnapshot, typed: string) {
   return { field, sent };
 }
 
+// Each test is its own chat, so no draft kept for one chat comes back in the next test.
+let chats = 0;
+
 function chat(fields: Partial<AcpmuxSnapshot> = {}): AcpmuxSnapshot {
+  const sessionId = `chat-${++chats}`;
   return noChat([], {
-    sessionId: "chat",
-    summary: { sessionId: "chat", harness: "claude", cwd: "/Users/you/src/app", turnCount: 1 },
+    sessionId,
+    summary: { sessionId, harness: "claude", cwd: "/Users/you/src/app", turnCount: 1 },
     rows: [user("Add retries", 1)],
     ...fields,
   });
