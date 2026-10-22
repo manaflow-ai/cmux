@@ -106,7 +106,8 @@ export function PathHoverCard({
             </span>
             <span className="cv-link-preview__target">{path}</span>
           </span>
-          {preview?.kind !== "remote" && (
+          {/* Open waits for the host's answer, so a chat on another machine never flashes it. */}
+          {preview !== undefined && preview?.kind !== "remote" && (
             <button type="button" className="cv-link-preview__open" onClick={onOpen}>
               {t("image.open")}
               <span aria-hidden="true">↗</span>

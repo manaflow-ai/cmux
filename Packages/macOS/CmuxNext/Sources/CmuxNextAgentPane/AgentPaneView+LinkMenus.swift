@@ -6,8 +6,11 @@ extension AgentPaneView {
     /// Text Editor, Open With ▸, Reveal in Finder and Copy Path (``LinkMenu``), for a path inside
     /// the chat's folders, or outside them when `agentPane.links.outsideRoots` is Open. Reply text
     /// names the path, so the default-app Open (which may run it) is left out, and a denied,
-    /// missing or confirm-first path keeps Copy Path alone (nil).
+    /// missing or confirm-first path, or any path of a chat on another machine, keeps Copy Path
+    /// alone (nil).
     func pathMenuItems(_ text: String) -> [NSMenuItem]? {
+        // A chat on another machine never offers this Mac's file of the same spelling (cx-k21v).
+        guard !model.remoteChat, !model.transport.remoteWire else { return nil }
         guard let resolved = model.replyPaths().resolve(text) else { return nil }
         switch resolved.place {
         case .root: break
