@@ -57,21 +57,47 @@ public nonisolated struct HostCandidate: Equatable, Sendable, Identifiable, Deco
         inApp = false
     }
 
-    /// What the field takes when the row is picked: an agent peer's own ssh destination (its
-    /// `ssh://` URL's `[user@]host[:port]`, so a port it is reached on stays), else the MagicDNS
-    /// name without its trailing dot, else the peer's name.
+    /// What the field takes when the row is picked: an agent peer's ssh destination (its
+    /// `ssh://` URL's `[user@]host`, never its daemon port), else the MagicDNS name without its
+    /// trailing dot, else the peer's name.
     public var destination: String {
-        if let peerDestination { return peerDestination }
+        if let peerSSHDestination { return peerSSHDestination }
         let dns = dnsName.hasSuffix(".") ? String(dnsName.dropLast()) : dnsName
         return dns.isEmpty ? name : dns
     }
 
-    /// The `[user@]host[:port]` of an `ssh://` peer URL; nil for no peer or another transport.
-    public var peerDestination: String? {
+    /// The WebSocket port of an `ssh://` peer whose URL names none (acpmux `SSH_PEER_PORT`).
+    public static let sshPeerDefaultDaemonPort = 47811
+
+    /// An `ssh://` peer URL read as acpmux reads it (`peer.rs` `ssh_target`): ssh to `[user@]host`
+    /// (port 22, or what ~/.ssh/config says), then forward to the agent daemon's WebSocket on
+    /// `daemonPort` on that machine's loopback. The URL's port is that daemon port, never the ssh
+    /// port. Nil for no peer, another transport, or a URL acpmux would refuse.
+    public var peerSSHTarget: (destination: String, daemonPort: Int)? {
         guard alreadyPeer, let peerURL, peerURL.lowercased().hasPrefix("ssh://") else { return nil }
-        let rest = peerURL.dropFirst("ssh://".count).split(whereSeparator: { "/?#".contains($0) }).first.map(String.init) ?? ""
-        return rest.isEmpty ? nil : rest
+        var rest = String(peerURL.dropFirst("ssh://".count))
+        if rest.hasSuffix("/") { rest.removeLast() }
+        let at = rest.firstIndex(of: "@")
+        let user = at.map { String(rest[..<$0]) }
+        let hostPort = at.map { String(rest[rest.index(after: $0)...]) } ?? rest
+        var host = hostPort, port = Self.sshPeerDefaultDaemonPort
+        let bracketed = hostPort.hasPrefix("[") && hostPort.hasSuffix("]")
+        if !bracketed, let colon = hostPort.lastIndex(of: ":") {
+            let digits = hostPort[hostPort.index(after: colon)...]
+            guard !digits.isEmpty, digits.allSatisfy(\.isASCII), digits.allSatisfy(\.isNumber),
+                  let value = Int(digits), (1...65535).contains(value) else { return nil }
+            host = String(hostPort[..<colon])
+            port = value
+        }
+        guard !host.isEmpty, !host.contains("@"), !host.contains("/"), user?.isEmpty != true else { return nil }
+        return ((user.map { "\($0)@" } ?? "") + host, port)
     }
+
+    /// The `[user@]host` ssh reaches an `ssh://` peer at (``peerSSHTarget``).
+    public var peerSSHDestination: String? { peerSSHTarget?.destination }
+    /// The agent daemon's WebSocket port on an `ssh://` peer, reached through ssh; acpmux uses it,
+    /// the app's ssh connection (cmux-tui over ssh) does not.
+    public var peerDaemonPort: Int? { peerSSHTarget?.daemonPort }
 
     /// Whether picking it can add it: online, not in the app yet, and ssh not known to be off. An
     /// agent peer's probe is not the answer: the probe dials its MagicDNS name on port 22, and the
