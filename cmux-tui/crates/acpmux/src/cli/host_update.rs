@@ -561,7 +561,13 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     // sessions again right before the restart, and put the binary back
     // rather than restart under it.
     if opts.if_idle {
-        let again = remote.exec(&probe_script(true), None).ok();
+        let again = match remote.exec(&probe_script(true), None) {
+            Ok(out) => Some(out),
+            Err(e) if e.is::<LockLost>() => {
+                return up.end(Outcome::Failed, "lockLost", e.to_string());
+            }
+            Err(_) => None,
+        };
         let busy = match again.as_ref().and_then(|out| Probe::parse(out, caller)) {
             Some(Probe { busy: Some(names), .. }) if names.is_empty() => None,
             Some(Probe { busy: Some(names), .. }) => {

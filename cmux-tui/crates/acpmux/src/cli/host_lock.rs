@@ -146,8 +146,16 @@ impl Remote for Fenced<'_> {
     fn push(&self, local: &Path, remote: &str) -> Result<()> {
         let staged = format!("{remote}.{}", self.token);
         self.inner.push(local, &staged)?;
-        let left = format!("{remote}.{}", "?".repeat(self.token.len()));
-        super::run(self, &format!("mv -f {staged} {remote} && rm -f {left}"))?;
+        // `find`, not a glob: zsh, a common login shell, fails a glob
+        // that matches nothing.
+        let (dir, name) = remote.rsplit_once('/').unwrap_or((".", remote));
+        let left = format!("{name}.{}", "?".repeat(self.token.len()));
+        super::run(
+            self,
+            &format!(
+                "mv -f {staged} {remote} && {{ find {dir} -maxdepth 1 -name '{left}' -exec rm -f '{{}}' + 2>/dev/null; true; }}"
+            ),
+        )?;
         Ok(())
     }
 

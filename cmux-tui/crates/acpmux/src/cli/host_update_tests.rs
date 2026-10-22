@@ -229,8 +229,8 @@ impl Remote for FakePeer {
 
     fn spawn(&self, script: &str) -> Result<std::process::Child> {
         use std::process::Stdio;
-        let child =
-            self.sh(script).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut child = self.sh(script);
+        child.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         Ok(child.spawn()?)
     }
 
@@ -343,12 +343,14 @@ impl FakePeer {
     }
 
     /// `script` under `sh` in the fake home, as [`Remote::exec`] runs it;
-    /// `$HOME/path`, when a test wrote one, is its PATH.
+    /// `$HOME/path`, when a test wrote one, is its PATH, and `$HOME/shell`
+    /// its shell (ssh runs the login shell).
     fn sh(&self, script: &str) -> Command {
         let script = script
             .replace("/proc/", &format!("{}/", self.home.join("proc").display()))
             .replace("/etc/cmux/", &format!("{}/", self.home.join("etc/cmux").display()));
-        let mut command = Command::new("sh");
+        let shell = std::fs::read_to_string(self.home.join("shell"));
+        let mut command = Command::new(shell.as_deref().unwrap_or("sh").trim());
         command
             .args(["-c", &script])
             .current_dir(&self.home)

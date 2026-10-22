@@ -121,6 +121,24 @@ fn a_late_copy_of_an_update_whose_lease_went_never_lands_on_the_next_ones() {
 }
 
 #[test]
+fn an_upload_lands_on_a_host_whose_login_shell_is_zsh() {
+    // Review of #24304: the cleanup of other leases' copies was a glob,
+    // and zsh fails a glob that matches nothing, so every upload failed.
+    if !std::path::Path::new("/bin/zsh").exists() {
+        return;
+    }
+    let peer = FakePeer::new("zsh-push");
+    peer.write("shell", "/bin/zsh");
+    std::fs::create_dir_all(peer.home.join(".local/bin/.acpmux-new")).unwrap();
+    peer.write("binaries/new", "the new binary");
+    let lock = lock_updates(&peer).unwrap().expect("the lock is free");
+    lock.fence(&peer)
+        .push(&peer.home.join("binaries/new"), "~/.local/bin/.acpmux-new/acpmux")
+        .unwrap();
+    assert_eq!(peer.read(".local/bin/.acpmux-new/acpmux"), "the new binary");
+}
+
+#[test]
 fn a_stale_lease_whose_pid_now_names_another_process_is_free() {
     // Review of #24304: a lease a crash left named a pid that another
     // process of the user had by then, so every update refused. The lease
