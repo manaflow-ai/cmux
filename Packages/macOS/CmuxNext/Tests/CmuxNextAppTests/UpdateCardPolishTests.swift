@@ -71,4 +71,12 @@ import Testing
         #expect(button.layer?.backgroundColor == button.performWithTheme { Palette.hoverFill.cgColor })
         #expect((button.layer?.borderWidth ?? 0) > 0, "the bordered button lost its hairline")
     }
+
+    /// Every other live counter follows the same rule: the sidebar's "working 4m" ticks in place.
+    @Test func theSidebarsRunningTimeUsesTabularDigits() throws {
+        let view = WorkspaceRowView(key: .workspace(WorkspaceID("ws")))
+        let font = try #require(view.elapsedLabel.font)
+        #expect(Self.hasTabularDigits(font), "the row's running time is drawn in proportional digits")
+        #expect(Self.hasTabularDigits(Typography.captionDigits))
+    }
 }

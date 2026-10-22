@@ -15,7 +15,7 @@ final class WorkspaceRowView: SidebarRowView {
     /// Expanded rows (`sidebar.density`, cx-13w3; WorkspaceRowView+Expanded): the age and the meta line.
     let timeLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont), metaLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// How long the agent has worked ("4m"), beside the working dot when the name has room (WorkspaceRowView+Elapsed).
-    let elapsedLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    let elapsedLabel = SidebarRowView.label(font: SidebarStyle.subtitleDigitsFont)
     var workingSince: Date?
     let elapsedTicker = DemandTimer(owner: "sidebar.row.elapsed")
     let activity = StatusIndicatorView()

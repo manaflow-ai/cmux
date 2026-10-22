@@ -215,7 +215,7 @@ public final class FilesPaneView: NSView {
         toolbar.spacing = Metrics.space2
         toolbar.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
         for view in [backButton, forwardButton, upButton, pathControl, layoutControl, filterField] as [NSView] { toolbar.addArrangedSubview(view) }
-        status.font = Typography.system(size: TypeScale.caption)
+        status.font = Typography.system(.monospacedDigit, size: TypeScale.caption) // "Copying 3 items 37%" ticks in place
         status.textColor = .secondaryLabelColor
         status.alignment = .center
         zoomSlider.target = self

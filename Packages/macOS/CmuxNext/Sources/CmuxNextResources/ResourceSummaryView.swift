@@ -87,7 +87,7 @@ public final class ResourceSummaryView: NSView {
     }
 
     private func render() {
-        totalLabel.font = Typography.caption
+        totalLabel.font = Typography.captionDigits // live CPU and memory
         sharedLabel.font = Typography.caption
         switch style {
         case .tab:
@@ -109,7 +109,7 @@ public final class ResourceSummaryView: NSView {
             for (row, tab) in zip(rows, top) {
                 row.title.stringValue = tab.title.isEmpty ? Strings.untitled : tab.title
                 row.title.font = Typography.caption
-                row.value.font = Typography.caption
+                row.value.font = Typography.captionDigits
                 row.value.stringValue = tab.available ? ResourceFormat.compact(tab.usage) : Strings.pending
             }
             if let report, !report.sharedRoles.isEmpty {

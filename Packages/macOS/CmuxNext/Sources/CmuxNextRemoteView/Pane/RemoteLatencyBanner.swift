@@ -9,7 +9,7 @@ final class RemoteLatencyBanner: NSView {
     let surface = Glass.makeOverlayPanel(cornerRadius: 14)
     private let icon = RemoteChrome.symbol("exclamationmark.triangle.fill", size: 15)
     private let title = RemoteChrome.label(RemoteViewStrings.latencyTitle, size: 12.5, weight: .semibold)
-    private let detail = RemoteChrome.label("", size: 11.5)
+    private let detail = RemoteChrome.label("", size: 11.5, mono: true) // the RTT ticks in place
     private let button = RemoteChromeButton(title: RemoteViewStrings.controlAnyway)
     private let row: NSStackView
 
