@@ -44,6 +44,8 @@ extension SidebarViewComponents {
         var workspacesAsTabs: Bool
         /// The "Done (N)" fold (`SidebarTunables.doneFold`): turning it on or off lays the list out again.
         var foldsDone: Bool
+        /// The row limit (`SidebarTunables.groupRowLimit`): changing it lays the list out again.
+        var rowLimit: Int
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
@@ -70,6 +72,7 @@ extension SidebarViewComponents {
             history = SidebarChatHistory.shared.state
             workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
             foldsDone = SidebarTunables.doneFold.value
+            rowLimit = SidebarTunables.rowLimit
         }
     }
     func observe() {
@@ -106,6 +109,7 @@ extension SidebarViewComponents {
             || lastState?.pullRequests != state.pullRequests
             || lastState?.history != state.history
             || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.foldsDone != state.foldsDone
+            || lastState?.rowLimit != state.rowLimit
         let listChanged = rowsChanged || selectionChanged
         let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)

@@ -195,6 +195,23 @@ public nonisolated struct WebTheme: Equatable, Sendable {
       var registered = {};
       var applied = {};
       var transitionStyle = null;
+      // A theme applied before <html> exists (Chromium new-document scripts), and the watch that
+      // applies it, with the page background rule, once the parser inserts the root.
+      var pendingPayload = null;
+      var rootWatch = null;
+      function awaitRoot() {
+        if (rootWatch || !window.MutationObserver) return;
+        rootWatch = new MutationObserver(function () {
+          if (!document.documentElement) return;
+          rootWatch.disconnect();
+          rootWatch = null;
+          ensureStyle();
+          var payload = pendingPayload;
+          pendingPayload = null;
+          if (payload) window.cmuxTheme.apply(payload);
+        });
+        rootWatch.observe(document, { childList: true });
+      }
       // rgb()/rgba() parsed without a regular expression: the literal stays free of backslashes
       // (Swift escapes), so the gallery runs the same script (webviews/dev-server/galleryHost.ts).
       function rgba(value) {
@@ -249,6 +266,15 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         current: null,
         apply: function (payload) {
           var root = document.documentElement;
+          // Chromium runs new-document scripts before the parser makes <html>, so its document-start
+          // apply finds no root. It waits for one (awaitRoot): registering every color first and then
+          // throwing in setTransition left each one at its initial transparent, text and background.
+          if (!root) {
+            pendingPayload = payload;
+            awaitRoot();
+            return;
+          }
+          pendingPayload = null; // a theme applied since wins over one still waiting for the root
           ensureStyle();
           var first = window.cmuxTheme.current === null;
           var space = payload.transition && payload.transition.space;
@@ -285,7 +311,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           window.dispatchEvent(new Event('cmux-backdrop'));
         }
       };
-      ensureStyle();
+      if (document.documentElement) ensureStyle(); else awaitRoot();
       // ui.animations.web off: script animations (Element.animate) and smooth scrolls end at once
       // too, which the stylesheet above cannot reach. One wrapper per prototype, read on each call,
       // so turning the switch back on restores them with no reload.

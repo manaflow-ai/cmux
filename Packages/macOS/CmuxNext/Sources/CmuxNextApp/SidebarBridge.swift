@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentLanes
 import CmuxNextBridge
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -356,7 +357,7 @@ final class SidebarBridge {
                                                tabTitle: tabTitle, notificationText: machines.local.store.notificationText(for:),
                                                iconAsset: groupIcon, rowSource: rows)
         for session in machines.cloud {
-            let header = CloudCreationRows.machine(session, compatibility: machines.compatibility(of: session.daemon))
+            let header = CloudCreationRows.machine(session, compatibility: machines.compatibility(of: session.daemon), limits: machines.cloudLimits)
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
                                                 machine: header, showsUnread: showsUnread, muted: muted, selectedTab: selectedTab,
                                                 newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser, pageFace: pageFace,
