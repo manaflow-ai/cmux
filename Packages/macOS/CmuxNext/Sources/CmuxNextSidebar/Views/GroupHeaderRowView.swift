@@ -271,6 +271,7 @@ final class GroupHeaderRowView: SidebarRowView {
             ChromeHover.paint(pill, fill.nsColor, animated: fadesNextFill)
             pill.borderWidth = 0
             paintFill(nil)
+            name.stringValue = "+" + probe()
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             layer?.borderColor = Palette.focusRing.cgColor
@@ -417,6 +418,8 @@ final class GroupHeaderRowView: SidebarRowView {
         let length = joinedLineLength > 0 && !collapsed && look.style == .band ? joinedLineLength : 0
         joinedBar.layOut(bar: barFrame, length: length, radius: radius, springs: springsNextJoin)
         springsNextJoin = false
+        name.stringValue = probe()
+        name.frame.size.width = b.width
         // The dot is centred on the group line's x, where the line starts (SidebarListView+GroupLines).
         let dotSide = SidebarStyle.groupDotSize
         dot.frame = CGRect(x: SidebarStyle.groupBarX + SidebarStyle.groupBarWidth / 2 - dotSide / 2, y: (b.height - dotSide) / 2,
@@ -425,6 +428,16 @@ final class GroupHeaderRowView: SidebarRowView {
         // The members' line starts below this bar (or joins it): one view per group
         // under the rows (SidebarListView+GroupLines, cx-qno.17).
         needsDisplay = true
+    }
+
+    /// DEBUG PROBE (debug/gl-joined-probe): the joined bar's state, drawn as the name for OCR.
+    private func probe() -> String {
+        let list = superview as? SidebarListView
+        var clipping = 0
+        var ancestor = superview
+        while let view = ancestor { if view.layer?.masksToBounds == true { clipping += 1 }; ancestor = view.superview }
+        let j = list.map { ($0.groupLineJoinsHeader ? 1 : 0, $0.joinsHeaders ? 1 : 0, $0.joinedLineLengths.count) } ?? (9, 9, 9)
+        return "L\(Int(joinedLineLength)) k\(clipsToBounds ? 1 : 0)\(layer?.masksToBounds == true ? 1 : 0) M\(pill.mask != nil ? 1 : 0) h\(Int(pill.frame.height)) r\(Int(pill.cornerRadius)) j\(j.0)\(j.1)n\(j.2) a\(clipping) c\(collapsed ? 1 : 0)"
     }
 
     override func hoverChanged() {
