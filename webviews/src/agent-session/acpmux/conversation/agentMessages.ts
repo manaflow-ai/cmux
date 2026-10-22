@@ -169,16 +169,13 @@ export type Delivery = "sending" | "sent" | "queued" | "delivered" | "failed";
 
 export function messageDelivery(
   tool: Pick<Tool, "status" | "exitCode" | "output">,
-  message?: Pick<AgentMessage, "channel" | "text">,
+  message?: Pick<AgentMessage, "channel" | "text" | "to">,
 ): Delivery {
   if (tool.status === "pending" || tool.status === "in_progress") return "sending";
   if (tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0)) return "failed";
   // A mailbox write prints what it wrote (`tee -a`), never a receipt: its words are the message's.
   if (message?.channel === "mailbox") return "sent";
-  // Nor is the message itself, echoed back, a receipt ("the earlier message was not delivered").
-  // Only words are cut, never the JSON: a message saying "success" must not erase `success:false`.
-  const echoed = message?.text.trim();
-  const words = (text: string) => (echoed ? text.split(echoed).join("") : text).trim();
+  const words = (text: string) => receiptWords(text, message);
   const output = (tool.output ?? "").trim();
   if (!output) return "sent";
   const value = parseJson(output);
@@ -199,6 +196,20 @@ export function messageDelivery(
   }
   const text = words(output);
   return text ? deliveryWords(text) : "sent";
+}
+
+/// A receipt's own words: without the message echoed back whole on its first lines ("the earlier
+/// message was not delivered" is the message, not its receipt) and without the recipient's name
+/// after "to" (a session named `undelivered` is not a failure). Only whole lines and the name are
+/// cut, so a short message ("not") never erases the receipt's words.
+function receiptWords(text: string, message?: Pick<AgentMessage, "text" | "to">): string {
+  let rest = text.trim();
+  const echoed = message?.text.trim();
+  if (echoed && (rest === echoed || rest.startsWith(`${echoed}\n`))) rest = rest.slice(echoed.length).trim();
+  const to = message?.to?.trim();
+  if (to)
+    rest = rest.replace(new RegExp(`\\bto\\s+${to.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`, "gi"), "to");
+  return rest;
 }
 
 /// A send's printed words, read for how far it got.

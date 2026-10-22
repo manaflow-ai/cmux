@@ -123,3 +123,19 @@ test("a recipient's name is not a failure word", async () => {
   expect(messageDelivery(done("queued for not-delivered-lane"))).toBe("queued");
   expect(messageDelivery(done("Message undeliverable"))).toBe("failed");
 });
+
+test("a short message never erases its receipt's words, and a recipient named like a failure is not one", async () => {
+  const { messageDelivery } = await import("./agentMessages");
+  const done = (output: string) => ({ status: "completed", output });
+  const say = (text: string, to?: string) => ({ channel: "agent" as const, text, to });
+  expect(messageDelivery(done('{"message":"Message not delivered: recipient is gone"}'), say("not"))).toBe("failed");
+  expect(messageDelivery(done("not delivered"), say("not"))).toBe("failed");
+  expect(messageDelivery(done("not delivered"), say("not delivered"))).toBe("sent");
+  expect(
+    messageDelivery(
+      done('{"success":true,"message":"Message queued for delivery to undelivered"}'),
+      say("hi", "undelivered"),
+    ),
+  ).toBe("queued");
+  expect(messageDelivery(done("Message not delivered to not"), say("hi", "not"))).toBe("failed");
+});
