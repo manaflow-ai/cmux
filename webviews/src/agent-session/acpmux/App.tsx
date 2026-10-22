@@ -63,7 +63,7 @@ import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { StyleSwitch } from "./newtab/StyleSwitch";
-import { shownPageWidgets } from "./newtab/pageWidgets";
+import { editedPageWidgets, editNewTabWidgets, shownPageWidgets } from "./newtab/pageWidgets";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { isAgentHome, projectLabel, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
@@ -203,7 +203,7 @@ import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "./conversation/backgroundTaskOutput";
 import { IncomingMessageLine, IncomingNotice } from "./conversation/IncomingMessageCard";
 import type { IncomingMessage } from "./conversation/incomingMessage";
-import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
+import { CompactionNote, FailoverNote, PolicyUnenforcedNote } from "./conversation/CompactionNote";
 import { AgentPairNote } from "./conversation/AgentPairNote";
 import { SessionStartNote } from "./conversation/SessionStartNote";
 import {
@@ -373,7 +373,8 @@ import { chiefDock } from "./chiefDock.experiment";
 import { contextAttachment, floatingStatus, type QuickFloating } from "./FloatingChat";
 import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
-import { DeliveryFailure } from "./conversation/PromptDelivery";
+import { DeliveryFailure, FailedSendsContext, type FailedSends } from "./conversation/PromptDelivery";
+import { failedRuns, failedSendText, type FailedRun } from "./sendFailure";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { useSideSessions } from "./aside/sideSessions";
@@ -453,8 +454,9 @@ declare global {
       /// Claude Code desktop's in-session status (the live plan card, the recap card) on or off: the
       /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
       applySessionStatus?(on: boolean): void;
-      /// Suggested tasks on or off (the Debug toggle `agent.suggestedTasks`, DEV and NIGHTLY, on by
-      /// default): an agent's offers draw as the suggested tasks card (offer/offersShown.ts).
+      /// Suggested tasks on or off (Settings > Suggest Follow-Up Tasks, on by default, or the Debug
+      /// toggle `agent.suggestedTasks` forcing them on): an agent's offers draw as the suggested tasks
+      /// card (offer/offersShown.ts).
       applySuggestedTasks?(on: boolean): void;
       applyHeaderState?(state: unknown): void;
       /// The pane's tab row the header's tools may sit in (header/tabRow.ts).
@@ -582,6 +584,12 @@ function refusedMachine(error: unknown): string | undefined {
   const details = (error as { details?: unknown } | null)?.details;
   const name = details && typeof details === "object" ? (details as { machineName?: unknown }).machineName : undefined;
   return typeof name === "string" && name ? name : undefined;
+}
+
+/// The failed prompt rows a failure card's action names: its run's (`rowIds`), else its own.
+function failedRowIds(rowId: unknown, rowIds: unknown): string[] {
+  if (Array.isArray(rowIds) && rowIds.length) return rowIds.map(String);
+  return [String(rowId)];
 }
 
 /// The failed prompt row a refused send left (direct.ts `send`), when it left one.
@@ -1014,6 +1022,12 @@ const FailoverRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+const PolicyUnenforcedRow = memo(
+  function PolicyUnenforcedRow({ row }: RowProps) {
+    return row.policyUnenforced ? <PolicyUnenforcedNote note={row.policyUnenforced} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 const AgentPairRow = memo(
   function AgentPairRow({ row }: RowProps) {
     return row.agentPair ? <AgentPairNote pair={row.agentPair} onResume={resumeAgentPair} /> : null;
@@ -1183,6 +1197,7 @@ const defaultRegistry: NativeRegistry = {
   backgroundTask: BackgroundTaskRow,
   compaction: CompactionRow,
   failover: FailoverRow,
+  policyUnenforced: PolicyUnenforcedRow,
   agentPair: AgentPairRow,
   sessionStart: SessionStartRow,
   sessionOffer: SessionOfferRow,
@@ -1435,13 +1450,14 @@ const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
 const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
 /// A row drawn as tool rows: tool calls and thoughts, a background task's or a subagent's end, a
-/// compaction, a failover or a session start note.
+/// compaction, a failover, a policy the harness cannot keep or a session start note.
 const isStepRow = (row: AcpmuxRow | undefined) =>
   row !== undefined &&
   (row.kind === "backgroundTask" ||
     row.kind === SUBAGENT_DONE ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
+    row.kind === "policyUnenforced" ||
     row.kind === "agentPair" ||
     row.kind === "sessionStart" ||
     (row.kind === "activity" && !isEditRow(row)));
@@ -3892,6 +3908,7 @@ function AcpmuxPane() {
   const lastMarks = useRef<RowMarks | undefined>(undefined);
   const marks = useMemo(() => (lastMarks.current = markRows(snapshot.rows, lastMarks.current)), [snapshot.rows]);
   const promptCount = marks.prompts.length;
+  const answersTrust = snapshot.origin !== "remote" || snapshot.answersTrust === true;
   const trustAsk = useFolderTrustAsk(
     trustSource,
     {
@@ -3900,7 +3917,7 @@ function AcpmuxPane() {
       family: snapshot.summary?.family || snapshot.summary?.harness,
       prompts: promptCount,
     },
-    snapshot.origin !== "remote" || snapshot.answersTrust === true,
+    answersTrust,
     snapshot.origin !== "remote" && snapshot.origin !== "peer",
   );
   trustRefused.current = trustAsk.refused;
@@ -4119,6 +4136,27 @@ function AcpmuxPane() {
     panelAsks,
     subagentTray,
   ]);
+  // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
+  // offers Trust folder while the folder is not trusted, and its Retry waits while the folder's
+  // question is open, which acpmux would refuse again.
+  const lastFailedRuns = useRef<ReadonlyMap<string, FailedRun> | undefined>(undefined);
+  const runs = useMemo(
+    () => (lastFailedRuns.current = failedRuns(transcriptRows, lastFailedRuns.current)),
+    [transcriptRows],
+  );
+  // The cards' context changes only when what they show does: Trust is a new function each render.
+  const trustNow = useRef(trustAsk.trust);
+  trustNow.current = trustAsk.trust;
+  const canTrustFolder = answersTrust && !trustAsk.trusted && trustAsk.ask?.state !== "remote";
+  const trustBlock = trustAsk.holdsAsks ? trustAsk.blocked?.reason : undefined;
+  const failedSends = useMemo<FailedSends>(
+    () => ({
+      runs,
+      ...(trustBlock ? { trustBlock } : {}),
+      ...(canTrustFolder ? { trustFolder: () => trustNow.current() } : {}),
+    }),
+    [runs, trustBlock, canTrustFolder],
+  );
   // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
   // popover under the header button so it never covers the composer controls.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
@@ -5719,7 +5757,16 @@ function AcpmuxPane() {
               // gesture goes to the trust answer (heldPrompt.ts).
               if (row) {
                 void heldRowPrompt.hold(client.promptDelivery(row)?.promptId);
-                trustRefused.current?.(error, () => void client.retryPrompt(row, heldRowPrompt.take()?.ticket));
+                // After Trust, the row's whole run goes again, as its card's Retry sends it.
+                trustRefused.current?.(
+                  error,
+                  () =>
+                    void client.retryPrompts(
+                      lastFailedRuns.current?.get(row)?.rowIds ?? [row],
+                      heldRowPrompt.take()?.ticket,
+                      row,
+                    ),
+                );
               } else {
                 void heldPrompt.hold();
                 if (!inComposer) restorePrompt(text, attachments);
@@ -5744,7 +5791,7 @@ function AcpmuxPane() {
             setBlockedHarness(harnessBlock(error));
             // A refused start (a chat on another machine, cx-k21v) says why in this page's own
             // view: the host's typed refusal, already localized, under the localized "Not sent".
-            if (isStartRefusal(error)) client.notice(translate("prompt.notSent", { reason: errorMessage(error) }));
+            if (isStartRefusal(error)) client.notice(failedSendText(error, false));
             return refused(error, Boolean(accepted));
           });
           await persistSession(sessionId);
@@ -5883,14 +5930,22 @@ function AcpmuxPane() {
               },
             ),
           "chat.harness.cancelPrompt": async ({ promptId }) => harnessSwitch.cancelQueued(String(promptId)),
-          "chat.retryPrompt": ({ rowId }) => client.retryPrompt(String(rowId)),
-          // Edit on a prompt that did not get there: its row goes and the prompt comes back to the
-          // composer, ahead of what is typed there now.
-          "chat.editFailedPrompt": async ({ rowId }) => {
-            const failed = client.takeFailedPrompt(String(rowId));
-            if (failed) composerHandle.current?.restore(failed.input, failed.attachments);
+          // A failure card acts on its run of prompts (`rowIds`, in order; sendFailure.ts), else on `rowId`.
+          // Retry sends the run again as one prompt: one click is one gesture (direct.ts `retryPrompts`).
+          "chat.retryPrompt": ({ rowId, rowIds }) => client.retryPrompts(failedRowIds(rowId, rowIds)),
+          // Edit on prompts that did not get there: their rows go and the prompts come back to the
+          // composer as one, in order, ahead of what is typed there now.
+          "chat.editFailedPrompt": async ({ rowId, rowIds }) => {
+            const taken = failedRowIds(rowId, rowIds).flatMap((id) => client.takeFailedPrompt(id) ?? []);
+            if (!taken.length) return;
+            composerHandle.current?.restore(
+              taken.map((failed) => failed.input).join("\n\n"),
+              taken.flatMap((failed) => failed.attachments),
+            );
           },
-          "chat.removeFailedPrompt": async ({ rowId }) => client.removeFailedPrompt(String(rowId)),
+          "chat.removeFailedPrompt": async ({ rowId, rowIds }) => {
+            for (const id of failedRowIds(rowId, rowIds)) client.removeFailedPrompt(id);
+          },
           // Retry with another model (cx-ncc.62): the chat moves to the model as the picker moves it,
           // then the prompt goes again with its attachments. A refused move sends nothing (its notice
           // says why), so the retry never runs on the old model.
@@ -6818,58 +6873,62 @@ function AcpmuxPane() {
                                     <SessionHoverContext.Provider value={sessionHover}>
                                       <SubsessionContext.Provider value={subsessions}>
                                         <StartedMentionsContext.Provider value={startedMentions}>
-                                          <ChatFindScope
-                                            rows={childRows ?? sourceRows}
-                                            shown={childRows ? undefined : transcriptRows}
-                                            openFold={openFold}
-                                            findRef={findRef}
-                                          >
-                                            {(find) => (
-                                              <VirtualTranscript
-                                                rows={transcriptRows}
-                                                working={snapshot.isWorking}
-                                                // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                                                jumpButton={!quick}
-                                                needsYou={needsYou.pill}
-                                                focusComposer={() => composerHandle.current?.focus()}
-                                                // Quick Chat's panel stacks its composer below the transcript.
-                                                dock={quick ? undefined : dock}
-                                                queueWithdrawn={snapshot.queueWithdrawn}
-                                                find={quick ? undefined : find}
-                                                sessionId={
-                                                  childRows
-                                                    ? `${shownSessionId}:subagent:${subagentView}`
-                                                    : shownSessionId
-                                                }
-                                                canLoadOlder={!childRows && snapshot.canLoadOlder}
-                                                historyFrom={childRows ? undefined : snapshot.historyFrom}
-                                                onLoadOlder={() =>
-                                                  directClient.current?.loadOlder() ?? Promise.resolve()
-                                                }
-                                                openAt={
-                                                  !childRows &&
-                                                  shownSessionId &&
-                                                  scrollAnchor?.sessionId === shownSessionId
-                                                    ? scrollAnchor
-                                                    : undefined
-                                                }
-                                                anchorNow={quick || childRows ? undefined : transcriptAnchor}
-                                                onAnchor={
-                                                  quick || childRows || !shownSessionId
-                                                    ? undefined
-                                                    : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                                                }
-                                                expanded={expanded}
-                                                reveal={childRows ? undefined : revealRow}
-                                                registry={registry}
-                                                githubRepository={githubRepository}
-                                                fallbackRepository={pullRequestRef(headerPullRequest?.url ?? "")?.repo}
-                                                // The Quick Composer has no room for the changes view; its file rows stay plain.
-                                                onOpenDiff={quick ? undefined : openDiff}
-                                                onToggleActivity={toggleActivity}
-                                              />
-                                            )}
-                                          </ChatFindScope>
+                                          <FailedSendsContext.Provider value={failedSends}>
+                                            <ChatFindScope
+                                              rows={childRows ?? sourceRows}
+                                              shown={childRows ? undefined : transcriptRows}
+                                              openFold={openFold}
+                                              findRef={findRef}
+                                            >
+                                              {(find) => (
+                                                <VirtualTranscript
+                                                  rows={transcriptRows}
+                                                  working={snapshot.isWorking}
+                                                  // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                                                  jumpButton={!quick}
+                                                  needsYou={needsYou.pill}
+                                                  focusComposer={() => composerHandle.current?.focus()}
+                                                  // Quick Chat's panel stacks its composer below the transcript.
+                                                  dock={quick ? undefined : dock}
+                                                  queueWithdrawn={snapshot.queueWithdrawn}
+                                                  find={quick ? undefined : find}
+                                                  sessionId={
+                                                    childRows
+                                                      ? `${shownSessionId}:subagent:${subagentView}`
+                                                      : shownSessionId
+                                                  }
+                                                  canLoadOlder={!childRows && snapshot.canLoadOlder}
+                                                  historyFrom={childRows ? undefined : snapshot.historyFrom}
+                                                  onLoadOlder={() =>
+                                                    directClient.current?.loadOlder() ?? Promise.resolve()
+                                                  }
+                                                  openAt={
+                                                    !childRows &&
+                                                    shownSessionId &&
+                                                    scrollAnchor?.sessionId === shownSessionId
+                                                      ? scrollAnchor
+                                                      : undefined
+                                                  }
+                                                  anchorNow={quick || childRows ? undefined : transcriptAnchor}
+                                                  onAnchor={
+                                                    quick || childRows || !shownSessionId
+                                                      ? undefined
+                                                      : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                                                  }
+                                                  expanded={expanded}
+                                                  reveal={childRows ? undefined : revealRow}
+                                                  registry={registry}
+                                                  githubRepository={githubRepository}
+                                                  fallbackRepository={
+                                                    pullRequestRef(headerPullRequest?.url ?? "")?.repo
+                                                  }
+                                                  // The Quick Composer has no room for the changes view; its file rows stay plain.
+                                                  onOpenDiff={quick ? undefined : openDiff}
+                                                  onToggleActivity={toggleActivity}
+                                                />
+                                              )}
+                                            </ChatFindScope>
+                                          </FailedSendsContext.Provider>
                                         </StartedMentionsContext.Provider>
                                       </SubsessionContext.Provider>
                                     </SessionHoverContext.Provider>
@@ -7663,6 +7722,15 @@ function AcpmuxPane() {
               {...(newTab.widgets ? { widgets: true } : {})}
               pageWidgets={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets)}
               {...(newTab.allChats === false ? { allChats: false } : {})}
+              onEditWidgets={(edit) =>
+                editNewTabWidgets(edit, {
+                  callNative,
+                  show: (done) =>
+                    setNewTab(
+                      (current) => current && { ...current, pageWidgets: editedPageWidgets(current.pageWidgets, done) },
+                    ),
+                })
+              }
               snapshot={newTabSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}

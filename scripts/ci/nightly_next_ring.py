@@ -26,8 +26,17 @@ corrected by the next one.
       byte for byte. Prints {"changed": bool, "channels": {build: tag}}; writes
       FILE only when something changed.
   select --feed FILE --out FILE --channel TAG
-      keep only the items on TAG (the old cmux NIGHTLY-identity feed follows
-      Nightly). Prints {"kept": [...], "dropped": [...]}; always writes FILE.
+      keep only the items on TAG. Prints {"kept": [...], "dropped": [...]};
+      always writes FILE.
+  legacy --new FILE [--current FILE] --out FILE --mode MODE --verdicts-base URL|DIR
+      the old cmux NIGHTLY-identity feed after a build is copied to it: the
+      new build's item and the current feed's items, one per build (the new
+      build's wins), each tagged from its verdict as retag does, keeping the
+      newest Nightly item and the newest LEGACY_DEV_ITEMS (5) Dev items above
+      it, so a canary pass on any of them promotes it there too. Its
+      installs follow updates.channel like cmux NEXT's (the same updater), so a
+      Mac on Nightly always has a Nightly item to update to while Dev is ahead.
+      Prints {"channels": {build: tag}, "dropped": [...]}; always writes FILE.
 
 A verdict that cannot be read counts as no verdict: the item stays on Dev, the
 side that never shows Nightly an unpromoted build.
@@ -49,6 +58,7 @@ DEV = "cmux-next-dev"
 # builds allow none of them.
 RING_CHANNELS = ("cmux-next-stable", NIGHTLY, "cmux-next-canary", DEV)
 MODES = ("on", "off")
+LEGACY_DEV_ITEMS = 5
 
 ITEM = re.compile(r"[ \t]*<item>.*?</item>[ \t]*\n?", re.S)
 VERSION = re.compile(r"<sparkle:version>\s*([^<]*?)\s*</sparkle:version>")
@@ -132,6 +142,28 @@ def select(text: str, channel: str) -> tuple[str, dict]:
     return "".join(out), {"kept": kept, "dropped": dropped}
 
 
+def legacy(new: str, current: str | None, mode: str, verdict_of) -> tuple[str, dict]:
+    check_mode(mode)
+    fresh = [match.group(0) for match in ITEM.finditer(new)]
+    if not fresh:
+        raise Refused("the new build's appcast has no items")
+    by_build: dict[str, str] = {}
+    for item in [m.group(0) for m in ITEM.finditer(current or "")] + fresh:
+        by_build[item_build(item)] = item
+    channels = {build: NIGHTLY if mode == "off" or verdict_of(build) == "pass" else DEV for build in by_build}
+    ordered = sorted(by_build, key=int, reverse=True)
+    nightly = next((build for build in ordered if channels[build] == NIGHTLY), None)
+    above = [build for build in ordered if channels[build] == DEV and (nightly is None or int(build) > int(nightly))]
+    kept = [build for build in ordered if build == nightly or build in above[:LEGACY_DEV_ITEMS]]
+    first = new.index(fresh[0])
+    last = new.rindex(fresh[-1]) + len(fresh[-1])
+    items = (set_channel(by_build[build], channels[build]) for build in kept)
+    body = "".join(item if item.endswith("\n") else item + "\n" for item in items)
+    text = new[:first] + body + new[last:]
+    return text, {"channels": {build: channels[build] for build in kept},
+                  "dropped": [build for build in ordered if build not in kept]}
+
+
 def verdict_reader(base: str):
     """verdict_of(build) from BASE/verdicts/<build>.json (an https URL or a directory)."""
     cache: dict[str, str | None] = {}
@@ -182,10 +214,28 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--feed", required=True)
     s.add_argument("--out", required=True)
     s.add_argument("--channel", required=True)
+    g = sub.add_parser("legacy")
+    g.add_argument("--new", required=True)
+    g.add_argument("--current")
+    g.add_argument("--out", required=True)
+    g.add_argument("--mode", required=True)
+    g.add_argument("--verdicts-base", required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == "channel":
             print(new_build_channel(args.mode))
+            return 0
+        if args.command == "legacy":
+            with open(args.new, encoding="utf-8") as handle:
+                fresh = handle.read()
+            current = None
+            if args.current:
+                with open(args.current, encoding="utf-8") as handle:
+                    current = handle.read()
+            new, summary = legacy(fresh, current, args.mode, verdict_reader(args.verdicts_base))
+            with open(args.out, "w", encoding="utf-8") as handle:
+                handle.write(new)
+            print(json.dumps(summary))
             return 0
         with open(args.feed, encoding="utf-8") as handle:
             text = handle.read()

@@ -84,6 +84,10 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         if !placed || abs(sidebarWidth - target) > 0.5 {
             placed = true
             place(target)
+            // NSSplitView places its divider's layer in its own layout pass, which ran above at the
+            // old position: lay out again, or a stale 1 pt line stays there, drawn through the
+            // see-through chat (live-qa 2026-10-21: at 320 pt after a clamp to 164).
+            super.layout()
         }
     }
 
