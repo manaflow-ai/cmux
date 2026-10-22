@@ -28,7 +28,8 @@ pub(super) enum HostedTransition {
         kitty_state: KittyReplayState,
         colors: TerminalColorOverrides,
     },
-    Metadata(MessageKind),
+    /// A sequenced Title, Pwd or Bell frame and its payload.
+    Metadata(MessageKind, Vec<u8>),
     Exit(TerminalExit),
     ResyncRequired,
     /// A smart host's quota change that evicted nothing (host_kitty_limits.rs).
@@ -172,7 +173,7 @@ impl HostedFrameStager {
                 Ok(None)
             }
             MessageKind::Title | MessageKind::Pwd | MessageKind::Bell if frame.flags == 0 => {
-                Ok(Some(HostedTransition::Metadata(frame.kind)))
+                Ok(Some(HostedTransition::Metadata(frame.kind, frame.payload)))
             }
             MessageKind::Exit if frame.flags == 0 => {
                 let exit = if frame.payload.is_empty() {

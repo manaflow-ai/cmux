@@ -202,6 +202,30 @@ impl Surface {
         Some(self.as_pty()?.stream_progress.resource_subscription_count())
     }
 
+    /// The viewport's text. A host that answers screen reads is asked
+    /// (perf100 cut 1: its parser is authoritative and the reply overtakes
+    /// queued output); other terminals read the daemon's own copy.
+    pub fn viewport_text(&self) -> anyhow::Result<String> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        #[cfg(any(unix, windows))]
+        {
+            // Sent under the runtime lock, waited for with it released: the
+            // connection's reader resolves the reply.
+            let pending = match &*pty.runtime.lock().unwrap() {
+                PtyRuntime::Hosted(host) => host.begin_screen_text().ok().flatten(),
+                _ => None,
+            };
+            if let Some(pending) = pending
+                && let Ok(text) = pending.wait()
+            {
+                return Ok(text);
+            }
+        }
+        Ok(pty.term.lock().unwrap().viewport_text()?)
+    }
+
     pub fn try_with_terminal<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> anyhow::Result<R> {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");

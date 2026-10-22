@@ -14,6 +14,9 @@ const BELL_NOTIFICATION_COOLDOWN: Duration = Duration::from_secs(10);
 #[derive(Clone, Default)]
 pub(super) struct PendingBells {
     rung: Arc<AtomicUsize>,
+    /// The terminal host reports bells (its Bell frames, perf100 cut 1): the
+    /// mirror's parser callback then counts nothing.
+    from_host: Arc<AtomicBool>,
     /// When this terminal's last bell posted its attention notification (cx-on7iu).
     notified_at: Arc<Mutex<Option<Instant>>>,
 }
@@ -22,9 +25,23 @@ impl PendingBells {
     /// The parser's `on_bell` callback: count one bell, never call out.
     pub(super) fn callback(&self) -> Box<dyn FnMut() + Send> {
         let rung = self.rung.clone();
+        let from_host = self.from_host.clone();
         Box::new(move || {
-            rung.fetch_add(1, Ordering::AcqRel);
+            if !from_host.load(Ordering::Acquire) {
+                rung.fetch_add(1, Ordering::AcqRel);
+            }
         })
+    }
+
+    /// Whether bells come from the host's Bell frames (true) or from the
+    /// mirror's parser (false), for the current host connection.
+    pub(super) fn set_from_host(&self, from_host: bool) {
+        self.from_host.store(from_host, Ordering::Release);
+    }
+
+    /// One bell the host reported (a Bell frame).
+    pub(super) fn ring(&self) {
+        self.rung.fetch_add(1, Ordering::AcqRel);
     }
 
     /// Emit one `Bell` event per counted bell, and mark the terminal's tab for

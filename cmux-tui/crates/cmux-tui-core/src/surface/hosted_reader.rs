@@ -27,6 +27,10 @@ pub(super) struct HostedReader {
     /// reset of a dead program's modes.
     pub(super) shell_marks: crate::prompt_mode_reset::ShellMarks,
     pub(super) title_changed: Arc<AtomicBool>,
+    /// The current host connection reports title, directory and bell in its
+    /// own frames (`supports_host_reads`, perf100 cut 1); the mirror's copies
+    /// of them are then not read per output chunk.
+    pub(super) host_metadata: bool,
     pub(super) pending_bells: PendingBells,
     /// Test seam: slows applying each output frame so tests can build an
     /// output backlog ahead of a targeted host response.
@@ -114,6 +118,11 @@ impl HostedReader {
     ) -> Option<StreamEnd<'a>> {
         let id = self.id;
         let mux = self.mux.clone();
+        self.host_metadata = matches!(
+            &*pty.runtime.lock().unwrap(),
+            PtyRuntime::Hosted(host) if host.supports_host_reads()
+        );
+        self.pending_bells.set_from_host(self.host_metadata);
         let mut stager = HostedFrameStager::new_for_version(
             self.sequence_boundary,
             self.protocol_version,
@@ -213,7 +222,12 @@ impl HostedReader {
                 // The mirror derives these from the preceding Output; the
                 // sequenced metadata frames are still consumed so they cannot
                 // hide a stream gap.
-                HostedTransition::Metadata(_kind) => Flow::Continue,
+                HostedTransition::Metadata(kind, payload) => {
+                    if self.host_metadata {
+                        self.apply_host_metadata(surface, pty, kind, payload);
+                    }
+                    Flow::Continue
+                }
                 HostedTransition::Exit(exit) => {
                     received_exit = Some(exit);
                     break;

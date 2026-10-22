@@ -872,6 +872,7 @@ impl Surface {
                 crate::prompt_mode_reset::ShellMarks::default()
             },
             title_changed,
+            host_metadata: false,
             pending_bells,
             output_apply_delay: HostedReader::output_apply_delay_from_env(),
             flap_backoff: TerminalHostReconnectBackoff::default(),

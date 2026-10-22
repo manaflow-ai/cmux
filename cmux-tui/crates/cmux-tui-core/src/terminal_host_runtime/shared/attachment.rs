@@ -283,6 +283,46 @@ impl HostAttachment {
         self.record.supports_clear_history
     }
 
+    /// The host answers screen reads and is the source of title, directory
+    /// and bell (perf100 cut 1).
+    pub fn supports_host_reads(&self) -> bool {
+        self.record.supports_host_reads
+    }
+
+    /// Sends a screen read and returns the receiver of the host's text.
+    /// `None` when this host does not answer screen reads. The receiver is
+    /// waited on with the runtime lock released: the connection's reader
+    /// thread resolves it as soon as the reply arrives, ahead of any queued
+    /// output (surface/host_frames.rs early responses).
+    pub(crate) fn begin_screen_text(&self) -> anyhow::Result<Option<ScreenTextPending>> {
+        if !self.record.supports_host_reads {
+            return Ok(None);
+        }
+        let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
+        anyhow::ensure!(request_id != 0, "terminal host control request id exhausted");
+        let (sender, receiver) = sync_channel(1);
+        self.control_responses.waiters.lock().recover_poison().insert(
+            request_id,
+            ControlResponseWaiter::Blocking { kind: MessageKind::ScreenText, sender },
+        );
+        let mut frame = Frame::new(MessageKind::ScreenTextRequest, Vec::new());
+        frame.version = self.protocol_version;
+        frame.request_id = request_id;
+        let write_result = {
+            let mut writer = self.writer.lock().recover_poison();
+            write_frame(&mut *writer, &frame).map_err(protocol_io_error)
+        };
+        if let Err(error) = write_result {
+            self.control_responses.waiters.lock().recover_poison().remove(&request_id);
+            return Err(error.into());
+        }
+        Ok(Some(ScreenTextPending {
+            request_id,
+            receiver,
+            control_responses: self.control_responses.clone(),
+        }))
+    }
+
     /// Re-send the latest viewer size with a request id and return the
     /// receiver of its acknowledgement. The host answers frames in order, so
     /// the acknowledgement arrives after the resize transition of every
@@ -727,5 +767,25 @@ impl Drop for HostAttachment {
         {
             let _ = acknowledge_terminal_host_exit_record(&exit_path, &exit);
         }
+    }
+}
+
+/// A screen read in flight (`TerminalHostAttachment::begin_screen_text`).
+pub(crate) struct ScreenTextPending {
+    request_id: u64,
+    receiver: Receiver<Frame>,
+    control_responses: Arc<ControlResponses>,
+}
+
+impl ScreenTextPending {
+    /// The host's viewport text, or an error when it did not answer within
+    /// `CONTROL_RESPONSE_TIMEOUT` or the connection ended.
+    pub(crate) fn wait(self) -> anyhow::Result<String> {
+        let response = self.receiver.recv_timeout(CONTROL_RESPONSE_TIMEOUT);
+        self.control_responses.waiters.lock().recover_poison().remove(&self.request_id);
+        let frame = response
+            .map_err(|_| anyhow::anyhow!("terminal host did not answer the screen read"))?;
+        String::from_utf8(frame.payload)
+            .map_err(|_| anyhow::anyhow!("terminal host sent screen text that is not UTF-8"))
     }
 }

@@ -203,6 +203,11 @@ pub struct TerminalHostRecord {
     /// ClientHello carrying `FLAG_SHELL_ACTIVITY`.
     #[serde(default)]
     pub supports_shell_activity: bool,
+    /// Additive capability (perf100 cut 1). Missing/false records belong to
+    /// hosts that do not answer `ScreenTextRequest`, so the daemon reads the
+    /// screen and derives title, directory and bell from its own mirror.
+    #[serde(default)]
+    pub supports_host_reads: bool,
     /// The orphan grace this host runs with, in seconds (cx-t2sqm D1): it
     /// ends its terminal after this long with no client. `None` (normal
     /// installs, and hosts from before this field): it never does; only a
@@ -640,6 +645,7 @@ mod unix {
 
 #[cfg(any(unix, windows))]
 pub use shared::attachment::HostAttachment;
+pub(crate) use shared::attachment::ScreenTextPending;
 #[cfg(any(unix, windows))]
 pub(crate) use shared::attachment::launch::adopt_terminal_host_with_kitty_limits;
 #[cfg(any(unix, windows))]

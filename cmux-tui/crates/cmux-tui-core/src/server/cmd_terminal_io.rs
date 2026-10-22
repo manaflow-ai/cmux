@@ -154,7 +154,7 @@ pub(super) fn send(
 pub(super) fn read_screen(mux: &Arc<Mux>, surface: SurfaceId) -> anyhow::Result<Value> {
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
-    let text = surface.try_with_terminal(|t| t.viewport_text())??;
+    let text = surface.viewport_text()?;
     Ok(json!({ "text": text }))
 }
 

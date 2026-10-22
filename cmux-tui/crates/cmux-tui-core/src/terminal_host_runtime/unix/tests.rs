@@ -241,6 +241,7 @@ fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease
         supports_pty_custody: false,
         supports_program_status: false,
         supports_shell_activity: false,
+        supports_host_reads: false,
         orphan_grace_secs: None,
     };
     let record_path = record.record_path(&root);
@@ -273,6 +274,7 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
         supports_pty_custody: false,
         supports_program_status: false,
         supports_shell_activity: false,
+        supports_host_reads: false,
         orphan_grace_secs: None,
     };
     let record_path = std::env::temp_dir().join(format!(

@@ -93,7 +93,10 @@ impl EarlyResponses {
     /// Whether the reader thread resolves responses of `kind`.
     pub(super) fn resolves(self, kind: MessageKind) -> bool {
         match kind {
-            MessageKind::InputAck | MessageKind::TerminateAck | MessageKind::Capability => true,
+            MessageKind::InputAck
+            | MessageKind::TerminateAck
+            | MessageKind::Capability
+            | MessageKind::ScreenText => true,
             MessageKind::KittyGraphicsLimitsAck => self.smart_renderer,
             _ => false,
         }
@@ -240,6 +243,7 @@ pub(super) fn is_targeted_host_response(kind: MessageKind) -> bool {
             | MessageKind::TerminateAck
             | MessageKind::DetachAck
             | MessageKind::InputAck
+            | MessageKind::ScreenText
     )
 }
 

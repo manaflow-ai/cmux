@@ -643,6 +643,26 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                         break;
                     }
                 }
+                MessageKind::ScreenTextRequest => {
+                    // perf100 cut 1: the daemon reads the screen from this
+                    // authoritative parser instead of its own mirror.
+                    if !granted_rights.contains(CapabilityRights::READ)
+                        || frame.request_id == 0
+                        || !frame.payload.is_empty()
+                    {
+                        break;
+                    }
+                    let text = command_host.term.lock().recover_poison().viewport_text();
+                    let Ok(text) = text else { break };
+                    let mut response = Frame::new(MessageKind::ScreenText, text.into_bytes());
+                    response.request_id = frame.request_id;
+                    response.version = frame.version;
+                    // Serialized with live publication like every targeted reply.
+                    let _broadcast = command_host.broadcast_lock.lock().recover_poison();
+                    if !command_sender.try_send(response) {
+                        break;
+                    }
+                }
                 MessageKind::MintCapability => {
                     if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY)
                         || frame.request_id == 0
