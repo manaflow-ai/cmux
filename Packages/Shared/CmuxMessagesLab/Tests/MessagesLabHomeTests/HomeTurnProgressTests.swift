@@ -42,11 +42,15 @@ import Testing
         #expect(progress.summary == [CmuxStrings.turnReadFiles(2), CmuxStrings.turnRanCommands(2), "Telling a31"].joined(separator: " · ") + " ›")
     }
 
-    @Test func otherStepsCountAsSteps() {
+    /// Lawrence 2026-10-22: a bare "11 steps" said nothing. Several other steps show the newest
+    /// one by its own words and count the rest ("Checking on a31 · 2 more steps ›"); the click on
+    /// the line still lists every step.
+    @Test func otherStepsNameTheNewestAndCountTheRest() {
         let progress = Self.progress(["Telling a31", "Starting 2 agents", "Checking on a31", "Checking on a7"])
-        #expect(progress.summary == CmuxStrings.turnSteps(3) + " ›")
+        #expect(progress.summary == "Checking on a31 · " + CmuxStrings.turnMoreSteps(2) + " ›")
         let mixed = Self.progress(["Running ls", "Running pwd", "Telling a31", "Starting 2 agents", "Checking on a31"])
-        #expect(mixed.summary == CmuxStrings.turnRanCommands(2) + " · " + CmuxStrings.turnMoreSteps(2) + " ›")
+        #expect(mixed.summary == CmuxStrings.turnRanCommands(2) + " · Starting 2 agents · " + CmuxStrings.turnMoreSteps(1) + " ›")
+        #expect(progress.summary?.contains(CmuxStrings.turnSteps(3)) == false)
     }
 
     @Test func thinkingAndWritingAreNotSteps() {
