@@ -62,7 +62,6 @@ import Testing
         defer { ReduceTransparency.shared.override = nil }
         let card = SidebarUpdateCardView(frame: NSRect(x: 0, y: 0, width: 216, height: 120))
         card.configure(SidebarUpdateCard(title: "Update Ready", detail: "nightly 3845050 · Oct 13", buttonTitle: "Restart to Update",
-                                         automaticUpdatesTitle: "Automatic Updates", automaticUpdates: true,
                                          notes: .init(headline: "Update Ready", keepsRunning: "")))
         try Self.expectCardSurface(card, "Update Ready")
     }

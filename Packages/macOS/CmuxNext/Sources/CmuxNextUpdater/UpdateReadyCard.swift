@@ -2,8 +2,8 @@ public import Foundation
 
 /// UPDATE-CARD (Lawrence 2026-10-06; Leo 2026-10-13): the card above the sidebar footer while an
 /// update is staged says only what a glance needs: "Update Ready", the short version and build
-/// date ("nightly 3845050 · Oct 13"), the Automatic Updates checkbox
-/// (`updates.downloadAutomatically`) and one Restart to Update button; while the click installs,
+/// date ("nightly 3845050 · Oct 13") and one Restart to Update button (Automatic Updates is
+/// Settings' Download Updates Automatically, `updates.downloadAutomatically`, on by default); while the click installs,
 /// the button reads Installing… and is disabled. Its hover popover adds what the card lacks: the
 /// full build, the changelog highlights and "See all changes", once (the card keeps "See all
 /// changes" only as an accessibility action). Pure and localized.
@@ -18,12 +18,9 @@ nonisolated public struct UpdateReadyCard: Equatable, Sendable {
     public var buttonTitle: String
     /// The click was taken: the button is disabled until the relaunch.
     public var isInstalling: Bool
-    public var automaticUpdatesTitle: String
-    /// The checkbox state: `updates.downloadAutomatically`.
-    public var automaticUpdates: Bool
     public var notes: UpdateReadyNotes
 
-    public init(version: String?, isInstalling: Bool, automaticUpdates: Bool, notes: UpdateReadyNotes,
+    public init(version: String?, isInstalling: Bool, notes: UpdateReadyNotes,
                 changelog: UpdateChangelog? = nil) {
         // While the click installs, the card says so in its title too, not only on its disabled button.
         title = isInstalling ? UpdaterStrings.installingUpdate : UpdaterStrings.readyToInstall
@@ -31,8 +28,6 @@ nonisolated public struct UpdateReadyCard: Equatable, Sendable {
         seeAllTitle = UpdaterStrings.seeAllChanges
         buttonTitle = isInstalling ? UpdaterStrings.installing : UpdaterStrings.restartToUpdate
         self.isInstalling = isInstalling
-        automaticUpdatesTitle = UpdaterStrings.automaticUpdates
-        self.automaticUpdates = automaticUpdates
         self.notes = notes
     }
 }

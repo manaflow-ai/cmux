@@ -266,7 +266,8 @@ final class SidebarNoticeCardView: NSView {
         content.frame = b
         eyebrowLabel.font = Typography.caption
         titleLabel.font = Typography.bodyEmphasized
-        detailLabel.font = Typography.caption
+        // Tabular digits: a download's "189 MB of 226 MB · 84%" ticks in place instead of jittering.
+        detailLabel.font = Typography.captionDigits
         shortcutLabel.font = Typography.caption
         let dismissWidth = dismissButton.fittingWidth, dismissHeight = SidebarCardTextButton.height
         let titleY = pad + (eyebrowLabel.isHidden ? 0 : line.caption)
