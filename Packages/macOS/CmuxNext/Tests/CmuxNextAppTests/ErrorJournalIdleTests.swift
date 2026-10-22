@@ -37,3 +37,23 @@ import Testing
         await service.stop()
     }
 }
+
+extension ErrorJournalIdleTests {
+    @Test func leavingTheAppHarvestsAtMostOncePerSpacing() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("errors-leave-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let source = CountingSource()
+        let clock = ManualClock()
+        let service = ErrorJournalService(journal: ErrorJournal(directory: folder), sources: [source], clock: clock)
+
+        await service.appDidResignActive()?.value
+        #expect(await source.reads == 1)
+        #expect(!service.isHarvesting)
+        clock.advance(by: .seconds(60))
+        #expect(service.appDidResignActive() == nil)
+        clock.advance(by: ErrorJournalService.harvestSpacing)
+        await service.appDidResignActive()?.value
+        #expect(await source.reads == 2)
+        await service.stop()
+    }
+}

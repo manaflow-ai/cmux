@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextCompat
 import CmuxNextErrorJournal
 import CmuxNextHomeEngine
@@ -5,8 +6,13 @@ import Foundation
 
 /// Owns this build's ``ErrorJournal`` and the places it harvests: the app's own unified log
 /// (page console errors included), the Chief's acpmux `daemon.log`, `host.log` and
-/// `client.log`, the app's own acpmux log, and cmux crash reports. Harvests every
-/// ``harvestInterval`` and before every `errors.list`.
+/// `client.log`, the app's own acpmux log, and cmux crash reports.
+///
+/// It harvests only when something asks: before every `errors.list` (``ErrorJournalControl``),
+/// and when the person leaves the app (resign active), at most once per ``harvestSpacing``.
+/// Never on a timer and never at launch: an app left alone reads no log (reading the unified log
+/// wakes OSLogService, which cost 2.6 % CPU in a 60 s idle window on cmux20,
+/// plans/cmux-next/speed-of-sound-DESIGN.md).
 ///
 /// The journal lives in `~/Library/Application Support/<bundle id>/errors`, one per build.
 @MainActor
@@ -15,9 +21,14 @@ final class ErrorJournalService {
     let sources: [any ErrorHarvestSource]
     private let clock: any Clock<Duration>
     private var harvesting: Task<Void, Never>?
+    private var sinceLastHarvest: (() -> Duration)?
+    private var resignObserver: (any NSObjectProtocol)?
 
-    /// How often the journal reads its sources while the app runs.
-    static let harvestInterval: Duration = .seconds(300)
+    /// A harvest that leaving the app started is still running.
+    var isHarvesting: Bool { harvesting != nil }
+
+    /// The least time between two harvests that leaving the app starts.
+    static let harvestSpacing: Duration = .seconds(300)
 
     init(journal: ErrorJournal, sources: [any ErrorHarvestSource], clock: any Clock<Duration> = ContinuousClock()) {
         self.journal = journal
@@ -54,31 +65,47 @@ final class ErrorJournalService {
                                    sources: sources)
     }
 
-    /// Starts the periodic harvest; the first one runs at once.
+    /// Harvests each time the person leaves the app (at most once per ``harvestSpacing``).
     func start() {
-        guard harvesting == nil else { return }
+        guard resignObserver == nil else { return }
+        resignObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            // main-proof: observer registered with queue: .main
+            MainActor.assumeIsolated { _ = self?.appDidResignActive() }
+        }
+    }
+
+    /// The person left the app: harvest now unless one ran within ``harvestSpacing`` or is running.
+    /// Returns the harvest it started; it ends after the harvest is written and cleared (tests await it).
+    @discardableResult
+    func appDidResignActive() -> Task<Void, Never>? {
+        guard harvesting == nil else { return nil }
+        if let since = sinceLastHarvest, since() < Self.harvestSpacing { return nil }
+        sinceLastHarvest = Self.stopwatch(clock)
         let journal = journal
         let sources = sources
-        let interval = Self.harvestInterval
-        let clock = clock
-        // A fixed-interval background harvest, cancelled by stop() (CLAUDE.md Clock.sleep carve-out:
-        // the delay is the intended cadence; nothing waits on it).
-        harvesting = Task.detached(priority: .utility) {
-            // concurrency-allow: a detached utility task, never the main thread; each pass awaits a harvest, then the cancellable cadence sleep
-            // wakeup-allow: one harvest every 300 s (harvestInterval) while the app runs, ended by stop()
-            while !Task.isCancelled {
-                await journal.harvest(sources)
-                // concurrency-allow: async cadence sleep on the detached harvest task; cancelled by stop(), blocks no thread
-                // wakeup-allow: the 300 s harvest cadence; nothing waits on it
-                guard (try? await clock.sleep(for: interval)) != nil else { return }
-            }
+        // A detached utility task: reading the logs never runs on the main thread.
+        // concurrency-allow: one harvest per leave of the app, off the main thread
+        let task = Task.detached(priority: .utility) { _ = await journal.harvest(sources) }
+        let running = Task { [weak self] in
+            await task.value
+            self?.harvesting = nil
         }
+        harvesting = running
+        return running
+    }
+
+    private static func stopwatch<C: Clock>(_ clock: C) -> () -> Duration where C.Duration == Duration {
+        let start = clock.now
+        return { start.duration(to: clock.now) }
     }
 
     /// Stops harvesting and writes what is pending.
     func stop() async {
-        harvesting?.cancel()
-        harvesting = nil
+        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        resignObserver = nil
+        await harvesting?.value
         await journal.flush()
     }
 }
