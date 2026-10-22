@@ -206,6 +206,22 @@ public final class AgentChatStore {
     private var seenPromptIDs: Set<String> = []
     /// Bumps on every streamed change (follow-mode scroll keys off it).
     public private(set) var revision = 0
+    /// Turn and row ids (`TurnRow.id`) that came in as replayed history (a `.batch`: the
+    /// transcript on open, or what a reattach caught up on). They are drawn in place: no
+    /// insert animation, no haptic. Only what arrives after the replay boundary animates.
+    /// Not observed: it changes only with `turns`, which the views already observe.
+    @ObservationIgnored private var replayedIDs: Set<String> = []
+    /// What the chat's first batch (its history on open) held: an ask in it was already
+    /// waiting and does not buzz; one a later batch (a reattach) brings is news.
+    @ObservationIgnored private var openingIDs: Set<String>?
+    /// Asks a decision or an answer resolved (not a turn that ended under them).
+    @ObservationIgnored private var decidedAsks: Set<String> = []
+    /// The newest change was a replayed batch: views that animate on a value change
+    /// (the permission bar, the queue) draw it in place.
+    @ObservationIgnored public private(set) var lastChangeWasReplay = false
+    /// Set by the composer when it took its place without motion (the chat opened on its
+    /// history): the bottom stack's next height lands at once too (then cleared).
+    @ObservationIgnored var placeBottomStackInstantly = false
     private var currentMessageID: String?
     private var task: Task<Void, Never>?
 
@@ -330,6 +346,8 @@ public final class AgentChatStore {
 
     func apply(_ event: AgentSessionEvent) {
         revision &+= 1
+        lastChangeWasReplay = false
+        placeBottomStackInstantly = false
         switch event {
         case .userMessage(let text, let promptId, let turnId, let attachments, let at):
             currentMessageID = nil
@@ -391,13 +409,16 @@ public final class AgentChatStore {
             }
             applyUpdate(update)
         case .permissionRequest(let request):
+            guard takeOpenAsk(request.id) else { return }
             appendItem(.permission(PermissionRecord(request: request)))
             summary.status = .waiting
         case .question(let question):
+            guard takeOpenAsk(question.id) else { return }
             appendItem(.question(question))
             summary.status = .waiting
         case .permissionDecision(let permissionId, let optionId):
             approvingOptionID = nil
+            decidedAsks.insert(permissionId)
             updateItems { item in
                 // A question resolves through the same decision: its answer option, or a decline.
                 if case .question(var question) = item, question.id == permissionId, question.isPending {
@@ -415,6 +436,7 @@ public final class AgentChatStore {
             }
             summary.status = isRunning ? .running : .idle
         case .questionAnswered(let questionId, let answer):
+            decidedAsks.insert(questionId)
             updateItems { item in
                 guard case .question(var question) = item, question.id == questionId else { return nil }
                 question.state = .answered(answer)
@@ -443,6 +465,8 @@ public final class AgentChatStore {
             applySubagent(change)
         case .batch(let events):
             for event in events { apply(event) }
+            markReplayed()
+            lastChangeWasReplay = true
         case .subagentUpdate(let id, let update):
             guard let index = subagents.firstIndex(where: { $0.id == id }) else { return }
             subagents[index].items.apply(update)
@@ -452,6 +476,23 @@ public final class AgentChatStore {
     }
 
     public func subagent(_ id: String) -> AgentSubagent? { subagents.first { $0.id == id } }
+
+    /// Whether `id` (a turn's id or a `TurnRow.id`) was on screen as replayed history,
+    /// so its view appears without an insert transition (and its ask without a haptic).
+    public func isReplayed(_ id: String) -> Bool { replayedIDs.contains(id) }
+
+    /// Whether `id` (a `TurnRow.id`) was already there when the chat opened (its first batch).
+    public func wasOpenOnArrival(_ id: String) -> Bool { openingIDs?.contains(id) ?? false }
+
+    /// Everything shown now is history: what a batch brought, and anything before it.
+    private func markReplayed() {
+        for turn in turns {
+            replayedIDs.insert(turn.id)
+            for row in turn.rows { replayedIDs.insert(row.id) }
+        }
+        // The opening set is the first batch that brought the transcript.
+        if openingIDs == nil, !turns.isEmpty { openingIDs = replayedIDs }
+    }
 
     private func applySubagent(_ change: AgentSubagentChange) {
         if let index = subagents.firstIndex(where: { $0.id == change.id }) {
@@ -548,6 +589,26 @@ public final class AgentChatStore {
         case .sessionInfo(let title):
             if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty { sessionTitle = title }
         }
+    }
+
+    /// An ask seen again (shown from an attach reply's pending list, then its own record
+    /// came with its turn): not decided, it leaves its old place for the newest turn (a
+    /// turn that ended under it only cancelled it here); decided, the repeat is dropped.
+    /// False: drop the repeat.
+    private func takeOpenAsk(_ id: String) -> Bool {
+        guard !decidedAsks.contains(id) else { return false }
+        for turnIndex in turns.indices {
+            guard let itemIndex = turns[turnIndex].items.firstIndex(where: { item in
+                switch item {
+                case .permission(let record): record.request.id == id
+                case .question(let question): question.id == id
+                default: false
+                }
+            }) else { continue }
+            turns[turnIndex].items.remove(at: itemIndex)
+            return true
+        }
+        return true
     }
 
     private func appendItem(_ item: TurnItem) {

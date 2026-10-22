@@ -408,16 +408,16 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       await page.close();
     });
 
-    test("Send now on a queued prompt keeps its row, reading Steering, until it runs (live run, 2026-10-14)", async () => {
-      // A live run: after Send now the row went at once and nothing showed until the stopped turn
+    test("Steer on a queued prompt keeps its row, reading Steering, until it runs (live run, 2026-10-14)", async () => {
+      // A live run: after Send now (now Steer) the row went at once and nothing showed until the stopped turn
       // ended, because the queue hid the row as if it were leaving.
       const page = await openChat(false);
       const row = page.locator(".acpmux-queued", { hasText: "space thing" });
       await row.hover();
-      // A queued row shows Edit, Remove and Send now (#22805): click Send now by its name.
-      await row.getByRole("button", { name: "Send now", exact: true }).click();
+      // A queued row shows Steer, Delete and ⋯ (ChatGPT's order, 2026-10-21): click Steer by its name.
+      await row.getByRole("button", { name: "Steer", exact: true }).click();
       await row.locator(".acpmux-queued-kind", { hasText: "Steering" }).waitFor({ timeout: 10_000 });
-      // The stopped turn has not ended yet: once the page has handled what came after Send now, the
+      // The stopped turn has not ended yet: once the page has handled what came after Steer, the
       // row still shows.
       await caughtUp(page, "queue order.");
       expect(await row.isVisible()).toBe(true);
