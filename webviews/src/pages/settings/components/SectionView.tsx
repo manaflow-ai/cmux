@@ -22,6 +22,7 @@ import { DensityCard } from "./DensityCard";
 import { BrowserProfiles, MachinesSection, SpacesSection } from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
 import { VoiceInputCard } from "./VoiceInputCard";
+import { TailnetCard } from "./TailnetCard";
 import { SectionActions } from "./SectionActions";
 import { ACCENT_KEY, APP_THEME_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
 
@@ -51,6 +52,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   importSuggestions: () => <ImportSuggestionsCard />,
   channels: () => <ChannelsCard />,
   voiceInput: () => <VoiceInputCard />,
+  tailnet: () => <TailnetCard />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
