@@ -229,3 +229,20 @@ test("a fenced result loses its exit line too, so the Shell block says it once",
   const failure = toolFailure(call("```\nExit code 1\nbuild failed\n```"));
   expect(failure).toMatchObject({ kind: "exit", exitCode: 1, output: "build failed" });
 });
+
+test("claude-agent-acp's refusal is a denial, and a zero-count summary is never the cause", () => {
+  expect(toolFailure(call("User refused permission to run tool"))?.kind).toBe("denied");
+  expect(toolFailure(call("Exit code 1\nerror: x.ts:3 missing return\nFound 0 errors in 2 other files"))?.cause).toBe(
+    "x.ts:3 missing return",
+  );
+});
+
+test("Copy error copies the result as drawn: no colour codes, fence or injected context", () => {
+  const failure = toolFailure(
+    call("<system-reminder>ambient</system-reminder>\n\u001b[31mError: boom\u001b[0m", {
+      kind: "other",
+      command: undefined,
+    }),
+  );
+  expect(failure?.detail).toBe("Error: boom");
+});

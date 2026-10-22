@@ -23,17 +23,16 @@ const shell = (command: string, description: string | undefined, output: string,
     ...times(at),
   });
 
-/// The calls in one live run, each kind next to another so every call keeps its own row, then the
-/// agent's note on them.
+/// Each call in its own run of a working turn, with the agent's note on it after: a note of two
+/// paragraphs keeps the runs apart (turns.ts mergeShortNotes), so every call draws as its own row.
 const calls = (prompt: string, entries: [AcpmuxActivity, string][], harness = "claude") =>
   chat(
     [
       user(prompt, 6),
-      activity(
-        entries.map(([call]) => call),
-        5.8,
-      ),
-      assistant(entries.map(([, note]) => note).join(" "), 4),
+      ...entries.flatMap(([call, note], index) => [
+        activity([call], 5.8 - index * 0.4),
+        assistant(`${note}\n\nOn to the next step.`, 5.7 - index * 0.4),
+      ]),
     ],
     { isWorking: true, harness, model: harness === "codex" ? "gpt-5.5-codex" : "claude-opus-5-5" },
   );
@@ -49,12 +48,13 @@ const claudeCode = calls("Land the retry fix and check the tests", [
     "The merge hook wants a review first.",
   ],
   [
-    tool("Edit src/net/client.ts", "edit", "failed", {
-      output:
-        "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.",
-      ...times(5),
-    }),
-    "Waiting for your call on the client edit.",
+    shell(
+      "git push --force origin main",
+      "Push the fix",
+      "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.",
+      5,
+    ),
+    "Waiting for your call on the push.",
   ],
   [
     shell(
@@ -74,11 +74,12 @@ const claudeCode = calls("Land the retry fix and check the tests", [
     "The schedule has no base delay yet.",
   ],
   [
-    tool("Write src/net/retry.ts", "edit", "failed", {
-      output: "<tool_use_error>File has not been read yet. Read it first before writing to it.</tool_use_error>",
+    tool("Read src/net/retry.ts", "read", "failed", {
+      output:
+        "<tool_use_error>File does not exist. Current working directory: /Users/you/src/atlas-web</tool_use_error>",
       ...times(4.6),
     }),
-    "Reading the file first.",
+    "The retry module is not written yet.",
   ],
   [
     shell("bun test src/net --watch", "Run the network tests", "Exit code 143\nCommand timed out after 2m 0s", 4.2),
@@ -165,7 +166,7 @@ export default agentPaneEntry({
   id: "agent-pane.tool-errors",
   title: "Tool errors",
   area: "Agent pane",
-  height: 520,
+  height: 900,
   covers: [
     "agent-session/acpmux/conversation/ToolFailureCause.tsx",
     "agent-session/acpmux/conversation/ToolRow.tsx",

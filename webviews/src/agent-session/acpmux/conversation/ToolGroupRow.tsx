@@ -119,7 +119,7 @@ export function ToolGroupRow({
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
-      <ToolFailureCause failure={failure} raw={tools[0]?.output} />
+      <ToolFailureCause failure={failure} />
       {fold.present && (
         <div ref={fold.ref} className="cv-fold">
           <div className={kind === "edits" ? "cv-tool-group" : "cv-tool-group is-flat"} id={detailsId}>

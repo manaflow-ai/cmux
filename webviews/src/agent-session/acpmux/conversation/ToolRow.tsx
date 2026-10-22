@@ -20,7 +20,7 @@ import { menuPartRef } from "./menuParts";
 import { BackgroundHint } from "./BackgroundHint";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
-import { toolDuration } from "./toolGroups";
+import { isFailed, toolDuration } from "./toolGroups";
 import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
 import { useBlockWrap } from "./blockWrap";
 import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
@@ -83,7 +83,8 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
     cwd,
     t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
   );
-  const failed = tool.status === "failed";
+  // Failed by its status or a nonzero exit, as a command row reads it (toolGroups.ts isFailed).
+  const failed = isFailed(tool);
   // Why it failed, in a word on the row and one line under it (toolFailure.ts); read only once it failed.
   const failure = useMemo(() => (failed ? toolFailure(tool) : undefined), [failed, tool]);
   // A Write reads as an edit does: "Writing notes.md", then "Wrote notes.md +18" (WriteLabel.tsx).
@@ -152,7 +153,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       ) : (
         <div className={`cv-tool${running ? " is-live" : " is-strong"}`}>{content}</div>
       )}
-      <ToolFailureCause failure={failure} raw={tool.output} />
+      <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (shell || files.length > 0 || body) && (
         <div ref={fold.ref} className="cv-fold">

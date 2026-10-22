@@ -4,7 +4,9 @@
 // call, a `<tool_use_error>` tag, Codex's `{"status":"declined"}`, or an MCP server's JSON error.
 // The row says what happened in a word (blocked, denied, timed out, Exit 1, failed) and one quiet
 // line says why, in the tool's own words without the envelope; the raw result stays in the opened
-// call. Only a failed call is read, and only its first and last few thousand characters.
+// call. Only a failed call is read: its text is cleaned whole (colour codes, a fence, a host's
+// injected context; all linear, once per call), and only its first and last few thousand
+// characters are searched for the cause.
 import { stripAnsi } from "./toolOutput";
 import { isFailed } from "./toolGroups";
 import { cleanText } from "./mcpCalls";
@@ -26,6 +28,9 @@ export type ToolFailure = {
   cause?: string;
   /// The output without Claude Code's leading "Exit code N" line, which the Shell block says itself.
   output?: string;
+  /// The whole result as the opened call draws it (no colour codes, fence or injected context):
+  /// what Copy error copies.
+  detail: string;
 };
 
 /// The most of a result read from each end: a cause sits in its first or last lines.
@@ -43,7 +48,7 @@ const HOOK = /^(?:(\w+)(?::[\w.-]+)? hook error|hook (\w+)(?::[\w.-]+)? (?:denie
 /// whole result of a call that never ran. Anchored, and read only from a result with no exit code,
 /// so a command whose output quotes a denial ("Expected: user declined") still reads as its exit.
 const DENIED =
-  /^(?:the user doesn't want to proceed with this tool use|the tool use was rejected|permission to use \S+ (?:has been|was) denied|(?:the )?user (?:rejected|declined|denied)\b)/i;
+  /^(?:the user doesn't want to proceed with this tool use|the tool use was rejected|permission to use \S+ (?:has been|was) denied|(?:the )?user (?:rejected|declined|denied|refused)\b)/i;
 /// What the person told the agent when they declined (Claude Code: "… the user said:\n<words>").
 const DENIED_SAID = /the user said:\s*([\s\S]+)$/i;
 /// The harness's own timeout line, the result's first or last line (never one in the middle of a log).
@@ -54,7 +59,9 @@ const ERROR_LINE =
   /\b(?:error|errors|fatal|failed|failure|exception|panic(?:ked)?|denied|not found|no such|cannot|can't|couldn't|could not|unable|refused|invalid|missing|timed out)\b/i;
 /// An errno code that starts a line (`ENOENT: …`), in capitals only: "Expected: 3" is not one.
 const ERRNO_LINE = /^E[A-Z]{3,}\b/;
-const namesError = (line: string) => ERROR_LINE.test(line) || ERRNO_LINE.test(line.trim());
+/// A summary that reports none ("Found 0 errors", "0 failed") names no failure.
+const NONE_LINE = /\b(?:0|no) (?:errors?|failed|failures?|warnings?)\b/i;
+const namesError = (line: string) => (ERROR_LINE.test(line) || ERRNO_LINE.test(line.trim())) && !NONE_LINE.test(line);
 
 /// A line with words in any script (`\w` is ASCII only: "访问被拒绝" has none).
 const WORDS = /[\p{L}\p{N}]/u;
@@ -71,7 +78,11 @@ function oneLine(text: string | undefined): string | undefined {
     .find((part) => WORDS.test(part));
   if (!line) return undefined;
   const bare = line.replace(/^(?:error|err|fatal)\s*:\s*/i, "").trim() || line;
-  return bare.length > MAX_CAUSE ? `${bare.slice(0, MAX_CAUSE - 1)}…` : bare;
+  if (bare.length <= MAX_CAUSE) return bare;
+  // A cut never splits a surrogate pair (an emoji).
+  let end = MAX_CAUSE - 1;
+  if (/[\uDC00-\uDFFF]/.test(bare[end] ?? "")) end--;
+  return `${bare.slice(0, end)}…`;
 }
 
 /// A shell's cause: its last line that names an error, else (`fallback`) its last line with words.
@@ -135,19 +146,19 @@ export function toolFailure(tool: Tool): ToolFailure | undefined {
     body.length > HEAD_CHARS + TAIL_CHARS ? `${body.slice(0, HEAD_CHARS)}\n${body.slice(-TAIL_CHARS)}` : body
   ).trim();
 
-  if (isRecord(json) && json.status === "declined") return { kind: "denied", exitCode, output };
+  if (isRecord(json) && json.status === "declined") return { kind: "denied", exitCode, output, detail: body };
   const hook = HOOK.exec(text);
   if (hook) {
     const reason = text.slice(hook[0].length).replace(/^blocked\s*:\s*/i, "");
-    return { kind: "hook", hook: hook[1] ?? hook[2], cause: oneLine(reason), exitCode, output };
+    return { kind: "hook", hook: hook[1] ?? hook[2], cause: oneLine(reason), exitCode, output, detail: body };
   }
   if (exitCode === undefined && DENIED.test(text))
-    return { kind: "denied", cause: oneLine(DENIED_SAID.exec(text)?.[1]), exitCode, output };
+    return { kind: "denied", cause: oneLine(DENIED_SAID.exec(text)?.[1]), exitCode, output, detail: body };
 
   const lines = text.split("\n").filter((line) => WORDS.test(line));
   // "timed out" says it all; the row's time (on hover) says how long it ran.
   const timedOut = [lines[0], lines.at(-1)].some((line) => line !== undefined && TIMED_OUT.test(line.trim()));
-  if (timedOut || exitCode === 124) return { kind: "timeout", exitCode, output };
+  if (timedOut || exitCode === 124) return { kind: "timeout", exitCode, output, detail: body };
 
   const tagged = TOOL_USE_ERROR.exec(text)?.[1];
   const said = json === undefined ? undefined : jsonCause(json);
@@ -159,8 +170,8 @@ export function toolFailure(tool: Tool): ToolFailure | undefined {
         ? // A call that exited 0 yet failed has no last line to blame: only a line that names an error.
           shellCause(lines, exitCode !== 0)
         : oneLine(text);
-  if (exitCode !== undefined && exitCode !== 0) return { kind: "exit", exitCode, cause, output };
-  return { kind: "error", cause, exitCode, output };
+  if (exitCode !== undefined && exitCode !== 0) return { kind: "exit", exitCode, cause, output, detail: body };
+  return { kind: "error", cause, exitCode, output, detail: body };
 }
 
 /// A shell call's output as its Shell block draws it: without Claude Code's leading "Exit code N"

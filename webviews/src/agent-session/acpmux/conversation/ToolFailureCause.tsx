@@ -43,12 +43,12 @@ export function InlineFailureCause({ failure }: { failure: ToolFailure | undefin
 }
 
 /// The cause under the row: one dim line (`line`), or a small card with Copy error (`card`).
-export function ToolFailureCause({ failure, raw }: { failure: ToolFailure | undefined; raw?: string }) {
+export function ToolFailureCause({ failure }: { failure: ToolFailure | undefined }) {
   // A call that did not fail reads no experiment (a localStorage read) on each render.
   if (!failure?.cause) return null;
   const arm = experimentArm(toolErrorLook);
   if (arm === "inline") return null;
-  if (arm === "card") return <FailureCard failure={failure} raw={raw} />;
+  if (arm === "card") return <FailureCard failure={failure} />;
   return (
     <div className="cv-tool-error" data-failure-kind={failure.kind} data-find-skip>
       <HookName failure={failure} />
@@ -57,7 +57,7 @@ export function ToolFailureCause({ failure, raw }: { failure: ToolFailure | unde
   );
 }
 
-function FailureCard({ failure, raw }: { failure: ToolFailure; raw?: string }) {
+function FailureCard({ failure }: { failure: ToolFailure }) {
   const t = useT();
   return (
     <div className="cv-tool-error-card" data-failure-kind={failure.kind} data-find-skip>
@@ -65,8 +65,13 @@ function FailureCard({ failure, raw }: { failure: ToolFailure; raw?: string }) {
         <HookName failure={failure} />
         {failure.cause}
       </span>
-      {raw && (
-        <CopyButton text={raw} label={t("turn.failure.copyError")} className="cv-tool-error-card__copy" size={13} />
+      {failure.detail && (
+        <CopyButton
+          text={failure.detail}
+          label={t("turn.failure.copyError")}
+          className="cv-tool-error-card__copy"
+          size={13}
+        />
       )}
     </div>
   );

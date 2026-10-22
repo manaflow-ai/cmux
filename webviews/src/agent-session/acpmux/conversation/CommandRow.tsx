@@ -102,7 +102,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
-      <ToolFailureCause failure={failure} raw={tool.output} />
+      <ToolFailureCause failure={failure} />
       {fold.present && (
         <div ref={fold.ref} className="cv-fold">
           <ShellBlock

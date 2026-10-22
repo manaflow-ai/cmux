@@ -117,7 +117,7 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
-      <ToolFailureCause failure={failure} raw={tool.output} />
+      <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (
         <div ref={fold.ref} className="cv-fold">
