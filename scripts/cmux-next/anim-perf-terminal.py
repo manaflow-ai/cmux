@@ -16,7 +16,8 @@ layout so a single table compares builds:
   right-open / right-close      toggleRightSidebar twice
   group-collapse / -expand      toggleFocusedWorkspaceGroupCollapsed twice (a sidebar group of 3 workspaces)
   home-show / home-leave        home.show, then goToWorkspace back
-  chat-next / chat-prev         home.nextConversation / home.previousConversation (skipped with no conversations)
+  chat-open / -next / -prev     home.openConversation of the first of 4 seeded chats (the bench's own Chief home),
+                                then home.nextConversation / home.previousConversation
   palette-open / palette-close  commandPalette twice
 
 Per animation (median over --rounds): display frame intervals p50/p95/max, dropped frames (an interval over 1.5
@@ -138,8 +139,80 @@ def setup():
     for _ in range(2):
         action("workspace.newBelow", settle=1.0)
     action("goToWorkspace", {"workspace": state["group_ws"]}, settle=0.8)
+    state["chats"] = seed_home()
     action("goToWorkspace", {"workspace": state["a"]}, settle=1.0)
     time.sleep(1.5)  # test harness: launch and setup work settles
+
+
+class Owner:
+    """A JSON-lines connection to the Chief home's daemon (the v1 protocol, as home-inbox-parity.py)."""
+
+    def __init__(self, path):
+        import socket
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(15)
+        self.sock.connect(path)
+        self.buf, self.next = b"", 1
+
+    def request(self, cmd, **params):
+        rid = self.next
+        self.next += 1
+        self.sock.sendall((json.dumps({"id": rid, "cmd": cmd, **params}) + "\n").encode())
+        while True:
+            while b"\n" not in self.buf:
+                chunk = self.sock.recv(1 << 16)
+                if not chunk:
+                    raise RuntimeError(f"{cmd}: the daemon closed the connection")
+                self.buf += chunk
+            line, self.buf = self.buf.split(b"\n", 1)
+            value = json.loads(line)
+            if value.get("id") == rid and "event" not in value:
+                if value.get("ok") is not True:
+                    raise RuntimeError(f"{cmd} refused: {value}")
+                return value.get("data")
+
+
+def owner_socket(session):
+    darwin = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
+    for base in [b for b in (darwin, os.environ.get("TMPDIR", ""), "/tmp", "/private/tmp") if b]:
+        path = os.path.join(base, f"cmux-tui-{os.getuid()}", f"{session}.sock")
+        try:
+            if Owner(path).request("identify").get("session") == session:
+                return path
+        except (OSError, RuntimeError, ValueError):
+            continue
+    return None
+
+
+def seed_home(count=4):
+    """Home with `count` chats (each with a few messages) in the isolated Chief home, so chat-next/prev switch
+    between real conversations. Returns the conversation ids (empty when the owner never answers)."""
+    if not wait(lambda: not error_of(action("home.show")), 120):
+        print("  (home.show refused: no Home chats)", flush=True)
+        return []
+    session = wait(lambda: ((rpc("debug.home") or {}).get("chief_owner") or {}).get("session"), 60)
+    path = wait(lambda: owner_socket(session), 120) if session else None
+    if not path:
+        print(f"  (no Chief owner socket for session {session}: no Home chats)", flush=True)
+        return []
+    owner = Owner(path)
+    me = (owner.request("home-inbox") or {}).get("me") or "user_local"
+    person = {"id": me, "kind": "human", "display_name": "Bench"}
+    stamp = str(int(time.time()))
+    made = []
+    for index in range(count):
+        key = f"anim-{index}-{stamp}"
+        conversation = owner.request("conversation-create", idempotency_key=key, title=f"Bench chat {index + 1}",
+                                     participants=[person])["conversation"]["id"]
+        for line in range(6):
+            owner.request("conversation-op", conversation=conversation, idempotency_key=f"{key}-m{line}",
+                          op={"kind": "message.send", "client_msg_id": f"{key}-m{line}",
+                              "parts": [{"type": "text", "text": f"message {line + 1} of chat {index + 1}: " + "lorem ipsum " * 12}]})
+        made.append(conversation)
+    rows = wait(lambda: (lambda ids: ids if set(made) <= ids else None)(
+        {r.get("id") for r in (rpc("debug.home") or {}).get("dock", {}).get("messages_list") or []}), 60)
+    print(f"  seeded {len(made)} Home chats (listed: {bool(rows)})", flush=True)
+    return made
 
 
 def go(workspace):
@@ -173,6 +246,8 @@ def anims():
         ("group-collapse", lambda: go(state["group_ws"]), lambda: error_of(action("toggleFocusedWorkspaceGroupCollapsed"))),
         ("group-expand", None, lambda: error_of(action("toggleFocusedWorkspaceGroupCollapsed"))),
         ("home-show", a, lambda: error_of(action("home.show"))),
+        ("chat-open", None, lambda: error_of(action("home.openConversation", {"conversation": state["chats"][0]}))
+         if state.get("chats") else "no seeded chats"),
         ("chat-next", None, lambda: error_of(action("home.nextConversation"))),
         ("chat-prev", None, lambda: error_of(action("home.previousConversation"))),
         ("home-leave", None, lambda: go(state["a"])),
@@ -263,7 +338,8 @@ def main():
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"),
-           "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(str(v) for v in WINDOW)}
+           "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(str(v) for v in WINDOW),
+           "CMUX_NEXT_CHIEF_ISOLATED": "1", "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief")}
     os.makedirs(opts.out, exist_ok=True)
     log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
@@ -329,7 +405,7 @@ def main():
         print(f"  {name:<17} {fmt(summary['p50_ms']):>6} {fmt(summary['p95_ms']):>6} {fmt(summary['max_ms']):>6} "
               f"{fmt(summary['dropped']):>5} {fmt(summary['over_8_33']):>5} {fmt(summary['main_ms_p95']):>7} "
               f"{fmt(summary['main_ms_max']):>7} {fmt(summary['main_ms_total']):>7} {'; '.join(summary['errors'])[:60]}", flush=True)
-        row(f"{name}: ran", "no error", "; ".join(summary["errors"]) or "None", not summary["errors"] or name.startswith("chat-"))
+        row(f"{name}: ran", "no error", "; ".join(summary["errors"]) or "None", not summary["errors"] or False)
     for budget in budgets():
         anim, key, limit = budget.get("anim"), budget.get("metric"), budget.get("limit")
         summary = next((s for s in report.get("summary", []) if s["anim"] == anim), None)
