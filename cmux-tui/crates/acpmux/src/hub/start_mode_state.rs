@@ -4,7 +4,7 @@
 //! `server/chats.rs`). Only the app reads the MDM and team policy layers:
 //!
 //! - the value of `agents.defaultPermissionMode` that MDM or the team policy
-//!   forces. It beats config.json, the settings file and every pick. A
+//!   forces. It beats config.json and the settings file. A
 //!   forced value that is not a short string is a value acpmux does not
 //!   know, which is `standard`, never full access. Best effort, not a
 //!   security boundary: any process of the same user can push or edit these
@@ -12,17 +12,13 @@
 //! - the effective value when nothing forces it, for a file with no key: a
 //!   team default or an MDM recommended value, so new chats start in what
 //!   Settings shows. With the app closed it is the last value pushed.
-//! - a count of changes to the setting, for "latest choice wins": a pick
-//!   records the count and its epoch (`lastPermissionModeChange`) and wins
-//!   only while no change has been counted since. Counting changes, not
-//!   comparing values, means a setting changed and changed back still wins
-//!   over an older pick. acpmux counts a change when it sees the setting (the
-//!   pushed values and the file's value) differ from the last time it looked:
-//!   at each push (the app pushes after each settings change it writes) and
-//!   each time a new chat's start mode is decided. A change and its undo made
-//!   while neither happens (the app closed, the file edited twice by hand) is
-//!   not seen. A count started again (the file lost or unreadable) gets a new
-//!   epoch, so a pick from the old count never wins again.
+//! - the setting as acpmux last saw it (the pushed values and the file's
+//!   value) and a count of the changes it saw, so a push that changes what a
+//!   new chat starts in tells the watchers (`apply_permission_push`). acpmux
+//!   looks at each push (the app pushes after each settings change it writes)
+//!   and each time a new chat's start mode is decided. A mode picked in a
+//!   chat is not kept here: it holds for that chat only (`start_mode.rs`).
+//!   A file an older build wrote, with its `epoch`, still loads.
 //!
 //! Kept in `start-mode.json` beside config.json (owner-only, written through
 //! `config::write_atomic`), so a forced value holds across a daemon restart
@@ -30,7 +26,6 @@
 //! memory. Lock order: the config lock, then the state's mutex.
 
 use super::*;
-use crate::config::PermissionModeChange;
 use serde::{Deserialize, Serialize};
 
 /// The state file's name, beside config.json.
@@ -49,19 +44,12 @@ pub(crate) struct StartModeState {
     pub seen: Option<String>,
     /// Changes to the setting counted so far.
     pub changes: u64,
-    /// Names this count; a new one when the count starts again.
-    pub epoch: String,
 }
 
 impl StartModeState {
-    /// The saved state, or a new count with a new epoch when there is none or
-    /// it cannot be read.
+    /// The saved state, or a new one when there is none or it cannot be read.
     fn load(path: Option<&Path>) -> Self {
-        let mut state = path.and_then(Self::read).unwrap_or_default();
-        if state.epoch.is_empty() {
-            state = Self { epoch: uuid::Uuid::now_v7().simple().to_string(), ..state };
-        }
-        state
+        path.and_then(Self::read).unwrap_or_default()
     }
 
     fn read(path: &Path) -> Option<Self> {
@@ -94,11 +82,6 @@ impl StartModeState {
     fn save(&self, path: &Path) -> anyhow::Result<()> {
         let bytes = serde_json::to_vec_pretty(self)?;
         crate::config::write_atomic(path, &bytes)
-    }
-
-    /// Where the count stands now, to record with a pick.
-    pub(crate) fn mark(&self) -> PermissionModeChange {
-        PermissionModeChange { epoch: self.epoch.clone(), changes: self.changes }
     }
 
     /// Counts a change when the setting is not what it was at the last look.
