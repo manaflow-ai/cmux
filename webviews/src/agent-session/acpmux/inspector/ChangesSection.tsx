@@ -132,7 +132,7 @@ export function ChangesSection({
   statuses,
   onOpenBeside,
 }: {
-  /// Oldest first, as sessionSummary reads them.
+  /// In any order: Changes sorts them (changesOrder).
   pullRequests: readonly SummaryPullRequest[];
   statuses: Readonly<Record<string, InspectorPullRequestStatus>>;
   /// Opens a pull request in the browser beside the chat; the menu item hides without it, and a

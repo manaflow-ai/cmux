@@ -148,10 +148,12 @@ export const runningBackgroundTasks = (rows: readonly AcpmuxRow[]) =>
 /// reply, a bare `#N` in that repository among them; without it, only the ones it opened or touched.
 export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string | null): SessionSummary {
   const all = tools(rows);
-  const pullRequests = transcriptPullRequests(rows, repository ?? undefined);
+  const inspector = repository !== undefined;
+  // The summary card reads only the commands, and lists no mention.
+  const pullRequests = transcriptPullRequests(rows, { folder: repository ?? undefined, replies: inspector });
   return {
     scheduled: scheduled(all),
-    pullRequests: repository === undefined ? pullRequests.filter((pr) => !pr.mentioned) : pullRequests,
+    pullRequests: inspector ? pullRequests : pullRequests.filter((pr) => !pr.mentioned),
     outputs: turnFiles(rows as AcpmuxRow[]),
     subagents: subagents(rows, all),
     sources: sources(all),
