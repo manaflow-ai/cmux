@@ -10,6 +10,8 @@
 //   same frame. A queued card the fold hides has not left the queue: the view keeps no room for it
 //   (VirtualTranscript `floor`, kept for a sent prompt) that would hold a hole above the stack for a
 //   second and then glide the rows down.
+// - A queued prompt another client runs while its card is out of sight (folded, or past the opened
+//   list's cap) changes no size; the stack shrinking, opening or closing later keeps no room for it.
 // - A new line in the composer leaves the transcript's distance from its end as it was, at the
 //   latest row and scrolled up (#23302).
 // - The wheel beside the composer, left and right of the queue, its fold and the card, scrolls the
@@ -72,6 +74,18 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
         return null;
     }
   };
+  /// The page's socket (the last one to call), and a record every client hears on it, as acpmux
+  /// sends one (another client running a queued prompt: `dequeued`).
+  let socket: { send(data: string): void } | undefined;
+  let seq = events.length;
+  const hear = (kind: string, msg: Record<string, unknown>) =>
+    socket!.send(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "_acpmux/event",
+        params: { sessionId: PAPERCUT_CHAT, seq: ++seq, at: Date.now(), dir: "mux", kind, msg },
+      }),
+    );
   const browsers = new Map<string, Browser>();
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -85,6 +99,7 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
       websocket: {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string };
+          socket = ws;
           if (message.id !== undefined)
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
         },
@@ -241,6 +256,72 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
         const frames = await paintedFor(page, 1500, () => fold(page));
         expect(await expanded(page)).toBe("false");
         expectAtRest(`${name}: closed`, frames.slice(2), rest);
+        await page.close();
+      });
+
+      // Codex review of #24182: a queued prompt run by another client while its card is out of sight
+      // (one the fold hides, or past an opened list's cap) changes no size, so no size observer noted
+      // it. Still noted as queued, the next resize that shrank the stack took it for a card that left
+      // then, and kept FLOOR_HOLD_MS of room for it above the stack, which then glided away.
+      const stack = (page: Page) =>
+        page.locator(".acpmux-main > .acpmux-dock").evaluate((dock) => dock.getBoundingClientRect().height);
+      /// Another client runs queued prompt `id` (acpmux `dequeued`); waits until the pane drew it.
+      async function runElsewhere(page: Page, id: string) {
+        hear("dequeued", { promptId: id });
+        await page.waitForFunction(
+          (id) =>
+            !document.querySelector(`.acpmux-queued[data-prompt-id="${id}"]`) &&
+            !document
+              .querySelector(".acpmux-main > .acpmux-dock .acpmux-composer-queue")
+              ?.getAttribute("data-folded-ids")
+              ?.split(" ")
+              .includes(id),
+          id,
+        );
+        await settle(page);
+      }
+
+      test("a prompt the fold hides, run elsewhere, leaves no room as the stack shrinks, opens and closes", async () => {
+        const { page, rest } = await open(name);
+        await prompt(page).click();
+        await page.keyboard.type("Check the parser");
+        await page.keyboard.press("Shift+Enter");
+        await settle(page);
+        const list = page.locator(".acpmux-main > .acpmux-dock .acpmux-composer-queue");
+        expect((await list.getAttribute("data-folded-ids"))?.split(" ")).toContain("q-5");
+        const before = await stack(page);
+        await runElsewhere(page, "q-5");
+        // Five queued, still folded: the stack's size is as it was.
+        expect({ folded: await expanded(page), height: await stack(page) }).toEqual({
+          folded: "false",
+          height: before,
+        });
+        expectAtRest(`${name}: run elsewhere`, await paintedFor(page, 200), rest);
+        // The composer's line deleted: the stack shrinks, and no card left it.
+        expectAtRest(
+          `${name}: line deleted`,
+          (await paintedFor(page, 1500, () => page.keyboard.press("Backspace"))).slice(2),
+          rest,
+        );
+        await settle(page);
+        expectAtRest(`${name}: opened`, (await paintedFor(page, 1500, () => fold(page))).slice(2), rest);
+        expect(await expanded(page)).toBe("true");
+        await settle(page);
+        expectAtRest(`${name}: closed`, (await paintedFor(page, 1500, () => fold(page))).slice(2), rest);
+        expect(await expanded(page)).toBe("false");
+        await page.close();
+      });
+
+      test("a prompt past the opened queue's cap, run elsewhere, leaves no room when the queue closes", async () => {
+        const { page, rest } = await open(name);
+        await fold(page);
+        await settle(page);
+        const before = await stack(page);
+        await runElsewhere(page, "q-5");
+        // The list keeps its capped height: the stack's size is as it was.
+        expect({ height: await stack(page) }).toEqual({ height: before });
+        expectAtRest(`${name}: closed`, (await paintedFor(page, 1500, () => fold(page))).slice(2), rest);
+        expect(await expanded(page)).toBe("false");
         await page.close();
       });
 
