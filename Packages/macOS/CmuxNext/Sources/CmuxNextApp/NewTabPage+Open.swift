@@ -109,7 +109,7 @@ extension NewTabPage {
         }
         if case .terminal = request.kind, request.run, command(request.text) == nil { return } // opens nothing
         // The pick takes the page's place, like a browser's new tab (Leo 2026-10-20); the Debug toggle
-        // `links.pagesFollowPlacement` lands it where Cmd-clicked links go (LinkOpener).
+        // `newTab.picksFollowLinks` lands it where links do (Lawrence 2026-10-19).
         if Self.pickOpensInStrip(request.kind, inChatDock: ChatDockRules.isChatDock(pane.pane, services: services)) {
             return Self.openBeside(key, with: request, cwd: cwd, from: pane, outsideChatDock: true, keep: keep)
         }
@@ -145,15 +145,15 @@ extension NewTabPage {
         inChatDock && kind != .agent
     }
 
-    /// Whether what New Tab page `key` in `pane` opens goes beside it: ``LinkOpener`` puts it beside
-    /// the page (the Debug toggle `links.pagesFollowPlacement` on, the link placement not Same Pane), the page shares its pane
+    /// Whether what New Tab page `key` in `pane` opens goes beside it: the Debug toggle
+    /// `newTab.picksFollowLinks` is on, the link placement is not Same Pane, the page shares its pane
     /// with another tab (a lone page has nothing to keep in view, so it is replaced in place), and it is no split's (a split's page, which lists Open
     /// Tabs, fills the pane the person just made, NewTabPage.split). `mainPane` false for a chat pick:
     /// main pane layout keeps chats out of the column right of the chat dock (NewChatPlacement).
     static func opensBeside(_ key: String, in pane: PaneController, mainPane: Bool = true) -> Bool {
         let tabs = pane.services.agentTabs, page = tabs.resolve(key)
-        return tabs.newTabPages[page]?.page.openTabs == nil && pane.pane.tabs.contains(where: { $0.id != page })
-            && pane.services.linkOpener.target(from: pane, mainPane: mainPane) != .pane(pane.layoutPaneID)
+        guard AgentPaneTunables.newTabPicksFollowLinks.value, tabs.newTabPages[page]?.page.openTabs == nil, pane.pane.tabs.contains(where: { $0.id != page }) else { return false }
+        return pane.services.linkOpener.target(from: pane, mainPane: mainPane) != .pane(pane.layoutPaneID)
     }
 
     /// ``replace(_:with:cwd:in:keep:)`` beside the page: the terminal or browser opens through

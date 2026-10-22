@@ -9,6 +9,9 @@ protocol FileExplorerEffects: AnyObject, Sendable {
     /// Opens `file` in cmux beside the focused pane, the code editor's cursor at `position` (a Find
     /// result; nil: the top); false when cmux shows no viewer for its kind.
     func openInCmux(_ file: URL, at position: FileLineLocation?) -> Bool
+    /// Opens `file`'s text in the code editor beside the focused pane (Open as Text); false when
+    /// it did not open.
+    func openAsText(_ file: URL) -> Bool
     /// Opens `item` in its default app (a folder in Finder).
     func openInDefaultApp(_ item: URL)
     /// Selects `item` in a Finder window.

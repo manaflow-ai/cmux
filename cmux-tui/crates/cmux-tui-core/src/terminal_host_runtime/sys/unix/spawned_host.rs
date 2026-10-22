@@ -11,20 +11,27 @@ pub(crate) struct SpawnedHostProcess {
 }
 
 impl SpawnedHostProcess {
-    pub(crate) fn child_mut(&mut self) -> &mut std::process::Child {
-        self.child.as_mut().expect("terminal-host child is present")
+    /// Wrap a just-spawned host, taking its bootstrap pipes first. Missing
+    /// pipes are an error after the wrap, so the host is killed and waited.
+    pub(crate) fn with_pipes(
+        mut child: std::process::Child,
+    ) -> (Self, Option<std::process::ChildStdin>, Option<std::process::ChildStdout>) {
+        let stdin = child.stdin.take();
+        let stdout = child.stdout.take();
+        (Self { child: Some(child) }, stdin, stdout)
     }
 
-    pub(crate) fn into_child(mut self) -> std::process::Child {
-        self.child.take().expect("terminal-host child is present")
+    /// False once the process has exited (killed, or crashed before use).
+    pub(crate) fn is_alive(&mut self) -> bool {
+        self.child.as_mut().is_some_and(|child| matches!(child.try_wait(), Ok(None)))
     }
 
     /// The launch is committed: the host lives on its own. Reaping is
     /// housekeeping after the ownership handoff. Failure to create this
     /// helper cannot turn a committed live Surface into an error; dropping
     /// Child leaves the independent host running.
-    pub(crate) fn commit(self) {
-        let mut child = self.into_child();
+    pub(crate) fn commit(mut self) {
+        let Some(mut child) = self.child.take() else { return };
         let _ = thread::Builder::new().name("terminal-host-reaper".into()).spawn(move || {
             let _ = child.wait();
         });
@@ -36,7 +43,7 @@ impl SpawnedHostProcess {
     }
 
     pub(crate) fn wait_timeout(&mut self, timeout: Duration) -> bool {
-        let deadline = Instant::now() + timeout;
+        let deadline = Instant::now().checked_add(timeout);
         loop {
             let Some(child) = self.child.as_mut() else { return true };
             match child.try_wait() {
@@ -44,7 +51,7 @@ impl SpawnedHostProcess {
                     self.child.take();
                     return true;
                 }
-                Ok(None) if Instant::now() < deadline => {
+                Ok(None) if deadline.is_none_or(|deadline| Instant::now() < deadline) => {
                     thread::sleep(Duration::from_millis(10));
                 }
                 Ok(None) | Err(_) => return false,

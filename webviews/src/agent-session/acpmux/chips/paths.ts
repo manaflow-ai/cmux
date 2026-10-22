@@ -95,11 +95,13 @@ export type TextLink = {
   suffix?: string;
 };
 
-// Groups: a file URL; a path (a file with an extension and an optional line suffix, or a folder
-// with its trailing slash that is not followed by more of a name); a web URL. A path never starts
-// right after `$` (`$HOME/notes.md`, `$5/$10`).
+// Groups: a file URL; a web URL; a path (a file with an extension and an optional line suffix, or
+// a folder with its trailing slash that is not followed by more of a name). A path never starts
+// right after `$` (`$HOME/notes.md`, `$5/$10`). A relative path's first folder has no dot inside,
+// so `example.com/a.js:1` is not one. No link starts after a `+`, and one folder run ends in a
+// file or a folder's end: a long base64 run must not backtrack (quadratic).
 const TEXT_LINK =
-  /(?<![\w/\\.:~@$-])(?:(file:\/\/(?:localhost)?\/[^\s<>()"'`]+)|(https?:\/\/[A-Za-z0-9][^\s<>()"'`]*)|((?:(?:~|\.{1,2})?\/|\.?[\w@+-]+\/)?(?:[\w.@+-]+\/)*(?:[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}(?::\d+(?::\d+|-\d+)?|#L\d+(?:C\d+|-L\d+)?)?(?![\w/#-]|:\w|\.\d)|(?:[\w.@+-]+\/)+(?![\w@+-]|\.\w))))/g;
+  /(?<![\w/\\.:~@$+-])(?:(file:\/\/(?:localhost)?\/[^\s<>()"'`]+)|(https?:\/\/[A-Za-z0-9][^\s<>()"'`]*)|((?:(?:~|\.{1,2})?\/|\.?[\w@+-]+\/)(?:[\w.@+-]+\/)*(?:[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}(?::\d+(?::\d+|-\d+)?|#L\d+(?:C\d+|-L\d+)?)?(?![\w/#-]|:\w|\.\d)|(?![\w@+-]|\.\w))|[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}(?::\d+(?::\d+|-\d+)?|#L\d+(?:C\d+|-L\d+)?)?(?![\w/#-]|:\w|\.\d)))/g;
 
 export function textLinks(text: string): TextLink[] {
   if (!/[/.]/.test(text)) return [];
@@ -132,6 +134,24 @@ function isFileLocation(target: ReplyPath): boolean {
       )
     )
   );
+}
+
+/// A raster image the pane draws as a thumbnail: PNG, JPEG, GIF or WebP, by file extension.
+const IMAGE_FILE = /\.(?:png|jpe?g|gif|webp)$/i;
+
+export function isImagePath(path: string): boolean {
+  return IMAGE_FILE.test(path);
+}
+
+/// An https address of a raster image (its path ends in an image extension), such as a PR's media
+/// on raw.githubusercontent.com.
+export function isImageUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && IMAGE_FILE.test(parsed.pathname);
+  } catch {
+    return false;
+  }
 }
 
 function safeDecode(text: string): string {
