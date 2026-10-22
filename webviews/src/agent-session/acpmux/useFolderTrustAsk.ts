@@ -219,7 +219,7 @@ export function useFolderTrustAsk(
       // refuses its prompts, and once it has, its refusal draws the question.
       if (!trust) {
         const said = refusedTrust.current;
-        if (said?.sessionId === current.current.sessionId && said.cwd === cwd) {
+        if (said && said.sessionId === current.current.sessionId && said.cwd === cwd) {
           const shown = shownTrust({ cwd, level: said.level }, cwd, familyNow.current, canAnswer);
           setAsk((was) => (sameAsk(was, shown.ask) ? was : shown.ask));
         }

@@ -971,7 +971,7 @@ async fn dispatch_request(
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
             // Recorded here, not on a peer: only a folder that exists here (`remote_guard.rs`).
             if m == method::ACP_TRUST_SET && conn.origin != Origin::Local {
-                super::remote_guard::local_trust_folder(&params).await?;
+                super::remote_guard::local_trust_folder(hub, conn.origin, &params).await?;
             }
             super::trust_gate::answer(hub, m, &params).await
         }

@@ -1,7 +1,8 @@
 // Leo, 2026-10-21: a chat on a peer showed no trust question when the folder's read crossed the
 // peer link slower than the pane waits for it (TRUST_READ_TIMEOUT_MS), so Send was refused with
 // nothing to answer. acpmux's refusal names the folder and why (`trust_gate.rs`): the question
-// draws from it when the read still gets no answer, and Trust sends the held prompt.
+// draws from it when the read still gets no answer, and Trust sends the held prompt. A read that
+// fails gets the pane the same nothing as one that times out (`readFolderTrust`), without a wait.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 
@@ -27,7 +28,6 @@ const React = await import("react");
 const { act } = React;
 const { createRoot } = await import("react-dom/client");
 const { useFolderTrustAsk } = await import("../src/agent-session/acpmux/useFolderTrustAsk");
-const { TRUST_READ_TIMEOUT_MS } = await import("../src/agent-session/acpmux/folderTrust");
 type TrustSource = import("../src/agent-session/acpmux/folderTrust").TrustSource;
 
 const host = dom.window.document.getElementById("root")!;
@@ -43,11 +43,11 @@ afterAll(() => {
 
 const peerFolder = "/home/you/src/atlas";
 
-/// A peer whose folder reads never answer in time; answers are recorded.
+/// A peer whose folder reads get no answer; answers are recorded.
 function slowPeer() {
   const sets: [string, string][] = [];
   const source: TrustSource = {
-    get: () => new Promise(() => {}),
+    get: () => Promise.reject(new Error("no answer from the peer in time")),
     set: (cwd, level) => {
       sets.push([cwd, level]);
       return Promise.resolve({ cwd, level });
@@ -63,7 +63,7 @@ function Chat(props: { trust: TrustSource; sessionId: string }) {
 }
 const open = (trust: TrustSource, sessionId: string) =>
   act(async () => root.render(<Chat key={sessionId} trust={trust} sessionId={sessionId} />));
-const readGivesUp = () => act(() => new Promise((done) => setTimeout(done, TRUST_READ_TIMEOUT_MS + 100)));
+const readGivesUp = () => act(async () => {});
 
 test("a trust.pending refusal asks the question when the folder's read does not answer", async () => {
   const { source, sets } = slowPeer();

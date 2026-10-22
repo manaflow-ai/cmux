@@ -335,16 +335,25 @@ fn names_a_peers_session(hub: &crate::hub::Hub, params: &Value) -> bool {
 }
 
 /// The folder an `acp.trust.set` from a connection that is not the unix socket records on this
-/// daemon: one `check` made canonical, or none. `check` passes a peer's folder on unchecked for
-/// the peer to judge; if that peer's session is gone before the forward, the set lands here and
-/// is refused rather than recorded unchecked.
-pub(super) async fn local_trust_folder(params: &Value) -> Result<(), RpcError> {
+/// daemon: one `check` made canonical (inside a root for a Web or Peer connection), or none.
+/// `check` passes a peer's folder on unchecked for the peer to judge; if that peer's session is
+/// gone before the forward, the set lands here and is refused rather than recorded unchecked.
+pub(super) async fn local_trust_folder(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    origin: super::Origin,
+    params: &Value,
+) -> Result<(), RpcError> {
     let Some(cwd) = params.get("cwd").filter(|v| !v.is_null()) else { return Ok(()) };
     let cwd = cwd.as_str().ok_or_else(|| folder_refused("cwd"))?;
-    match canonical_dir(cwd).await {
-        Some(canonical) if canonical == cwd => Ok(()),
-        _ => Err(folder_refused("cwd")),
+    if canonical_dir(cwd).await.as_deref() != Some(cwd) {
+        return Err(folder_refused("cwd"));
     }
+    if origin.web_class()
+        && !web_roots(hub).await.iter().any(|root| Path::new(cwd).starts_with(root))
+    {
+        return Err(outside_roots("cwd"));
+    }
+    Ok(())
 }
 
 /// A remote connection may stop only a session that was created by a remote
