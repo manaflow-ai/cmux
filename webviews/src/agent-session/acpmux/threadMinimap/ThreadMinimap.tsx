@@ -425,7 +425,7 @@ export function ThreadMinimap({
   useLayoutEffect(() => {
     const node = list.current;
     // The commit that added older turns placed the list itself, around the band.
-    if (!node || !overflow || scrubbing || scrub.current?.moved || holding.current) return;
+    if (!node || !shown || !overflow || scrubbing || scrub.current?.moved || holding.current) return;
     const next = railListTop(onScreen.first, onScreen.last, turns.length, height, node.scrollTop);
     if (next === node.scrollTop) return;
     node.scrollTop = next;
@@ -438,7 +438,7 @@ export function ThreadMinimap({
     );
     setHovered(index);
     setCardRow(index);
-  }, [onScreen.first, onScreen.last, turns.length, overflow, height, scrubbing]);
+  }, [onScreen.first, onScreen.last, turns.length, shown, overflow, height, scrubbing]);
 
   /// The rows' actions: stable for the memoized rows, reading the latest state through `live`.
   const actions = useMemo<TickActions>(

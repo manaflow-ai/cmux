@@ -14,10 +14,13 @@ import { transcriptColumn } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { threadMinimapLayout } from "../src/agent-session/acpmux/threadMinimap/layout.experiment";
 import {
+  LANDING_OFFSET,
   minimapTurns,
   RAIL_FADE,
   railListTop,
   ROW_PITCH,
+  THREAD_PADDING_TOP,
+  turnScrollTop,
   visibleTurns,
 } from "../src/agent-session/acpmux/threadMinimap/model";
 import { experimentArm } from "../src/experiments/experiment";
@@ -71,6 +74,12 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
     return offsets.get(this) ?? 0;
   },
   set(this: object, value: number) {
+    // The rail's list clamps as a real scroller does: rows of 10 px in the rail's height.
+    const list = this as HTMLElement;
+    if (list.classList?.contains("acpmux-minimap__list")) {
+      const rail = parseFloat((list.parentElement as HTMLElement | null)?.style.height ?? "0");
+      value = Math.max(0, Math.min(value, list.children.length * ROW_PITCH - rail));
+    }
     offsets.set(this, value);
   },
 });
@@ -133,6 +142,45 @@ test("the band holds the first prompt at the top of the chat and the last at its
   expect(end.last).toBe(turns.length - 1);
 });
 
+test("the lit band tracks the scroll to the pixel, from the top through the middle to the bottom", () => {
+  // Leo, 2026-10-21: the band must follow the real scroll position exactly. A prompt becomes the
+  // band's first row the pixel its turn's block (LANDING_OFFSET above its bubble) reaches the view's
+  // top, so a click on its row, which lands it LANDING_OFFSET down, lights it first; it joins the
+  // band as its last row the pixel its bubble enters the view at the bottom.
+  const viewport = 600;
+  const { turns, tops, total } = laidOut(30);
+  const max = total - viewport;
+  const band = (top: number) => visibleTurns(turns, tops, total, top, viewport);
+  for (let index = 1; index < turns.length; index += 1) {
+    const reaches = tops[turns[index]!.index]! - LANDING_OFFSET;
+    if (reaches - 1 < 0 || reaches > max) continue;
+    expect(band(reaches).first).toBe(index);
+    expect(band(reaches - 1).first).toBe(index - 1);
+    const landing = turnScrollTop(turns[index]!, tops);
+    if (landing <= max) expect(band(landing).first).toBe(index);
+  }
+  for (let index = 1; index < turns.length; index += 1) {
+    const enters = THREAD_PADDING_TOP + tops[turns[index]!.index]! - viewport;
+    if (enters < 0 || enters + 1 > max) continue;
+    expect(band(enters + 1).last).toBeGreaterThanOrEqual(index);
+    expect(band(enters).last).toBe(index - 1);
+  }
+  // Top, middle and bottom, against the geometry read directly: the first row is the turn whose
+  // block holds the view's top line, the last the lowest prompt whose bubble is in the view.
+  for (const top of [0, Math.round(max / 2), max]) {
+    let first = 0;
+    let last = 0;
+    turns.forEach((turn, index) => {
+      const at = tops[turn.index]!;
+      if (at - LANDING_OFFSET <= top) first = index;
+      if (THREAD_PADDING_TOP + at < top + viewport) last = index;
+    });
+    expect(band(top)).toEqual({ first, last: Math.max(first, last) });
+  }
+  expect(band(0).first).toBe(0);
+  expect(band(max).last).toBe(turns.length - 1);
+});
+
 test("a rail that scrolls shows the whole band clear of its fades, and its ends at the chat's ends", () => {
   const count = 80;
   const height = 400;
@@ -165,6 +213,16 @@ async function scrollTo(scroller: HTMLElement, top: number) {
   });
 }
 
+/// Scrolls as a reader does, a step at a time, so the rail's list follows the band frame by frame.
+async function scrollDown(scroller: HTMLElement, to: number) {
+  for (let top = scroller.scrollTop + 240; top < to; top += 240) await scrollTo(scroller, top);
+  await scrollTo(scroller, to);
+}
+
+/// The rail's list at its end: every row past the top fits in the rail's height.
+const listEnd = (list: HTMLElement) =>
+  list.children.length * ROW_PITCH - parseFloat((list.parentElement as HTMLElement).style.height);
+
 test("a long chat with no override draws the compact rail: its first ticks lit at the top, its last at the end", async () => {
   // No host override and no stored key: the default arm.
   delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
@@ -192,10 +250,11 @@ test("a long chat with no override draws the compact rail: its first ticks lit a
         Number(tick.dataset.tick),
       );
 
-    await scrollTo(scroller, spacerHeight() - VIEWPORT);
+    await scrollDown(scroller, spacerHeight() - VIEWPORT);
     expect(lit()).toContain(prompts - 1);
     // The rail scrolls (80 rows do not fit) and has come to its end: the last rows show, unfaded.
-    expect(list.scrollTop).toBeGreaterThan(0);
+    expect(listEnd(list)).toBeGreaterThan(0);
+    expect(list.scrollTop).toBe(listEnd(list));
     expect(list.hasAttribute("data-fade-bottom")).toBe(false);
 
     await scrollTo(scroller, 0);
@@ -213,9 +272,9 @@ test("a long chat with no override draws the compact rail: its first ticks lit a
         .dispatchEvent(new Event("pointerover", { bubbles: true, relatedTarget: document.body }));
     });
     expect(document.querySelector(".acpmux-minimap__rail[data-hovering]")).not.toBeNull();
-    await scrollTo(scroller, spacerHeight() - VIEWPORT);
+    await scrollDown(scroller, spacerHeight() - VIEWPORT);
     expect(lit()).toContain(prompts - 1);
-    expect(list.scrollTop).toBeGreaterThan(0);
+    expect(list.scrollTop).toBe(listEnd(list));
     expect(list.hasAttribute("data-fade-bottom")).toBe(false);
   } finally {
     await act(async () => root.unmount());
@@ -277,5 +336,11 @@ test("at rest the lit band glides as it moves (the wave); under Reduce Motion it
   const current =
     /\.acpmux-minimap__tick\[data-tone="current"\] \.acpmux-minimap__bar\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
   expect(Number(/opacity:\s*([\d.]+)/.exec(current)?.[1])).toBeGreaterThanOrEqual(0.7);
-  expect(css).toMatch(/prefers-reduced-motion: reduce\)\s*\{\s*\.acpmux-minimap__rail \.acpmux-minimap__tick,/);
+  // The wave's transitions apply only when the person has not asked to reduce motion.
+  const wave = css.indexOf(
+    ".acpmux-minimap__rail:not([data-hovering]):not([data-scrubbing]):not([data-reduce]) .acpmux-minimap__bar",
+  );
+  expect(css.lastIndexOf("@media (prefers-reduced-motion: no-preference)", wave)).toBeGreaterThan(
+    css.lastIndexOf("}\n}", wave),
+  );
 });

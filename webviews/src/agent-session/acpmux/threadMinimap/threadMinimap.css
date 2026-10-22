@@ -1,7 +1,7 @@
 /* Thread minimap (ThreadMinimap.tsx), as the Codex desktop app's prompt rail; numbers from its 60 Hz
    recordings (minimap-ref SPEC, model.ts). Colors are the theme's tokens: in the dark reference
    theme a resting tick is the muted text at 40% (#3d3d3d on #161616), a current one the text at
-   60%, a hovered or focused one the text. Motion is transform only. */
+   75%, a hovered or focused one the text. Motion is transform, plus the band's opacity fade. */
 .acpmux-minimap {
   position: sticky;
   top: 0;
@@ -114,18 +114,14 @@
    the micro step, so the lit band glides down the rail as a wave instead of flicking row by row
    (Leo 2026-10-21: "the wave didn't look good enough"). Only at rest: a hovered, scrubbed or focused
    row still switches at once, and Reduce Motion switches every row at once. */
-.acpmux-minimap__rail:not([data-hovering]):not([data-scrubbing]):not([data-reduce]) .acpmux-minimap__tick {
-  transition: color var(--cmux-motion-micro) ease-out;
-}
-.acpmux-minimap__rail:not([data-hovering]):not([data-scrubbing]):not([data-reduce]) .acpmux-minimap__bar {
-  transition:
-    transform var(--cmux-motion-micro) var(--acpmux-minimap-spring),
-    opacity var(--cmux-motion-micro) ease-out;
-}
-@media (prefers-reduced-motion: reduce) {
-  .acpmux-minimap__rail .acpmux-minimap__tick,
-  .acpmux-minimap__rail .acpmux-minimap__bar {
-    transition: none;
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-minimap__rail:not([data-hovering]):not([data-scrubbing]):not([data-reduce]) .acpmux-minimap__tick {
+    transition: color var(--cmux-motion-micro) ease-out;
+  }
+  .acpmux-minimap__rail:not([data-hovering]):not([data-scrubbing]):not([data-reduce]) .acpmux-minimap__bar {
+    transition:
+      transform var(--cmux-motion-micro) var(--acpmux-minimap-spring),
+      opacity var(--cmux-motion-micro) ease-out;
   }
 }
 /* Prompts on screen: the text at 75%, a clear step over the resting 40%. They stay lit while the
