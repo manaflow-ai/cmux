@@ -11,8 +11,8 @@ import CmuxTheme
 /// (palette, dialogs, hover cards, find and prompt bars, page info,
 /// popovers) is one of these, made with `Glass.makeOverlayPanel`, and
 /// follows this Mac's material like the overlays without text (the drop
-/// overlay, dock backdrop). A card (`isCard`: every theme-tone `makeOverlayPanel`
-/// but the hover card window's, which stays bare glass)
+/// overlay, dock backdrop). A card (`isCard`: only `makeOverlayPanel(cardFill:
+/// true)`, which no overlay uses since Leo 2026-10-21: glass, never solid)
 /// also lays the ``CardMaterial`` on its glass or blur: the popup surface,
 /// mostly opaque, with a visible rim, so its text keeps 4.5:1 over any
 /// wallpaper or page (Lawrence 2026-10-20: hover cards were "too liquid
