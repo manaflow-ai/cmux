@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 import CmuxNextSettings
 import Foundation
+import AppKit
 import Testing
 
 /// A chat on another machine never touches this Mac's files (cx-k21v): its agent names paths on
@@ -139,5 +140,111 @@ struct AgentPaneRemoteChatPathTests {
         #expect(rig.model.transport.remoteWire)
         #expect(!rig.model.remoteChat)
         try await Self.expectNothingLooksHere(rig, "remoteWire")
+    }
+
+    /// How a chat turns remote mid-request: the model marks it, or only its connection does.
+    private static func turnRemote(_ rig: Rig, wireOnly: Bool) async throws -> Int? {
+        guard wireOnly else {
+            rig.model.remoteChat = true
+            return nil
+        }
+        let wire = AgentPaneRelayedAllowTests.RemoteWire()
+        return try await rig.model.transport.open(.remote(AgentPaneRemoteRoute(machine: "host") { wire }))
+    }
+
+    /// Open of an outside path waits on the person's confirmation; a chat that turns remote while
+    /// the sheet is up opens nothing here when the answer comes.
+    @Test func aChatThatTurnsRemoteDuringTheConfirmationOpensNothing() async throws {
+        for wireOnly in [false, true] {
+            for folder in [false, true] {
+                let rig = try Self.rig()
+                defer { try? FileManager.default.removeItem(at: rig.folder) }
+                rig.model.replyLinks.settings = { AgentPaneReplySetting(outsideRoots: .confirm, remoteImages: .click) }
+                let target = rig.outside.appendingPathComponent(folder ? "reports" : "build.log", isDirectory: folder)
+                if folder {
+                    try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+                } else {
+                    try "ok\n".write(to: target, atomically: true, encoding: .utf8)
+                }
+                var opened: [URL] = []
+                rig.model.onOpenFile = { url, _ in opened.append(url); return true }
+                rig.model.replyLinks.revealFolder = { opened.append($0) }
+                var connection: Int?
+                rig.model.replyLinks.confirmOutside = { _, answer in
+                    // task-owner: test; turns the chat remote while the sheet is up, then answers Open
+                    Task { @MainActor in
+                        connection = try? await Self.turnRemote(rig, wireOnly: wireOnly)
+                        answer(true)
+                    }
+                }
+                rig.model.transport.gestures.record(click: true)
+                let path = folder ? target.path + "/" : target.path
+                let reply = await Self.ask(rig.model, "link.openPath", ["path": path])
+                #expect(Self.errorCode(reply) == AgentPaneReplyError.pathOutsideRoots.rawValue, "\(wireOnly) \(path): \(reply)")
+                #expect(opened.isEmpty, "\(wireOnly) \(path): opened \(opened)")
+                if let connection { rig.model.transport.close(connection: connection) }
+            }
+        }
+    }
+
+    /// The control: the same confirmed Open in a chat that stays on this Mac opens the file.
+    @Test func aConfirmedOpenInALocalChatOpensTheFile() async throws {
+        let rig = try Self.rig()
+        defer { try? FileManager.default.removeItem(at: rig.folder) }
+        rig.model.replyLinks.settings = { AgentPaneReplySetting(outsideRoots: .confirm, remoteImages: .click) }
+        let log = rig.outside.appendingPathComponent("build.log")
+        try "ok\n".write(to: log, atomically: true, encoding: .utf8)
+        var opened: [URL] = []
+        rig.model.onOpenFile = { url, _ in opened.append(url); return true }
+        rig.model.replyLinks.confirmOutside = { _, answer in answer(true) }
+        rig.model.transport.gestures.record(click: true)
+        let reply = await Self.ask(rig.model, "link.openPath", ["path": log.path])
+        #expect(Self.errorCode(reply) == nil, "\(reply)")
+        #expect(opened.map { $0.resolvingSymlinksInPath().path } == [log.resolvingSymlinksInPath().path])
+    }
+
+    /// A pane on a page that never loads anything (the menu needs only the view and its model).
+    private static func view(_ rig: Rig) throws -> AgentPaneView {
+        let page = rig.folder.appendingPathComponent("index.html")
+        try Data("<html><body></body></html>".utf8).write(to: page)
+        return try #require(AgentPaneView(model: rig.model, source: .bundled(page)))
+    }
+
+    /// Runs a menu item's action as AppKit does.
+    private static func run(_ item: NSMenuItem) {
+        _ = (item.target as? NSObject)?.perform(item.action, with: item)
+    }
+
+    /// A path's menu built while the chat was on this Mac: once the chat turns remote, its rows
+    /// act on nothing here, whatever they held when the menu opened.
+    @Test func aPathMenuThatOutlivesTheChatTurningRemoteDoesNothing() async throws {
+        for wireOnly in [false, true] {
+            let rig = try Self.rig()
+            defer { try? FileManager.default.removeItem(at: rig.folder) }
+            let notes = rig.project.appendingPathComponent("notes.md")
+            try "hi\n".write(to: notes, atomically: true, encoding: .utf8)
+            var saved: [URL] = []
+            rig.model.replyLinks.saveFile = { file, _ in saved.append(file) }
+            let view = try Self.view(rig)
+            let items = try #require(view.pathMenuItems(notes.path), "\(wireOnly): a local chat's file has its menu")
+            let save = try #require(items.first { $0.title == AgentPaneMenuStrings.saveAs })
+            let connection = try await Self.turnRemote(rig, wireOnly: wireOnly)
+            Self.run(save)
+            #expect(saved.isEmpty, "\(wireOnly): saved \(saved)")
+            if let connection { rig.model.transport.close(connection: connection) }
+        }
+    }
+
+    /// The control: the same row in a chat that stays on this Mac saves the file.
+    @Test func aLocalChatsPathMenuStillActs() async throws {
+        let rig = try Self.rig()
+        defer { try? FileManager.default.removeItem(at: rig.folder) }
+        let notes = rig.project.appendingPathComponent("notes.md")
+        try "hi\n".write(to: notes, atomically: true, encoding: .utf8)
+        var saved: [URL] = []
+        rig.model.replyLinks.saveFile = { file, _ in saved.append(file) }
+        let items = try #require(try Self.view(rig).pathMenuItems(notes.path))
+        Self.run(try #require(items.first { $0.title == AgentPaneMenuStrings.saveAs }))
+        #expect(saved.map { $0.resolvingSymlinksInPath().path } == [notes.resolvingSymlinksInPath().path])
     }
 }
