@@ -117,10 +117,10 @@ const CLICKABLE_ROLES = new Set([
 /// Components that render a clickable element (Base UI's menu items and triggers, our buttons).
 const CLICKABLE_COMPONENT = /(Button|MenuItem|Item|Trigger|Tab|Link|Toggle|Checkbox|Switch|Radio|Option|Summary)$/;
 
-/// Every class the sources put on a clickable element (a <button>, a link, a clickable role, or a
-/// component that renders one), read from each `className` with the element it sits on.
-function clickableClasses(): Set<string> {
-  const classes = new Set<string>();
+/// Every `className` the sources put on a clickable element (a <button>, a link, a clickable role,
+/// or a component that renders one), with the file and line it sits on.
+function clickableClassNames(): { file: string; line: number; value: string }[] {
+  const found: { file: string; line: number; value: string }[] = [];
   for (const file of new Glob("**/*.{ts,tsx}").scanSync(src)) {
     if (/\.test\.tsx?$/.test(file)) continue;
     const text = readFileSync(join(src, file), "utf8");
@@ -144,9 +144,17 @@ function clickableClasses(): Set<string> {
         (role !== undefined && CLICKABLE_ROLES.has(role)) ||
         (/^[A-Z]/.test(tag) && CLICKABLE_COMPONENT.test(tag.split(".").at(-1)!));
       if (!clickable) continue;
-      for (const name of value.match(/[A-Za-z][\w-]*/g) ?? []) if (name.length > 2) classes.add(name);
+      found.push({ file, line: text.slice(0, match.index!).split("\n").length, value });
     }
   }
+  return found;
+}
+
+/// Every class the sources put on a clickable element.
+function clickableClasses(): Set<string> {
+  const classes = new Set<string>();
+  for (const { value } of clickableClassNames())
+    for (const name of value.match(/[A-Za-z][\w-]*/g) ?? []) if (name.length > 2) classes.add(name);
   return classes;
 }
 
@@ -229,5 +237,14 @@ test("a clickable element whose rule resets every property sets its cursor again
       if (!named.some(restores)) offenders.push(`${rule.file}:${rule.line} ${selector}`);
     }
   }
+  expect(offenders).toEqual([]);
+});
+
+// A Tailwind `cursor-default` or `cursor-auto` on a clickable element beats the shared rule the same
+// way (AgentIntegrations' <summary> kept the arrow so). A variant (`disabled:cursor-default`) is fine.
+test("no clickable element carries a cursor-default or cursor-auto utility class", () => {
+  const offenders = clickableClassNames()
+    .filter(({ value }) => /(^|\s)cursor-(default|auto)(?![\w-])/.test(value))
+    .map(({ file, line, value }) => `${file}:${line} ${value}`);
   expect(offenders).toEqual([]);
 });
