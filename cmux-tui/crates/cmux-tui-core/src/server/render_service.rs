@@ -13,6 +13,8 @@ use super::terminal_colors_json;
 use super::write_pending_sequence_json;
 use crate::AttachFrame;
 use crate::SurfaceId;
+use crate::panic_free::JsonFields;
+use crate::panic_free::RecoverPoison;
 use base64::Engine;
 use ghostty_vt::KittyReplayState;
 use serde::Serialize;
@@ -220,7 +222,9 @@ impl BudgetedJsonWriter {
         }
         self.retained_bytes = 0;
         self.reservation_bytes = 0;
-        let text = String::from_utf8(bytes).expect("serde_json emits UTF-8");
+        // serde_json emits UTF-8; a lossy decode keeps this path panic-free.
+        let text = String::from_utf8(bytes)
+            .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
         Arc::new(BudgetedText { text, retained_bytes, budget: self.budget.clone() })
     }
 }
@@ -279,7 +283,7 @@ impl RenderService {
     }
 
     pub(super) fn encode_graphic(&self, data: &Arc<[u8]>) -> Arc<str> {
-        self.graphic_base64.lock().unwrap().encode(data)
+        self.graphic_base64.lock().recover_poison().encode(data)
     }
 
     pub(super) fn serialize<T: Serialize + ?Sized>(
@@ -407,8 +411,8 @@ impl RenderService {
             }
             AttachFrame::ColorsChanged(colors) => {
                 let mut value = terminal_colors_json(**colors, include_color_overrides);
-                value["event"] = json!("colors-changed");
-                value["surface"] = json!(surface);
+                value.insert("event", json!("colors-changed"));
+                value.insert("surface", json!(surface));
                 serde_json::to_writer(&mut writer, &value).map_err(json_error_to_io)?;
             }
         }

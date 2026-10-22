@@ -25,9 +25,10 @@ extension HomeService {
                                   agents: HomeContact.agents(in: rows, me: me))
     }
 
-    /// New Message's list: its Chiefs (main first) and how each row draws (HomeChiefRoster+NewMessage).
+    /// New Message's list before anything is typed: its Chiefs (main first), then the team
+    /// (`HomeNewMessageDraft.idleSuggestions`); how each row draws is HomeChiefRoster+NewMessage.
     func newMessageChiefs(_ draft: HomeNewMessageDraft) -> [HomeContact] {
-        draft.chiefShortcuts(contacts: chiefRoster.mainFirst(contacts(), rows: homeStore.rows))
+        draft.idleSuggestions(contacts: chiefRoster.mainFirst(contacts(), rows: homeStore.rows))
     }
     func recipientLook(_ recipient: HomeRecipient) -> HomeRecipientLook {
         chiefRoster.look(recipient, rows: homeStore.rows, avatars: chiefFaces,
@@ -123,6 +124,8 @@ extension HomeService {
             chiefHarnesses: { [weak self] in self?.directory.chiefHarnesses ?? [:] },
             chiefRoster: { [weak self] in self?.chiefRoster ?? HomeChiefRoster() })
         source.onSelect = { [weak self] id in self?.pendingSelection = id }
+        // The unread indicator outside Home reads `groupMuting`: a mark set in a page's own source reaches it.
+        source.onMarksChanged = { [weak self] in self?.groupMuting.reloadMarks() }
         source.onStart = { [weak self] contact in
             // task-owner: one dm.open; the page shows the DM once listed
             Task { _ = await self?.startConversation([.contact(contact)], title: "") }
