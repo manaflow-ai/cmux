@@ -1873,6 +1873,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         )
     }
 
+    /// Converts an x offset in the split view, at its vertical middle, to host coordinates.
     private func inContentHostPoint(_ fixture: InContentSplitFixture, xInSplit: CGFloat) -> NSPoint {
         let pointInWindow = fixture.splitView.convert(
             NSPoint(x: xInSplit, y: fixture.splitView.bounds.midY),
@@ -1881,6 +1882,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         return fixture.host.convert(pointInWindow, from: nil)
     }
 
+    /// Hit-tests the host with a left mouse down at an x offset in the split view.
     private func inContentHit(_ fixture: InContentSplitFixture, xInSplit: CGFloat) -> NSView? {
         let pointInWindow = fixture.splitView.convert(
             NSPoint(x: xInSplit, y: fixture.splitView.bounds.midY),
@@ -1896,10 +1898,10 @@ final class WindowBrowserHostViewTests: XCTestCase {
         )
     }
 
+    /// A terminal on the left, a browser on the right. The browser portal's
+    /// parent holds only portals, so the divider search must reach the
+    /// content view to see the split at all.
     func testInContentHostPassesThroughSplitDividerBandBesideATerminal() {
-        // A terminal on the left, a browser on the right. The browser portal's
-        // parent holds only portals, so the divider search must reach the
-        // content view to see the split at all.
         guard let fixture = installInContentSplitFixture(slotRanges: [201...400]) else { return }
         defer { fixture.window.orderOut(nil) }
 
@@ -1923,9 +1925,9 @@ final class WindowBrowserHostViewTests: XCTestCase {
         }
     }
 
+    /// A browser on the left, a terminal on the right: the browser slot's
+    /// right edge is the split divider, not the Dock edge.
     func testInContentHostKeepsSplitDividerBandFromTrailingSidebarGuessBesideATerminal() {
-        // A browser on the left, a terminal on the right: the browser slot's
-        // right edge is the split divider, not the Dock edge.
         guard let fixture = installInContentSplitFixture(slotRanges: [0...200]) else { return }
         defer { fixture.window.orderOut(nil) }
 
@@ -1938,6 +1940,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
         }
     }
 
+    /// Two browsers side by side: both sides of the divider band pass through
+    /// to the split, and content away from it stays interactive.
     func testInContentHostPassesThroughSplitDividerBandBetweenBrowsers() {
         guard let fixture = installInContentSplitFixture(slotRanges: [0...200, 201...400]) else { return }
         defer { fixture.window.orderOut(nil) }

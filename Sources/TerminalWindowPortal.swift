@@ -268,8 +268,10 @@ final class WindowTerminalHostView: NSView {
         return samples.contains { shouldPassThroughToChrome(at: $0, eventType: .cursorUpdate) }
     }
 
-    // Internal for tests: pass-through for a split divider and for the sidebar
-    // resizer both return nil from hitTest, so only this tells them apart.
+    /// Whether `point` belongs to the SwiftUI sidebar resizer rather than to
+    /// this portal or a split divider under it. Internal for tests: a split
+    /// pass-through and a sidebar pass-through both return nil from `hitTest`,
+    /// so only this tells them apart.
     func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
         // The checks below guess the sidebar and Dock edges from hosted surface
         // frames alone, so a surface that starts or ends at a split divider (a

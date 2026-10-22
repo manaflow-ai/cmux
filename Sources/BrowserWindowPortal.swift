@@ -731,8 +731,10 @@ final class WindowBrowserHostView: NSView {
         return decision.result
     }
 
-    // Internal for tests: pass-through for a split divider and for the sidebar
-    // resizer both return nil from hitTest, so only this tells them apart.
+    /// Whether `point` belongs to the SwiftUI sidebar resizer rather than to
+    /// this portal or a split divider under it. Internal for tests: a split
+    /// pass-through and a sidebar pass-through both return nil from `hitTest`,
+    /// so only this tells them apart.
     func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
         let dividerHit = splitDividerHit(at: point)
         let hostedInspectorHit = dividerHit == nil ? hostedInspectorDividerHit(at: point) : nil
@@ -846,6 +848,8 @@ final class WindowBrowserHostView: NSView {
         return SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: dividerX).contains(point.x)
     }
 
+    /// Whether a live `SidebarDividerTrackingView` painted beneath the portal
+    /// is under `point`, searching up to `dividerSearchRootView()`.
     private func shouldPassThroughToLiveSidebarDivider(at point: NSPoint) -> Bool {
         guard let rootView = dividerSearchRootView(),
               let window else {

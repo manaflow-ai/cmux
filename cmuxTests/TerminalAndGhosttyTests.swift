@@ -4480,9 +4480,9 @@ final class WindowTerminalHostViewTests: XCTestCase {
         return (window, host, splitDelegate)
     }
 
+    /// The terminal's right edge is the split divider, which the Dock-edge
+    /// guess used to read as the trailing sidebar edge.
     func testTerminalLeftOfBrowserKeepsSplitDividerBandFromTrailingSidebarGuess() {
-        // The terminal's right edge is the split divider, which the Dock-edge
-        // guess used to read as the trailing sidebar edge.
         guard let fixture = makeTerminalBesideBrowserFixture(hostedRange: 0...200) else { return }
         defer { fixture.window.orderOut(nil) }
         for x: CGFloat in [197, 200.5, 203] {
@@ -4493,6 +4493,8 @@ final class WindowTerminalHostViewTests: XCTestCase {
         }
     }
 
+    /// The terminal's left edge is the split divider, which the leading
+    /// sidebar guess used to read as the sidebar edge.
     func testTerminalRightOfBrowserKeepsSplitDividerBandFromLeadingSidebarGuess() {
         guard let fixture = makeTerminalBesideBrowserFixture(hostedRange: 201...400) else { return }
         defer { fixture.window.orderOut(nil) }
@@ -4504,9 +4506,9 @@ final class WindowTerminalHostViewTests: XCTestCase {
         }
     }
 
+    /// Control: with no split under the point, a terminal that starts away
+    /// from the leading edge still yields its leading edge to the sidebar.
     func testLeadingSidebarGuessStillAppliesWithoutASplitDivider() {
-        // Control: with no split under the point, a terminal that starts away
-        // from the leading edge still yields its leading edge to the sidebar.
         guard let fixture = makeTerminalBesideBrowserFixture(hostedRange: 201...400, includeSplit: false) else { return }
         defer { fixture.window.orderOut(nil) }
         XCTAssertTrue(fixture.host.shouldPassThroughToSidebarResizer(at: NSPoint(x: 200.5, y: 90)))
