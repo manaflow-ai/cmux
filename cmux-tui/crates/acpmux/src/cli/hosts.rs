@@ -130,16 +130,25 @@ pub(crate) fn checked_host(host: &str) -> Result<&str> {
 /// acpmux's own fixed text.
 pub(crate) fn ssh_argv(host: &str, script: &str) -> Result<Vec<String>> {
     let host = checked_host(host)?;
-    Ok(["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "--", host, script]
+    let command = posix_command(script);
+    Ok(["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "--", host, command.as_str()]
         .iter()
         .map(|s| s.to_string())
         .collect())
 }
 
+/// What ssh hands the remote login shell: `script` run by `/bin/sh`, so it means the same
+/// under zsh (the macOS default, where an unmatched glob aborts the command), bash or fish.
+const POSIX_PREFIX: &str = "exec /bin/sh -c '";
+
+fn posix_command(script: &str) -> String {
+    format!("{POSIX_PREFIX}{}'", script.replace('\'', "'\\''"))
+}
+
 /// The script inside an [`ssh_argv`] command string (tests and diagnostics).
 pub(crate) fn script_of(command: &str) -> Option<String> {
-    let _ = command;
-    None
+    let quoted = command.strip_prefix(POSIX_PREFIX)?.strip_suffix('\'')?;
+    Some(quoted.replace("'\\''", "'"))
 }
 
 /// `scp -q -o BatchMode=yes -- LOCAL HOST:REMOTE`.

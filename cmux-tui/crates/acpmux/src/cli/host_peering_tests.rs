@@ -151,7 +151,7 @@ fn the_probe_is_a_fixed_script_with_the_destination_quoted() {
     assert_eq!(&argv[..5], ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "--"]);
     assert_eq!(argv[5], "huge-blue");
     assert_eq!(
-        argv[6],
+        crate::cli::hosts::script_of(&argv[6]).unwrap(),
         format!(
             "if ssh -o BatchMode=yes -o ConnectTimeout=8 -- 'leo@cosmic-gray.tail9.ts.net' true </dev/null; then echo {BACK_OK}; else echo {BACK_FAILED}; fi"
         )
