@@ -68,6 +68,8 @@ enum SidebarStyle {
     /// 16 pt the fade ended at a word gap and read as a hard cut.
     static var titleFadeWidth: CGFloat { Metrics.space6 + Metrics.space4 }
     static var subtitleFont: NSFont { Typography.caption }
+    /// ``subtitleFont`` with tabular digits, for a count that ticks while shown ("working 4m").
+    static var subtitleDigitsFont: NSFont { Typography.captionDigits }
     /// One detail line under a row's title (the folder, branch or agent line), as its label lays it out.
     static var detailLineHeight: CGFloat {
         let font = subtitleFont
