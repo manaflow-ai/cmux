@@ -37,7 +37,7 @@ public enum FileOpenKind: Sendable, Equatable {
     /// Whether a file of this kind also opens as its source text in the code editor ("Open as
     /// Text", u9489): true for the pages cmux renders (Markdown, HTML, SVG). Other files already
     /// open as text (``editor``) or have no text to show.
-    public var opensAsText: Bool { false }
+    public var opensAsText: Bool { self == .web || self == .markdown }
 
     /// The kind of a file named `fileName`.
     ///

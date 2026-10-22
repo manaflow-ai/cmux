@@ -97,7 +97,9 @@ public final class FileActionsMenu {
     /// - Returns: the row, or nil.
     public func openAsTextItem(forFileNamed name: String, isDirectory: Bool = false,
                                resolve: @escaping @MainActor @Sendable () async -> URL?) -> NSMenuItem? {
-        nil
+        guard let open = actions.openAsText, !isDirectory,
+              FileOpenKind(fileName: name, isDirectory: false, isPackage: false).opensAsText else { return nil }
+        return menuRow(FileActionStrings.openAsText, "chevron.left.forwardslash.chevron.right") { Self.run(resolve, open) }
     }
 
     /// Share…: the system share picker for the file, at the pointer.

@@ -58,6 +58,7 @@ final class FilePageOpener: FileOpening {
     /// they always do.
     nonisolated static func route(for url: URL, userChose: Bool, asText: Bool = false) -> Route {
         let name = url.lastPathComponent
+        if asText, FileOpenKind(fileName: name, isDirectory: false, isPackage: false).opensAsText { return .editor }
         if userChose, FileOpenKind(fileName: name, isDirectory: false, isPackage: false) == .web { return .renderedPage }
         switch kind(for: url) {
         case .markdown?: return .markdown
