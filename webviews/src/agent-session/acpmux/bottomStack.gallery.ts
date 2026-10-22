@@ -108,11 +108,12 @@ function geometry(ctx: PlayContext) {
         throw new Error(`Bottom stack overlaps: ${a.selector} / ${b.selector} (${height}px)`);
     }
 }
+// The trust question never hides the chat's other asks (Leo 2026-10-21, P0): the permission
+// card stays under it, answerable.
 const checkTrust: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-trust-ask"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
   geometry(ctx);
-  if (ctx.document.querySelector(".acpmux-permission-card"))
-    throw new Error("Tool permission is visible before folder trust");
 };
 const checkPrQueue: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-dock"));

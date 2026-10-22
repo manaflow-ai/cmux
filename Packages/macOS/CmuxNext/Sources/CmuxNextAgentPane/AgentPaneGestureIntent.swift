@@ -64,10 +64,13 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     }
 
     /// What a newer reserve on the same connection revokes: one ticket for set_mode, one per
-    /// config option for set_config_option (a switch's model and effort picks keep theirs).
+    /// config option for set_config_option (a switch's model and effort picks keep theirs), and one
+    /// per prompt for session/prompt (every prompt held for the folder trust answer keeps its own
+    /// send's gesture, webviews trustHeld.ts). Each ticket still takes a gesture of its own.
     public var slot: String {
-        guard method == "session/set_config_option", case .string(let config)? = params["configId"] else { return method }
-        return method + "#" + config
+        let key = method == "session/set_config_option" ? "configId" : method == "session/prompt" ? "promptId" : nil
+        guard let key, case .string(let value)? = params[key] else { return method }
+        return method + "#" + value
     }
 
     /// Whether a frame is the pick: the same method, and its params minus `sessionId` and `_meta`
