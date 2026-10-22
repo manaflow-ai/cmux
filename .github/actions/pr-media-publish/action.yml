@@ -3,7 +3,7 @@ description: >-
   The one way a workflow writes the public pr-media branch. It loads the
   pr-media environment's private-terms list, sets up OCR (tesseract on Linux,
   Vision on macOS), proves the check refuses a canary picture, then runs the
-  publisher command, whose every write goes through scripts/pr-media.py's
+  listed publisher, whose every write goes through scripts/pr-media.py's
   privacy check before it reaches the branch. scripts/pr-media.py refuses any
   GitHub Actions write made outside this action, and
   tests/test_ci_pr_media_privacy.py fails a workflow job that writes pr-media
@@ -24,9 +24,19 @@ inputs:
   github-token:
     description: The token the publisher writes and comments with.
     required: true
-  command:
-    description: The publisher to run (bash, `set -euo pipefail`), e.g. `python3 scripts/cmux-next/media/publish.py ...`.
+  script:
+    description: >-
+      The publisher, run with python3. Only the scripts the Publish step lists
+      are accepted, so a caller cannot hand this token-bearing step a shell
+      command.
     required: true
+  args:
+    description: >-
+      The publisher's arguments, one per line. Each line is passed as one
+      argument as it is: no shell expansion, quoting or word splitting.
+      Blank lines are skipped, so an argument cannot be empty.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -66,5 +76,16 @@ runs:
         PR_MEDIA_PRIVACY_OCR: ${{ steps.gate.outputs.ocr }}
         PR_MEDIA_PUBLISH_GATE: "1"
         GH_TOKEN: ${{ inputs.github-token }}
-        PUBLISH_COMMAND: ${{ inputs.command }}
-      run: bash -euo pipefail -c "$PUBLISH_COMMAND"
+        PUBLISH_SCRIPT: ${{ inputs.script }}
+        PUBLISH_ARGS: ${{ inputs.args }}
+      run: |
+        set -euo pipefail
+        case "$PUBLISH_SCRIPT" in
+          scripts/ci/pr_media.py) ;;
+          *) echo "::error::pr-media-publish runs only the publishers it lists; add yours to this case"; exit 1 ;;
+        esac
+        args=()
+        while IFS= read -r arg; do
+          [ -n "$arg" ] && args+=("$arg")
+        done <<< "$PUBLISH_ARGS"
+        python3 "$PUBLISH_SCRIPT" "${args[@]}"

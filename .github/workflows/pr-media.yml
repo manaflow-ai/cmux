@@ -278,4 +278,8 @@ jobs:
           private-terms: ${{ secrets.PR_MEDIA_PRIVATE_TERMS }}
           agent-authors: ${{ vars.PR_MEDIA_AGENT_AUTHORS }}
           github-token: ${{ github.token }}
-          command: python3 scripts/ci/pr_media.py publish --media "$RUNNER_TEMP/media"
+          script: scripts/ci/pr_media.py
+          args: |
+            publish
+            --media
+            ${{ runner.temp }}/media

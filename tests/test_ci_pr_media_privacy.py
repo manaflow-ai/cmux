@@ -906,6 +906,12 @@ class PublishWorkflowTests(unittest.TestCase):
                 return True
         return False
 
+    @staticmethod
+    def publish_command(given: dict) -> str:
+        """The command the action's Publish step runs for these `with:` inputs."""
+        args = [line for line in str(given.get("args", "")).splitlines() if line]
+        return " ".join(["python3", str(given.get("script", "")), *args])
+
     def test_the_writer_shapes_are_recognized(self) -> None:
         for run in ("python3 scripts/pr-media.py --pr 1 a.png", "./scripts/pr-media.py --pr 1 a.png",
                     'python3 scripts/ci/pr_media.py publish --media "$RUNNER_TEMP/media"',
@@ -989,7 +995,7 @@ class PublishWorkflowTests(unittest.TestCase):
                         given = step.get("with") or {}
                         self.assertEqual(given.get("private-terms"), "${{ secrets.PR_MEDIA_PRIVATE_TERMS }}")
                         self.assertEqual(given.get("agent-authors"), "${{ vars.PR_MEDIA_AGENT_AUTHORS }}")
-                        self.assertTrue(self.runs_a_writer(str(given.get("command", ""))))
+                        self.assertTrue(self.runs_a_writer(self.publish_command(given)))
                         self.assertNotIn("PR_MEDIA_PRIVATE_TERMS", step.get("env") or {})
         expected = {workflow: set(jobs) for workflow, jobs in self.WRITER_JOBS.items()}
         self.assertEqual(found, expected, "a new pr-media writer job: publish through the action, then list it")
@@ -1005,7 +1011,7 @@ class PublishWorkflowTests(unittest.TestCase):
                     sparse = checkouts[0].get("with", {}).get("sparse-checkout", "")
                     for path in (*self.NEEDED, script):
                         self.assertTrue(self.covers(sparse, path), f"{workflow} {job_id} does not check out {path}")
-                    commands = [str((step.get("with") or {}).get("command", "")) for step in steps
+                    commands = [self.publish_command(step.get("with") or {}) for step in steps
                                 if step.get("uses") == self.ACTION_USE]
                     self.assertTrue(any(self.runs_a_writer(command, script) for command in commands),
                                     f"{workflow} {job_id} no longer publishes {script} through the action")
@@ -1013,8 +1019,11 @@ class PublishWorkflowTests(unittest.TestCase):
     def test_only_the_action_in_the_pr_media_environment_reads_the_terms_secret(self) -> None:
         readers = set()
         for workflow, loaded in self.workflows():
+            with self.subTest(workflow=workflow):
+                # A workflow-level env reaches every job, so the terms are only ever read inside a job.
+                self.assertFalse(self.may_read_terms(self.text_of(loaded.get("env") or {})))
             for job_id, job in (loaded.get("jobs") or {}).items():
-                if "secrets.PR_MEDIA_PRIVATE_TERMS" not in yaml.dump(job):
+                if not self.may_read_terms(self.text_of(job)):
                     continue
                 readers.add((workflow, job_id))
                 if (workflow, job_id) == self.RESCAN:
@@ -1022,22 +1031,189 @@ class PublishWorkflowTests(unittest.TestCase):
                 with self.subTest(workflow=workflow, job=job_id):
                     self.assertEqual(job.get("environment"), "pr-media")
                     for step in job.get("steps") or []:
-                        if "secrets.PR_MEDIA_PRIVATE_TERMS" in yaml.dump(step):
+                        if self.may_read_terms(self.text_of(step)):
                             self.assertEqual(step.get("uses"), self.ACTION_USE)
         self.assertIn(self.RESCAN, readers, "the rescan no longer reads the terms; drop its exemption")
 
-    def test_a_pull_request_target_job_never_holds_the_environment_or_the_secret(self) -> None:
-        # pull_request_target runs with base-branch secrets beside a pull request's
-        # head; a job there must never reach the terms list or the pr-media writer.
-        for workflow, loaded in self.workflows():
-            if "pull_request_target" not in self.triggers(loaded):
+    # Events whose runs take the default or base branch's ref (which the environment admits) while someone
+    # outside the repo chooses when they fire: a PR (pull_request_target), a fork's finished run (workflow_run),
+    # any commenter (issue_comment, issues).
+    UNTRUSTED_EVENTS = {"pull_request_target", "workflow_run", "issue_comment", "issues"}
+
+    @staticmethod
+    def environment(job: dict) -> str:
+        env = job.get("environment")
+        return str((env.get("name") if isinstance(env, dict) else env) or "")
+
+    @staticmethod
+    def split_top(text: str, op: str) -> list[str]:
+        """text split on op outside quotes and parentheses."""
+        parts, depth, quoted, last, i = [], 0, False, 0, 0
+        while i < len(text):
+            c = text[i]
+            if c == "'":
+                quoted = not quoted
+            elif not quoted and c in "([":
+                depth += 1
+            elif not quoted and c in ")]" and depth:
+                depth -= 1
+            elif not quoted and depth == 0 and text.startswith(op, i):
+                parts.append(text[last:i])
+                last = i + len(op)
+                i = last
                 continue
-            for job_id, job in (loaded.get("jobs") or {}).items():
-                with self.subTest(workflow=workflow, job=job_id):
-                    self.assertFalse(self.in_pr_media_environment(job))
-                    text = yaml.dump(job)
-                    self.assertNotIn("PR_MEDIA_PRIVATE_TERMS", text)
-                    self.assertNotIn(self.ACTION_USE, text)
+            i += 1
+        return parts + [text[last:]]
+
+    def outcomes(self, expression: str) -> list[str] | None:
+        """The strings an expression can yield, or None when one comes from outside it: `a || b` yields a or b,
+        `a && b` yields b (or a falsy a, which names no environment)."""
+        expression = expression.strip()
+        if expression.startswith("(") and self.split_top(expression[1:], ")") == [expression[1:-1], ""]:
+            return self.outcomes(expression[1:-1])
+        branches = self.split_top(expression, "||")
+        if len(branches) > 1:
+            found = [self.outcomes(branch) for branch in branches]
+            return None if None in found else [value for values in found for value in values]
+        operands = self.split_top(expression, "&&")
+        if len(operands) > 1:
+            return self.outcomes(operands[-1])
+        return [expression[1:-1]] if re.fullmatch(r"'[^']*'", expression) else None
+
+    def may_name_pr_media(self, name: str) -> bool:
+        """The environment can be pr-media: GitHub matches names without case, and an expression whose value
+        comes from outside it could be anything."""
+        names = [""]
+        for i, piece in enumerate(re.split(r"\$\{\{(.*?)\}\}", name, flags=re.S)):
+            values = self.outcomes(piece) if i % 2 else [piece]
+            if values is None:
+                return True
+            names = [n + v for n in names for v in values]
+        return any("pr-media" in n.lower() for n in names)
+
+    TERMS = "PR_MEDIA_PRIVATE_TERMS"
+
+    @classmethod
+    def text_of(cls, node) -> str:
+        """Every key and string in a loaded job or step, as written (yaml.dump would re-quote `'` as `''`)."""
+        if isinstance(node, dict):
+            return "\n".join(cls.text_of(k) + "\n" + cls.text_of(v) for k, v in node.items())
+        if isinstance(node, list):
+            return "\n".join(cls.text_of(v) for v in node)
+        return node if isinstance(node, str) else ""
+
+    @classmethod
+    def may_read_terms(cls, text: str) -> bool:
+        """text may read the terms secret: by name in any case, through toJSON(secrets), or through a secrets[...]
+        index unless it is a literal (read by name above) or a format() whose fixed prefix rules the name out
+        (nightly.yml's `format('APPLE_{0}_...', ...)`). GitHub matches contexts, functions and secret names
+        without case."""
+        if cls.TERMS.lower() in text.lower() or re.search(r"tojson\(\s*secrets\s*\)", text, re.I):
+            return True
+        # The whole secrets object in an expression (not secrets.NAME or secrets[...]) can carry every secret.
+        for expression in re.findall(r"\$\{\{(.*?)\}\}", text, re.S):
+            if re.search(r"(?<![\w.])secrets(?!\w)(?!\s*[.\[])", expression, re.I):
+                return True
+        for index in re.findall(r"secrets\s*\[([^\]]*)\]", text, re.I):
+            if re.fullmatch(r"\s*'[^']*'\s*", index):
+                continue
+            prefix = re.match(r"\s*format\(\s*'([^'{]*)", index, re.I)
+            if not prefix or cls.TERMS.startswith(prefix.group(1).upper()):
+                return True
+        return False
+
+    def holds_pr_media(self, job: dict) -> bool:
+        """The job may enter the pr-media environment, read its terms secret, hand every secret to a workflow
+        outside this repository (whose jobs this scan cannot read) or publish through the action."""
+        return (self.may_name_pr_media(self.environment(job))
+                or self.may_read_terms(self.text_of(job))
+                or (job.get("secrets") == "inherit" and not str(job.get("uses", "")).startswith("./"))
+                or any(str(step.get("uses", "")).startswith(self.ACTION_USE) for step in job.get("steps") or []))
+
+    def untrusted_event_jobs(self, workflows) -> list[tuple[str, str, dict]]:
+        """(workflow, job, job) for every job an untrusted event runs, including the jobs of the local reusable
+        workflows it calls: those run in the caller's event, on the caller's ref. A WRITER_JOBS job is left out
+        when workflow_run is its workflow's only untrusted event: the publisher runs the default branch's copy of
+        itself and checks what it reads (test_the_writer_runs_only_on_workflow_run_or_dispatch)."""
+        loaded = dict(workflows)
+        out, seen = [], set()
+        # (workflow, called): a called workflow runs in its caller's event, whatever its own triggers say.
+        todo = [(w, False) for w, doc in loaded.items() if self.UNTRUSTED_EVENTS & self.triggers(doc)]
+        while todo:
+            workflow, called = todo.pop()
+            if (workflow, called) in seen:
+                continue
+            seen.add((workflow, called))
+            doc = loaded.get(workflow, {})
+            exempt = self.WRITER_JOBS.get(workflow, {}) if (
+                not called and (self.UNTRUSTED_EVENTS & self.triggers(doc)) == {"workflow_run"}) else {}
+            for job_id, job in (doc.get("jobs") or {}).items():
+                uses = str(job.get("uses", ""))
+                if uses.startswith("./.github/workflows/"):
+                    todo.append((uses[2:].split("@")[0], True))
+                if job_id not in exempt:
+                    # Every job inherits the workflow's env.
+                    if doc.get("env"):
+                        job = {**job, "env": {**doc["env"], **(job.get("env") or {})}}
+                    out.append((workflow, job_id, job))
+        return out
+
+    def test_the_untrusted_event_scan_finds_called_workflows_and_expression_environments(self) -> None:
+        workflows = [
+            (".github/workflows/a.yml", {True: {"pull_request_target": {"types": ["opened"]}},
+                                         "jobs": {"call": {"uses": "./.github/workflows/b.yml"}}}),
+            (".github/workflows/b.yml", {"on": "workflow_call",
+                                         "jobs": {"post": {"environment": {"name": "pr-media"}, "steps": []}}}),
+            (".github/workflows/c.yml", {True: ["push"], "jobs": {"post": {"environment": "pr-media"}}}),
+            (".github/workflows/d.yml", {True: {"issue_comment": None}, "jobs": {
+                "case": {"environment": "PR-Media"},
+                "cond": {"environment": "${{ github.event_name == 'issue_comment' && 'pr-media' || '' }}"},
+                "named": {"environment": {"name": "${{ 'pr-' }}media"}},
+                "output": {"environment": "${{ needs.decide.outputs.environment }}"},
+                "fallback": {"environment": "${{ inputs.x == 'y' && 'ci-bot' || vars.ENV }}"},
+                "secret": {"steps": [{"run": "echo ${{ secrets['pr_media_private_terms'] }}"}]},
+                "other": {"environment": "${{ (needs.plan.outputs.go == 'true' && ('ci-bot')) || '' }}"},
+                "pairs": {"environment": "${{ (inputs.x) && ('ci-bot') }}"},
+                "plain": {"environment": "ci-bot"},
+                "dyn": {"steps": [{"run": "echo ${{ secrets[format('PR_MEDIA_{0}', 'PRIVATE_TERMS')] }}"}]},
+                "open": {"steps": [{"env": {"X": "${{ secrets[format('{0}', vars.NAME)] }}"}}]},
+                "mixed": {"steps": [{"run": "echo ${{ Secrets[FORMAT('pr_media_{0}', 'PRIVATE_TERMS')] }}"}]},
+                "var": {"steps": [{"env": {"X": "${{ secrets[vars.NAME] }}"}}]},
+                "all": {"steps": [{"env": {"X": "${{ toJSON(secrets) }}"}}]},
+                "whole": {"steps": [{"with": {"x": "${{ fromJSON(format('{0}', Secrets)) }}"}}]},
+                "apple": {"steps": [{"env": {"X": "${{ secrets[format('APPLE_{0}_KEY', inputs.channel)] }}"}}]},
+                "lit": {"steps": [{"env": {"X": "${{ secrets['APPLE_KEY'] }}"}}]},
+                "away": {"uses": "someone/else/.github/workflows/x.yml@main", "secrets": "inherit"},
+                "home": {"uses": "./.github/workflows/b2.yml", "secrets": "inherit"},
+            }}),
+            (".github/workflows/b2.yml", {"on": "workflow_call", "jobs": {"quiet": {"steps": []}}}),
+            (".github/workflows/f.yml", {True: {"issue_comment": None},
+                                         "env": {"TERMS": "${{ secrets.PR_MEDIA_PRIVATE_TERMS }}"},
+                                         "jobs": {"inherits": {"steps": [{"run": 'printf %s "$TERMS"'}]}}}),
+            # The writer is exempt only when workflow_run fires it: not another job beside it, and not when an
+            # untrusted event's workflow calls it.
+            (".github/workflows/pr-media.yml", {True: {"workflow_run": None, "workflow_call": None}, "jobs": {
+                "publish": {"environment": "pr-media"}, "extra": {"environment": "pr-media"}}}),
+            (".github/workflows/e.yml", {True: {"issues": None}, "jobs": {
+                "call": {"uses": "./.github/workflows/pr-media.yml"}}}),
+        ]
+        found = sorted((w, j) for w, j, job in self.untrusted_event_jobs(workflows) if self.holds_pr_media(job))
+        self.assertEqual(found, [(".github/workflows/b.yml", "post")] + [
+            (".github/workflows/d.yml", j) for j in ("all", "away", "case", "cond", "dyn", "fallback", "mixed", "named",
+                                                     "open", "output", "secret", "var", "whole")] + [
+            (".github/workflows/f.yml", "inherits"),
+            (".github/workflows/pr-media.yml", "extra"), (".github/workflows/pr-media.yml", "extra"),
+            (".github/workflows/pr-media.yml", "publish")])
+
+    def test_no_untrusted_event_job_holds_the_pr_media_environment_or_its_secret(self) -> None:
+        # A deployment branch policy matches GITHUB_REF, and these events run on the base or default branch's ref,
+        # which the environment admits: the environment alone would hand the terms list to a run an outsider fired.
+        for workflow, job_id, job in self.untrusted_event_jobs(self.workflows()):
+            with self.subTest(workflow=workflow, job=job_id):
+                self.assertFalse(self.holds_pr_media(job),
+                                 "a job an untrusted event runs may be in the pr-media environment or read its terms")
+
+    def test_the_writer_runs_only_on_workflow_run_or_dispatch(self) -> None:
         for workflow in self.WRITER_JOBS:
             with self.subTest(workflow=workflow):
                 # The writer runs on the default branch's copy of itself only.
@@ -1054,8 +1230,17 @@ class PublishWorkflowTests(unittest.TestCase):
         self.assertEqual(env["PR_MEDIA_PRIVATE_TERMS"], "${{ inputs.private-terms }}")
         self.assertEqual(env["PR_MEDIA_PRIVACY_OCR"], "${{ steps.gate.outputs.ocr }}")
         self.assertTrue(CANARY.is_file())
-        # The publisher command reaches bash through the environment, never by expression expansion.
-        self.assertNotIn("${{", steps[publish]["run"])
+        # The publisher and its arguments reach bash through the environment, never by expression expansion,
+        # and are run as a listed script with plain arguments, never as a shell string.
+        run = steps[publish]["run"]
+        self.assertNotIn("${{", run)
+        self.assertNotIn("-c ", run)
+        self.assertNotIn("eval", run)
+        self.assertIn('python3 "$PUBLISH_SCRIPT" "${args[@]}"', run)
+        self.assertNotIn("command", yaml.safe_load(ACTION.read_text(encoding="utf-8"))["inputs"])
+        listed = set(re.findall(r"^\s*([\w./-]+\.py)\) ;;$", run, re.M))
+        self.assertEqual(listed, {script for jobs in self.WRITER_JOBS.values() for script in jobs.values()},
+                         "the action lists exactly the publishers its callers run")
         # A runner image's own apt run holds the lock for a while after boot.
         install = steps[names.index("Install the OCR tools")]["run"]
         self.assertEqual(install.count("apt-get"), install.count("apt-get -o DPkg::Lock::Timeout="))
