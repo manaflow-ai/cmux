@@ -316,7 +316,19 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
     /// Whether a rightward pan at `location` may open the closed drawer.
     func mayOpen(at location: CGPoint) -> Bool {
         guard model.allowsInteractiveOpen else { return false }
-        return !touchIsInPushedScreen(location) && !touchIsInHorizontalScroller(location)
+        guard !touchIsInPushedScreen(location), !touchIsInHorizontalScroller(location) else { return false }
+        return !closesOpenRowActions()
+    }
+
+    /// Mail and Messages: while a row's swipe actions are open, a rightward
+    /// swipe closes them instead of opening the drawer. A `List` row closes
+    /// itself on the touch (UIKit); a row outside `List` is closed here.
+    /// Returns whether actions were open.
+    private func closesOpenRowActions() -> Bool {
+        let rows = RowSwipeActions.shared
+        guard rows.hasOpenRow || RowSwipeActions.hasOpenListRow(in: contentController.view) else { return false }
+        rows.closeAll()
+        return true
     }
 
     /// The drawer only opens from a tab root. Any navigation controller under
@@ -339,6 +351,8 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer === pan else { return false }
         if other is UIScreenEdgePanGestureRecognizer { return true }
+        // A row outside `List` with open actions takes the rightward swipe to close them.
+        if other.name == RowSwipeActions.panName { return true }
         var responder: UIResponder? = other.view
         while let current = responder {
             if let navigation = current as? UINavigationController {
