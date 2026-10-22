@@ -36,11 +36,11 @@ struct ScreenshotMask {
     /// Waits ``settle`` on a one-shot deadline.
     static func waitToSettle() async {
         let timer = DemandTimer(owner: "screenshot.mask-settle")
-        await withExtendedLifetime(timer) {
-            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                timer.schedule(after: settle) { done.resume() }
-            }
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            timer.schedule(after: settle) { done.resume() }
         }
+        // The timer cancels its deadline when it goes, which would never resume the wait.
+        withExtendedLifetime(timer) {}
     }
 
     /// Why a masked capture gave no image.

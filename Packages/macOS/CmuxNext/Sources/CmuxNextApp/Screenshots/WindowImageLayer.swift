@@ -16,7 +16,7 @@ enum WindowImageLayer {
     case mask(NSRect)
 
     /// What a mask paints: an opaque mid gray, the same in light and dark windows.
-    static let maskColor = CGColor(srgbRed: 0.5, green: 0.5, blue: 0.5, alpha: 1)
+    static var maskColor: CGColor { CGColor(srgbRed: 0.5, green: 0.5, blue: 0.5, alpha: 1) }
 
     /// `base` (an image of `window`) with `layers` painted over it, bottom first; nil without layers.
     static func composite(base: CGImage, window: NSWindow, layers: [WindowImageLayer]) -> CGImage? {

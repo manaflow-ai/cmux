@@ -188,7 +188,7 @@ import WebKit
         #expect(!ScreenshotMask.shownAppPages.contains("cmux.passwords"))
         #expect(!ScreenshotMask.shownAppPages.contains("cmux.home-channels"))
         #expect(!ScreenshotMask.shownAppPages.contains("cmux.settings"))
-        #expect(ScreenshotMask.covers(HomeSidebarView()))
+        #expect(ScreenshotMask.covers(HomeSidebarView(frame: .zero)))
         let fixture = fixture(onScreen: false)
         defer { fixture.close() }
         let list = HomeSidebarView(frame: NSRect(x: 4, y: 4, width: 60, height: 60))

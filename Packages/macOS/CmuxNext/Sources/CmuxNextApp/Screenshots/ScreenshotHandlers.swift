@@ -24,9 +24,10 @@ import Foundation
 /// also copies the image.
 ///
 /// An agent's or a script's run (anything the control socket carries, whatever
-/// origin it claims) gets the window with every browser page area and every
-/// chat masked in gray (``AppWindowImage/maskedCapture(_:)``, ``ScreenshotMask``),
-/// and `masked`, how many areas the image covers. Page pixels reach automation
+/// origin it claims) gets the window with every browser page area, chat, Home
+/// view and app page not known to be safe masked in gray
+/// (``AppWindowImage/maskedCapture(_:)``, ``ScreenshotMask``), and `masked`,
+/// how many areas the image covers. Page pixels reach automation
 /// only through the browser host's guarded capture (`cmux browser page
 /// screenshot`), so a browser tab no window shows is refused to it.
 enum ScreenshotHandlers {
