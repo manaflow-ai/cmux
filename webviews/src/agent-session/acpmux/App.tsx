@@ -194,6 +194,7 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
+import { endTurnFold, playTurnFold, startTurnFold, type TurnFold } from "./conversation/turnFold";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
@@ -1915,6 +1916,10 @@ export function VirtualTranscript({
   // Rows that arrive live (a reply, a tool call, a status line) enter once. The rows at the first
   // render, and many at once (a session switch, older history), are a load and do not.
   const knownRows = useRef<Set<string> | null>(null);
+  /// A "Worked for" (or subagent group) the reader toggled, while its rows slide and fade
+  /// (conversation/turnFold.ts), and the drawn copies of rows a close hid, while they fade out.
+  const turnFold = useRef<TurnFold | undefined>(undefined);
+  const foldGhosts = useRef(new Set<HTMLElement>());
   const knownFor = useRef<AcpmuxRow[] | null>(null);
   const enteringRows = useRef(new Set<string>());
   /// The minimap's hook for this commit's settled offset (ThreadMinimap `placed`).
@@ -1946,7 +1951,8 @@ export function VirtualTranscript({
     // A row that arrived while the chat is hidden (another tab or workspace shows), or that lands
     // before its first frame back, came while the user was away: it draws in place. WebKit
     // suspends a hidden page's animations, so its entrance would play on return (shared/pageReveal.ts).
-    if (arrived.length <= LIVE_ROWS_PER_UPDATE && entranceAllowed())
+    // The rows a "Worked for" the reader opened reveals fade in with its fold (turnFold.ts) instead.
+    if (arrived.length <= LIVE_ROWS_PER_UPDATE && entranceAllowed() && !turnFold.current?.opening)
       for (const row of arrived) enteringRows.current.add(row.id);
   }
   knownFor.current = rows;
@@ -2716,6 +2722,51 @@ export function VirtualTranscript({
     minimapPlaced.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width, dockSpace, room, lift, sessionId, seekExpired, canLoadOlder]);
+  // A toggled "Worked for" plays on each placement pass while it lasts, after the pass above has
+  // held the clicked line in place (turnFold.ts).
+  useLayoutEffect(() => {
+    const fold = turnFold.current;
+    const node = ref.current;
+    const host = thread.current;
+    if (!fold || !node || !host) return;
+    const placed = { ids: rows.map((row) => row.id), tops: layout.tops, shift: liftRef.current - node.scrollTop };
+    if (playTurnFold(fold, host, placed, sessionId, foldGhosts.current)) return;
+    endTurnFold(host, fold);
+    turnFold.current = undefined;
+  });
+  useEffect(
+    () => () => {
+      for (const ghost of foldGhosts.current) ghost.remove();
+      foldGhosts.current.clear();
+    },
+    [],
+  );
+  // Read at the click, so the callback stays the same across snapshots (rows compare it).
+  const foldInputs = useRef({ layout, expanded, sessionId });
+  foldInputs.current = { layout, expanded, sessionId };
+  /// The reader's toggle of a row that opens or closes other rows ("Worked for", a subagent group):
+  /// its motion starts from the rows as they are drawn now (turnFold.ts), then the pane toggles it.
+  const toggleRow = useCallback(
+    (id: string) => {
+      const node = ref.current;
+      endTurnFold(thread.current, turnFold.current);
+      turnFold.current = node
+        ? startTurnFold(
+            thread.current,
+            id,
+            !foldInputs.current.expanded.has(id),
+            {
+              ids: rowsRef.current.map((row) => row.id),
+              tops: foldInputs.current.layout.tops,
+              shift: liftRef.current - node.scrollTop,
+            },
+            foldInputs.current.sessionId,
+          )
+        : undefined;
+      onToggleActivity(id);
+    },
+    [onToggleActivity],
+  );
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
   const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
@@ -3240,14 +3291,14 @@ export function VirtualTranscript({
                       onCopyRow={copyRow}
                       contentType={Component}
                       controls={controls}
-                      onToggleActivity={onToggleActivity}
+                      onToggleActivity={toggleRow}
                       onOpenDiff={onOpenDiff}
                       githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
                     >
                       <Component
                         row={row}
                         sessionId={sessionId}
-                        onToggleActivity={onToggleActivity}
+                        onToggleActivity={toggleRow}
                         onOpenDiff={onOpenDiff}
                         expanded={isExpanded}
                         controls={controls}
