@@ -352,6 +352,8 @@ export function ScrollMap({
           side={side}
           x={RAIL_LEFT + ROW_WIDTH}
           y={cardOffset(MAP_MARGIN + cardAt.y, cardHeight, viewportHeight)}
+          // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
+          scroller={scroller.current}
           prompt={cardTurn?.prompt}
           reply={cardTurn ? cardTurn.reply : agentReply}
           bookmark={

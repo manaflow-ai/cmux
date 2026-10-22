@@ -73,6 +73,7 @@ export function GalleryDialog({
                 type="button"
                 className="acpmux-chat-gallery-image"
                 data-open-image={onOpenImage ? "" : undefined}
+                draggable
                 title={item.alt}
                 disabled={!onOpenImage}
                 onClick={() => onOpenImage?.(item.src, item.alt)}

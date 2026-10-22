@@ -339,7 +339,7 @@ def cleanup():
 
 
 def main():
-    global app
+    global app, SOCKET
     if os.path.exists(SOCKET):
         os.remove(SOCKET)
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
@@ -353,9 +353,31 @@ def main():
     macos = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
     host = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip()
     print(f"launched pid {app.pid} macOS {macos} host {host}", flush=True)
-    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
-        print(f"the tagged app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)} "
-              f"debug.windows={rpc('debug.windows')} alive={app.poll() is None}", flush=True)
+    state_socket = os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{TAG}.sock")
+
+    def up():
+        global SOCKET
+        for path in (f"/tmp/cmux-debug-{TAG}.sock", state_socket):
+            if os.path.exists(path):
+                SOCKET = path
+                if (rpc("debug.windows") or {}).get("windows"):
+                    return True
+        return False
+    if not wait(up, 120):
+        print(f"the tagged app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)} state socket "
+              f"{state_socket} exists={os.path.exists(state_socket)} debug.windows={rpc('debug.windows')} "
+              f"alive={app.poll() is None}", flush=True)
+        if app.poll() is None:
+            # Why: the main thread's stack while it does not answer.
+            stuck = os.path.join(opts.out, "sample-launch.txt")
+            subprocess.run(["/usr/bin/sample", str(app.pid), "3", "-file", stuck], capture_output=True, timeout=60)
+            try:
+                text = open(stuck, errors="replace").read()
+                graph = text.split("Call graph:", 1)[-1].splitlines()
+                print("== main thread while the socket is missing", flush=True)
+                print("\n".join(l[:200] for l in graph[:70]), flush=True)
+            except OSError:
+                pass
         log.flush()
         print(open(os.path.join(opts.out, f"app-{TAG}.log"), errors="replace").read()[-6000:], flush=True)
         sys.exit(1)
