@@ -465,7 +465,7 @@ final class WorkspaceHoverCardView: NSView {
             shown.text = WorkspaceHoverCardContent.withElapsed(fact.text, since: fact.since, now: now)
             row.configure(shown, image: Self.ownImage(fact) ?? NSImage.icon(fact.icon, size: Self.iconSize),
                           font: fact.since == nil ? Typography.body : Self.liveFont, wrapWidth: wrap,
-                          truncation: .byTruncatingMiddle)
+                          truncation: Self.truncation(fact))
         }
         // The preview (the last reply or the pull request's state) sits a step apart from the
         // metadata above it, like the stack's own gap.
@@ -500,6 +500,12 @@ final class WorkspaceHoverCardView: NSView {
             pending.append(contentsOf: (object.accessibilityChildren() ?? []).reversed())
         }
         return out
+    }
+
+    /// Where a one-line fact cuts: a path or a branch in the middle (its end says which), a pull
+    /// request at its tail ("#22231 Share one hover…": the number and the title's start read).
+    static func truncation(_ fact: WorkspaceHoverCardContent.Fact) -> NSLineBreakMode {
+        fact.kind == "pullRequest" ? .byTruncatingTail : .byTruncatingMiddle
     }
 
     /// A status entry's own icon: its stored image, its SF Symbol or its emoji; nil for none (or

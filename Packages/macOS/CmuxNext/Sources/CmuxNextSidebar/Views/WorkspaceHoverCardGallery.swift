@@ -25,7 +25,8 @@ public struct WorkspaceHoverCardGallery {
             Fact(icon: .gitPullrequest, text: "#22231 Share one hover card row", kind: "pullRequest", status: status, statusTone: tone,
                  additions: adds, deletions: dels, iconTone: tone, isPreview: preview)
         }
-        let machine = Fact(icon: .machineRemote, text: "air-blue", kind: "machine", accessory: .dot(.danger))
+        // A made-up machine name: the capture's privacy check refuses a real host's.
+        let machine = Fact(icon: .machineRemote, text: "build-box", kind: "machine", accessory: .dot(.danger))
         let offline = Fact(icon: .statusDisconnected, text: "Remote environment is offline", kind: "machineStatus", ink: .danger)
         let states: [(String, WorkspaceHoverCardContent, [Double])] = [
             ("Agent running", WorkspaceHoverCardContent(

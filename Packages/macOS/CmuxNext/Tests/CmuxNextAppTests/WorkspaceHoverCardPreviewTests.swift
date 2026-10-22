@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 @testable import CmuxNextSidebar
@@ -178,6 +179,14 @@ import Testing
         #expect(last.additions == 120 && last.deletions == 30)
         #expect(!card.facts.contains { $0.kind == WorkspaceHoverCardContent.Fact.lastReplyKind }, "the status, not the raw reply")
         #expect(card.facts.filter { $0.kind == "pullRequest" }.count == 1)
+    }
+
+    @Test func aPullRequestCutsAtItsTailAndAPlaceInTheMiddle() {
+        typealias Fact = WorkspaceHoverCardContent.Fact
+        #expect(WorkspaceHoverCardView.truncation(Fact(icon: .gitPullrequest, text: "#1 A long title", kind: "pullRequest"))
+            == .byTruncatingTail)
+        #expect(WorkspaceHoverCardView.truncation(Fact(icon: .gitBranch, text: "cmux · feat/a-long-branch", kind: "branch"))
+            == .byTruncatingMiddle)
     }
 
     @Test func theNewestOpenPullRequestIsNamed() {
