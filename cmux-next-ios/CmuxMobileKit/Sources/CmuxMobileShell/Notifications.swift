@@ -108,15 +108,23 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         return showing ? [] : [.banner, .list, .sound]
     }
 
-    /// Taps and buttons. iOS keeps a background launch alive until this
-    /// returns, so a background reply is delivered (or fails) before it does.
-    public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+    /// Taps and buttons. iOS keeps a background launch alive until the
+    /// completion handler runs, so a background reply is delivered (or fails)
+    /// first. The handler must run on the main thread: UIKit updates the app's
+    /// snapshot in it and aborts off the main thread (verify/push-matrix.md,
+    /// failure 2: the async form returned on a background thread and every
+    /// notification button crashed the app).
+    public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                                   withCompletionHandler completionHandler: @escaping @Sendable () -> Void) {
         // Only Sendable values cross to the main actor.
         let userInfo = response.notification.request.content.userInfo
         let read = PushReplies.Response(actionIdentifier: response.actionIdentifier,
                                         text: (response as? UNTextInputNotificationResponse)?.userText,
                                         payload: PushPayload(userInfo: userInfo), retry: PushReply(userInfo: userInfo))
-        await PushReplies.shared.handle(read)
+        Task { @MainActor in
+            await PushReplies.shared.handle(read)
+            completionHandler()
+        }
     }
 }
 

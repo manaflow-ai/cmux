@@ -64,8 +64,9 @@ def log(msg):
     print(f"{time.strftime('%H:%M:%S')} {msg}", flush=True)
 
 
-def matches(sim, text, kind=None):
-    out = [e for e in sim.tree() if text.lower() in (e.label or "").lower() and (kind is None or e.kind == kind)]
+def matches(sim, text, kind=None, exact=False):
+    hit = (lambda l: l.lower() == text.lower()) if exact else (lambda l: text.lower() in l.lower())
+    out = [e for e in sim.tree() if hit(e.label or "") and (kind is None or e.kind == kind)]
     # An exact label first ("Allow" must never pick "Don't Allow").
     return sorted(out, key=lambda e: (e.label or "").lower() != text.lower())
 
@@ -100,6 +101,28 @@ def main():
     elif cmd == "background":
         # Home: the app goes to the background (no host input).
         sh("axe", "button", "home", "--udid", u)
+    elif cmd == "nc":
+        # Notification Center from the home screen's first page: Home (twice lands on page 1), then a pull from the top edge.
+        sh("axe", "button", "home", "--udid", u)
+        time.sleep(0.8)
+        sh("axe", "button", "home", "--udid", u)
+        time.sleep(0.8)
+        sim.swipe(100, 5, 100, 600)
+        time.sleep(1.2)
+    elif cmd == "expand":
+        # The newest notification whose label contains TEXT, opened as its long look (Options → View: the
+        # same long look a long press opens; AXe's long press does not reach SpringBoard's gesture).
+        cells = [e for e in sim.tree() if e.get("AXUniqueId") == "ListCell" and args[0].lower() in (e.label or "").lower()]
+        if not cells:
+            raise SystemExit(f"no notification with {args[0]!r}")
+        x, y, w, h = cells[0].frame
+        sim.swipe(int(x + w - 40), int(y + h / 2), int(x + 60), int(y + h / 2))
+        time.sleep(1.0)
+        view = matches(sim, "View", "Button", exact=True)
+        if not view:
+            raise SystemExit("no View button after the swipe")
+        sim.tap_el(view[0])
+        time.sleep(2.5)
     elif cmd == "shot":
         print(sim.shot(args[0]))
     elif cmd == "texts":
@@ -110,7 +133,7 @@ def main():
     elif cmd == "tap":
         kind = args[args.index("--kind") + 1] if "--kind" in args else None
         index = int(args[args.index("--index") + 1]) if "--index" in args else 0
-        found = matches(sim, args[0], kind)
+        found = matches(sim, args[0], kind, exact="--exact" in args)
         if not found:
             raise SystemExit(f"not found: {args[0]}")
         sim.tap_el(found[index])
