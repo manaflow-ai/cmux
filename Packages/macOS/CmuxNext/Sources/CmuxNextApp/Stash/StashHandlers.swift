@@ -19,6 +19,10 @@ import CmuxNextStash
 ///   (`WindowMembershipHandlers.rowTargets`); the group row its workspaces; the window row every
 ///   workspace of the window. The home workspace, incognito workspaces and other machines'
 ///   workspaces stay. They ask first only while a terminal in them runs a program, as a close does.
+///   A workspace's remote-terminal tabs let go of their surfaces here (`RemoteTerminalService.stashed`)
+///   but, unlike a close (`WorkspaceClose.willClose`), keep their terminals kept on the other
+///   machine: Restore reopens each tab on the same terminal from the stash's record. Deleting the
+///   stash does not release those terminals yet (#24192).
 @MainActor
 enum StashHandlers {
     /// The tabs a tab row's Save and Close takes, seen from its tab.
@@ -55,7 +59,12 @@ enum StashHandlers {
                 guard !ids.isEmpty else { throw ActionFailure.invalidTarget(StashHandlerStrings.noWorkspace) }
                 // The window that keeps a workspace shows the toast; none when every window closes.
                 let window = WorkspaceBulkClose.survivor(closing: members.map(\.0.id), context)
-                save(invocation, services, workspaces: true, toastIn: window) { try await stash.stash(workspaces: ids, name: name) }
+                let remoteTabs = members.flatMap { RemoteTerminalService.remoteTabIDs(in: $0.0) }
+                save(invocation, services, workspaces: true, toastIn: window) { [weak services] in
+                    let stashID = try await stash.stash(workspaces: ids, name: name)
+                    services?.remoteTerminals.stashed(remoteTabs)
+                    return stashID
+                }
             })
         }
         registry.bind("stash.show", unavailable: { stash.unavailableReason() }, run: { invocation in
