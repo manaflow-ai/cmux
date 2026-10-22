@@ -7,12 +7,16 @@ public nonisolated struct SidebarTransientItem: Hashable, Sendable {
     /// in that item's section, with that section's look. Empty, or none of them shown: it draws
     /// in the transient section at the top of the band.
     public var after: [LayoutItemRef]
+    /// Draws only right after one of `after` (a Chief subagent under the Chief item): none of them
+    /// shown, it does not draw at all.
+    public var anchoredOnly: Bool
 
     /// `id` must carry the `client.` prefix (`LayoutItemID.isTransient`).
-    public init(id: LayoutItemID, info: SidebarItemInfo, after: [LayoutItemRef] = []) {
+    public init(id: LayoutItemID, info: SidebarItemInfo, after: [LayoutItemRef] = [], anchoredOnly: Bool = false) {
         item = LayoutItem(id: id, ref: LayoutItemRef(kind: "client", value: id.rawValue))
         self.info = info
         self.after = after
+        self.anchoredOnly = anchoredOnly
     }
 }
 
@@ -37,7 +41,7 @@ extension SidebarModel {
         var loose: [LayoutItem] = []
         for transient in transientTopItems {
             guard let (s, i) = Self.anchor(transient.after, in: placed) else {
-                loose.append(transient.item)
+                if !transient.anchoredOnly { loose.append(transient.item) }
                 continue
             }
             placed[s].items.insert(transient.item, at: i + 1)

@@ -2,10 +2,11 @@
 // session, the transport's lifetime, deferred hydration and re-languaging after registry changes.
 import { parsePatchFiles, preloadHighlighter, processFile, registerCustomTheme } from "@pierre/diffs";
 import { useEffect, useRef } from "react";
-import { resolveDiffViewerAppearance } from "../appearance";
+import { resolveDiffViewerAppearance, type ResolvedDiffViewerAppearance } from "../appearance";
 import { resolveDiffPreloadLanguages } from "../diff-language";
 import { fileName, type DiffItem, streamPatch } from "../diff-stream";
 import { DEFERRED_PATCH_KEY, hydrateDeferredFileDiff } from "../deferred-parse";
+import { isGeneratedDiffPath } from "../deferred-diffs";
 import { shikiThemeFromGhostty } from "../pierre-options";
 import { createDiffViewerStatus } from "../status";
 import type { DiffViewerLabelResolver } from "../labels";
@@ -25,6 +26,20 @@ import { type AppAction, type AppState } from "./state";
 import { getInitialFileTreeRowCount } from "./FilesSidebar";
 
 const registeredCustomThemeNames = new Set<string>();
+
+/**
+ * Registers the terminal theme's Shiki themes under their names. The surface calls it before the
+ * viewer's first render, so the highlight pool (created on that render, App.tsx) can start its
+ * workers while the patch is still on its way; the stream calls it again for a new render.
+ */
+export function registerDiffViewerThemes(appearance: ResolvedDiffViewerAppearance): void {
+  for (const theme of [appearance.themes.light, appearance.themes.dark]) {
+    if (theme.name && !registeredCustomThemeNames.has(theme.name)) {
+      registerCustomTheme(theme.name, () => Promise.resolve(shikiThemeFromGhostty(theme, appearance)));
+      registeredCustomThemeNames.add(theme.name);
+    }
+  }
+}
 /// Re-detects every file's language when the host installs new user languages or overrides.
 export function useDiffLanguageChanges(dispatch: React.Dispatch<AppAction>): void {
   useEffect(() => diffLanguages.subscribe(() => dispatch({ type: "relanguage-items" })), [dispatch]);
@@ -53,12 +68,7 @@ export function useRenderDiff(
     document.body.dataset.diffRenderGeneration = String(renderGeneration);
     const payload = config.payload ?? {};
     const appearance = resolveDiffViewerAppearance(payload.appearance);
-    for (const theme of [appearance.themes.light, appearance.themes.dark]) {
-      if (theme.name && !registeredCustomThemeNames.has(theme.name)) {
-        registerCustomTheme(theme.name, () => Promise.resolve(shikiThemeFromGhostty(theme, appearance)));
-        registeredCustomThemeNames.add(theme.name);
-      }
-    }
+    registerDiffViewerThemes(appearance);
     let cancelled = false;
     const streamAbortController = new AbortController();
     const handlePageHide = () => {
@@ -105,6 +115,17 @@ export function useRenderDiff(
           return;
         }
         onPatchURL(patchURL);
+        // The sidecar's generated list as a set, rebuilt only when the list itself changes.
+        let declaredPaths: readonly string[] = [];
+        let declaredSet: ReadonlySet<string> = new Set<string>();
+        const declaredGenerated = (): ReadonlySet<string> => {
+          const paths = latestState.current.generatedPaths;
+          if (paths !== declaredPaths) {
+            declaredPaths = paths;
+            declaredSet = new Set(paths);
+          }
+          return declaredSet;
+        };
         const streamedItems: DiffItem[] = [];
         dispatch({ type: "set-status", status: createDiffViewerStatus(label("parsingDiff"), { loading: true }) });
         await streamPatch({
@@ -120,6 +141,9 @@ export function useRenderDiff(
           onComplete: (metrics) => {
             if (cancelled) return;
             dispatch({ type: "set-metrics", metrics });
+            // Every file has arrived, so "Group by kind" can reorder without moving text the
+            // reader is already on.
+            dispatch({ type: "set-stream-complete" });
             const items = streamedItems;
             if (items.length === 0) {
               const emptyMessage =
@@ -152,7 +176,7 @@ export function useRenderDiff(
           onTreeSource: (source) => {
             if (!cancelled) dispatch({ type: "set-tree-source", source });
           },
-          isGeneratedPath: (path) => latestState.current.generatedPaths.includes(path),
+          isGeneratedPath: (path) => isGeneratedDiffPath(path, declaredGenerated()),
           parsePatchFiles,
           patchURL,
           processFile,

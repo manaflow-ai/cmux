@@ -41,6 +41,37 @@ async fn a_claude_chats_usage_carries_its_models_context_window() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// The `used` of each `usage_update` acpmux marked as one model call's (`_meta.acpmux.call`):
+/// the pane adds these up for the running turn's tokens (webviews WorkingFor.tsx).
+fn call_usages(hub: &Arc<Hub>, id: &str) -> Vec<u64> {
+    hub.events(id, 0, 10_000)
+        .unwrap()
+        .iter()
+        .filter(|e| e.kind == "usage_update")
+        .filter_map(|e| e.msg.pointer("/params/update"))
+        .filter(|u| u.pointer("/_meta/acpmux/call") == Some(&json!(true)))
+        .map(|u| u["used"].as_u64().unwrap_or(0))
+        .collect()
+}
+
+#[tokio::test]
+async fn only_a_streamed_calls_usage_is_marked_as_a_call() {
+    let root = std::env::temp_dir().join(format!("acpmux-context-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "usage-probe"}]});
+    c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    // The streamed call and the result that repeats it for the ring: only the call is marked, so
+    // a turn's last call (and a steer's or late Stop's result) never counts twice.
+    assert!(usages(&hub, &id).len() >= 2, "{:?}", usages(&hub, &id));
+    assert_eq!(call_usages(&hub, &id), vec![4500]);
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[tokio::test]
 async fn a_claude_chat_that_switched_models_uses_the_new_models_window() {
     let root = std::env::temp_dir().join(format!("acpmux-context-{}", uuid::Uuid::now_v7()));

@@ -35,7 +35,8 @@ public nonisolated struct SidebarDocSubgroupPlan {
     ///   - color: its palette color.
     ///   - records: the document as the mirror holds it.
     public init(parent: GroupID, id: GroupID, name: String, color: GroupColor, records: SidebarDocRecords) {
-        guard let group = records.items[parent.rawValue], case .group = group.body else {
+        // A personal group's id names its document item (`itm_g_<id>`, #22996).
+        guard let parentItem = records.groupItem(personal: parent.rawValue), let group = records.items[parentItem] else {
             (ops, refusal) = (nil, .unknownGroup)
             return
         }

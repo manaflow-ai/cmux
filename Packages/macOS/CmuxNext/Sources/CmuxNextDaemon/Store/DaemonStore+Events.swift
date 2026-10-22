@@ -191,6 +191,8 @@ extension DaemonStore {
 
         case .paneAdded(let delta):
             guard let screen = screensByHandle[delta.screen] else { return .resync }
+            // A pending split's pane, seen once: if it closes before a layout places it, the split settles.
+            if !intentLog.isEmpty { intentLog.noteDaemonPane(PaneModel.identity(delta.entity)) }
             if let existing = screen.panes.first(where: { $0.id == PaneModel.identity(delta.entity) }) {
                 existing.update(delta.entity)
                 indexed(existing, in: screen)
@@ -297,12 +299,12 @@ extension DaemonStore {
             return .none
 
         case .sessionState(let item): session.apply(item, in: self); return .none
-        case .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
+        case .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
              .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown: // .unknown: the `apps-*` events of apps-v1
             sideEvents.deliver(event, envelope: envelope)
             return .none
 
-        case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client:
+        case .scrollChanged, .bell, .frontendProjectionChanged, .client:
             return .none
         }
     }

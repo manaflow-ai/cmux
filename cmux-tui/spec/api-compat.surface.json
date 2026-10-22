@@ -37,6 +37,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/agent_session_id": {
+        "ty": "string",
+        "nullable": true
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -7751,23 +7755,26 @@
       }
     },
     "request:cloud-requests-list": {},
+    "request:cloud-selfhost-info": {},
     "request:cloud-session-clear": {},
     "request:cloud-session-set": {
       "/access_token": {
-        "ty": "string",
-        "required": true
+        "ty": "string"
       },
       "/api_base_url": {
         "ty": "string",
         "required": true
+      },
+      "/auth": {
+        "ty": "string",
+        "nullable": true
       },
       "/client_version": {
         "ty": "string",
         "nullable": true
       },
       "/expires_at": {
-        "ty": "uint64",
-        "required": true
+        "ty": "uint64"
       }
     },
     "request:cloud-session-status": {},
@@ -12562,6 +12569,12 @@
         "required": true
       }
     },
+    "response:cloud-selfhost-info": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:cloud-session-clear": {
       "/data": {
         "ty": "json",
@@ -16497,6 +16510,10 @@
         "ty": "object"
       },
       "/data/agents/*/agent": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/agents/*/agent_session_id": {
         "ty": "string",
         "nullable": true
       },

@@ -30,17 +30,9 @@ impl Hub {
         let meta = session.meta();
         let (is_claude, env) = self.harness_env(&meta).await;
         let through = if is_claude {
-            let latest = self
-                .store
-                .events(&session.id, 0, 500_000)
-                .map_err(|e| RpcError::internal(e.to_string()))?
-                .into_iter()
-                .filter(|e| e.kind == "turn_result")
-                .map(|e| e.seq)
-                .max()
-                .ok_or_else(|| {
-                    RpcError::invalid_params("the chat has no finished turn to ask about")
-                })?;
+            let latest = self.latest_turn_result(&session.id)?.ok_or_else(|| {
+                RpcError::invalid_params("the chat has no finished turn to ask about")
+            })?;
             Some(latest)
         } else if matches!(meta.status, SessionStatus::Running | SessionStatus::Waiting) {
             return Err(RpcError::new(CONFLICT, "the chat is working; ask when the turn ends"));

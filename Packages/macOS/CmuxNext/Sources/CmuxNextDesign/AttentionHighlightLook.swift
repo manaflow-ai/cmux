@@ -10,8 +10,8 @@ public import AppKit
 /// in the choice list, so TunableStore drops it at load and the look is the
 /// `subtle` default.
 public nonisolated enum AttentionHighlightLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// The default. A blink or pulse runs, then the ring rests faint; the steady
-    /// ring (opt-in; blink is the default style) swells in once and rests clearly visible.
+    /// The default. The steady ring (the default style) swells in once and rests clearly
+    /// visible; a blink or pulse runs, then the ring rests faint.
     case subtle
     /// The ring flashes and rests at full strength (the look before cx-epgo).
     case strong
@@ -35,7 +35,7 @@ public nonisolated enum AttentionHighlightLook: String, Sendable, CaseIterable, 
         }
     }
 
-    /// The steady ring's opacity (an opt-in style; blink is the default): clearly visible,
+    /// The steady ring's opacity (the default style): clearly visible,
     /// since it has no blink to catch the eye (Leo, 2026-10-14).
     public var steadyOpacity: Float {
         switch self {
@@ -60,4 +60,16 @@ public nonisolated enum AttentionHighlightLook: String, Sendable, CaseIterable, 
         "notifications.attention.look", .status, "Notification highlight",
         help: "Strength of the pane attention ring after a notification: subtle (default), strong (the old full ring), flash only (cx-epgo).",
         default: .subtle, code: "AttentionHighlightLook.tunable")
+}
+
+/// Debug Settings `notifications.attention.agentTurnRing`: whether an agent chat's pane rings
+/// when its turn ends while the person watches it (#22678). Off by default (Leo, 2026-10-21:
+/// "the model response does a double blue ring pulse", agreed not to be the default): a turn
+/// that ends in a shown chat is read at once, as before. On, the ring is a hairline in the pane
+/// border color (`AttentionMark.hairline`), never the notification blue.
+public nonisolated enum AgentTurnRing {
+    public static let tunable = Tunable<Bool>.toggle(
+        "notifications.attention.agentTurnRing", .status, "Ring a chat when its turn ends",
+        help: "Ring an agent chat's pane with a hairline when a turn ends there, until you click or type in it. Off by default: a turn you watched end is read at once.",
+        default: false, code: "AgentTurnRing.tunable")
 }

@@ -1,22 +1,26 @@
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat; the theme accent only marks focus and the selected row. */
 .nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(40px,14vh,140px) max(var(--cv-edge,18px),calc((100% - 720px)/2)) 24px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
 /* A short pane gives the location strip over the card (26px) back from the space above the card, so the
-   All chats list keeps its room and stays the page's only scroller (new-tab-scroll). */
-@media (max-height:480px){.nt-screen{padding-top:12px}}
+   All chats list keeps its room and stays the page's only scroller (new-tab-scroll): 12px at 360px tall
+   and under, rising with the height to the 14vh above 480px. One continuous curve, so a window resized
+   across that height moves the composer with it, never in a 55px jump (Leo 2026-10-20: "the new tab area
+   resizing calculation is slow and wack"; new-tab-live-resize). */
+.nt-screen{padding-top:clamp(12px,calc(46vh - 154px),clamp(40px,14vh,140px))}
 .nt-screen>*{width:100%}
 /* The box (Leo 10-13, coherence pass; Lawrence 10-14): the composer's surface (composerStates.css: lighter than the page in a light theme, one small step toward the text in a dark one), solid, so on a wallpaper it sits as chrome, not a film over the art and not a gray slab. Its rim (--acpmux-card-ring, which the location strip's seam redraws) is one device pixel in the composer's edge, clear under appearance.borders none; focus keeps that rim and only lifts its tone a little, never a wider ring or the accent. Its shadow is the composer's (composerStates.css): --elevation-1 in a light theme, none in a dark one. */
 .nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:20px;background:var(--acpmux-composer-surface,var(--cmux-surface-solid,var(--acpmux-base)));position:relative;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);box-shadow:var(--acpmux-card-ring),var(--acpmux-composer-shadow,var(--elevation-1))}
 .nt-input{display:flex;align-items:flex-start;gap:10px;min-height:52px;padding:0 18px}
 :root[data-borders=none] .nt-box{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) transparent}
-/* The field wraps a long draft and grows with it (NewTabScreen fits its height) up to eight lines,
+/* The field wraps a long draft and grows with it (field-sizing; NewTabScreen fits it only in an engine
+   without field-sizing) up to eight lines,
    the chat composer's cap (markdownField.css), and never past 40% of the pane; then it scrolls.
    One line keeps the 52px row: 16px above and below a 20px line. Nothing cuts the draft. */
-.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;max-height:min(calc(8lh + 32px),40vh);margin:0;border:0;outline:0;padding:16px 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-title);line-height:var(--text-title--line-height)}
+.nt-field{flex:1;min-width:0;display:block;box-sizing:border-box;field-sizing:content;min-height:calc(1lh + 32px);max-height:min(calc(8lh + 32px),40vh);margin:0;border:0;outline:0;padding:16px 0;resize:none;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;overflow-wrap:break-word;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-title);line-height:var(--text-title--line-height)}
 /* The hint stays one line (the empty field keeps its one-line row); only the draft wraps. */
 .nt-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nt-hint{flex:none;color:var(--acpmux-composer-dim);font-size:12px;white-space:nowrap}
-/* The suggestions' popover (Leo 2026-10-12): the shared Popover under the composer box, as wide as it, the opaque popup surface every pane popup paints (ui/popupSurface.css; Leo 10-13: the page background is see-through on a wallpaper theme, and the rows under it showed through; 10-14: no composer tint over it, so it reads as the pane's other menus); it never moves the page or grows its scroll. The list inside scrolls. */
-.nt-popover{box-sizing:border-box;width:var(--anchor-width);padding:0;border-radius:var(--ui-popup-radius,8px);background:var(--surface-popup);color:var(--agent-text);font-family:system-ui;-webkit-font-smoothing:antialiased;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:var(--acpmux-popup-elevation)}
+/* The suggestions' popover (Leo 2026-10-12): the shared Popover under the composer box, as wide as it, the liquid-glass popup surface every pane popup paints (ui/popupSurface.css, .ui-glass: frosted so the rows under it never read through; only Reduce Transparency makes it the opaque popup; 10-14: no composer tint over it, so it reads as the pane's other menus); it never moves the page or grows its scroll. The list inside scrolls. */
+.nt-popover{box-sizing:border-box;width:var(--anchor-width);padding:0;border-radius:var(--ui-popup-radius,8px);color:var(--agent-text);font-family:system-ui;-webkit-font-smoothing:antialiased;}
 /* The suggestions belong to the field: a menu the composer opens (model, reasoning, access: the dropdown layer) covers them, whichever opened last, as Codex desktop's composer menus do (Leo 10-15: the model menu opened under them). A dialog's scrim, on the same layer and portaled later, still dims them. */
 .ui-positioner:has(>.nt-popover){z-index:var(--layer-overlay)}
 .nt-popover .nt-rows{--popup-scroll-cap:360px;box-sizing:border-box;padding:var(--ui-popup-padding);max-height:min(48vh,360px);overflow:auto;overscroll-behavior:contain}
@@ -338,8 +342,8 @@
 .nt-style-input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;appearance:none;cursor:default}
 .nt-style-mark{position:absolute;top:0;left:0;display:flex;align-items:center;justify-content:center;width:24px;height:24px;pointer-events:none}
 .nt-style-mark::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--agent-accent,var(--agent-text))}
-.nt-style-options[data-settled] .nt-style-mark{transition:transform var(--agent-motion-move,190ms) var(--agent-ease-out,ease-out)}
-.nt-style-name{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);padding-bottom:2px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;pointer-events:none;opacity:0;transition:opacity var(--agent-motion-out,160ms) var(--agent-ease-out,ease-out)}
+.nt-style-options[data-settled] .nt-style-mark{transition:transform var(--agent-motion-move,180ms) var(--agent-ease-out,ease-out)}
+.nt-style-name{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);padding-bottom:2px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;pointer-events:none;opacity:0;transition:opacity var(--agent-motion-out,80ms) var(--agent-ease-out,ease-out)}
 .nt-style-name[data-shown]{opacity:1;transition-duration:var(--agent-motion-hover,80ms)}
 @media (prefers-reduced-motion:reduce){.nt-style-options[data-settled] .nt-style-mark,.nt-style-option::after{transition:none}}
 
@@ -444,7 +448,7 @@
 .nt-player[data-playing="true"] .nt-player-levels i:nth-child(3){animation-duration:1.9s}
 @keyframes nt-player-level{0%,100%{transform:scaleY(.4)}25%{transform:scaleY(.95)}50%{transform:scaleY(.55)}75%{transform:scaleY(.85)}}
 .nt-player-track{height:3px;border-radius:0;background:color-mix(in srgb,var(--agent-text) 12%,transparent);overflow:hidden}
-.nt-player-played{height:100%;background:var(--agent-soft,var(--acpmux-composer-dim));transition:width 1s linear}
+.nt-player-played{height:100%;background:var(--agent-soft,var(--acpmux-composer-dim));transition:width 1s linear} /* motion-allow: playback progress */
 .nt-player-controls{display:flex;align-items:center;gap:10px;margin-left:-4px}
 .nt-player-button{display:grid;place-items:center;width:28px;height:28px;padding:6px;box-sizing:border-box;border:0;border-radius:50%;
   background:transparent;color:var(--agent-text);cursor:default}
@@ -470,13 +474,7 @@
   .nt-player[data-playing="true"] .nt-player-levels i:nth-child(3){height:30%}
   .nt-player-played{transition:none}
 }
-/* Search | Ask (Leo 2026-10-18, reversing R86): a small glass switch, its "Tab to switch" hint
-   before it, in the row just above the box at its right edge (Lawrence 2026-10-20: "move tab to
-   switch outside above the box"), so the box holds only the field, the mic and Send. The project
-   strip shares the row on the left. The thumb is its own compositor layer and moves only by
-   transform, so the slide stays smooth when the main thread is busy; NewTabScreen sets data-mode
-   on the element before React renders the rows. Two equal columns keep the thumb exactly one
-   segment wide in every language. */
+/* The row just above the box: the project strip. */
 .nt-above {
   display: flex;
   align-items: center;
@@ -484,103 +482,16 @@
   min-width: 0;
 }
 /* The strip is size-contained (its controls answer to its own width): it takes the row's spare
-   room as a basis-0 item, and the switch keeps its own width at the right end. */
+   room as a basis-0 item. */
 .nt-above .acpmux-composer-strip {
   flex: 1 1 0;
   min-width: 0;
 }
-/* A top strip variant (Debug Settings) draws the strip as the card's own top, spanning it: the
-   switch then takes its own line above the strip, still at the right edge. */
+/* A top strip variant (Debug Settings) draws the strip as the card's own top, spanning it. */
 :root[data-top-strip] .nt-above {
   flex-direction: column;
   align-items: stretch;
   gap: 6px;
-}
-.nt-mode {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  /* At the box's right edge, in from it as the field's text is from the left. */
-  margin-left: auto;
-  padding-right: 6px;
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
-  user-select: none;
-  cursor: default;
-}
-:root[data-top-strip] .nt-above .nt-mode {
-  order: -1;
-  align-self: flex-end;
-}
-/* The mode said aloud after a Tab: for screen readers only (ui.css's ui-sr-only is not on this page). */
-.nt-mode-status {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-.nt-mode-hint {
-  color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 45%, transparent));
-  white-space: nowrap;
-}
-@container (max-width: 520px) {
-  .nt-mode-hint {
-    display: none;
-  }
-}
-.nt-mode-track {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  padding: 2px;
-  /* Small-radius rects, not a capsule (POLISH.md). */
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 12%, transparent);
-}
-.nt-mode-thumb {
-  position: absolute;
-  inset: 2px auto 2px 2px;
-  width: calc(50% - 2px);
-  border-radius: 5px;
-  /* Glass: a lifted translucent fill with a lit top edge, over the track's tint. */
-  background: linear-gradient(
-    color-mix(in srgb, var(--agent-text) 16%, transparent),
-    color-mix(in srgb, var(--agent-text) 9%, transparent)
-  );
-  box-shadow:
-    inset 0 0.5px 0 color-mix(in srgb, var(--agent-text) 22%, transparent),
-    var(--elevation-1);
-  transform: translateX(0);
-  will-change: transform;
-  pointer-events: none;
-}
-.nt-mode[data-mode="ask"] .nt-mode-thumb {
-  transform: translateX(100%);
-}
-@media (prefers-reduced-motion: no-preference) {
-  .nt-mode-thumb {
-    transition: transform var(--agent-motion-move, 190ms) var(--agent-ease-out, ease-out);
-  }
-}
-.nt-mode-track button {
-  position: relative;
-  min-width: 0;
-  padding: 2px 10px;
-  border: 0;
-  border-radius: 5px;
-  background: none;
-  color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 55%, transparent));
-  font: inherit;
-  white-space: nowrap;
-}
-.nt-mode[data-mode="search"] .nt-mode-track button[data-mode="search"],
-.nt-mode[data-mode="ask"] .nt-mode-track button[data-mode="ask"] {
-  color: var(--agent-text);
 }
 /* The New Tab widget view (WidgetCards.tsx, Leo 2026-10-18): soft cards in the composer's fill and
    hairline edge, round as the composer box, no squared boxes. Rows are quiet text; a pointer fills
@@ -771,8 +682,9 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   flex: none;
   width: 100%;
 }
-/* A chat row's hover card (Leo 2026-10-19): a solid floating card offset from the row (Tooltip's
-   gap), clamped to the window by the positioner, with the tooltip's short fade. */
+/* A chat row's hover card (Leo 2026-10-19): a floating glass hover card (desktop.css
+   .ui-card.ui-glass) offset from the row (Tooltip's gap), clamped to the window by the positioner,
+   with the tooltip's short fade. */
 .nt-hovercard {
   max-width: min(320px, calc(100vw - 24px));
   padding: 8px 10px;
@@ -794,9 +706,8 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   color: var(--acpmux-composer-dim, var(--cmux-text-secondary));
 }
 /* Cards (u2851, from a scrawl of Aside's New Tab page). The field is a pill of its own: a round
-   rim, the Search | Ask switch with the Tab hint just above its right end. Under it, outside the
-   pill, one quiet row: the project strip on the left, the agent's chips and the mic on the right,
-   no Send disc (Return sends); it keeps its place but hides while Search shows its suggestions.
+   rim. Under it, outside the pill, one quiet row: the project strip on the left, the agent's chips
+   and the mic on the right, no Send disc (Return sends).
    Then "Chats" as a segmented tab with "All Chats >" across from it, and three tall cards in a
    grid that show more of each chat's last reply. Wider than the other templates' 720px column. */
 .nt-screen[data-template="cards"] {
@@ -820,25 +731,6 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-screen[data-template="cards"][data-pill] .nt-field {
   padding-block: 18px;
-}
-/* Cards has no strip over its pill: the row holds only the switch, at the pill's right end. */
-.nt-screen[data-template="cards"][data-pill] .nt-mode {
-  padding-right: 12px;
-}
-.nt-screen[data-template="cards"][data-pill] .nt-mode-track {
-  padding: 3px;
-  border-radius: 999px;
-}
-.nt-screen[data-template="cards"][data-pill] .nt-mode-thumb {
-  inset: 3px auto 3px 3px;
-  width: calc(50% - 3px);
-  border-radius: 999px;
-  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
-  box-shadow: var(--elevation-1);
-}
-.nt-screen[data-template="cards"][data-pill] .nt-mode-track button {
-  padding: 5px 16px;
-  border-radius: 999px;
 }
 .nt-toolbar {
   display: flex;
@@ -866,9 +758,6 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   background: none;
   box-shadow: none;
 }
-.nt-screen[data-template="cards"][data-mode="search"] .nt-toolbar {
-  visibility: hidden;
-}
 .nt-screen[data-template="cards"] .nt-chats {
   margin-top: 36px;
 }
@@ -889,7 +778,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-screen[data-template="cards"] .nt-card {
   gap: 4px;
-  min-height: min(260px, 40vh);
+  /* Sized to its content (the card's own 84px floor): a fixed 260px card held ~70px of text. */
   padding: 14px 16px;
   border-radius: 14px;
   background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
@@ -908,4 +797,21 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 :root[data-borders="none"] .nt-screen[data-template="cards"] .nt-card {
   box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
+}
+/* The Minimal layout with no widgets on (pageWidgets.ts; Leo 2026-10-20, the default): a quiet
+   greeting and the composer, nothing else. The composer sits about the window's middle at a fixed
+   place (a pasted image or a long draft grows it downward, never moves it); the greeting sits a
+   little over it. */
+.nt-screen[data-minimal] {
+  padding-top: max(32px, calc(50vh - 150px));
+}
+.nt-greeting {
+  flex: none;
+  margin: 0 0 6px;
+  text-align: center;
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  font-weight: 500;
+  color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 55%, transparent));
+  user-select: none;
 }

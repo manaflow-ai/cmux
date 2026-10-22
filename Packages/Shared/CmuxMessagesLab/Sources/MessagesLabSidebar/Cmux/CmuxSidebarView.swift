@@ -211,6 +211,8 @@ public final class CmuxSidebarView: NSView {
     /// The compact (avatar-only) list's width and the width the list is designed for.
     public var minimumWidth: CGFloat { controller.minimumWidth }
     public var preferredWidth: CGFloat { controller.preferredWidth ?? 320 }
+    /// Below this width the list shows avatars only (no names, previews or section headers).
+    public static var compactBelow: CGFloat { SidebarMetrics.compactBelow }
     public var selectedID: String? { controller.selectedID }
 
     /// Shows `entries` (newest first, pinned included) with `pinned` in tile order.

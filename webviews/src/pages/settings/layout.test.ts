@@ -2,8 +2,11 @@
 // layout.css). Regression: layout.css set the two-column grid after styles.css's narrow rule, so a
 // pane under 600 px kept two columns while the sidebar took the stacked layout's 40vh cap and
 // bottom edge: the categories were cut off and the column overlapped them in short panes.
+import { Glob } from "bun";
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { stylesheet } from "./testDom";
 
 type Rule = { selectors: string[]; media: string | null; declarations: Map<string, string> };
@@ -112,4 +115,22 @@ test("the refined look stacks a narrow pane too: no side border, no side-cut con
   // A wide pane keeps the column card.
   expect(refined(".settings > .sidebar", "border-right", 1000)).toBe("1px solid var(--polish-edge)");
   expect(refined(".settings > .content", "border-radius", 1000)).toBe("0 12px 12px 0");
+});
+
+// The gallery split separately imported sheets into shared chunks and loaded layout.css before
+// styles.css (and refined.css before both), so it drew the old switch, rows and titles. page.css
+// holds them in cascade order; nothing else may import them.
+test("only page.css imports the page's sheets", () => {
+  const src = fileURLToPath(new URL("../../", import.meta.url));
+  const sheets = new Set(
+    ["styles.css", "layout.css", "refined.css"].map((name) => fileURLToPath(new URL(`./${name}`, import.meta.url))),
+  );
+  const importers: string[] = [];
+  for (const file of new Glob("**/*.{ts,tsx,css}").scanSync(src)) {
+    const path = join(src, file);
+    for (const [, spec] of readFileSync(path, "utf8").matchAll(/(?:import\s*\(?|@import)\s*["'](\.[^"']+\.css)["']/g)) {
+      if (sheets.has(resolve(dirname(path), spec!))) importers.push(relative(src, path));
+    }
+  }
+  expect([...new Set(importers)]).toEqual(["pages/settings/page.css"]);
 });

@@ -2,7 +2,7 @@
 import { createElement } from "react";
 import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
-import type { Play } from "../../../gallery/play";
+import type { Play, PlayContext } from "../../../gallery/play";
 import type { ChatMenuItem } from "./ChatHeaderTools";
 import type { QuickAction } from "./quickActions";
 
@@ -75,8 +75,13 @@ const menuRows = (): ChatMenuItem[] => [
 
 const summary = createElement(
   "button",
-  { type: "button", className: "acpmux-summary-button", "aria-label": "Turn summary" },
-  "Completed",
+  { type: "button", className: "acpmux-header-tool acpmux-summary-button", "aria-label": "Turn summary" },
+  // A list glyph at the header's glyph size (HEADER_GLYPH), as SummaryButton draws view.list.
+  createElement(
+    "svg",
+    { width: 16, height: 16, viewBox: "0 0 24 24", "aria-hidden": true },
+    createElement("path", { d: "M5 7h14M5 12h14M5 17h14", stroke: "currentColor", strokeWidth: 1.5, fill: "none" }),
+  ),
 );
 
 const openMenu: Play = async (ctx) => {
@@ -95,19 +100,26 @@ const panelsOpen: Play = async (ctx) => {
 
 // Action controls and session metadata stay separate in the compact top-right cluster while every
 // existing control keeps its 26px hit target.
+// Claude Code desktop's top strip (Leo 2026-10-21): no separators, every button a 24px square on one
+// 26px pitch, every glyph the same size.
 const groupedControls: Play = async (ctx) => {
   const actions = ctx.find({ selector: ".acpmux-header-tool-group-actions" });
   const meta = ctx.find({ selector: ".acpmux-header-tool-group-meta" });
-  const separator = ctx.find({ selector: ".acpmux-header-separator" });
   if (actions.getBoundingClientRect().width <= 0 || meta.getBoundingClientRect().width <= 0)
     throw new Error("header control groups must remain visible");
-  // An <hr> is a separator by its implicit role, so the play checks the element, not an attribute.
-  if (separator.tagName !== "HR") throw new Error("header group separator is not semantic");
-  if (separator.getAttribute("aria-orientation") !== "vertical")
-    throw new Error("header separator orientation changed");
-  const tools = ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools button");
-  if ([...tools].some((button) => Math.round(button.getBoundingClientRect().height) !== 26))
-    throw new Error("header control hit target changed");
+  if (ctx.document.querySelector(".acpmux-header-tools hr, .acpmux-header-separator"))
+    throw new Error("the header tools draw a separator");
+  const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools button")];
+  for (const button of tools) {
+    const box = button.getBoundingClientRect();
+    if (Math.round(box.width) !== 24 || Math.round(box.height) !== 24)
+      throw new Error(`header button ${button.getAttribute("aria-label")} is not a 24px square`);
+  }
+  const lefts = tools.map((button) => button.getBoundingClientRect().left);
+  if (lefts.slice(1).some((left, index) => Math.round(left - lefts[index]!) !== 26))
+    throw new Error("header buttons are not on one 26px pitch");
+  const glyphs = new Set(tools.map((button) => button.querySelector("svg")?.getAttribute("width")));
+  if (glyphs.size !== 1) throw new Error(`header glyphs come in several sizes: ${[...glyphs].join(", ")}`);
 };
 
 // The App found the chat branch's pull request: open, 3 of 5 checks passed, one failing (cx-tcwj).
@@ -147,6 +159,14 @@ const worktreeRemoveRefused: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-worktree-remove [role=alert]"));
 };
 
+// The chip mounts on React's next render, not inside setHeaderState; let that render paint first so
+// its row shift is not counted against the click.
+async function chipShown(ctx: PlayContext) {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header-pr"));
+  const view = ctx.document.defaultView!;
+  await new Promise((done) => view.requestAnimationFrame(() => view.requestAnimationFrame(done)));
+}
+
 // A click on the chip opens its status: title, state and review, then each check, failing first
 // (cx-ncc.77.1).
 const pullRequestStatus: Play = async (ctx) => {
@@ -173,6 +193,7 @@ const pullRequestStatus: Play = async (ctx) => {
       ],
     },
   });
+  await chipShown(ctx);
   await ctx.click({ selector: ".acpmux-header-pr" });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-pr-check").length === 5);
 };
@@ -196,6 +217,7 @@ const pullRequestMerge: Play = async (ctx) => {
       ],
     },
   });
+  await chipShown(ctx);
   await ctx.click({ selector: ".acpmux-header-pr" });
   await ctx.click({ role: "button", name: "Merge" });
   await ctx.waitFor(() => ctx.find({ role: "button", name: "Confirm merge" }));
@@ -315,7 +337,7 @@ export default componentEntry<HeaderToolsProps>({
       props: { ...base, previewUrl: "http://localhost:5173/", onPreview: () => undefined },
     },
     "grouped-controls": {
-      note: "Quick actions and session metadata are separated without changing the existing button hit targets.",
+      note: "Claude Code desktop's strip: no separators, 24px square buttons on one 26px pitch, one glyph size.",
       props: base,
       play: groupedControls,
     },

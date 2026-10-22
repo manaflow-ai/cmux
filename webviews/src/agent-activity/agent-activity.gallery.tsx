@@ -3,7 +3,6 @@
 // (screenshots stay placeholders). Empty on a Mac where computer use never ran, and three agents
 // across two machines in each layout.
 import { useEffect, useState } from "react";
-import { minutesAgo } from "../gallery/clock";
 import { componentEntry } from "../gallery/format";
 import {
   initialActivityState,
@@ -12,7 +11,6 @@ import {
   type ActivitySession,
   type ActivityState,
 } from "./model";
-import type { Lane } from "./lanes";
 import { ActivityView } from "./view";
 
 type Props = { state: ActivityState };
@@ -85,60 +83,6 @@ const busy: ActivityState = {
   selectedSessionID: "s1",
 };
 
-const hoursAgo = (n: number) => minutesAgo(n * 60);
-const lanes: Lane[] = [
-  {
-    id: "chief",
-    name: "chief",
-    title: "Coordinator",
-    state: "working",
-    since: hoursAgo(0.1),
-    harness: "claude",
-    step: "Check the four open PRs and send the green ones to merge",
-  },
-  {
-    id: "l1",
-    name: "op-restore",
-    title: "Restore everything",
-    parent: "chief",
-    state: "failed",
-    since: hoursAgo(3),
-    error: "Credit balance too low",
-  },
-  {
-    id: "l2",
-    name: "op-keys",
-    title: "Keymaps call",
-    parent: "chief",
-    state: "input",
-    since: hoursAgo(0.2),
-    harness: "codex",
-    step: "Should Cmd-K open the palette or clear the terminal?",
-  },
-  {
-    id: "l3",
-    name: "op-gallery",
-    title: "Gallery previews",
-    parent: "chief",
-    state: "idle",
-    since: hoursAgo(5),
-    harness: "claude",
-    step: "Opened #21700; CI is green.",
-  },
-  {
-    id: "l4",
-    name: "op-cursors",
-    title: "Agent Activity lanes",
-    parent: "chief",
-    state: "working",
-    since: hoursAgo(0.5),
-    harness: "codex",
-    step: "Run the lanes tests",
-  },
-  { id: "l5", name: "scratch", title: "Scratch chat", state: "idle", since: hoursAgo(26) },
-  { id: "l6", name: "mini/op-web", title: "Web bundles", peer: "mini", state: "lost", since: hoursAgo(4) },
-];
-
 function ActivityGallery({ state: initial }: Props) {
   const [state, setState] = useState(initial);
   // A new variant replaces the state even when the stage keeps this component mounted.
@@ -156,7 +100,7 @@ export default componentEntry<Props>({
   area: "Pages",
   height: 560,
   widths: { narrow: 480, normal: 1000, wide: 1400 },
-  covers: ["agent-activity/view.tsx#ActivityView"],
+  covers: ["page:cmux.agent-activity", "agent-activity/view.tsx#ActivityView"],
   load: async () => ActivityGallery,
   styles: async () => {
     await import("../pages/shared/desktop.css");
@@ -167,9 +111,5 @@ export default componentEntry<Props>({
     split: { note: "Three agents on two machines; the first is selected.", props: { state: busy } },
     timeline: { note: "Every session as a lane of steps.", props: { state: { ...busy, layout: "timeline" } } },
     grid: { note: "One tile per session with its latest step.", props: { state: { ...busy, layout: "grid" } } },
-    lanes: {
-      note: "Labs: every agent session by machine and coordinator, with its harness and current step; what needs a person first.",
-      props: { state: { ...busy, lanes } },
-    },
   },
 });

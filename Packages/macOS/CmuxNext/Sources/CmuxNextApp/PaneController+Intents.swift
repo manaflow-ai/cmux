@@ -107,7 +107,9 @@ extension PaneController {
         let handle = pane.handle
         // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
         let agent = cwd == nil && fromSelectedTab && !daemonResolvesCwd ? selectedAgentView : nil
-        let cwd = daemonResolvesCwd ? cwd : cwd ?? selectedTab?.cwd
+        // A selected agent chat's exact folder at once (NewTerminalStart.folder); the page's own
+        // answer above still wins when it comes.
+        let cwd = daemonResolvesCwd ? cwd : cwd ?? (fromSelectedTab ? NewTerminalStart.folder(of: selectedTab, services: services) : nil) ?? selectedTab?.cwd
         // From another machine's terminal (an SSH tab in a mixed pane), a terminal on that machine (cx-2s5t).
         if fromSelectedTab, text == nil, page == nil,
            services.remoteTerminals.openTerminal(besides: selectedTab, in: pane, home: daemon, cwd: cwd) { return }
@@ -294,11 +296,12 @@ extension PaneController {
         })
     }
 
+    /// Asks for the tab's new name as a Cmd-Shift-P step that starts from its title; Return runs
+    /// Rename Tab with it.
     func rename(_ id: StripTabID) {
-        guard let tab = tab(id), let window = view.window else { return }
-        RenamePrompt.run(title: Strings.renameTabTitle, initial: tab.displayTitle, in: window) { [weak self] name in
-            self?.commitRename(id, name: name)
-        }
+        guard let tab = tab(id) else { return }
+        services.registry.ask("renameTab", ActionInvocation(target: ActionTargetRef(kind: .tab, id: id.rawValue)),
+                              ActionArgumentAsk(argument: "name", initialText: tab.displayTitle))
     }
 
     func commitRename(_ id: StripTabID, name: String) {
@@ -333,8 +336,9 @@ extension PaneController {
         let kept = Set(TabPromotion.menuRemovals(keepsTab: keepsTab))
         guard let tab, tab.kind == .browser else {
             // Hibernation discards a page; a terminal has none (Restart only once its shell ended).
-            // Reload and Mute are a page's rows (Chrome's Reload, Mute Site).
-            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab", "toggleTabAudioMute", "reloadTab"]).union(TabRestart.hiddenMenuItems(tab)).union(CloudMove.hiddenMenuItems(tab)))
+            // Reload, Mute and Picture in Picture are a page's rows (Chrome's Reload, Mute Site).
+            let pageRows: Set<ActionID> = ["hibernateTab", "wakeTab", "toggleTabAudioMute", "reloadTab", PictureInPictureHandlers.actionID]
+            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(pageRows).union(TabRestart.hiddenMenuItems(tab)).union(CloudMove.hiddenMenuItems(tab)))
             return registry.makeContextMenu(for: .tab, target: target, entries: entries, arguments: arguments)
         }
         // A browser tab offers the engine it is not on.
@@ -355,14 +359,14 @@ extension PaneController {
         case .group(let group), .savedGroup(let group):
             let saved = daemon.store.savedTabGroups.contains { $0.openGroup?.rawValue == group.rawValue }
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),
-                                            entries: TabGroupPinMenu.entries(saved: saved))
+                                            entries: TabGroupPinMenu.entries(saved: saved)).themeRows(in: view.themeScope.fullStrength)
         case .emptyStrip:
             let entries = ContextMenuCatalog.shared.entries(for: .newTab) + [.separator] + ContextMenuCatalog.shared.entries(for: .pane)
             return registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: paneKey), entries: entries).themeRows(in: view.themeScope.fullStrength)
         case .newTabButton:
             // The engine menu predicts a Chromium tab (ChromiumWarmup).
             services.chromiumWarmup.chromiumLikely(.newTabMenu)
-            return registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: paneKey))
+            return registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: paneKey)).themeRows(in: view.themeScope.fullStrength)
         }
     }
 }

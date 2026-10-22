@@ -247,6 +247,20 @@
    "canvas": 16,
    "meaning": "Page menu Cast (Chrome kCastChromeRefreshOldIcon)",
    "sf": "airplayvideo"
+  },
+  {
+   "name": "browser.extensions.sidepanel",
+   "file": "chrome/app/vector_icons/dock_to_right_old.icon",
+   "canvas": 16,
+   "meaning": "Extensions menu row: open the extension's side panel (Chrome kDockToRightOldIcon)",
+   "sf": "sidebar.right"
+  },
+  {
+   "name": "browser.extensions.webstore",
+   "file": "components/vector_icons/storefront_old.icon",
+   "canvas": 14,
+   "meaning": "Extensions menu footer: get extensions from the Chrome Web Store (Chrome kStorefrontOldIcon)",
+   "sf": "storefront"
   }
  ]
 }

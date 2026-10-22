@@ -61,7 +61,8 @@ function withReceipt(Component: typeof NewTabPage) {
     const [receipt, setReceipt] = useState("");
     const record = (value: string) => setReceipt(value);
     return (
-      <div className="newtab-page-gallery" data-newtab-receipt={receipt}>
+      // The pane's shell, as the app mounts the page: its composer tokens (styles.css) fill the box.
+      <div className="acpmux-shell newtab-page-gallery" data-newtab-receipt={receipt}>
         <Component
           {...props}
           onSubmit={(kind, text, cwd) => {
