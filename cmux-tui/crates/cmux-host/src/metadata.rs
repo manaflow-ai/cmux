@@ -80,7 +80,7 @@ fn request(addr: SocketAddr, deadline: Instant, head: &str) -> io::Result<String
         if n == 0 {
             break;
         }
-        raw.extend_from_slice(&chunk[..n]);
+        raw.extend_from_slice(chunk.get(..n).ok_or_else(|| bad("metadata read past its buffer"))?);
         if raw.len() as u64 > MAX_RESPONSE {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "metadata response too large"));
         }
@@ -97,17 +97,21 @@ fn request(addr: SocketAddr, deadline: Instant, head: &str) -> io::Result<String
 /// while more bytes are needed (or when there is no length: read to EOF).
 fn complete_body(raw: &[u8]) -> io::Result<Option<String>> {
     let Some(end) = find(raw, b"\r\n\r\n") else { return Ok(None) };
-    let head = std::str::from_utf8(&raw[..end]).map_err(|_| bad("metadata header is not UTF-8"))?;
+    let head = raw.get(..end).unwrap_or_default();
+    let head = std::str::from_utf8(head).map_err(|_| bad("metadata header is not UTF-8"))?;
     let Some(len) = content_length(head) else { return Ok(None) };
-    if raw.len() < end + 4 + len {
-        return Ok(None);
-    }
-    parse_response(&raw[..end + 4 + len]).map(|(_, body)| Some(body))
+    let total = end
+        .checked_add(4)
+        .and_then(|head_len| head_len.checked_add(len))
+        .ok_or_else(|| bad("metadata content length too large"))?;
+    let Some(response) = raw.get(..total) else { return Ok(None) };
+    parse_response(response).map(|(_, body)| Some(body))
 }
 
 fn parse_response(raw: &[u8]) -> io::Result<(u16, String)> {
     let end = find(raw, b"\r\n\r\n").ok_or_else(|| bad("metadata header incomplete"))?;
-    let head = std::str::from_utf8(&raw[..end]).map_err(|_| bad("metadata header is not UTF-8"))?;
+    let head = raw.get(..end).unwrap_or_default();
+    let head = std::str::from_utf8(head).map_err(|_| bad("metadata header is not UTF-8"))?;
     let status: u16 = head
         .lines()
         .next()
@@ -117,7 +121,7 @@ fn parse_response(raw: &[u8]) -> io::Result<(u16, String)> {
     if status != 200 {
         return Err(io::Error::other(format!("metadata status {status}")));
     }
-    let body = String::from_utf8(raw[end + 4..].to_vec())
+    let body = String::from_utf8(raw.get(end + 4..).unwrap_or_default().to_vec())
         .map_err(|_| bad("metadata body is not UTF-8"))?;
     Ok((status, body))
 }
