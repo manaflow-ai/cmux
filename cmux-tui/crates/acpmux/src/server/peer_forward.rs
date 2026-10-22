@@ -152,8 +152,7 @@ async fn forward_inner(
             }
             if peer.mark_attached(&id) && m != method::MUX_ATTACH {
                 // The link is not a person: only a client's own attach or view shows the chat.
-                let attach = json!({"sessionId": id, "limit": 0, "visible": false});
-                let _ = peer.request(method::MUX_ATTACH, attach).await;
+                let _ = peer.request(method::MUX_ATTACH, crate::peer::hidden_attach(&id)).await;
             }
         }
         let mut result = peer.request(m, p).await.map_err(|e| {
