@@ -12,7 +12,8 @@ import { useContext, useEffect, useState } from "react";
 import { usePaneLanguage, useT } from "../i18n";
 import { BackgroundHint } from "./BackgroundHint";
 import { formatDuration } from "./turns";
-import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
+import { WaitingLabel } from "./WaitingLabel";
+import { WaitingOnContext } from "./waitingOn";
 import { useTicking, WorkingCountsContext, workingTokens } from "./WorkingFor";
 
 /// How long streaming text must hold still before the live line comes back under it.
@@ -117,9 +118,7 @@ export function Thinking({
   return (
     <div className={`cv-worked${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
       {waiting ? (
-        <output className="cv-thinking cv-waiting" data-waiting={waiting}>
-          {t(WAITING_LABEL[waiting])}
-        </output>
+        <WaitingLabel waiting={waiting} className="cv-thinking cv-waiting" />
       ) : (
         <output className={status ? "cv-thinking" : "cv-thinking is-shimmer"}>{label}</output>
       )}

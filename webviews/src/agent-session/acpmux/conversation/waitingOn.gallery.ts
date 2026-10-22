@@ -33,6 +33,19 @@ const heldForPermission = chat(
 const line = (ctx: Parameters<Play>[0]) =>
   ctx.document.querySelector(".cv-waiting")?.textContent ?? ctx.document.querySelector(".cv-worked")?.textContent;
 
+/// The trust question's wait names the folder, points at the question right on the composer, and a
+/// click on it lands on the question's primary answer (Leo, 2026-10-21: Claude "thinks" forever).
+const waitsOnTrust: Play = async (ctx) => {
+  await waitsOn("Waiting for you to trust atlas-web")(ctx);
+  const dock = ctx.document.querySelector(".acpmux-dock");
+  const stack = dock?.querySelector(":scope > .acpmux-asks-stack");
+  if (!stack?.querySelector(".acpmux-trust-ask[data-asking]")) throw new Error("No open trust question in the dock");
+  if (stack.nextElementSibling !== dock?.querySelector(":scope > .acpmux-composer"))
+    throw new Error("The trust question is not right above the composer");
+  await ctx.click({ selector: ".cv-waiting__show" });
+  await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-trust-ask-primary"));
+};
+
 const waitsOn =
   (words: string): Play =>
   async (ctx) => {
@@ -57,10 +70,10 @@ export default agentPaneEntry({
   keywords: ["thinking", "waiting", "trust", "permission", "blocked"],
   variants: {
     "trust-held-prompt": {
-      note: "The first prompt waits on the trust question: the line says so above the open question.",
+      note: "The first prompt waits on the trust question: the line names the folder and points at the question on the composer; a click lands on Trust folder.",
       snapshot: heldForTrust,
       native: { "acp.trust.get": { cwd: CWD, level: "unknown" } },
-      play: waitsOn("Waiting for you: trust this folder?"),
+      play: waitsOnTrust,
     },
     "permission-mid-turn": {
       note: "A running turn waits for a Yes: no clock, no call name, the wait in words.",

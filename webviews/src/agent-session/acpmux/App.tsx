@@ -116,7 +116,7 @@ import { HomeLists } from "./HomeLists";
 import { endsTurn, turnFiles, turnPathsOnly, turnRows, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
 import type { TrustSource } from "./folderTrust";
-import { TrustAsk, trustedLabel } from "./TrustAsk";
+import { TrustAsk, trustAskName, trustedLabel } from "./TrustAsk";
 import { SecretCard } from "./SecretCard";
 import { ToolCards } from "./toolCards/ToolCards";
 import { uploadToMachine } from "./cloudUploads";
@@ -315,7 +315,8 @@ import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { PendingSteer } from "./conversation/PendingSteer";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
-import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
+import { WaitingProvider } from "./conversation/WaitingLabel";
+import { chatWaitsOn } from "./conversation/waitingOn";
 import { TranscriptDisclosureProvider } from "./conversation/transcriptDisclosure";
 import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
 import { Notice, NoticeSlot } from "./NoticeSlot";
@@ -6792,7 +6793,7 @@ function AcpmuxPane() {
                       <SubagentNavContext.Provider value={setSubagentView}>
                         <SubagentPaneContext.Provider value={showSubagent}>
                           <WorkingCountsContext.Provider value={workingCounts}>
-                            <WaitingOnContext.Provider value={waiting}>
+                            <WaitingProvider on={waiting} trust={trustAsk.ask && trustAskName(trustAsk.ask)}>
                               <SubagentStopContext.Provider value={stopSubagent}>
                                 <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
                                   <SubagentHarnessContext.Provider
@@ -6859,7 +6860,7 @@ function AcpmuxPane() {
                                   </SubagentHarnessContext.Provider>
                                 </SubagentClockContext.Provider>
                               </SubagentStopContext.Provider>
-                            </WaitingOnContext.Provider>
+                            </WaitingProvider>
                           </WorkingCountsContext.Provider>
                         </SubagentPaneContext.Provider>
                       </SubagentNavContext.Provider>
@@ -7940,13 +7941,15 @@ function AcpmuxPane() {
                 )}
               </div>
               <div ref={setDock} className="acpmux-dock">
-                {asks}
                 {/* Between the hero and the docked composer. */}
                 {freshView && (
                   <div className="acpmux-home-area">
                     <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
                   </div>
                 )}
+                {/* The asks (the folder's trust question first) sit right on the composer, where the
+                    eye is after Send, never above the new chat's lists (Leo, 2026-10-21). */}
+                {asks}
                 {hostErrorCard}
                 {composer}
               </div>

@@ -53,12 +53,20 @@ function GalleryTrustAsk({ initialAsk }: Props) {
 
 const text = (ctx: Parameters<Play>[0]) => ctx.document.querySelector(".acpmux-trust-ask-text")?.textContent;
 
+/// The question says what is trusted in words, then by path (Leo, 2026-10-21).
+const says = (ctx: Parameters<Play>[0], question: string, path: string) =>
+  ctx.waitFor(
+    () => text(ctx) === question && ctx.document.querySelector(".acpmux-trust-ask-path")?.textContent === path,
+  );
+
 const trustFolder: Play = async (ctx) => {
+  await says(ctx, "Trust this folder?", "~/Projects/demo-app");
   await ctx.click({ role: "button", name: "Trust folder" });
   await ctx.waitFor(() => text(ctx) === "Trusted demo-app");
 };
 
 const trustRepo: Play = async (ctx) => {
+  await says(ctx, "Trust atlas-web and its worktrees?", "~/Projects/atlas-web");
   ctx.find({ role: "button", name: "Only this folder" });
   await ctx.click({ role: "button", name: "Trust repo" });
   await ctx.waitFor(() => text(ctx) === "Trusted via repo atlas-web");
@@ -78,7 +86,7 @@ export default componentEntry<Props>({
   id: "agent-pane.trust-ask",
   title: "Folder trust ask",
   area: "Agent pane",
-  height: 170,
+  height: 210,
   widths: { narrow: 360, normal: 520, wide: 720 },
   anchors: [{ selector: "[data-trust-fixture]" }],
   covers: ["agent-session/acpmux/TrustAsk.tsx#TrustAsk"],
@@ -92,7 +100,7 @@ export default componentEntry<Props>({
       play: trustRepo,
     },
     "ask-worktree": {
-      note: "A worktree cmux made: trusting the repository answers this and every other worktree once.",
+      note: "A worktree cmux made: the question names the repository and says the chat is in a worktree of it; trusting the repository answers every worktree once.",
       props: { initialAsk: ask("ask", worktree) },
       play: trustRepo,
     },
