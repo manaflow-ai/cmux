@@ -861,6 +861,16 @@ mod tests {
         assert!(folder_env(&ok, &chat).is_ok());
         assert!(folder_env(&env(&[("ZDOTDIR", ".")]), &elsewhere).is_err());
         assert!(folder_env(&env(&[("ZDOTDIR", &dots)]), &elsewhere).is_ok());
+        // A folder whose name has a space: named whole, inside an option string, or relative.
+        let spaced = root.join("my chat");
+        std::fs::create_dir_all(spaced.join("my dots")).unwrap();
+        let spaced_dots = spaced.join("my dots").to_string_lossy().into_owned();
+        assert!(folder_env(&env(&[("ZDOTDIR", &spaced_dots)]), &spaced).is_err());
+        let opts = format!("--rcfile \"{spaced_dots}/x\"");
+        assert!(folder_env(&env(&[("TOOL_OPTS", &opts)]), &spaced).is_err());
+        assert!(folder_env(&env(&[("ZDOTDIR", "./my dots")]), &spaced).is_err());
+        let sibling = root.join("my chat2").to_string_lossy().into_owned();
+        assert!(folder_env(&env(&[("ZDOTDIR", &sibling)]), &spaced).is_ok());
         let _ = std::fs::remove_dir_all(&root);
     }
 
