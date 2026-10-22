@@ -1,0 +1,150 @@
+public import Foundation
+public import Observation
+
+/// Settings > Accounts > "This Mac on Your Tailnet" (Labs): the daemon's own tailnet node, signed
+/// in the way Tailscale's apps do it (a sign-in link the person opens in the browser), its address,
+/// a Pair code for another Mac, and who may connect. The App feeds it the node's state
+/// (`tailnet.state`); the buttons run ``TailnetNodeServices``. Default deny: only the person's own
+/// Tailscale account may connect until they turn "Limit access" off.
+@MainActor @Observable
+public final class TailnetNodeModel {
+    public nonisolated enum Phase: Equatable, Sendable {
+        /// No node to sign in: the daemon has none (`not_built`), or no daemon answers.
+        case unavailable
+        case signedOut
+        case starting
+        /// Sign-in started: the person finishes it in the browser (`url`, Reopen).
+        case waitingForBrowser(url: String)
+        /// Signed in, but the tailnet's admin must approve the device.
+        case needsApproval
+        case signedIn(address: String, login: String?)
+        case failed(String)
+    }
+
+    public private(set) var phase: Phase = .unavailable
+    /// Who may connect; changed only by the person (``setLimitedToAccount(_:)``).
+    public private(set) var access: TailnetAccess
+    /// The Pair code shown after Pair: this Mac's address and a fresh ticket.
+    public private(set) var pairLink: TailnetPairLink?
+    /// The failure of the last button, shown under the card until the next one.
+    public private(set) var actionError: String?
+    /// True while a button's request runs (buttons are off meanwhile).
+    public private(set) var busy = false
+    /// The person pressed Sign In and the node has not signed in since: only then is a sign-in
+    /// link shown (a link the node offers by itself is not opened for them).
+    @ObservationIgnored private var signInRequested = false
+
+    @ObservationIgnored private let services: TailnetNodeServices
+
+    public init(services: TailnetNodeServices) {
+        self.services = services
+        access = services.loadAccess() ?? TailnetAccess()
+    }
+
+    /// The node's state changed (a `tailnet.state` item or a button's answer).
+    public func apply(_ state: TailnetNodeState) {
+        set(Self.phase(of: state, signInRequested: signInRequested))
+        if case .signedIn = phase { signInRequested = false } else if pairLink != nil { pairLink = nil }
+    }
+
+    /// The daemon has no node, or the connection to it ended. Changes nothing when already so, so
+    /// a page that reads the card while the daemon is away does not wake itself again.
+    public func markUnavailable() {
+        signInRequested = false
+        set(.unavailable)
+        if pairLink != nil { pairLink = nil }
+    }
+
+    /// Writes `phase` only when it changes (Observation wakes readers on every write).
+    private func set(_ next: Phase) {
+        if phase != next { phase = next }
+    }
+
+    /// Sign In (and Reopen): start the node's login and open its link in the browser.
+    public func signIn() async {
+        if case .waitingForBrowser(let url) = phase { return services.openURL(url) }
+        signInRequested = true
+        guard let state = await run(services.loginStart) else { return }
+        apply(state)
+        if case .waitingForBrowser(let url) = phase { services.openURL(url) }
+    }
+
+    /// Cancel on the waiting state: the link stays unused; the node keeps waiting until Sign In.
+    public func cancelSignIn() {
+        signInRequested = false
+        if case .waitingForBrowser = phase { set(.signedOut) }
+    }
+
+    public func signOut() async {
+        signInRequested = false
+        guard let state = await run(services.logout) else { return }
+        apply(state)
+    }
+
+    /// "Limit access to your Tailscale account".
+    public func setLimitedToAccount(_ limited: Bool) {
+        access.allowTailnetMembers = !limited
+        services.saveAccess(access)
+    }
+
+    /// Pair: a single-use client ticket for this Mac's address, shown as a QR code and a link.
+    public func pair() async {
+        guard case .signedIn(let address, _) = phase else { return }
+        guard let ticket = await run({ try await self.services.mintTicket(address) }) else { return }
+        pairLink = TailnetPairLink(address: address, ticket: ticket)
+        if pairLink == nil { actionError = TailnetNodeStrings.pairFailed }
+    }
+
+    public func closePair() { pairLink = nil }
+
+    private func run<T>(_ body: () async throws -> T) async -> T? {
+        busy = true
+        actionError = nil
+        defer { busy = false }
+        do {
+            return try await body()
+        } catch {
+            actionError = (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
+            return nil
+        }
+    }
+
+    /// The card's phase for `state`. A sign-in link shows only after the person asked for one.
+    nonisolated static func phase(of state: TailnetNodeState, signInRequested: Bool) -> Phase {
+        switch state.state {
+        case "running":
+            guard let address = state.dnsName.flatMap(TailnetPairLink.canonicalAddress) else { return .starting }
+            return .signedIn(address: address, login: state.owner?.loginName)
+        case "needs_login":
+            guard signInRequested, let url = state.browseToURL, url.hasPrefix("https://") else { return .signedOut }
+            return .waitingForBrowser(url: url)
+        case "needs_machine_auth": return .needsApproval
+        case "starting", "no_state": return signInRequested ? .starting : .signedOut
+        case "not_started", "stopped": return .signedOut
+        default: return .failed(state.error ?? state.state)
+        }
+    }
+}
+
+/// What the card does outside itself, so its flow runs the same in tests.
+public struct TailnetNodeServices {
+    public var loginStart: () async throws -> TailnetNodeState
+    public var logout: () async throws -> TailnetNodeState
+    /// Opens the sign-in link in the person's browser.
+    public var openURL: (String) -> Void
+    /// Mints a single-use `client` ticket that redeems at `address` (`cmux host ticket new`).
+    public var mintTicket: (_ address: String) async throws -> String
+    public var loadAccess: () -> TailnetAccess?
+    public var saveAccess: (TailnetAccess) -> Void
+
+    public init(loginStart: @escaping () async throws -> TailnetNodeState, logout: @escaping () async throws -> TailnetNodeState,
+                openURL: @escaping (String) -> Void, mintTicket: @escaping (String) async throws -> String,
+                loadAccess: @escaping () -> TailnetAccess?, saveAccess: @escaping (TailnetAccess) -> Void) {
+        self.loginStart = loginStart
+        self.logout = logout
+        self.openURL = openURL
+        self.mintTicket = mintTicket
+        self.loadAccess = loadAccess
+        self.saveAccess = saveAccess
+    }
+}
