@@ -133,6 +133,7 @@ import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
+import { StartingSends, type StartingSend } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import type { DiffFindHandle } from "./changes/diffFind";
 import { Inspector, type ExportOutcome } from "./Inspector";
@@ -330,6 +331,7 @@ import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chat
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
+import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
 import {
   SUBAGENT_DONE,
   SUBAGENT_OF,
@@ -615,6 +617,13 @@ const removeQueued = (promptId: string) =>
   callNative<{ removed?: boolean } | null>("chat.queue.remove", { promptId }).then(
     (result) => result?.removed === true,
   );
+
+/// Sends a prompt that waited for a new chat; settles once acpmux took it (its turn's later failure
+/// is the transcript's), and rejects when it was refused before.
+const sendWhenTaken = (steer: boolean) => (text: string, attachments: ComposerAttachment[]) =>
+  new Promise<void>((resolve, reject) => {
+    callNative("chat.send", { text, attachments, accepted: () => resolve(), steer }).then(() => resolve(), reject);
+  });
 
 /// Resumes the chat's paused messages with another agent (conversation/AgentPairNote.tsx).
 const resumeAgentPair = (peer: string) => callNative("chat.agentPair.resume", { peer });
@@ -4605,6 +4614,13 @@ function AcpmuxPane() {
     ),
   );
   const stableBranches = useMemo(() => branchesFromKey(versionsKey), [versionsKey]);
+  const restartChat = restartOwner({
+    connected,
+    sessionId: snapshot.sessionId,
+    watching: Boolean(snapshot.summary?.watching),
+    readOnly: readOnlySubagent,
+    canSend: remoteComposer(snapshot).canSend,
+  });
   const turnActions = useMemo<TurnActions>(
     () => ({
       ...(stableBranches.size > 0 && {
@@ -4637,6 +4653,16 @@ function AcpmuxPane() {
               text: prompt,
               attachments: (await directClient.current?.promptAttachments(rowId)) ?? [],
             }))().catch(() => undefined),
+      }),
+      // Restart sends a prompt as the composer would (restart.ts `restartOwner`, `restartReaches`):
+      // never to a View Only chat, from a subagent's read-only pane or where the composer cannot send,
+      // and only to the chat whose row was clicked, never to the next chat during a switch's hold.
+      ...(restartChat && {
+        restartSubagent: ((owner: string) => (agent: Subagent) => {
+          if (!restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)) return;
+          const text = restartPrompt(agent, translate);
+          if (text) void callNative("chat.send", { text }).catch(() => undefined);
+        })(restartChat),
       }),
       ...(connected &&
         retryModels.length > 1 && {
@@ -4685,6 +4711,7 @@ function AcpmuxPane() {
       retryHarnessName,
       retryTop,
       catalog,
+      restartChat,
     ],
   );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
@@ -5231,6 +5258,19 @@ function AcpmuxPane() {
   /// The composer is in shell mode, whose ⌘Return answers no recap card (RecapCard.tsx `keyHint`).
   const [composerShell, setComposerShell] = useState(false);
   const heldBack = useRef<{ text: string; attachments: ComposerAttachment[] }[] | undefined>(undefined);
+  /// Prompts sent while a new chat starts, shown as queued rows until acpmux takes each, in order
+  /// (startingSends.ts). One refused comes back to the composer with those behind it.
+  const [startingRows, setStartingRows] = useState<readonly StartingSend[]>([]);
+  const [startingSends] = useState(
+    () =>
+      new StartingSends(setStartingRows, (text, attachments, error) => {
+        // A prompt kept as its own failed row stays there; one a harness switch handed back is in
+        // the composer already.
+        if (failedRowOf(error) || (error as { handedBack?: unknown } | null)?.handedBack === true) return;
+        if (composerHandle.current) composerHandle.current.restore(text, attachments);
+        else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
+      }),
+  );
   /// What a released page's composer held (the handshake's `wake`), for the composer once it mounts.
   const pendingWake = useRef<ComposerWake | undefined>(undefined);
   /// Where the shown transcript rests now (VirtualTranscript `anchorNow`).
@@ -5328,8 +5368,14 @@ function AcpmuxPane() {
     // A side session asks nothing aside: its composer answers in it.
     if (opensSideSessions && snapshot.sessionId && !isSideSession) enabledCmuxActions.add("btw");
     const withCommands = { ...snapshot, commands: mergedCommands(snapshot.commands, enabledCmuxActions) };
+    // Prompts still waiting for a new chat to take them follow acpmux's queue.
+    if (startingRows.length)
+      withCommands.queue = [
+        ...snapshot.queue,
+        ...startingRows.map((row) => ({ id: row.id, prompt: row.text, sending: true })),
+      ];
     return withDraftFolder(withCommands, projectDraft);
-  }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, opensSideSessions, isSideSession]);
+  }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, opensSideSessions, isSideSession, startingRows]);
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
   }, [snapshot.sessionId]);
@@ -7525,6 +7571,11 @@ function AcpmuxPane() {
                 !projectDraft &&
                 !snapshot.summary?.watching
               ) {
+                // Prompts sent while the chat started still wait to go: this one goes after them.
+                if (startingSends.busy) {
+                  startingSends.add(text, attachments, sendWhenTaken(steer === true));
+                  return true;
+                }
                 const holder = composerHandle.current;
                 callNative("chat.send", { text, attachments, steer }).then(
                   () => promptLanded.current(),
@@ -7538,8 +7589,15 @@ function AcpmuxPane() {
                 );
                 return true;
               }
-              // A new chat's composer keeps the prompt until acpmux takes it: a refusal (folder
-              // trust, the remote guard, the sandbox) leaves it there to send again.
+              // A new chat's prompt leaves the composer at once as a queued row, and what is sent
+              // while the chat starts waits behind it (startingSends.ts): a refusal (folder trust,
+              // the remote guard, the sandbox) puts each back in the composer to send again. The
+              // Quick Composer and a View Only chat still keep the prompt until acpmux takes it.
+              const queues = surfaceRef.current !== "quick" && !snapshot.summary?.watching;
+              if (queues && startingSends.busy) {
+                startingSends.add(text, attachments, sendWhenTaken(steer === true));
+                return true;
+              }
               let accept: (taken: true) => void = () => undefined;
               const taken = new Promise<true>((resolve) => (accept = resolve));
               const send = async () => {
@@ -7570,6 +7628,10 @@ function AcpmuxPane() {
               turn.then(() => promptLanded.current(), cancelOpenInWindow);
               // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).
               const held = Promise.race([taken, turn.then(() => true as const)]);
+              if (queues) {
+                startingSends.add(text, attachments, () => held);
+                return true;
+              }
               held.catch(() => {
                 if (composerHandle.current === holder) return;
                 if (composerHandle.current) composerHandle.current.restore(text, attachments);
@@ -7578,10 +7640,18 @@ function AcpmuxPane() {
               return held;
             }}
             onStop={() => void callNative("chat.cancel")}
-            onQueueRemove={removeQueued}
-            onQueueChange={editQueued}
+            onQueueRemove={(promptId) =>
+              startingSends.owns(promptId) ? Promise.resolve(startingSends.remove(promptId)) : removeQueued(promptId)
+            }
+            onQueueChange={(promptId, edit) =>
+              startingSends.owns(promptId)
+                ? Promise.resolve(edit.op === "update" && startingSends.edit(promptId, edit.text))
+                : editQueued(promptId, edit)
+            }
             // A prompt that started while it was edited comes back to the prompt, so the edit is kept.
-            onQueueLost={(text) => composerHandle.current?.restore(text, [])}
+            // A row still waiting for a new chat gives its edit back only once it went: a refusal gave
+            // the prompt back as it was sent, so the edit ends as Esc ends one (startingSends.ts `lost`).
+            onQueueLost={(text, promptId) => startingSends.lost(promptId, text)}
             // A queued row's Open in side chat: `/btw`'s path, behind its gate. The prompt leaves the
             // queue first, so it never also runs here; one that already started stays with the turn.
             // A side chat that could not start gives its text back to the prompt.
@@ -7589,7 +7659,15 @@ function AcpmuxPane() {
               opensSideSessions && !isSideSession && snapshot.sessionId
                 ? async (promptId, prompt) => {
                     const sessionId = snapshot.sessionId!;
-                    if (!(await removeQueued(promptId))) return false;
+                    // A row still waiting for the chat to take it leaves here; one with images stays,
+                    // as a side chat asks the text alone.
+                    const local = startingSends.rows.find((row) => row.id === promptId);
+                    if (
+                      local
+                        ? local.attachments.length > 0 || !startingSends.remove(promptId)
+                        : !(await removeQueued(promptId))
+                    )
+                      return false;
                     setBtwFailure(undefined);
                     const fail = (error: unknown) => setBtwFailure({ sessionId, reason: errorMessage(error) });
                     callNative<string>("chat.btw", { question: prompt }).then(
@@ -8144,10 +8222,12 @@ function AcpmuxPane() {
                   // The tab's chat is not here: which case it is, centered where the chat would be.
                   <ChatUnavailableState
                     unavailable={snapshot.unavailable}
+                    {...(snapshot.missingSession ? { session: snapshot.missingSession } : {})}
                     {...(machineName ? { machine: machineName } : {})}
                     onRemove={() => runHeaderAction(HEADER_ACTIONS.close)}
                     onReconnect={() => void directClient.current?.recheckMissing()}
                     onResume={showAllChats}
+                    onClose={() => runHeaderAction(HEADER_ACTIONS.close)}
                   />
                 ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
                   <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
