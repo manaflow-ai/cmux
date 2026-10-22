@@ -2662,6 +2662,7 @@ use resource_connection::{
 };
 
 mod connection_frame;
+mod slow_frame;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{

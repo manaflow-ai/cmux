@@ -9,8 +9,27 @@ use super::*;
 
 /// One frame of a connection. `transport` is the connection's own value
 /// (not a registry lookup), so a remote-entry connection always takes the
-/// remote path, also after its registry record is gone.
+/// remote path, also after its registry record is gone. A frame that takes
+/// [`slow_frame::SLOW_FRAME`] or longer names itself on stderr.
 pub(super) fn handle_connection_frame(
+    mux: &Arc<Mux>,
+    client: u64,
+    transport: ClientTransport,
+    message: &str,
+    writer: &MessageWriter,
+    scheduler: &Arc<ConnectionSurfaceScheduler>,
+) -> bool {
+    let started = Instant::now();
+    let keep_open = handle_frame(mux, client, transport, message, writer, scheduler);
+    if let Some(report) =
+        slow_frame::slow_frame_report(message, started.elapsed(), slow_frame::SLOW_FRAME)
+    {
+        eprintln!("cmux-tui: {report}");
+    }
+    keep_open
+}
+
+fn handle_frame(
     mux: &Arc<Mux>,
     client: u64,
     transport: ClientTransport,
