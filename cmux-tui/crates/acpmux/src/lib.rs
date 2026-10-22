@@ -55,9 +55,11 @@ pub mod login_env;
 pub mod mailbox;
 pub mod native;
 pub mod offer_mcp;
+pub(crate) mod opencode_ask;
 #[cfg(windows)]
 mod owner_only;
 pub mod pairing;
+pub mod path_canon;
 pub mod peer;
 pub mod peer_link;
 #[cfg(not(unix))]
@@ -85,6 +87,7 @@ pub mod session_identity;
 pub mod session_name;
 mod session_scope;
 pub mod sha256;
+pub mod sr2_cost_labels;
 pub mod stats;
 pub mod store;
 pub mod subagents;
