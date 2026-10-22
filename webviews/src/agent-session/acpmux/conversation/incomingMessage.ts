@@ -93,9 +93,18 @@ export function incomingPrompt(
       typeof provenance.fromRole === "string" && RELATIONS.includes(provenance.fromRole)
         ? (provenance.fromRole as IncomingRelation)
         : undefined;
+    // An agent that signs its message first names itself better than its chat's title; the chip
+    // still opens the sending chat.
+    const signed = agentSigned(text.trim());
     return {
       kind: "message",
-      message: { name, ...(sessionId && { sessionId }), ...(relation && { relation }), text: text.trim(), raw: text },
+      message: {
+        name: signed?.name ?? name,
+        ...(sessionId && { sessionId }),
+        ...(relation && { relation }),
+        text: signed?.text ?? text.trim(),
+        raw: text,
+      },
     };
   }
   // Messages from other agents that waited for a busy chat and went in as one turn (acpmux
@@ -123,23 +132,24 @@ export function incomingPrompt(
     // here, which the card opens; a terminal agent (`term_…`) or a person at a shell (`cli`) is not
     // one.
     const sessionId = provenance.from.startsWith("acp:") ? provenance.from.slice(4) || undefined : undefined;
-    const body = renderedBody(text, provenance.msgId);
+    const body = (renderedBody(text, provenance.msgId) ?? text).trim();
+    const signed = agentSigned(body);
     const id = (key: string) =>
       typeof provenance[key] === "string" && provenance[key] ? { [key]: provenance[key] as string } : {};
     return {
       kind: "message",
       message: {
-        name,
+        name: signed?.name ?? name,
         ...(sessionId && { sessionId }),
         ...id("msgId"),
         ...id("threadId"),
-        text: (body ?? text).trim(),
+        text: signed?.text ?? body,
         raw: text,
       },
     };
   }
   if (!provenance && typeof msg?.client === "string" && CLI_CLIENT.test(msg.client)) {
-    const named = namedFirst(text.trim());
+    const named = namedFirst(text.trim()) ?? fromFirst(text.trim());
     if (named) return { kind: "message", message: { ...named, raw: text } };
   }
   if (msg?.client !== "adopt") return undefined;
@@ -155,10 +165,8 @@ export function incomingPrompt(
     const name = attribute(attributes, "from-name") || attribute(attributes, "name") || attribute(attributes, "from");
     const body = decodeXml(envelope[2]!).trim();
     // What follows the envelope is Claude Code's note to the agent about it. A session's title
-    // names it less well than the agent's own name first in brackets, as at a shell, when the
-    // brackets hold an agent's name and not a tag (`[WIP]`, `[1/3]`).
-    const named = namedFirst(body);
-    const agent = named && ENVELOPE_AGENT.test(named.name) ? named : undefined;
+    // names it less well than the agent's own signature, as at a shell.
+    const agent = agentSigned(body);
     if (name) return { kind: "message", message: { ...(agent ?? { name, text: body }), raw: text } };
   }
   const notification = NOTIFICATION.exec(rest);
@@ -241,6 +249,23 @@ function namedFirst(text: string): { name: string; text: string } | undefined {
 /// An agent's name in brackets inside an envelope that names its sender already: lower-case words
 /// joined by `-` or `/` (`coord-deputy`, `claude-sr2/coordinator`), which a tag is not.
 const ENVELOPE_AGENT = /^(?=[^A-Z]*$)(?=.*[a-z])[\w.@:]+(?:[-/][\w.@:]+)+$/;
+
+/// A sender's name after "From" before its message: `From claude-sr2: …` or `From claude-sr2. …`.
+const FROM_PREFIX = /^From ([\w@/:-]+(?:\.[\w@/:-]+)*)[:.]\s+(\S[\s\S]*)$/;
+
+/// The agent named after "From" first in `text`, when it is an agent's name ("From now on: …" is
+/// not), and its message after the name.
+function fromFirst(text: string): { name: string; text: string } | undefined {
+  const prefixed = FROM_PREFIX.exec(text);
+  return prefixed && ENVELOPE_AGENT.test(prefixed[1]!) ? { name: prefixed[1]!, text: prefixed[2]!.trim() } : undefined;
+}
+
+/// The agent that signed a message whose envelope names its sender already: its name first in
+/// brackets, when that is an agent's name and not a tag (`[WIP]`, `[1/3]`), or after "From".
+function agentSigned(text: string): { name: string; text: string } | undefined {
+  const named = namedFirst(text);
+  return named && ENVELOPE_AGENT.test(named.name) ? named : fromFirst(text);
+}
 
 /// Claude Code's line before an envelope it delivers, by itself or with the agent busy.
 const PREFACE = /^Another Claude session sent a message(?: while you were working)?:\s*/;
