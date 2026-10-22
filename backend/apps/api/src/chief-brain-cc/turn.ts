@@ -8,6 +8,7 @@ import { systemPrompt } from "../chief-brain/prompts.ts"
 import { isClaude, OPUS } from "../model-gateway/routes.ts"
 import { netScript, patchNet, readNet } from "./net.ts"
 import { ccSandbox } from "./sandbox.ts"
+import { stageAttachments } from "./attachments.ts"
 import { BOOT_MS, CcError, createVm, execRoot, mintTailnetKey, removeVm, vmName, vmNetwork } from "./vm.ts"
 
 /**
@@ -47,6 +48,10 @@ cmux work to feat-cmux-next (rebase, plain push, never force).
 Tailnet: this machine is your own tailnet node (\`tailscale status\`). It reaches the hub at
 http://100.127.110.65:8790 (\`hub\`, the Mac Chief <-> Cloud Chief channel), the build controller
 (\`cmux-ci\`, macOS builds on the Mac minis) and the person's Mac gate.
+Attachments: a message's attached file (a pasted screenshot, a photo, a PDF) is in this machine at the
+path its line names (\`[attachment: NAME, TYPE WxH SIZE, file /home/chief/work/.attachments/...]\`); open it
+with Read (images too) before you answer about it. Later turns see only your words, so say in your reply
+what a picture shows that will matter later.
 Mac: \`mac -- COMMAND\` runs one command on the person's MacBook (as them; every call is logged there);
 \`mac health\` answers at once, and says "Mac asleep" when the laptop sleeps. \`cmux ...\` here is the
 Mac's cmux CLI through the gate.
@@ -174,6 +179,10 @@ export async function ccTurn(b: ChiefBrainDO, id: string, blocks: ReadonlyArray<
       const applied = await execRoot(env, vm, "bash -s", enc.encode(netScript(net)), 30_000)
       if (applied.exit !== 0 || !applied.stdout.includes("net ok")) throw new CcError(`the turn machine's network settings did not apply (exit ${applied.exit})`)
       mark("vm_ready")
+      // The attachments the input names (pasted screenshots, files), written where its lines say, before the agent starts.
+      const staged = await stageAttachments(env, vm, agent, cfg.owner ?? "", conversation, blocks.join("\n\n"))
+      if (staged.written > 0) mark("attachments")
+      const missingNote = staged.missing.length > 0 ? `\n\n[attachment files not available in this turn: ${staged.missing.map((m) => `${m.path} (${m.why})`).join("; ")}]` : ""
       const token = await notesToken(env, agent, conversation, id)
       writeConfig(b.sql, { [`cc_token:${id}`]: await sha(token) })
       const origin = (env.CLOUD_API_ORIGIN ?? "").replace(/\/+$/, "")
@@ -190,7 +199,7 @@ export async function ccTurn(b: ChiefBrainDO, id: string, blocks: ReadonlyArray<
         files: turnFiles(env.CHIEF_CC_TURN_FILES),
         github_token: env.CHIEF_CC_GITHUB_TOKEN ?? null
       }
-      input.prompt = tail(blocks.join("\n\n"), STDIN_BYTES - enc.encode(JSON.stringify(input)).length)
+      input.prompt = tail(blocks.join("\n\n") + missingNote, STDIN_BYTES - enc.encode(JSON.stringify(input)).length)
       const started = await execRoot(env, vm, `/opt/chief-cc/start.sh ${id}`, enc.encode(JSON.stringify(input)), 30_000)
       if (started.exit !== 0) throw new CcError(`the turn did not start (exit ${started.exit})`)
       b.sql.exec(`UPDATE cb_turn SET submitted = 1 WHERE id = ?`, id)
