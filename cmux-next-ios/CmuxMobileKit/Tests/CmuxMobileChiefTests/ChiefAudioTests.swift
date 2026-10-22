@@ -32,8 +32,10 @@ import Testing
         var events = backend.events().makeAsyncIterator()
         _ = await events.next()
 
-        let wav = Self.recording(seconds: 1.5)
-        let info = ConversationAudioInfo(duration: 1.5, waveform: [0.2, 0.8, 0.4], transcript: "ship the fix")
+        // 10 s: an M4A carries about 24 KB of fixed container overhead, so a
+        // shorter clip says little about the encoding.
+        let wav = Self.recording(seconds: 10)
+        let info = ConversationAudioInfo(duration: 10, waveform: [0.2, 0.8, 0.4], transcript: "ship the fix")
         let uploaded = try await backend.uploadAudio(wav, mimeType: "audio/wav", info: info)
         #expect(uploaded.kind == .audio)
 
@@ -43,16 +45,16 @@ import Testing
         #expect(parts[0]["mime_type"] as? String == "audio/mp4")
         #expect((parts[0]["name"] as? String)?.hasSuffix(".m4a") == true)
         let durationMS = try #require(parts[0]["duration_ms"] as? Int)
-        #expect(abs(durationMS - 1500) < 100)
+        #expect(abs(durationMS - 10_000) < 100)
         let bytes = try #require(parts[0]["byte_count"] as? Int)
-        #expect(bytes < wav.count / 2, "AAC, not the composer's WAV")
+        #expect(bytes < wav.count / 4, "AAC, not the composer's WAV (320 KB)")
         #expect(parts[1]["text"] as? String == "ship the fix")
 
         // The phone's own bubble: an audio message whose transcript is the text.
         let audio = try #require(sent.audioAttachment?.audio)
         #expect(sent.text.isEmpty)
         #expect(audio.transcript == "ship the fix")
-        #expect(abs(audio.duration - 1.5) < 0.1)
+        #expect(abs(audio.duration - 10) < 0.1)
         #expect(!audio.waveform.isEmpty)
         backend.close()
     }
