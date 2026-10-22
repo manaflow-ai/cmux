@@ -1,7 +1,8 @@
 // Leo, 2026-10-14: tooltips are glass, not a solid box; 2026-10-21: "WHERE IS THE GLASS EVERYWHERE,
-// all these hover tooltips and hover previews". A tooltip is the liquid glass every glass surface
-// is (`.ui-glass`, ui/glass/glass.css): the page's surface at 60% over the shared blur, the glass
-// rim as its one edge and a small tight shadow; the opaque popup surface under Reduce Transparency.
+// all these hover tooltips and hover previews". A tooltip is the liquid glass (`.ui-glass`,
+// ui/glass/glass.css) in the tooltip frost, in every glass mode: a strong backdrop blur under a tint
+// dense enough that the text reads over anything (the host's, TooltipSurface.swift), the glass rim as
+// its one edge and a small tight shadow; the opaque popup surface under Reduce Transparency.
 // The first tooltip of a group fades in over the
 // popup-open time (120 ms) rising 2px, a warm neighbor's is there at once, and each fades out over
 // the popup-close time (80 ms); Reduce Motion keeps the fade and drops the rise.
@@ -173,29 +174,33 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
       };
     });
 
-  test("the tooltip is the liquid glass: the page's surface at 60% over the blur, its rim and a tight shadow", async () => {
-    const page = await open(theme("dark", "--cmux-tooltip-tint:rgba(52, 49, 68, 0.9)"));
-    await hoverAndWait(page, "b0");
-    const surface = await surfaceOf(page);
-    // The glass tint (--glass-tint), never the denser tooltip frost or the solid popup surface.
-    const tint = await page.evaluate((color) => {
-      const probe = document.createElement("div");
-      probe.style.background = `color-mix(in srgb, ${color} 60%, transparent)`;
-      document.body.append(probe);
-      const value = getComputedStyle(probe).backgroundColor;
-      probe.remove();
-      return value;
-    }, themes.dark.surface);
-    expect(surface.background).toBe(tint);
-    expect(surface.blur).toBe("blur(20px) saturate(1.4)");
-    // The glass rim is the one edge: the border keeps its width, clear.
-    expect(surface.border).toBe("rgba(0, 0, 0, 0)");
-    // One device pixel at 2x.
-    expect(surface.rim).toBe("0.5px");
-    // The rim (an inset hairline), then elevation 1.
-    expect(surface.shadow).toContain("inset");
-    expect(surface.shadow).toContain("0px 1px 2px 0px");
-    await page.close();
+  test("the tooltip is the liquid glass in the host's tooltip tint, a device-pixel rim and a tight shadow, in every glass mode", async () => {
+    const tint = "rgba(52, 49, 68, 0.9)";
+    // Plain glass (the default), the lens while it draws, and Spectrum: the lens's clearer root
+    // tint never reaches a tooltip.
+    for (const mode of ["plain", "lens", "spectrum"] as const) {
+      const page = await open(theme("dark", `--cmux-tooltip-tint:${tint}`));
+      if (mode !== "plain")
+        await page.evaluate((glass) => {
+          document.documentElement.setAttribute("data-glass", glass);
+          document.documentElement.setAttribute("data-glass-lens", "");
+        }, mode);
+      await hoverAndWait(page, "b0");
+      const surface = await surfaceOf(page);
+      expect({ mode, background: surface.background, blur: surface.blur }).toEqual({
+        mode,
+        background: tint,
+        blur: "blur(24px) saturate(1.6)",
+      });
+      // The glass rim is the one edge: the border keeps its width, clear.
+      expect(surface.border).toBe("rgba(0, 0, 0, 0)");
+      // One device pixel at 2x.
+      expect(surface.rim).toBe("0.5px");
+      // The rim (an inset hairline), then elevation 1.
+      expect(surface.shadow).toContain("inset");
+      expect(surface.shadow).toContain("0px 1px 2px 0px");
+      await page.close();
+    }
   });
 
   /** Applies the Reduce Transparency media blocks' rules (Chromium has no emulation of the setting). */
@@ -276,14 +281,11 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
     return `rgb(${fill.join(", ")})`;
   };
 
-  // Glass over its page (the theme's surface: what a tooltip sits on); the opaque surface of Reduce
-  // Transparency over anything (pure black and pure white).
-  test("the tooltip's text keeps 4.5:1: glass over its page, opaque over pure black and pure white", async () => {
+  test("the tooltip's text keeps 4.5:1 over pure black and pure white, light and dark, glass and opaque", async () => {
     const seen: Record<string, number> = {};
     for (const name of ["dark", "light"] as const) {
-      for (const backdrop of [themes[name].surface, "#000", "#fff"]) {
+      for (const backdrop of ["#000", "#fff"]) {
         for (const reduce of [false, true]) {
-          if (!reduce && backdrop !== themes[name].surface) continue;
           const body = `<div style="position:fixed;inset:0;z-index:-1;background:${backdrop}"></div>${toolbar}`;
           const page = await open(theme(name, `--cmux-tooltip-tint:${hostTint(name)}`), body);
           if (reduce) await page.evaluate(() => document.documentElement.setAttribute("data-reduce-transparency", ""));

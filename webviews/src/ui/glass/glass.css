@@ -136,8 +136,8 @@
    toolbar hint) and every hover card (ui/Tooltip.tsx AnchoredCard, a chart's tooltip) is this glass:
    never the solid popup surface or a card fill a page's own class paints (desktop.css .ui-card, a
    page's link bubble), so the glass wins over one class here. The glass rim is the one edge: the
-   border keeps its width, clear. A tooltip keeps its small tight shadow; a hover card keeps
-   elevation 2 (desktop.css .ui-card.ui-glass). Reduce Transparency: the opaque popup surface, as
+   border keeps its width, clear. A tooltip keeps its frost and small tight shadow (below); a hover
+   card keeps elevation 2 (desktop.css .ui-card.ui-glass). Reduce Transparency: the opaque popup surface, as
    before. webviews/scripts/check-glass-never-opaque.ts fails a tooltip that is solid. */
 .ui-tooltip.ui-glass,
 .ui-title-tooltip.ui-glass {
@@ -154,9 +154,18 @@
 .ui-tooltip.ui-card.ui-glass {
   border-color: transparent;
 }
+/* A tooltip carries text over whatever is under it, so its glass is the tooltip frost
+   (desktop.css --tooltip-*: the host's --cmux-tooltip-tint, the least alpha of the popup surface at
+   which the text keeps 4.5:1 over pure black and pure white, TooltipSurface.swift) and its stronger
+   blur, in every glass mode: set on the tooltip itself, so the lens's clearer root tint never reaches
+   it. Reduce Transparency's !important rules below still make it opaque. A chart's tooltip
+   (pages/chief-usage .cu-tooltip) is a tooltip too. */
 .ui-tooltip.ui-glass:not(.ui-card),
 .ui-hint.ui-card.ui-glass,
-.ui-title-tooltip.ui-glass {
+.ui-title-tooltip.ui-glass,
+.cu-tooltip.ui-glass {
+  --glass-tint: var(--tooltip-tint);
+  --glass-backdrop: var(--tooltip-blur);
   --glass-elevation: var(--tooltip-shadow);
 }
 
