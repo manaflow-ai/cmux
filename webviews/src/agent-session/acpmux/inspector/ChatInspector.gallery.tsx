@@ -1,13 +1,15 @@
 // l10n-allow-file: gallery fixtures (sample sessions, pull requests and commands), not shipped UI.
 // The Inspector (Debug Settings `agent.inspector`, on by default) as the real ChatInspector renders it
 // in its panel at the right of a chat: a full chat with every section, its Context and Connectors
-// open, its Changes with line breakdowns, failing checks and owners, its subagents' list open, its
-// finished tasks open, a Cloud chat before its first usage report, and the panel over the chat
-// (Overlay). Light and dark come from the gallery's theme switch.
+// open, its Changes across repositories with line breakdowns, comments, failing checks and owners
+// (all of them after Show more), its subagents' list open with
+// the chats its agent started, its finished tasks open (a background Bash only the transcript knows
+// among them), a Cloud chat before its first usage report, and the panel over the chat (Overlay). Light and dark come from the gallery's theme switch.
 import type { ComponentProps } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { activity, chat, CWD, tool } from "../../../gallery/fixtures/acpmux";
+import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "../subagents/subagentFold";
 import { sessionSummary } from "../summary/sessionSummary";
 import { ChatInspector, InspectorPanel, type InspectorPlacement } from "./ChatInspector";
@@ -40,24 +42,28 @@ function GalleryInspector({ placement = "overlay", ...props }: Props) {
   );
 }
 
-/// Pull requests the chat opened or touched (oldest first, as sessionSummary reads them).
+/// Pull requests the chat opened or touched across repositories (oldest first, as sessionSummary
+/// reads them).
 const pullRequests: NonNullable<Props["made"]>["pullRequests"] = [
-  { n: 22217, title: "cmux NEXT: Cmd-W closes a pinned tab's split", opened: true },
+  { n: 22217, title: "cmux NEXT: Cmd-W closes a pinned tab's split", opened: true, state: "merged" },
+  { repo: "acme/billing", n: 7, title: "billing: retry webhooks on a 502", opened: false, state: "closed" },
   { n: 22227, title: "New Tab Now Playing: right-click menu and a setting to hide it", opened: false },
   { n: 22228, title: "cmux NEXT: the thread minimap feels like the Codex rail", opened: true },
-  { n: 22229, title: "cmux NEXT Home list: one-row sessions", opened: true },
+  { n: 22229, title: "cmux NEXT Home list: one-row sessions", opened: true, state: "merged" },
+  { repo: "acme/atlas-web", n: 412, title: "atlas: dark mode tokens for the settings page", opened: true },
   { n: 22231, title: "cmux NEXT New Tab: paste an image into the composer", opened: true },
   { n: 22240, title: "Inspector: the chat's right-hand panel", opened: true },
-].map(({ n, title, opened }) => ({
-  url: `https://github.com/manaflow-ai/cmux/pull/${n}`,
-  repo: "manaflow-ai/cmux",
+].map(({ repo = "manaflow-ai/cmux", n, title, opened, state = "open" }) => ({
+  url: `https://github.com/${repo}/pull/${n}`,
+  repo,
   number: n,
   title,
   opened,
-  state: n === 22229 ? ("merged" as const) : ("open" as const),
+  state: state as "open" | "merged" | "closed",
 }));
-const pr = (n: number) => `https://github.com/manaflow-ai/cmux/pull/${n}`;
-/// What the App read of them: line counts split by kind, failing checks against the base, owners.
+const pr = (n: number, repo = "manaflow-ai/cmux") => `https://github.com/${repo}/pull/${n}`;
+/// What the App read of them: line counts split by kind, comments, failing checks against the
+/// base, a draft, one with conflicts, owners.
 const statuses: NonNullable<Props["statuses"]> = {
   [pr(22240)]: {
     additions: 1_482,
@@ -68,14 +74,16 @@ const statuses: NonNullable<Props["statuses"]> = {
       generated: { additions: 150, deletions: 10 },
       docs: { additions: 20, deletions: 0 },
     },
+    comments: 13,
     checks: "failing",
     failing: 3,
     failingOnBase: 2,
     owner: "inspector",
   },
-  [pr(22231)]: { additions: 96, deletions: 12, checks: "passing", owner: "newtab" },
-  [pr(22228)]: { additions: 240, deletions: 88, checks: "pending" },
-  [pr(22227)]: { checks: "failing", failing: 1, owner: "teamleaderleo" },
+  [pr(22231)]: { additions: 96, deletions: 12, comments: 2, checks: "passing", owner: "newtab" },
+  [pr(412, "acme/atlas-web")]: { additions: 608, deletions: 8, checks: "passing" },
+  [pr(22228)]: { state: "draft", additions: 240, deletions: 88, checks: "pending" },
+  [pr(22227)]: { mergeable: "conflicting", checks: "failing", failing: 9, owner: "teamleaderleo" },
 };
 
 /// Background processes as acpmux's registry lists them: a dev server, a watcher, three finished.
@@ -112,6 +120,20 @@ const agents: Subagent[] = Array.from({ length: 43 }, (_, index) => ({
   ...(index < 3 ? { action: "Reading ChatInspector.tsx" } : { endedAt: started - index * 100_000 }),
 }));
 
+/// Chats the agent started: one waits on the person, one runs on a Cloud VM, one is done.
+const sessions: StartedSession[] = [
+  { sessionId: "child-1", title: "Rename the settings keys", state: "waiting", createdAt: started - 600_000 },
+  { sessionId: "child-2", title: "Run the e2e suite on build-01", state: "running", createdAt: started - 500_000 },
+  { sessionId: "child-3", title: "Draft the release notes", state: "idle", createdAt: started - 400_000 },
+];
+
+/// A background Bash the transcript knows but the registry does not list (an older acpmux), still
+/// running and so without Stop; and one that finished.
+const transcriptTasks: NonNullable<Props["transcriptTasks"]> = [
+  { id: "call-pytest", command: "pytest -x --lf", state: "running", startedAt: started - 45_000 },
+  { id: "call-gen", command: "bun scripts/pages/gen-strings.mjs", state: "completed", startedAt: started - 700_000 },
+];
+
 const summary = {
   ...local.summary!,
   usage: { used: 94_000, size: 200_000 },
@@ -136,6 +158,9 @@ const full: Props = {
   agents,
   statuses,
   processes,
+  transcriptTasks,
+  sessions,
+  onOpenSession: () => undefined,
   onStopProcess: async () => undefined,
   onOpenUrl: () => undefined,
   onOpenOutput: () => undefined,
@@ -155,6 +180,7 @@ export default componentEntry<Props>({
   widths: { narrow: 320, normal: 420 },
   covers: [
     "agent-session/acpmux/inspector/ChatInspector.tsx",
+    "agent-session/acpmux/inspector/ChildSessionRows.tsx",
     "agent-session/acpmux/inspector/ChangesSection.tsx",
     "agent-session/acpmux/inspector/EnvironmentSection.tsx",
     "agent-session/acpmux/inspector/InspectorSection.tsx",
@@ -166,11 +192,11 @@ export default componentEntry<Props>({
   load: async () => GalleryInspector,
   variants: {
     full: {
-      note: "A chat on this Mac with every section: its environment with Save and Remote Control, 47% of the context window, one connector to reconnect, six pull requests, a dev server on :5173, 43 subagents, background tasks with three finished, and its outputs.",
+      note: "A chat on this Mac with every section: its environment with Save and Remote Control, 47% of the context window, one connector to reconnect, eight pull requests across three repositories (five shown, then Show more), a dev server on :5173, 43 subagents and three chats it started, background tasks (one only the transcript knows, without Stop) with four finished, and its outputs.",
       props: full,
     },
     "context-connectors-open": {
-      note: "Context and Connectors open: the token counts, and each MCP server with the one that needs reconnecting.",
+      note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
     },
     "changes-breakdown": {
@@ -182,19 +208,35 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => /Generated/.test(ctx.document.body.textContent ?? ""));
       },
     },
-    "subagents-open": {
-      note: "A click on the avatar row opens the list of the chat's subagents: Active, then Done.",
+    "changes-all": {
+      note: "Changes after Show more: the open pull requests first (a draft in orange, one with conflicts in red), then the closed and merged ones by their glyphs, with no state word, and Show less.",
       props: full,
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /Show 43 subagents/ });
+        await ctx.click({ selector: "button.acpmux-chat-inspector-pr-fold" });
+        await ctx.waitFor(() => /Show less/.test(text(ctx)));
+      },
+    },
+    "row-hover": {
+      note: "The pointer on a pull request's row: a faint tint of the text inside the card's padding, with the card's radius less that padding, never a solid fill and never past the card's edge. Every row in the panel hovers the same way.",
+      props: full,
+      play: async (ctx) => {
+        await ctx.waitFor(() => /already on base/.test(text(ctx)));
+        await ctx.hover({ selector: ".acpmux-chat-inspector-pr" });
+      },
+    },
+    "subagents-open": {
+      note: "A click on the avatar row opens the list of the chat's subagents and the chats it started: Active, then Done.",
+      props: full,
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /Show 46 subagents/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-inspector-subagents__list") !== null);
       },
     },
     "tasks-finished": {
-      note: "Background tasks: the running watcher with how long it has run and Stop, then the three finished commands, open.",
+      note: "Background tasks: the running watcher with how long it has run and Stop, the transcript's pytest without Stop, then the four finished commands, open.",
       props: full,
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /3 finished/ });
+        await ctx.click({ role: "button", name: /4 finished/ });
         await ctx.waitFor(() => /cargo build/.test(text(ctx)));
       },
     },

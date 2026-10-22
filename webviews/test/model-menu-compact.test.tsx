@@ -201,7 +201,7 @@ async function mount(
 }
 
 const doc = () => dom.window.document;
-const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 20)));
+const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
 const chipButton = () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!;
 const menu = () => doc().querySelector<HTMLElement>(".acpmux-quick-menu");
 /// The model rows (the rail's tabs are radio items too).

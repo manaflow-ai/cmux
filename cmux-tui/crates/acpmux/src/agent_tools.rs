@@ -103,6 +103,24 @@ pub const OFF_ENV: &str = "ACPMUX_AGENT_TOOLS_OFF";
 pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
     agents_workspace_select,agents_terminal_split,agents_terminal_focus,agents_tab_select,\
     agents_dialog_list,agents_dialog_answer,agents_events,agents_wait,render";
+/// What every agent chat is told about asking the person, in the cmux MCP
+/// server's `instructions` (`cmux mcp serve`, both modes). Chats start in
+/// Full access (`hub/policy_mode.rs`), and an agent there asked Leo a
+/// multiple-choice question that read "Waiting for you: allow this?" (Leo
+/// 2026-10-21: decide, say why, continue). The bundled acpmux skill and the
+/// cmux skill say the same. Claude Code may cut server instructions past
+/// 2048 characters, so the code-mode text plus this rule stays under that.
+pub const ASKING_RULE: &str = "Asking the person: the person allows tools through the chat's \
+    mode and the harness's own permission prompts, never through your questions, and a chat in \
+    Full access (Claude Code bypassPermissions, Codex full access) has already allowed every \
+    tool call its harness would ask about. So never ask them to allow, confirm or approve a \
+    step, with AskUserQuestion or in text (\"should I go ahead?\"): decide, say why in one \
+    line, and go on. Deciding never widens the task: a step a cmux skill keeps for the person's \
+    own request (computer use, importing a browser's cookies, deleting their data) waits for \
+    that request, and a cmux consent panel is theirs to answer; leave such a step out and say \
+    so. Ask only about product taste you cannot settle from the request or the code, as that \
+    choice, never as a permission.";
+
 /// The plugin name Claude Code shows before each skill (`cmux:cmux-browser`).
 pub const PLUGIN_NAME: &str = "cmux";
 
@@ -510,6 +528,16 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             env: vec![],
         });
     }
+    if let Some(acpmux) = &inputs.acpmux {
+        // announce, rules and ack (`forum_mcp.rs`, hq#2570): acts as the
+        // session with its caller token, like the sub-session server.
+        servers.push(McpServer {
+            name: crate::forum_mcp::SERVER_NAME.into(),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["forum-mcp"]),
+            env: vec![],
+        });
+    }
     if let Some(cmux) = executable("cmux")
         && !inputs.cmux_json.as_deref().is_some_and(mcp_disabled)
     {
@@ -630,7 +658,9 @@ impl AgentTools {
             // and the one socket the CLI sends it to (`hub/person.rs` (a)).
             // The harness already holds the same token in its env; a Claude
             // Code config with it is a 0600 file (`claude_args`).
-            if server.name == crate::subsession_mcp::SERVER_NAME {
+            if server.name == crate::subsession_mcp::SERVER_NAME
+                || server.name == crate::forum_mcp::SERVER_NAME
+            {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
                 server.env = vec![
                     (crate::subsession_mcp::SESSION_ENV.to_owned(), session_id.to_owned()),

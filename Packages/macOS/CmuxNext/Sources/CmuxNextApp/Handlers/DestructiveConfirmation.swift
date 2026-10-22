@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextSettings
+import CmuxNextUpdater
 import os
 
 /// The App's `ActionRegistry.confirmationPresenter`: the sheet a keyboard,
@@ -17,9 +18,10 @@ import os
 /// foreground program (`process-info`) and `app.warnBeforeClosingTab` is
 /// on; a tab group follows the tab close rule (`TabCloseGuard`); those
 /// questions have "Don't ask again". Forget Machine has an undo toast and
-/// no question. The Cloud deletes, profile delete, agent extension access
-/// and remote install still ask. A target that does not resolve is not asked about: the
-/// handler then refuses it with the usual typed reason.
+/// no question. The Cloud deletes, profile delete, agent extension access,
+/// remote install and Roll Back (it quits into the kept build) still ask.
+/// A target that does not resolve is not asked about: the handler then
+/// refuses it with the usual typed reason.
 enum DestructiveConfirmation {
     struct Prompt: Equatable {
         var title: String
@@ -82,6 +84,8 @@ enum DestructiveConfirmation {
             return await RoomConfirmation.prompt(invocation, context)
         case "remote.install":
             return await RemoteConfirmation.prompt(for: id, invocation, context)
+        case "updates.rollback": // palette, menu and the pulled-build banner's Roll Back
+            return Prompt(title: UpdateDropBack.confirmation.title, body: UpdateDropBack.confirmation.body, button: UpdateDropBack.confirmation.button)
         case "tabGroup.close":
             // The rule of every tab close (TabCloseGuard): the undo toast
             // brings the group back, so only work in progress asks.

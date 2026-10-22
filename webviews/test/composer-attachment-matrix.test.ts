@@ -7,12 +7,17 @@
 //   agent that takes none) goes to the chat's host, which saves it; its chip sends the saved path as
 //   a resource_link, and the prompt's text never names it or carries its bytes.
 // - A folder's bytes cannot be read: it is not sent, and the rest of the batch still is.
+// - In a chat whose folder is on this Mac, a dropped or pasted folder, or a file no block takes,
+//   goes as a resource_link to where it is (the host's `chat.attach.dropped` answers its real
+//   path): nothing is copied or uploaded. Images, PDFs and text files still go as blocks.
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   MAX_ATTACHMENTS,
   MAX_TEXT_BYTES,
+  linkItems,
   promptBlocks,
   type ComposerAttachment,
+  type LinkItem,
 } from "../src/agent-session/acpmux/attachments";
 import { MAX_UPLOAD_FILE_BYTES, type UploadResult } from "../src/agent-session/acpmux/cloudUploads";
 import { intakeFiles } from "../src/agent-session/acpmux/composer/intakeFiles";
@@ -46,7 +51,11 @@ function host() {
 
 async function take(
   files: File[],
-  options: { allowImages?: boolean; upload?: boolean | ((f: File[]) => Promise<UploadResult>) } = {},
+  options: {
+    allowImages?: boolean;
+    upload?: boolean | ((f: File[]) => Promise<UploadResult>);
+    localPaths?: (f: File[]) => Promise<LinkItem[] | undefined>;
+  } = {},
 ) {
   const saving = host();
   const upload =
@@ -55,6 +64,7 @@ async function take(
     held: 0,
     allowImages: options.allowImages ?? true,
     ...(upload ? { upload } : {}),
+    ...(options.localPaths ? { localPaths: options.localPaths } : {}),
   });
   const blocks = promptBlocks("Look at these", taken.attachments);
   return { ...taken, blocks, sent: saving.sent, text: blocks.find((block) => block.type === "text")?.text ?? "" };
@@ -128,6 +138,19 @@ describe("attachment matrix: what the agent receives per file type", () => {
       uri: "file:///saved/1-0/IMG_0002.HEIC",
       name: "IMG_0002.HEIC",
     });
+  });
+
+  test("a PDF too large for one message goes as its saved path, not a document block", async () => {
+    // 12 MiB of PDF is 16 MiB of base64: past acpmux's one-message bound (#23247) and the
+    // WebSocket's 16 MiB frame, which reset the chat's connection with no error.
+    const result = await take([sized("scan.pdf", "application/pdf", 12 * 1024 * 1024)]);
+    expect(result.blocks.filter((block) => block.type === "document")).toEqual([]);
+    expect(only(result.blocks.filter((block) => block.type === "resource_link"))).toEqual({
+      type: "resource_link",
+      uri: "file:///saved/1-0/scan.pdf",
+      name: "scan.pdf",
+    });
+    expect(result.error).toBeUndefined();
   });
 
   test("a PDF goes as a document block", async () => {
@@ -241,5 +264,156 @@ describe("attachment matrix: what the agent receives per file type", () => {
     expect(result.text).not.toContain("/saved/");
     const kinds = result.attachments.map((chip: ComposerAttachment) => chip.kind);
     expect(kinds).toEqual(["image", "image", "document", "link"]);
+  });
+});
+
+/// A host on this Mac that knows where each file of the batch is: `/Users/dev/<name>`, a folder's
+/// marked; records the batches it was asked about.
+function paths(folders: string[] = []) {
+  const asked: string[][] = [];
+  const localPaths = async (batch: File[]): Promise<LinkItem[]> => {
+    asked.push(batch.map((each) => each.name));
+    return batch.map((each) => ({ path: `/Users/dev/${each.name}`, folder: folders.includes(each.name) }));
+  };
+  return { asked, localPaths };
+}
+
+describe("attachment matrix: a chat on this Mac links what no block takes where it is", () => {
+  test("a folder, a zip and a png dropped together: an image block, and links to the folder and the zip; nothing uploaded", async () => {
+    const local = paths(["src"]);
+    const result = await take(
+      [folder("src"), file("build.zip", "application/zip"), file("shot.png", "image/png", PNG)],
+      { localPaths: local.localPaths },
+    );
+    // The host is asked about the whole batch, in its order (it matches the drop by name).
+    expect(local.asked).toEqual([["src", "build.zip", "shot.png"]]);
+    expect(result.sent).toEqual([]);
+    expect(result.error).toBeUndefined();
+    expect(result.attachments.map((chip) => [chip.kind, chip.name, chip.path, chip.saved])).toEqual([
+      ["image", "shot.png", undefined, undefined],
+      ["link", "src/", "/Users/dev/src", undefined],
+      ["link", "build.zip", "/Users/dev/build.zip", undefined],
+    ]);
+    expect(result.blocks.map((block) => block.type)).toEqual(["text", "image", "resource_link", "resource_link"]);
+    expect(result.blocks.filter((block) => block.type === "resource_link")).toEqual([
+      { type: "resource_link", uri: "file:///Users/dev/src", name: "src/" },
+      { type: "resource_link", uri: "file:///Users/dev/build.zip", name: "build.zip" },
+    ]);
+    expect(result.text).toBe("Look at these");
+  });
+
+  for (const [name, type, size] of [
+    ["clip.mov", "video/quicktime", 64],
+    ["huge.log", "text/plain", MAX_TEXT_BYTES + 1],
+    ["disk.img", "", MAX_UPLOAD_FILE_BYTES + 1],
+  ] as const)
+    test(`${name} goes as a link to where it is, however large`, async () => {
+      const local = paths();
+      const result = await take([sized(name, type, size)], { localPaths: local.localPaths });
+      expect(result.sent).toEqual([]);
+      expect(only(result.attachments)).toMatchObject({ kind: "link", name, path: `/Users/dev/${name}` });
+      expect(result.error).toBeUndefined();
+    });
+
+  test("an image for an agent that takes none links to the picture itself", async () => {
+    const local = paths();
+    const result = await take([file("shot.png", "image/png", PNG)], {
+      allowImages: false,
+      localPaths: local.localPaths,
+    });
+    expect(result.sent).toEqual([]);
+    expect(only(result.attachments)).toMatchObject({ kind: "link", path: "/Users/dev/shot.png" });
+  });
+
+  test("a batch every file of which is a block links nothing", async () => {
+    const local = paths();
+    const result = await take([file("shot.png", "image/png", PNG), file("notes.txt", "text/plain", "hi\n")], {
+      localPaths: local.localPaths,
+    });
+    expect(result.attachments.map((chip) => chip.kind)).toEqual(["image", "text"]);
+  });
+
+  test("the host is asked before any file is read: its record of the drop lasts only seconds", async () => {
+    const order: string[] = [];
+    const photo = file("shot.png", "image/png", PNG);
+    const read = photo.arrayBuffer.bind(photo);
+    Object.defineProperty(photo, "arrayBuffer", {
+      value: () => {
+        order.push("read");
+        return read();
+      },
+    });
+    const local = paths();
+    await take([folder("src"), photo], {
+      localPaths: (batch) => {
+        order.push("asked");
+        return local.localPaths(batch);
+      },
+    });
+    expect(order[0]).toBe("asked");
+  });
+
+  test("a folder as WebKit hands it (`<name>.zip`, application/zip, unreadable) links to the folder", async () => {
+    const assets = folder("assets.zip");
+    Object.defineProperty(assets, "type", { value: "application/zip" });
+    const result = await take([assets], {
+      localPaths: async () => [{ path: "/Users/dev/assets", folder: true }],
+    });
+    expect(result.sent).toEqual([]);
+    expect(result.error).toBeUndefined();
+    expect(only(result.attachments)).toMatchObject({ kind: "link", name: "assets/", path: "/Users/dev/assets" });
+  });
+
+  test("a host that knows no paths for the batch: the upload, as before", async () => {
+    for (const answer of [[], undefined, [{ path: "/Users/dev/other.zip", folder: false }]]) {
+      const result = await take([folder("src"), file("build.zip", "application/zip")], {
+        localPaths: async () => answer,
+      });
+      expect(result.sent.map((batch) => batch.map((each) => each.name))).toEqual([["build.zip"]]);
+      expect(only(result.attachments)).toMatchObject({ kind: "link", saved: true, path: "/saved/1-0/build.zip" });
+      expect(result.error).toEqual({ name: "src", reason: "unsupported" });
+    }
+  });
+
+  test("a host that fails to answer: the upload, as before", async () => {
+    const result = await take([file("build.zip", "application/zip")], {
+      localPaths: () => Promise.reject(new Error("unsupported")),
+    });
+    expect(only(result.attachments)).toMatchObject({ kind: "link", saved: true });
+  });
+
+  test("links count toward the composer's limit; past it the note says so", async () => {
+    const local = paths();
+    const files = Array.from({ length: MAX_ATTACHMENTS + 1 }, (_, index) =>
+      file(`part-${index}.zip`, "application/zip"),
+    );
+    const result = await take(files, { localPaths: local.localPaths });
+    expect(result.attachments.length).toBe(MAX_ATTACHMENTS);
+    expect(result.sent).toEqual([]);
+    expect(result.error).toEqual({ name: `part-${MAX_ATTACHMENTS}.zip`, reason: "tooMany" });
+  });
+});
+
+describe("linkItems: the host's answer of files and folders on this Mac", () => {
+  test("keeps absolute paths, a folder only when it says so", () => {
+    expect(
+      linkItems({
+        items: [
+          { path: "/Users/dev/src", folder: true },
+          { path: "relative/notes.md" },
+          { path: 5 },
+          { folder: true },
+          { path: "/Users/dev/build.zip", folder: "yes" },
+        ],
+      }),
+    ).toEqual([
+      { path: "/Users/dev/src", folder: true },
+      { path: "/Users/dev/build.zip", folder: false },
+    ]);
+  });
+
+  test("anything else is no items", () => {
+    for (const value of [null, undefined, "x", { items: "x" }, { items: [null] }, []])
+      expect(linkItems(value)).toEqual([]);
   });
 });

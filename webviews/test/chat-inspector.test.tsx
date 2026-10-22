@@ -1,11 +1,13 @@
+// l10n-allow-file: test fixture chat titles, not shipped UI.
 // The Inspector (Debug Settings `agent.inspector`, on by default; Claude Code desktop's session
 // panel with ChatGPT's subagents row): with the flag on, the header's top-right toggle opens a
 // panel at the right of the chat with where it runs (Environment), how much of the context window
 // it used (Context), its MCP servers (Connectors), the pull requests it opened or touched
-// (Changes), its subagents, its background commands and what it produced (Outputs). It is open by
+// (Changes), its subagents and the chats its agent started, a Cloud VM's included, its background
+// commands and what it produced (Outputs). It is open by
 // default, stays open (or closed) across chat panes, lies over the chat so it never reflows it
 // (Settings Push moves the chat aside unless the pane is too narrow), hides a section with nothing
-// in it, and lists every row, scrolling instead of a "Show more".
+// in it, and shows five pull requests under Changes, then Show more (Claude Code desktop's).
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -25,6 +27,12 @@ import {
   resetInspectorState,
   setInspectorSection,
 } from "../src/agent-session/acpmux/inspector/inspectorState";
+import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
+import {
+  spawnedSessions,
+  startedSessions,
+  type StartedSession,
+} from "../src/agent-session/acpmux/started/startedSessions";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
@@ -100,9 +108,17 @@ let reveal: ((section: "subagents" | "tasks") => void) | undefined;
 
 /// The pane's pieces as App.tsx places them: the toggle last in the header's tools, the Inspector
 /// beside the chat column in the pane's shell.
-function Pane({ snapshot, onOpenOutput }: { snapshot: AcpmuxSnapshot; onOpenOutput: (path: string) => void }) {
+function Pane({
+  snapshot,
+  onOpenOutput,
+  sessions,
+}: {
+  snapshot: AcpmuxSnapshot;
+  onOpenOutput: (path: string) => void;
+  sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+}) {
   const [shell, setShell] = useState<HTMLElement | null>(null);
-  const inspector = useChatInspector({ snapshot, machineName: "Studio", shell, onOpenOutput });
+  const inspector = useChatInspector({ snapshot, machineName: "Studio", shell, onOpenOutput, sessions });
   reveal = inspector.reveal;
   return (
     <section
@@ -179,13 +195,19 @@ test("the Inspector opens with a first chat: its environment, context use and ou
   expect(rows[1]!.getAttribute("title")).toBe(CWD);
   expect(rows.map((row) => row.textContent)).toContain("main");
 
-  // Context: 48K of 200K is 24% with a bar, folded until asked; then the tokens.
+  // Context: 48K of 200K is 24% with a bar, folded until asked; then, as Claude Code desktop's, the
+  // percent used with the tokens, a bar, and the used and free parts with their shares.
   const context = section(container, "context")!;
   expect(meta(context)).toContain("24%");
   expect(context.querySelector(".acpmux-chat-inspector-meter")).not.toBeNull();
   expect(context.textContent).not.toContain("tokens");
   await click(head(context));
-  expect(section(container, "context")!.textContent).toMatch(/48K of 200K tokens/);
+  const open = section(container, "context")!;
+  expect(open.querySelector(".acpmux-chat-inspector-context__total")?.textContent).toBe("24% used48K / 200K");
+  const bar = open.querySelector<HTMLElement>('.acpmux-chat-inspector-context__bar [data-part="used"]');
+  expect(bar?.style.width).toBe("24%");
+  const parts = [...open.querySelectorAll<HTMLElement>(".acpmux-chat-inspector-row[data-part]")];
+  expect(parts.map((row) => row.textContent)).toEqual(["Used48K24%", "Free space152K76%"]);
 
   // Outputs: the changed and the created file, each opening its diff by path.
   const files = [
@@ -217,7 +239,7 @@ test("open, closed, folds and width hold in every chat pane, following another p
   await render(container, localChat);
   expect(panel(container)).toBeNull();
   await click(toggle(container)!);
-  expect(section(container, "context")!.textContent).toMatch(/48K of 200K tokens/);
+  expect(section(container, "context")!.textContent).toContain("48K / 200K");
   expect(inspectorState().sections.context).toBe(true);
 
   // Another pane closes it: this one follows its storage event.
@@ -324,7 +346,7 @@ test("an output whose diff split leaves no room to push the chat closes the Insp
   paneWidth = 0;
 });
 
-test("Connectors counts the connected servers and the ones to reconnect; a harness that reports none has no section", async () => {
+test("Connectors says how many to reconnect, else how many connected; open, each server's status", async () => {
   const container = installDom(true);
   const base = chat([]);
   await render(container, {
@@ -340,14 +362,23 @@ test("Connectors counts the connected servers and the ones to reconnect; a harne
   });
   expect(sectionIds(container)).toEqual(["environment", "context", "connectors"]);
   const connectors = section(container, "connectors")!;
-  expect(meta(connectors)).toBe("1 connected · 1 to reconnect");
+  // As Claude Code desktop's head: the servers to reconnect, when any failed.
+  expect(meta(connectors)).toBe("1 to reconnect");
   expect(connectors.querySelector(".acpmux-chat-inspector-row")).toBeNull();
   await click(head(connectors));
   const rows = [...section(container, "connectors")!.querySelectorAll(".acpmux-chat-inspector-row")].map(
     (row) => row.textContent,
   );
-  expect(rows).toEqual(["github", "linearNeeds reconnect", "sentryConnecting"]);
+  expect(rows).toEqual(["githubConnected", "linearNeeds reconnect", "sentryConnecting"]);
 
+  // None failed: how many are connected.
+  await render(container, {
+    ...base,
+    summary: { ...base.summary!, mcpServers: [{ name: "github", status: "connected" }] },
+  });
+  expect(meta(section(container, "connectors"))).toBe("1 connected");
+
+  // A harness that reports none has no section.
   await render(container, base);
   expect(section(container, "connectors")).toBeNull();
 });
@@ -362,7 +393,7 @@ const opened = (number: number, title: string) =>
 const ran = (command: string, endedAt?: number) =>
   tool(command, "execute", "completed", { command, output: "", exitCode: 0, ...(endedAt ? { endedAt } : {}) });
 
-test("Changes lists the pull requests the chat opened or touched, newest first, every one of them", async () => {
+test("Changes lists the pull requests the chat opened or touched, open ones first, five then Show more", async () => {
   const container = installDom(true);
   await render(container, localChat);
   // No pull request yet: no section, not an empty one.
@@ -397,18 +428,19 @@ test("Changes lists the pull requests the chat opened or touched, newest first, 
   expect(sectionIds(container)).toEqual(["environment", "context", "changes"]);
   const changes = section(container, "changes")!;
   expect(meta(changes)).toBe("9");
-  const rows = [...changes.querySelectorAll<HTMLElement>("li.acpmux-chat-inspector-pr")];
-  // All nine: the list scrolls; nothing waits behind a "Show more".
+  const listed = () => [...changes.querySelectorAll<HTMLElement>("li.acpmux-chat-inspector-pr")];
+  // Five, then Show more for the other four.
+  expect(listed()).toHaveLength(5);
+  await click(changes.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-pr-fold")!);
+  const rows = listed();
   expect(rows).toHaveLength(9);
-  expect(changes.querySelector(".acpmux-chat-inspector-scroll, .acpmux-chat-inspector-scroll *")).not.toBeNull();
-  expect(changes.textContent).not.toContain("Show");
   const links = rows.map((row) => row.querySelector<HTMLAnchorElement>("a.acpmux-chat-inspector-pr__link")!);
   expect(links[0]!.getAttribute("href")).toBe("https://github.com/acme/atlas-web/pull/27");
-  // The one it only merged, by URL in another repository, is there with its state.
-  expect(links[7]!.getAttribute("href")).toBe("https://github.com/acme/billing/pull/7");
-  expect(rows[7]!.dataset.state).toBe("merged");
-  expect(links[7]!.querySelector(".acpmux-chat-inspector-pr__ref")?.textContent).toBe("billing #7");
-  const folder = rows[8]!;
+  // The one it only merged, by URL in another repository, is there, last, with its state.
+  expect(links[8]!.getAttribute("href")).toBe("https://github.com/acme/billing/pull/7");
+  expect(rows[8]!.dataset.state).toBe("merged");
+  expect(links[8]!.querySelector(".acpmux-chat-inspector-pr__ref")?.textContent).toBe("billing #7");
+  const folder = rows[7]!;
   expect(folder.querySelector(".acpmux-chat-inspector-pr__title")?.textContent).toBe("Retry the fetch helper");
   // Only the pull request whose checks the App reads says how they stand: how many fail.
   expect(rows[0]!.querySelector(".acpmux-chat-inspector-pr__checks")).toBeNull();
@@ -529,4 +561,170 @@ test("Subagents is one avatar row with live counts that opens into the list", as
   expect(row.getAttribute("aria-expanded")).toBe("true");
   expect(row.getAttribute("aria-label")).toBe("Hide subagents");
   expect(subagents.querySelector(".acpmux-chat-inspector-subagents__list")).not.toBeNull();
+});
+
+const started = (
+  sessionId: string,
+  title: string,
+  state: StartedSession["state"],
+  createdAt: number,
+): StartedSession => ({
+  sessionId,
+  title,
+  state,
+  createdAt,
+});
+const sessionRows = (element: HTMLElement) =>
+  [...element.querySelectorAll<HTMLButtonElement>("button.acpmux-summary-session")].map((row) => [
+    row.querySelector(".acpmux-summary-agent__name")?.textContent,
+    row.querySelector(".acpmux-summary-agent__state")?.textContent,
+  ]);
+
+test("the chats the agent started are listed under Subagents, counted with them, and a row opens its chat", async () => {
+  const container = installDom(true);
+  const sessions = [
+    started("c1", "Draft the release notes", "idle", 1),
+    started("c2", "Migrate the settings store", "running", 2),
+    started("c3", "Rename the settings keys", "waiting", 3),
+    started("c4", "Fix the flaky drag test", "failed", 4),
+    started("c5", "Port the history page", "running", 5),
+  ];
+  const opened: string[] = [];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ChatInspector
+        agents={[subagent(0, "running"), subagent(1, "completed")]}
+        sessions={sessions}
+        onOpenSession={(id) => opened.push(id)}
+      />,
+    );
+  });
+  const subagents = section(container, "subagents")!;
+  expect(meta(subagents)).toBe("1 waiting · 3 running · 1 failed · 2 done");
+  const row = subagents.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-avatars")!;
+  expect(row.getAttribute("aria-label")).toBe("Show 7 subagents");
+  // Every avatar, the running and waiting ones first: the subagent's and the chats'.
+  const avatars = [...row.querySelectorAll<HTMLElement>(".acpmux-chat-inspector-avatars__stack > *")];
+  expect(avatars.map((avatar) => avatar.dataset.state)).toEqual([
+    "running",
+    "running",
+    "running",
+    "running",
+    "failed",
+    "completed",
+    "completed",
+  ]);
+  await click(row);
+  // Active: the running subagent, then the chats waiting on the person and running; Done: the rest.
+  const lists = [...subagents.querySelectorAll<HTMLElement>(".acpmux-chat-inspector-subagents__list section")];
+  expect(lists.map((list) => list.getAttribute("aria-label"))).toEqual(["Active · 4", "Done · 3"]);
+  expect(sessionRows(lists[0]!)).toEqual([
+    ["Rename the settings keys", "Waiting"],
+    ["Port the history page", "Running"],
+    ["Migrate the settings store", "Running"],
+  ]);
+  expect(sessionRows(lists[1]!)).toEqual([
+    ["Fix the flaky drag test", "Failed"],
+    ["Draft the release notes", "Done"],
+  ]);
+  await click(lists[0]!.querySelectorAll<HTMLButtonElement>("button.acpmux-summary-session")[1]!);
+  expect(opened).toEqual(["c5"]);
+});
+
+test("with only started chats Subagents is still drawn, and the running line's count lands on it", async () => {
+  const container = installDom(true);
+  const opened: string[] = [];
+  const sessions = {
+    list: [
+      started("c1", "Migrate the settings store", "running", 1),
+      started("c2", "Port the history page", "idle", 2),
+    ],
+    onOpen: (id: string) => opened.push(id),
+  };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<Pane snapshot={localChat} onOpenOutput={noop} sessions={sessions} />);
+  });
+  expect(sectionIds(container)).toEqual(["environment", "context", "subagents", "outputs"]);
+  expect(meta(section(container, "subagents"))).toBe("1 running · 1 done");
+  // Closed, with Subagents folded: the running line's "2 sessions" opens it at Subagents.
+  await click(head(section(container, "subagents")!));
+  await click(toggle(container)!);
+  expect(panel(container)).toBeNull();
+  await act(async () => reveal!("subagents"));
+  expect(panel(container)).not.toBeNull();
+  const subagents = section(container, "subagents")!;
+  expect(inspectorState().sections.subagents).toBe(true);
+  expect(subagents.querySelector("button.acpmux-chat-inspector-avatars")?.getAttribute("aria-label")).toBe(
+    "Show 2 subagents",
+  );
+  await click(subagents.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-avatars")!);
+  // No "No active subagents" while a chat it started runs.
+  expect(
+    [...subagents.querySelectorAll(".acpmux-chat-inspector-subagents__list section")].map((list) =>
+      list.getAttribute("aria-label"),
+    ),
+  ).toEqual(["Active · 1", "Done · 1"]);
+  await click(subagents.querySelector<HTMLButtonElement>("button.acpmux-summary-session")!);
+  expect(opened).toEqual(["c1"]);
+});
+
+test("a Cloud VM chat's children, as its machine's daemon lists them with the chat, show under Subagents", async () => {
+  const container = installDom(true);
+  // `_acpmux/watch` for a chat on another machine (RemoteAcpmuxWire): the chat's own summary, then
+  // the chats it started there (`agent-session-children-v1`): a sub-session, named by `startedBy`
+  // and, while its parent is listed, `spawnedBy`, and an `acpmux new` chat named by `spawnedBy`.
+  // A grandchild (acpmux keeps `spawnedBy` one level) lists under its own parent, not this chat.
+  const watch = {
+    sessions: [
+      { sessionId: "vm-root", title: "Ship the uploader", status: "running", host: "build-01", hostKind: "cloud" },
+      {
+        sessionId: "vm-sub",
+        title: "Run the e2e suite",
+        status: "running",
+        host: "build-01",
+        hostKind: "cloud",
+        startedBy: "vm-root",
+        spawnedBy: "vm-root",
+        createdAt: 2,
+      },
+      {
+        sessionId: "vm-new",
+        title: "Draft the release notes",
+        status: "idle",
+        host: "build-01",
+        hostKind: "cloud",
+        spawnedBy: "vm-root",
+        createdAt: 1,
+      },
+      {
+        sessionId: "vm-grandchild",
+        title: "Check one shard",
+        status: "running",
+        host: "build-01",
+        hostKind: "cloud",
+        startedBy: "vm-sub",
+        spawnedBy: null,
+        createdAt: 3,
+      },
+    ],
+  };
+  // The App's path (App.tsx `childSessions`).
+  const entries = watch.sessions.map((session) => sessionEntry(session));
+  const children = startedSessions(spawnedSessions(entries, "vm-root"), "vm-root");
+  const opened: string[] = [];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<ChatInspector sessions={children} onOpenSession={(id) => opened.push(id)} />);
+  });
+  const subagents = section(container, "subagents")!;
+  expect(meta(subagents)).toBe("1 running · 1 done");
+  await click(subagents.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-avatars")!);
+  expect(sessionRows(subagents)).toEqual([
+    ["Run the e2e suite", "Running"],
+    ["Draft the release notes", "Done"],
+  ]);
+  await click(subagents.querySelector<HTMLButtonElement>("button.acpmux-summary-session")!);
+  expect(opened).toEqual(["vm-sub"]);
 });

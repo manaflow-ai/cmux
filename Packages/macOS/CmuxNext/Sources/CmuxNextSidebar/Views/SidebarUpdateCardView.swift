@@ -81,6 +81,8 @@ final class SidebarUpdateCardView: NSView {
     /// whole card opens the popup even when no enter reached it (a still pointer the card
     /// appeared under, an enter that a child window covering the card at that moment took).
     private var moveTracking: NSTrackingArea?
+    /// The mouse went down on the card's body (not one of its controls).
+    private var clickStartedOnCard = false
     /// The popup's delayed close after the pointer left the card or the popup
     /// (``scheduleNotesClose()``): one-shot, re-armed while the pointer is on its way.
     /// Tests swap in one on a manual clock.
@@ -93,6 +95,11 @@ final class SidebarUpdateCardView: NSView {
     /// action, the app resigning active): moves over the card do not reopen it
     /// until the pointer leaves and comes back.
     var notesDismissedWhileHovered = false
+    /// A click on the card pinned the preview open (Leo 2026-10-20: hover previews, a click
+    /// expands it to read and scroll): the pointer leaving no longer closes it, and it grows
+    /// to ``SidebarUpdateCardView/pinnedMaxHeightFraction`` of the window. Another click on the
+    /// card, Hide, an action in it or another hover card taking the window unpins it.
+    var notesPinned = false
     /// The pointer on screen, read by every popup check (tests place it).
     var screenPointer: () -> CGPoint = { NSEvent.mouseLocation }
     /// Shows and hides the card with its entrance and exit (``SidebarCardTransition``).
@@ -285,6 +292,24 @@ final class SidebarUpdateCardView: NSView {
         guard !isHovered || !notesAreShown else { return }
         pointerHover?.refresh()
         if isHovered, !notesAreShown, !notesDismissedWhileHovered { showNotes() }
+    }
+
+    // MARK: Click
+
+    override func mouseDown(with event: NSEvent) {
+        // Control-click is a right click: AppKit's default opens the card's context menu.
+        if event.modifierFlags.contains(.control) {
+            super.mouseDown(with: event)
+            return
+        }
+        // The card's own body (labels pass their clicks here); its controls take their own.
+        clickStartedOnCard = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { clickStartedOnCard = false }
+        guard clickStartedOnCard, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        toggleNotesPinned()
     }
 
     override func viewDidHide() {

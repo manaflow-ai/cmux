@@ -121,12 +121,12 @@ struct StashPageView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(tab.isWorkspace ? tab.workspaceTabs.joined(separator: "\n") : tab.url)
+            .themedHelp(tab.isWorkspace ? tab.workspaceTabs.joined(separator: "\n") : tab.url)
             .accessibilityHint(StashStrings.restore)
             Button { Task { await model.delete(group, tab: tab, undoIn: window()) } } label: {
                 Icon(.actionClose, size: Metrics.iconSize).foregroundStyle(colors.tertiary)
             }
-            .buttonStyle(.plain).help(StashStrings.delete).accessibilityLabel(StashStrings.delete)
+            .buttonStyle(.plain).themedHelp(StashStrings.delete).accessibilityLabel(StashStrings.delete)
         }
         .frame(height: Self.rowHeight)
         .contextMenu {

@@ -19,6 +19,11 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
     /// rows on either side, so rows tile and the pointer is never between
     /// two of them (Leo 2026-10-13: the hover flickered off in the gaps).
     public var rowSpacing: CGFloat = 0
+    /// The session tree's Pinned chats (`SidebarChatHistoryState.pinnedHeight`): where the block
+    /// starts, above the workspaces; nil without one. No row: the list draws the block itself.
+    public var pinnedChatsY: CGFloat?
+    /// The Earlier chats block's top, under the workspaces; nil without one.
+    public var earlierChatsY: CGFloat?
 
     public init(rows: [SidebarRow], totalHeight: CGFloat, gapY: CGFloat?, gapHeight: CGFloat, gapShift: CGFloat) {
         self.rows = rows
@@ -149,51 +154,30 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         var previousWasBlock = false
         var shownEmptyMachine = false
 
-        func visible(_ ws: SidebarWorkspace) -> Bool {
-            !o.excludedWorkspaces.contains(ws.id) && (o.filterMatches?.contains(ws.id) ?? true)
-        }
-
-        // `showWorkspaceTabs` lists every workspace's tabs, except those
-        // the user collapsed with the row's disclosure.
-        func listsTabs(_ ws: SidebarWorkspace) -> Bool {
-            o.showWorkspaceTabs && !o.collapsedWorkspaces.contains(ws.id)
-        }
-
-        func disclosure(_ ws: SidebarWorkspace) -> SidebarTabDisclosure? {
-            guard o.showWorkspaceTabs else { return nil }
-            if ws.tabs.isEmpty { return .empty }
-            return o.collapsedWorkspaces.contains(ws.id) ? .collapsed : .expanded
-        }
-
         func openGapIfNeeded(section: SectionID, group: GroupID?, index: Int) {
             guard gapY == nil, let gap = o.gap, gap.section == section, gap.group == group, gap.index == index else { return }
             gapY = y
             y += gapHeight + m.rowSpacing
         }
 
+        // The session tree's chat history, never while filtering.
+        var chats = SidebarChatHistoryPlacement(filtering ? nil : o.chatHistory, metrics: m)
+        let lastMachine = sections.lastIndex { $0.machine != nil }
+
         var firstSection = true
-        for section in sections {
+        for (sectionIndex, section) in sections.enumerated() {
+            if let lastMachine, sectionIndex > lastMachine { chats.placeEarlier(&y) }
             // Nodes that remain, with their visible children.
             var nodes: [(node: SidebarNode, children: [SidebarWorkspace])] = []
             // Nested groups (remote-groups-DESIGN.md slice 2) list flat, a group before its
             // subgroups: a group under a collapsed or hidden one hides too, and with a filter a
             // group shows while a group under it has a match (the path to the match).
             var hiddenGroups = Set<GroupID>()
-            var pathToMatch = Set<GroupID>()
-            if filtering {
-                let parents = Dictionary(section.nodes.compactMap { node -> (GroupID, GroupID?)? in
-                    if case let .group(group) = node { (group.id, group.parent) } else { nil }
-                }, uniquingKeysWith: { first, _ in first })
-                for node in section.nodes {
-                    guard case let .group(group) = node, group.workspaces.contains(where: visible) else { continue }
-                    var parent = group.parent
-                    while let id = parent, pathToMatch.insert(id).inserted { parent = parents[id] ?? nil }
-                }
-            }
+            let pathToMatch = filtering ? Self.pathToMatch(section, visible: o.visible) : []
             for node in section.nodes {
                 switch node {
                 case let .workspace(ws):
-                    if visible(ws) { nodes.append((node, [ws])) }
+                    if o.visible(ws) { nodes.append((node, [ws])) }
                 case let .group(group):
                     if let parent = group.parent, hiddenGroups.contains(parent) {
                         hiddenGroups.insert(group.id)
@@ -203,7 +187,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         hiddenGroups.insert(group.id)
                         continue
                     }
-                    let children = group.workspaces.filter(visible)
+                    let children = group.workspaces.filter(o.visible)
                     // A group emptied by the drag keeps its header (it is a
                     // valid target); a group emptied by the filter hides.
                     if filtering && children.isEmpty && !pathToMatch.contains(group.id) {
@@ -232,16 +216,23 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             let emptyDropZone = docID != nil && o.showEmptyPinned && !filtering // any document section takes a drop during a drag
             if isDocSection && nodes.isEmpty && blockHeight == 0 && !gapHere && !emptyDropZone { continue }
 
-            // A remote group (remote-groups-DESIGN.md slice 4) is a section of its own in one list too.
-            let flat = o.flattensMachines && section.machine != nil && !section.isHostGroup
+            // The Chief's workspaces are a group only while it has some: nobody made the section, so an
+            // empty one draws nothing (a drop still opens it).
+            if section.machine?.id.isLocalChief == true && nodes.isEmpty && !gapHere { continue }
+            // A remote group (remote-groups-DESIGN.md slice 4) and the Chief's workspaces are a section of
+            // their own in one list too.
+            let flat = o.flattensMachines && section.machine != nil && !Self.keepsHeaderInOneList(section)
             if flat && nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine) { continue }
             if flat && nodes.isEmpty { shownEmptyMachine = true }
             // Consecutive computers in one list read as one list: no gap. A block brings its own padding.
             if firstSection && blockHeight > 0 { y -= m.topPadding }
             if !firstSection && !(flat && previousWasMachine) && blockHeight == 0 { y += previousWasBlock ? m.topPadding : m.sectionSpacing }
             firstSection = false
+            if section.machine != nil { chats.placePinned(&y) }
             previousWasBlock = blockHeight > 0 && nodes.isEmpty
-            previousWasMachine = section.machine != nil
+            // Only a headerless computer joins the next one: rows after a headed section (a remote group,
+            // the Chief's) never read as its members.
+            previousWasMachine = section.machine != nil && flat
             if let docID, blockHeight > 0 {
                 rows.append(SidebarRow(
                     key: .block(docID), y: y, height: blockHeight, section: section.id,
@@ -252,7 +243,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             }
             // Headers stay for the pinned area and for one section per
             // computer (`sidebar.groupByComputer`, opt-in), never in one list.
-            let showsHeader = !isDocSection && (section.machine == nil || section.isHostGroup
+            let showsHeader = !isDocSection && (section.machine == nil || Self.keepsHeaderInOneList(section)
                 || (!flat && (machineCount > 1 || o.showsSoleMachineHeader)))
             // The computer a row names in one list (never this Mac), with its
             // status when it cannot connect.
@@ -298,10 +289,10 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         key: .workspace(ws.id), y: y, height: h, section: section.id,
                         group: nil, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
                         isCollapsed: false, childCount: 0, groupColor: nil,
-                        tabDisclosure: disclosure(ws), content: content
+                        tabDisclosure: o.disclosure(ws), content: content
                     ))
                     y += h + m.rowSpacing
-                    if listsTabs(ws) {
+                    if o.listsTabs(ws) {
                         for tab in ws.tabs {
                             rows.append(SidebarRow(
                                 key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section.id,
@@ -356,13 +347,20 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             rows.append(SidebarRow(key: .workspace(ws.id), y: y, height: h, section: section.id, group: group.id,
                                                    siblingIndex: childIndex, parentIndex: index, isLastInGroup: n == kept.count - 1,
                                                    isCollapsed: false, childCount: 0, groupColor: group.color,
-                                                   tabDisclosure: disclosure(ws), content: content))
+                                                   tabDisclosure: o.disclosure(ws), content: content))
                             y += h + m.rowSpacing
                         }
                         return
                     }
-                    let drawn = Self.treeOrder(Self.workspaceIDs(members), parents: o.sessionTree?.parents)
+                    let fold = SidebarDoneFoldID(section: section.id, group: group.id)
+                    let drawn = Self.foldingDone(Self.treeOrder(Self.workspaceIDs(members), parents: o.sessionTree?.parents),
+                                                 workspace: { if case let .workspace(ws) = members[$0] { ws } else { nil } }, fold: fold, options: o)
                     for (position, (childIndex, depth)) in drawn.enumerated() {
+                        if childIndex == Self.doneFoldIndex {
+                            Self.appendDoneFold(fold, count: depth, open: o.openDoneFolds.contains(fold), parent: index, color: group.color,
+                                                last: position == drawn.count - 1, to: &rows, y: &y, metrics: m)
+                            continue
+                        }
                         let member = members[childIndex]
                         openGapIfNeeded(section: section.id, group: group.id, index: childIndex)
                         guard case let .workspace(ws) = member else {
@@ -387,10 +385,10 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             group: group.id, siblingIndex: childIndex, parentIndex: index,
                             isLastInGroup: position == drawn.count - 1,
                             isCollapsed: false, childCount: 0, groupColor: group.color,
-                            tabDisclosure: disclosure(ws), content: content
+                            tabDisclosure: o.disclosure(ws), content: content
                         ))
                         y += h + m.rowSpacing
-                        if listsTabs(ws) {
+                        if o.listsTabs(ws) {
                             for tab in ws.tabs {
                                 rows.append(SidebarRow(
                                     key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section.id,
@@ -413,8 +411,14 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
 
             let byFolder = o.groupsByFolder && section.machine != nil && machineCount == 1 && !filtering
             guard byFolder else {
-                let drawn = Self.treeOrder(Self.workspaceIDs(nodes.map { $0.node }), parents: o.sessionTree?.parents)
-                for (index, depth) in drawn { emit(index, nodes[index], depth: depth) }
+                let fold = SidebarDoneFoldID(section: section.id, group: nil)
+                let drawn = Self.foldingDone(Self.treeOrder(Self.workspaceIDs(nodes.map { $0.node }), parents: o.sessionTree?.parents),
+                                             workspace: { if case let .workspace(ws) = nodes[$0].node { ws } else { nil } }, fold: fold, options: o)
+                for (index, depth) in drawn {
+                    guard index == Self.doneFoldIndex else { emit(index, nodes[index], depth: depth); continue }
+                    Self.appendDoneFold(fold, count: depth, open: o.openDoneFolds.contains(fold), parent: nil, color: nil, last: false,
+                                        to: &rows, y: &y, metrics: m)
+                }
                 openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
                 continue
             }
@@ -443,6 +447,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             }
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }
+        chats.placeEarlier(&y)
         y += m.bottomPadding
         var layout = SidebarLayout(
             rows: rows, totalHeight: y, gapY: gapY,
@@ -450,6 +455,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             gapShift: gapY == nil ? 0 : gapHeight + m.rowSpacing
         )
         layout.rowSpacing = m.rowSpacing
+        (layout.pinnedChatsY, layout.earlierChatsY) = (chats.pinnedY, chats.earlierY)
         return layout
     }
 }

@@ -4,7 +4,7 @@ extension NSMenu {
     /// Draws this menu's rows, and its submenus', in `scope`'s accent instead of the system accent
     /// (follow-up to #19754). NSMenu always highlights in the system accent and only follows light
     /// and dark, so every row becomes a `ThemedMenuRowView` that draws its own highlight: a faint
-    /// wash of the theme's accent (`Palette.menuHighlight`) in the label's ink. Separators and rows that already have a
+    /// wash of the theme's accent (`Palette.menuHighlight`) in the label's ink. Separators, section headers and rows that already have a
     /// view (the workspace and group menus' name and color header) are left as they are; such a view that is a
     /// `ThemedMenuItemView` is handed the scope to draw in. Call it last, once the menu is
     /// built, with the scope of the view that was right-clicked.
@@ -33,7 +33,8 @@ extension NSMenu {
             session.keep(relay)
             delegate = relay
         }
-        for item in items where !item.isSeparatorItem {
+        // A section header ("Phones" in the device menu) stays AppKit's: it never highlights or runs.
+        for item in items where !item.isSeparatorItem && !item.isSectionHeader {
             if let view = item.view as? any ThemedMenuItemView {
                 view.adoptMenuScope(scope)
             } else if item.view == nil {
@@ -48,11 +49,19 @@ extension NSMenu {
 }
 
 extension NSMenu {
+    /// Themes rows added to this themed menu since it was themed (a search's results while it is
+    /// open), in its scope and opening; does nothing in a menu that was never themed.
+    public func themeAddedRows() {
+        (delegate as? ThemedMenuHighlightRelay)?.themeRows(of: self)
+    }
+
     /// Runs `body` once a row chosen in this themed menu has run. A themed row runs its item after
     /// the menu's tracking loop ends (`ThemedMenuRowView.activate`), so code that follows `popUp`
     /// and settles the menu's outcome (a page menu that ends a dismissed request) waits for it.
     /// The menu stays alive until then.
     public func afterThemedRowRuns(_ body: @escaping @MainActor () -> Void) {
+        // A row chosen from the keyboard runs once the menu has closed: the step waits for it.
+        if let session = (delegate as? ThemedMenuHighlightRelay)?.session, session.afterPendingRun({ [self] in _ = self; body() }) { return }
         let step = ThemedMenuAfterRun { [self] in
             _ = self
             body()
@@ -87,6 +96,50 @@ final class ThemedMenuSession {
 
     /// The menu (re)opened: its rows may run again.
     func reset() { hasRun = false }
+
+    /// Whether the menu is open: between its root's `menuWillOpen` and `menuDidClose`.
+    private(set) var isOpen = false
+    /// The chosen row's run, waiting for the menu to close.
+    private var pendingRun: (@MainActor () -> Void)?
+    /// `afterThemedRowRuns` steps that wait for `pendingRun`.
+    private var afterRuns: [@MainActor () -> Void] = []
+    /// A row was chosen and its run has not finished yet (`afterThemedRowRuns` steps wait for it).
+    var awaitingRun = false
+
+    /// The root menu opened.
+    func opened() { isOpen = true }
+
+    /// Runs `body` once the menu has closed: now when it is not open (a row run outside a
+    /// tracking menu), else when its root's `menuDidClose` arrives. A row chosen while the menu
+    /// still tracks must not run before then: its window still has the keys, so an action that
+    /// reads the focused window or pane would act on the menu instead.
+    func runWhenClosed(_ body: @escaping @MainActor () -> Void) {
+        guard isOpen else { return body() }
+        pendingRun = body
+    }
+
+    /// Queues `body` after the pending row's run; false when no run is pending.
+    func afterPendingRun(_ body: @escaping @MainActor () -> Void) -> Bool {
+        guard pendingRun != nil || awaitingRun else { return false }
+        afterRuns.append(body)
+        return true
+    }
+
+    /// The root menu closed: the chosen row starts its run (it calls ``finishedRun()`` after it).
+    func closed() {
+        isOpen = false
+        let run = pendingRun
+        pendingRun = nil
+        // A row already running (a click) finishes its own run; else nothing was chosen.
+        if let run { run() } else if !awaitingRun { finishedRun() }
+    }
+
+    /// The chosen row ran (or could not): the `afterThemedRowRuns` steps waiting for it run now.
+    func finishedRun() {
+        let after = afterRuns
+        afterRuns = []
+        after.forEach { $0() }
+    }
 
     /// Runs `body` unless something in this opening already ran.
     func runOnce(_ body: () -> Void) {
@@ -126,7 +179,7 @@ final class ThemedMenuHighlightRelay: NSObject, NSMenuDelegate {
     private weak var forward: (any NSMenuDelegate)?
     private let scope: ThemeScope
     /// The session keeps this relay, so it outlives it; weak only to make no cycle.
-    private weak var session: ThemedMenuSession?
+    private(set) weak var session: ThemedMenuSession?
 
     init(forward: (any NSMenuDelegate)?, scope: ThemeScope, session: ThemedMenuSession) {
         self.forward = forward
@@ -138,14 +191,33 @@ final class ThemedMenuHighlightRelay: NSObject, NSMenuDelegate {
         for row in [menu.highlightedItem?.view, item?.view] {
             if let row = row as? ThemedMenuRowView { row.highlightChanged() } else { row?.needsDisplay = true }
         }
+        // The highlighted row takes the menu's keys (Return, keypad Enter, Space run it).
+        if let row = item?.view as? ThemedMenuRowView {
+            row.takeKeys()
+        } else if item == nil {
+            (menu.highlightedItem?.view as? ThemedMenuRowView)?.releaseKeys()
+        }
         forward?.menu?(menu, willHighlight: item)
     }
 
-    func menuWillOpen(_ menu: NSMenu) { forward?.menuWillOpen?(menu) }
-    func menuDidClose(_ menu: NSMenu) { forward?.menuDidClose?(menu) }
+    func menuWillOpen(_ menu: NSMenu) {
+        if menu.supermenu == nil { session?.opened() }
+        forward?.menuWillOpen?(menu)
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        forward?.menuDidClose?(menu)
+        // The root closed: a row chosen from the keyboard runs now (``ThemedMenuSession/runWhenClosed(_:)``).
+        if menu.supermenu == nil { session?.closed() }
+    }
     /// A submenu filled as it opens (Open With ▸) themes the rows its delegate just added.
     func menuNeedsUpdate(_ menu: NSMenu) {
         forward?.menuNeedsUpdate?(menu)
+        themeRows(of: menu)
+    }
+
+    /// Themes `menu`'s rows that are not yet themed, in this relay's scope and opening.
+    func themeRows(of menu: NSMenu) {
         if let session { menu.themeRows(in: scope, session: session) }
     }
 }

@@ -754,7 +754,9 @@ impl Brain {
                 },
                 None => outcome(
                     "done",
-                    format!("{id} is cancelled; it is still starting and gets nothing more"),
+                    format!(
+                        "{id} is cancelled; it is still starting, and its turn stops as soon as it starts"
+                    ),
                 ),
             },
             SubStatus::Done | SubStatus::Reported => {
