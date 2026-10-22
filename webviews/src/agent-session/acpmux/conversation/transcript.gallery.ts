@@ -533,6 +533,57 @@ const envShell = (command: string) =>
     endedAt: minutesAgo(1.88),
   });
 
+/// A running turn with one call per run, none a shell: a finished fetch, a failed fetch and a read
+/// still going (Leo, 2026-10-21: "only show the green/red checkmark + time on hover for ours").
+const loneToolCalls = () =>
+  chat(
+    [
+      user("Read the API docs and the client.", 3),
+      activity(
+        [
+          tool("Fetch https://example.com/docs", "fetch", "completed", {
+            startedAt: minutesAgo(2.9),
+            endedAt: minutesAgo(2.88),
+          }),
+        ],
+        2.9,
+      ),
+      assistant("The docs page loaded; the API reference is next.", 2.8),
+      activity(
+        [
+          tool("Fetch https://example.com/api", "fetch", "failed", {
+            startedAt: minutesAgo(2.7),
+            endedAt: minutesAgo(2.69),
+          }),
+        ],
+        2.7,
+      ),
+      assistant("That page is gone; I'll read the client instead.", 2.6),
+      activity(
+        [
+          tool("Read client.ts", "read", "in_progress", {
+            locations: [{ path: "src/net/client.ts" }],
+            startedAt: minutesAgo(0.1),
+          }),
+        ],
+        0.1,
+      ),
+    ],
+    { isWorking: true },
+  );
+
+/// At rest the finished call's check and time are hidden and take their room; the failure's red word shows.
+const loneToolMetaAtRest = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool .cv-command__ok"));
+  const view = ctx.document.defaultView!;
+  for (const node of ctx.document.querySelectorAll(".cv-tool .cv-command__ok, .cv-tool .cv-command__time"))
+    if (view.getComputedStyle(node).opacity !== "0") throw new Error("a finished call's check or time shows at rest");
+  const failed = ctx.find({ selector: ".cv-tool__failed" });
+  const style = view.getComputedStyle(failed);
+  if (style.opacity !== "1" || style.color === view.getComputedStyle(failed.parentElement!).color)
+    throw new Error("the failed call's mark is not red at rest");
+};
+
 /// Opens the turn's Worked for, then its one run's folded line.
 const openGroupedRun = async (ctx: PlayContext) => {
   await openWorked(ctx);
@@ -1361,6 +1412,25 @@ export default agentPaneEntry({
           throw new Error("the check shows at rest");
         await ctx.hover({ selector: ".cv-command" });
         await ctx.waitFor(() => ctx.document.defaultView!.getComputedStyle(ok()).opacity === "1");
+      },
+    },
+    "tool-hover-meta-lone": {
+      note: "Calls that are not shells, at rest: a finished fetch shows no check or time, a failed one says failed in red, a running read keeps its spinner.",
+      snapshot: loneToolCalls(),
+      play: loneToolMetaAtRest,
+    },
+    "tool-hover-meta-lone-hovered": {
+      note: "The same calls with the finished fetch pointed at: its green check and run time fade in; the failure stays as it was.",
+      snapshot: loneToolCalls(),
+      play: async (ctx) => {
+        await loneToolMetaAtRest(ctx);
+        const row = ctx.find({ selector: ".cv-tool:has(.cv-command__ok)" });
+        await ctx.hover({ selector: ".cv-tool:has(.cv-command__ok)" });
+        await ctx.waitFor(() =>
+          [...row.querySelectorAll(".cv-command__ok, .cv-command__time")].every(
+            (node) => getComputedStyle(node).opacity === "1",
+          ),
+        );
       },
     },
     "mcp-calls": {
