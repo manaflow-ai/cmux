@@ -25,13 +25,26 @@ const files = (dir: string, ext: RegExp): string[] =>
 const classNames = (list: string) => list.split(/\s+/).filter((name) => /^[a-z][\w-]*$/.test(name));
 const shared = new Set(["ui-glass", "ui-popup", "ui-dialog", "ui-card"]);
 
+// The attributes of the JSX tag that opens at `start`: up to its `>` outside any `{...}` (an arrow
+// function in a prop has a `>` of its own), as glass-one-edge.test.ts reads them.
+const attributes = (text: string, start: number) => {
+  let depth = 0;
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}") depth--;
+    else if (text[i] === ">" && depth === 0 && text[i - 1] !== "=") return text.slice(start, i);
+  }
+  return text.slice(start);
+};
+
 // The classes of every surface over the chat: a <Dialog>'s className, a .ui-glass element's, and
 // the overlay Inspector (ChatInspector.tsx gives it its class only in a ternary).
 const surfaces = new Set<string>(["acpmux-chat-inspector"]);
 for (const file of files(source, /\.tsx$/)) {
   const text = fs.readFileSync(file, "utf8");
-  for (const tag of text.matchAll(/<Dialog\b[^>]*?className="([^"]+)"/gs)) {
-    for (const name of classNames(tag[1])) if (!shared.has(name)) surfaces.add(name);
+  for (const open of text.matchAll(/<Dialog\b/g)) {
+    const className = attributes(text, open.index).match(/\bclassName="([^"]+)"/);
+    for (const name of classNames(className?.[1] ?? "")) if (!shared.has(name)) surfaces.add(name);
   }
   for (const literal of text.matchAll(/["`]([^"`\n]*\bui-glass\b[^"`\n]*)["`]/g)) {
     for (const name of classNames(literal[1])) if (!shared.has(name)) surfaces.add(name);
@@ -41,8 +54,9 @@ for (const file of files(source, /\.tsx$/)) {
 // The page color as the fill itself, not as the fallback of another token (`var(--x, var(--agent-page-bg))`).
 const pageColorFill = (value: string) =>
   [...value.matchAll(/var\(\s*--agent-page-bg\b/g)].some((match) => {
-    const before = value.slice(0, match.index).trimEnd();
-    return !before.endsWith(",");
+    // A fallback only when the comma closes a `var(--x,` argument; in `color-mix(in srgb, ...)` the
+    // page color is the mix's own color.
+    return !/var\(\s*--[\w-]+\s*,\s*$/.test(value.slice(0, match.index));
   });
 
 test("finds the dialogs and glass surfaces over the chat", () => {
