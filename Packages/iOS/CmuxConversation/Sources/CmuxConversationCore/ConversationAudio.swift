@@ -218,10 +218,7 @@ public final class ConversationAudioRecorder: NSObject {
         if input == .microphone {
             #if os(iOS)
             let session = AVAudioSession.sharedInstance()
-            // AirPods and other headsets record too, not only the built-in mic.
-            let headset: AVAudioSession.CategoryOptions
-            if #available(iOS 26.0, *) { headset = .allowBluetoothHFP } else { headset = .allowBluetooth }
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, headset])
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
             try session.setActive(true)
             #endif
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-audio-\(UUID().uuidString).wav")
@@ -312,27 +309,6 @@ public final class ConversationAudioRecorder: NSObject {
             transcript: input == .microphone ? nil : syntheticTranscript
         )
         return ConversationRecordedAudio(data: ConversationWAV.encode(committed), info: info)
-    }
-
-    /// Yields once each time another audio user (a call, Siri, an alarm)
-    /// takes the session. The recorder's segment stops then; the composer
-    /// keeps what was recorded for review instead of losing it.
-    public nonisolated static func interruptions() -> AsyncStream<Void> {
-        AsyncStream { continuation in
-            #if os(iOS)
-            // Token API at the seam (Notification is not Sendable); only the Void signal leaves it.
-            nonisolated(unsafe) let token = NotificationCenter.default.addObserver(
-                forName: AVAudioSession.interruptionNotification, object: nil, queue: nil
-            ) { note in
-                let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
-                if raw.flatMap(AVAudioSession.InterruptionType.init(rawValue:)) == .began { continuation.yield() }
-            }
-            // The token is only handed back to NotificationCenter, which is thread-safe.
-            continuation.onTermination = { _ in NotificationCenter.default.removeObserver(token) }
-            #else
-            continuation.finish()
-            #endif
-        }
     }
 
     public func cancel() {

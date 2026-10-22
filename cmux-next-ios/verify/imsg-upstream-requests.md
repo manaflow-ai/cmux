@@ -163,3 +163,28 @@ they are intended. Chief will not work around them.
   // ConversationViewController
   public var onFooterAction: ((_ messageID: String, _ actionID: String) -> Void)?
   ```
+
+## 9. The audio composer survives a call, records from AirPods, and gives the audio back (Chief)
+
+- **Why:** user 2026-10-21, "audio messages dont work on ios". The send
+  path is fixed in host code (`ChiefDaemonBackend+Audio.swift`). Three
+  recorder gaps stay in the package, which this app does not patch:
+  - A call, Siri or an alarm interrupts the session while recording. The
+    recorder is never told, so the recording stops with no review, and the
+    field stays in the recording state.
+  - The session category has only `.defaultToSpeaker`, so AirPods and other
+    headset mics are not used for recording.
+  - After send or cancel, the session stays active, so music or a podcast
+    that the recording paused does not resume.
+- **Package today:** `ConversationAudioRecorder.beginSegment` and
+  `ConversationAudioComposer` (`ConversationViewController+Audio.swift`).
+- **Smallest additive change** (tested on the cmux-next-ios kit CI, then
+  taken out to keep the package in sync): the patch is in
+  `cmux-next-ios/verify/imsg-upstream-9-audio-composer.patch`. In summary:
+  - Add `.allowBluetoothHFP` (iOS 26; `.allowBluetooth` before that) to the
+    category options.
+  - Add `ConversationAudioRecorder.interruptions() -> AsyncStream<Void>`
+    (began interruptions). While the field is up, the composer follows it:
+    a recording stops for review, and a review playback stops.
+  - On dismiss after a microphone recording, call
+    `setActive(false, options: .notifyOthersOnDeactivation)`.
