@@ -299,7 +299,7 @@ public final class UpdaterService {
             if case .ready = flow.phase {
                 // Sparkle ignores a check while an update waits: the card answers, and a newer ring build replaces it.
                 log.append("check while an update waits: showing the staged update")
-                stagedRefresh.run(reason: "check", updater: self)
+                if stagedRefresh.run(reason: "check", updater: self) == nil { flow.askAnswered() }
                 return nil
             }
             guard let controller else { return nil }
