@@ -27788,133 +27788,133 @@
         }
       }
     },
-    "agentPane.daemonUpdate.waiting": {
+    "agentPane.daemonUpdate.retrying": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ينتظر التحديث حتى لا يعمل أي وكيل هناك"
+            "value": "ستُعاد محاولة التحديث قريبًا"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ažuriranje čeka dok tamo nijedan agent ne radi"
+            "value": "Ažuriranje će uskoro pokušati ponovo"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opdateringen venter, til ingen agent arbejder der"
+            "value": "Opdateringen prøver igen om lidt"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das Update wartet, bis dort kein Agent mehr arbeitet"
+            "value": "Das Update versucht es bald erneut"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Update waits until no agent is working there"
+            "value": "Update will try again soon"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La actualización espera hasta que ningún agente esté trabajando allí"
+            "value": "La actualización se volverá a intentar pronto"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La mise à jour attend qu'aucun agent n'y travaille"
+            "value": "La mise à jour sera retentée bientôt"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "L'aggiornamento attende che nessun agente stia lavorando lì"
+            "value": "L'aggiornamento verrà ritentato a breve"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "そこで作業中のエージェントがいなくなるまで更新を待ちます"
+            "value": "まもなく更新を再試行します"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការធ្វើបច្ចុប្បន្នភាពរង់ចាំរហូតដល់គ្មានភ្នាក់ងារណាធ្វើការនៅទីនោះ"
+            "value": "ការធ្វើបច្ចុប្បន្នភាពនឹងព្យាយាមម្ដងទៀតក្នុងពេលឆាប់ៗ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "그곳에서 작업 중인 에이전트가 없을 때까지 업데이트를 기다립니다"
+            "value": "곧 업데이트를 다시 시도합니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Oppdateringen venter til ingen agent jobber der"
+            "value": "Oppdateringen prøver igjen snart"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aktualizacja czeka, aż żaden agent nie będzie tam pracował"
+            "value": "Aktualizacja wkrótce spróbuje ponownie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A atualização espera até que nenhum agente esteja trabalhando lá"
+            "value": "A atualização será tentada novamente em breve"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Обновление ждёт, пока там не останется работающих агентов"
+            "value": "Обновление скоро повторится"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การอัปเดตจะรอจนกว่าจะไม่มีเอเจนต์ทำงานอยู่ที่นั่น"
+            "value": "จะลองอัปเดตอีกครั้งเร็ว ๆ นี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Güncelleme, orada çalışan ajan kalmayana kadar bekliyor"
+            "value": "Güncelleme birazdan yeniden denenecek"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Оновлення чекає, доки там не залишиться активних агентів"
+            "value": "Оновлення незабаром спробує ще раз"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bản cập nhật chờ đến khi không còn tác nhân nào làm việc ở đó"
+            "value": "Bản cập nhật sẽ sớm thử lại"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "更新将等到那里没有智能体在工作时进行"
+            "value": "更新将很快重试"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "更新會等到那裡沒有代理程式在工作時進行"
+            "value": "更新將很快重試"
           }
         }
       }

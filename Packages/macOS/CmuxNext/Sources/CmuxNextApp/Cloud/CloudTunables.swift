@@ -6,12 +6,12 @@ import CmuxNextDesign
 /// defaults.
 nonisolated struct CloudTunables {
     /// A connected Cloud machine on another cmux-tui build than the app's is updated to the app's
-    /// own pinned build at a quiet moment (``CloudMachineUpdates``, through the shared
-    /// `DaemonUpdatePolicy`, which `agent.updatePeers` also turns off). Off: only Update
+    /// own pinned build, also while an agent works there (``CloudMachineUpdates``, through the
+    /// shared `DaemonUpdatePolicy`, which `agent.updatePeers` also turns off). Off: only Update
     /// Machine updates it.
     static let updateCloudMachinesAutomatically = Tunable<Bool>.toggle(
         "cloud.updateMachines", DaemonTunables.section, "Update Cloud machines automatically",
-        help: "A Cloud machine on an older cmux-tui gets this app's build while no agent works there. Terminals and chats keep running.",
+        help: "A Cloud machine on an older cmux-tui gets this app's build, also while an agent works there. Terminals and chats keep running.",
         default: true, code: "CloudTunables.updateCloudMachinesAutomatically")
 
     /// Both toggles of the automatic Cloud machine update: this one and the shared policy's

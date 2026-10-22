@@ -10,11 +10,11 @@ import os
 ///
 /// - the trigger: a target whose build is another commit than the app's bundled build (a dirty
 ///   bundled build never pushes); an ``DaemonUpdateTarget/urgent`` target also with no known build;
-/// - idle first, then anyway: a busy target is asked again with backoff (2 minutes, doubling, at
-///   most 30), and once it has been busy for 10 minutes (``Dependencies/updateBusyAfter``) it is
-///   updated mid-turn, since a machine where agents always work never has an idle moment; the
-///   restarted daemon resumes what it interrupted. One that still answers busy then (unreachable,
-///   another update running) keeps the backoff and is left for the next launch after 6 hours;
+/// - no idle wait: a target is updated mid-turn too (``Dependencies/updateBusyAfter`` is zero),
+///   since a machine where agents always work never has an idle moment; the restarted daemon
+///   resumes what it interrupted. One that answers busy (unreachable, another update running) is
+///   asked again with backoff (2 minutes, doubling, at most 30) and is left for the next launch
+///   after 6 hours;
 /// - one target at a time across every source, urgent targets first;
 /// - one attempt per target and build: a final outcome is kept in ``DaemonUpdateLedger`` across
 ///   launches, so a target that rolled back or failed is not tried again until the next build; one
@@ -39,9 +39,10 @@ public actor DaemonUpdatePolicy {
         public var clock: any Clock<Duration>
         public var busyBackoff = Backoff(initial: .seconds(120), maximum: .seconds(1800), multiplier: 2, jitter: 0)
         /// A target busy for this long is updated mid-turn
-        /// (``DaemonUpdateTarget/update(to:whileBusy:)``): the cap of the local daemon's quiet
-        /// handoff (``AcpmuxQuietHandoff``).
-        public var updateBusyAfter: Duration = .seconds(600)
+        /// (``DaemonUpdateTarget/update(to:whileBusy:)``). Zero: every update runs mid-turn too
+        /// (Leo: "YOU'LL JUST HAVE TO ACCEPT IT BREAKING AT SOME POINT BUT IT RESUMES WHATEVER IT
+        /// INTERRUPTED").
+        public var updateBusyAfter: Duration = .zero
         /// A target that answers busy this long, also to updates while busy, is left for the next
         /// launch.
         public var giveUpAfter: Duration = .seconds(6 * 3600)
@@ -227,13 +228,15 @@ public actor DaemonUpdatePolicy {
         let current = DaemonBuildCommit(await target.currentBuild())
         if let current, local.sameCommit(current.hash) { return nil }
         guard current != nil || urgent else { return nil }
-        // Busy for ``Dependencies/updateBusyAfter`` or longer: this update does not wait for an idle moment.
-        let whileBusy = pending.firstBusy.map { elapsed() - $0 >= deps.updateBusyAfter } ?? false
+        // Busy for ``Dependencies/updateBusyAfter`` or longer (at once when it is zero): this update
+        // does not wait for an idle moment.
+        let asked = elapsed()
+        let whileBusy = asked - (pending.firstBusy ?? asked) >= deps.updateBusyAfter
         await deps.report(DaemonUpdateEvent(target, .updating))
         let outcome = await target.update(to: local, whileBusy: whileBusy)
         Self.logger.info("\(target.displayName, privacy: .public) to \(local.hash, privacy: .public)\(whileBusy ? " while busy" : "", privacy: .public): \(String(describing: outcome), privacy: .public)")
         if outcome == .busy {
-            await deps.report(DaemonUpdateEvent(target, .waitingForIdle))
+            await deps.report(DaemonUpdateEvent(target, .retrying))
             var again = pending
             let now = elapsed()
             let since = again.firstBusy ?? now
@@ -280,7 +283,7 @@ public actor DaemonUpdatePolicy {
         switch outcome {
         case .updated(let build): DaemonUpdateEvent(target, .updated(build: build ?? local.hash))
         case .current: DaemonUpdateEvent(target, .updated(build: local.hash))
-        case .busy: DaemonUpdateEvent(target, .waitingForIdle)
+        case .busy: DaemonUpdateEvent(target, .retrying)
         case .needsBinary(let triple): DaemonUpdateEvent(target, .failed(reason: "no build for \(triple)", rolledBack: false))
         case .rolledBack(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: true), notify: true)
         case .handledElsewhere: DaemonUpdateEvent(target, .cleared)

@@ -5,9 +5,9 @@ import os
 
 /// An acpmux ssh peer of this app's daemon (`acpmux host add NAME ssh://host`) as a
 /// ``DaemonUpdateTarget``: `acpmux --json host update NAME --binary-dir DIR [--if-idle]` on the
-/// bundled CLI. On the idle attempts (`--if-idle`) the CLI refuses a peer where any session runs a
-/// turn (`busy`); an update while busy drops the flag and restarts the peer's daemon mid-turn. The
-/// CLI keeps the old binary and rolls back by itself when the new daemon does not come up with the
+/// bundled CLI. The policy asks while busy by default, which drops the flag and restarts the peer's
+/// daemon mid-turn; on an idle attempt (`--if-idle`, a policy with a non-zero `updateBusyAfter`)
+/// the CLI refuses a peer where any session runs a turn (`busy`). The CLI keeps the old binary and rolls back by itself when the new daemon does not come up with the
 /// expected build.
 /// When it asks for the peer's platform binary (`needsBinary`), the published
 /// `cmux-tui-acpmux-<target>` of the bundled build is downloaded, staged and the update runs again.

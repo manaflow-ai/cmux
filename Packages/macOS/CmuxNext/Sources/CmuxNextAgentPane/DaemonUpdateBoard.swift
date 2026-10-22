@@ -48,8 +48,8 @@ public final class DaemonUpdateBoard {
         switch state {
         case .updating:
             String(localized: "agentPane.daemonUpdate.updating", defaultValue: "Updating to this Mac's build…", bundle: .module)
-        case .waitingForIdle:
-            String(localized: "agentPane.daemonUpdate.waiting", defaultValue: "Update waits until no agent is working there", bundle: .module)
+        case .retrying:
+            String(localized: "agentPane.daemonUpdate.retrying", defaultValue: "Update will try again soon", bundle: .module)
         case .updated(let build):
             String(format: String(localized: "agentPane.daemonUpdate.updated", defaultValue: "Updated to %@", bundle: .module), build)
         case .failed(let reason, false):

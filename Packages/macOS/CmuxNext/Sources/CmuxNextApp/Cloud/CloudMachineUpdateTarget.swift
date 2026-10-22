@@ -8,12 +8,12 @@ import Foundation
 /// running binary, swaps `~/.cmux/bin/cmux-tui`, restarts only the daemon (terminals and chats keep
 /// running) and rolls back when the new daemon does not serve. The VM's acpmux is that same binary.
 ///
-/// When: a connected machine updates at a quiet moment (``CloudMachineQuiet``); otherwise it
-/// answers `busy` and the policy asks again with backoff, until the machine has been busy for the
-/// policy's `updateBusyAfter`: then the policy asks with `whileBusy`, which skips the quiet read,
-/// and the new daemon adopts the terminals and chats that kept running. A machine whose daemon the
-/// app refused (`incompatible`) updates at once: it cannot connect, so nothing on it is in use
-/// through the app and nothing can be lost.
+/// When: the policy asks with `whileBusy` at once, which skips the quiet read: the machine updates
+/// also while an agent works there, and the new daemon adopts the terminals and chats that kept
+/// running. A policy with a non-zero `updateBusyAfter` first waits for a quiet moment
+/// (``CloudMachineQuiet``): until then the machine answers `busy` and the policy asks again with
+/// backoff. A machine whose daemon the app refused (`incompatible`) updates at once either way: it
+/// cannot connect, so nothing on it is in use through the app and nothing can be lost.
 nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
     /// The machine's daemon as the app last saw it.
     struct Daemon: Sendable, Equatable {

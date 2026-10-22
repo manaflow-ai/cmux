@@ -6,8 +6,9 @@ import Foundation
 /// (``CloudMachineUpdateTarget``). The update ends only the machine's cmux-tui daemon: every
 /// terminal host and chat keeps running and the next daemon adopts them (cmux-tui
 /// `link/machine_update/apply.rs`). Still, a turn's stream, a CLI call in flight and a person typing
-/// there feel the restart, so the update waits until every signal is idle, up to the policy's
-/// `updateBusyAfter`; after that it runs anyway and skips this read.
+/// there feel the restart. The shared policy updates at once and skips this read (its
+/// `updateBusyAfter` is zero); a policy with a non-zero `updateBusyAfter` waits until every signal
+/// is idle, up to that cap, then runs anyway and skips this read.
 /// A pure value: ``isQuiet`` is the whole decision, ``read(_:personIdle:)`` the live reads.
 nonisolated struct CloudMachineQuiet: Sendable, Equatable {
     /// The machine's acpmux chats in a turn or waiting on a permission, sub-sessions included

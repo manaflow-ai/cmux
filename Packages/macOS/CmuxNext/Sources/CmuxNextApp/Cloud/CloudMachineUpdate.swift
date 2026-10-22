@@ -11,7 +11,7 @@ import Foundation
 /// the machine: the CLI takes only the machine daemon's socket.
 ///
 /// The app may also start the same update by itself (``CloudMachineUpdates``): a connected
-/// machine on another build than the app's is updated at a quiet moment, with the same
+/// machine on another build than the app's is updated, also while an agent works there, with the same
 /// `cmux link machine update` and the same build source (the app's own pinned build; nothing picks
 /// it). That trigger lives only in the app; no CLI verb, action argument or agent reaches it. This
 /// button never reads its ledger: a click always runs.

@@ -147,9 +147,28 @@ import Testing
         #expect(await targets[1].update(to: local, whileBusy: false) == .failed(reason: "ssh exited 255"))
     }
 
-    /// huge-blue never has an idle moment: through the policy, `host update` carries `--if-idle`
-    /// until the peer has been busy for 10 minutes, then runs once without it.
-    @Test func hostUpdatesCarryIfIdleUntilTheCap() async throws {
+    /// The production default: through the policy, the first `host update` already drops
+    /// `--if-idle`, so a peer where an agent works is updated mid-turn at once.
+    @Test func theFirstHostUpdateDropsIfIdle() async throws {
+        let fixture = try StandInAcpmux()
+        defer { fixture.remove() }
+        try fixture.reply("huge-blue", nil, #"{"outcome":"updated","build":"abc123def 2026-10-20"}"#)
+        let source = fixture.source(peers: ["huge-blue"])
+        await DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.local }, targets: { await source.targets() }, enabled: { true }, report: { _ in },
+            directory: fixture.root.appendingPathComponent("state"), clock: PolicyTestClock()
+        )).run()
+
+        try #require(fixture.calls.count == 1)
+        let binaries = try #require(fixture.calls.first?.binaryDirectory)
+        let busy = AcpmuxPeerUpdateCommand.updateArguments(peer: "huge-blue", binaryDirectory: binaries, whileBusy: true)
+        #expect(fixture.calls.map(\.arguments) == [busy])
+    }
+
+    /// With a non-zero cap of 10 minutes: huge-blue never has an idle moment, so through the
+    /// policy `host update` carries `--if-idle` until the peer has been busy for the cap, then
+    /// runs once without it.
+    @Test func withABusyCapHostUpdatesCarryIfIdleUntilTheCap() async throws {
         let fixture = try StandInAcpmux()
         defer { fixture.remove() }
         try fixture.reply("huge-blue", nil, #"{"outcome":"busy"}"#)
@@ -158,10 +177,12 @@ import Testing
         for target in await source.targets() {
             #expect(await target.urgent == false, "an acpmux peer is never urgent")
         }
-        await DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+        var dependencies = DaemonUpdatePolicy.Dependencies(
             bundledBuild: { Self.local }, targets: { await source.targets() }, enabled: { true }, report: { _ in },
             directory: fixture.root.appendingPathComponent("state"), clock: PolicyTestClock()
-        )).run()
+        )
+        dependencies.updateBusyAfter = .seconds(600)
+        await DaemonUpdatePolicy(dependencies).run()
 
         try #require(fixture.calls.count == 4)
         let binaries = try #require(fixture.calls.first?.binaryDirectory)

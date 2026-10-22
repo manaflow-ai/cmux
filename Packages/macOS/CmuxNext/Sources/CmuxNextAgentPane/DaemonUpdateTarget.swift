@@ -15,12 +15,13 @@ public nonisolated protocol DaemonUpdateTarget: Sendable {
     /// The build the target runs now (`<hash>[+dirty.x] [date]` or a commit); nil when unknown or
     /// unreachable: the policy then leaves it alone.
     func currentBuild() async -> String?
-    /// Brings the target to `build`. Without `whileBusy`, only while it is idle: it does not
-    /// interrupt a turn, a waiting permission or a sub-session's turn; it answers
-    /// ``DaemonUpdateOutcome/busy`` and changes nothing. With `whileBusy` (the policy asks so once
-    /// the target stayed busy past ``DaemonUpdatePolicy/Dependencies/updateBusyAfter``), it updates
-    /// mid-turn too: the restarted daemon resumes what it interrupted. It still answers `busy` when
-    /// it cannot update now, such as an unreachable machine or another update running.
+    /// Brings the target to `build`. With `whileBusy` it updates mid-turn too: the restarted daemon
+    /// resumes what it interrupted. The policy asks so from the first ask by default
+    /// (``DaemonUpdatePolicy/Dependencies/updateBusyAfter`` is zero); with a non-zero
+    /// `updateBusyAfter`, only once the target stayed busy that long. Without `whileBusy`, only
+    /// while it is idle: it does not interrupt a turn, a waiting permission or a sub-session's turn;
+    /// it answers ``DaemonUpdateOutcome/busy`` and changes nothing. It also answers `busy` when it
+    /// cannot update now, such as an unreachable machine or another update running.
     func update(to build: DaemonBuildCommit, whileBusy: Bool) async -> DaemonUpdateOutcome
     /// Whether the target updates as soon as the policy reaches it: the policy queues it also when
     /// its build is unknown, ahead of every other waiting target and without waiting out another
@@ -85,9 +86,10 @@ public nonisolated struct DaemonBuildCommit: Sendable, Equatable {
 public nonisolated struct DaemonUpdateEvent: Sendable, Equatable {
     public enum State: Sendable, Equatable {
         case updating
-        /// The target is not idle: the update waits for an idle moment, or for
-        /// ``DaemonUpdatePolicy/Dependencies/updateBusyAfter``, then runs mid-turn.
-        case waitingForIdle
+        /// The target could not update now (unreachable, another update running, or, with a
+        /// non-zero ``DaemonUpdatePolicy/Dependencies/updateBusyAfter``, not idle yet): the policy
+        /// asks again with backoff.
+        case retrying
         case updated(build: String)
         /// `rolledBack`: the target put its previous build back.
         case failed(reason: String, rolledBack: Bool)

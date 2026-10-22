@@ -8,33 +8,17 @@ import Testing
 /// The automatic Cloud machine update (``CloudMachineUpdates``): a ``CloudMachineUpdateTarget`` run
 /// by a `DaemonUpdatePolicy` over that one machine (the app offers it to the shared one),
 /// against a fake machine: its daemon's build and level, its quiet reads and the answers of
-/// `cmux link machine update`. No VM and no daemon; the CLI itself is covered by the Rust suites
+/// `cmux link machine update`. The production policy updates mid-turn at once; the tests that pass
+/// a non-zero `updateBusyAfter` cover the quiet-first path. No VM and no daemon; the CLI itself is covered by the Rust suites
 /// (`link/machine_update.rs`) and Update Machine by `CloudMoveTests`.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct CloudMachineUpdateTargetTests {
     static let bundled = "abc123def456"
     static let older = "a9b104f3cb7d"
 
-    @Test func anOldMachineUpdatesAtAQuietMoment() async throws {
-        let machine = FakeCloudMachine(build: Self.older, level: .limited, quiet: [false, true],
-                                       answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)])
-        let fixture = try CloudUpdateFixture()
-        defer { fixture.remove() }
-        await fixture.run(machine)
-
-        #expect(machine.updates == 1)
-        #expect(machine.quietReads == 2)
-        #expect(fixture.clock.sleeps == [.seconds(120)], "the busy read waits the policy's backoff, then asks again")
-        #expect(fixture.states == [.updating, .waitingForIdle, .updating, .updated(build: Self.bundled)])
-        #expect(machine.reconnects == 1, "the connection is pointed at the new daemon")
-        #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "updated"])
-        #expect(fixture.notices.isEmpty)
-    }
-
-    /// Leo's VM with an agent that never stops: every quiet read is busy. The policy backs off (2,
-    /// then 4 minutes), and at 10 busy minutes updates it anyway, with no quiet read: the new
-    /// daemon adopts the terminals and chats it interrupted.
-    @Test func aBusyMachineIsUpdatedAfterTenMinutes() async throws {
+    /// The production default: a machine where an agent works is updated on the first ask, with
+    /// no quiet read and no wait; the new daemon adopts the terminals and chats it interrupted.
+    @Test func aBusyMachineIsUpdatedAtOnce() async throws {
         let machine = FakeCloudMachine(build: Self.older, level: .limited, quiet: [false],
                                        answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)])
         let fixture = try CloudUpdateFixture()
@@ -42,9 +26,45 @@ struct CloudMachineUpdateTargetTests {
         await fixture.run(machine)
 
         #expect(machine.updates == 1)
+        #expect(machine.quietReads == 0, "an update while busy reads no quiet state")
+        #expect(fixture.clock.sleeps.isEmpty)
+        #expect(fixture.states == [.updating, .updated(build: Self.bundled)])
+        #expect(machine.reconnects == 1, "the connection is pointed at the new daemon")
+        #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "updated"])
+        #expect(fixture.notices.isEmpty)
+    }
+
+    /// With a non-zero cap: an old machine updates at a quiet moment.
+    @Test func withABusyCapAnOldMachineUpdatesAtAQuietMoment() async throws {
+        let machine = FakeCloudMachine(build: Self.older, level: .limited, quiet: [false, true],
+                                       answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)])
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        await fixture.run(machine, updateBusyAfter: .seconds(600))
+
+        #expect(machine.updates == 1)
+        #expect(machine.quietReads == 2)
+        #expect(fixture.clock.sleeps == [.seconds(120)], "the busy read waits the policy's backoff, then asks again")
+        #expect(fixture.states == [.updating, .retrying, .updating, .updated(build: Self.bundled)])
+        #expect(machine.reconnects == 1, "the connection is pointed at the new daemon")
+        #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "updated"])
+        #expect(fixture.notices.isEmpty)
+    }
+
+    /// With a non-zero cap of 10 minutes: Leo's VM with an agent that never stops, so every quiet
+    /// read is busy. The policy backs off (2, then 4 minutes), and at the cap updates it anyway,
+    /// with no quiet read: the new daemon adopts the terminals and chats it interrupted.
+    @Test func withABusyCapABusyMachineIsUpdatedAtTheCap() async throws {
+        let machine = FakeCloudMachine(build: Self.older, level: .limited, quiet: [false],
+                                       answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)])
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        await fixture.run(machine, updateBusyAfter: .seconds(600))
+
+        #expect(machine.updates == 1)
         #expect(machine.quietReads == 3, "the update while busy reads no quiet state")
         #expect(fixture.clock.sleeps == [.seconds(120), .seconds(240), .seconds(240)])
-        #expect(fixture.states == [.updating, .waitingForIdle, .updating, .waitingForIdle, .updating, .waitingForIdle,
+        #expect(fixture.states == [.updating, .retrying, .updating, .retrying, .updating, .retrying,
                                    .updating, .updated(build: Self.bundled)])
         #expect(machine.reconnects == 1)
         #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "updated"])
@@ -203,13 +223,13 @@ struct CloudMachineUpdateTargetTests {
         #expect(!CloudMachineQuiet(personIdle: true).isQuiet, "nothing read is not quiet")
     }
 
-    /// The header shows "Updating…" while it runs or waits; a failure stays until the machine is current.
+    /// The header shows the update's line while it runs or retries; a failure stays until the machine is current.
     @Test func theHeaderShowsTheUpdateState() {
         let limited = "This machine runs cmux-tui 0.1.0 (a9b104f3cb7d). Update it to turn on every feature of this app."
         let event = { (state: DaemonUpdateEvent.State) in DaemonUpdateEvent(id: "cloud:vm-1", displayName: "Leo VM", state: state) }
         #expect(CloudCreationRows.withUpdate(limited, nil, compatibility: nil) == limited)
         #expect(CloudCreationRows.withUpdate(limited, event(.updating), compatibility: nil) == DaemonUpdateBoard.line(.updating))
-        #expect(CloudCreationRows.withUpdate(limited, event(.waitingForIdle), compatibility: nil) == DaemonUpdateBoard.line(.waitingForIdle))
+        #expect(CloudCreationRows.withUpdate(limited, event(.retrying), compatibility: nil) == DaemonUpdateBoard.line(.retrying))
         let failed = DaemonUpdateEvent.State.failed(reason: "disk full", rolledBack: false)
         #expect(CloudCreationRows.withUpdate(limited, event(failed), compatibility: nil) == limited + "\n" + DaemonUpdateBoard.line(failed))
         #expect(CloudCreationRows.withUpdate(nil, event(.updated(build: Self.bundled)), compatibility: nil) == DaemonUpdateBoard.line(.updated(build: Self.bundled)))
@@ -286,12 +306,14 @@ final class CloudUpdateFixture {
         CloudMachineUpdateTarget(machineID: "vm-1", displayName: "Leo VM", source: machine.source)
     }
 
-    func run(_ machine: FakeCloudMachine, bundled: String = CloudMachineUpdateTargetTests.bundled) async {
+    /// `updateBusyAfter`: nil keeps the production default (`DaemonUpdatePolicy.Dependencies.updateBusyAfter`).
+    func run(_ machine: FakeCloudMachine, bundled: String = CloudMachineUpdateTargetTests.bundled, updateBusyAfter: Duration? = nil) async {
         let target = target(machine)
-        let policy = DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+        var dependencies = DaemonUpdatePolicy.Dependencies(
             bundledBuild: { bundled }, targets: { [target] }, enabled: { true },
-            report: { [weak self] event in await self?.record(event) }, directory: directory, clock: clock))
-        await policy.run()
+            report: { [weak self] event in await self?.record(event) }, directory: directory, clock: clock)
+        if let updateBusyAfter { dependencies.updateBusyAfter = updateBusyAfter }
+        await DaemonUpdatePolicy(dependencies).run()
     }
 
     private func record(_ event: DaemonUpdateEvent) {
