@@ -174,7 +174,7 @@ type Props = {
   /// Changes a queued prompt (`_acpmux/queue_edit`): its text, its place, or send it now.
   onQueueChange?(promptId: string, edit: QueueEdit): Promise<boolean>;
   /// The text of an edit whose prompt started meanwhile: it goes back in the prompt.
-  onQueueLost?(text: string): void;
+  onQueueLost?(text: string, promptId: string): void;
   /// Reads an image a queued prompt sends by its acpmux id, as a data URL (`_acpmux/attachment`).
   /// Stable: each queued thumbnail reads once.
   queueImage?(id: string): Promise<string | undefined>;
@@ -1670,7 +1670,16 @@ export function Composer({
         // reports usage (inert, ContextRing), so the first report moves nothing in the row
         // (hq#1957: the composer holds still while a turn runs); the context-usage setting
         // hides it (showContextUsage).
-        ring={showContextUsage && <ContextRing used={usage?.used} size={usage?.size} working={snapshot.isWorking} />}
+        ring={
+          showContextUsage && (
+            <ContextRing
+              used={usage?.used}
+              size={usage?.size}
+              breakdown={snapshot.summary?.contextBreakdown}
+              working={snapshot.isWorking}
+            />
+          )
+        }
         actionsLead={
           <>
             {steerable && (

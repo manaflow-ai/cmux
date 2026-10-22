@@ -56,6 +56,43 @@ are steered the same way but never stop a turn. chief.stop also stops one: the r
 no tool call runs, then sends `session/cancel` every second until the turn
 ends, and the end posts nothing to the chat or any bridge.
 
+## Every person message gets a reply
+
+User 2026-10-21: "make every user message in the Chief DM get a reply,
+guaranteed." The reply ledger (`src/brain/reply_ledger.rs`,
+`HostState::awaiting`) holds each person message of the Chief conversation
+from the moment it is queued until the owner takes a post that answers it: a
+reply that names it (`answers`, `reply_to`), or any text the Chief posts once
+a turn has seen it (a `send`). The ledger is saved with the host state, so a
+host crash, a restart, or a cloud VM deleted mid-turn keeps it (a restarted
+host checks again after the longest wait, after its resume turn), and the mux
+ack of a cloud wake waits until the ledger is empty, so the queue delivers
+the wake again to the next host.
+
+Ways a message used to end with no reply, and what happens now:
+
+- The turn ends with `NO_REPLY`, or with `stop` and nothing sent: refused for
+  a person message of the Chief conversation (channels keep `NO_REPLY`).
+- The turn fails, times out, or is cut (acpmux lost, an upstream error past
+  `MAX_CUTS`): the failure text posts as before; when nothing posts, the
+  message waits for a retry.
+- The owner refuses the reply post (any reject other than `agent_rate`,
+  which retries on its own): the message waits for a retry.
+- The host dies before the reply posts: the ledger survives the restart.
+
+A message left unanswered gets a check after 5 s, 30 s and 120 s
+(`REPLY_RETRY_WAITS`). When no turn runs, the check starts a retry turn on
+a `[no reply]` note that names the messages, says why, and forbids
+`NO_REPLY`. After `MAX_REPLY_TRIES` (3) retries the host posts a short
+failure note in the message's thread ("I could not answer your message ...
+Please send it again.") and logs a note so the next turn does not answer it
+again. Only the owner's stop (chief.stop) and a retraction close a message
+with no post.
+
+Home (cmux-next, `ChiefReplyWatchdog`) shows a notice in the local Chief
+conversation when the person's last message has had no reply for 2 minutes,
+from the conversation head alone, so it also covers a host that is down.
+
 ## Several Chiefs and channels
 
 One host is one Chief (`src/membership.rs`). Several Chiefs on one owner run
