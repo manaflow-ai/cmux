@@ -95,6 +95,12 @@ it is missing, or when the run had an error. `host: "*"` matches every host (onl
 host-independent counts). A lane that wins a number lowers its `limit` in the same landing.
 `perf100.py budget --results DIR` prints every budget's verdict and exits 1 on a break.
 
+Another lane's benchmark joins the gate through an importer that writes its results as
+perf100 records: `perf100.py import chat-load <run.sh results dir> --out DIR --host-class
+freestyle-8x16`, then `perf100.py budget --results DIR --host-class freestyle-8x16`
+(`scripts/perf100/importers.py`; the chat-load rows in budgets.json use it). These rows are
+not in CI yet: the chat-load benchmark runs on a Freestyle VM.
+
 CI: `.github/workflows/cmux-next-perf100.yml` (not a required check yet).
 - `headless`: on pushes and same-repo PRs into feat-cmux-next that touch `cmux-tui/crates`,
   `cmux-tui/Cargo.lock` or the runner, and nightly: `scripts/measure/perf100.sh mode=headless

@@ -188,4 +188,5 @@ def check_budgets(budget_path: str, result_paths: list[str], host_class: str | N
 
 
 def index(out_dir: str) -> list[str]:
-    return sorted(os.path.join(out_dir, n) for n in os.listdir(out_dir) if n.endswith(".json") and n.startswith("S"))
+    return sorted(os.path.join(out_dir, n) for n in os.listdir(out_dir)
+                  if n.endswith(".json") and (n.startswith("S") or n.startswith("chat-load-")))

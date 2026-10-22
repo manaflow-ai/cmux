@@ -11,6 +11,7 @@ bench worker; headless ones on rbx or an AWS Mac (scripts/measure/perf100.sh).
   perf100.py compare  --before DIR|FILE... --after DIR|FILE... [--only SUBSTRING]
   perf100.py budget   --results DIR|FILE... [--budgets scripts/perf100/budgets.json]
   perf100.py extract  LOG|BUNDLE.json --out DIR   # run JSONs from an rbx log or a fleet results.json
+  perf100.py import chat-load RESULTS_DIR --out DIR --host-class freestyle-8x16 [--sha SHA]
 
 Each run writes one JSON per scenario (schema perf100.run.v1: host, build tag, commit, scenario,
 seed, every phase's per-group and per-kind counters, flat `metrics`) and `report` writes the
@@ -121,6 +122,13 @@ def main(argv=None):
     p.add_argument("source")
     p.add_argument("--out", required=True)
 
+    p = sub.add_parser("import", help="another lane's benchmark output as perf100 records")
+    p.add_argument("kind", choices=["chat-load"])
+    p.add_argument("source")
+    p.add_argument("--out", required=True)
+    p.add_argument("--host-class", required=True)
+    p.add_argument("--sha")
+
     p = sub.add_parser("budget")
     p.add_argument("--results", nargs="+", required=True)
     p.add_argument("--budgets", default=os.path.join(HERE, "budgets.json"))
@@ -139,6 +147,16 @@ def main(argv=None):
         return 0
     if args.command == "extract":
         for path in extract(args.source, args.out):
+            print(path)
+        return 0
+    if args.command == "import":
+        import importers
+        os.makedirs(args.out, exist_ok=True)
+        for record in importers.chat_load(args.source, args.host_class, args.sha):
+            path = os.path.join(args.out, f"{record['scenario']}-{record['variant']}-seed0.json")
+            with open(path, "w") as handle:
+                import json
+                json.dump(record, handle, indent=1)
             print(path)
         return 0
     if args.command == "budget":
