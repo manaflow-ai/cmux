@@ -32,6 +32,9 @@ final class CEFHostView: NSView {
     /// Called when the window starts a live resize (`CEFPaneHost` re-reads
     /// the shown page's background).
     var liveResizeWillStart: (() -> Void)?
+    /// Called after every frame change with the new size and whether the
+    /// view is in a window (`CEFPaneHost` remembers the pane's size).
+    var frameDidChange: ((NSSize, Bool) -> Void)?
     /// Hands files dragged in from another app to the shown page (`CEFFileDragRelay`).
     let fileDrag = CEFFileDragRelay()
 
@@ -51,6 +54,11 @@ final class CEFHostView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateBackground()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        frameDidChange?(newSize, window != nil)
     }
 
     override func viewWillStartLiveResize() {
