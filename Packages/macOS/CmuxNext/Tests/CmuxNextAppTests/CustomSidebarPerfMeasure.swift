@@ -13,7 +13,7 @@ import Testing
 /// host process, so the batch is all the app sees. The native list is measured the same way as
 /// the "no script" row of the table.
 @MainActor
-@Suite(.serialized) struct CustomSidebarPerfTests {
+@Suite(.serialized) struct CustomSidebarPerfMeasure {
     static let workspaces = 500
     static let samples = 200
     static let budgetMs = 1.0
