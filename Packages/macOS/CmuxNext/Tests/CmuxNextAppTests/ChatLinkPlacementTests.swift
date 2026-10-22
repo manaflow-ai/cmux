@@ -5,117 +5,103 @@ import Testing
 
 /// Leo 2026-10-21: "WHY DID THIS NOT OPEN TO THE SIDE?" A GitHub link clicked in an agent chat
 /// opened as a tab in the chat's own pane, covering the chat. And: "if the left side has a tab, any
-/// link opened also goes on the left instead of opening a new split. By default, things going to the
-/// rightmost split is the thing to try." ``ChatLinkPlacement`` (`links.openTarget`) decides where a
-/// link from a chat goes: the rightmost split of its screen, a new split right of the chat when the
-/// chat is the rightmost split, never the chat's pane or a pane on its left.
+/// link opened also goes on the left instead of opening a new split", then "open on right by
+/// default". ``ChatLinkPlacement`` decides where a web link from a chat goes, by
+/// `layout.linkPlacement`: on the right (the right pane focused last, else the rightmost, else a new
+/// split), never the chat's pane, another chat or a pane on its left; Tab in the Same Pane keeps it
+/// in the agent pane.
 struct ChatLinkPlacementTests {
     private typealias Target = LinkOpenPlacement<String>.Target
 
-    private static func target(_ columns: [[String]], _ setting: ChatLinkTarget = .fallback, chat: String = "chat",
-                               takesTabs: (String) -> Bool = { _ in true }, recency: [String] = []) -> Target? {
-        ChatLinkPlacement.target(setting, chat: chat, columns: columns, chatColumn: columns.firstIndex { $0.contains(chat) },
-                                 takesTabs: takesTabs, recency: recency)
+    /// `right`: the panes right of "chat", one group per column, left to right.
+    private static func target(_ right: [[String]], _ setting: LinkPlacement = .fallback, takesTabs: (String) -> Bool = { _ in true },
+                               recency: [String] = []) -> Target? {
+        ChatLinkPlacement.target(setting, chat: "chat", right: right, takesTabs: takesTabs, recency: recency)
     }
 
-    @Test func rightmostIsTheDefault() {
-        #expect(ChatLinkTarget.fallback == .rightmost)
+    @Test func onTheRightIsTheDefault() {
+        #expect(LinkPlacement.fallback == .splitRight)
+        #expect(Self.target([]) == .splitRight(of: "chat"))
+        #expect(Self.target([["opened"]]) == .pane("opened"))
     }
 
-    /// The reported case: a browser on the left, the chat on the right. The link never goes left
-    /// and never covers the chat: a new split opens on the chat's right.
-    @Test func aBrowserOnTheLeftNeverGetsTheLink() {
-        #expect(Self.target([["browser"], ["chat"]]) == .splitRight(of: "chat"))
-        #expect(Self.target([["browser"], ["chat"]], recency: ["browser", "chat"]) == .splitRight(of: "chat"))
+    /// No pane right of the chat (alone, or with a browser on its left, which the caller never lists):
+    /// a new split on its right, never the left pane.
+    @Test func noRightPaneMakesANewRightSplit() {
+        #expect(Self.target([]) == .splitRight(of: "chat"))
+        #expect(Self.target([[]], recency: ["browser-on-the-left"]) == .splitRight(of: "chat"))
+        #expect(Self.target([], .newColumn) == .newColumn(rightOf: "chat"))
     }
 
-    @Test func aChatAloneOnItsScreenGetsANewSplitOnItsRight() {
-        #expect(Self.target([["chat"]]) == .splitRight(of: "chat"))
+    /// Several panes on the right: the one the person focused last wins over the rightmost.
+    @Test func theFocusedRightSplitWinsOverTheRightmost() {
+        #expect(Self.target([["middle"], ["right"]], recency: ["chat", "middle", "right"]) == .pane("middle"))
+        #expect(Self.target([["top", "bottom"]], recency: ["chat", "bottom"]) == .pane("bottom"))
     }
 
-    /// The first open made the split on the right; the next one reuses it (no split per click).
-    @Test func thePaneOnTheRightIsReused() {
-        #expect(Self.target([["chat"], ["opened"]]) == .pane("opened"))
+    /// None of the right panes was focused: the rightmost column, its right edge first, top first.
+    @Test func withNoFocusedRightPaneTheRightmostWins() {
+        #expect(Self.target([["middle"], ["right"]], recency: ["chat", "browser-on-the-left"]) == .pane("right"))
+        #expect(Self.target([["middle"], ["edge-top", "edge-bottom"]]) == .pane("edge-top"))
     }
 
-    /// Several columns on the right: the rightmost one gets the link, not the one beside the chat.
-    @Test func theRightmostColumnWins() {
-        #expect(Self.target([["left"], ["chat"], ["middle"], ["right"]], recency: ["middle"]) == .pane("right"))
+    /// A pane that takes no tabs (Home's pinned dock) or shows another agent chat is skipped.
+    @Test func panesThatTakeNoTabsOrShowAChatAreSkipped() {
+        let takes: (String) -> Bool = { !["pinned", "other-chat"].contains($0) }
+        #expect(Self.target([["strip"], ["pinned"]], takesTabs: takes) == .pane("strip"))
+        #expect(Self.target([["other-chat"]], takesTabs: takes, recency: ["other-chat"]) == .splitRight(of: "chat"))
     }
 
-    /// The rightmost column split top and bottom: the more recently used of its panes, else the top one.
-    @Test func inTheRightmostColumnTheRecentPaneWins() {
-        #expect(Self.target([["chat"], ["top", "bottom"]]) == .pane("top"))
-        #expect(Self.target([["chat"], ["top", "bottom"]], recency: ["chat", "bottom", "top"]) == .pane("bottom"))
-    }
-
-    /// A pane that takes no new tabs (a pinned dock) is skipped; with nothing else on the right the
-    /// chat gets a split.
-    @Test func panesThatTakeNoTabsAreSkipped() {
-        let takes: (String) -> Bool = { $0 != "pinned" }
-        #expect(Self.target([["chat"], ["strip"], ["pinned"]], takesTabs: takes) == .pane("strip"))
-        #expect(Self.target([["left"], ["chat"], ["pinned"]], takesTabs: takes) == .splitRight(of: "chat"))
-    }
-
-    /// The chat's own column holds another pane on its right edge (below it): that pane is a
-    /// rightmost split, so it gets the link instead of a new split.
-    @Test func anotherPaneOnTheChatsRightEdgeIsUsed() {
-        #expect(Self.target([["left"], ["chat", "below"]]) == .pane("below"))
-    }
-
-    @Test func newSplitAlwaysSplitsRightOfTheChat() {
-        for columns in [[["chat"]], [["browser"], ["chat"]], [["chat"], ["opened"]]] {
-            #expect(Self.target(columns, .newSplit) == .splitRight(of: "chat"))
+    /// Whatever the layout, a link on the right never covers the chat, even when the chat is listed.
+    @Test(arguments: [LinkPlacement.splitRight, .newColumn])
+    func theChatIsNeverTheTarget(_ setting: LinkPlacement) {
+        for right in [[], [["chat"]], [["chat", "r"]], [["r"], ["chat"]]] as [[[String]]] {
+            #expect(Self.target(right, setting, recency: ["chat"]) != .pane("chat"))
         }
     }
 
-    /// Same Tab keeps the old rules (a tab in the chat's pane, or main pane layout's column).
-    @Test func sameTabLeavesItToThePageRules() {
-        #expect(Self.target([["browser"], ["chat"]], .sameTab) == nil)
-        #expect(Self.target([["chat"], ["opened"]], .sameTab) == nil)
-    }
-
-    /// Whatever the setting, a link from a chat never lands in a pane left of the chat, nor as a tab
-    /// over the chat itself.
-    @Test(arguments: [ChatLinkTarget.rightmost, .newSplit])
-    func neverTheLeftNorTheChat(_ setting: ChatLinkTarget) {
-        let layouts: [[[String]]] = [[["chat"]], [["l1"], ["chat"]], [["l1", "l2"], ["chat"], ["r"]], [["l1"], ["chat", "below"]]]
-        for columns in layouts {
-            let target = Self.target(columns, setting, recency: ["l1", "l2"])
-            #expect(target != .pane("chat"))
-            #expect(target != .pane("l1"))
-            #expect(target != .pane("l2"))
-        }
-    }
-
-    /// The chat's column is unknown (it is not on the screen): a split on its right, never a guess.
-    @Test func anUnknownColumnSplitsRight() {
-        #expect(ChatLinkPlacement.target(.rightmost, chat: "chat", columns: [["a"]], chatColumn: nil,
-                                         takesTabs: { _ in true }, recency: []) == .splitRight(of: "chat"))
+    /// Tab in the Same Pane: "in the agent pane", by the rules for any page (nil here).
+    @Test func samePaneKeepsTheLinkInTheAgentPane() {
+        #expect(Self.target([["opened"]], .samePane) == nil)
+        #expect(Self.target([], .samePane) == nil)
     }
 
     /// Right edges come from the split tree: a side-by-side split's right side, both halves of a
     /// stacked one.
     @Test func theRightEdgeOfASplitTree() {
-        let (a, b, c, d): (PaneID, PaneID, PaneID, PaneID) = ("a", "b", "c", "d")
-        let tree = SplitNode.split("s1", axis: .horizontal, ratio: 0.5, a: .leaf(a),
-                                   b: .split("s2", axis: .vertical, ratio: 0.5, a: .leaf(b),
-                                             b: .split("s3", axis: .horizontal, ratio: 0.5, a: .leaf(c), b: .leaf(d))))
-        #expect(ChatLinkPlacement.rightEdge(of: tree) == [b, d])
-        #expect(ChatLinkPlacement.rightEdge(of: .leaf(a)) == [a])
+        let tree = SplitNode.split("s1", axis: .horizontal, ratio: 0.5, a: .leaf("a"),
+                                   b: .split("s2", axis: .vertical, ratio: 0.5, a: .leaf("b"),
+                                             b: .split("s3", axis: .horizontal, ratio: 0.5, a: .leaf("c"), b: .leaf("d"))))
+        #expect(ChatLinkPlacement.rightEdge(of: tree) == ["b", "d"])
+        #expect(ChatLinkPlacement.rightEdge(of: .leaf("a")) == ["a"])
     }
 
-    /// A screen's columns: left dock, strip, right dock in order; a bottom band is not beside the chat.
-    @Test func columnsSkipBandsAndFindTheChat() {
-        let (chat, strip, right, band): (PaneID, PaneID, PaneID, PaneID) = ("chat", "strip", "right", "band")
+    /// In the chat's own split tree, only panes beside it on its right count: not the left side,
+    /// not panes stacked above or below it.
+    @Test func panesRightOfTheChatInItsTree() {
+        // [left | [chat / below] | right]
+        let tree = SplitNode.split("s1", axis: .horizontal, ratio: 0.3, a: .leaf("left"),
+                                   b: .split("s2", axis: .horizontal, ratio: 0.5,
+                                             a: .split("s3", axis: .vertical, ratio: 0.5, a: .leaf("chat"), b: .leaf("below")),
+                                             b: .leaf("right")))
+        #expect(ChatLinkPlacement.panes(rightOf: "chat", in: tree) == ["right"])
+        #expect(ChatLinkPlacement.panes(rightOf: "right", in: tree).isEmpty)
+        #expect(ChatLinkPlacement.panes(rightOf: "left", in: tree) == ["chat", "below", "right"])
+    }
+
+    /// The screen's columns: a browser column left of the chat is never on its right; a bottom band
+    /// is not beside it; the chat's own column contributes only what is right of the chat.
+    @Test func theRightSideOfAScreen() {
         let columns = [
-            LayoutColumn(id: "chat", root: .leaf(chat), dock: DockColumn(edge: .left, role: .agentChat)),
-            LayoutColumn(id: "strip", root: .leaf(strip)),
-            LayoutColumn(id: "band", root: .leaf(band), dock: DockColumn(edge: .bottom)),
-            LayoutColumn(id: "right", root: .leaf(right), dock: DockColumn(edge: .right)),
+            LayoutColumn(id: "browser", root: .leaf("browser")),
+            LayoutColumn(id: "chat", root: .split("s1", axis: .horizontal, ratio: 0.5, a: .leaf("chat"), b: .leaf("beside"))),
+            LayoutColumn(id: "band", root: .leaf("band"), dock: DockColumn(edge: .bottom)),
+            LayoutColumn(id: "strip", root: .split("s2", axis: .horizontal, ratio: 0.5, a: .leaf("inner"), b: .leaf("edge"))),
         ]
-        let found = ChatLinkPlacement.columns(columns, chat: chat)
-        #expect(found.edges == [[chat], [strip], [right]])
-        #expect(found.chatColumn == 0)
+        #expect(ChatLinkPlacement.rightSide(of: "chat", in: columns) == [["beside"], ["edge", "inner"]])
+        #expect(ChatLinkPlacement.rightSide(of: "missing", in: columns).isEmpty)
+        let right = ChatLinkPlacement.rightSide(of: "chat", in: columns)
+        #expect(ChatLinkPlacement.target(.splitRight, chat: "chat", right: right, takesTabs: { _ in true },
+                                         recency: ["browser", "chat"]) == .pane("edge"))
     }
 }

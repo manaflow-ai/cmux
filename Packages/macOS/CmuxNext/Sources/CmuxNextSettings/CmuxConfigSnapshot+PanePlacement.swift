@@ -2,8 +2,7 @@ public import CmuxNextDesign
 
 /// Where new panes open (`PanePlacement`): `layout.newPanePlacement` (tab or
 /// split) and `layout.tileBrowsers` (browsers split too under split
-/// placement), `layout.linkPlacement` (``LinkPlacement``), `layout.mainPane` (``MainPaneSetting``), `links.openTarget`
-/// (``ChatLinkTarget``). A missing key is the default with no diagnostic; a bad value
+/// placement), `layout.linkPlacement` (``LinkPlacement``), `layout.mainPane` (``MainPaneSetting``). A missing key is the default with no diagnostic; a bad value
 /// is the default plus a diagnostic.
 nonisolated extension CmuxConfigSnapshot {
     public static let newPanePlacementPath = ["layout", "newPanePlacement"]
@@ -33,8 +32,6 @@ nonisolated extension CmuxConfigSnapshot {
                                                              diagnostics: &diagnostics)
         snapshot.mainPane = ColumnLayoutSettings.choice(root, MainPaneSetting.configPath, fallback: MainPaneSetting.fallback,
                                                         diagnostics: &diagnostics)
-        snapshot.chatLinkTarget = ColumnLayoutSettings.choice(root, ChatLinkTarget.configPath, fallback: ChatLinkTarget.fallback,
-                                                              diagnostics: &diagnostics)
         snapshot.diagnostics += diagnostics
     }
 }
