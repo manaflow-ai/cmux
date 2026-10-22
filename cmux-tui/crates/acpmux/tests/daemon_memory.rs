@@ -239,6 +239,8 @@ fn under_waiters(daemon: &Daemon, chat: &str, waiting_on: &[String], secs: u64) 
         let line = json!({"jsonrpc": "2.0", "id": w.next, "method": "_acpmux/wait",
                           "params": {"sessions": [id], "until": ["closed"], "timeoutMs": 600_000}});
         w.writer.write_all(format!("{line}\n").as_bytes()).unwrap();
+        // The connection answers a later request only once it has read the wait.
+        w.call("_acpmux/sessions", json!({}));
         waits.push(w);
     }
     let mut rpc = Rpc::connect(&daemon.socket);
@@ -266,8 +268,9 @@ fn under_waiters(daemon: &Daemon, chat: &str, waiting_on: &[String], secs: u64) 
 #[cfg(target_os = "linux")]
 #[test]
 fn waits_on_some_chats_cost_nothing_extra_while_other_chats_log_records() {
-    let chats = env_or("ACPMUX_MEMORY_BENCH_CHATS", 400);
-    let secs = env_or("ACPMUX_WAIT_BENCH_SECS", 8);
+    // At least the 13 chats waited on plus the one that logs, and a second of records.
+    let chats = env_or("ACPMUX_MEMORY_BENCH_CHATS", 400).max(14);
+    let secs = env_or("ACPMUX_WAIT_BENCH_SECS", 8).max(1);
     let dir = scratch("waits");
     let home = dir.join("home");
     private_dir(&home);
@@ -282,6 +285,7 @@ fn waits_on_some_chats_cost_nothing_extra_while_other_chats_log_records() {
     let (n0, cpu0, grew0) = under_waiters(&daemon, &id(0), &[], secs);
     let waiting_on: Vec<String> = (1..=13).map(id).collect();
     let (n1, cpu1, grew1) = under_waiters(&daemon, &id(0), &waiting_on, secs);
+    assert!(n0 > 0 && n1 > 0, "no records landed ({n0} alone, {n1} with waits)");
     // CPU per record, so a slower machine or a busier daemon compares like with like.
     let per0 = cpu0 as f64 / n0.max(1) as f64;
     let per1 = cpu1 as f64 / n1.max(1) as f64;
@@ -297,6 +301,38 @@ fn waits_on_some_chats_cost_nothing_extra_while_other_chats_log_records() {
     assert!(
         grew1 <= grew0 + 16,
         "the daemon grew {grew1} MB with 13 waits open (alone {grew0} MB)"
+    );
+    drop(daemon);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Two keys for one chat, its name and its id, are two rows of the same chat: neither
+/// reads as a missing, closed one, so `--all` resolves and `closed` does not.
+#[test]
+fn a_wait_on_one_chat_by_name_and_by_id_reads_it_twice() {
+    let dir = scratch("waitdup");
+    let home = dir.join("home");
+    private_dir(&home);
+    private_dir(&home.join("sessions"));
+    let id = "01a15904-0000-7000-8000-000000000001";
+    write_session(&home, id, "idle", true);
+    let daemon = Daemon::start(&dir, &home);
+    let mut rpc = Rpc::connect(&daemon.socket);
+    let name = format!("optchat-compact-{id}");
+    let ready = rpc.call(
+        "_acpmux/wait",
+        json!({"sessions": [name, id], "until": ["ready"], "all": true, "timeoutMs": 5_000}),
+    );
+    assert_eq!(ready["timedOut"], false, "{ready}");
+    assert_eq!(ready["resolved"].as_array().unwrap().len(), 2, "{ready}");
+    let closed = rpc.call(
+        "_acpmux/wait",
+        json!({"sessions": [name, id], "until": ["closed"], "timeoutMs": 1_500}),
+    );
+    assert_eq!(closed["timedOut"], true, "{closed}");
+    assert!(
+        closed["sessions"].as_array().unwrap().iter().all(|s| s["missing"].is_null()),
+        "{closed}"
     );
     drop(daemon);
     let _ = std::fs::remove_dir_all(&dir);
