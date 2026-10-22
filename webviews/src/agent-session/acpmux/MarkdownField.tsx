@@ -386,6 +386,9 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     let pasting = false;
     // When the last composition ended (the event's timeStamp), for the Return that commits it.
     let compositionEndedAt = -Infinity;
+    // Set from a passed-on Return the field took until its key comes up: the paragraph an input
+    // method may still insert for that key is the same Return, not a second one.
+    let returnTaken = false;
     // A paste that ends the draft shows the field's whole end, its bottom inset too: the caret
     // reveal stops a margin short in WebKit, which would leave the last line under the bottom fade
     // (markdownField.css). Every paste path ends here.
@@ -403,6 +406,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           props: {
             handleDOMEvents: {
               keydown: (_view, event) => {
+                returnTaken = false;
                 latest.current.onKeyDown?.(event);
                 if (event.defaultPrevented) return true;
                 // A Return an input method or Dictation passed on (keyCode 229) never reaches
@@ -414,6 +418,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 if (returnInput && isImeKeyEvent(event) && isReturnKey(event) && !event.shiftKey) {
                   if (!event.isComposing && event.timeStamp - compositionEndedAt > COMMIT_RETURN_MS) {
                     event.preventDefault();
+                    returnTaken = true;
                     returnInput();
                   }
                   return true;
@@ -433,8 +438,13 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 if (!returnInput || (input.inputType !== "insertParagraph" && input.inputType !== "insertLineBreak"))
                   return false;
                 event.preventDefault();
-                returnInput();
+                if (returnTaken) returnTaken = false;
+                else returnInput();
                 return true;
+              },
+              keyup: () => {
+                returnTaken = false;
+                return false;
               },
               compositionstart: () => {
                 composing.current = true;
