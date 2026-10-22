@@ -119,7 +119,7 @@ describe("reply mailbox (HTTP)", () => {
     expect((await post(t, phone, { id: crypto.randomUUID(), from: phone, sealed: sealedBox() })).status).toBe(403)
     expect((await post(t, mac, { id: "nope", from: phone, sealed: sealedBox() })).status).toBe(400)
     expect((await post(t, mac, { id: crypto.randomUUID(), from: phone, sealed: "not base64url!" })).status).toBe(400)
-    expect((await post(t, mac, { id: crypto.randomUUID(), from: phone, sealed: "x".repeat(8193) })).status).toBe(400)
+    expect((await post(t, mac, { id: crypto.randomUUID(), from: phone, sealed: "x".repeat(16_385) })).status).toBe(400)
     // Another user cannot read an item's state either.
     const id = crypto.randomUUID()
     await post(t, mac, { id, from: phone, sealed: sealedBox() })

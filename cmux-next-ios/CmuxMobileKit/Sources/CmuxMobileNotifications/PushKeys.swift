@@ -161,8 +161,8 @@ public final class PushKeys: @unchecked Sendable { // crash-allow: immutable aft
 
     /// Opens a box sealed to this account's push key.
     public func open(_ sealed: String, user: String, context: Data) throws -> Data {
-        let key = try lock.withLock { try key(user: user, create: false) }
-        return try PushSeal.open(sealed, recipient: key.publicKey, context: context) { try key.agree($0) }
+        let stored: Key = try lock.withLock { try self.key(user: user, create: false) }
+        return try PushSeal.open(sealed, recipient: stored.publicKey, context: context) { try stored.agree($0) }
     }
 
     /// Account deletion and "Remove This iPhone": the key and the trust go.
