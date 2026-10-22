@@ -43,7 +43,59 @@ enum SidebarWorkspaceChecklistPopoverViewportModel {
            let last = visibleFrames.last {
             return max(0, last.maxY - first.minY)
         }
-        return fallbackRowHeight * CGFloat(visibleCount)
+        return viewportHeight(
+            rowHeights: [],
+            fallbackRowHeight: fallbackRowHeight,
+            fallbackSpacing: fallbackSpacing,
+            visibleCount: visibleCount
+        )
+    }
+
+    /// Returns the height for the first visible rows from their measured
+    /// heights, falling back to the single-line estimate until layout has
+    /// reported every row. The count cap is kept here so AppKit and SwiftUI
+    /// callers share the same viewport policy.
+    static func viewportHeight(
+        rowHeights: [CGFloat],
+        fallbackRowHeight: CGFloat,
+        fallbackSpacing: CGFloat
+    ) -> CGFloat {
+        viewportHeight(
+            rowHeights: rowHeights,
+            itemCount: rowHeights.count,
+            fallbackRowHeight: fallbackRowHeight,
+            fallbackSpacing: fallbackSpacing
+        )
+    }
+
+    static func viewportHeight(
+        rowHeights: [CGFloat],
+        itemCount: Int,
+        fallbackRowHeight: CGFloat,
+        fallbackSpacing: CGFloat
+    ) -> CGFloat {
+        viewportHeight(
+            rowHeights: rowHeights,
+            fallbackRowHeight: fallbackRowHeight,
+            fallbackSpacing: fallbackSpacing,
+            visibleCount: visibleRowCount(forItemCount: itemCount)
+        )
+    }
+
+    private static func viewportHeight(
+        rowHeights: [CGFloat],
+        fallbackRowHeight: CGFloat,
+        fallbackSpacing: CGFloat,
+        visibleCount: Int
+    ) -> CGFloat {
+        guard visibleCount > 0 else { return 0 }
+        let measuredHeights = Array(rowHeights.prefix(visibleCount))
+        guard measuredHeights.count == visibleCount,
+              measuredHeights.allSatisfy({ $0.isFinite && $0 >= 0 }) else {
+            return fallbackRowHeight * CGFloat(visibleCount)
+                + fallbackSpacing * CGFloat(visibleCount - 1)
+        }
+        return measuredHeights.reduce(0, +)
             + fallbackSpacing * CGFloat(visibleCount - 1)
     }
 }
@@ -163,7 +215,7 @@ struct SidebarWorkspaceChecklistPopover: View {
             pointerLocation.location = location
             rederiveHover(frames: itemRowFrames)
         })
-        .onPreferenceChange(ChecklistPopoverRowFramesKey.self) { frames in
+        .onPreferenceChange(SidebarWorkspaceChecklistRowFramesKey.self) { frames in
             itemRowFrames = frames
             rederiveHover(frames: frames)
         }
@@ -340,7 +392,7 @@ struct SidebarWorkspaceChecklistPopover: View {
         .background(
             GeometryReader { proxy in
                 Color.clear.preference(
-                    key: ChecklistPopoverRowFramesKey.self,
+                    key: SidebarWorkspaceChecklistRowFramesKey.self,
                     value: [item.id: proxy.frame(in: .named(Self.pointerSpaceName))]
                 )
             }
