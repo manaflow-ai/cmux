@@ -205,11 +205,14 @@ fn pinned_tab_cannot_close_through_the_socket_or_the_resource_api() {
 fn pinned_column_takes_no_new_tab_until_allow_tabs_is_on() {
     let (mut wire, panes) = Wire::home();
     let home = wire.tabs(panes[0])[0];
-    refused(&wire.send(json!({"cmd": "new-tab", "pane": panes[0]})));
+    let right = wire.tabs(panes[1]).len();
+    // u9415: a tab asked for in the pinned column goes to the pane beside it.
+    wire.ok(json!({"cmd": "new-tab", "pane": panes[0]}));
     let params =
         json!({"machine": "current", "session": "current", "pane": wire.pane_id(panes[0])});
-    refused(&resource(&wire.mux, "tab.create_terminal", params.clone(), Some("new-in-home")));
+    resource_ok(&resource(&wire.mux, "tab.create_terminal", params.clone(), Some("new-in-home")));
     assert_eq!(wire.tabs(panes[0]), vec![home], "no tab entered the pinned column");
+    assert_eq!(wire.tabs(panes[1]).len(), right + 2, "both tabs went beside the dock");
 
     resource_ok(&wire.column_update(json!({"allow_tabs": true})));
     assert_eq!(wire.dock()["allow_tabs"], true);
@@ -444,7 +447,9 @@ fn a_browser_tab_made_in_a_lone_pinned_dock_opens_in_a_new_column_beside_it() {
         },
         None,
     );
-    assert!(refused_tab.is_err(), "the dock with a neighbour refuses the tab");
+    let beside_tab = refused_tab.expect("a tab asked for in the dock goes beside it (u9415)");
+    assert_eq!(wire.tabs(panes[0]), vec![home], "the dock with a neighbour takes no tab");
+    assert_eq!(wire.mux.with_state(|state| state.pane_of(beside_tab.id)), beside);
     assert_eq!(wire.tabs(panes[0]), vec![home]);
 }
 
