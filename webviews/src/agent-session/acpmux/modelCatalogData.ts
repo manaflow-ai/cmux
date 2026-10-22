@@ -233,8 +233,9 @@ export type PickerInputs = {
   user?: unknown;
   /** acpmux's harnesses and probed models (snapshot.catalog), each with its `family` when known. */
   acpmux: AcpmuxCatalog;
-  /** The attached session: its harness and live config options win for effort and fast mode. */
-  session?: { harness?: string; configOptions?: ConfigOptions };
+  /** The attached session: its harness and live config options win for effort and fast mode.
+   *  `model` is the model it reports running (summary.model), also when no model option names it. */
+  session?: { harness?: string; model?: string; configOptions?: ConfigOptions };
   /** Profiles whose chats' last turn completed, the latest first (workedProfiles). */
   worked?: string[];
   provisional?: boolean;
@@ -348,7 +349,10 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
   const live = session?.harness !== undefined && chosen?.id === session.harness ? session.configOptions : undefined;
   addSessionModels(models, live, harness.id, listed, join);
   const releases = models.filter((model) => listed.some((pinned) => pinned.id === model.id));
-  const offered = foldAliases(models, releases, liveModel(live));
+  const runs = chosen?.id === session?.harness ? runningModel(session, live) : undefined;
+  const offered = foldAliases(models, releases, runs, (release, alias) =>
+    aliasRow(listed, release, alias, harness.id, probed, join),
+  );
   return {
     id: harness.id,
     name: harness.name,
@@ -382,7 +386,12 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
     .map((probe) => probedModel(probe, entry.id, join));
   addSessionModels(models, live, entry.id, listed, join);
   const releases = listed.map((model) => listedModel(model, entry.id, entry.models, join));
-  const offered = kin ? foldAliases(models, releases, liveModel(live)) : models;
+  const runs = entry.id === join.session?.harness ? runningModel(join.session, live) : undefined;
+  const offered = kin
+    ? foldAliases(models, releases, runs, (release, alias) =>
+        aliasRow(listed, release, alias, entry.id, entry.models, join),
+      )
+    : models;
   const declaredBrand = entry.icon ? agentBrand(entry.icon) : undefined;
   const iconUrl = entry.icon && !declaredBrand && isIconFile(entry.icon) ? entry.icon : undefined;
   return {
@@ -410,10 +419,12 @@ function listedModel(model: HarnessModel, harnessId: string, probed: AcpmuxModel
   return pickerModel(layeredModel(model, harnessId, probe, join), join.catalog, probe?.unavailable);
 }
 
-/** The model the session's own model option says it runs. */
-function liveModel(options: ConfigOptions | undefined): string | undefined {
+/** The model the session runs: its model option's value, else the model it reports (a session can
+ *  report `summary.model` with no model option, direct.ts). */
+function runningModel(session: Join["session"], options: ConfigOptions | undefined): string | undefined {
   const current = options?.find((option) => option.category === "model" || option.id === "model")?.currentValue;
-  return typeof current === "string" && current ? current : undefined;
+  if (typeof current === "string" && current) return current;
+  return session?.model || undefined;
 }
 
 /** "Claude Opus 5.5" and "Opus 5.5" name one model. */
@@ -432,7 +443,12 @@ const nameKey = (name: string | undefined) =>
  * folds into it (Leo 2026-10-21: Opus 5.5 was listed twice, the alias and the release the chat runs).
  * `releases` are the catalog's rows for the harness's releases.
  */
-function foldAliases(models: PickerModel[], releases: PickerModel[], current?: string): PickerModel[] {
+function foldAliases(
+  models: PickerModel[],
+  releases: PickerModel[],
+  current: string | undefined,
+  asAlias: (release: PickerModel, alias: PickerModel) => PickerModel,
+): PickerModel[] {
   const releaseIds = new Set(releases.map((model) => model.id));
   // release id -> the alias that is it (the first alias the harness names as it)
   const takenBy = new Map<string, PickerModel>();
@@ -454,7 +470,7 @@ function foldAliases(models: PickerModel[], releases: PickerModel[], current?: s
       // release's catalog row here.
       if (rowOf.has(releaseId)) return [];
       return [
-        aliasRow(
+        asAlias(
           releases.find((release) => release.id === releaseId)!,
           model,
         ),
@@ -463,19 +479,47 @@ function foldAliases(models: PickerModel[], releases: PickerModel[], current?: s
     // The pinned release the session runs keeps its own id, so its row stays the checked one.
     const alias = takenBy.get(model.id);
     if (!alias || model.id === current) return [model];
-    return [aliasRow(model, alias)];
+    return [asAlias(model, alias)];
   });
 }
 
-/** The release's row under the alias's id. */
-function aliasRow(release: PickerModel, alias: PickerModel): PickerModel {
-  return {
-    ...release,
-    id: alias.id,
-    release: release.id,
-    ...(alias.unavailable ? { unavailable: alias.unavailable } : {}),
-    searchText: `${alias.id} ${release.searchText}`,
-  };
+/**
+ * The release's row under the alias's id: the release's catalog metadata (and what is declared and
+ * overridden for the release), then what the harness declares for the alias and the user's
+ * overrides of the alias on top, so an alias the user limited (`<harness>/opus`: no fast, one
+ * effort) stays limited once it takes the release's row.
+ */
+function aliasRow(
+  listed: HarnessModel[],
+  release: PickerModel,
+  alias: PickerModel,
+  harnessId: string,
+  probed: AcpmuxModel[],
+  join: Join,
+): PickerModel {
+  const pinned = listed.find((model) => model.id === release.id);
+  if (!pinned)
+    return {
+      ...release,
+      id: alias.id,
+      release: release.id,
+      ...(alias.unavailable ? { unavailable: alias.unavailable } : {}),
+      searchText: `${alias.id} ${release.searchText}`,
+    };
+  const asRelease = layeredModel(
+    pinned,
+    harnessId,
+    probed.find((probe) => probe.id === pinned.id),
+    join,
+  );
+  const asAlias = layeredModel(
+    { ...asRelease, id: alias.id },
+    harnessId,
+    probed.find((probe) => probe.id === alias.id),
+    join,
+  );
+  const row = pickerModel(asAlias, join.catalog, alias.unavailable);
+  return { ...row, release: release.id, searchText: `${alias.id} ${row.searchText}` };
 }
 
 /**
