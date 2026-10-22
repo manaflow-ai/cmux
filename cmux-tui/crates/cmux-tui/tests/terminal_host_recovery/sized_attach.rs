@@ -1,10 +1,14 @@
 //! A sized attach of a hosted terminal whose grid it changes (a phone joining
-//! a Mac window under the default smallest-viewer policy) used to return
+//! a Mac window under the smallest-viewer policy) used to return
 //! before the host applied the resize: the attach replay was built at the old
 //! grid, and the host's resize then reached the new view as a second
 //! `resized` replay right after it (cnx-ios termqa D4: two full replays on
 //! every reattach). The attach now waits for the host's resize, so the
 //! view's first replay is already at the effective grid and is the only one.
+//!
+//! The default policy is "last active" since 74ba5f23a34, and a phone that
+//! only attaches never takes the grid there, so these tests set "Fit
+//! everyone" (`smallest`) on the terminal, where a phone does narrow it.
 
 use super::*;
 
@@ -57,6 +61,17 @@ fn attach_sized(
     (writer, reader, state.unwrap())
 }
 
+/// Sets "Fit everyone" (`smallest`) on `surface`: the grid is the smallest
+/// attached view per dimension.
+fn fit_everyone(path: &Path, surface: u64) {
+    request(
+        path,
+        serde_json::json!({
+            "cmd": "set-size-policy", "surface": surface, "policy": {"mode": "smallest"},
+        }),
+    );
+}
+
 /// Events on an attach stream for `window`, by name.
 fn events_within(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
@@ -106,6 +121,7 @@ fn sized_attach_that_narrows_the_grid_replays_once_at_the_effective_size() {
         }),
     );
     let surface = created["surface"].as_u64().unwrap();
+    fit_everyone(&harness.socket, surface);
     assert!(wait_for_screen(&harness.socket, surface, "300").contains("300"));
 
     // The Mac window: wide, 39 rows.
@@ -162,6 +178,7 @@ fn dropped_view_holds_the_grid_until_a_reattach_or_the_grace_ends() {
         }),
     );
     let surface = created["surface"].as_u64().unwrap();
+    fit_everyone(&harness.socket, surface);
     let (_mac_writer, _mac_reader, _) = attach_sized(&harness.socket, surface, 120, 39, 2);
     let (phone_writer, phone_reader, _) = attach_sized(&harness.socket, surface, 53, 42, 3);
     wait_for_vt_size(&harness.socket, surface, 53, 39);
@@ -223,6 +240,7 @@ fn a_phone_back_at_a_larger_size_ends_the_hold() {
         }),
     );
     let surface = created["surface"].as_u64().unwrap();
+    fit_everyone(&harness.socket, surface);
     let (_mac_writer, _mac_reader, _) = attach_sized(&harness.socket, surface, 120, 39, 2);
     let (phone_writer, phone_reader, _) = attach_sized(&harness.socket, surface, 53, 42, 3);
     wait_for_vt_size(&harness.socket, surface, 53, 39);

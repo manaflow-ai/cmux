@@ -64,11 +64,15 @@ extension SidebarListViewComponents {
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = model.listOptions()
         o.showsSoleMachineHeader = true
+        o.pullRequests = SidebarSessionTree.shared.pullRequests
         if let tree = SidebarSessionTree.shared.state {
             (o.sessionTree, o.keycaps) = (tree, model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation))
             o.chatHistory = SidebarChatHistory.shared.state
         }
         o.excludedWorkspaces.formUnion(leaving)
+        o.openDoneFolds = openDoneFolds
+        // A drop resolves by the drawn rows' model indexes: while a drag runs, Done workspaces show in their places.
+        if shownDrag != nil || external != nil { o.foldsDone = false }
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight
@@ -102,7 +106,7 @@ extension SidebarListViewComponents {
         // One gutter per group level (`SidebarRow.depth`): a nested group's header and members move in
         // with it (remote-groups-DESIGN.md slice 2).
         let gutter: CGFloat = switch row.key {
-        case .workspace, .tab, .item: row.group == nil ? 0 : SidebarStyle.groupGutter * CGFloat(max(1, row.depth))
+        case .workspace, .tab, .item, .doneFold: row.group == nil ? 0 : SidebarStyle.groupGutter * CGFloat(max(1, row.depth))
         case .group: SidebarStyle.groupGutter * CGFloat(row.depth)
         default: 0
         }
@@ -247,7 +251,7 @@ extension SidebarListViewComponents {
         case let (.workspace(id), view as WorkspaceRowView):
             guard let ws = workspaces[id] else { return }
             view.configure(ws, row: row, badgeStyle: model.rowBadgeStyle)
-            view.isSecondarySelected = model.selection.contains(id) && !view.isSelected
+            paintSecondaryFills(view, id)
             view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id)
         case let (.item(id), view as SidebarItemListRowView):
             guard let item = listItems[id] else { return }
@@ -271,6 +275,7 @@ extension SidebarListViewComponents {
             view.configure(section, row: row)
         case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection))
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
+        case (.doneFold, let view as SidebarDoneFoldRowView): view.configure(row)
         default:
             break
         }

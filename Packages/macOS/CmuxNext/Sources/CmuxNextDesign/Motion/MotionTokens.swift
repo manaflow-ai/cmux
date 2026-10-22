@@ -43,8 +43,9 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// Slightly under-damped so the carried velocity reads as physical.
     case settle
     /// Programmatic scroll: tab strip reveal, strip column reveal, wheel
-    /// notch, trackpad fling snap. Stiffness 800 (response 0.222 s); damping
-    /// 0.9 instead of 1 drops the slow sub-pixel tail.
+    /// notch, trackpad fling snap. Response 0.2 s (stiffness about 990;
+    /// 0.222 s until Leo 2026-10-20's shorter scale); damping 0.9 instead of
+    /// 1 drops the slow sub-pixel tail.
     case scroll
     /// Screen switch slide.
     case screen

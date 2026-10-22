@@ -37,6 +37,8 @@ mod prompt_context;
 mod prompt_ledger;
 #[path = "hub_integration/prompt_provenance.rs"]
 mod prompt_provenance;
+#[path = "hub_integration/prompt_supersede.rs"]
+mod prompt_supersede;
 #[path = "hub_integration/prompt_withdraw.rs"]
 mod prompt_withdraw;
 #[path = "hub_integration/protocol_serve.rs"]
@@ -53,6 +55,8 @@ mod secrets;
 mod seen;
 #[path = "hub_integration/session_offers.rs"]
 mod session_offers;
+#[path = "hub_integration/silent_turn.rs"]
+mod silent_turn;
 #[path = "hub_integration/status_indicator.rs"]
 mod status_indicator;
 #[path = "hub_integration/steer_now.rs"]

@@ -28,56 +28,110 @@ extension BrowserPageService {
             }) { call in
                 let kind = try Self.choice(call, "kind", Self.mouseKinds, default: nil)
                 let button = try Self.choice(call, "button", Self.mouseButtons, default: "left")
-                return BrowserPageScripts.mouse(kind: kind, x: try Self.point(call, "x"), y: try Self.point(call, "y"),
-                                                button: button, clickCount: try Self.clickCount(call),
-                                                modifiers: try Self.modifiers(call))
+                let x = try Self.point(call, "x"), y = try Self.point(call, "y")
+                let count = try Self.clickCount(call)
+                let modifiers = try Self.modifiers(call)
+                let input = BrowserPageInput.mouse(kind: BrowserPageInput.MouseKind(rawValue: kind) ?? .move, x: x, y: y,
+                                                   button: BrowserPageInput.Button(rawValue: button) ?? .left, clickCount: count,
+                                                   modifiers: Self.inputModifiers(modifiers))
+                return Raw(input: input, at: Self.pointAt(x, y),
+                           script: BrowserPageScripts.mouse(kind: kind, x: x, y: y, button: button, clickCount: count, modifiers: modifiers))
             },
             raw("wheel", engine: engine, announce: { _, answer in .from(kind: .scroll, answer: answer) }) { call in
                 let params = call.request.params
                 guard params["dx"] != nil || params["dy"] != nil else {
                     throw ControlError.invalidParams(ControlStrings.text("control.error.wheelOffset", "browser.page.wheel needs params.dx or params.dy"))
                 }
-                return BrowserPageScripts.wheel(x: try Self.point(call, "x"), y: try Self.point(call, "y"),
-                                                dx: try Self.offset(call, "dx"), dy: try Self.offset(call, "dy"),
-                                                modifiers: try Self.modifiers(call))
+                let x = try Self.point(call, "x"), y = try Self.point(call, "y")
+                let dx = try Self.offset(call, "dx"), dy = try Self.offset(call, "dy")
+                let modifiers = try Self.modifiers(call)
+                return Raw(input: .wheel(x: x, y: y, dx: dx, dy: dy, modifiers: Self.inputModifiers(modifiers)), at: Self.pointAt(x, y),
+                           script: BrowserPageScripts.wheel(x: x, y: y, dx: dx, dy: dy, modifiers: modifiers))
             },
             raw("insert_text", engine: engine, announce: { call, answer in
                 .from(kind: .type, answer: answer, text: call.request.params["text"]?.stringValue)
             }) { call in
-                BrowserPageScripts.insertText(try Self.string(call, "text"))
+                let text = try Self.string(call, "text")
+                // Native text needs an editable focus too: the check runs first, as page script.
+                return Raw(input: .text(text), check: BrowserPageScripts.focusedEditable, script: BrowserPageScripts.insertText(text))
             },
             raw("key", engine: engine, announce: { call, answer in
                 .from(kind: .key, answer: answer, key: call.request.params["key"]?.stringValue)
             }) { call in
                 let kind = try Self.choice(call, "kind", Self.keyKinds, default: "press")
-                return BrowserPageScripts.key(BrowserPressKey(try Self.string(call, "key")), kind: kind,
-                                              modifiers: try Self.modifiers(call))
+                let key = BrowserPressKey(try Self.string(call, "key"))
+                let modifiers = try Self.modifiers(call)
+                let input = BrowserPageInput.key(key: key.key, code: key.code, keyCode: key.keyCode,
+                                                 kind: BrowserPageInput.KeyKind(rawValue: kind) ?? .press,
+                                                 modifiers: Self.inputModifiers(modifiers))
+                return Raw(input: input, script: BrowserPageScripts.key(key, kind: kind, modifiers: modifiers))
             },
         ]
     }
 
-    /// `announce` turns a successful answer into the agent input the agent cursor draws.
+    /// One raw input: the native `input` the engine is asked for first, the page `script` that
+    /// runs when it delivers none, a `check` script that must pass before either (its `{error,
+    /// code}` refuses), and the answer `at` a native input announces to the agent cursor.
+    struct Raw: Sendable {
+        var input: BrowserPageInput
+        var check: String?
+        var at: JSONValue = .null
+        var script: String
+
+        init(input: BrowserPageInput, check: String? = nil, at: JSONValue = .null, script: String) {
+            self.input = input
+            self.check = check
+            self.at = at
+            self.script = script
+        }
+    }
+
+    /// `announce` turns a successful answer into the agent input the agent cursor draws. The
+    /// result's `native` says whether the engine delivered native input (trusted events) or the
+    /// page script ran (page events: no engine view).
     private func raw(_ name: String, engine: any BrowserPageEngine,
                      announce: @escaping @Sendable (ControlCall, JSONValue) -> BrowserPageAgentInput?,
-                     _ make: @escaping @Sendable (ControlCall) throws -> String) -> ControlMethod {
+                     _ make: @escaping @Sendable (ControlCall) throws -> Raw) -> ControlMethod {
         .async("browser.page.\(name)") { call in
-            let script = try make(call)
+            let raw = try make(call)
             let tab = try Self.tab(call)
-            let value = try await Self.run(engine, .evaluate(script), tab)["value"] ?? .null
-            if let error = value["error"]?.stringValue {
-                let code = value["code"]?.stringValue ?? "not_found"
-                let message = code == "not_editable"
-                    ? ControlStrings.text("control.error.notEditable", "The focused element takes no text; focus a text field first")
-                    : error
-                throw ControlError(code: code, message: message)
-            }
-            if let input = announce(call, value) {
-                await engine.announce(Self.attributed(input, call), tabID: tab.id)
+            var answer: JSONValue = ["at": raw.at]
+            if let check = raw.check {
+                answer = try Self.refusing(try await Self.run(engine, .evaluate(check), tab)["value"] ?? .null)
             }
             var result = Self.base(tab)
-            result["value"] = value["value"] ?? .null
+            if try await Self.run(engine, .input(raw.input), tab)["native"] == true {
+                result["native"] = true
+                result["value"] = .null
+            } else {
+                answer = try Self.refusing(try await Self.run(engine, .evaluate(raw.script), tab)["value"] ?? .null)
+                result["native"] = false
+                result["value"] = answer["value"] ?? .null
+            }
+            if let input = announce(call, answer) {
+                await engine.announce(Self.attributed(input, call), tabID: tab.id)
+            }
             return .object(result)
         }
+    }
+
+    /// A page script's answer, or its `{error, code}` as that error.
+    static func refusing(_ value: JSONValue) throws -> JSONValue {
+        guard let error = value["error"]?.stringValue else { return value }
+        let code = value["code"]?.stringValue ?? "not_found"
+        let message = code == "not_editable"
+            ? ControlStrings.text("control.error.notEditable", "The focused element takes no text; focus a text field first")
+            : error
+        throw ControlError(code: code, message: message)
+    }
+
+    /// A point as the agent cursor's rect (`BrowserPageScripts.measure` shape).
+    static func pointAt(_ x: Double, _ y: Double) -> JSONValue {
+        ["x": .number(x), "y": .number(y), "w": 0, "h": 0, "secret": false]
+    }
+
+    static func inputModifiers(_ names: Set<String>) -> Set<BrowserPageInput.Modifier> {
+        Set(names.compactMap(BrowserPageInput.Modifier.init(rawValue:)))
     }
 
     /// `params[key]`, one of `allowed`; `fallback` when absent (nil: required).

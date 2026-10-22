@@ -149,7 +149,20 @@ impl Conn {
 
     fn send(&self, msg: &Message) {
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
-        let _ = self.out.try_send(masked.as_ref().unwrap_or(msg).to_line());
+        let msg = masked.as_ref().unwrap_or(msg);
+        // No message larger than one frame (`rpc::MAX_MESSAGE_BYTES`): a reply goes as its error,
+        // a notification is left out and the client reads again from its last record.
+        match msg.bounded_line() {
+            Ok(line) => {
+                let _ = self.out.try_send(line);
+            }
+            Err(bytes) => {
+                tracing::warn!(conn = %self.id, method = ?msg.method(), bytes, "left out a notification too large to send");
+                let _ = self.out.try_send(
+                    Message::notification("_acpmux/lagged", json!({"dropped": 1})).to_line(),
+                );
+            }
+        }
     }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock().unwrap().get(session_id).cloned()
@@ -418,6 +431,9 @@ pub async fn serve_ws_with(
             // Its peer token headers, for the Peer check.
             let seen_peer: Arc<StdMutex<Vec<String>>> = Arc::default();
             let record_peer = seen_peer.clone();
+            // A ticket or a paired machine's credential (`pairing.rs`).
+            let admitted: Arc<StdMutex<pairing::Admitted>> = Arc::default();
+            let (record_admitted, pairing_hub) = (admitted.clone(), hub.clone());
             let callback = move |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
                                  resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
                 let values = |name: &str| {
@@ -446,9 +462,10 @@ pub async fn serve_ws_with(
                     .and_then(|v| v.to_str().ok())
                     .and_then(cmux_local_auth::bearer_token);
                 let query = req.uri().query().and_then(cmux_local_auth::query_token);
-                cmux_local_auth::check_token(header.or(query), &expected)
-                    .map(|()| resp)
-                    .map_err(refuse)
+                let tickets = values(crate::pairing::TICKET_HEADER);
+                let proof = pairing::admit(&pairing_hub, peer, header.or(query), &tickets, &expected);
+                *record_admitted.lock().unwrap_or_else(|e| e.into_inner()) = proof.map_err(refuse)?;
+                Ok(resp)
             };
             let ws = match tokio_tungstenite::accept_hdr_async(stream, callback).await {
                 Ok(ws) => ws,
@@ -456,6 +473,14 @@ pub async fn serve_ws_with(
                     tracing::warn!("ws handshake from {peer} rejected: {e}");
                     return;
                 }
+            };
+            let admitted = std::mem::take(&mut *admitted.lock().unwrap_or_else(|e| e.into_inner()));
+            let device = match admitted {
+                pairing::Admitted::Ticket(secret) => {
+                    return pairing::serve_redeem(hub, ws, secret).await;
+                }
+                pairing::Admitted::Device(device) => Some(device),
+                pairing::Admitted::Dashboard => None,
             };
             let (mut sink, mut source) = ws.split();
             let (in_tx, in_rx) = mpsc::channel::<String>(256);
@@ -469,7 +494,9 @@ pub async fn serve_ws_with(
             let mut first = None;
             let presented =
                 std::mem::take(&mut *seen_peer.lock().unwrap_or_else(|e| e.into_inner()));
-            if peer_auth.as_ref().is_some_and(|a| a.is_peer(peer, &presented)) {
+            if let Some(device) = &device {
+                (origin, proof) = pairing::origin_of(device);
+            } else if peer_auth.as_ref().is_some_and(|a| a.is_peer(peer, &presented)) {
                 origin = Origin::Peer;
                 proof = ConnAuth::PeerToken;
             } else if let Some(auth) = &local_app {
@@ -534,15 +561,22 @@ pub async fn serve_ws_with(
                 let _ = sink.close().await;
             });
             // A rotation ends a Web or Peer connection, which presented the
-            // dashboard token. Ending its read half closes `in_rx`, so
+            // dashboard token; a revocation ends a paired machine's, which
+            // presented its own. Ending its read half closes `in_rx`, so
             // `serve_connection_with` returns through its own cleanup
             // (detach counts, fan-out task) before the writer sends Close.
             // LocalApp also proved this launch's LocalApp token, so it stays.
+            let _open = device.as_ref().map(|d| hub.pairing.opened(&d.id));
+            let ends: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> =
+                match &device {
+                    Some(d) => Box::pin(hub.pairing.revoked(&d.id)),
+                    None => Box::pin(rotated),
+                };
             let watcher = matches!(origin, Origin::Web | Origin::Peer).then(|| {
                 let read_half = reader.abort_handle();
                 tokio::spawn(async move {
-                    rotated.await;
-                    tracing::info!("closing a {origin:?} connection: the web token rotated");
+                    ends.await;
+                    tracing::info!("closing a {origin:?} connection: its credential ended");
                     read_half.abort();
                 })
             });
@@ -791,6 +825,8 @@ async fn serve_connection_from(
                     });
                 });
             }
+            // A read-only machine's notifications (a cancel) change nothing.
+            Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
             Message::Notification { method: m, params } => {
                 let hub = hub.clone();
                 let conn = conn.clone();
@@ -842,6 +878,12 @@ async fn refuse_unauthenticated(
 
 /// Turn a hub record into client notifications for one connection.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
+    if ev.record.kind == crate::hub::PEER_LAGGED {
+        if conn.sub_opts(&ev.session_id).is_some() {
+            conn.send(&Message::notification("_acpmux/lagged", ev.record.msg.clone()));
+        }
+        return;
+    }
     chats::push_activity(hub, conn, &ev);
     processes::push_update(conn, &ev);
     let rec = &ev.record;
@@ -919,10 +961,12 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         if rec.dir == "mux" && rec.kind == "purged" {
-            conn.send(&Message::notification(
-                method::MUX_SESSION_CHANGED,
-                json!({"sessionId": ev.session_id, "session": {"sessionId": ev.session_id}, "kind": "purged", "recordKind": "purged", "seq": rec.seq}),
-            ));
+            // `replaced`: the same chat came back under this id (`Session::replaced`).
+            let mut params = json!({"sessionId": ev.session_id, "session": {"sessionId": ev.session_id}, "kind": "purged", "recordKind": "purged", "seq": rec.seq});
+            if rec.msg.get("replaced") == Some(&Value::Bool(true)) {
+                params["replaced"] = Value::Bool(true);
+            }
+            conn.send(&Message::notification(method::MUX_SESSION_CHANGED, params));
             return;
         }
         if rec.dir != "mux" {
@@ -960,35 +1004,9 @@ fn mux_meta(params: &Value) -> Option<&Value> {
     params.get("_meta").and_then(|m| m.get("acpmux"))
 }
 
-pub(crate) fn iso(ms: u64) -> String {
-    // Minimal RFC3339 without pulling a date crate.
-    let secs = (ms / 1000) as i64;
-    let days = secs.div_euclid(86_400);
-    let rem = secs.rem_euclid(86_400);
-    let (y, m, d) = civil_from_days(days);
-    format!(
-        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}.{:03}Z",
-        rem / 3600,
-        (rem % 3600) / 60,
-        rem % 60,
-        ms % 1000
-    )
-}
-
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
-    let z = z + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (if m <= 2 { y + 1 } else { y }, m, d)
-}
-
 mod agent_messages;
+mod clock_text;
+pub(crate) use clock_text::iso;
 mod change_kind;
 mod chats;
 pub mod conn_auth;
@@ -1003,6 +1021,8 @@ mod inventory_watch;
 pub mod local_app;
 mod models_fanout;
 mod new_worktree;
+pub(crate) mod outbox;
+mod pairing;
 pub mod peer_auth;
 mod peer_forward;
 pub mod peer_text;
@@ -1010,7 +1030,7 @@ mod pending;
 mod processes;
 mod worktrees;
 use crate::hub::is_permission_ask;
-pub use pending::event_value;
+pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
 mod redact;
 pub(crate) mod remote_guard;
