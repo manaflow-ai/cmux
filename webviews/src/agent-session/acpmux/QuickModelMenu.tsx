@@ -102,6 +102,54 @@ function filtered(families: QuickFamily[], query: string): (QuickModel & { hint:
 
 const rowValue = (model: Pick<QuickModel, "family" | "id">) => `${model.family}\u0000${model.id}`;
 
+/// What one rail tab's unfiltered list draws, in rows and separators (the group label is in every
+/// tab). The menu opens above its chip, so a taller or shorter tab moved the rail under the pointer;
+/// the list keeps the tallest tab's height for the whole opening (QuickMenuSpacer).
+export type TabExtent = { rows: number; separators: number };
+
+/// Mirrors the unfiltered `list` in QuickModelMenu row for row: keep the two in step.
+export function tabExtent(
+  family: QuickFamily,
+  menu: Pick<QuickMenu, "account" | "fast" | "update"> & { families: QuickFamilies; levels: number },
+): TabExtent {
+  const chat = family.id === menu.families.current;
+  const models = Math.min(family.models.length, FILTER_ROWS);
+  let rows = models || 1;
+  let separators = 1;
+  if (family.note && family.logIn) rows += 1;
+  if (chat && menu.levels > 1) {
+    rows += 1;
+    separators += 1;
+  }
+  if (family.more.length > 0 || menu.families.onAddHarness) rows += 1;
+  if (chat && menu.account) rows += 1;
+  if (chat && menu.fast) {
+    rows += 1;
+    separators += 1;
+  }
+  if (menu.update) {
+    rows += 1;
+    separators += 1;
+  }
+  return { rows, separators };
+}
+
+/// The tallest tab's rows and separators, unseen in the list's grid cell under the real rows, so
+/// switching tabs or typing never changes the menu's height while it is open.
+function QuickMenuSpacer({ rows, separators }: TabExtent) {
+  return (
+    <div className="acpmux-quick-spacer" aria-hidden="true" inert>
+      <div className="ui-menu-group-label">{"\u00a0"}</div>
+      {Array.from({ length: rows }, (_, index) => (
+        <div key={`row${index}`} className="ui-menu-item acpmux-quick-item" />
+      ))}
+      {Array.from({ length: separators }, (_, index) => (
+        <div key={`separator${index}`} className="ui-separator" />
+      ))}
+    </div>
+  );
+}
+
 /// What the composer hands the model picker for its compact menu; the picker adds the models.
 export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "fast">;
 
@@ -225,6 +273,19 @@ export function QuickModelMenu({
       }
     }
   };
+  const tallest = (families?.list ?? []).reduce<TabExtent>(
+    (most, family) => {
+      const extent = tabExtent(family, {
+        families: families!,
+        levels: levels.length,
+        account,
+        fast,
+        update: menu.update,
+      });
+      return { rows: Math.max(most.rows, extent.rows), separators: Math.max(most.separators, extent.separators) };
+    },
+    { rows: 0, separators: 0 },
+  );
   const currentValue = families ? rowValue({ family: families.current ?? "", id: current ?? "" }) : (current ?? "");
   const list = (
     <>
@@ -462,7 +523,10 @@ export function QuickModelMenu({
                 </button>
               ))}
             </fieldset>
-            <div className="acpmux-quick-body">{list}</div>
+            <div className="acpmux-quick-body">
+              <div className="acpmux-quick-list">{list}</div>
+              <QuickMenuSpacer {...tallest} />
+            </div>
           </div>
         ) : (
           list
