@@ -97,7 +97,7 @@ const changeNet = async (patch) => {
   net = body.net
   return [200, { net, provider, ...(applied.err ? { warnings: applied.err } : {}) }]
 }
-// The Chief's sandbox VMs (chief-vm.mjs): POST /vm {action, id?, command?} goes to the Worker with this turn's token.
+// The Chief's sandbox VMs (chief-vm.mjs): POST /vm {action, id?, command?, cpu?, memory_mb?, disk_gb?} goes to the Worker with this turn's token.
 const proxyVm = (req, reply) => {
   if (req.method !== "POST") return reply([405, { error: "POST /vm" }])
   let text = ""

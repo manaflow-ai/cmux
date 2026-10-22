@@ -694,14 +694,14 @@ export default componentEntry<Props>({
       },
     },
     run: {
-      note: "The Chief's finished run under its reply: Worked for, steps, cost; Open shows the whole run.",
+      note: "The Chief's finished run under its reply: Worked for, steps, tokens (no dollar figure); Open shows the whole run.",
       props: { select: "c-chief", runs: "done" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done"));
       },
     },
     "run-open": {
-      note: "The run sheet: every step in order (shell output, the read, a folded thought, the diff, the reply), time, tokens and cost.",
+      note: "The run sheet: every step in order (shell output, the read, a folded thought, the diff, the reply), time, tokens and the cost labelled as API prices.",
       props: { select: "c-chief", runs: "done" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done .lg-run-open"));
@@ -757,14 +757,14 @@ export default componentEntry<Props>({
       },
     },
     "narrow-run-card": {
-      note: "A narrow run card (380 px page): Worked for and Open on the first line, the step count and cost under it.",
+      note: "A narrow run card (380 px page): Worked for and Open on the first line, the step count and tokens under it.",
       props: { width: 380, pane: "conversation", select: "c-chief", runs: "done" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done .lg-run-metas"));
       },
     },
     "narrow-run-card-480": {
-      note: "A run card on a 480 px page: the step count and cost move under Worked for as one line, never starting with a separator.",
+      note: "A run card on a 480 px page: the step count and tokens move under Worked for as one line, never starting with a separator.",
       props: { width: 480, pane: "conversation", select: "c-chief", runs: "done" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done .lg-run-metas"));
