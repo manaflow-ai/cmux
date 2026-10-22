@@ -7,15 +7,17 @@ import Testing
 /// A stale local cmux-tui restarts by itself at a quiet moment (`QuietDaemonUpdate`,
 /// plans/cmux-next/server-updates-DESIGN.md rule 2): it waits while the person or the owner is
 /// busy, tries again on owner events, when the app goes to the background and on bounded
-/// deadlines, never forces a restart (an overdue wait shows the toast), restarts each daemon
-/// process at most once per bundled build, and checks that the next daemon comes back on the
-/// bundled build (one retry, then a failure for the notice). The person, the owner and the
-/// restart are stand-ins here; the handoff itself is covered by the live tests.
+/// deadlines, and past its two-minute cap restarts at the first moment no app request is in
+/// flight, whoever is attached. It restarts each daemon process at most once per bundled build,
+/// and checks that the next daemon comes back on the bundled build (one retry, then a failure for
+/// the notice). The person, the owner, the moment and the restart are stand-ins here; the handoff
+/// itself is covered by the live tests.
 @MainActor @Suite(.timeLimit(.minutes(1)))
 struct QuietDaemonUpdateTests {
     /// What the update reads and asks, shared with its closures.
     private nonisolated final class World: Sendable {
-        private let state = Mutex((personIdle: false, ownerIdle: true, probes: 0, accepts: true, restarts: [Int32](), reconnects: 0))
+        private let state = Mutex((personIdle: false, ownerIdle: true, momentQuiet: true, probes: 0, accepts: true,
+                                   restarts: [Int32](), reconnects: 0))
         var personIdle: Bool {
             get { state.withLock { $0.personIdle } }
             set { state.withLock { $0.personIdle = newValue } }
@@ -23,6 +25,11 @@ struct QuietDaemonUpdateTests {
         var ownerIdle: Bool {
             get { state.withLock { $0.ownerIdle } }
             set { state.withLock { $0.ownerIdle = newValue } }
+        }
+        /// No app request in flight and no tracking loop.
+        var momentQuiet: Bool {
+            get { state.withLock { $0.momentQuiet } }
+            set { state.withLock { $0.momentQuiet = newValue } }
         }
         /// The owner probes so far.
         var probes: Int { state.withLock { $0.probes } }
@@ -54,7 +61,8 @@ struct QuietDaemonUpdateTests {
     private static func update(_ world: World, clock: ManualClock = ManualClock(),
                                pacing: QuietDaemonUpdate.Pacing = .standard) -> QuietDaemonUpdate {
         QuietDaemonUpdate(pacing: pacing, clock: clock, isEnabled: { true }, userIsIdle: { world.personIdle },
-                          ownerIsIdle: { _ in world.probeOwner() }, restart: { world.restart($0) }, reconnect: { world.reconnect() })
+                          ownerIsIdle: { _ in world.probeOwner() }, momentIsQuiet: { _ in world.momentQuiet },
+                          restart: { world.restart($0) }, reconnect: { world.reconnect() })
     }
 
     private static func daemon(pid: Int32, build: String? = "a1a1a1a", capabilities: [String] = []) -> DaemonIdentity {
@@ -129,7 +137,7 @@ struct QuietDaemonUpdateTests {
         let clock = ManualClock()
         let update = Self.update(world, clock: clock)
         update.consider(Self.daemon(pid: 12), bundledBuild: Self.bundled, appCapabilities: [])
-        try await clock.waitForSleepers(2)  // the overdue timer and the retry timer
+        try await clock.waitForSleepers(2)  // the cap timer and the retry timer
         world.personIdle = true
         clock.advance(by: .seconds(60))
         await Self.restarts(world, reach: 1)
@@ -169,7 +177,7 @@ struct QuietDaemonUpdateTests {
         #expect(!current.isWaiting)
 
         let off = QuietDaemonUpdate(pacing: .standard, clock: ManualClock(), isEnabled: { false }, userIsIdle: { true },
-                                    ownerIsIdle: { _ in true }, restart: { world.restart($0) })
+                                    ownerIsIdle: { _ in true }, momentIsQuiet: { _ in true }, restart: { world.restart($0) })
         off.consider(Self.daemon(pid: 16), bundledBuild: Self.bundled, appCapabilities: [])
         #expect(!off.isWaiting)
         try? await Task.sleep(for: .milliseconds(50))  // let a wrongly started restart show
@@ -199,24 +207,54 @@ struct QuietDaemonUpdateTests {
         #expect(update.healthFailure == nil)
     }
 
-    @Test func aWaitWithNoQuietMomentShowsTheToastAndKeepsWaiting() async throws {
+    /// An open `cmux chief` chat or TUI stays attached between turns, so the owner is never idle,
+    /// and the person keeps typing: before the cap it waits, at the cap it restarts anyway, with
+    /// no toast in between.
+    @Test func anAttachedClientBetweenTurnsHoldsTheRestartOnlyUntilTheCap() async throws {
         let world = World()
+        world.ownerIdle = false
         let clock = ManualClock()
         let update = Self.update(world, clock: clock)
         update.consider(Self.daemon(pid: 22), bundledBuild: Self.bundled, appCapabilities: [])
-        // The overdue deadline and the first retry's.
-        try await clock.waitForSleepers(2)
-        clock.advance(by: .seconds(30 * 60))
-        for _ in 0..<400 where !update.isOverdue { try? await Task.sleep(for: .milliseconds(5)) }  // test harness poll
-        #expect(update.isOverdue)
-        #expect(update.isWaiting)
-        #expect(!update.suppressesNotice, "the toast stays hidden while the person is never idle")
-        #expect(world.restarts.isEmpty, "it forced a restart")
-        // A quiet moment later still restarts.
+        try await clock.waitForSleepers(2)  // the cap timer and the first retry's
         world.personIdle = true
-        update.tryNow()
+        clock.advance(by: .seconds(60))
+        for _ in 0..<400 where world.probes < 1 { try? await Task.sleep(for: .milliseconds(5)) }  // test harness poll
+        #expect(world.probes >= 1, "the retry never probed the owner")
+        world.personIdle = false
+        try? await Task.sleep(for: .milliseconds(50))  // let a wrongly started restart show
+        #expect(world.restarts.isEmpty, "it restarted before the cap while a client was attached")
+        #expect(update.suppressesNotice)
+        #expect(!update.isPastCap)
+
+        clock.advance(by: .seconds(60))
         await Self.restarts(world, reach: 1)
-        #expect(world.restarts == [22])
+        #expect(world.restarts == [22], "an attached client between turns held the restart past the cap")
+        #expect(update.isPastCap)
+        #expect(update.suppressesNotice, "the toast showed instead of the restart")
+    }
+
+    /// Past the cap an app request in flight (or a menu or drag) still defers the restart: it
+    /// tries again shortly and restarts once nothing momentary runs.
+    @Test func pastTheCapARequestInFlightStillDefersIt() async throws {
+        let world = World()
+        world.ownerIdle = false
+        world.momentQuiet = false
+        let clock = ManualClock()
+        let update = Self.update(world, clock: clock)
+        update.consider(Self.daemon(pid: 27), bundledBuild: Self.bundled, appCapabilities: [])
+        try await clock.waitForSleepers(2)  // the cap timer and the first retry's
+        clock.advance(by: .seconds(120))
+        for _ in 0..<400 where !update.isPastCap { try? await Task.sleep(for: .milliseconds(5)) }  // test harness poll
+        #expect(update.isPastCap)
+        // The cap's try found a request in flight and armed the next try; the retry timer is re-armed too.
+        try await clock.waitForSleepers(2)
+        #expect(world.restarts.isEmpty, "it restarted with an app request in flight")
+
+        world.momentQuiet = true
+        clock.advance(by: QuietDaemonUpdate.Pacing.standard.momentRetry)
+        await Self.restarts(world, reach: 1)
+        #expect(world.restarts == [27])
     }
 
     @Test func aSuccessorThatNeverConnectsIsRetriedOnceThenReported() async throws {
@@ -225,14 +263,14 @@ struct QuietDaemonUpdateTests {
         let clock = ManualClock()
         let update = Self.update(world, clock: clock)
         update.consider(Self.daemon(pid: 23), bundledBuild: Self.bundled, appCapabilities: [])
-        await Self.restarts(world, reach: 1)
-        // The overdue deadline and the health check's.
-        try await clock.waitForSleepers(2)
+        await Self.accepted(update, reach: 1)
+        // The health check's deadline (the accepted restart cancelled the cap's).
+        try await clock.waitForSleeper()
         clock.advance(by: .seconds(90))
         for _ in 0..<400 where world.reconnects == 0 { try? await Task.sleep(for: .milliseconds(5)) }  // test harness poll
         #expect(world.reconnects == 1)
         #expect(update.healthFailure == nil, "one missed deadline is retried, not reported")
-        try await clock.waitForSleepers(2)
+        try await clock.waitForSleeper()
         clock.advance(by: .seconds(90))
         for _ in 0..<400 where update.healthFailure == nil { try? await Task.sleep(for: .milliseconds(5)) }  // test harness poll
         #expect(update.healthFailure != nil)

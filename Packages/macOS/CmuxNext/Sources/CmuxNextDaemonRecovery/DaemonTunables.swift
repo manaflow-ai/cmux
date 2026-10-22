@@ -8,11 +8,12 @@ public nonisolated struct DaemonTunables {
     public static let section = TunableSection(id: "cmuxTUI", title: "cmux-tui", symbol: "terminal", order: 42)
 
     /// A cmux-tui of another build than the bundled one (or one that lacks capabilities this app
-    /// uses) restarts at a quiet moment (`QuietDaemonUpdate`). Off: only the update toast's
-    /// Restart cmux-tui… restarts it.
+    /// uses) is updated automatically (`QuietDaemonUpdate`): at a quiet moment, or once two
+    /// minutes passed at the first moment no app request is in flight. Off: only the update
+    /// toast's Restart cmux-tui… restarts it.
     public static let restartStaleCmuxTUIWhenQuiet = Tunable<Bool>.toggle(
-        "cmuxTUI.restartStaleWhenQuiet", section, "Restart a stale cmux-tui when quiet",
-        help: "A cmux-tui of an older build restarts by itself while you and it are idle. Terminals keep running.",
+        "cmuxTUI.restartStaleWhenQuiet", section, "Update a stale cmux-tui automatically",
+        help: "A cmux-tui of an older build restarts by itself at a quiet moment, or within about two minutes even while a chat or TUI is attached. Terminals keep running.",
         default: true, code: "DaemonTunables.restartStaleCmuxTUIWhenQuiet")
 
     /// A cmux-tui that stays alive but never answers restarts after a sustained window
