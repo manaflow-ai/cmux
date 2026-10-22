@@ -59,6 +59,7 @@ pub(crate) mod opencode_ask;
 #[cfg(windows)]
 mod owner_only;
 pub mod pairing;
+pub mod path_canon;
 pub mod peer;
 pub mod peer_link;
 #[cfg(not(unix))]

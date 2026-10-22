@@ -54,6 +54,8 @@ notify.workspace = true
 getrandom.workspace = true
 base64 = "0.22"
 unicode-width = "0.2"
+# NFC tool call paths on macOS, as git shows them (src/path_canon.rs).
+unicode-normalization.workspace = true
 wait-timeout.workspace = true
 zeroize.workspace = true
 regex = "1"
