@@ -19,7 +19,7 @@ import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
-import { GROUP_TAIL } from "./ToolGroupRow";
+import { tailStart } from "./ToolGroupRow";
 import { isDraftCall, isRunning, toolGroups } from "./toolGroups";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
@@ -462,7 +462,8 @@ function shapeTurn(
                 : Math.max(0, summary.at - from),
       });
       // Open, each run of its work folds into its summary line between the commentary, as in a
-      // running turn (codexRuns).
+      // running turn (codexRuns). A run that edited folds too: its edits stay in sight between the
+      // summary lines of the work around them (TurnRows.tsx `runStretches`).
       if (open)
         shaped.push(
           ...(liveRuns ? mergeShortNotes(work) : work).flatMap(withoutDrafts).map((row) => ({
@@ -470,7 +471,7 @@ function shapeTurn(
             id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
             settled: true,
             // A folded run draws otherwise, so its version moves (memos compare versions).
-            ...(liveRuns && row.kind === "activity" && !isEdit(row) && { foldRun: true, version: row.version * 4 + 3 }),
+            ...(liveRuns && row.kind === "activity" && { foldRun: true, version: row.version * 4 + 3 }),
           })),
         );
     }
@@ -863,14 +864,14 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
   )
     return true;
   const kind = group.type === "mcp" ? "mcp" : group.kind;
-  const tail = kind === "mcp" || kind === "edits" || group.items.indexOf(item) >= group.items.length - GROUP_TAIL;
+  const tail = kind === "mcp" || kind === "edits" || group.items.indexOf(item) >= tailStart(group.items);
   if (!tail) return undefined;
   const key = `group:${kind}:${group.items[0]!.tool!.id || `${row.id}:${at}`}`;
   return { key, open: kind !== "mcp" && kind !== "edits" };
 }
 
 /// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): each run folds into its
-/// summary line between the paragraphs ("Read files, ran commands", or one group's "Ran 3
+/// summary line between the paragraphs ("Read 6 files, ran 4 commands", or one group's "Ran 3
 /// commands"), the latest one too as its calls finish, and opens on a click. The call in flight and
 /// a thought still coming are not in the run: the turn's live line names them (WorkingFor.tsx
 /// `doing`, "Thinking") and each step replaces it in place. A call still running in an earlier run
