@@ -1,6 +1,7 @@
 // The drop overlay (composer/dropOverlayState.ts says when it shows and what it says; dropOverlay.css
-// draws it). A glass sheet over the whole chat column with a dashed accent frame, a large mark, "Drop
-// to attach" and what the drag holds; it lifts and brightens while the pointer is over the chat,
+// draws it). A faint tint over the whole chat column, which stays readable under it (Lawrence
+// 2026-10-21: "needs to keep stuff behind more visible"), a dashed accent frame, and one compact
+// glass pill in the middle with a mark, "Drop to attach" and what the drag holds; it lifts and brightens while the pointer is over the chat,
 // turns into a plain refusal for what the chat cannot take, and on a drop shrinks into the composer,
 // where the files land as chips. It never takes the pointer, so the drag's events stay the page's.
 import { useLayoutEffect, useRef } from "react";
@@ -73,14 +74,16 @@ export function DropOverlay({
         <svg className="acpmux-drop-frame" aria-hidden="true" focusable="false">
           <rect className="acpmux-drop-frame-line" />
         </svg>
-        <div className="acpmux-drop-content">
+        <div className="acpmux-drop-pill">
           <span className="acpmux-drop-mark">{refused ? <RefusedMark /> : <DropMark kind={state.summary.kind} />}</span>
-          <span className="acpmux-drop-title">{t(refused ? DROP_LABELS.refusedTitle : DROP_LABELS.title)}</span>
-          {refused ? (
-            <span className="acpmux-drop-hint">{t(DROP_LABELS.imagesUnsupported)}</span>
-          ) : (
-            hint && <span className="acpmux-drop-hint">{hint}</span>
-          )}
+          <span className="acpmux-drop-text">
+            <span className="acpmux-drop-title">{t(refused ? DROP_LABELS.refusedTitle : DROP_LABELS.title)}</span>
+            {refused ? (
+              <span className="acpmux-drop-hint">{t(DROP_LABELS.imagesUnsupported)}</span>
+            ) : (
+              hint && <span className="acpmux-drop-hint">{hint}</span>
+            )}
+          </span>
         </div>
       </div>
     </div>
