@@ -658,9 +658,13 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 }
             }
             // Permissions still open (records may be older than the page). Before the held
-            // records: a decision among them must land after its request.
+            // records, so a decision among them lands after its request; an ask whose own
+            // request is held comes with it instead, in order (on the turn it belongs to).
+            let heldAsks = Set(held.compactMap { record -> String? in
+                record["kind"]?.stringValue == "permission_request" ? record["msg"]?["permissionId"]?.stringValue : nil
+            })
             for entry in result["session"]?["pending"]?.arrayValue ?? [] {
-                if let id = entry["permissionId"]?.stringValue, let request = entry["request"],
+                if let id = entry["permissionId"]?.stringValue, !heldAsks.contains(id), let request = entry["request"],
                    let event = records.permission(id, request: request) { emitPermission(event) }
             }
             emit(.status(summary.status))

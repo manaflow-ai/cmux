@@ -358,12 +358,13 @@ public struct AgentChatTranscript: View {
             SessionArtifactsSheet(store: store, surface: surface)
         }
         .sensoryFeedback(.warning, trigger: warningTrigger)
-        // A live ask buzzes; one that was already waiting when the chat opened does not.
+        // A live ask buzzes, and so does one a reattach caught up on (raised while the link
+        // was down); one that was already waiting when the chat opened does not.
         .onChange(of: store.pendingPermission?.request.id) { _, new in
-            if new != nil, let record = store.pendingPermission, !store.isReplayed(TurnRow.permission(record).id) { warningTrigger += 1 }
+            if new != nil, let record = store.pendingPermission, !store.wasOpenOnArrival(TurnRow.permission(record).id) { warningTrigger += 1 }
         }
         .onChange(of: store.pendingQuestion?.id) { _, new in
-            if let new, !store.isReplayed(TurnRow.question(new).id) { warningTrigger += 1 }
+            if let new, !store.wasOpenOnArrival(TurnRow.question(new).id) { warningTrigger += 1 }
         }
         #if DEBUG
         .onChange(of: director.serial) {
@@ -639,14 +640,15 @@ struct TurnView: View {
             // place; only what arrives live animates in.
             UserBubble(turn: turn, isLast: isLast) { store.send(prompt: $0) }
                 .frame(maxWidth: .infinity, alignment: .trailing)
-                .transition(store.isReplayed(turn.id) ? .identity
-                    : .asymmetric(insertion: .offset(y: 24).combined(with: .scale(scale: 0.96)).combined(with: .opacity), removal: .opacity))
+                .transition(.asymmetric(insertion: store.isReplayed(turn.id) ? .identity
+                    : .offset(y: 24).combined(with: .scale(scale: 0.96)).combined(with: .opacity), removal: .opacity))
             VStack(alignment: .leading, spacing: 10) {
                 let rows = turn.rows
                 ForEach(rows) { row in
                     rowView(row, isLastRow: row.id == rows.last?.id)
                         .rowHeightProbe("\(row.id)")
-                        .transition(store.isReplayed(row.id) ? .identity : .opacity.animation(.easeOut(duration: 0.15)))
+                        .transition(.asymmetric(insertion: store.isReplayed(row.id) ? .identity : .opacity, removal: .opacity)
+                            .animation(.easeOut(duration: 0.15)))
                 }
                 if turn.status == .running, rows.needsWorkingIndicator, store.pendingPermission == nil, store.pendingQuestion == nil {
                     WorkingLabel(turn.retry?.label ?? "Working", since: turn.startedAt)
@@ -677,7 +679,9 @@ struct TurnView: View {
     private func rowView(_ row: TurnRow, isLastRow: Bool) -> some View {
         switch row {
         case .message(_, let markdown):
-            StreamingMarkdown(markdown: markdown, isStreaming: turn.status == .running && isLastRow)
+            // A replayed message's blocks are drawn in place too, not faded in one by one.
+            StreamingMarkdown(markdown: markdown, isStreaming: turn.status == .running && isLastRow,
+                              animatesBlocks: !store.isReplayed(row.id))
         case .thought(_, let text):
             ThoughtRow(text: text, isLive: turn.status == .running && isLastRow)
         case .tool(let call):
@@ -744,10 +748,12 @@ public struct AgentParityMenuItems: View {
 struct StreamingMarkdown: View {
     let markdown: String
     let isStreaming: Bool
+    var animatesBlocks = true
 
     var body: some View {
         // While streaming, an emphasis or code marker that has not closed yet is hidden.
-        MarkdownView(MarkdownDocument(parsing: isStreaming ? MarkdownStreamTail(markdown).displayed : markdown), isStreaming: isStreaming)
+        MarkdownView(MarkdownDocument(parsing: isStreaming ? MarkdownStreamTail(markdown).displayed : markdown), isStreaming: isStreaming,
+                     animatesBlocks: animatesBlocks)
             .contextMenu {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = markdown }
                 ShareLink(item: markdown) { Label("Share", systemImage: "square.and.arrow.up") }

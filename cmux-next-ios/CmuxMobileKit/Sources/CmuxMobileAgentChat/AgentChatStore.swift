@@ -211,6 +211,9 @@ public final class AgentChatStore {
     /// insert animation, no haptic. Only what arrives after the replay boundary animates.
     /// Not observed: it changes only with `turns`, which the views already observe.
     @ObservationIgnored private var replayedIDs: Set<String> = []
+    /// What the chat's first batch (its history on open) held: an ask in it was already
+    /// waiting and does not buzz; one a later batch (a reattach) brings is news.
+    @ObservationIgnored private var openingIDs: Set<String>?
     private var currentMessageID: String?
     private var task: Task<Void, Never>?
 
@@ -463,12 +466,16 @@ public final class AgentChatStore {
     /// so its view appears without an insert transition (and its ask without a haptic).
     public func isReplayed(_ id: String) -> Bool { replayedIDs.contains(id) }
 
+    /// Whether `id` (a `TurnRow.id`) was already there when the chat opened (its first batch).
+    public func wasOpenOnArrival(_ id: String) -> Bool { openingIDs?.contains(id) ?? false }
+
     /// Everything shown now is history: what a batch brought, and anything before it.
     private func markReplayed() {
         for turn in turns {
             replayedIDs.insert(turn.id)
             for row in turn.rows { replayedIDs.insert(row.id) }
         }
+        if openingIDs == nil { openingIDs = replayedIDs }
     }
 
     private func applySubagent(_ change: AgentSubagentChange) {

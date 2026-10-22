@@ -35,7 +35,7 @@ import Testing
     @Test func onlyRecordsAfterTheBoundaryAnimate() {
         let store = AgentChatStore(source: Silent())
         store.apply(.batch(Self.turn(0)))
-        // Live: a new turn, its answer, and a permission ask.
+        // Live: a new turn and its answer.
         for event in Self.turn(1).dropLast() { store.apply(event) }
         #expect(!store.isReplayed("t1"))
         let rows = store.turns[1].rows
@@ -67,5 +67,19 @@ import Testing
         store.apply(.batch(Array(open)))
         let pending = try #require(store.pendingPermission)
         #expect(store.isReplayed(TurnRow.permission(pending).id))
+        #expect(store.wasOpenOnArrival(TurnRow.permission(pending).id))
+    }
+
+    /// An ask a reattach catches up on (raised while the link was down) is drawn in place
+    /// but is news: it was not waiting when the chat opened, so it still buzzes.
+    @Test func askCaughtUpOnReattachIsNews() throws {
+        let store = AgentChatStore(source: Silent())
+        store.apply(.batch(Self.turn(0)))
+        let ask = ACPPermissionRequest(id: "later", toolCall: ACPToolCall(id: "c2", title: "rm", kind: .execute),
+                                       options: [ACPPermissionOption(id: "allow", name: "Allow", kind: .allowOnce)])
+        store.apply(.batch(Array(Self.turn(1).dropLast()) + [.permissionRequest(ask)]))
+        let pending = try #require(store.pendingPermission)
+        #expect(store.isReplayed(TurnRow.permission(pending).id))
+        #expect(!store.wasOpenOnArrival(TurnRow.permission(pending).id))
     }
 }
