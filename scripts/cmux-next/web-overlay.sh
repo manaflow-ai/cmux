@@ -158,6 +158,18 @@ live_pid() {
   return 0
 }
 
+# Whether the server listening on 127.0.0.1:$1 is the dev server this script started (a process of
+# its group), not another program's that answers the same paths.
+ours_listens() {
+  local leader pid
+  leader="$(live_pid dev-server)"
+  [[ -n "$leader" ]] || return 1
+  for pid in $(lsof -nP -t -iTCP:"$1" -sTCP:LISTEN 2>/dev/null); do
+    [[ "$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')" == "$leader" ]] && return 0
+  done
+  return 1
+}
+
 # Stops what `server` started (the local dev server, the slot tunnel).
 stop_started() {
   local name pid
@@ -214,7 +226,10 @@ start_local() {
     ( cd "$tree/webviews" && CMUX_WEBVIEWS_DEV_PORT="$port" exec nohup bun run dev ) </dev/null >"$state/dev-server.log" 2>&1 &
     echo $! >"$state/dev-server.pid" )
   echo "$tree:$port" >"$state/dev-server.tree"
-  answers "$port" 60 || { echo "the dev server did not start; see $state/dev-server.log" >&2; exit 1; }
+  # A server that another process holds the port for answers too; only ours, still running, counts.
+  if ! answers "$port" 60 || ! ours_listens "$port"; then
+    echo "the dev server did not start; see $state/dev-server.log" >&2; exit 1
+  fi
   echo "dev server: http://127.0.0.1:$port/ from $tree (log: $state/dev-server.log)"
 }
 
@@ -290,7 +305,7 @@ case "$cmd" in
         *) usage 1 ;;
       esac
     done
-    remote="${CMUX_WEB_FOLLOW_REMOTE:-origin}" tree="$state/follow" repo="$ROOT"
+    remote=origin tree="$state/follow" repo="$ROOT"
     # Fetch into the repo that owns the checkout, which another clone may have made.
     [[ -e "$tree/.git" ]] && repo="$tree"
     git -C "$repo" fetch -q "$remote" "refs/pull/$pr/head"
@@ -308,13 +323,20 @@ case "$cmd" in
       git -C "$tree" checkout -q --force --detach "$head"
     else
       mkdir -p "$state"
-      git -C "$ROOT" worktree prune  # a deleted checkout stays registered until pruned
+      git -C "$ROOT" worktree prune --expire now  # a deleted checkout stays registered until pruned
       git -C "$ROOT" worktree add -q --detach "$tree" "$head"
+    fi
+    # The files on disk are this head now, so status names it even if a step below fails.
+    echo "$pr $head" >"$state/follow.pr"
+    # Another program's server on the port would serve its own files, not this head.
+    if answers "$port" && ! ours_listens "$port"; then
+      echo "127.0.0.1:$port answers, but not from a server this script started; stop it or use --port N" >&2
+      exit 1
     fi
     # A push that changes the lockfile needs its packages (a no-op when they are current).
     [[ -d "$tree/webviews/node_modules" ]] && (cd "$tree/webviews" && bun install --frozen-lockfile >/dev/null)
     start_local "$tree" "$port"
-    echo "$pr $head" >"$state/follow.pr"
+    echo "$pr $head" >"$state/follow.pr"  # start_local clears it when it replaces another server
     point_at "$port"
     echo "following #$pr at $head; run \`web-overlay.sh follow $pr\` again after a push"
     ;;
