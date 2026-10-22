@@ -4993,15 +4993,20 @@ export class AcpmuxDirectClient {
     // Stop), went on past its last record (an account switch's runs between turns): the held
     // events' first compaction row is it if that started on time; else one still running never
     // said how it ended and is noted as failed, as the next turn's start would.
-    let heldCompaction: AcpmuxRow | undefined = [...held.values()]
+    const heldCompactions = [...held.values()]
       .filter((row) => row.kind === "compaction")
-      .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))[0];
-    // When that row's first record already says how it ended, it ends the latest compaction the
-    // page left open, however long after, as reading the whole record does (`compaction` above):
-    // the end goes on that compaction's row, where it started, and the held row goes, so a page
-    // further back finds a row that started running and takes nothing more.
-    const opening = heldCompaction && this.events.find((event) => event.seq === heldCompaction!.seq);
-    if (heldCompaction?.compaction && opening && compactionOf(sessionUpdate(opening))?.state !== "running") {
+      .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+    // A held row whose first record already says how it ended found no compaction open before it
+    // in the held events: reading the whole record, that end goes on the latest compaction still
+    // open (running, or noted as failed), however long after, and each later such end on the next
+    // one back (`compaction` above). The end goes on that row, where the compaction started, and
+    // the held row goes, so a page further back takes nothing more for it.
+    const endsFirst = (row: AcpmuxRow) => {
+      const opening = this.events.find((event) => event.seq === row.seq);
+      return opening !== undefined && compactionOf(sessionUpdate(opening))?.state !== "running";
+    };
+    for (const end of heldCompactions) {
+      if (!end.compaction || !endsFirst(end)) continue;
       let open: AcpmuxRow | undefined;
       for (const row of this.rows.values())
         if (
@@ -5011,14 +5016,12 @@ export class AcpmuxDirectClient {
           (row.seq ?? 0) > (open?.seq ?? -1)
         )
           open = row;
-      if (open) {
-        this.rows.set(open.id, { ...open, version: open.version + 1, compaction: heldCompaction.compaction });
-        this.compactionHeardAt.delete(open.id);
-        held.delete(heldCompaction.id);
-        this.rows.delete(heldCompaction.id);
-        heldCompaction = undefined;
-      }
+      if (!open) break;
+      this.rows.set(open.id, { ...open, version: open.version + 1, compaction: end.compaction });
+      held.delete(end.id);
+      this.rows.delete(end.id);
     }
+    const heldCompaction = heldCompactions.find((row) => held.has(row.id) && !endsFirst(row));
     for (const row of this.rows.values())
       if (
         row.kind === "compaction" &&
