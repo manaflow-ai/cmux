@@ -74,6 +74,8 @@ import CmuxNextCompat
     public nonisolated static let heldPromptLifetime: TimeInterval = 600
     /// The most prompt tickets older than ``lifetime`` one connection keeps (``reserve(connection:intent:paid:)``).
     nonisolated static let promptTicketsKept = 8
+    /// The most prompt tickets one connection holds at all, however fresh.
+    nonisolated static let promptTicketsMax = 64
 
     struct Ticket {
         var connection: Int
@@ -112,6 +114,11 @@ import CmuxNextCompat
                 guard excess > 0 else { break }
                 tickets[old.key] = nil
                 excess -= 1
+            }
+            // And never more than ``promptTicketsMax`` in all (a page that reserves and never sends).
+            let left = tickets.filter { $0.value.connection == connection && $0.value.intent.method == intent.method }
+            for old in left.sorted(by: { $0.value.order < $1.value.order }).dropLast(Self.promptTicketsMax - 1) {
+                tickets[old.key] = nil
             }
         }
         let ticket = UUID().uuidString

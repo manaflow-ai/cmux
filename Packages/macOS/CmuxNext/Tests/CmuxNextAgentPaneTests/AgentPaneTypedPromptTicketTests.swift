@@ -129,4 +129,14 @@ struct AgentPaneTypedPromptTicketTests {
         #expect(await Self.send(pane, Self.prompt(id: 2, promptId: "p-0", ticket: tickets[0])) == .gestureRequired)
         #expect(await Self.send(pane, Self.prompt(id: 3, promptId: "p-\(kept)", ticket: tickets[kept])) == nil)
     }
+
+    /// A page that reserves on every key press and never sends holds no more than a bounded few.
+    @Test func freshPromptTicketsAreBoundedToo() async throws {
+        let pane = try await Self.chat()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
+
+        let max = AgentPaneUserGestures.promptTicketsMax
+        for index in 0...max { _ = try Self.enter(pane, promptId: "p-\(index)") }
+        #expect(pane.transport.gestures.ticketCount == max)
+    }
 }
