@@ -495,7 +495,12 @@ impl RemoteSession {
                     Some("error") => NotificationLevel::Error,
                     _ => NotificationLevel::Info,
                 };
+                let text = |key: &str| value.get(key).and_then(Value::as_str).map(str::to_string);
                 self.emit(MuxEvent::Notification(NotificationEvent {
+                    id: text("id"),
+                    message: text("message"),
+                    prompt: text("prompt"),
+                    session: text("session"),
                     notification,
                     title: value
                         .get("title")
