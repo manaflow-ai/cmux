@@ -4571,7 +4571,7 @@ function AcpmuxPane() {
     changesPane.current = snapshot.sessionId;
     setDiffView({ sessionId: snapshot.sessionId, rowId, ...(path ? { path } : {}) });
     setRequestedChanges(undefined);
-  }, [requestedChanges, snapshot.sessionId, snapshot.rows, snapshot.canLoadOlder]);
+  }, [requestedChanges, snapshot.sessionId, snapshot.rows, snapshot.canLoadOlder, snapshot.historyFrom]);
   // A changes pane that moves to another chat is an ordinary chat pane from then on.
   useEffect(() => {
     if (changesPane.current !== undefined && changesPane.current !== snapshot.sessionId) {

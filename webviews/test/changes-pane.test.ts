@@ -45,3 +45,18 @@ test("the page asks for the pane and reads whether one opened", async () => {
     ),
   ).toBe(false);
 });
+
+test("a turn counts as loaded only from an opener with no gap above its rows", async () => {
+  const { turnStartLoaded } = await import("../src/agent-session/acpmux/diff");
+  const prompt = (id: string) => ({ id, version: 1, at: 0, kind: "user", text: "go" }) as never;
+  const activity = (id: string) => ({ id, version: 1, at: 0, kind: "activity", items: [] }) as never;
+  // The opener fetched on its own sits at the top, above a gap, while older history is left.
+  expect(turnStartLoaded([prompt("p1"), activity("a9")], "a9", true)).toBe(false);
+  // The chat's history is all here: the top is the chat's start.
+  expect(turnStartLoaded([prompt("p1"), activity("a9")], "a9", false)).toBe(true);
+  // An opener below other loaded rows has every row of its turn after it.
+  expect(turnStartLoaded([activity("a0"), prompt("p1"), activity("a9")], "a9", true)).toBe(true);
+  // A row whose opener is not loaded yet, or a row not loaded at all.
+  expect(turnStartLoaded([activity("a8"), activity("a9")], "a9", true)).toBe(false);
+  expect(turnStartLoaded([activity("a9")], "a7", false)).toBe(false);
+});

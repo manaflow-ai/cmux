@@ -175,13 +175,15 @@ export function turnRows(rows: AcpmuxRow[], rowId: string): AcpmuxRow[] {
   return rows.slice(start, end);
 }
 
-/// Whether `rows` hold the start of the turn holding `rowId`: a row that opens it, or the chat's
-/// first row when no older history is left (`olderLeft` false). A pane holding only a chat's recent
-/// events can have a turn's later rows without its first ones.
+/// Whether `rows` hold the whole turn holding `rowId` up to it: a row that opens it with the rows
+/// after it all loaded. A pane holding only a chat's recent events can have a turn's later rows
+/// without its first ones, and the client fetches a cut turn's opening prompt on its own (direct.ts
+/// `fetchTurnOpener`), so an opener at the very top, with older history left (`olderLeft`), may sit
+/// above a gap and proves nothing; with none left, the top is the chat's start.
 export function turnStartLoaded(rows: readonly AcpmuxRow[], rowId: string, olderLeft: boolean): boolean {
   const index = rows.findIndex((row) => row.id === rowId);
   if (index < 0) return false;
-  for (let at = index; at >= 0; at -= 1) if (opensTurn(rows[at])) return true;
+  for (let at = index; at > 0; at -= 1) if (opensTurn(rows[at])) return true;
   return !olderLeft;
 }
 
