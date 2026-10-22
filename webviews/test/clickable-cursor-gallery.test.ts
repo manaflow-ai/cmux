@@ -24,7 +24,8 @@ await requireBrowserLane("clickable-cursor-gallery.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
 
-  type Stage = { entry: string; variant: string; named: Record<string, string> };
+  /** `named` must show the hand; `arrow` must keep the arrow (a disabled choice and its label). */
+  type Stage = { entry: string; variant: string; named: Record<string, string>; arrow?: Record<string, string> };
   /** Each stage, and the clickable things in it that must be there (by selector). */
   const STAGES: Stage[] = [
     {
@@ -53,6 +54,17 @@ await requireBrowserLane("clickable-cursor-gallery.test.ts", async () => {
       variant: "readme",
       named: { "Markdown toolbar button": "button.ui-toolbar-button:not(:disabled)" },
     },
+    // Cloud's create sheet: a size the plan has is a choice; a locked size is a disabled radio in
+    // a label, and the label and its text keep the arrow.
+    {
+      entry: "pages.cloud",
+      variant: "creating",
+      named: { "size choice": ".cloud-size-choice:not(.unavailable)" },
+      arrow: {
+        "locked size choice": ".cloud-size-choice.unavailable",
+        "locked size choice text": ".cloud-size-choice.unavailable .cloud-size-name",
+      },
+    },
     // A shortcut row selects on click.
     { entry: "pages.keybindings", variant: "normal", named: { "shortcut row": "tr.keys-row" } },
   ];
@@ -80,43 +92,61 @@ await requireBrowserLane("clickable-cursor-gallery.test.ts", async () => {
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
         timeout: 120_000,
       });
-      for (const selector of Object.values(stage.named)) await page.locator(selector).first().waitFor();
-      const result = await page.evaluate((named) => {
-        const CLICKABLE =
-          'button, a[href], [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"], summary, label[for], select';
-        const reactClick = (element: Element) => {
-          const key = Object.keys(element).find((name) => name.startsWith("__reactProps$"));
-          const props = key ? (element as unknown as Record<string, { onClick?: unknown }>)[key] : undefined;
-          return typeof props?.onClick === "function";
-        };
-        const drawn = (element: Element) => {
-          const box = element.getBoundingClientRect();
-          const style = getComputedStyle(element);
-          return box.width > 0 && box.height > 0 && style.visibility === "visible" && style.pointerEvents !== "none";
-        };
-        const describe = (element: Element) =>
-          `${element.tagName.toLowerCase()}${element.className && typeof element.className === "string" ? "." + element.className.trim().split(/\s+/).join(".") : ""}${element.getAttribute("aria-label") ? `[${element.getAttribute("aria-label")}]` : ""}`;
-        const all = [...document.querySelectorAll("*")].filter(
-          (element) => element.matches(CLICKABLE) || reactClick(element),
-        );
-        const checked = all.filter(
-          (element) => drawn(element) && !element.closest(':disabled, [aria-disabled="true"], [inert]'),
-        );
-        const arrows = checked
-          .map((element) => ({ element, cursor: getComputedStyle(element).cursor }))
-          .filter(({ cursor }) => cursor === "default" || cursor === "auto")
-          .map(({ element, cursor }) => `${describe(element)}: ${cursor}`);
-        const namedCursors = Object.fromEntries(
-          Object.entries(named).map(([name, selector]) => {
-            const element = document.querySelector(selector);
-            return [name, element ? getComputedStyle(element).cursor : "missing"];
-          }),
-        );
-        return { count: checked.length, arrows: [...new Set(arrows)], named: namedCursors };
-      }, stage.named);
+      const arrow = stage.arrow ?? {};
+      for (const selector of [...Object.values(stage.named), ...Object.values(arrow)])
+        await page.locator(selector).first().waitFor();
+      const result = await page.evaluate(
+        ({ named, arrow }) => {
+          const CLICKABLE =
+            'button, a[href], [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"], summary, label[for], select';
+          const reactClick = (element: Element) => {
+            const key = Object.keys(element).find((name) => name.startsWith("__reactProps$"));
+            const props = key ? (element as unknown as Record<string, { onClick?: unknown }>)[key] : undefined;
+            return typeof props?.onClick === "function";
+          };
+          const drawn = (element: Element) => {
+            const box = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return box.width > 0 && box.height > 0 && style.visibility === "visible" && style.pointerEvents !== "none";
+          };
+          const describe = (element: Element) =>
+            `${element.tagName.toLowerCase()}${element.className && typeof element.className === "string" ? "." + element.className.trim().split(/\s+/).join(".") : ""}${element.getAttribute("aria-label") ? `[${element.getAttribute("aria-label")}]` : ""}`;
+          const all = [...document.querySelectorAll("*")].filter(
+            (element) => element.matches(CLICKABLE) || reactClick(element),
+          );
+          // A label of a disabled control is disabled too.
+          const labelOfDisabled = (element: Element) =>
+            element instanceof HTMLLabelElement && (element.control as HTMLInputElement | null)?.disabled === true;
+          const checked = all.filter(
+            (element) =>
+              drawn(element) &&
+              !element.closest(':disabled, [aria-disabled="true"], [inert]') &&
+              !labelOfDisabled(element),
+          );
+          const arrows = checked
+            .map((element) => ({ element, cursor: getComputedStyle(element).cursor }))
+            .filter(({ cursor }) => cursor === "default" || cursor === "auto")
+            .map(({ element, cursor }) => `${describe(element)}: ${cursor}`);
+          const cursors = (map: Record<string, string>) =>
+            Object.fromEntries(
+              Object.entries(map).map(([name, selector]) => {
+                const element = document.querySelector(selector);
+                return [name, element ? getComputedStyle(element).cursor : "missing"];
+              }),
+            );
+          return {
+            count: checked.length,
+            arrows: [...new Set(arrows)],
+            named: cursors(named),
+            arrow: cursors(arrow),
+          };
+        },
+        { named: stage.named, arrow },
+      );
       await page.close();
       expect(result.count).toBeGreaterThan(0);
       expect(result.named).toEqual(Object.fromEntries(Object.keys(stage.named).map((name) => [name, "pointer"])));
+      expect(result.arrow).toEqual(Object.fromEntries(Object.keys(arrow).map((name) => [name, "default"])));
       expect(result.arrows).toEqual([]);
     });
 });

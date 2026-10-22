@@ -71,6 +71,12 @@ const PANE = `
     <div data-expect="default" data-name="menu row, disabled" role="menuitem" aria-disabled="true" class="ui-menu-item">Paste</div>
   </div>
   <div data-expect="pointer" data-name="slash command row" role="option" class="acpmux-slash-row">/review</div>
+  <fieldset>
+    <label data-expect="pointer" data-name="size choice"><input type="radio" name="size" /><span data-expect="pointer" data-name="size choice text">8 GB</span></label>
+    <label data-expect="default" data-name="locked size choice"><input type="radio" name="size" disabled /><span data-expect="default" data-name="locked size choice text">32 GB</span></label>
+    <input id="fixture-locked" type="checkbox" disabled /><label data-expect="default" data-name="label for a disabled box" for="fixture-locked">Locked</label>
+    <label data-expect="default" data-name="label for a disabled box, before it" for="fixture-locked-2">Locked</label><input id="fixture-locked-2" type="checkbox" disabled />
+  </fieldset>
 </div>`;
 
 test("every clickable thing in the agent pane shows the pointing hand, a disabled one the arrow", () => {
@@ -180,7 +186,12 @@ function targetsClickable(selector: string, classes: Set<string>): boolean {
   return false;
 }
 
-const DISABLED = /:disabled|\[disabled|aria-disabled|data-disabled|\[inert/;
+const DISABLED_STATE = /:disabled|\[disabled|aria-disabled|data-disabled|\[inert/;
+/// The selector matches only a disabled element: a disabled state outside `:not(…)`
+/// (`button:not(:disabled)` is an enabled button).
+const DISABLED = {
+  test: (selector: string) => DISABLED_STATE.test(selector.replace(/:not\((?:[^()]|\([^()]*\))*\)/g, "")),
+};
 
 type Rule = { file: string; line: number; selectors: string[]; body: string };
 
@@ -214,10 +225,12 @@ test("no stylesheet sets the arrow or auto on a clickable element", () => {
   // Sanity: the classes of the bars and buttons Leo pointed at are known clickable.
   const known = ["acpmux-pr-dock__bar", "acpmux-send", "acpmux-mic", "cv-chip", "ui-menu-item", "cv-tool", "files-row"];
   expect(known.filter((name) => !classes.has(name))).toEqual([]);
-  // Sanity: the rule right after ui.css's @import lines is read (it once was not).
-  expect(
-    styleRules().some((rule) => rule.file === "ui/ui.css" && rule.selectors.some((s) => s.includes(".ui-toolbar"))),
-  ).toBe(true);
+  // Sanity: the rule right after ui.css's @import lines is read (it once was not): ui.css's first
+  // parsed rule is its first rule, the theme block that names .ui-button (the later arrow rule does not).
+  const uiFirst = styleRules()
+    .filter((rule) => rule.file === "ui/ui.css")
+    .sort((a, b) => a.line - b.line)[0];
+  expect(uiFirst?.selectors.join(", ")).toStartWith(":where(.ui-popup, .ui-tooltip, .ui-toolbar, .ui-button,");
   const offenders: string[] = [];
   for (const rule of styleRules()) {
     if (!/(^|[;\s{])cursor\s*:\s*(default|auto)\b/.test(rule.body)) continue;
