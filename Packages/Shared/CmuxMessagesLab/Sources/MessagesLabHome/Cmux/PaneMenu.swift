@@ -22,7 +22,7 @@ extension ChatController {
         let hl = MenuHighlight(host: host, shape: BubblePath.balloon(drawn: hit.outline, frameSize: hit.body.size, row: hit.row).cgPath,
                                outgoing: hit.row.outgoing, soft: demo?.softMask(hit),
                                scale: demo?.renderScale ?? Fixture.renderScale, softOwner: demo?.softMaskOwner(hit),
-                               anchor: demo?.highlightAnchor(hit), space: host.layer)
+                               anchor: demo?.highlightAnchor(hit), space: demo?.layer)
         menu.delegate = hl
         menuHighlight = hl
         hl.start()
@@ -212,7 +212,7 @@ final class MenuHighlight: NSObject, NSMenuDelegate {
     /// cmux (u9489): the row's layer the highlight lives in, so it follows the row (scroll, a sent
     /// message, a reflow) instead of staying where the row was when the menu opened; nil: the host's layer.
     private weak var anchor: CALayer?
-    /// The layer `shape` and `soft` are given in (the host's).
+    /// The layer `shape` and `soft` are given in: the transcript view's, where the hit was measured.
     private weak var space: CALayer?
     /// The cell layer the same soft mask masks: the highlight's mask image is drawn the same way up (`start`).
     private weak var softOwner: CALayer?
