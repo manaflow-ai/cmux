@@ -25,6 +25,10 @@ pub(crate) struct Slave(File);
 
 struct DescriptorCleanup {
     descriptor_limit: RawFd,
+    /// Room for the child's descriptor list, allocated before fork (no
+    /// allocation is allowed between fork and exec).
+    #[cfg(target_vendor = "apple")]
+    listed: Vec<libc::proc_fdinfo>,
 }
 
 #[cfg(target_os = "linux")]
@@ -32,8 +36,68 @@ const MAX_INDIVIDUAL_DESCRIPTOR_LIMIT: RawFd = 65_536;
 
 impl DescriptorCleanup {
     fn new(descriptor_limit: RawFd) -> Self {
-        Self { descriptor_limit }
+        Self {
+            descriptor_limit,
+            #[cfg(target_vendor = "apple")]
+            listed: descriptor_list_buffer(),
+        }
     }
+}
+
+/// A buffer for this process's descriptor list with headroom for the
+/// descriptors opened before fork; empty when the count is unknown.
+#[cfg(target_vendor = "apple")]
+fn descriptor_list_buffer() -> Vec<libc::proc_fdinfo> {
+    const HEADROOM: usize = 256;
+    // SAFETY: a null buffer asks only for the size the list needs now.
+    let bytes = unsafe {
+        libc::proc_pidinfo(libc::getpid(), libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0)
+    };
+    let Ok(bytes) = usize::try_from(bytes) else { return Vec::new() };
+    if bytes == 0 {
+        return Vec::new();
+    }
+    let entries = bytes / std::mem::size_of::<libc::proc_fdinfo>() + HEADROOM;
+    vec![libc::proc_fdinfo { proc_fd: -1, proc_fdtype: 0 }; entries]
+}
+
+/// Mark the child's open descriptors (from `PROC_PIDLISTFDS`) close-on-exec.
+/// None when the list is unavailable or may be cut short by the buffer: the
+/// caller then examines every descriptor number.
+#[cfg(target_vendor = "apple")]
+fn mark_listed_descriptors_close_on_exec(
+    listed: &mut [libc::proc_fdinfo],
+) -> io::Result<Option<usize>> {
+    let entry = std::mem::size_of::<libc::proc_fdinfo>();
+    let Ok(capacity) = libc::c_int::try_from(listed.len() * entry) else { return Ok(None) };
+    if capacity == 0 {
+        return Ok(None);
+    }
+    // SAFETY: a raw proc_info syscall into memory allocated before fork; it
+    // takes no lock and allocates nothing, so it is safe between fork and exec.
+    let filled = unsafe {
+        libc::proc_pidinfo(
+            libc::getpid(),
+            libc::PROC_PIDLISTFDS,
+            0,
+            listed.as_mut_ptr().cast(),
+            capacity,
+        )
+    };
+    if filled <= 0 || filled >= capacity {
+        return Ok(None);
+    }
+    let count = usize::try_from(filled).unwrap_or(0) / entry;
+    for info in &listed[..count] {
+        if info.proc_fd < 3 {
+            continue;
+        }
+        match mark_descriptor_close_on_exec(info.proc_fd) {
+            Err(error) if error.raw_os_error() == Some(libc::EBADF) => {}
+            result => result?,
+        }
+    }
+    Ok(Some(count))
 }
 
 pub(crate) fn open(size: PtySize) -> anyhow::Result<(Box<dyn MasterPty + Send>, Slave)> {
@@ -303,6 +367,10 @@ fn mark_inherited_descriptors_close_on_exec(cleanup: &mut DescriptorCleanup) -> 
         if cleanup.descriptor_limit > MAX_INDIVIDUAL_DESCRIPTOR_LIMIT {
             return Err(io::Error::from_raw_os_error(libc::EOVERFLOW));
         }
+    }
+    #[cfg(target_vendor = "apple")]
+    if let Some(examined) = mark_listed_descriptors_close_on_exec(&mut cleanup.listed)? {
+        return Ok(examined);
     }
     mark_descriptors_close_on_exec_individually(cleanup.descriptor_limit)
 }
