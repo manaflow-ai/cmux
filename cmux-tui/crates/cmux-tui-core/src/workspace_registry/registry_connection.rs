@@ -74,6 +74,9 @@ pub(crate) struct RegistryConnection {
     pub(super) intent_sink: std::sync::OnceLock<Arc<dyn super::RegistryIntentSink>>,
     /// Indeterminate registry commits still owed to state (cx-g1fa.3).
     pub(super) unsettled: std::sync::Mutex<Vec<super::registry_intent::UnsettledReceipt>>,
+    /// The connection runs `synchronous=NORMAL` (a [`DeferredDurability`]
+    /// holder set it); written only while the connection lock is held.
+    sync_normal: std::sync::atomic::AtomicBool,
     #[cfg(test)]
     pub(super) journal_hooks: std::sync::Mutex<JournalCommitHooks>,
 }
@@ -90,6 +93,33 @@ thread_local! {
 /// own (see [`THREAD_COMMITS_DEFERRED`]).
 pub(crate) fn current_thread_commits_deferred() -> bool {
     THREAD_COMMITS_DEFERRED.with(Cell::get)
+}
+
+/// Defers the disk flush of this thread's registry commits until dropped
+/// (new-terminal-100x). A terminal create commits several steps (prepared,
+/// executing, reserved, ready, projection); each used to wait for its own
+/// F_FULLFSYNC before the next, and the terminal's output was released only
+/// after all of them. Inside the scope they commit in WAL mode with
+/// `synchronous=NORMAL`, which SQLite keeps consistent across a crash or
+/// power loss (a lost tail of commits is lost whole, each one a valid
+/// recovery state); the create then makes them durable with one fully
+/// synced commit ([`super::WorkspaceRegistry::flush_deferred_commits`])
+/// before it answers. Other threads' commits keep their own full flush: the
+/// mode is applied per connection hold ([`RegistryConnection::get`]).
+pub(crate) struct DeferredDurability {
+    previous: bool,
+}
+
+impl DeferredDurability {
+    pub(crate) fn enter() -> Self {
+        Self { previous: THREAD_COMMITS_DEFERRED.with(|flag| flag.replace(true)) }
+    }
+}
+
+impl Drop for DeferredDurability {
+    fn drop(&mut self) {
+        THREAD_COMMITS_DEFERRED.with(|flag| flag.set(self.previous));
+    }
 }
 
 /// Debug seam (`CMUX_TUI_DEBUG_SLOW_DURABLE_COMMIT_MS=N`, off by default):
@@ -177,9 +207,34 @@ impl RegistryConnection {
             write_path_stats: crate::diagnostics::WritePathStats::default(),
             intent_sink: std::sync::OnceLock::new(),
             unsettled: std::sync::Mutex::default(),
+            sync_normal: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
             journal_hooks: std::sync::Mutex::default(),
         })
+    }
+
+    /// Give the connection the flush mode of the thread that now holds it:
+    /// `synchronous=NORMAL` inside [`DeferredDurability`], else `FULL`.
+    /// SQLite refuses the change inside a transaction; a holder only opens
+    /// transactions in its own mode, so a re-entry inside one keeps it.
+    fn apply_sync_mode(&self, connection: &Connection) {
+        use std::sync::atomic::Ordering;
+        let deferred = current_thread_commits_deferred();
+        if self.sync_normal.load(Ordering::Acquire) == deferred || !connection.is_autocommit() {
+            debug_assert!(
+                self.sync_normal.load(Ordering::Acquire) == deferred || deferred,
+                "a fully synced registry commit would run inside a deferred-durability transaction"
+            );
+            return;
+        }
+        let pragma =
+            if deferred { "PRAGMA synchronous=NORMAL;" } else { "PRAGMA synchronous=FULL;" };
+        match connection.execute_batch(pragma) {
+            Ok(()) => self.sync_normal.store(deferred, Ordering::Release),
+            Err(error) => {
+                eprintln!("cmux-tui: registry {pragma} failed: {error}");
+            }
+        }
     }
 
     /// The connection for a request thread. The caller holds the workspace
@@ -189,7 +244,9 @@ impl RegistryConnection {
     pub(crate) fn get(&self) -> RegistryConnectionGuard<'_> {
         self.debug_assert_lock_order();
         self.check_rank();
-        RegistryConnectionGuard { guard: self.connection.lock(), _rank: record_rank() }
+        let guard = RegistryConnectionGuard { guard: self.connection.lock(), _rank: record_rank() };
+        self.apply_sync_mode(&guard);
+        guard
     }
 
     /// Hold the connection lock for a request flow before it takes the
@@ -247,7 +304,9 @@ impl RegistryConnection {
     pub(crate) fn get_until(&self, deadline: Instant) -> Option<RegistryConnectionGuard<'_>> {
         self.check_rank();
         let guard = self.connection.try_lock_until(deadline)?;
-        Some(RegistryConnectionGuard { guard, _rank: record_rank() })
+        let guard = RegistryConnectionGuard { guard, _rank: record_rank() };
+        self.apply_sync_mode(&guard);
+        Some(guard)
     }
 
     #[cfg(test)]

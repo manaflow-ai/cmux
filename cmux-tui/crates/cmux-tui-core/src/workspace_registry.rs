@@ -3283,6 +3283,23 @@ impl WorkspaceRegistry {
         }))
     }
 
+    /// Make this thread's deferred commits durable: one fully synced commit
+    /// (a write to `meta`, so SQLite flushes the WAL with F_FULLFSYNC). The
+    /// WAL is ordered, so it also makes every earlier commit durable
+    /// (`registry_connection::DeferredDurability`).
+    pub(crate) fn flush_deferred_commits(&mut self) -> anyhow::Result<()> {
+        debug_assert!(!registry_connection::current_thread_commits_deferred());
+        let connection = self.connection.get();
+        let tx = connection.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO meta(key, value) VALUES('durability_barrier', '1')
+             ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1",
+            [],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Atomically replace the live ordered registry and record the mutation.
     /// Duplicate lookup intentionally precedes revision validation: a retry of
     /// a committed command must return its original result even after newer
