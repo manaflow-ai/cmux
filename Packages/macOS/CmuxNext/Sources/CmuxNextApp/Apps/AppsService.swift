@@ -31,6 +31,8 @@ final class AppsService {
     var isStoreWaiting: Bool { waitingStore != nil }
     /// App pages (`app:<id>`), one provider per app, registered on first open.
     private var appPages: [String: AppPanePage] = [:]
+    /// App web panes (`app:<id>`, a `cmux.pane/1` with `web`), one provider per app, registered on first open.
+    private var webPages: [String: AppWebPanePage] = [:]
     /// The React App Store page per tab (Debug Settings `apps.store.surface = web`), else empty.
     private var webStorePages: [String: PageWebView] = [:]
     private var machineCatalog: MachineCatalogPublisher?
@@ -142,6 +144,16 @@ final class AppsService {
         guard app.enabled else { throw .disabled }
         if case .native(let page) = AppPaneRoute(app.manifest), command == nil {
             try openNativePane(page, focus: focus)
+            return nil
+        }
+        if case .web = AppPaneRoute(app.manifest), command == nil {
+            guard AppWebPanePage.opens(app) else { throw .noPage }
+            let provider = webPages[appID] ?? AppWebPanePage(appID: appID, apps: self)
+            if webPages[appID] == nil {
+                webPages[appID] = provider
+                services.pages.register(provider)
+            }
+            guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
             return nil
         }
         guard AppPanePage.opens(app), let provider = pageProvider(appID: appID, codeRouterAsPage: false) else { throw .noPage }
