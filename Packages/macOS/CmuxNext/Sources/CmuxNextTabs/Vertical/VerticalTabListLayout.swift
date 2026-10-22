@@ -43,13 +43,15 @@ public struct VerticalTabListMetrics: Equatable, Sendable {
         self.cornerRadius = cornerRadius
     }
 
-    /// The live tokens: rows as tall as the strip's tabs, tiles as wide as the collapsed list allows.
+    /// The live tokens: rows as tall as the strip's tabs, tiles as wide as the collapsed list allows. A
+    /// group's pill is as tall as the strip's group chip (`TabStripMetrics.groupChipHeight`), never fatter.
     public static var current: VerticalTabListMetrics {
         let rowHeight = Metrics.tabHeight
         let padding = Metrics.space2
+        let chipHeight = max(Metrics.space6, rowHeight - 2 * Metrics.space2)
         return VerticalTabListMetrics(
             rowHeight: rowHeight, rowSpacing: VerticalTabTunables.rowSpacing.value, padding: padding, verticalPadding: Metrics.space2,
-            iconSize: Metrics.iconSize, headerHeight: max(Metrics.space6, rowHeight - Metrics.space1), iconsOnlyHeaderHeight: Metrics.space3,
+            iconSize: Metrics.iconSize, headerHeight: chipHeight + 2 * Metrics.space1, iconsOnlyHeaderHeight: Metrics.space3,
             separatorHeight: Metrics.space3, groupIndent: Metrics.space3, groupLineWidth: VerticalTabTunables.groupLineWidth.value,
             tileSize: max(Metrics.iconSize + Metrics.space2, min(rowHeight + Metrics.space1, VerticalTabTunables.collapsedWidth.value - 2 * padding)),
             tileSpacing: Metrics.space1, cornerRadius: Metrics.itemCornerRadius
