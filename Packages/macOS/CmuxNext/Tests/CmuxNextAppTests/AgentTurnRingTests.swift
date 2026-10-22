@@ -11,7 +11,7 @@ import Testing
 /// acpmux reads a turn that ends in a shown chat at once (cx-n8ou), so no notification marks it;
 /// the app keeps the ring until the person goes into the pane. Leo (2026-10-21): "the model
 /// response does a double blue ring pulse", agreed not to be the default, so the ring is opt-in
-/// (`AgentTurnRing`, Debug Settings) and a hairline in the pane border color when on.
+/// (`AttentionHighlightLook.agentTurnRing`, Debug Settings) and a hairline in the pane border color when on.
 @MainActor @Suite(.serialized)
 struct AgentTurnRingTests {
     @Test func aTurnThatStopsWorkingReportsItsEnd() {
@@ -29,7 +29,7 @@ struct AgentTurnRingTests {
 
     @Test func aFinishedTurnRingsNothingByDefault() throws {
         _ = NSApplication.shared
-        #expect(AgentTurnRing.tunable.defaultValue == false, "the agent turn ring is on by default")
+        #expect(AttentionHighlightLook.agentTurnRing.defaultValue == false, "the agent turn ring is on by default")
         var chat = TabSnapshot(surface: SurfaceID(rawValue: 1), kind: .conversation, cwd: nil)
         chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:ring", session: "s1", harness: "claude"))
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [chat])])
@@ -37,7 +37,7 @@ struct AgentTurnRingTests {
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
         let workspace = try #require(store.workspaces.first)
         let service = NotificationCenterService()
-        service.agentTurnEnded(session: "s1", in: store.workspaces, rings: AgentTurnRing.tunable.defaultValue)
+        service.agentTurnEnded(session: "s1", in: store.workspaces, rings: AttentionHighlightLook.agentTurnRing.defaultValue)
         #expect(service.attentionMarks(for: workspace).isEmpty, "a finished reply rang its pane by default")
         service.agentTurnEnded(session: "s1", in: store.workspaces, rings: true)
         let mark = try #require(service.attentionMarks(for: workspace).values.first, "the opt-in ring did not ring")
