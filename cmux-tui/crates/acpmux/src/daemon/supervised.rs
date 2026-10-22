@@ -57,6 +57,18 @@ pub(super) fn exit_status() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A daemon stopped after a panic exits at once with
+/// `EXIT_UNRECOVERABLE`, so a restart is never held up by the runtime
+/// drain; any other error returns to the caller as before.
+pub(crate) fn exit_after_panic(error: &anyhow::Error) {
+    if WEB_LISTENER_PANICKED.load(Ordering::SeqCst) {
+        let _ =
+            std::io::Write::write_fmt(&mut std::io::stderr(), format_args!("acpmux: {error:#}\n"));
+        // crash-allow: a crash-only exit after the daemon's own shutdown
+        std::process::exit(cmux_panic_log::supervise::EXIT_UNRECOVERABLE);
+    }
+}
+
 /// Debug builds only: `ACPMUX_TEST_PANIC=request:<method>` makes a request
 /// of `<method>` panic inside its handler (tests/panic_log.rs): the client
 /// gets an internal error and the daemon keeps answering.

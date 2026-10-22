@@ -131,13 +131,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 dev,
             })
             .await
-            .unwrap_or_else(|e| {
-                // A stop after a panic (`daemon/supervised.rs`): exit at once
-                // too, so a restart is never held up by the runtime drain.
-                tracing::error!("{e:#}");
-                // crash-allow: a crash-only exit after the daemon's own shutdown
-                std::process::exit(cmux_panic_log::supervise::EXIT_UNRECOVERABLE)
-            });
+            .inspect_err(crate::daemon::supervised::exit_after_panic)?;
             // The daemon has stopped its agents and synced its store. Exit
             // now rather than wait for the runtime to drain blocking tasks
             // (a launcher `--version` check can take 20 s).
