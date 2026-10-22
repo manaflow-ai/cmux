@@ -1036,3 +1036,33 @@ fn response_level_navigation_failure_clears_frame_epoch_reservation() {
     runtime.shutdown();
     server.join().unwrap();
 }
+
+/// tab-attention-v1: the frame and same-document setters move the URL
+/// before any target-info event, so the mark check compares against the
+/// URL the event thread last saw, not one setter's return value.
+#[test]
+fn every_navigation_setter_counts_as_a_page_change_for_the_attention_mark() {
+    let surface = test_surface();
+    let browser = surface.as_browser().expect("browser surface");
+    let mut seen = browser.url();
+
+    clear_attention_if_page_changed(&mut seen, browser, &Weak::new(), surface.id);
+    assert_eq!(seen, "https://example.test", "no navigation, no change");
+
+    let epoch = browser.frame_epoch.advance_navigation();
+    handle_frame_navigated(browser, json!({"frame": {"url": "https://login.test"}}), epoch);
+    clear_attention_if_page_changed(&mut seen, browser, &Weak::new(), surface.id);
+    assert_eq!(seen, "https://login.test", "a frame navigation is a page change");
+
+    let _ = handle_same_document_navigated(
+        browser,
+        &json!({"frameId": "main-frame", "url": "https://login.test/#done"}),
+        browser.frame_epoch.advance_same_document(),
+    );
+    clear_attention_if_page_changed(&mut seen, browser, &Weak::new(), surface.id);
+    assert_eq!(seen, "https://login.test/#done", "a same-document navigation is a page change");
+
+    let _ = browser.set_title("Signed in".to_string());
+    clear_attention_if_page_changed(&mut seen, browser, &Weak::new(), surface.id);
+    assert_eq!(seen, "https://login.test/#done", "a title change is not a page change");
+}
