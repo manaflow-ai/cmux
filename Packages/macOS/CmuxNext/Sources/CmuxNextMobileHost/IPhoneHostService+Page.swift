@@ -50,29 +50,46 @@ extension IPhoneHostService {
         }
     }
 
+    /// Every phone allowed on this Mac, one row per app: the cmux iOS app's (hostd), then cmux
+    /// next's (the Iroh link). One phone using both is two rows, each labeled with its app.
+    private var phoneRows: [JSONValue] { hostdRows + irohRows }
+
     /// The account's phones (known to the service) with their live link if one is up, then any
     /// live link the list does not have yet. Only a known phone can be removed.
-    private var phoneRows: [JSONValue] {
+    private var hostdRows: [JSONValue] {
         guard allowed else { return [] }
         let links = state.phones
         var rows: [JSONValue] = knownPhones.map { phone in
             let link = links.first { phone.owns($0.phoneDeviceID) }
             // Paired here (cmux-next-ios verify/phone-approvals.md): its links and Face ID approvals
             // count; Remove also forgets the pairing.
-            let pairing = paired?.devices.first { phone.owns($0.id) }
-            return ["id": .string(phone.id), "title": .string(phone.name),
-                    "subtitle": .string(link.map(Self.subtitle) ?? IPhoneHostStrings.notConnected),
+            let pairing = paired?.hostdDevices.first { phone.owns($0.id) }
+            return ["id": .string(phone.id), "title": .string(phone.name), "app": .string(IPhoneHostStrings.appIOS),
+                    "subtitle": .string(Self.labeled(IPhoneHostStrings.appIOS, link.map(Self.subtitle) ?? IPhoneHostStrings.notConnected)),
                     "connected": .bool(link != nil), "removable": .bool(true),
                     "paired": .bool(pairing != nil), "fingerprint": pairing.map { .string($0.fingerprint) } ?? .null,
                     "transport": link.map { .string($0.transport) } ?? .null, "path": link.map { .string($0.path) } ?? .null]
         }
         for link in links where !knownPhones.contains(where: { $0.owns(link.phoneDeviceID) }) {
             rows.append(["id": .string(link.sessionID), "title": .string(IPhoneHostStrings.phone(String(link.phoneDeviceID.prefix(4)))),
-                         "subtitle": .string(Self.subtitle(link)), "connected": .bool(true), "removable": .bool(false),
-                         "transport": .string(link.transport), "path": .string(link.path)])
+                         "app": .string(IPhoneHostStrings.appIOS), "subtitle": .string(Self.labeled(IPhoneHostStrings.appIOS, Self.subtitle(link))),
+                         "connected": .bool(true), "removable": .bool(false), "transport": .string(link.transport), "path": .string(link.path)])
         }
         return rows
     }
+
+    /// The phones allowed over the Iroh link, keyed by their endpoint key: Remove forgets one and
+    /// closes its sessions (``MobileHostService`` follows ``pairedStore``); its next connection asks again.
+    private var irohRows: [JSONValue] {
+        (paired?.devices ?? []).filter { $0.transport == .iroh }.map { device in
+            let key = MobileHostPairedDevices.fingerprint(device.identityKey)
+            return ["id": .string(device.id), "title": .string(device.name), "app": .string(IPhoneHostStrings.appNext),
+                    "subtitle": .string(Self.labeled(IPhoneHostStrings.appNext, IPhoneHostStrings.pairKey(key))),
+                    "connected": .bool(false), "removable": .bool(true), "paired": .bool(true), "fingerprint": .string(key)]
+        }
+    }
+
+    static func labeled(_ app: String, _ detail: String) -> String { "\(app) · \(detail)" }
 
     private var phaseName: String {
         guard allowed else { return "off" }
