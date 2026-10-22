@@ -47,7 +47,6 @@ import {
   LOST_PROMPT_CONNECT_MS,
   LOST_PROMPT_SHOW_MS,
   clientWaiter,
-  againSend,
   lostDrafts,
   lostPrompt,
   lostPromptSlot,
@@ -5846,14 +5845,10 @@ function AcpmuxPane() {
           };
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
-          const seeded = againSend(again, promptId);
-          const held = harnessSwitch.send(
-            text,
-            attachments,
-            () => promptLanded.current(),
-            seeded.promptId,
-            seeded.resend,
-          );
+          // A lost prompt sent again goes under its own id and never marks itself a resend: only the
+          // host may (it refuses a page frame with `resend`, #22881), and it marks a prompt id it sent
+          // the daemon before; acpmux runs an id once either way (lostPrompt.ts).
+          const held = harnessSwitch.send(text, attachments, () => promptLanded.current(), promptId ?? again);
           if (held) {
             accept?.();
             return held
@@ -5871,9 +5866,8 @@ function AcpmuxPane() {
             return refused(error, Boolean(accepted));
           });
           await persistSession(sessionId);
-          const going = againSend(again, kept?.promptId);
           const turn = client
-            .send(text, attachments, going.promptId, accept, kept?.ticket, steer, going.resend)
+            .send(text, attachments, kept?.promptId ?? again, accept, kept?.ticket, steer)
             .catch(resent)
             .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The prompt is written; a Quick Composer hand-off can close this page now.
@@ -6264,7 +6258,7 @@ function AcpmuxPane() {
           startsOnSend: () => client.startsOnSend,
           open: (sessionId) => client.select(sessionId),
           // A prompt held behind the trust question goes with the gesture its send kept.
-          send: (text, attachments, promptId, resend) => {
+          send: (text, attachments, promptId) => {
             const kept = heldPrompt.take();
             return client.send(
               text,
@@ -6272,8 +6266,6 @@ function AcpmuxPane() {
               promptId,
               undefined,
               kept?.promptId === promptId ? kept.ticket : undefined,
-              false,
-              resend === true,
             );
           },
           setModel: (modelId) => client.setModel(modelId),

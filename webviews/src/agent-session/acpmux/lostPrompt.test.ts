@@ -4,7 +4,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import {
-  againSend,
   clientWaiter,
   isLostConnection,
   lostDrafts,
@@ -70,7 +69,7 @@ test("only the prompt Not sent named goes again under its id; another prompt get
   expect(slot.take("s-1", "something else", ["img-1"])).toBeUndefined();
   // Only the next send: a later identical prompt is a new one.
   expect(slot.take("s-1", "fix it", ["img-1"])).toBeUndefined();
-  // The same prompt sent again: acpmux runs the id at most once, with the host's resend.
+  // The same prompt sent again: acpmux runs the id at most once (the host marks it a resend).
   slot.keep("s-1", "p-lost", "fix it", ["img-1"]);
   expect(slot.take("s-1", "fix it", [])).toBeUndefined();
   slot.keep("s-1", "p-lost", "fix it", ["img-1"]);
@@ -199,20 +198,10 @@ test("a connection waiting for a resend says no as soon as it closes", async () 
   expect(await waiting).toBe(false);
 });
 
-test("a lost prompt sent again goes with resend, so acpmux answers a copy it took before a restart", () => {
-  // The composer's send of the lost prompt: under its id, with resend (as a failed row's Retry).
-  expect(againSend("p-lost")).toEqual({ promptId: "p-lost", resend: true });
-  // A held gesture's id that is the lost prompt's: still that prompt.
-  expect(againSend("p-lost", "p-lost")).toEqual({ promptId: "p-lost", resend: true });
-  // Another id (a seeded prompt's, another held gesture's) is not the lost prompt.
-  expect(againSend("p-lost", "p-seeded")).toEqual({ promptId: "p-seeded", resend: false });
-  // A new prompt gets its own id from the client, with no resend.
-  expect(againSend(undefined)).toEqual({ promptId: undefined, resend: false });
-});
-
-test("a harness switch sends a lost prompt it held with resend", async () => {
+test("a harness switch sends a lost prompt it held under its id, never marked a resend by the page", async () => {
   const { HarnessSwitch } = await import("./harnessSwitch");
-  const sent: { promptId: string; resend?: boolean }[] = [];
+  // The host refuses a page frame with `resend` (#22881): the page reuses the id, the host marks it.
+  const sent: { promptId: string; args: number }[] = [];
   const store = new HarnessSwitch({ now: () => 0, schedule: () => () => undefined });
   store.connect({
     turnRunning: () => false,
@@ -220,8 +209,8 @@ test("a harness switch sends a lost prompt it held with resend", async () => {
     create: async () => "s-new",
     leave: () => undefined,
     open: async (sessionId) => sessionId,
-    send: async (_text, _attachments, promptId, resend) => {
-      sent.push({ promptId, resend });
+    send: async (...args) => {
+      sent.push({ promptId: args[2], args: args.length });
     },
     setModel: async () => undefined,
     setMode: async () => undefined,
@@ -231,10 +220,10 @@ test("a harness switch sends a lost prompt it held with resend", async () => {
     prewarmSupported: () => false,
   });
   void store.switchTo("codex", "/tmp/project");
-  const turn = store.send("fix it", [], undefined, "p-lost", true);
+  const turn = store.send("fix it", [], undefined, "p-lost");
   expect(turn).toBeDefined();
   await turn;
-  expect(sent).toEqual([{ promptId: "p-lost", resend: true }]);
+  expect(sent).toEqual([{ promptId: "p-lost", args: 3 }]);
 });
 
 test("a lost prompt that comes back while another chat shows waits for its own chat", () => {

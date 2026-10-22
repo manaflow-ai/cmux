@@ -121,16 +121,6 @@ export function lostPromptSlot() {
   };
 }
 
-/// The id a send goes under and whether it goes with `resend`. A send that is the lost prompt
-/// again (`again`, from `lostPromptSlot.take`) goes with `resend`, as a failed row's Retry does:
-/// acpmux then checks its durable log too, so a copy it took before a restart answers as that
-/// prompt instead of running a second turn. `promptId`: an id the send already has (a held
-/// gesture's, a seeded prompt's), which is the lost prompt only when it is that id.
-export function againSend(again: string | undefined, promptId?: string): { promptId?: string; resend: boolean } {
-  const id = promptId ?? again;
-  return { promptId: id, resend: again !== undefined && id === again };
-}
-
 /// Lost prompts that came back while the pane showed another chat, by chat. Each goes back into
 /// the composer, with its "Not sent", only once the pane shows its own chat again: in another
 /// chat's composer, the next Send would run it there.
