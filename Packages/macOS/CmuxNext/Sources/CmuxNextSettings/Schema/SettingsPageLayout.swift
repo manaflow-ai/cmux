@@ -21,6 +21,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case channels
         /// Settings > Chief's Voice input row: the Debug toggle home.voiceInput, only where it exists.
         case voiceInput
+        /// Settings > Accounts: this Mac's own tailnet node (sign-in, address, Pair), Labs only.
+        case tailnet
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -231,7 +233,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             id: "accounts", title: section(.accounts), symbol: "person.crop.circle",
             // Phone access sits beside the account it signs in with and the machines list.
             groups: [group("settings.group.phone"), group("settings.group.messagesServer")],
-            lead: [.accounts, .machines], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
+            lead: [.accounts, .machines, .tailnet], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
         // Phones reaching this Mac: the iPhone host's switch, then its live status and phones.
         CategorySpec(
             id: "mobile", title: SettingsText.keyed("settings.category.mobile", "Mobile"), symbol: "iphone",
