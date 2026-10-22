@@ -1,8 +1,10 @@
-// The agent chat ships with no thread minimap (layout.experiment.ts, default `off`; Leo 2026-10-21 on
-// the nightly: "HOW DID THIS SCROLL THING GET IN AGAIN"). With no experiment override the transcript
-// draws no full-height map, no compact rail and no marks down its left edge, keeps its rows centered
-// in the same column (no gutter reserved for a rail), and Previous and Next Turn still step it.
-// The minimap's own list never draws a scroller of its own when an arm turns it on.
+// The agent chat ships with the wave (layout.experiment.ts, default `compact`): the Codex rail from
+// #22228, one tick per prompt, the prompts on screen lit as a band that follows the scroll, the ticks
+// under the pointer magnifying. Not the full-height map #22784 put in its place (Leo 2026-10-22: "Why
+// did you turn it into a whole mini map? ... I didn't want the mini map."). With no experiment
+// override the transcript draws the rail and no map, the rail sits over the transcript without moving
+// its rows (no layout shift on a tab switch; Leo 2026-10-21: "THIS WHOLE THING CAUSES A LAYOUT SHIFT
+// WHEN I SIMPLY SWITCH TO IT FROM ANOTEHR TAB"), and the rail's own list never draws a scroller.
 import { afterAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
@@ -89,58 +91,96 @@ const chat = (count: number) =>
     { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
   ]).flat();
 
-test("the shipped arm is off", () => {
-  expect(threadMinimapLayout.defaultArm).toBe("off");
-  expect(experimentArm(threadMinimapLayout, { overrides: {}, stored: {} })).toBe("off");
-  // Full and compact stay selectable for dogfood (`cmux.experiments`).
+test("the shipped arm is the wave", () => {
+  expect(threadMinimapLayout.defaultArm).toBe("compact");
+  expect(experimentArm(threadMinimapLayout, { overrides: {}, stored: {} })).toBe("compact");
+  // Full and off stay selectable for dogfood (`cmux.experiments`).
   expect(Object.keys(threadMinimapLayout.arms).sort()).toEqual(["compact", "full", "off"]);
 });
 
-test("a long chat with no experiment override draws no minimap and no marks down the left edge", async () => {
-  // No host override and no stored key: the default arm.
-  delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
-  const root = createRoot(document.getElementById("root")!);
+/// Renders a 30-prompt chat scrolled to 900 px under `arms` (none: the default) and reads what the
+/// left edge draws and where the rows sit.
+async function render(arms?: Record<string, string>) {
+  const scope = globalThis as { cmuxExperiments?: Record<string, string> };
+  if (arms) scope.cmuxExperiments = arms;
+  else delete scope.cmuxExperiments;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
   await act(async () =>
     root.render(
       <VirtualTranscript
         rows={turnView(chat(30), new Set())}
-        sessionId="minimap-default-off"
+        sessionId="minimap-default"
         onToggleActivity={() => {}}
         expanded={new Set()}
       />,
     ),
   );
+  const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
+  expect(scroller).not.toBeNull();
+  await act(async () => {
+    scroller.scrollTop = 900;
+    scroller.dispatchEvent(new dom.window.Event("scroll"));
+  });
+  const read = {
+    ticks: host.querySelectorAll("[data-tick]").length,
+    current: [...host.querySelectorAll<HTMLElement>('[data-tick][aria-current="true"]')].map(
+      (tick) => tick.dataset.tick,
+    ),
+    map: host.querySelector(".acpmux-scrollmap, .acpmux-scrollmap__view, .acpmux-scrollmap__mark") !== null,
+    rail: host.querySelector("nav.acpmux-minimap__rail") !== null,
+    offset: scroller.scrollTop,
+    rows: [...host.querySelectorAll<HTMLElement>(".acpmux-row")].map((row) => row.dataset.rowId),
+    // Every inline placement in the transcript's content: its height, the thread's offset, the window's spacers.
+    layout: [host.querySelector(".acpmux-spacer"), ...host.querySelectorAll(".acpmux-spacer [style]")].map((node) =>
+      node?.getAttribute("style"),
+    ),
+  };
+  return { host, root, scroller, read };
+}
+type Read = Awaited<ReturnType<typeof render>>["read"];
+
+test("a long chat with no experiment override draws the wave rail, not the full-height map", async () => {
+  const { host, root, scroller, read } = await render();
   try {
-    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-    expect(scroller).not.toBeNull();
-    await act(async () => {
-      scroller.scrollTop = 900;
-      scroller.dispatchEvent(new dom.window.Event("scroll"));
-    });
-    for (const selector of [
-      ".acpmux-minimap",
-      ".acpmux-minimap__rail",
-      ".acpmux-minimap__list",
-      ".acpmux-scrollmap",
-      ".acpmux-scrollmap__view",
-      ".acpmux-scrollmap__mark",
-      "[data-tick]",
-    ])
-      expect(document.querySelector(selector)).toBeNull();
-    expect(document.querySelector("nav[aria-label]")).toBeNull();
+    expect(read.rail).toBe(true);
+    expect(read.ticks).toBe(30);
+    expect(read.map).toBe(false);
+    // The band: the prompts on screen are lit.
+    expect(read.current.length).toBeGreaterThan(0);
     // The rows keep the centered chat column: no gutter is reserved for a rail.
     const { inset, width } = transcriptColumn(PANE);
     expect(inset * 2 + width).toBe(PANE);
-    // Previous Turn still steps the transcript with the minimap off.
+    // Previous Turn still steps the transcript.
     const before = scroller.scrollTop;
     await act(async () => void dom.window.dispatchEvent(new dom.window.CustomEvent("cmux-acpmux-previousTurn")));
     expect(scroller.scrollTop).toBeLessThan(before);
   } finally {
     await act(async () => root.unmount());
+    host.remove();
   }
 });
 
-test("the minimap's list never draws a scroller of its own", () => {
+test("the wave moves no row: the transcript lays out as it does with no minimap", async () => {
+  const reads: Read[] = [];
+  for (const arms of [undefined, { "thread-minimap-layout": "off" }]) {
+    const { host, root, read } = await render(arms);
+    reads.push(read);
+    await act(async () => root.unmount());
+    host.remove();
+  }
+  delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
+  const [wave, off] = reads as [Read, Read];
+  expect(wave.rail).toBe(true);
+  expect(off.rail).toBe(false);
+  expect(wave.rows.length).toBeGreaterThan(0);
+  expect(wave.rows).toEqual(off.rows);
+  expect(wave.layout).toEqual(off.layout);
+  expect(wave.offset).toBe(off.offset);
+});
+
+test("the rail's list never draws a scroller of its own, and the rail takes no room", () => {
   const css = readFileSync(
     new URL("../src/agent-session/acpmux/threadMinimap/threadMinimap.css", import.meta.url),
     "utf8",
@@ -148,6 +188,10 @@ test("the minimap's list never draws a scroller of its own", () => {
   const list = /\.acpmux-minimap__list\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
   expect(list).toMatch(/overflow:\s*hidden/);
   expect(list).not.toMatch(/overflow(-[xy])?:\s*(auto|scroll)/);
+  // The rail sits over the transcript: sticky, no height of its own, so it takes no room in the layout.
+  const shell = /\.acpmux-minimap\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  expect(shell).toMatch(/position:\s*sticky/);
+  expect(shell).toMatch(/height:\s*0/);
   // No solid accent line in the map: it draws in the theme's text tones only.
   expect(css).not.toMatch(/--(agent|cmux)-accent|Highlight\b|-webkit-focus-ring-color/);
 });
