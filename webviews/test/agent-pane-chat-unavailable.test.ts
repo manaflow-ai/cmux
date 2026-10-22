@@ -67,6 +67,8 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
   const nextStatus = () => new Promise<void>((resolve) => statusWaiters.push(resolve));
   /// Resolves on the daemon's next `_acpmux/attach` request.
   let attachAsked: () => void = () => {};
+  /// Resolves on the daemon's next `_acpmux/detach` request (an open of a chat, leaving the one before).
+  let detachAsked: () => void = () => {};
   type Socket = { send(data: string): unknown };
   let socket: Socket | undefined;
 
@@ -115,6 +117,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
         async message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id === undefined) return;
+          if (message.method === "_acpmux/detach") detachAsked();
           if (message.method === "_acpmux/attach") {
             attachAsked();
             await scenario.attachHeld;
@@ -432,22 +435,27 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     const firstAttach = new Promise<void>((resolve) => (attachAsked = resolve));
     notify("_acpmux/session_changed", { kind: "created", session: listed });
     await firstAttach;
-    // The person opens the same chat again (the list, a link) while that attach is in flight; the
-    // client sends the newer attach once the first one is answered. The pane draws the list once its
-    // switch hold ends (the attach is still in flight).
+    // The person opens the same chat again (the list, a link) while that attach is in flight. The
+    // pane draws the list once its switch hold ends (the attach is still in flight); the newer open
+    // leaves the chat before it first (its detach), so it has taken its selection by then.
     await page.waitForFunction(() =>
       (window as any).cmuxAcpmuxDebug
         .chatState()
         .sessions.some((session: { sessionId: string }) => session.sessionId === "chat-on-box"),
     );
+    const reopened = new Promise<void>((resolve) => (detachAsked = resolve));
     expect(await page.evaluate(() => (window as any).cmuxAcpmuxDebug.selectSession("chat-on-box"))).toEqual({
       selected: "chat-on-box",
     });
-    await page.waitForTimeout(300);
+    await reopened;
     // The first attach fails, the second opens the chat: the stale failure must not undo it.
     releaseAttach();
+    // The failure is answered first, on the same socket: by the time the chat draws, the stale
+    // handler has run. One painted frame more, for anything it drew.
     await page.getByText("Opened chat-on-box", { exact: true }).waitFor({ timeout: 60_000 });
-    await page.waitForTimeout(500);
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))),
+    );
     const now = await state(page);
     expect(now.sessionId).toBe("chat-on-box");
     expect(now.missingSession).toBeNull();
