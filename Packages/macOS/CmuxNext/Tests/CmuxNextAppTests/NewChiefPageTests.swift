@@ -1,7 +1,11 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextBridge
 @testable import CmuxNextApp
+@testable import CmuxNextDaemon
 @testable import CmuxNextHome
+@testable import CmuxNextHomeEngine
+import Foundation
 import Testing
 
 /// New Chief… opens its card as a page tab beside your work instead of a sheet over Home (Leo
@@ -44,6 +48,55 @@ import Testing
         #expect(!NewChiefPage.opensAsPage(sheetToggle: false, classic: false, channels: true, holdsTab: true), "Channels keeps its page route")
         #expect(!NewChiefPage.opensAsPage(sheetToggle: false, classic: false, channels: false, holdsTab: false),
                 "a window with no pane for the tab keeps the sheet")
+    }
+
+    /// Home's pinned dock alone (`pinned-dock-alone-v1`, the launch state) takes no tab and has no
+    /// column beside it, so the page tab would land in the dock over the Chief: New Chief… keeps the
+    /// sheet there (Codex review of #23953). With a column beside the dock, the tab opens in it.
+    @Test func homesPinnedDockAloneHoldsNoNewChiefTab() throws {
+        let (services, window, content) = try Self.home(right: false)
+        defer { withExtendedLifetime(services) { content.teardown(); window.close() } }
+        #expect(content.pageTabPane?.pane.handle == PaneID(rawValue: 1), "the dock is the only pane")
+        #expect(!content.pageTabPaneTakesTabs, "the pinned dock alone takes no page tab")
+
+        let (besideServices, besideWindow, beside) = try Self.home(right: true)
+        defer { withExtendedLifetime(besideServices) { beside.teardown(); besideWindow.close() } }
+        #expect(beside.pageTabPane?.pane.handle == PaneID(rawValue: 2), "the tab opens in the column beside the dock")
+        #expect(beside.pageTabPaneTakesTabs)
+    }
+
+    /// Home as the daemon lists it, shown: the pinned Chief dock (pane 1) and, with `right`, a column
+    /// beside it (pane 2) holding a shell.
+    private static func home(right: Bool) throws -> (AppServices, NSWindow, WorkspaceContentController) {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let store = services.daemon.store
+        let identity = #"{"app":"cmux-tui","protocol":1,"session":"new-chief-page-test","generation":"g1"}"#
+        store.connectionState = .connected(try JSONDecoder().decode(DaemonIdentity.self, from: Data(identity.utf8)))
+        var page = TabSnapshot(surface: 1, kind: .conversation, title: "Home")
+        page.conversation = ConversationTabRef(page: HomeDock.page)
+        let dock = DockSnapshot(edge: .left, mode: .docked, role: .agentChat, isPinned: true)
+        var columns = [ColumnSnapshot(id: 10, width: 0.5, layout: .leaf(1), dock: dock)]
+        var panes = [PaneSnapshot(id: 1, tabs: [page])]
+        if right {
+            columns.append(ColumnSnapshot(id: 11, width: 0.5, layout: .leaf(2)))
+            panes.append(PaneSnapshot(id: 2, tabs: [TabSnapshot(surface: 2, kind: .pty, title: "~")]))
+        }
+        var workspace = WorkspaceSnapshot(id: 1, key: nil, name: "Home",
+                                          screens: [ScreenSnapshot(id: 1, layout: .leaf(1), columns: columns, panes: panes)])
+        workspace.kind = "home"
+        store.apply(snapshot: DaemonTree(workspaces: [workspace]))
+        let model = try #require(store.workspaces.first)
+        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 1200, height: 700), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let content = WorkspaceContentController(workspace: model, daemon: services.daemon, services: services,
+                                                 state: WindowState(record: record))
+        content.contentView.frame = NSRect(x: 0, y: 0, width: 1200, height: 700)
+        window.contentView = content.contentView
+        content.applyCurrent()
+        return (services, window, content)
     }
 
     @Test func thePageIsTheNewChiefTab() throws {
