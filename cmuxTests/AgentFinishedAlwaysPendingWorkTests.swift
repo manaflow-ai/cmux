@@ -47,13 +47,12 @@ extension AgentNotificationRegressionTests {
         thenFinishWork: Bool = false,
         thenSettleSameTurn: Bool = false
     ) async throws -> Int {
-        let key = NotificationsCatalogSection().agentTurnComplete.userDefaultsKey
-        let defaults = UserDefaults.standard
-        let previous = defaults.object(forKey: key)
-        defaults.set(mode, forKey: key)
-        defer {
-            if let previous { defaults.set(previous, forKey: key) } else { defaults.removeObject(forKey: key) }
-        }
+        // A private suite, so suites that write the same setting to
+        // `UserDefaults.standard` cannot change it mid-test.
+        let suiteName = "cmux-agent-finished-always-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(mode, forKey: NotificationsCatalogSection().agentTurnComplete.userDefaultsKey)
 
         let fixture = try makeFixture()
         defer { fixture.restore() }
@@ -64,7 +63,10 @@ extension AgentNotificationRegressionTests {
             .appendingPathComponent("cmux-agent-finished-always-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let center = AgentJournalLifecycleCenter(databaseURL: directory.appendingPathComponent("journal.sqlite3"))
+        let center = AgentJournalLifecycleCenter(
+            databaseURL: directory.appendingPathComponent("journal.sqlite3"),
+            notificationDefaults: defaults
+        )
         var deliveries = 0
         fixture.store.configureNotificationDeliveryHandlerForTesting { _, _, _ in deliveries += 1 }
 
