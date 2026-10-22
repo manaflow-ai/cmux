@@ -79,6 +79,8 @@ pub(crate) fn harness_command(
     env.remove(crate::agent_displays::WORKSPACE_KEY);
     // The chat's turned-off servers are for the fold only (agent_tools.rs).
     env.remove(crate::agent_tools::OFF_ENV);
+    // OpenCode asked to ask (`opencode_ask.rs`): its config is set below.
+    let opencode_ask = env.remove(crate::opencode_ask::MARKER).is_some();
     // The caller token and its socket are acpmux's own (`hub/person.rs` (a)):
     // this env is layered after `caller_env`, so a profile, preset or
     // request value would replace them.
@@ -174,6 +176,9 @@ pub(crate) fn harness_command(
     }
     cmd.args(crate::harness_limits::launch_args(program, args, session.map(|_| (cwd, &env))))
         .envs(env.iter());
+    if opencode_ask {
+        ask_opencode(&mut cmd, name, !remote_environment);
+    }
     cmd
         // Claude refuses to nest inside another Claude session.
         .env_remove("CLAUDECODE")
@@ -211,6 +216,27 @@ pub(crate) fn harness_command(
         _ => {}
     }
     Ok(cmd)
+}
+
+/// OpenCode asked to ask (`opencode_ask.rs`): the `OPENCODE_CONFIG_CONTENT`
+/// `cmd` gives its agent (the profile's, else the inherited one) asks before
+/// every tool. One that is not a JSON object is kept, with a warning; the chat
+/// logs `policy_unenforced` either way (`hub/policy_mode.rs`).
+fn ask_opencode(cmd: &mut Command, name: &str, inherit_ambient: bool) {
+    use crate::opencode_ask::{CONFIG_ENV, asking_config};
+    let existing = command_env_with(cmd, inherit_ambient)
+        .into_iter()
+        .find(|(key, _)| key == CONFIG_ENV)
+        .map(|(_, value)| value);
+    match asking_config(existing.as_deref()) {
+        Some(config) => {
+            cmd.env(CONFIG_ENV, config);
+        }
+        None => tracing::warn!(
+            harness = %name,
+            "{CONFIG_ENV} is not a JSON object: kept as it is, so OpenCode is not asked to ask before each tool"
+        ),
+    }
 }
 
 /// The profile's env with its `${keychain:…}` and `${env:…}` references
@@ -420,16 +446,35 @@ mod tests {
             session_env(&base, a, serde_json::json!({"TMPDIR": "/p/tmp", "XDG_RUNTIME_DIR": "/r"}));
         assert_eq!(var(&env, "TMPDIR").as_deref(), Some("/p/tmp"));
         assert_eq!(var(&env, SESSION_TMPDIR_ENV), Some(dir_a.clone()));
-        // Without a runtime dir (when this test process has none): a Mac pins
-        // the socket base the agent resolved before; elsewhere TMPDIR stays.
+        // Without a runtime dir (when this test process has none): a Mac gives
+        // the session its folder as TMPDIR and pins the socket base the agent
+        // resolved before (the TMPDIR it has without a session); elsewhere
+        // TMPDIR stays.
         if std::env::var_os("XDG_RUNTIME_DIR").is_none_or(|v| v.is_empty()) {
+            let plain: HarnessProfile =
+                serde_json::from_value(serde_json::json!({"argv": ["/usr/bin/true"]})).unwrap();
+            let unsessioned =
+                harness_command("local", &plain, &std::env::temp_dir(), None, None).unwrap();
+            let before = var(&command_env(&unsessioned), "TMPDIR").filter(|v| !v.is_empty());
+            let env = session_env(&base, a, serde_json::json!({}));
+            assert_eq!(var(&env, SESSION_TMPDIR_ENV), Some(dir_a.clone()));
+            match before.filter(|_| cfg!(target_os = "macos")) {
+                Some(before) => {
+                    assert_eq!(var(&env, "TMPDIR"), Some(dir_a.clone()));
+                    assert_eq!(var(&env, "XDG_RUNTIME_DIR"), Some(before));
+                }
+                None => assert_eq!(
+                    var(&env, "TMPDIR").filter(|v| !v.is_empty()),
+                    var(&command_env(&unsessioned), "TMPDIR").filter(|v| !v.is_empty())
+                ),
+            }
+            // A profile's TMPDIR still wins there too; the pinned base is that TMPDIR, the
+            // base the agent resolves its sockets under.
             let env = session_env(&base, a, serde_json::json!({"TMPDIR": "/var/folders/x/T/"}));
             assert_eq!(var(&env, SESSION_TMPDIR_ENV), Some(dir_a.clone()));
+            assert_eq!(var(&env, "TMPDIR").as_deref(), Some("/var/folders/x/T/"));
             if cfg!(target_os = "macos") {
-                assert_eq!(var(&env, "TMPDIR"), Some(dir_a.clone()));
                 assert_eq!(var(&env, "XDG_RUNTIME_DIR").as_deref(), Some("/var/folders/x/T/"));
-            } else {
-                assert_eq!(var(&env, "TMPDIR").as_deref(), Some("/var/folders/x/T/"));
             }
         }
         // A profile that blanks XDG_RUNTIME_DIR: no pin can hold, TMPDIR stays.

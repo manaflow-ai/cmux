@@ -271,6 +271,12 @@ public final class CEFEngine: BrowserEngine {
         set { CEFRuntime.shared.openOffTheRecord = newValue.map { handler in { url, tab in handler(url, tab) } } }
     }
 
+    /// Whether an assistive client (VoiceOver, an automation driver) asks for the app's
+    /// accessibility tree: Chromium pages build theirs only while one does (`CEFAccessibility`).
+    public func setAssistiveClientActive(_ active: Bool) {
+        CEFRuntime.shared.accessibility.setEnabled(active)
+    }
+
     /// Chromium never opens a window of its own: what the window requests,
     /// the fork's guard and the app's window guard saw (`debug.cef`).
     public var windowReport: CEFWindowReport { CEFRuntime.shared.windowReport }

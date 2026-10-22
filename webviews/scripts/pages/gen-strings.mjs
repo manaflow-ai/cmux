@@ -254,7 +254,7 @@ export const PAGES = {
         keys: (all) =>
           all.filter(
             (key) =>
-              /^(tools|shell|code|image|media|markdown|duration|chip)\./.test(key) ||
+              /^(tools|shell|code|image|media|markdown|duration|chip|message\.channel)\./.test(key) ||
               [
                 "changes.noLineChanges",
                 "link.openPath",
@@ -266,6 +266,12 @@ export const PAGES = {
                 "message.noText",
                 "message.self",
                 "message.unknown",
+                // A sent message's line and status (MessageCard.tsx), which Channels draws too.
+                "message.sentTo",
+                "message.sendingTo",
+                "message.sending",
+                "message.sent",
+                "message.delivered",
               ].includes(key),
           ),
       },

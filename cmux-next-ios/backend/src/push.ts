@@ -66,6 +66,36 @@ const TITLES: Record<PushKind, (agent: string) => string> = {
   chief: () => "Chief replied"
 }
 
+/** Kinds that end a turn: a session's newer one replaces its older one on the phone. */
+const TURN_KINDS: ReadonlySet<PushKind> = new Set<PushKind>(["completed", "failed", "chief"])
+
+/** 64-bit FNV-1a of a string, 16 hex digits: a short stable stand-in for a long id. */
+const fnv = (text: string): string => {
+  let h = 0xcbf29ce484222325n
+  for (const byte of new TextEncoder().encode(text)) h = ((h ^ BigInt(byte)) * 0x100000001b3n) & 0xffffffffffffffffn
+  return h.toString(16).padStart(16, "0")
+}
+
+/**
+ * The APNs collapse id (at most 64 bytes): one per session for a finished turn, an error or a Chief reply,
+ * so a newer one replaces the older on the lock screen; each ask keeps its own (every one needs an answer).
+ */
+export const collapseId = (e: Pick<NotifyEvent, "eventId" | "kind" | "sessionId">): string => {
+  if (!e.sessionId || !TURN_KINDS.has(e.kind)) return e.eventId.slice(0, 64)
+  const id = `turn-${e.sessionId}`
+  return id.length <= 64 ? id : `turn-${fnv(e.sessionId)}`
+}
+
+/** The window in which a Mac's session passes one turn-ending push (an error counts apart). Under the Mac's own 30 s. */
+export const TURN_PUSH_WINDOW_MS = 15_000
+
+/**
+ * The key a turn-ending event is coalesced under (one per Mac, session and finished-or-error), or null for an
+ * event that is never coalesced: an ask (each one needs an answer) or one without a session.
+ */
+export const turnPushKey = (macId: string, e: Pick<NotifyEvent, "kind" | "sessionId">): string | null =>
+  e.sessionId && TURN_KINDS.has(e.kind) ? `${macId}:${e.sessionId}:${e.kind === "failed" ? "failed" : "done"}` : null
+
 /** The APNs JSON body: fixed text per kind, the place as the body, ids for the tap. Never agent output. */
 export const apnsPayload = (e: NotifyEvent) => {
   const agent = e.agent || "Your agent"
@@ -101,7 +131,7 @@ export const apnsRequest = (target: PushRegistration, e: NotifyEvent, token: str
       "apns-priority": "10",
       // An ask matters for a day; a finished turn for an hour.
       "apns-expiration": String(Math.floor((now + (ask ? 24 * 3600_000 : 3600_000)) / 1000)),
-      "apns-collapse-id": e.eventId.slice(0, 64),
+      "apns-collapse-id": collapseId(e),
       "content-type": "application/json"
     },
     body: JSON.stringify(apnsPayload(e))
