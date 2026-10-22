@@ -98,10 +98,21 @@ class StarvedDetectionTests(unittest.TestCase):
         found = starved(job(created=40), gate)
         self.assertEqual([(entry["label"], entry["oldest_queued_minutes"]) for entry in found], [(SIDE, 25)])
 
-    def test_queued_dependents_of_a_stuck_fleet_job_do_not_hide_it(self) -> None:
-        dependent = job(label="blacksmith-4vcpu-ubuntu-2404", created=40, name="tests")
-        found = starved(job(created=40), dependent)
-        self.assertEqual([entry["label"] for entry in found], [SIDE])
+    def test_a_job_behind_a_queued_sibling_is_not_starved(self) -> None:
+        # The queued sibling may be its `needs` (a backed-up Blacksmith build), as queue_janitor._gated() reads it.
+        build = job(label="blacksmith-4vcpu-ubuntu-2404", created=40, name="build")
+        self.assertEqual(starved(job(created=40), build), [])
+
+    def test_two_stuck_fleet_jobs_never_mask_each_other(self) -> None:
+        found = starved(job(created=40), job(label=OTHER, created=40, name="other compile"))
+        self.assertEqual([entry["label"] for entry in found], [SIDE, OTHER] if SIDE < OTHER else [OTHER, SIDE])
+
+    def test_a_recent_start_in_a_completed_run_serves_the_label(self) -> None:
+        # Main's lost-assignment evidence lists completed runs too; their starts are service.
+        done = job(status="completed", created=8, started=5, runner="mini-3")
+        jobs = {1: [job(created=60)], 2: [done]}
+        self.assertEqual(starved_labels.starved([{"id": 1}], jobs, now=NOW, evidence={2: [done]}), [])
+        self.assertEqual(starved_labels.unserved([{"id": 1}], jobs, now=NOW, evidence={2: [done]}), [])
 
 
 def issue(label: str, number: int) -> dict:
