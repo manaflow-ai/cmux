@@ -1340,9 +1340,12 @@ struct PortScannerPortRetirementTests {
         // The fixture stops and kicks from inside the fifth port lookup, after
         // that lookup reports the port, so the stop is tied to the scan itself
         // rather than to when this task happens to observe it.
-        processTable.stopListening(afterListenerLookup: 5) {
+        processTable.perform(atListenerLookup: 5, stopsListening: true) {
             scanner.kick(workspaceId: workspaceId, panelId: panelId)
         }
+        // Burst timers that fire during a slow scan merge, so a loaded host could pay off the first kick
+        // before a fifth port lookup. A kick from inside the second lookup owes the third through fifth scans.
+        processTable.perform(atListenerLookup: 2) { scanner.kick(workspaceId: workspaceId, panelId: panelId) }
         scanner.kick(workspaceId: workspaceId, panelId: panelId)
 
         let didPublishListeningPort = await Self.waitForPublication(
@@ -1365,7 +1368,8 @@ struct PortScannerPortRetirementTests {
             pollInterval: .milliseconds(10)
         )
 
-        #expect(didRetirePort, "a late-burst kick did not schedule enough complete misses")
+        let lookups = processTable.listenerLookups
+        #expect(didRetirePort, "a late-burst kick did not schedule enough complete misses (\(lookups) port lookups)")
     }
 
     /// The process table accepts a full device path, but reports the matching
@@ -1495,7 +1499,7 @@ private final class PortLifecycleProcessTable: PortProcessTableReading, @uncheck
         var isListening = true
         var portScanCount = 0
         var listenerLookupCount = 0
-        var scheduledStop: (lookup: Int, action: @Sendable () -> Void)?
+        var scheduledActions: [Int: (stopsListening: Bool, action: @Sendable () -> Void)] = [:]
     }
 
     private let ttyName: String
@@ -1530,27 +1534,21 @@ private final class PortLifecycleProcessTable: PortProcessTableReading, @uncheck
             guard Int(queryPID) == pid else { return (false, nil) }
             current.listenerLookupCount += 1
             let reportsPort = current.isListening
-            var action: (@Sendable () -> Void)?
-            if let stop = current.scheduledStop, stop.lookup == current.listenerLookupCount {
-                current.scheduledStop = nil
-                current.isListening = false
-                action = stop.action
-            }
-            return (reportsPort, action)
+            let scheduled = current.scheduledActions.removeValue(forKey: current.listenerLookupCount)
+            if scheduled?.stopsListening == true { current.isListening = false }
+            return (reportsPort, scheduled?.action)
         }
         stopAction?()
         return .ports(reportsPort ? [port] : [])
     }
 
-    /// Stops listening inside the `target`th lookup of the listener's ports,
-    /// after that lookup has reported the port, then runs `action` while the
-    /// scan is still in flight. Must be armed before that lookup happens.
-    func stopListening(
-        afterListenerLookup target: Int,
-        then action: @escaping @Sendable () -> Void
-    ) {
-        state.withLock { $0.scheduledStop = (target, action) }
+    /// Runs `action` inside the `target`th lookup of the listener's ports, after that lookup has
+    /// decided what it reports; with `stopsListening`, later lookups report no port. Arm it first.
+    func perform(atListenerLookup target: Int, stopsListening: Bool = false, _ action: @escaping @Sendable () -> Void) {
+        state.withLock { $0.scheduledActions[target] = (stopsListening, action) }
     }
+
+    var listenerLookups: Int { state.withLock { $0.listenerLookupCount } }
 
     func waitForPortScan(_ target: Int, timeout: Duration = .seconds(15)) async -> Bool {
         let deadline = ContinuousClock.now + timeout
