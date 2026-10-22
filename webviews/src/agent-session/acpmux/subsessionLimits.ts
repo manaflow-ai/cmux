@@ -14,8 +14,7 @@ const count = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : undefined;
 
 /// `maxRunning` held inside acpmux's range.
-export const clampRunning = (value: number) =>
-  Math.min(MAX_RUNNING.max, Math.max(MAX_RUNNING.min, Math.round(value)));
+export const clampRunning = (value: number) => Math.min(MAX_RUNNING.max, Math.max(MAX_RUNNING.min, Math.round(value)));
 
 /// acpmux's `subsessionLimits` as the pane reads it, or nothing from an acpmux without
 /// `maxRunning` (its older width and depth limits alone draw no stepper).

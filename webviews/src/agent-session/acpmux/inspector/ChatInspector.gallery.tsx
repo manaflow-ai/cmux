@@ -222,7 +222,7 @@ export default componentEntry<Props>({
       },
     },
     "subagent-limit": {
-      note: "Subagents with the chat's own running limit of 2: two of the chats it started run, a third waits for a slot (\"1 queued\"), with Reset back to the inherited limit and − / + beside it.",
+      note: 'Subagents with the chat\'s own running limit of 2: two of the chats it started run, a third waits for a slot ("1 queued"), with Reset back to the inherited limit and − / + beside it.',
       props: {
         ...full,
         summary: { ...summary, subsessionLimits: { maxRunning: 2, maxRunningSource: "session" } },

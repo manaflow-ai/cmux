@@ -59,7 +59,7 @@ export function SubagentLimitStepper({
   const step = (by: number) => set(clampRunning(max + by));
   const own = limits.maxRunningSource === "session";
   return (
-    <div className="acpmux-subagent-limit" role="group" aria-label={t("chatInspector.subagents.limit.group")}>
+    <div className="acpmux-subagent-limit">
       <span className="acpmux-subagent-limit__text">
         {t("chatInspector.subagents.limit.running", { running, max })}
         {queued > 0 && (
