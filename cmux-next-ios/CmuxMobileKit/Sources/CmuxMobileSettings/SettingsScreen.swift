@@ -200,7 +200,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .devices: DevicesPage(store: store, directory: directory, list: deviceList)
         case .terminal: TerminalPage(settings: settings)
         case .composer: ComposerPage(settings: settings)
-        case .notifications: NotificationsPage(settings: settings)
+        case .notifications: NotificationsPage(settings: settings, macs: store.notificationMacs)
         case .acknowledgements: AcknowledgementsPage()
         }
     }
@@ -301,7 +301,10 @@ struct SettingsTeamAvatar: View {
     @ScaledMetric(relativeTo: .body) private var scale: CGFloat = 1
 
     var body: some View {
-        TeamAvatar(name: team.name, colorHex: team.appearance.colorHex, emoji: team.appearance.emoji, size: size * min(scale, 2))
+        TeamAvatar(
+            name: team.name, colorHex: team.appearance.colorHex, emoji: team.appearance.emoji,
+            size: size * min(scale, 2), transparent: team.appearance.isTransparent
+        )
     }
 }
 
