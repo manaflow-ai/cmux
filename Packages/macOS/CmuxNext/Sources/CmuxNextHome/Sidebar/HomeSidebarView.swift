@@ -36,6 +36,8 @@ public final class HomeSidebarView: NSView {
     public var composeMenu: () -> NSMenu? = { nil }
     /// The Message Requests button was clicked (`showRequests`).
     public var onOpenRequests: () -> Void = {}
+    /// The unread dot's color: the user's `notifications.attention.color`; nil is the notification blue.
+    public var unreadDotColor: NSColor? { didSet { if unreadDotColor != oldValue { applyColors() } } }
 
     let list = CmuxSidebarView()
     /// The header band behind its row: a drag on its empty space moves the window, as on
@@ -171,8 +173,8 @@ public final class HomeSidebarView: NSView {
 
     /// The Chief's avatar as the list draws it: the picture, else its text
     /// as a monogram (one or two letters) or on the grey disc (an emoji).
-    /// The disc draws an emoji at half its width, so two would spill past
-    /// it: a two-emoji avatar shows its first in the list.
+    /// The disc fits an emoji's drawn box to 60 % of its width, so two
+    /// would each draw small: a two-emoji avatar shows its first in the list.
     static func avatar(_ chief: HomeChiefAvatar) -> CmuxSidebarEntry.Avatar {
         switch chief {
         case .picture(let url): return .image(url.absoluteString)
@@ -206,11 +208,12 @@ public final class HomeSidebarView: NSView {
         return String(words.prefix(2).compactMap(\.first)).uppercased()
     }
 
-    /// The unread dot uses the app's theme accent (sent bubbles alone are
-    /// iMessage blue); the column lays the theme's legibility scrim; the
-    /// selection is the theme's translucent selection tint, never the system blue.
+    /// The unread dot is the notification blue, as in Messages and on the unread rings (or the
+    /// user's `unreadDotColor`), never the theme accent: the default theme's accent is a grey, and
+    /// the dot read as missing (the user, 2026-10-21). The column lays the theme's legibility
+    /// scrim; the selection is the theme's translucent selection tint, never the system blue.
     func applyColors() {
-        list.unreadColor = performWithTheme { Palette.accent }
+        list.unreadColor = unreadDotColor ?? performWithTheme { Palette.notificationBlue }
         noteLabel.textColor = performWithTheme { Palette.textSecondary }
         requestsButton.contentTintColor = performWithTheme { Palette.textSecondary }
         // The menu ring: the label colour, not the system accent.

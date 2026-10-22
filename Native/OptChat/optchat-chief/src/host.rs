@@ -3,7 +3,7 @@
 //! launch for the same home exits 0 (the app launches it on every Home open).
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
@@ -1300,15 +1300,30 @@ fn start(
         );
     let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> = if workspaces_off {
         None
-    } else if crate::workspaces::AppWorkspaces::from_env(daemon_socket).is_some() {
-        // hq-6d 2026-10-09: always the Chief's owner daemon (`--daemon-socket`), also when the
-        // app started this host: one place, the Chief's machine row in the app, and the
-        // workspaces outlive the app. The tabs name the Chief home's acpmux (`chief:<home id>`).
+    } else if let Some(daemon) =
+        crate::workspaces::subagent_daemon(daemon_socket, &|k: &str| env(k))
+    {
+        // a423: workspaces an older host left on the owner daemon move into the user's
+        // session, once per start, off the start path (best effort; a failure is logged).
+        if Path::new(daemon_socket) != daemon.as_path() {
+            let (owner, app) = (PathBuf::from(daemon_socket), daemon.clone());
+            std::thread::spawn(move || {
+                match crate::workspaces::adopt_owner_workspaces(&owner, &app) {
+                    Ok(0) => {}
+                    Ok(n) => eprintln!("optchat: moved {n} workspaces into the user's session"),
+                    Err(e) => eprintln!("optchat: workspaces stay on the Chief's session: {e}"),
+                }
+            });
+        }
+        // a423 (2026-10-21): the app's daemon, the user's own session, so a subagent's
+        // workspace is the same kind of workspace as one the user makes (it outlives the app
+        // as the app's daemon does). The tabs name the Chief home's acpmux (`chief:<home id>`).
         Some(Arc::new(crate::workspaces::DaemonWorkspaces {
-            daemon: daemon_socket.into(),
+            daemon,
             host: crate::workspaces::chief_host(home),
             host_name: crate::workspaces::host_name(),
             harness: Some(sub_harness.clone()),
+            personal: true,
         }) as Arc<dyn crate::workspaces::Workspaces>)
     } else {
         cloud_install.map(|install| {
@@ -1317,6 +1332,7 @@ fn start(
                 host: format!("install:{install}"),
                 host_name: crate::workspaces::host_name(),
                 harness: Some(sub_harness.clone()),
+                personal: false,
             }) as Arc<dyn crate::workspaces::Workspaces>
         })
     };
@@ -1381,6 +1397,28 @@ fn start(
             "off".to_owned()
         }
     ));
+    // Chiefs on other machines (peer_chiefs.rs): their messages reach the
+    // brain as notes, and `tell("chief:<name>")` reaches them.
+    let peers_path = crate::peer_chiefs::Config::path(&paths.root);
+    let peers = match crate::peer_chiefs::PeerChiefs::from_file(&peers_path) {
+        Ok(peers) => peers,
+        Err(e) => {
+            log(format!("peer chiefs off: {e}"));
+            None
+        }
+    };
+    if let Some(peers) = &peers {
+        let tx = Mutex::new(tx.clone());
+        peers.spawn_inbox(
+            Box::new(move |text| {
+                tx.lock()
+                    .expect("peer chiefs tx")
+                    .send(Input::PeerChiefNote { text })
+                    .is_ok()
+            }),
+            Arc::new(|line: &str| log(line)),
+        );
+    }
     crate::tools::serve_all(
         &paths.tools_socket,
         crate::tools::Served {
@@ -1395,6 +1433,7 @@ fn start(
                 &turn_prefix(home),
                 &crate::paths::home_id(home),
             )),
+            peers,
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;
@@ -1561,12 +1600,13 @@ fn start(
     ));
     // Finished subagents' workspaces stay, names untouched, unless this says close.
     brain.set_sub_close_on_finish(env("OPTCHAT_SUBAGENT_ON_FINISH").as_deref() == Some("close"));
-    // The front desk answers a message that waits on a running turn after
-    // 5 s (brain/desk.rs); OPTCHAT_DESK_GRACE_SECONDS=0 turns it off.
-    brain.set_desk_grace(Some(
-        env("OPTCHAT_DESK_GRACE_SECONDS")
+    // A person's message steered into the running turn and still unread
+    // after 3 s interrupts the turn (brain/steer.rs);
+    // OPTCHAT_STEER_DEADLINE_SECONDS=0 waits for the next tool boundary.
+    brain.set_steer_deadline(Some(
+        env("OPTCHAT_STEER_DEADLINE_SECONDS")
             .and_then(|s| s.trim().parse::<u64>().ok())
-            .map_or(crate::brain::DESK_GRACE, std::time::Duration::from_secs),
+            .map_or(crate::brain::STEER_DEADLINE, std::time::Duration::from_secs),
     ));
     // Subagents that stop on a model or network error continue on their own
     // (auto_resume.rs); OPTCHAT_AUTO_RESUME=off turns it off.
