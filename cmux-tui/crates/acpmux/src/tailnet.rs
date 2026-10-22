@@ -21,6 +21,8 @@ use wait_timeout::ChildExt;
 /// How long one CLI call may take (status on a large tailnet is the
 /// slowest, about 100 ms measured on a 150-peer tailnet).
 const CLI_BOUND: Duration = Duration::from_secs(8);
+/// How long `tailscale version` may take while choosing a CLI.
+const PROBE_BOUND: Duration = Duration::from_secs(3);
 /// Largest CLI output read (a 2,000-peer status is about 4 MiB).
 const MAX_OUTPUT: u64 = 32 * 1024 * 1024;
 
@@ -95,8 +97,8 @@ pub struct Tailnet {
 }
 
 impl Tailnet {
-    /// Finds the CLI: `CMUX_TAILSCALE_BIN`, then `PATH`, then each
-    /// platform's install location.
+    /// Finds the CLI: `CMUX_TAILSCALE_BIN` (taken as is), then the first
+    /// working CLI on `PATH`, then in each platform's install locations.
     pub fn locate() -> anyhow::Result<Self> {
         if let Some(bin) = std::env::var_os("CMUX_TAILSCALE_BIN").filter(|v| !v.is_empty()) {
             return Ok(Self { bin: PathBuf::from(bin) });
@@ -114,14 +116,30 @@ impl Tailnet {
         })
     }
 
-    /// The first of `candidates` that is a file.
+    /// The first of `candidates` that is a working CLI: a file that answers
+    /// `tailscale version` with a version. A file that prints nothing (the
+    /// macOS app binary where it does not act as a CLI, a stale shim) or fails
+    /// is skipped, so cmux never settles on a binary that answers nothing.
     fn locate_among(candidates: &[PathBuf]) -> Option<Self> {
-        candidates.iter().find(|c| c.is_file()).map(|bin| Self { bin: bin.clone() })
+        candidates.iter().filter(|c| c.is_file()).find_map(|bin| {
+            let found = Self { bin: bin.clone() };
+            let out = found.run_bounded(&["version"], PROBE_BOUND).ok()?;
+            (!String::from_utf8_lossy(&out).trim().is_empty()).then_some(found)
+        })
     }
 
     fn run(&self, args: &[&str]) -> anyhow::Result<Vec<u8>> {
+        self.run_bounded(args, CLI_BOUND)
+    }
+
+    fn run_bounded(&self, args: &[&str], bound: Duration) -> anyhow::Result<Vec<u8>> {
         let mut child = Command::new(&self.bin)
             .args(args)
+            // The macOS app binary (`Tailscale.app/Contents/MacOS/Tailscale`,
+            // or a shim to it) acts as the CLI only when started from a
+            // terminal or with this set; under launchd it starts the GUI and
+            // prints nothing. Other builds ignore it.
+            .env("TAILSCALE_BE_CLI", "1")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -145,16 +163,12 @@ impl Tailnet {
             let _ = (&mut stderr).take(64 * 1024).read_to_end(&mut buf);
             buf
         });
-        let status = match child.wait_timeout(CLI_BOUND)? {
+        let status = match child.wait_timeout(bound)? {
             Some(status) => status,
             None => {
                 let _ = child.kill();
                 let _ = child.wait();
-                bail!(
-                    "`tailscale {}` did not answer within {}s",
-                    args.join(" "),
-                    CLI_BOUND.as_secs()
-                );
+                bail!("`tailscale {}` did not answer within {}s", args.join(" "), bound.as_secs());
             }
         };
         let stdout = out.join().unwrap_or_default();
@@ -185,9 +199,11 @@ impl Tailnet {
 fn platform_candidates() -> Vec<PathBuf> {
     if cfg!(target_os = "macos") {
         vec![
-            PathBuf::from("/Applications/Tailscale.app/Contents/MacOS/Tailscale"),
-            PathBuf::from("/opt/homebrew/bin/tailscale"),
+            // Standalone CLIs first: the app binary is a CLI only with
+            // TAILSCALE_BE_CLI=1, and only while the app is the node.
             PathBuf::from("/usr/local/bin/tailscale"),
+            PathBuf::from("/opt/homebrew/bin/tailscale"),
+            PathBuf::from("/Applications/Tailscale.app/Contents/MacOS/Tailscale"),
         ]
     } else if cfg!(windows) {
         let mut out = Vec::new();
