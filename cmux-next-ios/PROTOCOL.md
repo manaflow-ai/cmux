@@ -925,7 +925,17 @@ the generic banner stays.
 
 ### Terminal replies
 
-The `daemon` policy allows `notification-reply {notification, text}` for a
-notification of the person's session (text at most 4096 bytes, no other
-field). The phone's `cmux.terminal.reply` action sends it over the link, or
-through the mailbox with `kind` `terminal`.
+The `daemon` policy allows `notification-reply {notification, text}` (a
+ledger id and 1 to 4096 bytes of text, no other field). The daemon has no such
+command: hostd answers it itself. It finds the notification in the session's
+ledger (`list-notifications`; gone: `not_found`), takes its terminal, checks
+that a program other than the shell runs there (`process-info`), then pastes
+the text and sends Return, each `send` with `expect_foreground` naming that
+program, as the Mac's own notification reply does. The answer is a v12 line,
+`{"id", "ok": true}` or an error. The phone's `cmux.terminal.reply` action
+sends it over the link, or through the mailbox with `kind` `terminal`, whose
+`target` also names the tab (`s<surface>`), which must be the notification's.
+
+hostd keeps phones' push keys in `<state>/push-keys.json` and spent reply
+ids and nonces in `<state>/mailbox-spent.json` (both mode 0600; public keys
+and ids only).
