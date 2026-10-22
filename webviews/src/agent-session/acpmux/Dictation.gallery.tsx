@@ -62,7 +62,7 @@ function GalleryDictation({ initialState, initialNotice }: Props) {
           <DictationNotice dictation={dictation} />
         </div>
         <div className="acpmux-composer">
-          <div className="acpmux-composer-box">
+          <div className="ui-glass acpmux-composer-box">
             <div className="acpmux-composer-bar">
               <div className="acpmux-composer-actions">
                 <DictationMic dictation={dictation} />
@@ -118,7 +118,7 @@ export default componentEntry<Props>({
   area: "Agent pane",
   pane: true,
   height: 180,
-  widths: { narrow: 360, normal: 520, wide: 720 },
+  widths: { narrow: 260, normal: 520, wide: 720 },
   anchors: [{ selector: "[data-dictation-fixture]" }],
   covers: [
     "agent-session/acpmux/DictationButton.tsx#DictationButton",

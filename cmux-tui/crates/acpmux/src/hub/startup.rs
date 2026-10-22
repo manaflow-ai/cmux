@@ -19,6 +19,13 @@ impl Hub {
     /// reload the catalog so PATH discovery sees it, check launchers, then
     /// let spawns through and probe models.
     pub async fn finish_startup(self: &Arc<Self>) {
+        // deny-all as the default policy in config.json, a lockdown (`policy_mode.rs`): every chat
+        // without a policy of its own follows it. A stopped chat's saved mode is written now; an
+        // adopted agent is reached once startup is done (`child_for` waits for it).
+        if self.config.read().await.permission_policy == crate::config::PermissionPolicy::DenyAll {
+            let hub = self.clone();
+            tokio::spawn(async move { hub.follow_default_policy().await });
+        }
         // Prompts queued under the previous daemon, after any adopted turn (`queue.rs`).
         self.resume_queues();
         // The last live model lists, before anything slow.
@@ -74,6 +81,11 @@ impl Hub {
 
     pub fn startup_complete(&self) -> bool {
         *self.startup_ready.borrow()
+    }
+
+    /// Whether the chat logs are read (`load_logs`; always outside a deferred start).
+    pub fn logs_loaded(&self) -> bool {
+        *self.logs_ready.borrow()
     }
 
     /// Wait until background startup has finished (immediate outside a daemon).

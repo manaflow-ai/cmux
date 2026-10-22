@@ -25,16 +25,32 @@ Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `start_session` (with `worktree: true` for a worktree of its own),
 `list_sessions`, `get_session`, `wait_for_sessions`, `send_message` and
 `stop_session`. Prefer them when you have them; this CLI is the fallback.
+A lane is different: an agent with its own worktree and brief that reports
+back to you and outlives you. Start it with the one launcher command in
+section 3 (`acpmux new --worktree … --prompt-file …`), not a hand-made
+`git worktree add` + `acpmux send` script.
 Start a session only when the user asked for one. If they refuse with "this
 session's caller token is not one this acpmux daemon knows", run
 `acpmux session restart @`: your agent restarts in the same conversation when
 the turn ends, with tools that work again; your sub-sessions keep running.
 
 To put a session's chat in front of the user without moving their focus, run
-`cmux agent open SESSION_ID` (the `cmux` MCP server's `app_agent_open`); a
+`cmux agent open SESSION_ID` (the `cmux` MCP server's `app_agent_open`) for a
+new workspace, or `cmux agent open-tab SESSION_ID --target PANE_ID`
+(`app_agent_open_tab`) for a tab in a pane you name; a
 `start_session` child is also listed under your chat in the chat list. Post progress on a workspace's
 sidebar row with `cmux workspace WS status set KEY TEXT`, and ask for
 attention with `cmux notify`. `cmux docs search "show the user"` lists the rest.
+
+When a sub-session asks a question (its AskUserQuestion or other ask),
+`wait_for_sessions` returns and its row lists it under `questions`. Tell the
+user what it asks. Only when the user turned on Settings > Agents >
+Sub-sessions > Let Sessions Answer Their Sub-sessions' Questions (off by
+default) may you answer one marked `answerable` yourself with
+`answer_question` (keys: each item's `id` or `prompt`); otherwise it is
+refused (`subsessions.answers_off`, `subsessions.not_a_question`). A
+permission request or a plan approval is never a question: only the user
+allows it, in cmux NEXT, so tell the user which sub-session waits.
 
 ## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`
 
@@ -82,6 +98,7 @@ acpmux send NAME "next step"                       # stream the reply; -q for th
 acpmux send NAME --no-wait "…"                     # a message: steers into the running turn when the harness steers (read at its next tool boundary; never stops it), else queues; returns at once
 acpmux send NAME --no-wait --no-steer "…"          # queue behind the running turn instead
 acpmux send NAME --steer "…"                       # steer a send that waits for its reply (it queues by default)
+acpmux send NAME --no-wait --supersede KEY "…"     # replace your own prompt still queued under KEY (a correction is never read after the order it corrects); prints "replaced N queued", --json adds replaced and replacedPromptIds
 acpmux last NAME [-n 3]                            # last reply text
 acpmux history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
 acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v]
@@ -90,6 +107,7 @@ acpmux session set NAME model=… | effort=… | mode=… | policy=…
 acpmux session fork NAME [--name NEW]              # new session sharing the history so far
 acpmux session cancel NAME                         # stop the running turn; the session stays
 acpmux session restart NAME                        # restart its agent process after the turn, same conversation
+acpmux session resume NAME                         # run the prompts a failed turn held (no person needed)
 acpmux session kill --purge NAME                   # delete (only sessions you created)
 ```
 
@@ -132,6 +150,19 @@ acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"]}'
 acpmux run --on-permission deny|fail …       # never hang a script on a prompt (fail = exit 5)
 ```
 
+`acpmux pending --json` gives each request a `needsYou` link
+(`cmux://needs-you/<permissionId>`). Put it in a reply to point the user at an
+open ask instead of restating it; cmux draws it as a chip that opens the ask in
+its Needs you list.
+
+Show UI instead of describing it. A reply in cmux draws `![alt](/abs/path.png)`,
+a bare image path (`.png`, `.jpg`, `.gif`, `.webp`), a `file://` URL or an
+https image address (a PR's `pr-media` link) as a thumbnail that opens full
+size on click. Two images in one paragraph, such as
+`![Before](/tmp/a.png) ![After](/tmp/b.png)` or `Before: /tmp/a.png` and
+`After: /tmp/b.png` on two lines, sit side by side. `#N`, `owner/repo#N`,
+`hq#N`, commit SHAs and `path/to/file.ts:42` become links.
+
 `--policy ask` sends every request to a human or to you; the other policies
 answer locally. Rules sit above the policy and match tool kind, title, and
 name, case-insensitively. File writes a harness delegates to acpmux (ACP
@@ -149,7 +180,9 @@ acpmux wait                                      # covers remote sessions too
 ```
 
 `host setup HOST` installs a daemon over ssh; `host update --all` pushes the
-current binary. Only do either when the task asks for it.
+current binary (`--if-idle` leaves a peer mid-turn alone; a daemon that does not
+come back on the new build is rolled back). Only do either when the task asks
+for it.
 
 ## 7. Output
 

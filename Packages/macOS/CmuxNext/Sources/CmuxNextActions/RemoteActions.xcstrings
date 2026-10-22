@@ -2102,128 +2102,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "فتح علامة تبويب متصفح بعيد"
+            "state": "translated",
+            "value": "فتح علامة تبويب متصفح بعيد…"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Otvori karticu udaljenog preglednika"
+            "state": "translated",
+            "value": "Otvori karticu udaljenog preglednika…"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Åbn fane i fjernbrowser"
+            "state": "translated",
+            "value": "Åbn fane i fjernbrowser…"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Remote-Browser-Tab öffnen"
+            "state": "translated",
+            "value": "Remote-Browser-Tab öffnen…"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Remote Browser Tab"
+            "value": "Open Remote Browser Tab…"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir pestaña de navegador remoto"
+            "state": "translated",
+            "value": "Abrir pestaña de navegador remoto…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ouvrir un onglet de navigateur distant"
+            "state": "translated",
+            "value": "Ouvrir un onglet de navigateur distant…"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Apri scheda browser remoto"
+            "state": "translated",
+            "value": "Apri scheda browser remoto…"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "リモートブラウザタブを開く"
+            "state": "translated",
+            "value": "リモートブラウザタブを開く…"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បើកផ្ទាំងកម្មវិធីរុករកពីចម្ងាយ"
+            "state": "translated",
+            "value": "បើកផ្ទាំងកម្មវិធីរុករកពីចម្ងាយ…"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "원격 브라우저 탭 열기"
+            "state": "translated",
+            "value": "원격 브라우저 탭 열기…"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Åpne fane i ekstern nettleser"
+            "state": "translated",
+            "value": "Åpne fane i ekstern nettleser…"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Otwórz kartę zdalnej przeglądarki"
+            "state": "translated",
+            "value": "Otwórz kartę zdalnej przeglądarki…"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Abrir aba de navegador remoto"
+            "state": "translated",
+            "value": "Abrir aba de navegador remoto…"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Открыть вкладку удалённого браузера"
+            "state": "translated",
+            "value": "Открыть вкладку удалённого браузера…"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "เปิดแท็บเบราว์เซอร์ระยะไกล"
+            "state": "translated",
+            "value": "เปิดแท็บเบราว์เซอร์ระยะไกล…"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Uzak Tarayıcı Sekmesi Aç"
+            "state": "translated",
+            "value": "Uzak Tarayıcı Sekmesi Aç…"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Відкрити вкладку віддаленого браузера"
+            "state": "translated",
+            "value": "Відкрити вкладку віддаленого браузера…"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mở thẻ trình duyệt từ xa"
+            "state": "translated",
+            "value": "Mở thẻ trình duyệt từ xa…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "打开远程浏览器标签页"
+            "state": "translated",
+            "value": "打开远程浏览器标签页…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "開啟遠端瀏覽器分頁"
+            "state": "translated",
+            "value": "開啟遠端瀏覽器分頁…"
           }
         }
       }
@@ -3403,6 +3403,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "跟隨設定"
+          }
+        }
+      }
+    },
+    "action.machine.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Machine…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إضافة جهاز…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaj mašinu…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilføj maskine…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gerät hinzufügen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Añadir máquina…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajouter une machine…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiungi macchina…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンを追加…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ថែមម៉ាស៊ីន…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "머신 추가…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legg til maskin…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaj maszynę…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adicionar máquina…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Добавить машину…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เพิ่มเครื่อง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makine Ekle…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Додати машину…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thêm máy…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "添加机器…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新增機器…"
+          }
+        }
+      }
+    },
+    "action.machine.doctor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check Machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فحص الجهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Provjeri mašinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tjek maskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gerät prüfen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comprobar máquina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vérifier la machine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Controlla macchina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンを確認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពិនិត្យម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "머신 확인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sjekk maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sprawdź maszynę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verificar máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Проверить машину"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตรวจสอบเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makineyi Denetle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перевірити машину"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kiểm tra máy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "检查机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "檢查機器"
           }
         }
       }

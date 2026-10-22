@@ -597,7 +597,9 @@ impl Hub {
             steer_only: false,
             interrupt: false,
             provenance: None,
+            agent: None,
             after_turn: None,
+            supersede: None,
         };
         let (hub, session) = (self.clone(), target.clone());
         let run =

@@ -7,6 +7,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
 import { MessageCard } from "./MessageCard";
 import { McpCallRows } from "./McpCallRows";
+import { SubsessionCallCard } from "./SubsessionCallCard";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
@@ -54,9 +55,10 @@ export function WorkedFor({
   );
 }
 
-/// One entry of a run: a group, a message card, a lone call or a thought. `live`: the entry is the
-/// last of the live turn's latest row, so a thought there may still stream.
-function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean): ReactNode {
+/// One entry of a run: a group, a message or sub-session card, a lone call or a thought. `live`: the entry is the
+/// last of the live turn's latest row, so a thought there may still stream. `folded`: the run is
+/// finished and draws no summary line of its own, so a group starts closed.
+function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean, folded = false): ReactNode {
   switch (group.type) {
     case "group":
       return (
@@ -64,6 +66,7 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
           key={group.items[0]!.tool!.id || index}
           kind={group.kind}
           items={group.items}
+          folded={folded}
           disclosureKey={`group:${group.kind}:${group.items[0]!.tool!.id || `${rowId}:${index}`}`}
         />
       );
@@ -77,7 +80,16 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
       );
     case "message":
       return <MessageCard key={group.item.tool!.id || index} item={group.item} message={group.message} />;
+    case "subsession":
+      return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} />;
     case "item":
+      // A short interim note folded into the run (turns.ts mergeShortNotes).
+      if (group.item.kind === "note")
+        return (
+          <p key={index} className="cv-tool-note">
+            {group.item.text}
+          </p>
+        );
       return group.item.tool ? (
         <ToolRow key={group.item.tool.id || index} item={group.item} />
       ) : (
@@ -86,30 +98,34 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
   }
 }
 
-/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). Each
-/// group and call keeps its own line, in a live turn and in an ended turn's open "Worked for"
-/// alike, so the work stays readable without a click. Only the Codex-style runs (Debug toggle)
-/// fold a run of two or more entries under one summary line (`foldRun`, toolRunSummary.ts) or
-/// show its newest entry alone (`inFlight`); a run that is one group already has its line.
+/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). The
+/// Codex-style runs (Debug toggle `agentPane.debug.codexToolRuns`, on by default) fold a finished
+/// run (`foldRun`) of two or more entries under one summary line (toolRunSummary.ts: "Read files,
+/// ran commands"), and a run that is one group under that group's closed line ("Ran 3 commands"),
+/// so finished work is one click away between the paragraphs. Off, each group and call keeps its
+/// own line.
 export function shouldFoldToolRun(
   row: AcpmuxRow,
   groups: readonly ToolGroup[],
   items: readonly AcpmuxActivity[],
 ): boolean {
-  // Coordination cards stay visible beside tool calls so a settled run never hides the
-  // agent-to-agent receipt inside the generic tool summary.
+  // Coordination cards (a message, a sub-session started, messaged or waited on) stay visible
+  // beside tool calls so a settled run never hides the agent-to-agent receipt inside the generic
+  // tool summary.
   return (
-    row.foldRun === true && groups.length > 1 && !groups.some((group) => group.type === "message") && isFoldedRun(items)
+    row.foldRun === true &&
+    groups.length > 1 &&
+    !groups.some((group) => group.type === "message" || group.type === "subsession") &&
+    isFoldedRun(items)
   );
 }
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
   const items = row.items;
   const groups = useMemo(() => toolGroups(items ?? []), [items]);
-  // A run in flight (Debug toggle) shows its newest entry alone: one line that replaces itself.
-  const first = row.inFlight ? Math.max(0, groups.length - 1) : 0;
-  const nodes = groups
-    .slice(first)
-    .map((group, at) => groupNode(group, first + at, row.id, row.live === true && first + at === groups.length - 1));
+  const run = shouldFoldToolRun(row, groups, items ?? []);
+  const nodes = groups.map((group, at) =>
+    groupNode(group, at, row.id, row.live === true && at === groups.length - 1, row.foldRun === true && !run),
+  );
   // Find opens what holds its current match in this row only (chatFind.ts).
   const reveal = useContext(FindReveal);
   // Ids an MCP call names, to the titles the run's other calls give them ("Read Coordination hub").
@@ -119,7 +135,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
       <McpNamesContext.Provider value={names}>
         <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
           <div className="cv-tools">
-            {shouldFoldToolRun(row, groups, items ?? []) ? (
+            {run ? (
               <ToolRun disclosureKey={`run:${row.id}`} items={items ?? []}>
                 {nodes}
               </ToolRun>

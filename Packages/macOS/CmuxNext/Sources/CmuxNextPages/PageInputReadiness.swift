@@ -125,8 +125,10 @@ public final class PageInputReadiness {
     static let sidewaysScript = """
           let pointer = null;
           let sideways = false;
+          // Up through shadow roots too: a code card's scroller can be inside one (@pierre/diffs).
+          const up = (el) => el.parentElement || (el.parentNode instanceof ShadowRoot ? el.parentNode.host : null);
           const scrollsSideways = (el) => {
-            for (; el && el !== document.documentElement && el !== document.body; el = el.parentElement) {
+            for (; el && el !== document.documentElement && el !== document.body; el = up(el)) {
               if (el.scrollWidth > el.clientWidth + 1) {
                 const x = getComputedStyle(el).overflowX;
                 if (x === 'auto' || x === 'scroll') return true;
@@ -134,8 +136,18 @@ public final class PageInputReadiness {
             }
             return false;
           };
+          // The deepest element at the point, inside open shadow roots.
+          const at = (x, y) => {
+            let el = document.elementFromPoint(x, y);
+            for (let depth = 0; el && el.shadowRoot && depth < 8; depth++) {
+              const inner = el.shadowRoot.elementFromPoint(x, y);
+              if (!inner || inner === el) break;
+              el = inner;
+            }
+            return el;
+          };
           const check = () => {
-            const now = !!pointer && scrollsSideways(document.elementFromPoint(pointer[0], pointer[1]));
+            const now = !!pointer && scrollsSideways(at(pointer[0], pointer[1]));
             if (now !== sideways) { sideways = now; post({ sideways: now }); }
           };
           const track = (event) => { pointer = [event.clientX, event.clientY]; check(); };

@@ -61,6 +61,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let stop: @convention(c) (Int32) -> Void
     let setFocus: @convention(c) (Int32, Int32) -> Void
     let setZoomLevel: @convention(c) (Int32, Double) -> Void
+    /// Chromium's page accessibility on (1) or off (0) (`CEFAccessibility`).
+    let setAccessibility: @convention(c) (Int32, Int32) -> Void
     /// Chromium's print preview over the page; 0 when the browser is gone.
     let printPage: @convention(c) (Int32) -> Int32
     let find: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32, Int32, Int32) -> Void
@@ -247,19 +249,24 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         guard let handle = dlopen(url.path, RTLD_NOW | RTLD_LOCAL) else {
             throw .open(String(cString: dlerror()))
         }
-        let resolver = Resolver(handle: handle)
-        let library = try CEFShimLibrary(resolver)
+        let library = try CEFShimLibrary(Resolver { dlsym(handle, $0) })
         try checkABI(expected: expected, found: library.abiIDFn().map { String(cString: $0) })
         return library
     }
 
+    /// Each function by symbol name: `dlsym` on the opened shim, or a test's stand-ins (`resolving`).
     private struct Resolver {
-        let handle: UnsafeMutableRawPointer
+        let symbol: (String) -> UnsafeMutableRawPointer?
 
         func callAsFunction<T>(_ name: String) throws(LoadError) -> T {
-            guard let symbol = dlsym(handle, name) else { throw .missingSymbol(name) }
+            guard let symbol = symbol(name) else { throw .missingSymbol(name) }
             return unsafeBitCast(symbol, to: T.self)
         }
+    }
+
+    /// The functions `symbol` gives by name, with no shim loaded (a test's spy shim).
+    static func resolving(_ symbol: @escaping (String) -> UnsafeMutableRawPointer?) throws(LoadError) -> CEFShimLibrary {
+        try CEFShimLibrary(Resolver(symbol: symbol))
     }
 
     private init(_ r: Resolver) throws(LoadError) {
@@ -288,6 +295,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         stop = try r("cmux_shim_stop")
         setFocus = try r("cmux_shim_set_focus")
         setZoomLevel = try r("cmux_shim_set_zoom_level")
+        setAccessibility = try r("cmux_shim_set_accessibility")
         printPage = try r("cmux_shim_print")
         find = try r("cmux_shim_find")
         stopFinding = try r("cmux_shim_stop_finding")

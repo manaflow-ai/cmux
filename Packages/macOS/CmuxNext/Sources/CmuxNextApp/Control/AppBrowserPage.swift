@@ -97,6 +97,10 @@ enum AppBrowserPage {
             // Chromium's cookie methods go through the page's DevTools.
             try await ensureBrowser(page)
             return try await cookies(page, request)
+        case .input(let input):
+            // Trusted input after the page's first load, as a script acts on the loaded document.
+            _ = await awaitPendingNavigation(page, within: actionWait)
+            return try await services.browserNativeInputs.deliver(input, to: page, key: tabID)
         }
         return [:]
     }
