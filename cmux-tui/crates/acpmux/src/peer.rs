@@ -379,9 +379,14 @@ impl Peer {
                 Some(&token),
                 peer_token.as_deref(),
             )?;
+            // A peer forwards the pane's prompts and their images: the listener's limits.
             let (ws, _) = tokio::time::timeout(
                 self.timings.connect,
-                tokio_tungstenite::client_async(req, stream),
+                tokio_tungstenite::client_async_with_config(
+                    req,
+                    stream,
+                    Some(crate::server::ws_config()),
+                ),
             )
             .await
             .map_err(|_| connect_timed_out(self.timings.connect))?
