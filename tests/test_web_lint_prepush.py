@@ -544,6 +544,19 @@ class TuiBindingsTests(unittest.TestCase):
         self.assertEqual(plan.script_packages, [])
         self.assertEqual(plan.untrusted, [("cmux-tui/frontends/web", ["cmux-tui/bindings/typescript/package.json"])])
 
+    def test_the_hook_skips_a_push_that_changes_a_bindings_bun_lockfile(self):
+        # The bun fallback installs from it and runs the compiler it selects: code the check runs.
+        self.add_tui_packages()
+        lint = load_lint(self.repo)
+        for name in ("bun.lock", "bun.lockb"):
+            with self.subTest(name=name):
+                path = f"cmux-tui/bindings/typescript/{name}"
+
+                plan = lint.make_plan(self.repo, [path], guard_executed=True)
+
+                self.assertEqual(plan.script_packages, [])
+                self.assertEqual(plan.untrusted, [("cmux-tui/frontends/web", [path])])
+
 
 if __name__ == "__main__":
     unittest.main()
