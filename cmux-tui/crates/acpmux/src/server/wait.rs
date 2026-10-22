@@ -113,14 +113,16 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
     }
     let mut events = hub.subscribe();
     let deadline = timeout.map(|t| tokio::time::Instant::now() + t);
+    // Only the chats it waits on: summarizing every chat on every record any chat logs
+    // kept huge-blue's daemon at 6 to 8 cores and 4.5 GB with 13 waits open (2026-10-22).
     let evaluate = |hub: &Hub| -> (Vec<Value>, Vec<Value>) {
-        let summaries = hub.all_session_summaries();
+        let summaries = hub.session_summaries_of(&ids);
         let mut rows = Vec::new();
         let mut resolved = Vec::new();
         for id in &ids {
+            // `get`, not `remove`: two keys can name one chat (its name and its id).
             let s = summaries
-                .iter()
-                .find(|s| s.get("sessionId").and_then(Value::as_str) == Some(id))
+                .get(id)
                 .cloned()
                 .unwrap_or_else(|| json!({"sessionId": id, "status": "closed", "missing": true}));
             let seq_ok = after
@@ -156,13 +158,20 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
         let poll = tokio::time::sleep(std::time::Duration::from_millis(1000));
         tokio::pin!(poll);
         let wake = async {
-            tokio::select! {
-                _ = &mut poll => {}
-                r = events.recv() => {
-                    if let Err(tokio::sync::broadcast::error::RecvError::Closed) = r {
-                        // Daemon shutting down.
-                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                    }
+            loop {
+                tokio::select! {
+                    _ = &mut poll => break,
+                    r = events.recv() => match r {
+                        // Another chat's record changes none of these: the poll still
+                        // catches a change that logs no record.
+                        Ok(ev) if !concerns(&ev, &ids) => continue,
+                        Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => break,
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            // Daemon shutting down.
+                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                            break;
+                        }
+                    },
                 }
             }
         };
@@ -180,4 +189,10 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
             None => wake.await,
         }
     }
+}
+
+/// Whether `ev` is a record of one of the chats `ids` names, a peer's by its id or its row's.
+fn concerns(ev: &crate::hub::HubEvent, ids: &[String]) -> bool {
+    let row = ev.remote.as_ref().and_then(|r| r.summary.get("sessionId")).and_then(Value::as_str);
+    ids.iter().any(|id| *id == ev.session_id || Some(id.as_str()) == row)
 }
