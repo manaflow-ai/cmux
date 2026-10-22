@@ -1,11 +1,12 @@
 // The minimap's preview card beside the hovered or focused mark: the prompt on one line with its
 // bookmark, then the start of the reply. Both rails (ThreadMinimap.tsx, ScrollMap.tsx) draw it.
 //
-// The card draws in `layer`, the transcript scroller's parent, not in the rail. The scroller masks
-// its soft edges (conversation.css), and a masked ancestor is the card's backdrop root: inside it
-// the blur had nothing under it to read, so the rows showed through the tint sharp (#23782). From
-// the layer the card blurs the rows, as the chat's other glass does. An anchor left in the rail
-// marks where the card's x and y count from, so it lands where it always did.
+// The card draws in the transcript scroller's parent, not in the rail. The scroller masks its soft
+// edges (conversation.css), and a masked ancestor is the card's backdrop root: inside it the blur
+// had nothing under it to read, so the rows showed through the tint sharp (#23782). From the
+// parent the card blurs the rows, as the chat's other glass does. An anchor left in the rail marks
+// where the card's x and y count from, so it lands where it always did, and the wheel over the card
+// still scrolls the transcript, as it did when the card was inside it.
 import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n";
@@ -21,9 +22,9 @@ export const PreviewCard = React.forwardRef<
     /// From the rail's origin (`.acpmux-minimap`), wherever the card draws.
     x: number;
     y: number;
-    /// Where the card draws: outside every masked ancestor (the scroller's parent). Without one the
-    /// card draws in place.
-    layer?: HTMLElement | null;
+    /// The transcript scroller: the card draws in its parent, outside its mask. Without one the card
+    /// draws in place.
+    scroller?: HTMLElement | null;
     /// The prompt's line; a reply's card has none.
     prompt?: string;
     reply: readonly ReplyBlock[];
@@ -32,8 +33,9 @@ export const PreviewCard = React.forwardRef<
     onFocus?(): void;
     onBlur?(event: React.FocusEvent<HTMLDivElement>): void;
   }
->(function PreviewCard({ id, x, y, layer, prompt, reply, bookmark, onPointerLeave, onFocus, onBlur }, ref) {
+>(function PreviewCard({ id, x, y, scroller, prompt, reply, bookmark, onPointerLeave, onFocus, onBlur }, ref) {
   const t = useT();
+  const layer = scroller?.parentElement;
   const anchor = useRef<HTMLSpanElement>(null);
   const self = useRef<HTMLDivElement | null>(null);
   /// The rail's origin in the card's containing block, measured after each commit (before paint).
@@ -68,6 +70,15 @@ export const PreviewCard = React.forwardRef<
       className="acpmux-minimap__card"
       style={{ transform: `translate3d(${at.x + x}px, ${at.y + y}px, 0)` }}
       onPointerLeave={onPointerLeave}
+      onWheel={
+        layer
+          ? (event) => {
+              // A line (deltaMode 1) as 16 px; pixels as they come.
+              const unit = event.deltaMode === 1 ? 16 : 1;
+              scroller!.scrollBy({ left: event.deltaX * unit, top: event.deltaY * unit });
+            }
+          : undefined
+      }
       onFocus={onFocus}
       onBlur={onBlur}
     >

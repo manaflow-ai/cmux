@@ -428,6 +428,13 @@ test("the card draws outside the transcript scroller, whose edge mask would keep
     expect(card()!.parentElement).toBe(view.scroller.parentElement);
     // The rail keeps an anchor where the card's x and y count from.
     expect(view.scroller.querySelector(".acpmux-minimap > .acpmux-minimap__anchor")).not.toBeNull();
+    // The wheel over the card still scrolls the transcript, as it did inside it.
+    const scrolls: unknown[] = [];
+    view.scroller.scrollBy = ((options: unknown) => void scrolls.push(options)) as typeof view.scroller.scrollBy;
+    await act(async () => {
+      card()!.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 120, bubbles: true, cancelable: true }));
+    });
+    expect(scrolls).toEqual([{ left: 0, top: 120 }]);
   } finally {
     await view.unmount();
   }

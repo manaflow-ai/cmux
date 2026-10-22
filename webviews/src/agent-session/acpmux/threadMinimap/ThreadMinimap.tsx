@@ -616,7 +616,7 @@ export function ThreadMinimap({
           x={RAIL_LEFT + ROW_WIDTH}
           y={cardTop}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
-          layer={scroller.current?.parentElement}
+          scroller={scroller.current}
           prompt={cardTurn.prompt}
           reply={cardTurn.reply}
           bookmark={marks.can(cardTurn) ? { marked: cardMarked, toggle: () => marks.toggle(cardTurn) } : undefined}
