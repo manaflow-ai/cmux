@@ -220,11 +220,16 @@ pub(crate) fn strip_lasting_allows(request: &mut Value) {
 /// starts with it blank (a relative `--require` in `NODE_OPTIONS` would load the folder's).
 const BLANKED_ENV: &[&str] = &["NODE_OPTIONS", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH"];
 
-/// Refuses a `CLAUDE_CONFIG_DIR` (each value the spawn could inherit) that is relative or
+/// The env that says where Claude Code reads its user settings: `$CLAUDE_CONFIG_DIR`, else
+/// `$HOME/.claude`.
+const SETTINGS_ROOTS: &[&str] = &["CLAUDE_CONFIG_DIR", "HOME"];
+
+/// Refuses a `key` of `SETTINGS_ROOTS` (each value the spawn could inherit) that is relative or
 /// inside the chat's folder `cwd`: Claude Code reads its user settings there, so
 /// `--setting-sources user` would load the folder's own. One elsewhere is the person's own
 /// (another Claude account's folder), unless `cwd` holds the person's home (`frozen_program`).
-fn check_config_dir<'v>(
+fn check_settings_root<'v>(
+    key: &str,
     values: impl IntoIterator<Item = &'v str>,
     cwd: &Path,
 ) -> Result<(), String> {
@@ -235,7 +240,7 @@ fn check_config_dir<'v>(
     for value in values.into_iter().filter(|v| !v.is_empty()) {
         let dir = Path::new(value);
         if !dir.is_absolute() {
-            return Err(format!("CLAUDE_CONFIG_DIR={value} is a relative path"));
+            return Err(format!("{key}={value} is a relative path"));
         }
         // Claude Code makes the folder when it is missing: its nearest existing folder says
         // where it would be.
@@ -244,17 +249,16 @@ fn check_config_dir<'v>(
             .find_map(|a| Some(std::fs::canonicalize(a).ok()?.join(dir.strip_prefix(a).ok()?)))
             .unwrap_or_else(|| dir.to_path_buf());
         if real.starts_with(&cwd) && !holds_home {
-            return Err(format!("CLAUDE_CONFIG_DIR={value} is inside the chat's folder"));
+            return Err(format!("{key}={value} is inside the chat's folder"));
         }
     }
     Ok(())
 }
 
-/// A profile's `CLAUDE_CONFIG_DIR` value with its `${env:…}` references read as the spawn
-/// reads them (`agent/command.rs`); any other reference (`${cwd}`, a Keychain item) cannot be
-/// checked here, so it is refused.
-fn env_refs_read(value: &str) -> Result<String, String> {
-    let key = "CLAUDE_CONFIG_DIR";
+/// A profile's `key` value with its `${env:…}` references read as the spawn reads them
+/// (`agent/command.rs`); any other reference (`${cwd}`, a Keychain item) cannot be checked
+/// here, so it is refused.
+fn env_refs_read(key: &str, value: &str) -> Result<String, String> {
     let mut one = BTreeMap::from([(key.to_owned(), value.to_owned())]);
     crate::config::profiles::resolve_env_refs(
         &mut one,
@@ -485,15 +489,14 @@ impl Hub {
         self.refuse_unrestricted_start(session, &profile)?;
         let mut plan = command_line(&profile.argv, plan).map_err(refused)?;
         plan.program = frozen_program(&plan.program, &meta.cwd).map_err(refused)?;
-        let own = profile.env.get("CLAUDE_CONFIG_DIR").map(|v| env_refs_read(v)).transpose();
-        let (own, login, daemon) = (
-            own.map_err(refused)?,
-            crate::login_env::var("CLAUDE_CONFIG_DIR"),
-            std::env::var("CLAUDE_CONFIG_DIR").ok(),
-        );
-        let config_dirs = [own.as_ref(), login.as_ref(), daemon.as_ref()];
-        check_config_dir(config_dirs.into_iter().flatten().map(String::as_str), &meta.cwd)
-            .map_err(refused)?;
+        for key in SETTINGS_ROOTS {
+            let own = profile.env.get(*key).map(|v| env_refs_read(key, v)).transpose();
+            let (own, login, daemon) =
+                (own.map_err(refused)?, crate::login_env::var(key), std::env::var(key).ok());
+            let values = [own.as_ref(), login.as_ref(), daemon.as_ref()];
+            check_settings_root(key, values.into_iter().flatten().map(String::as_str), &meta.cwd)
+                .map_err(refused)?;
+        }
         let mut profile = profile.into_owned();
         for key in BLANKED_ENV {
             profile.env.insert((*key).to_owned(), String::new());
@@ -648,29 +651,41 @@ mod tests {
     }
 
     #[test]
-    fn a_claude_config_dir_in_the_chat_folder_or_relative_is_refused() {
+    fn a_settings_root_in_the_chat_folder_or_relative_is_refused() {
         let root = std::env::temp_dir().join(format!("restricted-config-{}", std::process::id()));
         let (chat, elsewhere) = (root.join("chat"), root.join("elsewhere"));
         std::fs::create_dir_all(&chat).unwrap();
         std::fs::create_dir_all(&elsewhere).unwrap();
         let text = |p: &Path| p.to_string_lossy().into_owned();
-        assert!(check_config_dir([], &chat).is_ok());
-        assert!(check_config_dir([""], &chat).is_ok(), "set but empty is unset");
-        let relative = check_config_dir([".claude"], &chat).unwrap_err();
+        assert!(check_settings_root("CLAUDE_CONFIG_DIR", [], &chat).is_ok());
+        assert!(
+            check_settings_root("CLAUDE_CONFIG_DIR", [""], &chat).is_ok(),
+            "set but empty is unset"
+        );
+        let relative = check_settings_root("CLAUDE_CONFIG_DIR", [".claude"], &chat).unwrap_err();
         assert!(relative.contains("relative path"), "{relative}");
         // Missing yet (Claude Code makes it), and through the temp folder's symlink on macOS.
         let inside = text(&chat.join(".claude"));
-        let refused = check_config_dir([inside.as_str()], &chat).unwrap_err();
+        let refused =
+            check_settings_root("CLAUDE_CONFIG_DIR", [inside.as_str()], &chat).unwrap_err();
         assert!(refused.contains("inside the chat's folder"), "{refused}");
         // Another account's folder elsewhere is the person's own.
         let own = text(&elsewhere.join(".claude-work"));
-        assert!(check_config_dir([own.as_str()], &chat).is_ok());
+        assert!(check_settings_root("CLAUDE_CONFIG_DIR", [own.as_str()], &chat).is_ok());
         // Any one value the spawn could inherit is enough to refuse.
-        assert!(check_config_dir([own.as_str(), inside.as_str()], &chat).is_err());
+        assert!(
+            check_settings_root("CLAUDE_CONFIG_DIR", [own.as_str(), inside.as_str()], &chat)
+                .is_err()
+        );
         // A profile's references: `${env:…}` is read, any other cannot be checked.
-        assert_eq!(env_refs_read("/opt/claude").unwrap(), "/opt/claude");
-        assert!(env_refs_read("${cwd}/.claude").is_err());
-        assert!(env_refs_read("${keychain:claude}").is_err());
+        assert_eq!(env_refs_read("CLAUDE_CONFIG_DIR", "/opt/claude").unwrap(), "/opt/claude");
+        assert!(env_refs_read("CLAUDE_CONFIG_DIR", "${cwd}/.claude").is_err());
+        assert!(env_refs_read("CLAUDE_CONFIG_DIR", "${keychain:claude}").is_err());
+        // `HOME` the same way: Claude Code's user settings are `$HOME/.claude` without one.
+        let home = text(&chat);
+        let refused = check_settings_root("HOME", [home.as_str()], &chat).unwrap_err();
+        assert_eq!(refused, format!("HOME={home} is inside the chat's folder"));
+        assert!(env_refs_read("HOME", "${cwd}").is_err());
         let _ = std::fs::remove_dir_all(&root);
     }
 
