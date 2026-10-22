@@ -331,26 +331,29 @@ test("a lost prompt the host sent again after all never comes back into its chat
 });
 
 test("a lost prompt the host sent after all leaves the composer; the person's own text and edits stay", () => {
-  const restored = { text: "continue", attachmentIds: ["img-1"] };
-  expect(withoutRestored({ text: "continue", attachmentIds: ["img-1"] }, restored)).toEqual({ text: "", attachmentIds: [] });
-  // Two prompts lost together come back as one draft (`restore` puts each first): each part goes.
-  const both = { text: "and test it\n\ncontinue", attachmentIds: ["img-1", "img-2"] };
-  const second = withoutRestored(both, restored);
-  expect(second).toEqual({ text: "and test it", attachmentIds: ["img-2"] });
-  expect(withoutRestored(second!, { text: "and test it", attachmentIds: ["img-2"] })).toEqual({ text: "", attachmentIds: [] });
-  expect(withoutRestored(both, { text: "and test it", attachmentIds: ["img-2"] })).toEqual({
-    text: "continue",
-    attachmentIds: ["img-1"],
-  });
-  // What the person typed after it stays.
-  expect(withoutRestored({ text: "continue\n\nmy note", attachmentIds: ["img-1", "img-3"] }, restored)).toEqual({
+  const go = { text: "continue", attachmentIds: ["img-1"] };
+  expect(withoutRestored({ text: "continue", attachmentIds: ["img-1"] }, [go], 0)).toEqual({ text: "", attachmentIds: [] });
+  // Two prompts lost together come back as one draft, the newer first: each goes on its own.
+  const test2 = { text: "and test it", attachmentIds: ["img-2"] };
+  const both = { text: "and test it\n\ncontinue", attachmentIds: ["img-2", "img-1"] };
+  expect(withoutRestored(both, [go, test2], 0)).toEqual({ text: "and test it", attachmentIds: ["img-2"] });
+  expect(withoutRestored(both, [go, test2], 1)).toEqual({ text: "continue", attachmentIds: ["img-1"] });
+  // A part that is also a paragraph of another: the part that went goes, never the paragraph.
+  const plain = { text: "continue", attachmentIds: [] };
+  const longer = { text: "continue\n\nand test it", attachmentIds: [] };
+  const overlap = { text: "continue\n\nand test it\n\ncontinue", attachmentIds: [] };
+  expect(withoutRestored(overlap, [plain, longer], 0)).toEqual({ text: "continue\n\nand test it", attachmentIds: [] });
+  expect(withoutRestored(overlap, [plain, longer], 1)).toEqual({ text: "continue", attachmentIds: [] });
+  // What the person typed before it came back stays, after it.
+  expect(withoutRestored({ text: "continue\n\nmy note", attachmentIds: ["img-1", "img-3"] }, [go], 0)).toEqual({
     text: "my note",
     attachmentIds: ["img-3"],
   });
   // Edited, or a chip of it removed: the person's draft now, so it stays.
-  expect(withoutRestored({ text: "continue please", attachmentIds: ["img-1"] }, restored)).toBeUndefined();
-  expect(withoutRestored({ text: "please continue", attachmentIds: ["img-1"] }, restored)).toBeUndefined();
-  expect(withoutRestored({ text: "continue", attachmentIds: [] }, restored)).toBeUndefined();
+  expect(withoutRestored({ text: "continue please", attachmentIds: ["img-1"] }, [go], 0)).toBeUndefined();
+  expect(withoutRestored({ text: "please continue", attachmentIds: ["img-1"] }, [go], 0)).toBeUndefined();
+  expect(withoutRestored({ text: "continue", attachmentIds: [] }, [go], 0)).toBeUndefined();
+  expect(withoutRestored({ text: "and test it, continue", attachmentIds: [] }, [plain, longer], 0)).toBeUndefined();
   // Sent already: the composer is empty, nothing to take out.
-  expect(withoutRestored({ text: "", attachmentIds: [] }, restored)).toBeUndefined();
+  expect(withoutRestored({ text: "", attachmentIds: [] }, [go], 0)).toBeUndefined();
 });

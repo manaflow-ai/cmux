@@ -5657,19 +5657,28 @@ function AcpmuxPane() {
       lostDraftsKept.drop(promptId);
       const back = restoredLost.get(promptId);
       if (!back) return;
-      restoredLost.delete(promptId);
       const shown = directClient.current;
-      if (shown?.selectedSession !== back.sessionId) return;
+      if (shown?.selectedSession !== back.sessionId) {
+        restoredLost.delete(promptId);
+        return;
+      }
       const waiting = heldBack.current;
       const unmounted = waiting?.findIndex(
         (draft) => draft.text === back.text && draft.attachments === back.attachments,
       );
       let taken = false;
-      if (composerHandle.current) taken = composerHandle.current.takeBack(back.text, back.attachments);
-      else if (waiting && unmounted !== undefined && unmounted >= 0) {
+      if (composerHandle.current) {
+        // This chat's lost prompts put back in the composer, in the order they came back.
+        const parts = [...restoredLost].filter(([, other]) => other.sessionId === back.sessionId);
+        taken = composerHandle.current.takeBack(
+          parts.map(([, part]) => part),
+          parts.findIndex(([id]) => id === promptId),
+        );
+      } else if (waiting && unmounted !== undefined && unmounted >= 0) {
         heldBack.current = waiting.filter((_, index) => index !== unmounted);
         taken = true;
       }
+      restoredLost.delete(promptId);
       if (taken) shown.dismissNotice(back.noticeId);
     };
     const connectHost = async () => {

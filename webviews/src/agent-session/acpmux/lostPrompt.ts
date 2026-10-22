@@ -153,28 +153,36 @@ export function lostDrafts<Draft extends { promptId: string }>() {
 /// A composer's prompt, by its text and its chips' ids in order.
 export type HeldPrompt = { text: string; attachmentIds: readonly string[] };
 
-/// The composer without `restored`, the lost prompt that came back into it, or undefined when it
-/// no longer holds that prompt as it came back. Once the host sends the prompt again after all,
-/// its draft goes (its next Send would run it a second time, under a new id). `restore` puts a
-/// prompt that comes back first, ahead of what the composer held, separated by a blank line, so
-/// two prompts lost together come back as one draft: each goes as its own part, and what the
-/// person typed stays. A part they edited, or a chip of it they removed, is theirs and stays.
-export function withoutRestored(composer: HeldPrompt, restored: HeldPrompt): HeldPrompt | undefined {
-  if (!restored.text && restored.attachmentIds.length === 0) return undefined;
-  if (!restored.attachmentIds.every((id) => composer.attachmentIds.includes(id))) return undefined;
-  const attachmentIds = composer.attachmentIds.filter((id) => !restored.attachmentIds.includes(id));
-  if (!restored.text) return { text: composer.text, attachmentIds };
+/// The composer as it would hold had `parts[index]` never come back into it, or undefined when
+/// the person changed it since. `parts`: the lost prompts put back into this chat's composer, in
+/// the order they came back. `restore` puts each one first, ahead of what the composer held, a
+/// blank line apart, with its chips first; so the composer is taken apart from its newest part
+/// back to what was there before the first, and built again without the part that went. Matching
+/// whole parts by where they were put, never by searching the text, keeps a part that is also a
+/// paragraph of another one.
+export function withoutRestored(
+  composer: HeldPrompt,
+  parts: readonly HeldPrompt[],
+  index: number,
+): HeldPrompt | undefined {
+  if (index < 0 || index >= parts.length) return undefined;
   const gap = "\n\n";
-  const text = composer.text;
-  for (let at = text.indexOf(restored.text); at >= 0; at = text.indexOf(restored.text, at + 1)) {
-    const end = at + restored.text.length;
-    const starts = at === 0 || text.startsWith(gap, at - gap.length);
-    const ends = end === text.length || text.startsWith(gap, end);
-    if (!starts || !ends) continue;
-    // The part and one blank line beside it: the one after it, or before it when it is last.
-    const rest =
-      end < text.length ? text.slice(0, at) + text.slice(end + gap.length) : text.slice(0, Math.max(0, at - gap.length));
-    return { text: rest, attachmentIds };
+  let text = composer.text;
+  let attachmentIds = [...composer.attachmentIds];
+  for (let at = parts.length - 1; at >= 0; at--) {
+    const part = parts[at]!;
+    if (!text.startsWith(part.text)) return undefined;
+    const rest = text.slice(part.text.length);
+    if (rest && !rest.startsWith(gap)) return undefined;
+    // An empty part over typed text left a blank line ahead of it.
+    text = rest.slice(rest ? gap.length : 0);
+    if (!part.attachmentIds.every((id, position) => attachmentIds[position] === id)) return undefined;
+    attachmentIds = attachmentIds.slice(part.attachmentIds.length);
   }
-  return undefined;
+  for (const [at, part] of parts.entries()) {
+    if (at === index) continue;
+    text = text.trim() ? `${part.text}${gap}${text}` : part.text;
+    attachmentIds = [...part.attachmentIds, ...attachmentIds.filter((id) => !part.attachmentIds.includes(id))];
+  }
+  return { text, attachmentIds };
 }

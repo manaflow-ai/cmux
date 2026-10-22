@@ -134,9 +134,10 @@ export const COMPOSER_LABELS = {
 export type ComposerHandle = {
   /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest.
   restore(text: string, attachments: ComposerAttachment[]): void;
-  /// Takes out a prompt `restore` put in, when the composer still holds just that, unedited
-  /// (lostPrompt.ts `withoutRestored`); true when it did.
-  takeBack(text: string, attachments: ComposerAttachment[]): boolean;
+  /// Takes out `parts[index]`, one of the prompts `restore` put in (`parts`, in the order they came
+  /// back), when the composer still holds them as they came back (lostPrompt.ts
+  /// `withoutRestored`); true when it did.
+  takeBack(parts: readonly { text: string; attachments: ComposerAttachment[] }[], index: number): boolean;
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
   /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
   attach(attachment: ComposerAttachment): void;
@@ -524,22 +525,24 @@ export function Composer({
             ...current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id)),
           ]);
       },
-      takeBack(backText, backAttachments) {
+      takeBack(parts, index) {
         const held = {
           text: field.current?.value() ?? textRef.current,
           attachmentIds: attachmentsRef.current.map((attachment) => attachment.id),
         };
-        const left = withoutRestored(held, {
-          text: backText,
-          attachmentIds: backAttachments.map((attachment) => attachment.id),
-        });
+        const left = withoutRestored(
+          held,
+          parts.map((part) => ({ text: part.text, attachmentIds: part.attachments.map((attachment) => attachment.id) })),
+          index,
+        );
         if (!left) return false;
         if (field.current) field.current.type(left.text);
         else {
           setText(left.text);
           setCaret(left.text.length);
         }
-        const kept = attachmentsRef.current.filter((attachment) => left.attachmentIds.includes(attachment.id));
+        const byId = new Map(attachmentsRef.current.map((attachment) => [attachment.id, attachment] as const));
+        const kept = left.attachmentIds.flatMap((id) => byId.get(id) ?? []);
         attachmentsRef.current = kept;
         setAttachments(kept);
         return true;
