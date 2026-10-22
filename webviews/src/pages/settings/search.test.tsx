@@ -4,7 +4,7 @@ import type { Rendered } from "./testing";
 
 const restore = installDom();
 afterAll(() => restore());
-const { changeValue, fire, ops, renderPage, rowElement, run } = await import("./testing");
+const { changeValue, click, fire, ops, renderPage, rowElement, run } = await import("./testing");
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -92,7 +92,8 @@ test("Up/Down move between rows, Space toggles; dispatcher commands reset, go ba
   await fire(first, "keydown", { key: "ArrowDown" });
   expect(document.activeElement).toBe(next);
 
-  await fire(page.container.querySelector('[data-section-link="browser"]')!, "click");
+  // A section entry is a router link: a click is a mouse click (WebKit sends one for Enter too).
+  await click(page.container.querySelector('[data-section-link="browser"]')!);
   expect(page.history.location.pathname).toBe("/settings/browser");
   await fire(document.body, "keydown", { key: "[", metaKey: true });
   expect(page.history.location.pathname).toBe("/settings/browser");
