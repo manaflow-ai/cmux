@@ -26,7 +26,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `app.startAgentGlobalHotKey` | boolean | `false` |  | Start Agent from Any App. Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts. |
 | `app.hideDockIconWithoutWindows` | boolean | `true` |  | Hide Dock Icon When No Windows Are Open. cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens. |
 | `tabs.newTabTemplate` | string | `"cards"` | `cards`, `default`, `composer`, `threads`, `console`, `classic`, `terminal` | New Tab Template. The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it. |
-| `tabs.terminalFirst` | boolean | `false` |  | New Tabs and Splits Open a Terminal. When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page. |
+| `tabs.terminalFirst` | boolean | `false` |  | cmux Classic Mode. New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab. |
 | `tabs.newTabPosition` | string | `"afterCurrent"` | `afterCurrent`, `end`, `start` | New Tab Position. Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab. |
 | `tabs.plusButton` | string | `"hover"` | `hover`, `always` | New Tab Button. On Hover shows each tab bar's + only while the pointer is over that tab bar. |
 | `tabs.barPosition` | string | `"top"` | `top`, `bottom` | Tab Bar Position. Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane. |
@@ -58,6 +58,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `updates.notify` | string | `"badge"` | `badge`, `silent` | When an Update Is Ready |
 | `updates.keepPreviousVersions` | real | `1` | 0 to 5 | Keep Previous Versions. Earlier builds kept so you can roll back. Uses almost no disk until files change. |
 | `updates.showWhatsNew` | boolean | `true` |  | Show What's New After Updates. After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it. |
+| `updates.idleInstallMaxWaitSeconds` | real | `900` | 60 to 7200 | Install Within. A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart. |
+| `updates.idleInstallQuietSeconds` | real | `60` | 5 to 600 | Quiet Time Before Installing. How long the keyboard and mouse must be idle before a downloaded nightly installs by itself. |
 | `announcements.enabled` | boolean | `true` |  | Show Announcements. Short cards from the cmux team above Settings, shown when the pointer is over the sidebar. |
 | `announcements.fetch` | boolean | `true` |  | Download Announcements. Off: cmux never asks the network for announcements. The request carries no identifiers. |
 | `computerUse.enabled` | boolean | `false` |  | Computer Use. Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them. |
