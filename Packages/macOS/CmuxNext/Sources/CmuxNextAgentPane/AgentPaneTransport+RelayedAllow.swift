@@ -26,8 +26,26 @@ extension AgentPaneTransport {
             Self.logger.info("agent pane transport relayed allow without the person's ticket: sent without a proof")
             return
         }
+        // A question's answers: the proof covers them too, else that daemon refuses the answer.
+        if let answers = Self.answers(box) {
+            guard let proof = key.decisionProof(instance: context.instance, session: session, permission: permission,
+                                                option: option, nonce: context.nonce, answers: answers) else {
+                Self.logger.info("agent pane transport relayed answer without a canonical form: sent without a proof")
+                return
+            }
+            box.setDecision(nonce: context.nonce, proof: proof)
+            return
+        }
         let proof = key.decisionProof(instance: context.instance, session: session, permission: permission, option: option,
                                       nonce: context.nonce)
         box.setDecision(nonce: context.nonce, proof: proof)
+    }
+
+    /// The frame's `answers` (a question's), when it has any that are not null.
+    private static func answers(_ box: FrameBox) -> Any? {
+        guard let text = box.encoded(id: nil),
+              let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+              let answers = (object["params"] as? [String: Any])?["answers"], !(answers is NSNull) else { return nil }
+        return answers
     }
 }
