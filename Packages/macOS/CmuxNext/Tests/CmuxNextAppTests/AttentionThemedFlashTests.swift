@@ -192,6 +192,15 @@ import Testing
         Self.update(view, nil, off)
         #expect(view.attentionLayer.animation(forKey: "attention-dismiss") == nil, "the flash outlived look none")
         #expect(view.attentionLayer.animation(forKey: "attention-dismiss-glow") == nil, "the glow outlived look none")
+        // Glow to ring mid-flash: the flash may finish, its glow goes.
+        let glowing = Self.overlay()
+        Self.update(glowing, AttentionMark(generation: 3), AttentionSettings())
+        Self.update(glowing, nil, AttentionSettings(), readByEntry: true)
+        #expect(glowing.attentionLayer.animation(forKey: "attention-dismiss-glow") != nil, "no glow to stop")
+        var ring = AttentionSettings()
+        ring.terminalRing = .ring
+        Self.update(glowing, nil, ring)
+        #expect(glowing.attentionLayer.animation(forKey: "attention-dismiss-glow") == nil, "the glow outlived look ring")
     }
 
     /// Look ring: the stroke alone, with no glow at rest or in the flash; glow keeps classic's.

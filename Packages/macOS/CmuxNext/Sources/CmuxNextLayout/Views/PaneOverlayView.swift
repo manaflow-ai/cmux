@@ -228,6 +228,8 @@ final class PaneOverlayView: NSView {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             applyRingGlow()
+            // A look without glow (ring, none) stops a dismiss flash's glow that is running.
+            if !ringGlows { attention.removeAnimation(forKey: "attention-dismiss-glow") }
             CATransaction.commit()
         }
         let style = showsRing ? focusRing.effectiveStyle : .none
