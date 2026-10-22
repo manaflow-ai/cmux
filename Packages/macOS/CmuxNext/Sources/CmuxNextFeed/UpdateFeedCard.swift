@@ -69,15 +69,12 @@ public nonisolated struct UpdateFeedCard: Sendable, Equatable {
         return "nightly " + String(build.prefix(7))
     }
 
-    /// The card's text: where it came from, the top changes as bullets and how many more.
+    /// The card's text: the top changes as bullets and how many more. It does not say which version
+    /// it updated from (Lawrence 2026-10-22: "updating from is too much info").
     public var body: String {
         var lines: [String] = []
-        if let from, from != to { lines.append(FeedStrings.updatedFrom(Self.readable(from))) }
         let shown = changes.prefix(Self.maxChanges)
-        if !shown.isEmpty {
-            if !lines.isEmpty { lines.append("") }
-            lines += shown.map { "- " + Self.oneLine($0) }
-        }
+        lines += shown.map { "- " + Self.oneLine($0) }
         let more = changes.count - shown.count + unlisted
         if more > 0 { lines.append(FeedStrings.moreChanges(more)) }
         return String(lines.joined(separator: "\n").prefix(4096))

@@ -98,7 +98,7 @@ function raw() {
 }
 function pop(grouped) {
   const r = R[0], top = by(r, "new").slice(0, 3), rest = r.items.filter((i) => !top.includes(i));
-  return `<div class="pop ${grouped ? "fade" : ""}"><div class="pt">What's new in ${short(r.version)}</div><div class="pf">Updating from nightly 3913596</div>
+  return `<div class="pop ${grouped ? "fade" : ""}"><div class="pt">What's new in ${short(r.version)}</div>
     <ol>${top.map((i, n) => `<li><span class="n">${n + 1}</span><div>${md(i.title)}<span class="l">${md(first(i.body))}</span>${n === 0 ? shot() : ""}</div></li>`).join("")}</ol>
     ${grouped ? CATS.map(([c, l]) => { const items = rest.filter((i) => i.category === c); return items.length ? `<h4>${l}</h4><ul>${items.map((i) => `<li>${md(i.title)}</li>`).join("")}</ul>` : ""; }).join("") : ""}
     <div class="foot"><span class="pf">${grouped ? "" : `${rest.length} more changes`}</span><button>See all changes →</button></div></div>`;

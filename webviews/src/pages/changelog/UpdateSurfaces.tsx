@@ -15,8 +15,8 @@
 //    numbered, each a title, one line and its picture when it has one, and "See all changes", once.
 //    The popover scrolls on to every other change of the update (`rest`, 2026-10-20), with the
 //    shared card scroller and a fade at each edge that has more past it (scrollers.ts).
-//    Under the title, the version it replaces ("Updating from nightly 3801702", Lawrence 2026-10-19:
-//    show at once what is going to change); with no change list, "See release notes" instead.
+//    Only the title names a version (Lawrence 2026-10-22: "updating from is too much info"); with no
+//    change list, "See release notes" instead.
 // Data: UpdateHighlights (updateHighlights.ts); the host mounts these and wires the actions.
 import { useEffect, useId, useRef, useSyncExternalStore } from "react";
 import { CARD_SCROLL_ATTRIBUTE, installScrollEdges } from "../../scrollers";
@@ -131,9 +131,6 @@ export function UpdateReadyHighlights({
       <div className="wn-pop-title" id={titleId} title={data.version}>
         {strings.format("updates.popover.title", cardVersion(data.version))}
       </div>
-      {data.fromVersion && data.fromVersion !== data.version && (
-        <div className="wn-pop-from">{strings.format("updates.popover.from", cardVersion(data.fromVersion))}</div>
-      )}
       {data.items.length > 0 && (
         <ol className="wn-pop-list">
           {data.items.map((item, index) => (
