@@ -63,15 +63,16 @@ struct Probe {
     /// The running daemon's build; None when none answers.
     build: Option<String>,
     /// Its own sessions that run a turn or wait on a permission (asked
-    /// for); None when they could not be read.
+    /// for), but the caller's; None when they could not be read.
     busy: Option<Vec<String>>,
     /// Why its hand-written unit cannot be moved: a reason code and a message.
     refused: Option<(String, String)>,
 }
 
 impl Probe {
-    /// None when the script did not run (ssh failed).
-    fn parse(out: &RemoteOut) -> Option<Probe> {
+    /// None when the script did not run (ssh failed). `caller` is the
+    /// session this command runs in, never counted busy.
+    fn parse(out: &RemoteOut, caller: Option<&str>) -> Option<Probe> {
         let mut parts = vec![String::new()];
         for line in out.stdout.lines() {
             if line == PROBE_SPLIT {
@@ -87,7 +88,7 @@ impl Probe {
         let build = answering_build(&parts[1]);
         let replied = serde_json::from_str::<Value>(parts[1].trim()).is_ok();
         let busy = match (&build, replied) {
-            (Some(_), _) => busy_sessions(&parts[2]),
+            (Some(_), _) => busy_sessions(&parts[2], caller),
             // A daemon that is not running runs no turn.
             (None, true) => Some(Vec::new()),
             (None, false) => None,
@@ -114,14 +115,16 @@ fn answering_build(status: &str) -> Option<String> {
 
 /// The daemon's own sessions (not its peers') that run a turn or wait on a
 /// permission, by name, from its `acpmux --json ls`; None when that is not
-/// a session list.
-fn busy_sessions(ls: &str) -> Option<Vec<String>> {
+/// a session list. The session `caller` (the one this command runs in) is
+/// left out: its turn runs the update and never ends first.
+fn busy_sessions(ls: &str, caller: Option<&str>) -> Option<Vec<String>> {
     let v: Value = serde_json::from_str(ls.trim()).ok()?;
     let busy = v
         .get("sessions")?
         .as_array()?
         .iter()
         .filter(|s| s.get("peer").is_none())
+        .filter(|s| caller.is_none() || s.get("sessionId").and_then(Value::as_str) != caller)
         .filter(|s| {
             !s.get("turn").unwrap_or(&Value::Null).is_null()
                 || s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0
@@ -349,8 +352,9 @@ pub(crate) struct UpdateOptions {
 /// changes on the peer before the push.
 fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     let up = PeerUpdate::new();
+    let caller = opts.caller.as_deref();
     let probe = match remote.exec(&probe_script(opts.if_idle), None) {
-        Ok(out) => match Probe::parse(&out) {
+        Ok(out) => match Probe::parse(&out, caller) {
             Some(probe) => probe,
             None => {
                 let why = out.stderr.trim();
@@ -448,7 +452,7 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     // rather than restart under it.
     if opts.if_idle {
         let again = remote.exec(&probe_script(true), None).ok();
-        let busy = match again.as_ref().and_then(Probe::parse) {
+        let busy = match again.as_ref().and_then(|out| Probe::parse(out, caller)) {
             Some(Probe { busy: Some(names), .. }) if names.is_empty() => None,
             Some(Probe { busy: Some(names), .. }) => {
                 Some(("busy", format!("mid-turn or waiting on a permission: {}", names.join(", "))))

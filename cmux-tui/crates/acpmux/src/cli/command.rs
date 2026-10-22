@@ -855,7 +855,7 @@ pub enum PeerCmd {
         #[arg(long, value_name = "DIR")]
         binary_dir: Option<PathBuf>,
         /// Leave a peer alone while one of its sessions runs a turn or waits
-        /// on a permission.
+        /// on a permission (but the session this command runs in).
         #[arg(long)]
         if_idle: bool,
     },

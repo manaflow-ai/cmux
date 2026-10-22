@@ -58,16 +58,19 @@ fn only_the_daemons_own_turns_and_permission_prompts_make_it_busy() {
         {"name": "closed", "status": "closed"},
         {"name": "other/lane", "peer": "other", "status": "running", "turn": {"startedAt": 1}},
     ]});
-    assert_eq!(busy_sessions(&ls.to_string()), Some(vec!["mid-turn".into(), "asking".into()]));
+    assert_eq!(
+        busy_sessions(&ls.to_string(), None),
+        Some(vec!["mid-turn".into(), "asking".into()])
+    );
     // A sub-session is a session of the same daemon: an idle parent
     // with a child mid-turn is busy.
     let family = json!({"sessions": [
         {"name": "parent", "status": "idle", "turn": null, "pendingPermissions": 0, "children": 1},
         {"name": "parent-sub", "status": "running", "turn": {"startedAt": 1}, "startedBy": "parent", "depth": 1},
     ]});
-    assert_eq!(busy_sessions(&family.to_string()), Some(vec!["parent-sub".into()]));
-    assert_eq!(busy_sessions(r#"{"sessions": []}"#), Some(vec![]));
-    assert_eq!(busy_sessions(""), None, "unreadable is not idle");
+    assert_eq!(busy_sessions(&family.to_string(), None), Some(vec!["parent-sub".into()]));
+    assert_eq!(busy_sessions(r#"{"sessions": []}"#, None), Some(vec![]));
+    assert_eq!(busy_sessions("", None), None, "unreadable is not idle");
     assert_eq!(
         answering_build("{\n  \"build\": \"d5829ffea 2026-10-21\",\n  \"pid\": 7\n}").as_deref(),
         Some("d5829ffea 2026-10-21")
@@ -424,7 +427,7 @@ fn a_login_banner_is_not_read_as_the_platform() {
         "Welcome to box\n{UNAME}Linux aarch64\n{CLOUD_VM}\n\n{PROBE_SPLIT}\n{{}}\n\n{PROBE_SPLIT}\n\n{PROBE_SPLIT}\n"
     );
     let out = RemoteOut { ok: true, stdout, stderr: String::new() };
-    let probe = Probe::parse(&out).unwrap();
+    let probe = Probe::parse(&out, None).unwrap();
     assert_eq!(probe.uname, "Linux aarch64");
     assert!(probe.cloud_vm);
 }
