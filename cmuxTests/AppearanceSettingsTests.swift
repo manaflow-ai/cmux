@@ -541,6 +541,65 @@ final class AppearanceSettingsTests: XCTestCase {
         XCTAssertEqual(synchronizedSource, "test.defaultsObserver")
     }
 
+    func testDefaultsObserverAppliesStoredAppearanceImmediately() {
+        let suiteName = "AppearanceSettingsTests.DefaultsObserverInitialApply.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let notificationCenter = NotificationCenter()
+        var appliedAppearanceName: NSAppearance.Name?
+        var synchronizedAppearanceName: NSAppearance.Name?
+        let liveEnvironment = AppearanceSettings.LiveApplyEnvironment(
+            setApplicationAppearance: { appearance in
+                appliedAppearanceName = appearance?.bestMatch(from: [.darkAqua, .aqua])
+            },
+            synchronizeTerminalThemeWithAppearance: { appearance, _ in
+                synchronizedAppearanceName = appearance?.bestMatch(from: [.darkAqua, .aqua])
+            },
+            systemAppearance: {
+                XCTFail("Dark mode should not resolve system appearance")
+                return nil
+            }
+        )
+        let observer = AppearanceSettingsUserDefaultsObserver(
+            environment: .init(
+                addDefaultsObserver: { handler in
+                    notificationCenter.addObserver(
+                        forName: UserDefaults.didChangeNotification,
+                        object: nil,
+                        queue: nil
+                    ) { _ in
+                        MainActor.assumeIsolated { handler() }
+                    }
+                },
+                removeObserver: { observer in
+                    notificationCenter.removeObserver(observer)
+                },
+                currentRawValue: {
+                    defaults.string(forKey: AppearanceSettings.appearanceModeKey)
+                },
+                applyStoredMode: { rawValue, source in
+                    AppearanceSettings.applyStoredMode(
+                        rawValue: rawValue,
+                        defaults: defaults,
+                        source: source,
+                        environment: liveEnvironment
+                    )
+                }
+            ),
+            source: "test.defaultsObserver.initialApply"
+        )
+
+        defaults.set(AppearanceMode.dark.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+        observer.startObserving()
+
+        XCTAssertEqual(appliedAppearanceName, .darkAqua)
+        XCTAssertEqual(synchronizedAppearanceName, .darkAqua)
+    }
+
     private func withTemporaryAppearanceDefaults(
         appearanceMode: String,
         appleInterfaceStyle: String?,
