@@ -168,6 +168,13 @@ public nonisolated enum SidebarTunables {
         help: "How a machine's group shows its free RAM, cores busy and free disk, from the reading acpmux takes every minute.",
         default: .row, code: "SidebarTunables.remoteMachineResources")
 
+    /// Sample pull requests on every row (`SidebarPullRequestFixture`), for captures on a slot with
+    /// no GitHub. Rows still draw them only with `sidebar.workspaceRow.pullRequest` on.
+    public static let pullRequestFixture = Tunable<Bool>.toggle(
+        "sidebar.pullRequestFixture", .sidebar, "Sample pull requests on rows",
+        help: "Gives every workspace row sample pull requests (failing, merged, open, draft or none) instead of reading GitHub, to see the pull request marks without real ones.",
+        default: false, code: "SidebarTunables.pullRequestFixture")
+
     /// Every row carries its pull requests' badge, with or without the session tree
     /// (`SidebarSessionTreeFeed`), while the row's Pull Request element is on
     /// (`sidebar.workspaceRow.pullRequest`, off by default). On by default; the tree's nesting and keycaps stay opt-in.
@@ -264,6 +271,7 @@ public nonisolated enum SidebarTunables {
             pullRequestBadges.descriptor,
             laneFixture.descriptor,
             remoteMachineResources.descriptor,
+            pullRequestFixture.descriptor,
             sinceLooked.descriptor,
             slideHoldsContent.descriptor,
             nowLine.descriptor,
