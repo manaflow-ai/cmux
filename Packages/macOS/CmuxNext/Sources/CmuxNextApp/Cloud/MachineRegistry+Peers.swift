@@ -24,16 +24,4 @@ extension MachineRegistry {
             return SidebarPriorityMachine(name: tabBadge(daemon.machineID).flatMap { _ in machineName(daemon.machineID) }, store: daemon.store)
         }
     }
-
-    /// The tab of a remote machine's tree that shows acpmux session `session`, if any.
-    func remoteAgentTab(showing session: String) -> String? {
-        for daemon in remoteDaemons {
-            for workspace in daemon.store.workspaces {
-                for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) where tab.agentSession?.session == session {
-                    return tab.id
-                }
-            }
-        }
-        return nil
-    }
 }

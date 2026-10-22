@@ -48,6 +48,9 @@ export interface AcpmuxRequests {
   "_acpmux/bookmark_get": { params: unknown; result: unknown };
   "_acpmux/bookmark_set": { params: unknown; result: unknown };
   "_acpmux/prompt_withdraw": { params: unknown; result: unknown };
+  "_acpmux/send_queue": { params: unknown; result: unknown };
+  "_acpmux/send_status": { params: unknown; result: unknown };
+  "_acpmux/step_now": { params: unknown; result: unknown };
   "_acpmux/agent_pair_resume": { params: unknown; result: unknown };
   "_acpmux/process/list": { params: unknown; result: unknown };
   "_acpmux/process/tail": { params: unknown; result: unknown };
@@ -96,6 +99,10 @@ export interface AcpmuxRequests {
   "_acpmux/computer_use_enroll": { params: unknown; result: unknown };
   "_acpmux/person_prove": { params: unknown; result: unknown };
   "_acpmux/person_holds": { params: unknown; result: unknown };
+  "_acpmux/approvers": { params: unknown; result: unknown };
+  "_acpmux/approvers_set": { params: unknown; result: unknown };
+  "_acpmux/new_chat_picks_set": { params: unknown; result: unknown };
+  "_acpmux/workspace_roots_set": { params: unknown; result: unknown };
   "_acpmux/secret_request": { params: unknown; result: unknown };
   "_acpmux/secret_submit": { params: unknown; result: unknown };
   "_acpmux/secret_run": { params: unknown; result: unknown };
@@ -159,6 +166,11 @@ export interface AcpmuxRequests {
   "_acpmux/peer_lease": { params: unknown; result: unknown };
   "_acpmux/peer_reconnect": { params: unknown; result: unknown };
   "_acpmux/peer_remove": { params: unknown; result: unknown };
+  "_acpmux/pair_ticket_new": { params: unknown; result: unknown };
+  "_acpmux/pair_list": { params: unknown; result: unknown };
+  "_acpmux/pair_revoke": { params: unknown; result: unknown };
+  "_acpmux/pair_issue": { params: unknown; result: unknown };
+  "_acpmux/pair_redeem": { params: unknown; result: unknown };
 }
 
 /** Client to daemon notifications (no response). */
@@ -247,6 +259,9 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/bookmark_get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/bookmark_set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/prompt_withdraw", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/send_queue", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/send_status", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/step_now", kind: "request", acp: false, typed: false },
   { name: "_acpmux/agent_pair_resume", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process/list", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process/tail", kind: "request", acp: false, typed: false },
@@ -296,6 +311,10 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/computer_use_enroll", kind: "request", acp: false, typed: false },
   { name: "_acpmux/person_prove", kind: "request", acp: false, typed: false },
   { name: "_acpmux/person_holds", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/approvers", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/approvers_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/new_chat_picks_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/workspace_roots_set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/secret_request", kind: "request", acp: false, typed: false },
   { name: "_acpmux/secret_submit", kind: "request", acp: false, typed: false },
   { name: "_acpmux/secret_run", kind: "request", acp: false, typed: false },
@@ -361,6 +380,11 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/peer_lease", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_reconnect", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_remove", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/pair_ticket_new", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/pair_list", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/pair_revoke", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/pair_issue", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/pair_redeem", kind: "request", acp: false, typed: false },
   { name: "_acpmux/event", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/session_changed", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/permission_pending", kind: "notification", acp: false, typed: true },

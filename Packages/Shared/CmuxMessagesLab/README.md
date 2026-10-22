@@ -140,6 +140,7 @@ and render-server field animation, blurred header and native scrolling.
 | SwipeReply | the pane controller's window is optional |
 | RowDrawing | file, audio, contact and voice memo rows on my side use the theme's sent text colour (white by default; a light accent showed white text) |
 | Engine, WindowView | `cmuxSetAttachment`: an attachment part's picture or upload state changed in HomeStore (no content change, no transition; the row redraws in place) |
+| Engine | `cmuxSetParticipants`: the participants again with new chosen avatars (each Chief's, `HomeProjection.senderAvatars`); the rows are derived again, so a group's bubbles follow a Chief avatar swap |
 | Engine, Layout, Transcript | `cmuxNotice`: the host's notice (Home's merge notice) is MessagesLab's centered system row under the newest message, not an overlay; its accessibility label has no leading space. Its own state field (`ConversationUIState.cmuxNotice`, b5742f3: upstream's `notice` is ask 9's status line); row key `notice` (upstream's tail paging rules apply); not drawn while upstream's line is set |
 | LabGlass | the macOS 14-15 glass stand-in stays active when Home's window is not key (Home keeps one look focused or not; `ChatController.followsKeyWindow`, `--follow-key-state` restores MessagesLab's inactive window view) |
 | GlassKeyFix | the over-blend images are built by appending, not by index subscripts (crash ratchet: no new index_subscript hit in MessagesLabHome) |

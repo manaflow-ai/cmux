@@ -44,6 +44,17 @@ final class SidebarRows {
         document.withoutChats
     }
 
+    /// The layout window `windowID` draws: `visibleLayout` without the band's
+    /// workspaces another window owns, so a new window starts clean. Only on
+    /// the sidebar document, whose band moves anchor on a drawn neighbour; the
+    /// older owner's index ops count the stored layout, so it draws it whole.
+    static func visibleLayout(_ document: SidebarLayoutDocument, window windowID: String, machines: MachineRegistry,
+                              registry: WindowRegistry) -> SidebarLayoutDocument {
+        guard SidebarDocWiring.isActive else { return visibleLayout(document) }
+        let refs = WorkspaceLayoutRefs(machines: machines)
+        return visibleLayout(document).scopedToWindow { refs.ownedElsewhere($0, window: windowID, registry: registry) }
+    }
+
     /// Shows `live` (when given) with the pending edits applied, then the
     /// rows of the creates in flight (`creating`, when given).
     func show(_ live: [SidebarRowSection]? = nil, creating: (rows: [PendingWorkspaceRows.Row], home: String?)? = nil) {

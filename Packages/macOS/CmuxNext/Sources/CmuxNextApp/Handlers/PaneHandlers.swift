@@ -77,13 +77,15 @@ enum PaneHandlers {
         // Ghostty's `split-inherit-working-directory = false`: the home folder (NewTerminalStart).
         let named = invocation["cwd"]?.stringValue
             ?? NewTerminalStart.uninherited(.split, services: ctx.services, daemon: daemon, besides: controller?.selectedTab)
-        let cwd = named ?? controller?.selectedTab?.cwd ?? pane.tabs.first?.cwd
+        // Else the folder of the tab it splits: a terminal's, or an agent chat's exact folder.
+        let inherited = named ?? NewTerminalStart.folder(of: controller?.selectedTab, services: ctx.services)
+        let cwd = inherited ?? controller?.selectedTab?.cwd ?? pane.tabs.first?.cwd
         let workspace = ctx.services.workspaceKey(of: pane)
         let keep = invocation["keep"]?.boolValue == true ? true : nil
         let logger = ctx.services.daemon.logger
         // The one tool-split rule (AppServices.toolSplit, cx-yihq): never a new column; from the
-        // docked chat, a person's terminal opens as a tab in the strip (its cwd the explicit one or
-        // the daemon's resolver, NEW-TERMINAL-INHERITS-CWD).
+        // docked chat, a person's terminal opens as a tab in the strip (its cwd the explicit one,
+        // else the chat's, else the daemon's resolver, NEW-TERMINAL-INHERITS-CWD).
         // A person's split of a browser tab, the New Tab page or a chat opens the New Tab page (cx-jfo7),
         // unless it asked for a terminal (the chat header's Terminal).
         let page = !invocation.opensTerminal && NewTabPage.splitsToPage(controller, direction: direction, byPerson: invocation.origin == .user)
@@ -95,7 +97,7 @@ enum PaneHandlers {
         case .tab(let strip):
             if let content = strip.workspace { focus(strip.layoutPaneID, in: content) }
             if page { return strip.newTabPage() }
-            return strip.newTerminalTab(cwd: named, keep: keep, fromSelectedTab: true, daemonResolvesCwd: true)
+            return strip.newTerminalTab(cwd: inherited, keep: keep, fromSelectedTab: true, daemonResolvesCwd: true)
         case .besideDock(let dock):
             // Every direction is a column on the dock's right: the pinned dock neither splits nor moves.
             if page { NewTabPage.split(dock, edge: .right); return }

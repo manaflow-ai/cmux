@@ -812,27 +812,43 @@ fn for_each_line_rev_from(
     const BLOCK: u64 = 64 * 1024;
     let mut file = crate::config::private_state_file(path)?;
     let mut end = file.seek(SeekFrom::End(0))?.min(end);
-    // Bytes of a line whose start is in an earlier block, in file order.
-    let mut carry: Vec<u8> = Vec::new();
+    // The blocks of a line whose start is in an earlier block, newest first: each block is read
+    // and scanned once, so a line of many megabytes costs its length, not its length squared.
+    let mut carry: Vec<Vec<u8>> = Vec::new();
+    let joined = |head: &[u8], carry: &mut Vec<Vec<u8>>| {
+        let mut line = head.to_vec();
+        for piece in carry.drain(..).rev() {
+            line.extend_from_slice(&piece);
+        }
+        line
+    };
     while end > 0 {
         let start = end.saturating_sub(BLOCK);
         let mut block = vec![0u8; (end - start) as usize];
         file.seek(SeekFrom::Start(start))?;
         file.read_exact(&mut block)?;
-        block.extend_from_slice(&carry);
         let mut cut = block.len();
         while let Some(newline) = block[..cut].iter().rposition(|&b| b == b'\n') {
-            let line = &block[newline + 1..cut];
+            let head = &block[newline + 1..cut];
+            let whole;
+            let line = if carry.is_empty() {
+                head
+            } else {
+                whole = joined(head, &mut carry);
+                &whole[..]
+            };
             if !line.iter().all(u8::is_ascii_whitespace) && !visit(line) {
                 return Ok(());
             }
             cut = newline;
         }
-        carry = block[..cut].to_vec();
+        block.truncate(cut);
+        carry.push(block);
         end = start;
     }
-    if !carry.iter().all(u8::is_ascii_whitespace) {
-        visit(&carry);
+    let line = joined(&[], &mut carry);
+    if !line.iter().all(u8::is_ascii_whitespace) {
+        visit(&line);
     }
     Ok(())
 }
@@ -1265,5 +1281,35 @@ mod permission_tests {
             .unwrap();
         assert!(status.success());
         assert!(LocalStore::new(root, 64 * 1024).is_err());
+    }
+}
+
+#[cfg(all(test, unix))]
+mod line_rev_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    /// Lines come newest first, whole, whatever blocks they span; blank lines are skipped.
+    #[test]
+    fn lines_across_blocks_come_back_whole_newest_first() {
+        let path = std::env::temp_dir().join(format!(
+            "acpmux-line-rev-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        let lines =
+            ["a".to_owned(), "x".repeat(200_000), String::new(), "b".repeat(65_535), "c".into()];
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let mut seen = Vec::new();
+        for_each_line_rev(&path, &mut |line| {
+            seen.push(String::from_utf8(line.to_vec()).unwrap());
+            true
+        })
+        .unwrap();
+        let _ = std::fs::remove_file(&path);
+        let want: Vec<String> = lines.iter().rev().filter(|l| !l.is_empty()).cloned().collect();
+        assert_eq!(seen.len(), want.len());
+        assert!(seen == want, "lines came back changed or out of order");
     }
 }
