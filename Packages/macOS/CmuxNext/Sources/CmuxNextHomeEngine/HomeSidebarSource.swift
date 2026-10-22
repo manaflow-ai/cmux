@@ -78,6 +78,9 @@ public final class HomeSidebarSource {
     public private(set) var unreadMarks: Set<ConversationID> = []
     @ObservationIgnored public var onSelect: (ConversationID) -> Void = { _ in }
     @ObservationIgnored public var onStart: (HomeContact) -> Void = { _ in }
+    /// This Mac's marks changed here (a Mark as Unread or Read of a row no owner lists): other
+    /// sources over the same account read them again (``reloadMarks()``).
+    @ObservationIgnored public var onMarksChanged: () -> Void = {}
     #if DEBUG
     /// DEBUG: conversations listed besides the store's (`debug.home.sidebar_fixture`).
     @ObservationIgnored public var debugRows: [InboxRow] = []
@@ -188,6 +191,16 @@ public final class HomeSidebarSource {
         guard unreadMarks.contains(id) != on else { return }
         if on { unreadMarks.insert(id) } else { unreadMarks.remove(id) }
         store.save(unreadMarks: unreadMarks, account: account())
+        onMarksChanged()
+    }
+
+    /// The conversations the list dots, unfiltered by the search (``HomeSidebarModel/unreadConversations``).
+    public var unreadConversations: [ConversationID] { model(query: "", now: Date()).unreadConversations }
+
+    /// Reads this account's marks again (another source changed them).
+    public func reloadMarks() {
+        let marks = store.unreadMarks(account: account())
+        if marks != unreadMarks { unreadMarks = marks }
     }
 
     /// Hide Alerts or Show Alerts for `id`, with the owner that lists it (Cloud conversations only).

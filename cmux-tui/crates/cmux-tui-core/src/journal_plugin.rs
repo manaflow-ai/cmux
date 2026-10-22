@@ -17,6 +17,8 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use crate::panic_free::RecoverPoison;
+
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 #[cfg(windows)]
@@ -411,7 +413,9 @@ impl JournalPluginRuntime {
                 .name("cmux-journal-plugin".into())
                 .spawn(move || supervise(shared));
             match handle {
-                Ok(handle) => *self.thread.lock().unwrap() = Some(handle),
+                Ok(handle) => {
+                    *self.thread.lock().recover_poison() = Some(handle);
+                }
                 Err(error) => {
                     state.started = false;
                     eprintln!("cmux-tui: journal plugin supervisor did not start: {error}");
@@ -443,7 +447,7 @@ impl JournalPluginRuntime {
         if let (Some(handler), Some((plugin_id, generation))) = retired {
             handler(&plugin_id, generation);
         }
-        if let Some(handle) = self.thread.lock().unwrap().take()
+        if let Some(handle) = self.thread.lock().recover_poison().take()
             && handle.join().is_err()
         {
             eprintln!("cmux-tui: journal plugin supervisor panicked during shutdown");
@@ -596,9 +600,12 @@ fn spawn_plugin(
     session: &str,
     generation: u64,
 ) -> anyhow::Result<JournalPluginChild> {
-    let mut command = Command::new(&options.command[0]);
+    let Some((program, args)) = options.command.split_first() else {
+        anyhow::bail!("journal plugin command is empty");
+    };
+    let mut command = Command::new(program);
     command
-        .args(&options.command[1..])
+        .args(args)
         .env("CMUX_TUI_SOCKET", socket)
         .env("CMUX_MUX_SOCKET", socket)
         .env("CMUX_TUI_SESSION_ID", session)
@@ -837,7 +844,7 @@ mod tests {
             "main".into(),
             17,
         );
-        let generation = runtime.state.0.lock().unwrap().generation;
+        let generation = runtime.state.0.lock().recover_poison().generation;
         assert_eq!(generation, 17);
         runtime.shutdown();
     }
