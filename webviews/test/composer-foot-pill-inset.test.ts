@@ -31,8 +31,9 @@ function px(body: string, property: string): number | undefined {
 test("the quiet row's chips get the native pill inset, 8 px from the text", () => {
   const foot = rules(".acpmux-composer-foot");
   expect(foot.length).toBeGreaterThan(0);
-  const inset = foot.map((body) => px(body, "--acpmux-row-inset")).findLast((value) => value !== undefined);
-  expect(inset).toBe(8);
+  // The last declaration wins, as in the cascade.
+  const insets = foot.map((body) => px(body, "--acpmux-row-inset")).filter((value) => value !== undefined);
+  expect(insets[insets.length - 1]).toBe(8);
 });
 
 test("each chip's pill is padded by the row's inset", () => {
