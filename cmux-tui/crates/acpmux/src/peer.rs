@@ -582,6 +582,10 @@ impl Peer {
                 stale = &mut stale_rx, if !stale_settled => {
                     stale_settled = true;
                     if let Ok(why) = stale {
+                        // Requests queued while the probe ran never go out:
+                        // their callers get the disconnect error (`run`),
+                        // and the next connection must not replay them.
+                        while out_rx.try_recv().is_ok() {}
                         break Err(why);
                     }
                 }
