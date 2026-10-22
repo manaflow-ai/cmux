@@ -22,7 +22,8 @@ pub(super) const MIGRATING: &str = "ACPMUX_MIGRATING=";
 /// daemon. `ACPMUX_HOME` and `ACPMUX_SOCKET` (read from the daemon's own
 /// environment, so systemd's `%h` is already expanded) are carried in
 /// `10-migrated.conf` unless they are the defaults. A home is compared as
-/// written with `$dh` ([`REMOTE_HOME`]), not through links: the daemon
+/// written with `$dh` ([`REMOTE_HOME`]), byte for byte (a trailing `/`
+/// counts), not through links: the daemon
 /// opens its home with `O_NOFOLLOW` (`config::private_state_dir`), so on
 /// huge-blue, where `~/.acpmux` links to the unit's home, acpmux.service
 /// without `ACPMUX_HOME` never starts.
@@ -39,7 +40,7 @@ t=$(mktemp -d) && mkdir "$t/d" || exit 1
 envof() { tr '\000' '\n' < "/proc/$p/environ" 2>/dev/null | sed -n "s/^$1=//p" | head -1; }
 carry() { case "$2" in *[!A-Za-z0-9/._+@:-]*) refuse unitSettings "$u sets $1 to a value acpmux does not copy into a unit: move it to acpmux.service by hand";; esac; printf 'Environment=%s=%s\n' "$1" "$2" >> "$t/env"; }
 h=$(envof ACPMUX_HOME); s=$(envof ACPMUX_SOCKET)
-if [ -n "$h" ] && [ "${h%/}" != "$dh" ]; then carry ACPMUX_HOME "$h"; fi
+if [ -n "$h" ] && [ "$h" != "$dh" ]; then carry ACPMUX_HOME "$h"; fi
 if [ -n "$s" ] && [ "$(readlink -f "$s")" != "$(readlink -f "${h:-$HOME/.acpmux}/acpmux.sock")" ]; then carry ACPMUX_SOCKET "$s"; fi
 if [ -f "$t/env" ]; then { echo '[Service]'; cat "$t/env"; } > "$t/d/10-migrated.conf"; fi
 if [ -d "$d/$u.d" ]; then find "$d/$u.d" -maxdepth 1 -type f -name '*.conf' -exec cp {} "$t/d/" \; ; fi

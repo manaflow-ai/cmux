@@ -161,18 +161,21 @@ const FAKE_SYSTEMCTL: &str = r#"#!/bin/sh
 echo "systemctl $*" >> "$HOME/calls"
 d="$HOME/.config/systemd/user"; r="$XDG_RUNTIME_DIR/systemd/user"
 under() { echo "0::/user.slice/user-1001.slice/user@1001.service/app.slice/$1" > "$HOME/proc/4242/cgroup"; }
+# Type=simple: the start succeeds once the process forks; a daemon that then
+# exits (a home through a link) is seen only as no answer.
+starts() {
+  cat "$d/$1.d/"*.conf > "$HOME/started-with" 2>/dev/null
+  if [ "$1" = acpmux.service ] && [ -L "$HOME/.acpmux" ] && ! grep -q '^Environment=ACPMUX_HOME=' "$HOME/started-with"; then echo "open private state directory $HOME/.acpmux: Not a directory" >> "$HOME/calls"; else ~/.local/bin/acpmux __start; fi
+}
 case "$2" in
 show-environment) test ! -f "$HOME/no-systemd";;
 cat) test -f "$d/$3";;
 is-active) test -f "$HOME/active-$4";;
-restart) rm -f "$HOME/daemon"; ~/.local/bin/acpmux __start; under "$3";;
+restart) rm -f "$HOME/daemon"; under "$3"; starts "$3";;
 enable)
   test -f "$d/$4" && test ! -f "$HOME/fails-$4" || exit 1
   touch "$HOME/active-$4"; under "$4"
-  if [ "$4" = acpmux.service ]; then
-    cat "$d/acpmux.service.d/"*.conf > "$HOME/started-with" 2>/dev/null
-    if [ -L "$HOME/.acpmux" ] && ! grep -q '^Environment=ACPMUX_HOME=' "$HOME/started-with"; then echo "open private state directory $HOME/.acpmux: Not a directory" >> "$HOME/calls"; else ~/.local/bin/acpmux __start; fi
-  else cp "$HOME/old-build" "$HOME/daemon"; fi;;
+  if [ "$4" = acpmux.service ]; then starts acpmux.service; else cp "$HOME/old-build" "$HOME/daemon"; fi;;
 disable)
   if [ -f "$HOME/active-$4" ]; then
     rm -f "$HOME/active-$4" "$HOME/daemon"
@@ -654,6 +657,20 @@ fn huge_blues_stale_binary_never_runs() {
         format!("[Service]\nEnvironment=ACPMUX_HOME={}\n", home.display())
     );
     assert!(peer.read("started-with").contains("MemoryHigh=5G"));
+
+    // The unit names the link itself, with a trailing `/`: the old daemon
+    // opens it, acpmux.service without it would not, so it is carried.
+    let peer = FakePeer::new("stale-slash");
+    peer.under_foreign_unit(false);
+    let linked = format!("{}/.acpmux/", peer.home.display());
+    peer.write("proc/4242/environ", &format!("PATH=/usr/bin\0ACPMUX_HOME={linked}\0"));
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(
+        peer.read(&format!("{UNITS}/acpmux.service.d/10-migrated.conf")),
+        format!("[Service]\nEnvironment=ACPMUX_HOME={linked}\n")
+    );
 }
 
 #[test]
