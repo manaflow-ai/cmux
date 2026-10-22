@@ -6639,6 +6639,29 @@
     "class": "brand",
     "source": "iPhone"
   },
+  "macScreen.keys.missionControl": {
+    "source": "Mission Control (⌃↑)",
+    "identityLocales": {
+      "de": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "fr": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "ar": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "es": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "ko": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "ja": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required."
+    }
+  },
+  "macScreen.home.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "macScreen.home.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
   "macScreen.hub.unknownDevice": {
     "class": "brand",
     "source": "Mac"

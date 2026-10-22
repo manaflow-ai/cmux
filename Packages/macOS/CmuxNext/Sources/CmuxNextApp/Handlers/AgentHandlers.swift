@@ -7,6 +7,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHomeEngine
+import CmuxNextMacScreen
 import CmuxNextOnboarding
 import CmuxNextSettings
 import Observation
@@ -32,6 +33,11 @@ enum AgentHandlers {
         registry.bind("agentActivity.open", run: { _ in context.services.agentActivityPage.open() })
         context.services.pages.register(context.services.macScreenTabs)
         registry.bind("macScreen.open", run: { context.services.openMacScreen(in: try? context.pane($0)) })
+        // The menu bar item's rows while a device sees or controls this Mac (MacScreenShareIndicator).
+        registry.bind("macScreen.stopSharing", unavailable: { context.services.macScreenPages.hubHost.noSessionReason },
+                      run: { _ in _ = context.services.macScreenPages.hubHost.stopSession() })
+        registry.bind("macScreen.revokeViewer", unavailable: { context.services.macScreenPages.hubHost.noSessionReason },
+                      run: { _ in _ = context.services.macScreenPages.hubHost.revokeViewer() })
         AgentSessionWorkspace.bind(into: registry, context: context)
         AgentSessionTab.bind(into: registry, context: context)
         ChiefInspectorHandlers.bind(into: registry, context: context)

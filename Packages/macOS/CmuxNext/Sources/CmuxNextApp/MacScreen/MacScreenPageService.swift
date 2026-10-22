@@ -149,6 +149,7 @@ extension AppServices {
     static func makeMacScreenPages(_ services: AppServices) -> MacScreenPages {
         let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID))
         pages.useShortcuts(of: services.registry)
+        pages.hubHost.indicatorMenuItem = { [weak registry = services.registry] in registry?.makeMenuItem(for: $0) }
         return pages
     }
 

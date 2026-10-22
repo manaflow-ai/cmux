@@ -1,3 +1,5 @@
+public import AppKit
+public import CmuxNextActions
 public import CmuxNextDevices
 import CmuxScreenKit
 import Foundation
@@ -53,7 +55,6 @@ public final class MacScreenHubHost {
 
     init(share: MacScreenShareHost) {
         self.share = share
-        indicator.stopSharing = { [weak self] in _ = self?.stopSession(reason: .hostStopped) }
     }
 
     /// Whether this Mac allows Mac Screen (the hub's record of this device).
@@ -220,7 +221,18 @@ public final class MacScreenHubHost {
             ? String(format: L.t("macScreen.indicator.viewing", "%@ is viewing this Mac"), session.viewerName)
             : String(format: L.t("macScreen.indicator.controlling", "%@ is controlling this Mac"), session.viewerName)
         indicator.setVisible(true)
-        indicator.update(title: title, revoke: { [weak self] in _ = self?.revokeViewer() })
+        indicator.update(title: title, offersRevoke: true)
+    }
+
+    /// Why Stop Sharing This Mac and Revoke This Device cannot run: nil while a device is connected.
+    public var noSessionReason: String? {
+        session == nil ? L.t("macScreen.indicator.noSession", "No device is viewing or controlling this Mac.") : nil
+    }
+
+    /// The menu bar item's rows: the registry's items for its actions (the app sets this).
+    public var indicatorMenuItem: (ActionID) -> NSMenuItem? {
+        get { indicator.menuItem }
+        set { indicator.menuItem = newValue }
     }
 
     /// The menu bar item's state, for `debug.device_hub`.
