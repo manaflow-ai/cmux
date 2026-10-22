@@ -265,3 +265,47 @@ test("context injected inside an MCP text block's own JSON stays out of the caus
     "server unavailable",
   );
 });
+
+test("a hook's command in brackets stays out of its reason", () => {
+  const failure = toolFailure(call("PreToolUse:Bash hook error: [~/.claude/hooks/guard.sh]: Blocked: needs a review."));
+  expect(failure).toMatchObject({ kind: "hook", hook: "PreToolUse", cause: "needs a review." });
+});
+
+test("Copy error keeps Claude Code's Exit code line", () => {
+  const failure = toolFailure(call("Exit code 2\nmake: *** [all] Error 2"));
+  expect(failure?.detail).toBe("Exit code 2\nmake: *** [all] Error 2");
+  expect(failure?.output).toBe("make: *** [all] Error 2");
+});
+
+test("a call with its own exit code keeps an output line that names another", () => {
+  const failure = toolFailure(call("Exit code 3\nreal error here", { exitCode: 1 }));
+  expect(failure).toMatchObject({ kind: "exit", exitCode: 1, output: undefined });
+  expect(toolFailure(call("Exit code 1\nboom", { exitCode: 1 }))?.output).toBe("boom");
+});
+
+test("a progress bar's carriage returns stay in the output, as for a call that worked", () => {
+  const failure = toolFailure(call("Exit code 1\n10%\r50%\r\nerror: disk full\r\n"));
+  expect(failure?.output).toBe("10%\r50%\nerror: disk full\n");
+  expect(failure?.cause).toBe("disk full");
+});
+
+test("a long result's tail is read from a whole line", () => {
+  const cut = `${"a".repeat(4_500)} denied ${"y".repeat(100)}`;
+  const failure = toolFailure(call(`Exit code 1\n${cut}\n${"z".repeat(3_800)}`));
+  // The line the tail window cuts ("…aaa denied yyy") is not the cause; the last line is.
+  expect(failure?.cause).toBe(`${"z".repeat(299)}…`);
+});
+
+test("context injected before an MCP text block's JSON stays out of the cause", () => {
+  const text = `<system-reminder>ambient</system-reminder>\n${JSON.stringify({ error: { message: "quota spent" } })}`;
+  const failure = toolFailure(
+    call(JSON.stringify({ content: [{ type: "text", text }], isError: true }), { kind: "other", command: undefined }),
+  );
+  expect(failure?.cause).toBe("quota spent");
+});
+
+test("a failed call that went on in the background shows no cause under its row", () => {
+  const tool = call("Exit code 1\nerror: port in use", { background: { state: "failed", endedAt: 0 } });
+  const html = renderToStaticMarkup(<CommandRow item={item(tool)} />);
+  expect(html).not.toContain("cv-tool-error");
+});

@@ -79,7 +79,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
               {after && <span data-find-skip>{after}</span>}
             </>
           )}
-          <InlineFailureCause failure={failure} />
+          {!tool.background && <InlineFailureCause failure={failure} />}
         </span>
         <span className="cv-command__meta">
           {foreground && <BackgroundHint />}
@@ -102,7 +102,8 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
-      <ToolFailureCause failure={failure} />
+      {/* A call that went on in the background says how it stands there, not why it failed. */}
+      {!tool.background && <ToolFailureCause failure={failure} />}
       {fold.present && (
         <div ref={fold.ref} className="cv-fold">
           <ShellBlock

@@ -28,8 +28,8 @@ export type ToolFailure = {
   cause?: string;
   /// The output without Claude Code's leading "Exit code N" line, which the Shell block says itself.
   output?: string;
-  /// The whole result as the opened call draws it (no colour codes, fence or injected context):
-  /// what Copy error copies.
+  /// The whole result without colour codes, a fence or injected context, its "Exit code N" line
+  /// included: what Copy error copies.
   detail: string;
 };
 
@@ -112,7 +112,7 @@ function jsonCause(value: unknown, depth = 0): string | undefined {
 function nestedCause(value: unknown): string | undefined {
   let said = jsonCause(value);
   for (let depth = 0; depth < 3 && said !== undefined; depth++) {
-    const inner = jsonCause(parseJson(said.trim()));
+    const inner = jsonCause(parseJson(cleanText(said).trim()));
     if (inner === undefined) break;
     said = inner;
   }
@@ -132,7 +132,8 @@ function parseJson(text: string): unknown {
 /// that is not a shell also loses the context a host injects into it (`<system-reminder>`), as
 /// ToolRow.tsx's output does.
 function drawn(raw: string, shell: boolean): string {
-  let text = stripAnsi(raw).replace(/\r\n?/g, "\n");
+  // A lone carriage return (a progress bar's redraw) stays, as in the Shell block of a call that worked.
+  let text = stripAnsi(raw).replace(/\r\n/g, "\n");
   // Claude Code's ACP results may put a tool's text in a fence.
   const fenced = /^\s*```[\w-]*\n([\s\S]*?)\n```\s*$/.exec(text);
   if (fenced) text = fenced[1]!;
@@ -146,34 +147,39 @@ export function toolFailure(tool: Tool): ToolFailure | undefined {
   const full = drawn(tool.output ?? "", shell);
   let exitCode = tool.exitCode;
   // Claude Code's first line: the Shell block says the exit code itself, so it draws the output
-  // without that line.
-  const exit = EXIT_LINE.exec(full);
+  // without that line. A call with its own exit code (Codex) keeps a first line that differs.
+  const header = EXIT_LINE.exec(full);
+  const exit = header && (exitCode === undefined || exitCode === Number(header[1])) ? header : null;
   if (exit) exitCode ??= Number(exit[1]);
   const body = exit ? full.slice(exit[0].length) : full;
   const output = exit ? body : undefined;
   // A JSON result is read whole while small; a long result is read at its ends only, where its
   // cause is.
   const json = body.length <= MAX_JSON ? parseJson(body) : undefined;
-  const text = (
-    body.length > HEAD_CHARS + TAIL_CHARS ? `${body.slice(0, HEAD_CHARS)}\n${body.slice(-TAIL_CHARS)}` : body
-  ).trim();
+  // The tail starts on a whole line, never half a line (or half a character).
+  const tail = () => body.slice(-TAIL_CHARS).replace(/^[^\n]*\n?/, "");
+  const text = (body.length > HEAD_CHARS + TAIL_CHARS ? `${body.slice(0, HEAD_CHARS)}\n${tail()}` : body).trim();
 
   // A refusal or a hook's block is the whole result of a call that never ran, so it carries no exit
   // code; a command that ran and printed the same words ("payment declined") is read as its exit.
   const ran = exitCode !== undefined;
-  if (!ran && isRecord(json) && json.status === "declined") return { kind: "denied", exitCode, output, detail: body };
+  if (!ran && isRecord(json) && json.status === "declined") return { kind: "denied", exitCode, output, detail: full };
   const hook = ran ? null : HOOK.exec(text);
   if (hook) {
-    const reason = text.slice(hook[0].length).replace(/^blocked\s*:\s*/i, "");
-    return { kind: "hook", hook: hook[1] ?? hook[2], cause: oneLine(reason), exitCode, output, detail: body };
+    // Claude Code names the hook's command in brackets before its words: `[~/hooks/guard.sh]: Blocked: …`.
+    const reason = text
+      .slice(hook[0].length)
+      .replace(/^\[[^\]\n]*\]\s*:\s*/, "")
+      .replace(/^blocked\s*:\s*/i, "");
+    return { kind: "hook", hook: hook[1] ?? hook[2], cause: oneLine(reason), exitCode, output, detail: full };
   }
   if (!ran && DENIED.test(text))
-    return { kind: "denied", cause: oneLine(DENIED_SAID.exec(text)?.[1]), exitCode, output, detail: body };
+    return { kind: "denied", cause: oneLine(DENIED_SAID.exec(text)?.[1]), exitCode, output, detail: full };
 
   const lines = text.split("\n").filter((line) => WORDS.test(line));
   // "timed out" says it all; the row's time (on hover) says how long it ran.
   const timedOut = [lines[0], lines.at(-1)].some((line) => line !== undefined && TIMED_OUT.test(line.trim()));
-  if (timedOut || exitCode === 124) return { kind: "timeout", exitCode, output, detail: body };
+  if (timedOut || exitCode === 124) return { kind: "timeout", exitCode, output, detail: full };
 
   const tagged = TOOL_USE_ERROR.exec(text)?.[1];
   const said = json === undefined ? undefined : nestedCause(json);
@@ -185,8 +191,8 @@ export function toolFailure(tool: Tool): ToolFailure | undefined {
         ? // A call that exited 0 yet failed has no last line to blame: only a line that names an error.
           shellCause(lines, exitCode !== 0)
         : oneLine(text);
-  if (exitCode !== undefined && exitCode !== 0) return { kind: "exit", exitCode, cause, output, detail: body };
-  return { kind: "error", cause, exitCode, output, detail: body };
+  if (exitCode !== undefined && exitCode !== 0) return { kind: "exit", exitCode, cause, output, detail: full };
+  return { kind: "error", cause, exitCode, output, detail: full };
 }
 
 /// A shell call's output as its Shell block draws it: without Claude Code's leading "Exit code N"
