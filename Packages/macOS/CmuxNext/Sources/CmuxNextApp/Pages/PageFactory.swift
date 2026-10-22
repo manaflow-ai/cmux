@@ -146,8 +146,7 @@ struct PageFactory {
         let registry = services.registry
         provider.sectionActions = { section in
             .array(SettingsSchema.actions(in: section).compactMap { id in
-                // An action a setting turns off (Import from Browser with `browser.import.enabled` off) leaves the page.
-                guard let descriptor = registry.descriptor(for: id), registry.settingOffReason(id) == nil else { return nil }
+                guard let descriptor = registry.descriptor(for: id) else { return nil }
                 return ["id": .string(id.rawValue), "title": .string(descriptor.title),
                         "enabled": .bool(registry.isAvailable(id))]
             })

@@ -58,14 +58,8 @@ public final class ImportSuggestionsCenter {
             .appending(path: "import-jobs.json")
     }
 
-    /// `browser.import.enabled` (on by default): off, no card shows and nothing scans or resumes.
-    /// Turned on again, the cards scan this Mac.
-    public var importEnabled = true {
-        didSet { if importEnabled, !oldValue, started { scan { [weak self] in self?.resumeInterrupted() } } }
-    }
-
-    /// `browser.import.enabled` and Debug Settings `browserImport.suggestionCards` (both on by default).
-    public var isEnabled: Bool { importEnabled && BrowserImportTunables.suggestionCards.value }
+    /// Debug Settings `browserImport.suggestionCards` (on by default).
+    public var isEnabled: Bool { BrowserImportTunables.suggestionCards.value }
 
     /// Starts the cards once: the jobs a quit cut off, the first scan and the rescans.
     public func start(host: ImportCardsHost, registry: ActionRegistry) {
@@ -79,7 +73,7 @@ public final class ImportSuggestionsCenter {
         saveLedger()
         state.expire(now: now())
         AgentPaneImportCards.shared.onAction = { [weak self] id, action in
-            guard let action = ImportCardAction(rawValue: action), self?.isEnabled == true else { return }
+            guard let action = ImportCardAction(rawValue: action) else { return }
             // A New Tab page's button: a first-party control, never the person's own gesture, so a
             // start asks natively first and a cookie request still gets its consent panel.
             try? self?.perform(id, action, caller: ActionInvocation(arguments: [:], origin: .page))
@@ -89,14 +83,12 @@ public final class ImportSuggestionsCenter {
                                                             queue: .main) { [weak self] _ in
             Task { @MainActor in self?.rescanIfStale() }
         }
-        scan { [weak self] in self?.resumeInterrupted() }
-    }
-
-    /// A job the quit cut off goes on by itself only when nothing it has left asks the person.
-    private func resumeInterrupted() {
-        guard isEnabled else { return }
-        for job in ledger.jobs where job.phase == .paused && job.pause == .interrupted && job.resumesQuietly {
-            try? perform(job.id, .resume)
+        scan { [weak self] in
+            // A job the quit cut off goes on by itself only when nothing it has left asks the person.
+            guard let self, isEnabled else { return }
+            for job in ledger.jobs where job.phase == .paused && job.pause == .interrupted && job.resumesQuietly {
+                try? perform(job.id, .resume)
+            }
         }
     }
 
@@ -179,8 +171,6 @@ public final class ImportSuggestionsCenter {
     /// script cannot answer it), and an agent's cookie request always gets
     /// `browser.importCookies`' consent panel. Whatever the card opens runs as `caller`.
     public func perform(_ id: String, _ action: ImportCardAction, caller: ActionInvocation? = nil) throws {
-        // Off (`browser.import.enabled`, the Debug toggle): a row or dialog still on screen starts nothing.
-        guard isEnabled || action == .dismiss else { throw ImportCardsFailure.noSuchCard(id) }
         if action.startsWork, let caller, caller.origin != .user, let question = try question(id, action) {
             return ask(question, id: id, action: action, caller: caller)
         }
