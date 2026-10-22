@@ -111,7 +111,7 @@ fn is_composer(line: &str) -> bool {
 /// A harness's turn summary or spinner line: Claude Code's `✻ Brewed for
 /// 1m 38s · done 10:33 PM` (a symbol, a word, `for`, a duration).
 fn is_turn_summary(line: &str) -> bool {
-    let mut words = line.trim().split_whitespace();
+    let mut words = line.split_whitespace();
     let symbol = words.next().unwrap_or_default();
     let symbolic =
         symbol.chars().count() == 1 && symbol.chars().all(|character| !character.is_alphanumeric());
