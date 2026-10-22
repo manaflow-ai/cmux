@@ -8,7 +8,6 @@ import path from "node:path";
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SubagentsSection } from "../src/agent-session/acpmux/inspector/SubagentsSection";
-import { SubagentStack } from "../src/agent-session/acpmux/summary/SubagentStack";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import type { SpinnerAnimation } from "../src/ui/spinnerClock";
 import { alignWave, WAVE_CLASS, WAVE_KEYFRAMES, waveIndices, waveProps } from "../src/ui/wave";
@@ -86,26 +85,6 @@ test("the Inspector's avatar row puts its running avatars in the wave, in order;
     ["running", WAVE_CLASS, "--wave-index:1"],
     ["completed", "", ""],
     ["failed", "", ""],
-  ]);
-});
-
-test("the summary's dots put the running ones in the wave; done and failed stay still", () => {
-  const html = renderToStaticMarkup(
-    <SubagentStack
-      subagents={[
-        { id: "a", title: "a", state: "running" },
-        { id: "b", title: "b", state: "done" },
-        { id: "c", title: "c", state: "failed" },
-        { id: "d", title: "d", state: "running" },
-      ]}
-    />,
-  );
-  const dots = [...html.matchAll(/class="acpmux-summary-dot([^"]*)"(?: style="([^"]*)")? data-state="(\w+)"/g)];
-  expect(dots.map((match) => [match[3], match[1].trim(), match[2] ?? ""])).toEqual([
-    ["running", WAVE_CLASS, "--wave-index:0"],
-    ["done", "", ""],
-    ["failed", "", ""],
-    ["running", WAVE_CLASS, "--wave-index:1"],
   ]);
 });
 

@@ -83,13 +83,27 @@ await requireBrowserLane("running-wave-loops.test.ts", async () => {
 
   test("running items sweep by index on one shared start; a still item runs nothing", async () => {
     const p = await page("no-preference");
+    // A third running item that appears later, as a new subagent's avatar does: once the page's
+    // timeline is a third of a second past the first items' mount.
+    const mounted = await p.evaluate(() => Number(document.timeline.currentTime));
+    await p.waitForFunction((at) => Number(document.timeline.currentTime) > at + 337, mounted);
+    await p.evaluate(() =>
+      document.body.insertAdjacentHTML("beforeend", `<span class="acpmux-wave-item" style="--wave-index:3"></span>`),
+    );
+    await frames(p);
     const running = await waves(p);
+    const origin = await p.evaluate(() => performance.timeOrigin);
     await p.close();
-    expect(running.length).toBe(2);
-    // Two steps of 120 ms apart, both pulled back whole periods so neither waits at rest.
+    expect(running.length).toBe(3);
+    // Steps of 120 ms apart, all pulled back whole periods so none waits at rest.
     expect(running[1].delay - running[0].delay).toBeCloseTo(240, 3);
+    expect(running[2].delay - running[0].delay).toBeCloseTo(360, 3);
     expect(Math.max(...running.map((loop) => loop.delay))).toBeLessThan(0);
-    expect(running[0].start).toBe(running[1].start);
+    // One epoch: every start, the late one's too, is a whole number of periods of Unix time.
+    for (const loop of running) {
+      const phase = (((loop.start + origin) % 1_600) + 1_600) % 1_600;
+      expect(Math.min(phase, 1_600 - phase)).toBeLessThan(0.01);
+    }
   });
 
   test("the motion gate, static indicators, Reduce Motion and a hidden page stop it", async () => {
@@ -116,8 +130,12 @@ await requireBrowserLane("running-wave-loops.test.ts", async () => {
     await visibility("visible");
     await frames(hidden);
     const back = await waves(hidden);
+    const origin = await hidden.evaluate(() => performance.timeOrigin);
     expect(back.length).toBe(2);
-    expect(back[0].start).toBe(back[1].start);
+    for (const loop of back) {
+      const phase = (((loop.start + origin) % 1_600) + 1_600) % 1_600;
+      expect(Math.min(phase, 1_600 - phase)).toBeLessThan(0.01);
+    }
     await hidden.close();
   });
 });
