@@ -110,7 +110,7 @@ async fn an_mcp_reconnect_names_its_server_and_answers_as_claude_code_does() {
     let ok = json!({"type": "control_response", "response": {"subtype": "success", "request_id": lines[0]["request_id"], "response": {}}});
     let msgs = t.inbound(&ok).await;
     assert!(
-        matches!(&msgs[..], [Message::Response { id, result: Some(r), error: None }] if *id == Value::from(4) && *r == json!({})),
+        matches!(&msgs[..], [Message::Response { id, result: Some(r), error: None }] if *id == 4 && *r == json!({})),
         "{msgs:?}"
     );
 
@@ -118,7 +118,7 @@ async fn an_mcp_reconnect_names_its_server_and_answers_as_claude_code_does() {
     let refused = json!({"type": "control_response", "response": {"subtype": "error", "request_id": lines[0]["request_id"], "error": "Server status: failed"}});
     let msgs = t.inbound(&refused).await;
     assert!(
-        matches!(&msgs[..], [Message::Response { id, error: Some(e), .. }] if *id == Value::from(5) && e.message == "Server status: failed"),
+        matches!(&msgs[..], [Message::Response { id, error: Some(e), .. }] if *id == 5 && e.message == "Server status: failed"),
         "{msgs:?}"
     );
 
