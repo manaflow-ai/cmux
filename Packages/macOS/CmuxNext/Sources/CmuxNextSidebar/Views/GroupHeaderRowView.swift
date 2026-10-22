@@ -73,6 +73,9 @@ final class GroupHeaderRowView: SidebarRowView {
     var onMore: (() -> Void)?
     /// Opens the group editor (name, color and actions): the more button and VoiceOver's Edit action.
     var onEdit: (() -> Void)?
+    /// Opens the group editor at the more button's mouse-down and returns it, so the same press
+    /// chooses in it (u9795); nil when the press closed it instead.
+    var onEditPress: (() -> (any PopupPressTracking)?)?
     var onAdd: (() -> Void)?
 
     override var interactiveSubviews: [NSView] { [addButton, moreButton] }
@@ -86,6 +89,7 @@ final class GroupHeaderRowView: SidebarRowView {
         [glyph, name, count, pin, chevron, activitySlot, badge, addButton, moreButton].forEach(addSubview)
         // The header's label says the name, the count and (through AXExpanded) the chevron.
         moreButton.onPress = { [weak self] in self?.onEdit?() }
+        moreButton.pressPopup = { [weak self] in self?.onEditPress?() }
         addButton.onPress = { [weak self] in self?.onAdd?() }
         // The + and more show only on hover; VoiceOver reaches the editor and the menu here always.
         setAccessibilityCustomActions([
@@ -115,6 +119,7 @@ final class GroupHeaderRowView: SidebarRowView {
         activity.configure(.idle)
         onMore = nil
         onEdit = nil
+        onEditPress = nil
         onAdd = nil
     }
 

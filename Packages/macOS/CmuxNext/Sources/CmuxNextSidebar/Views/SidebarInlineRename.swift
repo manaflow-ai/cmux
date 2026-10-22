@@ -51,7 +51,10 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
     func begin(_ key: SidebarRowKey) {
         guard let list, list.model.presentation == .shown, list.drag == nil else { return }
         // A group's name is edited in the group editor (cx-rcby).
-        if case let .group(id) = key { return list.groupEditing.open(id) }
+        if case let .group(id) = key {
+            list.groupEditing.open(id)
+            return
+        }
         if session != nil { end(commit: true) }
         let original: String
         switch key {

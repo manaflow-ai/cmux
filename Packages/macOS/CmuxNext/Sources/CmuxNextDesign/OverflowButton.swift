@@ -21,6 +21,16 @@ public final class OverflowButton: NSButton {
     public var presentMenu: @MainActor (NSMenu, OverflowButton) -> Void = { menu, button in
         menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: button, gap: Metrics.space1), in: button)
     }
+    /// A popup that opens on mouse-down and follows the same press, like a menu (the sidebar
+    /// group editor): drag to an item and release to run it; a release on nothing keeps it
+    /// open. Returns the popup it opened, nil when the press opened nothing (a press that
+    /// closed it). VoiceOver's press still runs ``onPress``.
+    public var pressPopup: (() -> (any PopupPressTracking)?)?
+    /// The next drag or release of a press that opened a ``pressPopup`` (tests feed a
+    /// recorded sequence; the default waits for the window's next event).
+    public var nextPressEvent: @MainActor (NSWindow) -> NSEvent? = { window in
+        window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp])
+    }
     /// The button's right-click menu; nil keeps AppKit's.
     public var menuProvider: (() -> NSMenu?)?
     /// A fixed glyph color on a colored surface (a group header's ink); nil uses the secondary
@@ -122,7 +132,22 @@ public final class OverflowButton: NSButton {
             presentMenu(menu, self)
             return
         }
+        if let pressPopup {
+            guard let popup = pressPopup(), let window else { return }
+            trackPress(of: popup, in: window)
+            return
+        }
         super.mouseDown(with: event)
+    }
+
+    /// Follows the press that opened `popup` until it ends: drags move its highlight, the
+    /// release chooses (screen coordinates, so the popup's own window does not matter).
+    private func trackPress(of popup: any PopupPressTracking, in window: NSWindow) {
+        while let event = nextPressEvent(window) {
+            let point = window.convertPoint(toScreen: event.locationInWindow)
+            if event.type == .leftMouseUp { return popup.pressReleased(at: point) }
+            popup.pressMoved(to: point)
+        }
     }
 
     /// A button hidden under the pointer (a row's hover controls) gets no exit event: the hover

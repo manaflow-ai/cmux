@@ -93,6 +93,35 @@ public extension NSWindow {
         CATransaction.commit()
     }
 
+    /// Shows the popup at full size and opacity in this frame, with no entry motion: a
+    /// menu-like popup opens at mouse-down like a native menu (Lawrence 2026-10-21, u9795:
+    /// "no entry animation, yes exit animation"). A close still fading is cut, so a reopen
+    /// during it never stacks a second card or flashes.
+    func showPopupInstantly() {
+        resetPopupScale()
+        alphaValue = 1
+    }
+
+    /// Fades the popup's card out at its size (no shrink), then runs `completion`, which
+    /// orders it out. The exit of a popup that ``showPopupInstantly()`` opened: short, like a
+    /// native menu's; Reduce Motion and speed "off" end it in this frame.
+    func fadeOutPopup(completion: @escaping @MainActor () -> Void) {
+        let duration = Motion.overlays.animatesMovement ? Motion.overlays.duration(.fadeOut) : 0
+        guard let content = contentView, let layer = content.layer, Motion.canAnimate(in: content), duration > 0 else {
+            if let layer = contentView?.layer {
+                layer.removeAnimation(forKey: "opacity")
+                layer.removeAnimation(forKey: "sublayerTransform")
+                setPopupLayer(layer, opacity: 0, transform: nil)
+            }
+            return completion()
+        }
+        layer.removeAnimation(forKey: "sublayerTransform")
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } } // main-proof: CATransaction.h: the completion block is called on the main thread
+        Motion.overlays.set(layer, "opacity", to: NSNumber(value: Float(0)), duration: duration)
+        CATransaction.commit()
+    }
+
     /// Clears a finished close (the card's fade and scale) so the next open starts clean.
     func resetPopupScale() {
         guard let layer = contentView?.layer else { return }

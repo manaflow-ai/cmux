@@ -11,8 +11,18 @@ struct SidebarRowMenu {
     let list: SidebarListView
 
     func show(for id: WorkspaceID) {
-        guard let provider = list.contextMenuProvider, let view = list.rowViews[.workspace(id)] as? WorkspaceRowView,
-              let menu = provider(target(for: id)) else { return }
+        guard let view = list.rowViews[.workspace(id)] as? WorkspaceRowView, let menu = menu(for: id) else { return }
+        present(menu, from: view)
+    }
+
+    /// The row's menu, built now (the more button builds it at its mouse-down).
+    func menu(for id: WorkspaceID) -> NSMenu? {
+        list.contextMenuProvider?(target(for: id))
+    }
+
+    /// Shows `menu` under `view`'s more button. Called inside the button's mouse-down, the
+    /// native menu tracks that press: drag to an item and release to run it (u9795).
+    func present(_ menu: NSMenu, from view: WorkspaceRowView) {
         list.menuPresenter(menu, PopupAnchor(rect: view.moreButton.frame, edge: .trailing), view)
     }
 

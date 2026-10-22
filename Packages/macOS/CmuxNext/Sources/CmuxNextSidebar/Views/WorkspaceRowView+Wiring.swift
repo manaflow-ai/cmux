@@ -8,6 +8,12 @@ extension WorkspaceRowView {
     func wire(_ id: WorkspaceID, in list: SidebarListView) {
         onClose = { [weak list] in list?.model.send(.close([id])) }
         onMore = list.contextMenuProvider == nil ? nil : { [weak list] in list.map { SidebarRowMenu(list: $0).show(for: id) } }
+        // The more button opens the menu at mouse-down, so one press can choose in it (u9795).
+        moreButton.pressMenu = list.contextMenuProvider == nil ? nil : { [weak list] in list.flatMap { SidebarRowMenu(list: $0).menu(for: id) } }
+        moreButton.presentMenu = { [weak list, weak self] menu, _ in
+            guard let list, let self else { return }
+            SidebarRowMenu(list: list).present(menu, from: self)
+        }
         onSelect = { [weak list] in list?.model.click(id) }
         onToggleTabs = { [weak list] in list?.model.toggleWorkspaceTabs(id); list?.reload(animated: true) }
         // Redraw now, like the tabs disclosure: left to the tree's observation, the fold would wait

@@ -10,9 +10,12 @@ final class SidebarGroupSwatchView: NSView {
     let color: GroupColor
     var isChosen = false { didSet { if oldValue != isChosen { updateColors() } } }
     var onPick: ((GroupColor) -> Void)?
+    /// The pointer entered (true) or left (false): the editor moves its one highlight.
+    var onHover: ((Bool) -> Void)?
+    /// The editor's highlight is on this dot (the pointer, a press drag or the arrow keys).
+    var isHighlighted = false { didSet { if oldValue != isHighlighted { updateColors() } } }
     private let fill = CALayer()
     private let ring = CALayer()
-    private var isHovered = false { didSet { if oldValue != isHovered { updateColors() } } }
 
     init(color: GroupColor) {
         self.color = color
@@ -62,13 +65,13 @@ final class SidebarGroupSwatchView: NSView {
             fill.backgroundColor = GroupTint.palette(color).lineColor(themed: SidebarGroupPalette.tunable.value == .theme).cgColor
             fill.borderColor = Palette.textTertiary.cgColor
             fill.borderWidth = color == .grey ? Metrics.dividerThickness : 0
-            ring.borderColor = (isChosen ? Palette.textPrimary : (isHovered ? Palette.separator : NSColor.clear)).cgColor
+            ring.borderColor = (isChosen ? Palette.textPrimary : (isHighlighted ? Palette.separator : NSColor.clear)).cgColor
         }
         setAccessibilityValue(isChosen ? 1 : 0)
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
+    override func mouseEntered(with event: NSEvent) { onHover?(true) }
+    override func mouseExited(with event: NSEvent) { onHover?(false) }
     override func mouseDown(with event: NSEvent) {}
     override func mouseUp(with event: NSEvent) {
         if bounds.contains(convert(event.locationInWindow, from: nil)) { onPick?(color) }
@@ -84,11 +87,15 @@ final class SidebarGroupSwatchView: NSView {
 /// action's shortcut, like a menu item.
 final class SidebarGroupEditorRow: NSView {
     var onPress: (() -> Void)?
+    /// The pointer entered (true) or left (false): the editor moves its one highlight.
+    var onHover: ((Bool) -> Void)?
+    /// The editor's highlight is on this row (the pointer, a press drag or the arrow keys).
+    /// It changes in the frame it moves, like a native menu's.
+    var isHighlighted = false { didSet { if oldValue != isHighlighted { updateColors() } } }
     let item: SidebarGroupEditorItem
     private let icon = DecorativeImageView() // the row's label names the action
     private let label = ChromeLabel(labelWithString: "")
     private let shortcut = ChromeLabel(labelWithString: "")
-    private var isHovered = false { didSet { if oldValue != isHovered { updateColors(animated: window != nil) } } }
 
     init(_ item: SidebarGroupEditorItem) {
         self.item = item
@@ -135,17 +142,17 @@ final class SidebarGroupEditorRow: NSView {
         updateColors()
     }
 
-    private func updateColors(animated: Bool = false) {
+    private func updateColors() {
         performWithTheme {
-            if let layer { ChromeHover.paint(layer, isHovered ? Palette.hoverFill : nil, animated: animated) }
+            if let layer { ChromeHover.paint(layer, isHighlighted ? Palette.hoverFill : nil, animated: false) }
             label.textColor = Palette.textPrimary
             icon.contentTintColor = Palette.textSecondary
             shortcut.textColor = Palette.textTertiary
         }
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
+    override func mouseEntered(with event: NSEvent) { onHover?(true) }
+    override func mouseExited(with event: NSEvent) { onHover?(false) }
     override func mouseDown(with event: NSEvent) {}
     override func mouseUp(with event: NSEvent) {
         if bounds.contains(convert(event.locationInWindow, from: nil)) { onPress?() }

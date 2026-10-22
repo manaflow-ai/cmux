@@ -73,15 +73,19 @@ struct SidebarGroupEditing {
         case pointer(NSPoint)
     }
 
-    /// Opens the editor next to what opened it (`opener`). A hidden sidebar,
-    /// a drag or a group not shown opens nothing.
-    func open(_ id: GroupID, from opener: Opener = .name) {
-        guard list.groups[id] != nil, let window = list.window, list.model.presentation == .shown, list.drag == nil else { return }
+    /// Opens the editor next to what opened it (`opener`) and returns its bubble, which a
+    /// press from the more button keeps choosing in. A hidden sidebar, a drag or a group not
+    /// shown opens nothing. Opened from the name, the name field takes the keys; from the more
+    /// button or a right-click the editor opens as a menu, the name untouched until a click
+    /// into it or typing (u9795).
+    @discardableResult
+    func open(_ id: GroupID, from opener: Opener = .name) -> SidebarGroupEditorPanel? {
+        guard list.groups[id] != nil, let window = list.window, list.model.presentation == .shown, list.drag == nil else { return nil }
         // A click whose mouse-down closed this group's editor toggles it closed.
-        if list.groupEditor.closedByThisClick(id, event: NSApp.currentEvent) { return }
+        if list.groupEditor.closedByThisClick(id, event: NSApp.currentEvent) { return nil }
         if let row = list.displayed.row(for: .group(id)) { list.scrollToVisible(list.frame(for: row)) }
         list.realizeVisibleRows()
-        guard let group = list.groups[id], let view = list.rowViews[.group(id)] as? GroupHeaderRowView else { return }
+        guard let group = list.groups[id], let view = list.rowViews[.group(id)] as? GroupHeaderRowView else { return nil }
         view.layoutSubtreeIfNeeded()
         // The row's settled frame: a group made a moment ago may still be moving in.
         let rowFrame = list.displayed.row(for: .group(id)).map(list.frame(for:)) ?? view.frame
@@ -92,9 +96,11 @@ struct SidebarGroupEditing {
         }
         let anchor = PopupAnchor(rect: window.convertToScreen(list.convert(control.rect, to: nil)), edge: control.edge, gap: control.gap)
         list.hoverCards.dismiss(.click)
+        let focusesName = if case .name = opener { true } else { false }
         list.groupEditor.show(group, items: list.groupEditorItems?(id) ?? Self.standardItems(pinned: group.isPinned), anchor: anchor, parent: window,
-                              themeAnchor: list)
+                              themeAnchor: list, focusesName: focusesName)
         view.isEditing = true
+        return list.groupEditor.shownGroup == id ? list.groupEditor.bubble : nil
     }
 
     /// Opens the editor for the group `member` is in (a group a drop just made).
