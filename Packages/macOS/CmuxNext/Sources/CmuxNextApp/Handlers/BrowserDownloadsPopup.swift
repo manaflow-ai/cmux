@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextDesign
 import Observation
-import SwiftUI
 import UniformTypeIdentifiers
 import CmuxNextWakeups
 
@@ -27,7 +26,7 @@ final class BrowserDownloadsPopup {
 
     private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.browser.downloads"))
     private let model = BrowserDownloadsPopupModel()
-    private var content: FirstMouseHostingView<BrowserDownloadsPopupView>?
+    private var content: BrowserDownloadsPopupView?
     private weak var anchor: NSView?
     /// The toolbar the popup opened from, which draws its button pressed while it is open.
     private weak var buttons: BrowserToolbarButtonsView?
@@ -103,6 +102,7 @@ final class BrowserDownloadsPopup {
             NSWorkspace.shared.revealInBackground([file])
         }
         let content = content ?? makeContent()
+        content.reload()
         popup.panel.adoptThemeScope(of: anchor)
         // A press on the Downloads button toggles the popup: the button closes it, not the click monitor.
         popup.keepsOpen = { [weak anchor] event in
@@ -119,8 +119,8 @@ final class BrowserDownloadsPopup {
         return true
     }
 
-    private func makeContent() -> FirstMouseHostingView<BrowserDownloadsPopupView> {
-        let content = FirstMouseHostingView(rootView: BrowserDownloadsPopupView(model: model))
+    private func makeContent() -> BrowserDownloadsPopupView {
+        let content = BrowserDownloadsPopupView(model: model)
         let card = Glass.makeOverlayPanel(content: content, cornerRadius: PopupStyle.standard.cornerRadius)
         popup.panel.adoptPopupStyle(card: card)
         self.content = content
@@ -148,6 +148,7 @@ final class BrowserDownloadsPopup {
         guard popup.isShown, let content else { return }
         // The button left the screen (another tab, the tab closed): the popup goes with it.
         guard let anchor, let window = anchor.window, !anchor.isHiddenOrHasHiddenAncestor else { return close() }
+        content.reload()
         content.layoutSubtreeIfNeeded()
         let size = content.fittingSize
         let rect = window.convertToScreen(anchor.convert(CmuxPopoverAnchor.rect(in: anchor), to: nil))
@@ -167,7 +168,7 @@ final class BrowserDownloadsPopup {
     }
 }
 
-/// What the popup's SwiftUI rows read and the callbacks they run.
+/// What the popup's rows read and the callbacks they run.
 @MainActor
 @Observable
 final class BrowserDownloadsPopupModel {
@@ -197,205 +198,6 @@ final class BrowserDownloadsPopupModel {
     func pointerEntered() {
         entered = true
         onEnter()
-    }
-}
-
-/// The popup's colors from the toolbar's theme scope (as `BookmarkPageColors`).
-struct BrowserDownloadsPopupColors: Equatable {
-    var primary = ThemeTokens.unresolved.textPrimary.swiftUIColor
-    var secondary = ThemeTokens.unresolved.textSecondary.swiftUIColor
-    var hover = ThemeTokens.unresolved.hoverFill.swiftUIColor
-    var separator = Color(nsColor: Borders.color(ThemeTokens.unresolved.separator.nsColor))
-    var danger = ThemeTokens.unresolved.danger.swiftUIColor
-
-    /// Call inside `performWithTheme`. theme-scoped
-    static func resolve() -> BrowserDownloadsPopupColors {
-        BrowserDownloadsPopupColors(primary: fixed(Palette.textPrimary), secondary: fixed(Palette.textSecondary),
-                                    hover: fixed(Palette.hoverFill), separator: fixed(Palette.separator),
-                                    danger: fixed(Palette.danger))
-    }
-
-    private static func fixed(_ color: NSColor) -> Color {
-        Color(nsColor: color.usingColorSpace(.sRGB) ?? color)
-    }
-}
-
-struct BrowserDownloadsPopupView: View {
-    let model: BrowserDownloadsPopupModel
-
-    private static let rowHeight: CGFloat = 44
-    private static let visibleRows = 6
-
-    var body: some View {
-        let rows = model.rows
-        VStack(alignment: .leading, spacing: 0) {
-            if rows.isEmpty {
-                Text(BrowserHitStrings.downloadsEmpty)
-                    .font(Font(Typography.body))
-                    .foregroundStyle(model.colors.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 24)
-            } else {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(rows) { download in
-                            BrowserDownloadPopupRow(download: download, model: model)
-                                .frame(height: Self.rowHeight)
-                        }
-                    }
-                    .id(model.shows)
-                    .padding(.vertical, 4)
-                }
-                .frame(height: CGFloat(min(rows.count, Self.visibleRows)) * Self.rowHeight + 8)
-            }
-            Rectangle().fill(model.colors.separator).frame(height: 1)
-            // One full-width row per command, as Chrome's bubble footer:
-            // the long titles never wrap side by side.
-            VStack(spacing: 0) {
-                BrowserDownloadsFooterRow(symbol: "folder", title: BrowserHitStrings.downloadsShowFolder,
-                                          colors: model.colors) { model.onShowFolder() }
-                if model.canClear {
-                    BrowserDownloadsFooterRow(symbol: "xmark.circle", title: BrowserHitStrings.downloadsClear,
-                                              colors: model.colors) { model.clear() }
-                }
-            }
-            .padding(.vertical, 4)
-        }
-        .frame(width: 340)
-        .onHover { inside in if inside { model.pointerEntered() } }
-        .accessibilityIdentifier("browser.downloads.popup")
-    }
-}
-
-/// One download: its icon, name and status. Pointer handling is AppKit
-/// (`BrowserDownloadRowEvents`): a SwiftUI drag source in a nonactivating
-/// panel needed a first click to make the panel key.
-private struct BrowserDownloadPopupRow: View {
-    let download: BrowserDownload
-    let model: BrowserDownloadsPopupModel
-    /// The pointer is over the row's text (the AppKit overlay) or anywhere on the row.
-    @State private var overContent = false
-    @State private var overRow = false
-
-    private var hovered: Bool { overContent || overRow }
-
-    private var failed: Bool {
-        if case .failed = download.status { return true }
-        return false
-    }
-
-    var body: some View {
-        HStack(spacing: 6) {
-            HStack(spacing: 10) {
-                Image(nsImage: BrowserDownloadsMenu.icon(for: download, size: 24))
-                    .frame(width: 24, height: 24)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(download.filename)
-                        .font(Font(Typography.body))
-                        .foregroundStyle(model.colors.primary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(BrowserDownloadsMenu.status(download))
-                        .font(Font(Typography.caption))
-                        .foregroundStyle(failed ? model.colors.danger : model.colors.secondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            .frame(maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .overlay(BrowserDownloadRowEvents(
-                file: { BrowserDownloadsMenu.draggableFile(download) },
-                menu: { model.menu(for: download) },
-                open: { file in model.onOpen(file) },
-                hover: { inside in
-                    overContent = inside
-                    if inside { model.pointerEntered() }
-                }
-            ))
-            // Show in Finder on the hovered row (Chrome's folder button). Its
-            // slot is always there, so the name does not shift on hover.
-            ZStack {
-                if hovered, let file = BrowserDownloadsMenu.draggableFile(download) {
-                    Button { model.onReveal(file) } label: {
-                        Image(systemName: "folder")
-                            .font(Font(Typography.body))
-                            .foregroundStyle(model.colors.secondary)
-                            .frame(width: 24, height: 24)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .themedHelp(BrowserHitStrings.downloadShowInFinder)
-                    .accessibilityLabel(BrowserHitStrings.downloadShowInFinder)
-                }
-            }
-            .frame(width: 24, height: 24)
-        }
-        .padding(.horizontal, 8)
-        .frame(maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 6).fill(hovered ? model.colors.hover : Color.clear))
-        .padding(.horizontal, 4)
-        .onHover { inside in
-            overRow = inside
-            if inside { model.pointerEntered() }
-        }
-        // The name truncates in the middle, so hovering the row shows it whole.
-        .themedHelp(download.filename)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("browser.downloads.row")
-    }
-}
-
-/// A footer command: an icon and a one-line title across the popup, with
-/// the hover fill of the rows above.
-private struct BrowserDownloadsFooterRow: View {
-    let symbol: String
-    let title: String
-    let colors: BrowserDownloadsPopupColors
-    let action: () -> Void
-    @State private var hovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: symbol)
-                    .font(Font(Typography.body))
-                    .foregroundStyle(colors.secondary)
-                    .frame(width: 24)
-                    .accessibilityHidden(true)
-                Text(title)
-                    .font(Font(Typography.body))
-                    .foregroundStyle(colors.primary)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 8)
-            .frame(height: 28)
-            .contentShape(Rectangle())
-            .background(RoundedRectangle(cornerRadius: 6).fill(hovered ? colors.hover : Color.clear))
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 4)
-        .onHover { hovered = $0 }
-    }
-}
-
-/// The row's pointer: a click opens the finished file, a drag carries it
-/// out as a file URL, a right-click shows the row's menu.
-private struct BrowserDownloadRowEvents: NSViewRepresentable {
-    let file: () -> URL?
-    let menu: () -> NSMenu?
-    let open: (URL) -> Void
-    let hover: (Bool) -> Void
-
-    func makeNSView(context: Context) -> BrowserDownloadRowEventView { BrowserDownloadRowEventView() }
-
-    func updateNSView(_ view: BrowserDownloadRowEventView, context: Context) {
-        view.fileProvider = file
-        view.menuProvider = menu
-        view.onOpen = open
-        view.onHover = hover
     }
 }
 
@@ -456,13 +258,4 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         context == .outsideApplication ? [.copy, .generic] : [.copy, .generic, .link]
     }
-}
-
-/// The popup's content: a click on a control (a footer button) acts on the
-/// first click, also while the popup opened without the keys.
-final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
-    // A main-actor generic class's isolated deinit crashes the Release compile (swift-frontend 6.3, macOS 14 target).
-    nonisolated deinit {}
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
