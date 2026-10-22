@@ -188,9 +188,15 @@ a {
   cursor: auto;
 }
 
-/* Fields always select and show the text cursor. */
+/* Fields always select and show the text cursor. Two rules, not one list: jsdom scores a rule by
+   its most specific selector, which would let `[contenteditable]:not(…)` beat the clickable inputs
+   below in clickable-cursor.test.ts; browsers score each selector. */
 input,
-textarea,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
 [contenteditable]:not([contenteditable="false"]) {
   -webkit-user-select: text;
   user-select: text;
@@ -259,15 +265,19 @@ input:is(
   cursor: pointer;
 }
 /* A disabled control never shows the hand, whatever a surface's rule for it says, and neither does
-   its label: one around it, or a `for` label right before or after it (Cloud's locked memory
-   sizes). A surface that shows another cursor there (`not-allowed`) says so with !important on a
-   :disabled rule. */
+   the label around it that labels it (no `for`, a disabled field inside and no enabled one: Cloud's
+   locked memory sizes). A disabled <option> in an enabled <select> leaves its label alone. CSS
+   cannot follow `for` to its control, so a `for` label keeps the hand. A surface that shows
+   another cursor there (`not-allowed`) says so with !important on a :disabled rule. */
 :is(:disabled, [aria-disabled="true"]),
 :is(:disabled, [aria-disabled="true"]) *,
-label:is(:has(:disabled), :has(+ :disabled)),
-label:is(:has(:disabled), :has(+ :disabled)) *,
-:disabled + label,
-:disabled + label * {
+label:not([for]):has(:is(input, select, textarea):disabled):not(
+    :has(:is(input:not([type="hidden"]), select, textarea):enabled)
+  ),
+label:not([for]):has(:is(input, select, textarea):disabled):not(
+    :has(:is(input:not([type="hidden"]), select, textarea):enabled)
+  )
+  * {
   cursor: default !important;
 }
 
