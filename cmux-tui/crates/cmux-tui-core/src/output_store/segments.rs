@@ -162,7 +162,8 @@ fn append_frame(
 }
 
 /// Frames of a segment file in order: (start offset, raw bytes). Stops at a
-/// cut or corrupt frame.
+/// cut or corrupt frame. A frame whose stream end does not fit in u64 is
+/// corrupt, so every returned `start + bytes.len()` is representable.
 fn frames(path: &Path) -> Vec<(u64, Vec<u8>)> {
     let Ok(contents) = fs::read(path) else { return Vec::new() };
     let mut out = Vec::new();
@@ -186,6 +187,7 @@ fn frames(path: &Path) -> Vec<(u64, Vec<u8>)> {
         let Some(frame) = contents.get(body..end) else { break };
         if GzDecoder::new(frame).take(u64::from(raw) + 1).read_to_end(&mut bytes).is_err()
             || bytes.len() != raw as usize
+            || start.checked_add(u64::from(raw)).is_none()
         {
             break;
         }
@@ -210,7 +212,7 @@ pub(super) fn read_after(
     let mut window: Option<OutputWindow> = None;
     'files: for (_, path) in files.get(first..).unwrap_or_default() {
         for (start, bytes) in frames(path) {
-            let end = start + bytes.len() as u64;
+            let end = start.saturating_add(bytes.len() as u64);
             if end <= after {
                 continue;
             }
@@ -229,7 +231,7 @@ pub(super) fn read_after(
             let piece = bytes.get(skip..).unwrap_or_default();
             let take = piece.len().min(room);
             window.bytes.extend_from_slice(piece.get(..take).unwrap_or(piece));
-            window.next_offset = start + (skip.min(bytes.len()) + take) as u64;
+            window.next_offset = start.saturating_add((skip.min(bytes.len()) + take) as u64);
             if take < piece.len() {
                 window.truncated = true;
                 break 'files;
