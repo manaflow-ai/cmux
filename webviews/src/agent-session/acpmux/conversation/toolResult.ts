@@ -92,7 +92,12 @@ function isBlocks(value: unknown): value is Block[] {
 /// A block this pane draws as no text or image (audio, an image in another format or past the
 /// size cap) stays in the result as JSON, its base64 replaced by its size.
 function residual(block: Block): Block {
-  return typeof block.data === "string" ? { ...block, data: `(${block.data.length} characters of base64)` } : block;
+  const base64 = (text: string) => `(${text.length} characters of base64)`;
+  if (typeof block.data === "string") return { ...block, data: base64(block.data) };
+  const resource = block.resource;
+  if (isRecord(resource) && typeof resource.blob === "string")
+    return { ...block, resource: { ...resource, blob: base64(resource.blob) } };
+  return block;
 }
 
 /// One content block's parts: its text, an image's data URL, a resource's text or its link, or
@@ -113,8 +118,10 @@ function peelBlock(block: Block, into: Peeled) {
       return;
     }
     case "resource": {
+      // A text resource reads as its text; a binary one (`blob`) stays JSON, its base64 as its length.
       const resource = block.resource as Record<string, unknown>;
-      into.texts.push(typeof resource.text === "string" ? resource.text : String(resource.uri));
+      if (typeof resource.text === "string") into.texts.push(resource.text);
+      else into.rest.push(residual(block));
       return;
     }
     case "resource_link":
@@ -131,11 +138,11 @@ function peelBlock(block: Block, into: Peeled) {
 
 const shows = (peeled: Peeled) => peeled.texts.some((text) => text.trim()) || peeled.images.length > 0;
 
-/// Whether a text block repeats `structured` (MCP asks a tool to send its structured content as
-/// text too): then the text says it, and the structured content is not shown twice.
-function repeats(texts: string[], structured: unknown): boolean {
+/// The index of the text block that repeats `structured` (MCP asks a tool to send its structured
+/// content as text too), or -1.
+function repeated(texts: string[], structured: unknown): number {
   const printed = JSON.stringify(structured);
-  return texts.some((text) => {
+  return texts.findIndex((text) => {
     const parsed = parseJSONValue(text);
     return parsed !== undefined && JSON.stringify(parsed) === printed;
   });
@@ -153,8 +160,9 @@ export function peelEnvelope(value: unknown, depth = 0): Peeled | undefined {
     return shows(peeled) ? peeled : undefined;
   }
   if (!isRecord(value)) return undefined;
-  // An MCP `CallToolResult`: its content blocks, and its structured content unless a text block
-  // repeats it.
+  // An MCP `CallToolResult`: its content blocks, then its structured content as JSON. A text block
+  // that repeats the structured content gives way to it, so the payload shows once, as the JSON it
+  // is, never read as another envelope.
   if (
     Array.isArray(value.content) &&
     (value.content.length === 0 || isBlocks(value.content)) &&
@@ -163,8 +171,11 @@ export function peelEnvelope(value: unknown, depth = 0): Peeled | undefined {
     const peeled: Peeled = { texts: [], images: [], rest: [] };
     for (const block of value.content as Block[]) peelBlock(block, peeled);
     const structured = value.structuredContent;
-    if (structured !== undefined && structured !== null && !repeats(peeled.texts, structured))
+    if (structured !== undefined && structured !== null) {
+      const index = repeated(peeled.texts, structured);
+      if (index >= 0) peeled.texts.splice(index, 1);
       peeled.rest.push(structured);
+    }
     return peeled;
   }
   // A JSON-RPC style result: `{"result": …, "error": null}`.
@@ -198,8 +209,28 @@ export function peelEnvelope(value: unknown, depth = 0): Peeled | undefined {
 export const printedAsEnvelope = (printed: string | undefined) =>
   printed === undefined || !printed.trim().includes("\n");
 
-/// JSON indented, its values as they are: a string that holds JSON stays a string.
-const pretty = (value: unknown) => JSON.stringify(value, null, 2);
+/// JSON nested deeper than this is not indented (each level would indent every line below it): the
+/// whole output shows as it was printed.
+const MAX_PRETTY_DEPTH = 64;
+
+class TooDeep extends Error {}
+
+function deeperThan(value: unknown, limit: number): boolean {
+  if (limit < 0) return true;
+  if (Array.isArray(value)) return value.some((entry) => deeperThan(entry, limit - 1));
+  if (isRecord(value)) return Object.values(value).some((entry) => deeperThan(entry, limit - 1));
+  return false;
+}
+
+/// Whether `value` is shallow enough to show indented (mcpCalls.ts asks before it prints a residual).
+export const printable = (value: unknown) => !deeperThan(value, MAX_PRETTY_DEPTH);
+
+/// JSON indented, its values as they are: a string that holds JSON stays a string. Throws TooDeep
+/// past MAX_PRETTY_DEPTH, so toolResult shows the output as printed instead.
+function pretty(value: unknown): string {
+  if (!printable(value)) throw new TooDeep();
+  return JSON.stringify(value, null, 2);
+}
 
 /// Markdown structure in a result's text: a heading, a fence, a list, a table or a quote line.
 const MARKDOWN = /^(?:#{1,6} \S|```|\s*(?:[-*+]|\d+\.) \S|\|.*\|\s*$|> \S)/m;
@@ -213,14 +244,26 @@ function textLang(text: string): ToolResult["lang"] {
 /// What an opened non-shell call shows of `output` (ToolRow.tsx), and what Find in Chat reads of it
 /// (chatFind.ts), so both see one text. `clean` drops what a host injected into the result's text
 /// (mcpCalls.ts `cleanText`), once it is out of its envelope.
-export function toolResult(output: string, clean: (text: string) => string = (text) => text): ToolResult {
+export function toolResult(output: string, clean: (text: string) => string = identity): ToolResult {
   const parsed = parseJSONValue(output);
-  if (parsed !== undefined) return fromValue(parsed, output, 0, clean);
+  if (parsed !== undefined) return bounded(() => fromValue(parsed, output, 0, clean), output);
   // A host may have put its context around the JSON (a reminder after a result): read it again without.
   const cleaned = clean(output).replace(/\n$/, "");
   const reparsed = cleaned === output ? undefined : parseJSONValue(cleaned);
-  if (reparsed !== undefined) return fromValue(reparsed, cleaned, 0, clean);
+  if (reparsed !== undefined) return bounded(() => fromValue(reparsed, cleaned, 0, clean), cleaned);
   return { text: cleaned, lang: "text", images: [], unwrapped: false };
+}
+
+const identity = (text: string) => text;
+
+/// `read()`, or `printed` as it is when the JSON is nested too deep to show any other way.
+function bounded(read: () => ToolResult, printed: string): ToolResult {
+  try {
+    return read();
+  } catch (error) {
+    if (!(error instanceof TooDeep) && !(error instanceof RangeError)) throw error;
+    return { text: printed.replace(/\n$/, ""), lang: "json", images: [], unwrapped: false };
+  }
 }
 
 function fromValue(
@@ -261,17 +304,20 @@ function fromValue(
   return { text, lang: textLang(text), images: peeled.images, unwrapped: true };
 }
 
-const imagesCache = new Map<string, string[]>();
+const imagesCaches = new WeakMap<(text: string) => string, Map<string, string[]>>();
 
-/// The images an output's envelope carried (a result's `image` blocks, as data URLs). Kept for the
-/// last few outputs asked, so a transcript re-render parses nothing again.
-export function envelopeImages(output: string | undefined): string[] {
+/// The images an output's envelope carried (a result's `image` blocks, as data URLs), read with the
+/// same `clean` as its text (ToolRow passes mcpCalls.ts `cleanText`), so text and images come from
+/// one reading. Kept for the last few outputs asked, so a transcript re-render parses nothing again.
+export function envelopeImages(output: string | undefined, clean: (text: string) => string = identity): string[] {
   // `image` appears in any output with an image block, nested in JSON text (`\"image\"`) or not.
   if (!output || !output.includes("image")) return [];
-  const known = imagesCache.get(output);
+  let cache = imagesCaches.get(clean);
+  if (!cache) imagesCaches.set(clean, (cache = new Map()));
+  const known = cache.get(output);
   if (known) return known;
-  const images = toolResult(output).images;
-  if (imagesCache.size >= 32) imagesCache.delete(imagesCache.keys().next().value!);
-  imagesCache.set(output, images);
+  const images = toolResult(output, clean).images;
+  if (cache.size >= 32) cache.delete(cache.keys().next().value!);
+  cache.set(output, images);
   return images;
 }

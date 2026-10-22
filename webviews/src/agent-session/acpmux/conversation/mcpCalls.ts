@@ -6,7 +6,7 @@
 import { createContext } from "react";
 import type { Translate } from "../i18n";
 import type { AcpmuxActivity } from "../model";
-import { peelEnvelope, printedAsEnvelope } from "./toolResult";
+import { peelEnvelope, printable, printedAsEnvelope } from "./toolResult";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -269,6 +269,8 @@ function mcpValue(output: string | undefined): unknown {
   if (parsed === undefined) return output;
   const peeled = printedAsEnvelope(output) ? peelEnvelope(parsed) : undefined;
   if (!peeled) return parsed;
+  // What it holds nested too deep to indent: the output as it came (toolResult.ts does the same).
+  if (!peeled.rest.every(printable)) return output;
   const texts = peeled.texts.filter((text) => text.trim());
   // An envelope with no text: what it holds besides, or, empty, the JSON it is.
   if (!texts.length) return peeled.rest.length === 0 ? parsed : peeled.rest.length === 1 ? peeled.rest[0] : peeled.rest;
@@ -279,6 +281,10 @@ function mcpValue(output: string | undefined): unknown {
 
 /// A value as the opened call shows it: text as itself, anything else as indented JSON.
 export function prettyValue(value: unknown): string | undefined {
+  // Nested too deep to indent (each level would indent every line below it): on one line, as it came.
+  const raw = typeof value === "string" ? parseJSON(value) : value;
+  if (raw !== undefined && !printable(raw))
+    return typeof value === "string" ? value.replace(/\n$/, "") : oneLine(value);
   const clean = deepClean(value);
   if (clean === undefined || clean === null || clean === "") return undefined;
   if (typeof clean === "string") return clean.replace(/\n$/, "");
@@ -289,6 +295,14 @@ export function prettyValue(value: unknown): string | undefined {
 /// The opened call's response.
 export function prettyOutput(output: string | undefined): string | undefined {
   return prettyValue(mcpValue(output));
+}
+
+function oneLine(value: unknown): string | undefined {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return undefined;
+  }
 }
 
 function parseJSON(text: string | undefined): unknown {

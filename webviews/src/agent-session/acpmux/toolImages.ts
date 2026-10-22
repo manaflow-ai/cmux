@@ -6,6 +6,7 @@
 // plays inline (ReplyMedia). A running call shows none yet.
 import type { AcpmuxActivity } from "./model";
 import { editedPaths } from "./toolPaths";
+import { cleanText } from "./conversation/mcpCalls";
 import { envelopeImages } from "./conversation/toolResult";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -24,8 +25,9 @@ export function toolImages(tool: Tool): string[] {
     if (found.length < MAX_TOOL_IMAGES && !found.includes(source)) found.push(source);
   };
   for (const image of tool.images ?? []) add(image);
-  // Images inside a result a harness passed on as JSON text (an MCP result's `image` blocks).
-  for (const image of envelopeImages(tool.output)) add(image);
+  // Images inside a result a harness passed on as JSON text (an MCP result's `image` blocks), read
+  // as ToolRow reads its text: without the context a host put around it.
+  for (const image of envelopeImages(tool.output, cleanText)) add(image);
   const file = (path: string) => {
     if (path.startsWith("/") && IMAGE_FILE.test(path)) add(path);
   };

@@ -191,7 +191,7 @@ test("fences in a tool result's quotes and list items stay plain code, as at the
   // Codex review finding 1: `plainCode` reached only top-level fences.
   const text =
     "> ```mermaid\n> graph TD; A-->B\n> ```\n\n- Item\n\n  ```html\n  <b>x</b>\n  ```\n\n```svg\n<svg/>\n```";
-  const html = renderToStaticMarkup(createElement(Markdown, { plainCode: true, children: text }));
+  const html = renderToStaticMarkup(createElement(Markdown, { plainCode: true }, text));
   expect(html.match(/cv-codeblock--plain/g)).toHaveLength(3);
 });
 
@@ -295,11 +295,53 @@ test("envelopes nested past the depth limit stay JSON instead of overflowing the
   // Codex re-review finding 6: result and content wrappers recursed without a bound.
   let result: unknown = "deep";
   for (let i = 0; i < 5000; i++) result = { result };
+  // Past the bound, the output shows as it was printed: never indented level by level.
   const deepResult = JSON.stringify(result);
-  expect(toolResult(deepResult).lang).toBe("json");
+  expect(toolResult(deepResult)).toEqual({ text: deepResult, lang: "json", images: [], unwrapped: false });
+  expect(prettyOutput(deepResult)).toBe(deepResult);
   let block: unknown = { type: "text", text: "deep" };
   for (let i = 0; i < 5000; i++) block = { type: "content", content: block };
-  expect(toolResult(JSON.stringify([block])).lang).toBe("json");
+  const deepBlocks = JSON.stringify([block]);
+  expect(toolResult(deepBlocks)).toEqual({ text: deepBlocks, lang: "json", images: [], unwrapped: false });
   // A shallow chain still unwraps.
   expect(toolResult(JSON.stringify({ result: { result: "shallow" } })).text).toBe("shallow");
+});
+
+test("structured content a text block repeats shows once, as the JSON it is", () => {
+  // Codex review 3 finding 2: the repeated text was peeled as an envelope, losing the payload's keys.
+  const structured = { result: "bad path", id: "request-7" };
+  const output = JSON.stringify({
+    content: [{ type: "text", text: JSON.stringify(structured) }],
+    structuredContent: structured,
+  });
+  expect(toolResult(output)).toMatchObject({ text: JSON.stringify(structured, null, 2), lang: "json" });
+});
+
+test("a binary resource stays JSON, its blob as its length", () => {
+  // Codex review 3 finding 3: a resource without text was reduced to its URI.
+  const output = JSON.stringify({
+    content: [
+      { type: "text", text: "Report attached" },
+      { type: "resource", resource: { uri: "report://r1", mimeType: "application/pdf", blob: "JVBERi0=" } },
+    ],
+  });
+  const text = toolResult(output).text;
+  expect(text.startsWith("Report attached\n\n")).toBe(true);
+  expect(text).toContain('"mimeType": "application/pdf"');
+  expect(text).toContain('"blob": "(8 characters of base64)"');
+  expect(text).not.toContain("JVBERi0=");
+  expect(prettyOutput(output)).toContain('"uri": "report://r1"');
+});
+
+test("an envelope's images show when a host put context after it", () => {
+  // Codex review 3 finding 4: the image strip read the output without the row's cleaning.
+  const envelope = JSON.stringify([
+    { type: "text", text: "Screenshot" },
+    { type: "image", data: PNG, mimeType: "image/png" },
+  ]);
+  const output = `${envelope}\n<system-reminder>internal</system-reminder>`;
+  expect(toolResult(output, cleanText)).toMatchObject({ text: "Screenshot", images: [`data:image/png;base64,${PNG}`] });
+  expect(toolImages({ id: "c1", title: "mcp__shots__take", status: "completed", output })).toEqual([
+    `data:image/png;base64,${PNG}`,
+  ]);
 });
