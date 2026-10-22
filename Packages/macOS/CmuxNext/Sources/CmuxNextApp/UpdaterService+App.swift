@@ -48,6 +48,8 @@ extension UpdaterService {
         }
         attachTips(registry: services.registry)
         UpdateSimulation(updater: self).follow(simulating)
+        // Per-PR kill switches from the signed flags document beside the feed (partial-rollback.md 2).
+        KillSwitchReader(updater: self).follow()
         #if DEBUG
         UpdateHarnessProbe.install(updater: self)
         #endif
