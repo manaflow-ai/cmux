@@ -473,10 +473,18 @@ fn append_with_receipt(
     })
 }
 
-/// `encoded` (one request line) without `params.live_prompt`; nil when it has none.
+/// `encoded` (one request line) without its memory-only fields (`live_prompt`, `live_reply`,
+/// `live_question`); nil when it has none.
 fn without_live_prompt(encoded: &[u8]) -> Option<Vec<u8>> {
     let mut request: Value = serde_json::from_slice(encoded).ok()?;
-    request.get_mut("params")?.as_object_mut()?.remove("live_prompt")?;
+    let params = request.get_mut("params")?.as_object_mut()?;
+    let removed = ["live_prompt", "live_reply", "live_question"]
+        .into_iter()
+        .filter(|field| params.remove(*field).is_some())
+        .count();
+    if removed == 0 {
+        return None;
+    }
     let mut line = serde_json::to_vec(&request).ok()?;
     line.push(b'\n');
     Some(line)

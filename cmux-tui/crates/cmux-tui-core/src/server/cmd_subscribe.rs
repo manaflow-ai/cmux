@@ -372,6 +372,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "subtitle": notification.subtitle,
             "body": notification.body,
             "preview": notification.preview,
+            "question": notification.question.as_deref(),
             "level": notification.level.as_str(),
             "surface": notification.surface,
             "workspace_id": notification.workspace_id,

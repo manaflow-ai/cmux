@@ -171,12 +171,20 @@ impl Mux {
             .filter(|_| notification.source == NotificationSource::Agent)
             .and_then(|terminal| self.take_agent_reply(terminal))
             .map(|reply| reply.to_string());
+        // A question hook's notification takes its question; the terminal keeps it while the
+        // agent waits (`list-notifications`).
+        let question = notification
+            .terminal_id
+            .as_ref()
+            .filter(|_| notification.source == NotificationSource::Agent)
+            .and_then(|terminal| self.take_agent_question(terminal, notification.id.as_str()));
         self.emit(MuxEvent::Notification(NotificationEvent {
             notification: numeric_id,
             title: notification.title.clone(),
             subtitle: notification.subtitle.clone(),
             body: notification.body.clone(),
             preview,
+            question,
             level: notification.level,
             surface: notification.surface,
             workspace_id: notification.workspace_id.clone(),
