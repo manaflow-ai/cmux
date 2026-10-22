@@ -48,6 +48,11 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored public private(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
     /// The site of the page that started the current main-frame navigation.
     @ObservationIgnored var navigationSourceSite: String?
+    /// The video the main frame's newest navigation asks for, when it may become the player
+    /// (`RemoteVideoPage`): a GET that is not a Back or Forward. Only a response for this URL
+    /// plays. A POST's video cannot be fetched again, and a traversal must not add a back-list
+    /// entry; both keep downloading.
+    @ObservationIgnored var mainFramePlayableVideo: URL?
     @ObservationIgnored public let mainFrameStatuses = MainFrameStatuses()
     /// The last right-click's hit (`WebKitContextHit`); the menu takes it.
     @ObservationIgnored var contextHit: (target: BrowserContextMenuTarget, at: ContinuousClock.Instant)?
