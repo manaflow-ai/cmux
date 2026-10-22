@@ -147,4 +147,52 @@ struct AgentPaneReplyImageOutsideTests {
         #expect(Self.errorCode(reply) == nil, "\(reply)")
         #expect(Self.source(reply) == "data:image/png;base64," + png.base64EncodedString())
     }
+
+    /// A chat on another machine never reads this Mac's disk (cx-k21v): its agent can name any
+    /// local path, so no local image is read for it, outside the folders or inside them.
+    @Test func aRemoteChatNeverReadsThisMacsImages() async throws {
+        let rig = try Self.rig()
+        defer { try? FileManager.default.removeItem(at: rig.folder) }
+        let png = try Self.png()
+        let shot = rig.outside.appendingPathComponent("after-messages.png")
+        try png.write(to: shot)
+        let diagram = rig.project.appendingPathComponent("diagram.png")
+        try png.write(to: diagram)
+        rig.model.remoteChat = true
+
+        for outsideRoots in AgentPaneReplySetting.OutsideRoots.allCases {
+            rig.model.replyLinks.settings = { AgentPaneReplySetting(outsideRoots: outsideRoots, remoteImages: .click) }
+            for url in [shot, diagram] {
+                let reply = await rig.load(url.path)
+                #expect(Self.errorCode(reply) == AgentPaneReplyError.pathOutsideRoots.rawValue, "\(outsideRoots) \(url.lastPathComponent): \(reply)")
+                #expect(Self.source(reply) == nil)
+            }
+        }
+    }
+
+    /// The host checks a canonical path, then opens it. A parent folder swapped for a link in
+    /// between (here: a link into `~/.ssh` in place of a folder) must not reach the file it now
+    /// points at: the read checks the path of the file it opened, not the path it was given.
+    @Test func anOpenThroughALinkedParentFolderIsRefused() async throws {
+        let rig = try Self.rig()
+        defer { try? FileManager.default.removeItem(at: rig.folder) }
+        let png = try Self.png()
+        let ssh = rig.home.appendingPathComponent(".ssh", isDirectory: true)
+        try png.write(to: ssh.appendingPathComponent("shot.png"))
+        let canonicalOutside = try #require(AcpmuxPathPolicy.canonical(rig.outside.path))
+        let swapped = canonicalOutside + "/swapped"
+        try FileManager.default.createSymbolicLink(atPath: swapped, withDestinationPath: ssh.path)
+
+        // As the host sees it after its checks passed for `swapped/shot.png`.
+        let read = await AgentPaneReplyImages.outside(swapped + "/shot.png")
+        if case .success = read { Issue.record("an image behind a linked parent folder was read") }
+        // Through image.load the canonical path is on the deny list.
+        let reply = await rig.load(swapped + "/shot.png")
+        #expect(Self.errorCode(reply) == AgentPaneReplyError.pathDenied.rawValue, "\(reply)")
+
+        // The same image at its own canonical path, outside the deny list, still reads.
+        let plain = canonicalOutside + "/plain.png"
+        try png.write(to: URL(fileURLWithPath: plain))
+        #expect(await AgentPaneReplyImages.outside(plain) == .success("data:image/png;base64," + png.base64EncodedString()))
+    }
 }
