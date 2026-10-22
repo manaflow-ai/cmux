@@ -105,15 +105,20 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
     }
   }
   // A chat that waits on the person with no ask read here (a chat on another computer, or one
-  // whose ask is still being read): one item, so it is never missing from the list.
+  // whose ask is still being read): one item, so it is never missing from the list. Its summary
+  // still names what it waits on (acpmux `waitingOn`, with a question's first prompt): the row
+  // says that question; only a chat that names no question falls back to its last reply.
   for (const session of input.sessions) {
     if (asked.has(session.sessionId) || session.archived) continue;
     if (session.indicator !== "input" && !(session.pendingPermissions && session.pendingPermissions > 0)) continue;
+    const waiting = session.waitingOn;
+    const prompt = waiting?.on === "question" ? waiting.prompt : undefined;
+    const ask = prompt ?? session.preview ?? "";
     items.push({
       id: `chat:${session.sessionId}`,
-      kind: "input",
+      kind: !waiting ? "input" : waiting.on === "permission" ? "approval" : VERIFY.test(ask) ? "verify" : "decision",
       sessionId: session.sessionId,
-      ask: session.preview ?? "",
+      ask,
       who: who(session, session.sessionId, byId),
       ...(session.updatedAt ? { at: session.updatedAt } : {}),
       answers: [],
