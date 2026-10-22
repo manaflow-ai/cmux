@@ -5,7 +5,7 @@
 // (IncomingMessageCard.tsx, incomingMessage.ts). A message from a chat here also has Reply at the line's end, which
 // answers in place in the sender's chat and thread.
 import { agentPaneEntry } from "../../../gallery/format";
-import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
+import { SESSION_ID, assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
 
 const message = (
   name: string,
@@ -19,6 +19,7 @@ const message = (
 });
 
 const gridFix = "The grid fix is on cmux/grid-fix; tests pass.";
+const chiefReport = "Sidebar fix is up as #24012; the review passed and CI is green.";
 const openedText =
   "The grid fix is on cmux/grid-fix; tests pass.\n\nOpened manaflow-ai/cmux#23727 at 3b01de6; the follow-up is hq#2505. The grid now reserves its height before the images load, so nothing below it moves.";
 const report = [
@@ -215,6 +216,35 @@ export default agentPaneEntry({
           untyped: true,
         }),
       ]),
+    },
+    "sender-hover": {
+      note: 'A lane on another machine (studio-mac) messages this chat. Hovering its name: the accent ring over glass, and the tooltip "Open chief-ui (studio-mac)"; a click opens that chat beside this one, or focuses its tab when one shows it.',
+      snapshot: chat(
+        [
+          user("Ask chief-ui where the sidebar fix stands", 9),
+          assistant("Asked chief-ui; it will report back here.", 8.5),
+          summary(8.5, { status: "completed" }),
+          user(chiefReport, 4, { incoming: message("chief-ui", chiefReport), untyped: true }),
+        ],
+        {
+          sessions: [
+            session({ sessionId: SESSION_ID, title: "Add retries to the fetch helper" }),
+            // A peer's chat as acpmux lists it here (hub/peers.rs): `<peer>/<name>`, signed with the bare name.
+            session({
+              sessionId: "chief-ui-1",
+              name: "studio-mac/chief-ui",
+              title: "chief-ui",
+              peer: "studio-mac",
+              host: "studio-mac",
+              hostKind: undefined,
+            }),
+          ],
+        },
+      ),
+      play: async (ctx) => {
+        await ctx.hover({ selector: "button.cv-received__name" });
+        await ctx.waitFor(() => ctx.document.querySelector(".ui-title-tooltip"));
+      },
     },
     notice: {
       note: "A background task's end in an adopted Claude session's history: one quiet line, no raw XML.",

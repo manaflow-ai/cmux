@@ -505,7 +505,7 @@ export function ComposerQueue({
       <IncomingMessageLine
         id={`queued:${entry.id}`}
         message={message}
-        onOpen={(sessionId) => subsessions?.open(sessionId)}
+        onOpen={(sessionId) => (subsessions?.openSender ?? subsessions?.open)?.(sessionId)}
         actions={editing !== entry.id && actions(entry)}
       />
     );
