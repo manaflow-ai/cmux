@@ -34,7 +34,20 @@ expect_fail opaque always-opaque '        let surface = CardSurfaceView(cornerRa
 expect_fail card card-fill '        let panel = Glass.makeOverlayPanel(content: body, cardFill: true)'
 expect_fail swiftui swiftui-solid '            .background(Color(nsColor: Palette.popupSurface))'
 
+expect_fail menu-panel popup-host 'final class DemoMenuPanel: NSPanel {
+    let card = NSVisualEffectView()
+}'
+expect_fail picker-host popup-host '        popup.panel.adoptPopupStyle(card: plainView)'
+expect_fail native-host popup-host '    private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.demo"))'
+expect_fail ns-popover popup-host '        let pop = NSPopover()'
+
 expect_pass glass '        let panel = Glass.makeOverlayPanel(content: body, cornerRadius: 10)'
+expect_pass glass-menu-host 'final class DemoPickerPanel: ContentChildPanel {
+    let card = Glass.makeOverlayPanel(content: rows)
+}'
+expect_pass menu-glass-host '        let card = Glass.makeMenuPanel(content: body)
+        popup.panel.adoptPopupStyle(card: card)'
+expect_pass host-comment '/// Shows it in a NativePopupHost(panel:) like the others.'
 expect_pass translucent '        box.fillColor = NSColor.textBackgroundColor.withAlphaComponent(0.35)'
 expect_pass comment '/// The popup surface (`Palette.popupSurface`) only under Reduce Transparency.'
 expect_pass escaped '        // glass-opaque-allow: Reduce Transparency draws every surface solid.
@@ -49,5 +62,18 @@ if out="$(python3 -I "$CHECK" "$tmp")"; then
   echo "check-overlay-glass.test: a stale allowance passed"; echo "$out"; exit 1
 fi
 grep -q "stale allowance" <<<"$out" || { echo "check-overlay-glass.test: no stale allowance named"; echo "$out"; exit 1; }
+
+# A host whose glass GLASS_FROM puts in another file fails once that file stops building it.
+palette="$tmp/Packages/macOS/CmuxNext/Sources/CmuxNextPalette"
+mkdir -p "$palette"
+rm -f "$src"/*.swift "$stale"/*.swift
+printf '%s\n' 'final class PalettePanel: ActiveAppKeyPanel {}' > "$palette/PalettePanel.swift"
+printf '%s\n' '    let glass = NSVisualEffectView()' > "$palette/PaletteContentView.swift"
+if out="$(python3 -I "$CHECK" "$tmp")"; then
+  echo "check-overlay-glass.test: a palette without its glass passed"; echo "$out"; exit 1
+fi
+grep -q "PalettePanel.swift:1: \[popup-host\]" <<<"$out" || { echo "check-overlay-glass.test: PalettePanel not named"; echo "$out"; exit 1; }
+printf '%s\n' '    let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius)' > "$palette/PaletteContentView.swift"
+out="$(python3 -I "$CHECK" "$tmp")" || { echo "check-overlay-glass.test: the palette on its glass failed"; echo "$out"; exit 1; }
 
 echo "check-overlay-glass.test: ok"

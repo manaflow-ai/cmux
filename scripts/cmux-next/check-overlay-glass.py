@@ -20,6 +20,13 @@ Rules (Packages/macOS/CmuxNext/Sources, Swift; comment lines are ignored):
   card-fill        makeOverlayPanel(cardFill: true): the mostly opaque CardMaterial fill on glass.
   swiftui-solid    a SwiftUI .background(...) of white, black or a solid palette surface, or
                    .opacity(1).
+  popup-host       a native host of a menu, picker, popover or web popup that is not on the shared
+                   glass: a panel or window class named for a menu, picker, popover, popup or the
+                   palette, a NativePopupHost(panel:), an adoptPopupStyle(card:) or an NSPopover(),
+                   in a file with no Glass.makeOverlayPanel(...) (or Glass.makeMenuPanel(...)). A
+                   host whose glass another file builds names that file in GLASS_FROM, which must
+                   build it; a host that is not a menu says why in NOT_POPUP_HOST. (Leo 2026-10-21,
+                   "why is this not glassed and themed right", the folder picker and the chat menu.)
 
 A hit passes when the file and rule are in ALLOWED below (with the reason the surface stays solid),
 or the line, or the comment block right above it, says `// glass-opaque-allow: <reason>`. Reduce
@@ -101,6 +108,84 @@ ALLOWED: dict[str, dict[str, str]] = {
 }
 
 
+# A native host of a menu, picker, popover, popup or the palette.
+POPUP_HOST = re.compile(
+    r"\bclass\s+\w*(Menu|Picker|Popover|Popup|Palette)\w*\s*:\s*\w*(Panel|Window)\b"
+    r"|\bNativePopupHost\(panel:|\badoptPopupStyle\(card:|\bNSPopover\(\)"
+)
+GLASS_SURFACE = re.compile(r"\bGlass\.make(Overlay|Menu)Panel\(")
+
+# path -> (the file that builds its glass, why it lives there). That file must build it.
+GLASS_FROM: dict[str, tuple[str, str]] = {
+    P + "CmuxNextPalette/PalettePanel.swift": (
+        P + "CmuxNextPalette/PaletteContentView.swift",
+        "the palette's pages (the folder picker included) draw on PaletteContentView's glass",
+    ),
+    P + "CmuxNextBrowser/UI/ExtensionsMenu/ExtensionsMenuPanel.swift": (
+        P + "CmuxNextBrowser/UI/ExtensionsMenu/ExtensionsMenuCardView.swift",
+        "the Extensions bubble's card is ExtensionsMenuCardView's glass",
+    ),
+    P + "CmuxNextBrowser/UI/ExtensionsMenu/ExtensionsMenuController.swift": (
+        P + "CmuxNextBrowser/UI/ExtensionsMenu/ExtensionsMenuCardView.swift",
+        "adopts ExtensionsMenuCardView's glass as its popup card",
+    ),
+    P + "CmuxNextBrowser/PageInfo/UI/PageInfoController.swift": (
+        P + "CmuxNextBrowser/PageInfo/UI/PageInfoPanel.swift",
+        "adopts PageInfoPanel's glass card",
+    ),
+}
+
+# path -> why it hosts no menu of its own.
+NOT_POPUP_HOST: dict[str, str] = {
+    P + "CmuxNextDesign/PopupStyle.swift": "defines adoptPopupStyle(card:); each caller brings its glass",
+    P + "CmuxNextDesign/Overlay/NativePopupHost.swift": "the shared host; each caller brings its glass",
+    P + "CmuxNextPopups/BrowserPopupWindow.swift": "a site's window.open popup: a browser window, not a menu",
+    P + "CmuxNextApp/Server/ServerMenuBarController.swift": (
+        "the menu bar status item's system NSPopover (the system's own glass), outside any themed window"
+    ),
+}
+
+
+def code_lines(path: str) -> list[str]:
+    """The file's lines without comment lines or trailing comments."""
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        return [line.split("//", 1)[0] for line in handle.read().split("\n") if not COMMENT.match(line)]
+
+
+def builds_glass(path: str) -> bool:
+    return os.path.exists(path) and any(GLASS_SURFACE.search(line) for line in code_lines(path))
+
+
+def scan_popup_hosts(root: str) -> list[str]:
+    """Every native popup host whose surface is not the shared glass, and every stale entry."""
+    findings: list[str] = []
+    hosts: set[str] = set()
+    base = os.path.join(root, SOURCES)
+    for directory, dirs, files in os.walk(base):
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
+        for name in sorted(files):
+            if not name.endswith(".swift"):
+                continue
+            path = os.path.join(directory, name)
+            rel = os.path.relpath(path, root).replace(os.sep, "/")
+            lines = code_lines(path)
+            hit = next((line for line in lines if POPUP_HOST.search(line)), None)
+            if hit is None:
+                continue
+            hosts.add(rel)
+            if rel in NOT_POPUP_HOST or any(GLASS_SURFACE.search(line) for line in lines):
+                continue
+            source = GLASS_FROM.get(rel)
+            if source and builds_glass(os.path.join(root, source[0])):
+                continue
+            where = f" (GLASS_FROM names {source[0]}, which builds no Glass.makeOverlayPanel)" if source else ""
+            findings.append(f"{rel}:1: [popup-host] {hit.strip()}{where}")
+    for rel in sorted({*GLASS_FROM, *NOT_POPUP_HOST}):
+        if rel not in hosts and os.path.exists(os.path.join(root, rel)):
+            findings.append(f"{rel}:1: [popup-host] stale allowance: the file hosts no popup; remove it")
+    return findings
+
+
 def scan(root: str) -> list[str]:
     findings: list[str] = []
     used: set[tuple[str, str]] = set()
@@ -133,7 +218,7 @@ def scan(root: str) -> list[str]:
         for rule in sorted(rules):
             if (rel, rule) not in used and os.path.exists(os.path.join(root, rel)):
                 findings.append(f"{rel}:1: [{rule}] stale allowance: the file no longer matches; remove it from ALLOWED")
-    return findings
+    return findings + scan_popup_hosts(root)
 
 
 def escaped(lines: list[str], index: int) -> bool:
@@ -155,6 +240,8 @@ def main() -> int:
         print("check-overlay-glass: a floating surface is solid instead of the shared glass (Leo 2026-10-21:")
         print('  "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS."). Use Glass.makeOverlayPanel, the')
         print("  tooltip frost or CardSurfaceView, or say why it stays solid: `// glass-opaque-allow: <reason>`.")
+        print("  [popup-host]: a menu, picker, popover or web popup host builds its surface with")
+        print("  Glass.makeOverlayPanel, or names the file that does in GLASS_FROM.")
         for finding in findings:
             print(finding)
         return 1
