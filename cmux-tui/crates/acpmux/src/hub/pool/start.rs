@@ -155,6 +155,7 @@ impl Hub {
             target: Some(target),
             rss: 0,
             parked: false,
+            opencode_asks: spec.spawn.env.contains_key(crate::opencode_ask::MARKER),
         })
     }
 

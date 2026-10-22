@@ -42,8 +42,9 @@ final class NotificationsPanel: ActiveAppKeyPanel {
 }
 
 /// A quiet floating surface with a header, rows newest first, or an empty
-/// state. The surface uses the active theme fill without another inset card
-/// or border around the content.
+/// state. The surface is the shared overlay glass (`Glass.makeOverlayPanel`),
+/// never a solid fill (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE GLASS, SO
+/// JUST USE GLASS."), without another inset card or border around the content.
 final class NotificationsPanelView: NSView {
     static let width: CGFloat = 380
     static let maxListHeight: CGFloat = 440
@@ -54,6 +55,8 @@ final class NotificationsPanelView: NSView {
     var onClearAll: (() -> Void)?
 
     private let background = NSView()
+    /// The glass under the content; the panel's clear window is all it covers.
+    private let glass = Glass.makeOverlayPanel(cornerRadius: Metrics.panelCornerRadius, interactive: false)
     private let body = NSView()
     private let markAllRead = NSButton()
     private let clearAll = NSButton()
@@ -72,8 +75,14 @@ final class NotificationsPanelView: NSView {
         background.translatesAutoresizingMaskIntoConstraints = false
         body.translatesAutoresizingMaskIntoConstraints = false
         background.addSubview(body)
+        glass.samplesBehindWindow = true
+        addSubview(glass)
         addSubview(background)
         NSLayoutConstraint.activate([
+            glass.leadingAnchor.constraint(equalTo: leadingAnchor),
+            glass.trailingAnchor.constraint(equalTo: trailingAnchor),
+            glass.topAnchor.constraint(equalTo: topAnchor),
+            glass.bottomAnchor.constraint(equalTo: bottomAnchor),
             background.leadingAnchor.constraint(equalTo: leadingAnchor),
             background.trailingAnchor.constraint(equalTo: trailingAnchor),
             background.topAnchor.constraint(equalTo: topAnchor),
@@ -215,9 +224,7 @@ final class NotificationsPanelView: NSView {
 
     private func applyColors() {
         performWithTheme {
-            background.layer?.cornerRadius = Metrics.panelCornerRadius
-            background.layer?.cornerCurve = .continuous
-            background.layer?.backgroundColor = Palette.elevatedBackground.cgColor
+            glass.cornerRadius = Metrics.panelCornerRadius
             for (label, tone) in tinted { label.textColor = tone.color }
             emptyIcon.contentTintColor = Palette.textSecondary
             for button in [markAllRead, clearAll] { button.contentTintColor = Palette.textSecondary }

@@ -135,7 +135,7 @@ public struct SidebarMapping {
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
             // The Chief's subagent workspaces show their task title, never the subagent id.
-            title: machine.isLocalChief ? ChiefWorkspaceName.taskTitle(title) ?? title : title,
+            title: machine.isLocalChief ? title.chiefTaskTitle ?? title : title,
             directory: folder?.cwd.map(shorten),
             branch: folder?.gitBranch.flatMap { $0.isEmpty ? nil : $0 },
             process: process(front),
@@ -173,6 +173,7 @@ public struct SidebarMapping {
             folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(shorten)
         )
         row.presence = presence(tabs)
+        row.isUnnamed = Self.isUnnamed(workspace, label: page?.title)
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
         row.lastMessage = lastMessage(front, tabs)
         if showsUnread { row.notificationText = newestUnread(tabs).flatMap(notificationText) }
@@ -183,6 +184,15 @@ public struct SidebarMapping {
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab(tabs), front: front,
                             notification: row.notificationText)
         return row
+    }
+
+    /// Nobody named `workspace` and nothing names it: no title, the daemon's default name, and
+    /// no name from its front tab (`label`, the auto name) beyond the home folder (Leo 2026-10-20:
+    /// "~", "workspace-11" and "workspace-29" rows clutter the sidebar).
+    public static func isUnnamed(_ workspace: WorkspaceModel, label: String?) -> Bool {
+        guard workspace.isUnnamed else { return false }
+        guard let label, !label.isEmpty else { return true }
+        return label == "~"
     }
 
     /// A daemon checklist item as the sidebar draws it.
