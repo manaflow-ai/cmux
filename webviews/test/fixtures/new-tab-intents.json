@@ -512,6 +512,27 @@
       }
     },
     {
+      "input": "cmux://stashed",
+      "intent": {
+        "kind": "url",
+        "url": "cmux://stashed"
+      }
+    },
+    {
+      "input": "CMUX://Stashed/?q=docs",
+      "intent": {
+        "kind": "url",
+        "url": "cmux://stashed"
+      }
+    },
+    {
+      "input": "cmux:stashed",
+      "intent": {
+        "kind": "prompt",
+        "text": "cmux:stashed"
+      }
+    },
+    {
       "input": "example.\ncom",
       "intent": {
         "kind": "prompt",
