@@ -73,7 +73,14 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
   const asking: Step[] = [
     ["mux", "user_message", { text: "Add auth to the API" }],
     ["mux", "turn_started", {}],
-    ["in", "tool_call", { method: "session/update", params: { sessionId: "agent-1", update: { sessionUpdate: "tool_call", ...toolCall } } }],
+    [
+      "in",
+      "tool_call",
+      {
+        method: "session/update",
+        params: { sessionId: "agent-1", update: { sessionUpdate: "tool_call", ...toolCall } },
+      },
+    ],
     [
       "mux",
       "permission_request",
@@ -122,6 +129,11 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
   /// The prompts acpmux received, in order, and the asks it heard answered.
   const prompts: { sessionId: string; text: string }[] = [];
   const answers: Record<string, unknown>[] = [];
+  /// The waiters (`until`), checked each time the stand-in records a prompt or an answer.
+  const recorded = new Set<() => void>();
+  const heard = () => {
+    for (const check of [...recorded]) check();
+  };
   function answer(method: string, params: Record<string, any> = {}): unknown {
     const id = typeof params.sessionId === "string" && chats[params.sessionId] ? params.sessionId : WARM;
     switch (method) {
@@ -152,10 +164,12 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
           .map((block) => block.text)
           .join("");
         prompts.push({ sessionId: id, text });
+        heard();
         return { stopReason: "end_turn" };
       }
       case "_acpmux/permission_respond":
         answers.push(params);
+        heard();
         return {};
       default:
         return null;
@@ -186,13 +200,22 @@ await requireBrowserLane("agent-pane-trust-holds-prompts.test.ts", async () => {
     await page.keyboard.press("Enter");
   };
   const heldRow = (page: Page, text: string) => page.locator(".acpmux-queued", { hasText: text });
-  /// Resolves once `test` holds, polling the stand-in's records (fails after 10 s).
-  const until = async (test: () => boolean, what: string) => {
-    for (let waited = 0; !test(); waited += 50) {
-      if (waited > 10_000) throw new Error(`timed out waiting for ${what}`);
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-  };
+  /// Resolves once `test` holds, checked whenever the stand-in records something (fails after 10 s).
+  const until = (test: () => boolean, what: string) =>
+    new Promise<void>((resolve, reject) => {
+      const check = () => {
+        if (!test()) return;
+        recorded.delete(check);
+        clearTimeout(limit);
+        resolve();
+      };
+      const limit = setTimeout(() => {
+        recorded.delete(check);
+        reject(new Error(`timed out waiting for ${what}`));
+      }, 10_000);
+      recorded.add(check);
+      check();
+    });
 
   beforeAll(async () => {
     daemon = Bun.serve({

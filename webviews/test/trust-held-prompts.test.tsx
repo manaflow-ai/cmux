@@ -144,7 +144,9 @@ test("a new chat's prompts follow it into the session its first one started, in 
   await act(async () => root.render(<Probe key="d" acpmux={acpmux} holds chat={undefined} cwd="/Users/you/picked" />));
   await act(async () => shown!.hold("start it", []));
   await act(async () => shown!.hold("then this", []));
-  await act(async () => root.render(<Probe key="d" acpmux={acpmux} holds={false} chat={undefined} cwd="/Users/you/picked" />));
+  await act(async () =>
+    root.render(<Probe key="d" acpmux={acpmux} holds={false} chat={undefined} cwd="/Users/you/picked" />),
+  );
   await settle();
   // Only the first goes: it starts the chat, and no second start goes before its session shows.
   expect(acpmux.sent.map((sent) => sent.entry.text)).toEqual(["start it"]);
@@ -152,7 +154,9 @@ test("a new chat's prompts follow it into the session its first one started, in 
   await settle();
   expect(acpmux.sent).toHaveLength(1);
   // The session shows, in the folder acpmux resolved (not the one picked).
-  await act(async () => root.render(<Probe key="d" acpmux={acpmux} holds={false} chat="chat-new" cwd="/private/you/picked" />));
+  await act(async () =>
+    root.render(<Probe key="d" acpmux={acpmux} holds={false} chat="chat-new" cwd="/private/you/picked" />),
+  );
   await settle();
   expect(acpmux.sent.map((sent) => sent.entry.text)).toEqual(["start it", "then this"]);
   expect(acpmux.sent[1]!.entry.chat).toBe("chat-new");
