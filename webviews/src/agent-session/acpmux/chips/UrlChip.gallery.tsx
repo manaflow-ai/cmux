@@ -98,6 +98,7 @@ export default componentEntry<UrlChipProps>({
   widths: { narrow: 360, normal: 640, wide: 860 },
   variants: {
     globe: { props: { href: "https://example.test/docs/getting-started", children: "example.test/docs" } },
+    // The favicon and title cmux has show in the hover card the play opens; the chip keeps its text.
     "cached-favicon": {
       chipHost: host,
       props: { href: "https://docs.example.test/guide", children: "Example docs" },
@@ -134,8 +135,8 @@ export default componentEntry<UrlChipProps>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-card__kinds"));
       },
     },
-    // A red the base branch already has: the card says how many of the failures are not this pull
-    // request's, and its dot drops from danger to warning when none of them are.
+    // A red the base branch already has: the compact ✓/✗ count says how many of the failures are not
+    // this pull request's, and the ✗ reads muted when none of them are.
     "pull-request-base-reds": {
       chipHost: prHost({
         pullRequest: pullRequest({
@@ -196,6 +197,43 @@ export default componentEntry<UrlChipProps>({
         fetchedAt: GALLERY_NOW / 1000 - 23 * 60,
       }),
       props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
+      play: openCard,
+    },
+    // Merged: the pull request glyph in purple, no state word, and no checks line (a merged pull
+    // request's reds no longer matter), however red its last run was.
+    "pull-request-merged": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          state: "merged",
+          mergeable: "",
+          review: "approved",
+          checks: { state: "failing", passed: 118, total: 122, failingOnBase: 4 },
+          checkList: [
+            { name: "cmux-next / web lint (fast)", state: "failed", onBase: true },
+            { name: "cmux-next / package tests", state: "failed", onBase: true },
+            { name: "cmux-next / generated files", state: "failed", onBase: true },
+            { name: "cmux-next / gallery", state: "failed", onBase: true },
+          ],
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 20,
+      }),
+      props: { href: PULL_REQUEST, children: "#22777" },
+      play: openCard,
+    },
+    // Closed: the glyph in red, and no checks line either.
+    "pull-request-closed": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          state: "closed",
+          mergeable: "",
+          review: "",
+          labels: [],
+          checks: { state: "passing", passed: 100, total: 100 },
+          checkList: [],
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 20,
+      }),
+      props: { href: PULL_REQUEST, children: "#22777" },
       play: openCard,
     },
     "long-url": {
