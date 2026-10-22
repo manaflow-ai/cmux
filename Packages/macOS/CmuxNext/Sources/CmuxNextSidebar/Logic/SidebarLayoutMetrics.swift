@@ -155,6 +155,10 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var foldsDone = false
     /// The "Done (N)" rows the person opened: their workspaces list below them.
     public var openDoneFolds: Set<SidebarDoneFoldID> = []
+    /// `sidebar.groupRowLimit`: a list longer than this shows its first rows and a "Show N more" row; 0 shows all.
+    public var rowLimit = 0
+    /// The lists whose "Show N more" row the person opened.
+    public var openShowMore: Set<SidebarDoneFoldID> = []
 
     public init() {}
 }
@@ -178,9 +182,9 @@ nonisolated extension SidebarLayoutOptions {
         if let sessionTree { content.keycap = keycaps[ws.id] }
         content.pullRequests = sessionTree?.pullRequests[ws.id] ?? pullRequests[ws.id]
         if !showsTimestamps { (content.time, content.badgeTime) = (nil, nil) }
-        // What the agent needs outranks the row's age and one-line status on the name's line; the
-        // row view words it (localized on the main actor, so the layout stays nonisolated).
-        if !minimal, let chip = ws.agentChip { (content.chip, content.time) = (chip, nil) }
+        // What the agent needs, for the row's accessibility label only: a row draws no status words
+        // (Leo 2026-10-21), its badge's dot says it. Worded on the main actor by the row view.
+        if !minimal, let chip = WorkspaceRowContent.rowChip(ws.agentChip) { content.chip = chip }
         // A row that already has a second line says there what its agent does now; a one-line row
         // keeps its height, so rows do not grow and shrink as agents start and stop.
         if !minimal, content.detail != nil, let step = ws.agentStep { (content.now, content.detail) = (step, step) }
