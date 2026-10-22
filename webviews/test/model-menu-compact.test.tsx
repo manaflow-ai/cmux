@@ -606,12 +606,20 @@ test("every rail tab fits in the same list height, the tallest tab's, for the wh
     expect(extent.separators, `${name}'s separators`).toBeLessThanOrEqual(held.separators);
     extents.push(extent);
   }
-  // The space is the tallest tab's, not more.
-  expect(Math.max(...extents.map((each) => each.rows))).toBe(held.rows);
-  expect(Math.max(...extents.map((each) => each.separators))).toBe(held.separators);
+  // No two of its separators touch: back to back, their margins would collapse.
+  const parts = [...body().querySelector(".acpmux-quick-spacer")!.children].map((node) => node.className);
+  expect(parts.some((name, index) => name === "ui-separator" && parts[index + 1] === "ui-separator")).toBe(false);
   // The chat's own tab (Effort, Account, Fast mode) is taller than another harness's.
   expect(new Set(extents.map((each) => each.rows)).size).toBeGreaterThan(1);
-  // Typing keeps the same height too.
+  // Typing keeps the same height too, and a filter starts at its top.
+  body().scrollTop = 40;
   await key("o");
   expect(spacer()).toEqual(held);
+  expect(body().scrollTop).toBe(0);
+  const filtered = shown();
+  expect(filtered.rows).toBeLessThanOrEqual(held.rows);
+  extents.push(filtered);
+  // The space is the tallest tab's or the longest filter's (at most nine rows), not more.
+  expect(Math.max(...extents.map((each) => each.rows))).toBe(held.rows);
+  expect(Math.max(...extents.map((each) => each.separators))).toBe(held.separators);
 });
