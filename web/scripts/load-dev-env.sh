@@ -40,6 +40,15 @@ if [[ -z "$cmux_secret_file" ]]; then
   fi
 fi
 
+# Refuse web env files that carry production markers before anything is loaded.
+# Next.js reads web/.env*.local on top of this environment. Bypass for one run
+# (humans only): CMUX_ALLOW_NONDEV_ENV_FILES=1.
+if [[ "${CMUX_ALLOW_NONDEV_ENV_FILES:-0}" != "1" ]]; then
+  if ! bash "$cmux_web_dir/scripts/check-dev-env-files.sh" "$cmux_secret_file" "$cmux_web_dir"; then
+    return 1 2>/dev/null || exit 1
+  fi
+fi
+
 cmux_nounset_was_enabled=0
 case "$-" in
   *u*) cmux_nounset_was_enabled=1 ;;
