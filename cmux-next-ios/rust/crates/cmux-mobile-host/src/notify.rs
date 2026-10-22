@@ -35,6 +35,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::auth::Tokens;
 use crate::config::AcpmuxTarget;
+use crate::notify_content::Places;
 
 /// What the notifier remembers about a session (labels only).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -158,6 +159,12 @@ pub fn is_question(request: &Value) -> bool {
 }
 
 impl Classifier {
+    /// A classifier that names each session's workspace and tab from `places`.
+    pub fn with_places(places: Arc<Places>) -> Self {
+        let _ = places;
+        Self::default()
+    }
+
     /// Sessions from the `_acpmux/watch` result: labels only, no events.
     pub fn load(&mut self, watch_result: &Value) {
         for session in watch_result.get("sessions").and_then(Value::as_array).into_iter().flatten() {
@@ -313,6 +320,7 @@ impl Classifier {
             agent: Some(label.agent).filter(|a| !a.is_empty()),
             place: Some(label.place).filter(|p| !p.is_empty()),
             session_id: Some(label_id(session_id)).filter(|s| !s.is_empty()),
+            ..NotifyEvent::default()
         }
     }
 }
@@ -425,6 +433,8 @@ fn report(base_url: &str, device_id: &str, tokens: &Arc<Tokens>, event: NotifyEv
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::notify_content::PlaceMap;
+    use cmux_mobile_link::api::{NotifyChoice, NotifyQuestion};
 
     fn watch() -> Value {
         json!({"sessions":[
@@ -434,11 +444,11 @@ mod tests {
     }
 
     #[test]
-    fn questions_permissions_and_turns_become_minimized_events() {
+    fn questions_permissions_and_turns_carry_what_the_person_acts_on() {
         let mut c = Classifier::default();
         c.load(&watch());
         let question = c
-            .handle(&json!({"method":"_acpmux/permission_pending","params":{"sessionId":"s1","permissionId":"perm/1","request":{"toolCall":{"_meta":{"claude":{"tool":"AskUserQuestion"}},"rawInput":{"questions":[{"question":"API key is sk-123?"}]}}}}}))
+            .handle(&json!({"method":"_acpmux/permission_pending","params":{"sessionId":"s1","permissionId":"perm/1","request":{"toolCall":{"title":"Question","_meta":{"claude":{"tool":"AskUserQuestion"}},"rawInput":{"questions":[{"question":"Deploy to staging?","header":"Deploy","options":[{"label":"Yes"},{"label":"No"}]}]}}}}}))
             .unwrap();
         assert_eq!(
             question,
@@ -448,29 +458,54 @@ mod tests {
                 agent: Some("Claude".into()),
                 place: Some("cmuxterm-hq".into()),
                 session_id: Some("s1".into()),
+                permission_id: Some("perm/1".into()),
+                title: Some("Deploy to staging?".into()),
+                questions: vec![NotifyQuestion {
+                    question: "Deploy to staging?".into(),
+                    header: Some("Deploy".into()),
+                    multi_select: false,
+                    allows_other: true,
+                    options: vec![
+                        NotifyChoice { label: "Yes".into(), description: None },
+                        NotifyChoice { label: "No".into(), description: None },
+                    ],
+                }],
+                state: Some("waiting".into()),
+                ..NotifyEvent::default()
             }
         );
-        // The JSON sent to the backend carries no prompt, question text or path.
+        // Never the session's path or its name (the person's prompt).
         let body = serde_json::to_string(&question).unwrap();
-        assert!(!body.contains("sk-123") && !body.contains("secret-dir") && !body.contains("fix the bug"));
+        assert!(!body.contains("secret-dir") && !body.contains("fix the bug"));
         // The same ask again (a re-watch) is not pushed twice.
         assert!(c.handle(&json!({"method":"_acpmux/permission_pending","params":{"sessionId":"s1","permissionId":"perm/1","request":{}}})).is_none());
         let permission = c
-            .handle(&json!({"method":"_acpmux/permission_pending","params":{"sessionId":"s1","permissionId":"p2","request":{"toolCall":{"title":"rm -rf /"}}}}))
+            .handle(&json!({"method":"_acpmux/permission_pending","params":{"sessionId":"s1","permissionId":"p2","request":{"toolCall":{"title":"rm -rf build","rawInput":{"command":"rm -rf build","env":{"TOKEN":"sk-123"}}},"options":[{"optionId":"a1","name":"Allow once","kind":"allow_once"},{"optionId":"a2","name":"Always allow","kind":"allow_always"},{"optionId":"r1","name":"Deny","kind":"reject_once"}]}}}))
             .unwrap();
         assert_eq!(permission.kind, "permission");
+        assert_eq!((permission.title.as_deref(), permission.permission_id.as_deref()), (Some("rm -rf build"), Some("p2")));
+        assert_eq!(permission.options.iter().map(|o| (o.id.as_str(), o.kind.as_deref())).collect::<Vec<_>>(), [
+            ("a1", Some("allow_once")),
+            ("a2", Some("allow_always")),
+            ("r1", Some("reject_once")),
+        ]);
+        assert!(permission.questions.is_empty());
+        // Tool arguments beyond the title never leave.
+        assert!(!serde_json::to_string(&permission).unwrap().contains("sk-123"));
         let done = c
-            .handle(&json!({"method":"_acpmux/session_changed","params":{"recordKind":"turn_result","seq":9,"session":{"sessionId":"s1","harness":"claude-code","cwd":"/x/repo","lastTurn":{"turnId":"t9","status":"completed"},"preview":"secret output"}}}))
+            .handle(&json!({"method":"_acpmux/session_changed","params":{"recordKind":"turn_result","seq":9,"session":{"sessionId":"s1","harness":"claude-code","cwd":"/x/repo","lastTurn":{"turnId":"t9","status":"completed"},"preview":"Fixed the flaky test.\nAll 31 pass."}}}))
             .unwrap();
         assert_eq!(
             (done.kind.as_str(), done.event_id.as_str(), done.place.as_deref()),
             ("completed", "t-s1-t9", Some("repo"))
         );
-        assert!(!serde_json::to_string(&done).unwrap().contains("secret output"));
+        assert_eq!(done.tail, ["Fixed the flaky test.", "All 31 pass."]);
+        assert_eq!(done.state.as_deref(), Some("finished"));
         let failed = c
-            .handle(&json!({"method":"_acpmux/session_changed","params":{"recordKind":"turn_result","session":{"sessionId":"s1","lastTurn":{"turnId":"t10","status":"failed"}}}}))
+            .handle(&json!({"method":"_acpmux/session_changed","params":{"recordKind":"turn_result","session":{"sessionId":"s1","lastTurn":{"turnId":"t10","status":"failed","errorText":"Rate limited\n(429)"}}}}))
             .unwrap();
         assert_eq!(failed.kind, "failed");
+        assert_eq!((failed.state.as_deref(), failed.body.as_deref()), (Some("failed"), Some("Rate limited (429)")));
         assert!(c
             .handle(&json!({"method":"_acpmux/session_changed","params":{"recordKind":"turn_result","session":{"sessionId":"s1","lastTurn":{"turnId":"t11","status":"cancelled"}}}}))
             .is_none());
@@ -480,6 +515,34 @@ mod tests {
         assert_eq!((chief.kind.as_str(), chief.agent.as_deref()), ("chief", Some("Chief")));
         // Other record kinds are not pushed.
         assert!(c.handle(&json!({"method":"_acpmux/session_changed","params":{"recordKind":"message","session":{"sessionId":"s1"}}})).is_none());
+    }
+
+    #[test]
+    fn a_chief_reply_names_its_conversation_and_says_its_first_lines() {
+        let mut c = Classifier::default();
+        let reply = json!({"sessionId":"ct1","harness":"claude","cwd":"/Users/me/.cmux/chief","preview":"Both branches merged.\nGates are green.",
+            "tags":{"cmux.chief":"c39c6f72","cmux.chief.role":"turn"},"lastTurn":{"turnId":"a","status":"completed"}});
+        let e = c.handle_at(&turn_msg(reply), Instant::now()).unwrap();
+        assert_eq!(e.kind, "chief");
+        assert_eq!(e.conversation_id.as_deref(), Some("c39c6f72"));
+        assert_eq!(e.body.as_deref(), Some("Both branches merged. Gates are green."));
+        assert_eq!(e.tail, ["Both branches merged.", "Gates are green."]);
+    }
+
+    #[test]
+    fn a_session_in_a_workspace_tab_names_the_workspace_and_tab() {
+        let places = Arc::new(Places::default());
+        places.set(PlaceMap::from_workspaces(&json!({"data":{"workspaces":[{"key":"ws_a","title":"Release prep","screens":[{"panes":[{"tabs":[
+            {"surface":8,"kind":"conversation","conversation":{"agent_session":{"session":"s1","harness":"claude"}}}]}]}]}]}})));
+        let mut c = Classifier::with_places(Arc::clone(&places));
+        c.load(&watch());
+        let e = c
+            .handle(&json!({"method":"_acpmux/permission_pending","params":{"sessionId":"s1","permissionId":"p9","request":{"toolCall":{"title":"git push"}}}}))
+            .unwrap();
+        assert_eq!(
+            (e.workspace.as_deref(), e.workspace_id.as_deref(), e.tab_id.as_deref(), e.place.as_deref()),
+            (Some("Release prep"), Some("ws_a"), Some("s8"), Some("cmuxterm-hq"))
+        );
     }
 
     fn turn(session: Value, seq: u64) -> Value {
