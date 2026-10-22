@@ -135272,6 +135272,138 @@
         }
       }
     },
+    "turn.failure.noTeamAccount": {
+      "comment": "Agent pane: a failed turn's note when a team Cloud machine has no team account for the agent; {command} is the shell command that adds one, e.g. cr add codex",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يحتاج {harness} إلى حساب فريق على هذا الجهاز. لإضافة حساب للفريق، شغّل {command} في طرفية هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} treba timski račun na ovoj mašini. Da dodaš jedan za tim, pokreni {command} u terminalu ove mašine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} skal bruge en teamkonto på denne maskine. Kør {command} i maskinens terminal for at tilføje en til teamet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} braucht auf dieser Maschine ein Team-Konto. Um eines für das Team hinzuzufügen, führe {command} im Terminal dieser Maschine aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} needs a team account on this machine. To add one for the team, run {command} in this machine’s terminal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} necesita una cuenta de equipo en esta máquina. Para añadir una para el equipo, ejecuta {command} en la terminal de esta máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} a besoin d’un compte d’équipe sur cette machine. Pour en ajouter un pour l’équipe, exécute {command} dans le terminal de cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ha bisogno di un account del team su questa macchina. Per aggiungerne uno per il team, esegui {command} nel terminale di questa macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンでは {harness} にチームのアカウントが必要です。チーム用に追加するには、このマシンのターミナルで {command} を実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ត្រូវការគណនីក្រុមនៅលើម៉ាស៊ីននេះ។ ដើម្បីបន្ថែមគណនីមួយសម្រាប់ក្រុម សូមដំណើរការ {command} នៅក្នុងទែមីណាល់របស់ម៉ាស៊ីននេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 머신에서는 {harness}에 팀 계정이 필요합니다. 팀용 계정을 추가하려면 이 머신의 터미널에서 {command}을(를) 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} trenger en teamkonto på denne maskinen. Kjør {command} i maskinens terminal for å legge til en for teamet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} potrzebuje konta zespołu na tej maszynie. Aby dodać je dla zespołu, uruchom {command} w terminalu tej maszyny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} precisa de uma conta de equipe nesta máquina. Para adicionar uma para a equipe, execute {command} no terminal desta máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} нужен командный аккаунт на этой машине. Чтобы добавить его для команды, выполните {command} в терминале этой машины."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} ต้องใช้บัญชีทีมบนเครื่องนี้ หากต้องการเพิ่มบัญชีให้ทีม ให้รัน {command} ในเทอร์มินัลของเครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} bu makinede bir ekip hesabına ihtiyaç duyuyor. Ekip için bir hesap eklemek için bu makinenin terminalinde {command} komutunu çalıştır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} потрібен командний акаунт на цій машині. Щоб додати його для команди, виконайте {command} у терміналі цієї машини."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} cần một tài khoản nhóm trên máy này. Để thêm một tài khoản cho nhóm, hãy chạy {command} trong terminal của máy này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 在这台机器上需要团队账户。要为团队添加一个，请在这台机器的终端中运行 {command}。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{harness} 在這台機器上需要團隊帳號。要為團隊新增一個，請在這台機器的終端機中執行 {command}。"
+          }
+        }
+      }
+    },
     "turn.failure.proxyAuth": {
       "comment": "Agent pane: a failed turn's note (cx-w10a)",
       "extractionState": "manual",
