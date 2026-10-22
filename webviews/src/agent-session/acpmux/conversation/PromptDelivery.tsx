@@ -2,9 +2,12 @@
 // bubble while it is on its way (only after a second, so a fast send shows nothing); once it got
 // there the bubble's read check (UserBubble.tsx) says so. A prompt that did not get there says why, with
 // Retry, Edit, Remove and Details: the hop it stopped at, its error, each hop's time and the ids,
-// and Copy debug info.
-import { useEffect, useState } from "react";
+// and Copy debug info. Retry shows only while it can work (promptFailureCause.ts): never for a
+// refusal a person at the Mac must lift or a request the host does not accept, and for a trust
+// refusal once the folder is trusted.
+import { useContext, useEffect, useState } from "react";
 import type { AcpmuxRow, PromptDelivery } from "../model";
+import { canRetry, promptFailureCause, RetryGateContext, type RetryGate } from "../promptFailureCause";
 import { useT, type StringKey } from "../i18n";
 import { copyText } from "./clipboard";
 import { Clock } from "./icons";
@@ -58,6 +61,7 @@ export function deliveryDebugText(row: Pick<AcpmuxRow, "id" | "text">, delivery:
     `state: ${delivery.state}`,
     `hop: ${delivery.hop ?? "-"}`,
     `code: ${delivery.code ?? "-"}`,
+    `reason: ${delivery.reason ?? "-"}`,
     `error: ${delivery.error ?? "-"}`,
     `sent: ${at(delivery.sentAt)}`,
     `accepted: ${at(delivery.acceptedAt)} (${after(delivery.acceptedAt)})`,
@@ -71,13 +75,16 @@ export function deliveryDebugText(row: Pick<AcpmuxRow, "id" | "text">, delivery:
   ].join("\n");
 }
 
-/// Under a prompt that did not get there: why, and how to recover it.
-export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
+/// Under a prompt that did not get there: why, and how to recover it. `gate`: what decides
+/// whether a held cause cleared, the pane's (RetryGateContext) when not given.
+export function DeliveryFailure({ row, gate }: { row: AcpmuxRow; gate?: RetryGate }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const paneGate = useContext(RetryGateContext);
   const delivery = row.delivery;
   if (!row.failed) return null;
+  const retry = canRetry(promptFailureCause(delivery), gate ?? paneGate);
   const act = (name: string) => void window.cmuxAcpmuxActions?.[name]?.({ rowId: row.id });
   const since = (ms: number | undefined) =>
     ms === undefined ? undefined : t("prompt.delivery.after", { ms: Math.max(0, ms - (delivery?.sentAt ?? ms)) });
@@ -85,9 +92,11 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
     <div className="cv-user__status cv-user__status--failed" aria-live="polite">
       <div className="cv-user__failure">
         <span>{row.error ?? t("prompt.notSent", { reason: t("transport.refused") })}</span>
-        <button type="button" className="cv-user__cancel" onClick={() => act("chat.retryPrompt")}>
-          {t("turn.retry")}
-        </button>
+        {retry && (
+          <button type="button" className="cv-user__cancel" onClick={() => act("chat.retryPrompt")}>
+            {t("turn.retry")}
+          </button>
+        )}
         {delivery && (
           <>
             <button type="button" className="cv-user__cancel" onClick={() => act("chat.editFailedPrompt")}>

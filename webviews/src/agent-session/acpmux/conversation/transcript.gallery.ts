@@ -1636,6 +1636,43 @@ export default agentPaneEntry({
         }),
       ]),
     },
+    "prompt-not-sent-retry": {
+      note: "Retry only where it can work: a send acpmux never answered keeps it; one only the Mac app can approve and one the host does not accept offer Edit, Remove and Details only.",
+      snapshot: chat([
+        user("Add retries to the client", 6),
+        assistant("Added.", 5.5),
+        summary(5.5, { status: "completed" }),
+        ...(
+          [
+            ["Ship it", "acpmux", "timeout", "Not sent: no answer from acpmux."],
+            ["Switch to the new harness", "acpmux", "transport.harness_not_confirmed", "Not sent: it needs the app."],
+            ["Run the release script", "acpmux", "transport.method_refused", "Not sent: the app does not accept it."],
+          ] as const
+        ).map(([text, hop, code, error], index) =>
+          user(text, 3 - index, {
+            failed: true,
+            error,
+            delivery: {
+              state: "failed",
+              promptId: `nr${index}`,
+              sessionId: "s",
+              sentAt: 0,
+              failedAt: 60000,
+              hop,
+              code,
+              error,
+            },
+          }),
+        ),
+      ]),
+      play: async (ctx) => {
+        await ctx.waitFor(() => (ctx.document.querySelectorAll(".cv-user__status--failed").length === 3 ? true : null));
+        const retries = [...ctx.document.querySelectorAll(".cv-user__status--failed button")].filter(
+          (button) => button.textContent === "Retry",
+        );
+        if (retries.length !== 1) throw new Error(`expected one Retry, found ${retries.length}`);
+      },
+    },
     "edited-files": {
       note: "A turn that edited three files: the edited-files card with Undo.",
       snapshot: chat([...workedTurnRows(minutesAgo(15)), summary(14, { status: "completed", toolCount: 3 })]),

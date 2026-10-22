@@ -1548,7 +1548,7 @@ export class AcpmuxDirectClient {
       // tell failures apart.
       if (message.error) {
         const data = message.error.data as
-          | { code?: unknown; details?: unknown; reason?: unknown; detail?: unknown }
+          | { code?: unknown; details?: unknown; reason?: unknown; detail?: unknown; retryable?: unknown }
           | undefined;
         request.reject(
           Object.assign(new AcpmuxRpcError(message.error), {
@@ -1556,6 +1556,8 @@ export class AcpmuxDirectClient {
             ...(data?.details === undefined ? {} : { details: data.details }),
             // acpmux's own refusals name their reason (`trust.pending`, `remote.mode_not_asking`).
             ...(typeof data?.reason === "string" ? { reason: data.reason } : {}),
+            // and whether the same request can work again (peer_link.rs `unreachable_error`).
+            ...(typeof data?.retryable === "boolean" ? { retryable: data.retryable } : {}),
             // A host refusal can carry acpmux's own words (a refused Enable harness prompt).
             ...(typeof data?.detail === "string" ? { detail: data.detail } : {}),
             // A trust refusal names the folder it asks about (the folder acpmux resolved).
@@ -3552,11 +3554,16 @@ export class AcpmuxDirectClient {
           version: row.version + 1,
         });
         this.failedPrompts.set(rowId, { input, attachments, promptId });
+        // The refusal's structured cause, which decides whether the row offers Retry
+        // (promptFailureCause.ts).
+        const { reason: refusal, retryable } = (error ?? {}) as { reason?: unknown; retryable?: unknown };
         this.setDelivery(promptId, {
           state: "failed",
           failedAt: Date.now(),
           hop: deliveryHop(typeof code === "string" ? code : undefined, taken),
           ...(typeof code === "string" ? { code } : {}),
+          ...(typeof refusal === "string" ? { reason: refusal } : {}),
+          ...(typeof retryable === "boolean" ? { retryable } : {}),
           error: errorMessage(error),
         });
         // The prompt stays as this failed row: the pane's sender puts nothing back in the composer,
@@ -3592,6 +3599,8 @@ export class AcpmuxDirectClient {
     if (next.state !== "failed") {
       delete next.hop;
       delete next.code;
+      delete next.reason;
+      delete next.retryable;
       delete next.error;
       delete next.failedAt;
     }
