@@ -62,7 +62,7 @@ describe("device list and removal", () => {
     await call("PUT", "/v1/teams/personal-kate/prefs", t, { color: "#112233" })
     expect(await call("DELETE", "/v1/me", t)).toEqual({ status: 200, json: { deleted: { devices: 2 } } })
     expect((await call("GET", "/v1/me/devices", t)).json.devices).toEqual([])
-    expect((await call("GET", "/v1/teams/personal-kate/prefs", t)).json).toEqual({ color: null, emoji: null })
+    expect((await call("GET", "/v1/teams/personal-kate/prefs", t)).json).toEqual({ color: null, emoji: null, transparent: false })
   })
 })
 

@@ -16,7 +16,7 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct HomeSplitKeysTests {
     /// Shows the docked Home with its dock alone and focused; returns the window and the home workspace.
-    private static func showHome(_ services: AppServices, _ connection: DaemonConnection) async throws -> (WindowController, WorkspaceModel) {
+    static func showHome(_ services: AppServices, _ connection: DaemonConnection) async throws -> (WindowController, WorkspaceModel) {
         try #require(!services.home.dock.isClassic, "the docked Home is the default")
         let window = try #require(services.windows.active)
         services.home.ensureHomeWorkspace(connection)
@@ -73,7 +73,7 @@ struct HomeSplitKeysTests {
         return (window, home)
     }
 
-    private static func panes(_ home: WorkspaceModel) -> [PaneModel] { home.screens.flatMap(\.panes) }
+    static func panes(_ home: WorkspaceModel) -> [PaneModel] { home.screens.flatMap(\.panes) }
 
     /// Collects every refusal `body` causes.
     private static func refusals(_ services: AppServices, _ body: () -> Void) -> [String] {
