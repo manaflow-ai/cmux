@@ -67,7 +67,7 @@ extension SidebarViewComponents {
             fontSize = Typography.body.pointSize
             titlebarHeight = Metrics.titlebarHeight
             cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
-            tree = SidebarSessionTree.shared.state
+            tree = SidebarSessionTree.shared.drawn
             pullRequests = SidebarSessionTree.shared.pullRequests
             history = SidebarChatHistory.shared.state
             workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
@@ -111,6 +111,8 @@ extension SidebarViewComponents {
             || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.foldsDone != state.foldsDone
             || lastState?.rowLimit != state.rowLimit
         let listChanged = rowsChanged || selectionChanged
+        // A selected session never hides in a fold (a notification, the palette or Cmd-number chose it).
+        if selectionChanged { state.selection.forEach(SidebarSessionTree.shared.reveal) }
         let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.

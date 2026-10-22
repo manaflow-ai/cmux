@@ -15,7 +15,7 @@ Layers (each one only on files the push changes under Packages/macOS/CmuxNext, c
                motion, scrollbars, state roots, process scan, Swift CLI, closed history, test
                notification centers, string tables, module resources, capability text, browser
                chrome icons, App Store review rules (also on cmux-next-ios/ changes), the perf
-               source guard
+               source guard, fleet host names in gallery fixtures (also on Packages/ changes)
   ast-grep     scripts/cmux-next/lint/ast-grep-rules: try!, blocking calls, raw font sizes, system
                dialogs, opaque glass (tree-sitter, so comments, strings and `case .alert` never match)
   swiftformat  --lint with scripts/cmux-next/lint/swiftformat.conf
@@ -101,6 +101,8 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-app-store-rules.py", "--source", "{root}"], ("cmux-next-ios/",)),
     ("Perf source guard (no window capture or CATransaction.flush)",
      ["python3", "-I", "{s}/check-perf-source-guard.py", "{root}"], (PKG + "/",)),
+    ("No fleet host names in gallery fixtures",
+     ["python3", "-I", "{s}/check-fixture-host-names.py", "{root}"], ("Packages/", "webviews/src/")),
 )
 
 # Ghostty's default split keys stay Ghostty's (Lawrence 2026-10-20, after 2f3e1f95983).

@@ -131,6 +131,9 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     /// A tab bar's empty area: the strip's or the vertical tab list's (Edge's and Chrome's
     /// vertical-tab menus: New Tab, the vertical tabs rows, Task Manager).
     case tabStrip
+    /// A row of the right sidebar's Files section: the explorer's actions on its selection
+    /// (the right-clicked row, which the list selects first).
+    case fileExplorerRow
     /// A row of the sidebar's Priority view: mark read, pin, snooze and archive its chat.
     case priorityRow
 
@@ -148,6 +151,8 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .workspaceRow: .workspace
         case .workspaceGroup: .workspaceGroup
         case .sidebarBackground, .sidebarFooter, .nowPlayingCard: nil
+        // The explorer's actions act on its selection, not a target.
+        case .fileExplorerRow: nil
         case .cloudMachine, .sshMachine, .machineSection: .machine
         case .profile: .profile
         case .browserProfile: .browserProfile
