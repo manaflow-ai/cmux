@@ -43,13 +43,10 @@ nonisolated struct AgentPanePromptRelay: Sendable {
               var params = object["params"] as? [String: Any], let session = params["sessionId"] as? String else { return nil }
         var meta = params["_meta"] as? [String: Any] ?? [:]
         var acpmux = meta["acpmux"] as? [String: Any] ?? [:]
-        var promptId = acpmux["promptId"] as? String ?? ""
-        var rewrite = false
-        if promptId.isEmpty {
-            promptId = UUID().uuidString.lowercased()
-            acpmux["promptId"] = promptId
-            rewrite = true
-        }
+        let named = acpmux["promptId"] as? String ?? ""
+        let promptId = named.isEmpty ? UUID().uuidString.lowercased() : named
+        var rewrite = named.isEmpty
+        acpmux["promptId"] = promptId
         if journal.sendsAgain(daemon: daemon, promptId: promptId) {
             acpmux["resend"] = true
             rewrite = true
