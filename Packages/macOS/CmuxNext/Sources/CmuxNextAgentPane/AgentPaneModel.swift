@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextSettings
 public import Foundation
 public import Observation
+import CmuxNextWakeups
 
 /// One agent pane's host-side state: which acpmux session it shows. The
 /// session, its transcript and every chat action live in acpmux and the
@@ -280,6 +281,9 @@ public final class AgentPaneModel {
             // that call, and what that frame drew is what decides whether the page fades in
             // (``AgentPaneView/pageFades``). A later report describes a frame nothing is waiting on.
             if !hasPainted { paintedFromKeptTail = fromKeptTail }
+            #if DEBUG
+            ChatOpenTrace.shared.mark(.panePainted)
+            #endif
             markPainted()
             return AgentPaneReply.success()
         case .openTab(let request): return request.open(in: self)

@@ -74,6 +74,9 @@ extension PageWebView {
     /// exists, so an ``open(route:)`` meanwhile wins); falls back to WebKit when that fails or the
     /// page does not reach the host in time.
     func startChromium(hosting: any PageChromiumHosting) {
+        #if DEBUG
+        ChatOpenTrace.shared.mark(.chromiumStart)
+        #endif
         webView.isHidden = true
         let scripts = PageChromiumDocumentScripts(controller: webView.configuration.userContentController)
         let descriptor = descriptor
@@ -89,6 +92,9 @@ extension PageWebView {
                 page.close()
                 return
             }
+            #if DEBUG
+            ChatOpenTrace.shared.mark(.browserCreated)
+            #endif
             await self.attachChromium(page, scripts: scripts)
         }
     }
@@ -113,6 +119,9 @@ extension PageWebView {
             session.end()
             return
         }
+        #if DEBUG
+        ChatOpenTrace.shared.mark(.setupDone)
+        #endif
         bridge.install { [weak self] message in await self?.receive(message) }
         bridge.onMessage = { [weak self] name, body in self?.chromiumMessage(name, body: body) }
         bridge.onFirstMessage = { [weak session] in session?.deadline.cancel() }
@@ -131,6 +140,9 @@ extension PageWebView {
         addSubview(page.contentView)
         applyNativeRects()
         page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        #if DEBUG
+        ChatOpenTrace.shared.mark(.navigationStart)
+        #endif
         page.load(descriptor.url(route: route))
         let wait = chromiumDeadline
         // The page's first message cancels the deadline (onFirstMessage); ending the session too.

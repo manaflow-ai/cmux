@@ -1,0 +1,241 @@
+#if DEBUG
+public import AppKit
+
+/// DEBUG builds: one agent chat open, from the action to the chat's content on screen, stage by
+/// stage, in either engine (`debug.chat_open_trace`; Leo 2026-10-22: "flickers the initial thing
+/// ... then it just goes to black screen for a while").
+///
+/// Disarmed (every run but a trace run) a mark site costs one Bool read and does nothing else.
+/// ``begin(launch:)`` arms one trace, the open id every mark of it shares; each mark keeps its
+/// first time only. The first pane made after arming binds the trace (``bind(surface:)``): from
+/// then until ``finish(timedOut:)``, or ``frameCap`` at the latest, every display frame samples
+/// which surface that pane shows (its pane hold, its loading cover, the page before or after its
+/// first contentful paint), and only a change is kept.
+///
+/// Times are milliseconds after `action` (after arming when no action ran: a launch trace).
+@MainActor
+public final class ChatOpenTrace {
+    public static let shared = ChatOpenTrace()
+    /// Finished traces kept for `get`.
+    public static let capacity = 16
+    /// The frame sampler stops by itself after this, whether or not the trace finished.
+    public static let frameCap: TimeInterval = 15
+
+    public enum Mark: Int, CaseIterable, Sendable {
+        case action, paneMade, holdBegin, chromiumStart, cefWindowCreate, cefWindowCreated, browserCreated,
+             setupDone, navigationStart, committed, firstContentfulPaint, pagePainted, panePainted,
+             loadingLeave, loadingLeft, holdEnd
+
+        /// The mark's name in `debug.chat_open_trace` results.
+        public var name: String {
+            switch self {
+            case .action: "action"
+            case .paneMade: "pane_made"
+            case .holdBegin: "hold_begin"
+            case .chromiumStart: "chromium_start"
+            case .cefWindowCreate: "cef_window_create"
+            case .cefWindowCreated: "cef_window_created"
+            case .browserCreated: "browser_created"
+            case .setupDone: "setup_done"
+            case .navigationStart: "navigation_start"
+            case .committed: "committed"
+            case .firstContentfulPaint: "first_contentful_paint"
+            case .pagePainted: "page_painted"
+            case .panePainted: "pane_painted"
+            case .loadingLeave: "loading_leave"
+            case .loadingLeft: "loading_left"
+            case .holdEnd: "hold_end"
+            }
+        }
+    }
+
+    /// What the bound pane shows in one frame.
+    public enum Surface: String, Sendable {
+        /// A pane hold keeps the outgoing content; the chat is not shown yet.
+        case held
+        /// The loading cover: the page background with no content (dark theme: near black).
+        case cover
+        /// The pane's last frame of the chat (a relaunch's launch image).
+        case image
+        /// The loading cover fading out over the page.
+        case coverLeaving = "cover_leaving"
+        /// The page shows but has not painted content (see-through: whatever is under it).
+        case pageEmpty = "page_empty"
+        /// The page shows its content.
+        case page
+        /// The pane left its window.
+        case gone
+
+        /// Nothing of the chat and nothing kept: what reads as a black or empty pane.
+        public var isEmpty: Bool { self == .cover || self == .pageEmpty }
+    }
+
+    /// One trace.
+    public struct Record: Sendable {
+        public let id: Int
+        public let launch: Bool
+        public internal(set) var timedOut = false
+        /// The engine the bound pane's chat showed in (`cef`, `webkit:…`).
+        public internal(set) var engine: String?
+        let armedAt: TimeInterval
+        /// Wall-clock seconds at arming, to line a trace up with a screen recording.
+        public let armedWall = Date().timeIntervalSince1970
+        var marks = [TimeInterval?](repeating: nil, count: Mark.allCases.count)
+        /// Each change of the bound pane's surface: uptime, surface.
+        var frames: [(TimeInterval, Surface)] = []
+        public internal(set) var frameCount = 0
+
+        var origin: TimeInterval { marks[Mark.action.rawValue] ?? armedAt }
+
+        /// Milliseconds from the origin to `mark`; nil when it never ran.
+        public func milliseconds(_ mark: Mark) -> Double? {
+            marks[mark.rawValue].map { ($0 - origin) * 1_000 }
+        }
+
+        /// The surface changes, in milliseconds from the origin.
+        public var surfaces: [(ms: Double, surface: Surface)] {
+            frames.map { (($0.0 - origin) * 1_000, $0.1) }
+        }
+
+        /// Milliseconds from the origin to the first frame of chat content.
+        public var firstContentMilliseconds: Double? {
+            surfaces.first { $0.surface == .page || $0.surface == .coverLeaving }?.ms
+        }
+
+        /// The longest run of empty frames (``Surface/isEmpty``), in milliseconds.
+        public var longestEmptyMilliseconds: Double {
+            var longest = 0.0
+            var start: Double?
+            for (ms, surface) in surfaces {
+                if surface.isEmpty {
+                    if start == nil { start = ms }
+                } else if let begun = start {
+                    longest = max(longest, ms - begun)
+                    start = nil
+                }
+            }
+            return longest
+        }
+    }
+
+    public private(set) var isArmed = false
+    private var current: Record?
+    private var finished: [Record] = []
+    private var nextID = 1
+    private var surface: (() -> Surface)?
+    private var engine: (() -> String)?
+    private var sampler: FrameClient?
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    /// Arms a trace; false while one runs. A launch trace has no action: its origin is the arming.
+    public func begin(launch: Bool = false) -> Bool {
+        guard current == nil else { return false }
+        current = Record(id: nextID, launch: launch, armedAt: Self.now())
+        nextID += 1
+        surface = nil
+        engine = nil
+        isArmed = true
+        return true
+    }
+
+    /// Records `mark` for the running trace, at its first time only.
+    public func mark(_ mark: Mark) {
+        guard isArmed, current?.marks[mark.rawValue] == nil else { return }
+        current?.marks[mark.rawValue] = Self.now()
+        if mark == .loadingLeft || mark == .holdEnd { resumeIfShown() }
+    }
+
+    /// Whether the running trace recorded `mark`.
+    public func has(_ mark: Mark) -> Bool { current?.marks[mark.rawValue] != nil }
+
+    /// The first pane made after arming binds the trace: `surface` is sampled every frame of
+    /// `view`'s display and `engine` read at the end. Later panes are not this open's.
+    @discardableResult
+    public func bind(view: NSView, surface: @escaping () -> Surface, engine: @escaping () -> String) -> Bool {
+        guard isArmed, self.surface == nil else { return false }
+        self.surface = surface
+        self.engine = engine
+        mark(.paneMade)
+        let client = FrameClient(owner: "chatOpenTrace", isAnimation: false, scheduler: { [weak view] in
+            view.map(FrameScheduler.forView) ?? .app
+        }) { [weak self] _ in self?.sample() ?? false }
+        sampler = client
+        client.activate()
+        sample()
+        return true
+    }
+
+    /// Whether the bound pane's chat shows: its loading cover left and no hold keeps it hidden.
+    public var chatShown: Bool {
+        guard let record = current, record.marks[Mark.loadingLeft.rawValue] != nil else { return false }
+        return surface?() != .held
+    }
+
+    /// Waits until the chat shows or `timeout` passes; true when it showed.
+    public func waitUntilShown(timeout: Duration) async -> Bool {
+        if chatShown { return true }
+        let deadline = DemandTimer(owner: "chatOpenTrace.wait")
+        deadline.schedule(after: timeout) { @MainActor [weak self] in self?.resume() }
+        await withCheckedContinuation { waiter = $0 }
+        deadline.cancel()
+        return chatShown
+    }
+
+    /// Lets `duration` of frames be sampled before the caller finishes the trace.
+    public func settle(for duration: Duration) async {
+        let timer = DemandTimer(owner: "chatOpenTrace.settle")
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            timer.schedule(after: duration) { @MainActor in done.resume() }
+        }
+        withExtendedLifetime(timer) {}
+    }
+
+    /// Disarms the trace and keeps its record; nil when none ran.
+    public func finish(timedOut: Bool) -> Record? {
+        sample()
+        isArmed = false
+        sampler?.deactivate()
+        sampler = nil
+        guard var record = current else { return nil }
+        record.timedOut = timedOut
+        record.engine = engine?()
+        current = nil
+        surface = nil
+        engine = nil
+        finished.append(record)
+        if finished.count > Self.capacity { finished.removeFirst(finished.count - Self.capacity) }
+        resume()
+        return record
+    }
+
+    /// The last `count` finished traces, oldest first, then the running one.
+    public func recent(_ count: Int) -> [Record] {
+        Array((finished + (current.map { [$0] } ?? [])).suffix(max(count, 0)))
+    }
+
+    @discardableResult
+    private func sample() -> Bool {
+        guard isArmed, var record = current, let surface else { return false }
+        let now = Self.now()
+        guard now - record.armedAt < Self.frameCap else { return false }
+        let shown = surface()
+        record.frameCount += 1
+        if record.frames.last?.1 != shown { record.frames.append((now, shown)) }
+        current = record
+        return true
+    }
+
+    private func resumeIfShown() {
+        if chatShown { resume() }
+    }
+
+    private func resume() {
+        let waiting = waiter
+        waiter = nil
+        waiting?.resume()
+    }
+
+    static func now() -> TimeInterval { ProcessInfo.processInfo.systemUptime }
+}
+
+#endif
