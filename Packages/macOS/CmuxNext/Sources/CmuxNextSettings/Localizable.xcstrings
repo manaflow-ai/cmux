@@ -157325,6 +157325,268 @@
           }
         }
       }
+    },
+    "settings.sidebar.showLocalMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark This Mac's Workspaces"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمييز مساحات عمل هذا الـ Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Označi radne prostore ovog Maca"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marker denne Macs arbejdsområder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereiche dieses Macs kennzeichnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marcar los espacios de trabajo de este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signaler les espaces de travail de ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrassegna gli spazi di lavoro di questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のワークスペースにも印を付ける"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម្គាល់កន្លែងធ្វើការរបស់ Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 작업 공간 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merk denne Macens arbeidsområder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oznaczaj obszary robocze tego Maca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marcar os espaços de trabalho deste Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отмечать рабочие пространства этого Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทำเครื่องหมายพื้นที่ทำงานของ Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'in çalışma alanlarını işaretle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Позначати робочі простори цього Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đánh dấu không gian làm việc của máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标记这台 Mac 的工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標記這台 Mac 的工作區"
+          }
+        }
+      }
+    },
+    "settings.sidebar.showLocalMachine.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما تكون مساحات العمل على أكثر من حاسوب، تعرض مساحة العمل الموجودة على حاسوب آخر أيقونة ذلك الحاسوب بلونه. عند التشغيل، تعرض مساحات عمل هذا الـ Mac أيقونته أيضًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada su radni prostori na više računara, radni prostor na drugom računaru prikazuje ikonu tog računara u njegovoj boji. Kada je uključeno, i radni prostori ovog Maca prikazuju njegovu ikonu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når arbejdsområder ligger på mere end én computer, viser et arbejdsområde på en anden computer den computers ikon i dens farve. Slået til viser denne Macs arbejdsområder også dens ikon."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liegen Arbeitsbereiche auf mehr als einem Computer, zeigt ein Arbeitsbereich auf einem anderen Computer dessen Symbol in seiner Farbe. Eingeschaltet zeigen auch die Arbeitsbereiche dieses Macs sein Symbol."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con espacios de trabajo en más de un ordenador, un espacio de trabajo en otro ordenador muestra el icono de ese ordenador en su color. Activado, los espacios de trabajo de este Mac también muestran su icono."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lorsque des espaces de travail se trouvent sur plusieurs ordinateurs, un espace de travail sur un autre ordinateur affiche l'icône de cet ordinateur dans sa couleur. Activé, les espaces de travail de ce Mac affichent aussi son icône."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con spazi di lavoro su più di un computer, uno spazio di lavoro su un altro computer mostra l'icona di quel computer nel suo colore. Se attivo, anche gli spazi di lavoro di questo Mac mostrano la sua icona."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複数のコンピュータにワークスペースがあるとき、別のコンピュータ上のワークスペースにはそのコンピュータのアイコンがその色で表示されます。オンにすると、この Mac のワークスペースにもアイコンが表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលកន្លែងធ្វើការនៅលើកុំព្យូទ័រច្រើនជាងមួយ កន្លែងធ្វើការនៅលើកុំព្យូទ័រផ្សេងបង្ហាញរូបតំណាងរបស់កុំព្យូទ័រនោះតាមពណ៌របស់វា។ ពេលបើក កន្លែងធ្វើការរបស់ Mac នេះក៏បង្ហាញរូបតំណាងរបស់វាដែរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간이 여러 컴퓨터에 있을 때, 다른 컴퓨터의 작업 공간에는 해당 컴퓨터의 아이콘이 그 색으로 표시됩니다. 켜면 이 Mac의 작업 공간에도 아이콘이 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når arbeidsområder ligger på mer enn én datamaskin, viser et arbeidsområde på en annen datamaskin den maskinens ikon i dens farge. Når det er på, viser også denne Macens arbeidsområder ikonet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy obszary robocze są na więcej niż jednym komputerze, obszar roboczy na innym komputerze pokazuje ikonę tego komputera w jego kolorze. Po włączeniu obszary robocze tego Maca też pokazują jego ikonę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Com espaços de trabalho em mais de um computador, um espaço de trabalho em outro computador mostra o ícone desse computador na cor dele. Ativado, os espaços de trabalho deste Mac também mostram o ícone dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда рабочие пространства есть на нескольких компьютерах, рабочее пространство на другом компьютере показывает значок этого компьютера в его цвете. Если включено, рабочие пространства этого Mac тоже показывают его значок."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อมีพื้นที่ทำงานบนคอมพิวเตอร์มากกว่าหนึ่งเครื่อง พื้นที่ทำงานบนคอมพิวเตอร์เครื่องอื่นจะแสดงไอคอนของเครื่องนั้นด้วยสีของมัน เมื่อเปิด พื้นที่ทำงานของ Mac เครื่องนี้จะแสดงไอคอนของมันด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma alanları birden fazla bilgisayardayken, başka bir bilgisayardaki çalışma alanı o bilgisayarın simgesini kendi renginde gösterir. Açıkken bu Mac'in çalışma alanları da simgesini gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли робочі простори є на кількох комп'ютерах, робочий простір на іншому комп'ютері показує значок цього комп'ютера в його кольорі. Якщо ввімкнено, робочі простори цього Mac теж показують його значок."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi không gian làm việc nằm trên nhiều máy tính, không gian làm việc trên máy khác hiển thị biểu tượng của máy đó theo màu của nó. Khi bật, không gian làm việc của máy Mac này cũng hiển thị biểu tượng của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当工作区分布在多台电脑上时，其他电脑上的工作区会以该电脑的颜色显示它的图标。打开后，这台 Mac 的工作区也会显示它的图标。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當工作區分佈在多台電腦上時，其他電腦上的工作區會以該電腦的顏色顯示它的圖示。開啟後，這台 Mac 的工作區也會顯示它的圖示。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

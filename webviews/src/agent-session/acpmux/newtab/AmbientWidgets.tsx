@@ -51,8 +51,10 @@ export function AmbientWidgets({
               key={machine.id}
               label={`${machine.label}: ${nt(machine.online ? "widgets.online" : "widgets.offline")}`}
             >
-              <span className="nt-ambient-machine" data-online={machine.online || undefined} data-tone={machine.tone}>
-                <Icon name={MACHINE_ICONS[machine.kind]} size={14} className="nt-ambient-machine-icon" />
+              <span className="nt-ambient-machine" data-online={machine.online || undefined}>
+                <span className="nt-ambient-machine-icon" style={machine.color ? { color: machine.color } : undefined}>
+                  <Icon name={MACHINE_ICONS[machine.kind]} size={14} />
+                </span>
                 <span className="nt-ambient-machine-name">{machine.label}</span>
                 <span className="nt-ambient-dot" aria-hidden="true" />
               </span>

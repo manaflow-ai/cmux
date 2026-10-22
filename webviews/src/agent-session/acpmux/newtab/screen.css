@@ -859,21 +859,9 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-ambient-machine-icon {
   flex: none;
-  /* One of the theme's terminal colors, by the machine's name (ambient.ts machineTone), as the
-     project badges pick theirs. */
-  color: var(--agent-ansi-4);
-}
-.nt-ambient-machine[data-tone="1"] .nt-ambient-machine-icon {
-  color: var(--agent-ansi-5);
-}
-.nt-ambient-machine[data-tone="2"] .nt-ambient-machine-icon {
-  color: var(--agent-ansi-6);
-}
-.nt-ambient-machine[data-tone="3"] .nt-ambient-machine-icon {
-  color: var(--agent-ansi-2);
-}
-.nt-ambient-machine[data-tone="4"] .nt-ambient-machine-icon {
-  color: var(--agent-ansi-3);
+  display: inline-flex;
+  /* This Mac stays quiet; another machine wears its identity color (machineColor.ts, inline). */
+  color: var(--agent-soft);
 }
 .nt-ambient-machine-name {
   min-width: 0;

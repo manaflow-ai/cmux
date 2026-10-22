@@ -3,6 +3,7 @@
 // (the handshake's `weather`, AgentPaneNewTabWeather.swift); Machines are the composer's computers
 // (acpmux's peers and the hosts its chats ran on), each online while acpmux lists it as a peer.
 import { knownMachines } from "../environments";
+import { machineColor } from "../machineColor";
 import type { AcpmuxSnapshot } from "../model";
 
 /// How long a reading stays current (AgentPaneNewTabWeather.maximumAge): older is drawn dimmed.
@@ -63,21 +64,14 @@ export function degrees(value: number): string {
 }
 
 export type MachineKind = "local" | "ssh" | "cloud";
-export type NewTabMachine = { id: string; label: string; kind: MachineKind; online: boolean; tone: number };
-
-/// How many theme colors a machine's icon picks from (screen.css `.nt-ambient-machine[data-tone]`).
-export const MACHINE_TONES = 5;
-
-/// One of the theme's colors (0 to MACHINE_TONES - 1) that stays the same for a machine's name, so
-/// each machine keeps its color.
-export function machineTone(name: string): number {
-  let hash = 2166136261;
-  for (let index = 0; index < name.length; index += 1) {
-    hash ^= name.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0) % MACHINE_TONES;
-}
+export type NewTabMachine = {
+  id: string;
+  label: string;
+  kind: MachineKind;
+  online: boolean;
+  /** The machine's identity color (machineColor.ts), as the composer's computer chip draws it; none for this Mac. */
+  color?: string;
+};
 
 /// The machines a chat can run on: this Mac first (always online), then acpmux's peers (online),
 /// then the hosts older chats ran on that acpmux no longer lists (offline). Each peer's kind is its
@@ -87,12 +81,10 @@ export function newTabMachines(
   peerKinds: Record<string, "ssh" | "cloud">,
   localName: string,
 ): NewTabMachine[] {
-  const machines: NewTabMachine[] = [
-    { id: "local", label: localName, kind: "local", online: true, tone: machineTone(localName) },
-  ];
+  const machines: NewTabMachine[] = [{ id: "local", label: localName, kind: "local", online: true }];
   const online = new Set(snapshot.peers ?? []);
   for (const machine of knownMachines(snapshot.peers ?? [], snapshot.sessions, peerKinds)) {
-    machines.push({ ...machine, online: online.has(machine.id), tone: machineTone(machine.label) });
+    machines.push({ ...machine, online: online.has(machine.id), color: machineColor(machine.label) });
   }
   return machines;
 }

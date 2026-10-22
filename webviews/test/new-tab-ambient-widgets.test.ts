@@ -3,12 +3,11 @@
 // the machines are this Mac, acpmux's peers (online) and older chats' hosts (offline), each with a
 // color that stays the same for its name. Every layout shows them when they are on.
 import { expect, test } from "bun:test";
+import { machineColor } from "../src/agent-session/acpmux/machineColor";
 import { newTabHost } from "../src/agent-session/acpmux/NewTabPage";
 import {
   WEATHER_MAX_AGE_MS,
   degrees,
-  MACHINE_TONES,
-  machineTone,
   newTabMachines,
   parseWeather,
   weatherGlyph,
@@ -65,13 +64,10 @@ test("machines: this Mac, then peers online, then older chats' hosts offline", (
   expect(machines[0]!.label).toBe("air-blue");
 });
 
-test("a machine's color stays the same for its name", () => {
-  expect(machineTone("cosmic-gray")).toBe(machineTone("cosmic-gray"));
-  expect(
-    new Set(["cosmic-gray", "huge-blue", "air-blue", "big-red", "lawrence"].map(machineTone)).size,
-  ).toBeGreaterThan(1);
-  expect(machineTone("x")).toBeGreaterThanOrEqual(0);
-  expect(machineTone("x")).toBeLessThan(MACHINE_TONES);
+test("another machine wears its identity color, this Mac none", () => {
+  const machines = newTabMachines({ sessions: [], peers: ["cosmic-gray"] }, {}, "air-blue");
+  expect(machines[0]!.color).toBeUndefined();
+  expect(machines[1]!.color).toBe(machineColor("cosmic-gray"));
 });
 
 test("weather and machines are widgets on every layout, the old layouts keep what they drew", () => {

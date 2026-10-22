@@ -2,7 +2,8 @@
 // `gh pr create` in the chat opened (sessionSummary.ts), newest first, with its number, repository,
 // title and state, each a chip as wide as its text, its title cut off only when the composer's
 // column is full, with its dismiss button inside. The chat folder's pull request, which the header
-// chip follows live, shows its live state and title. The newest two show and the rest wait behind
+// chip follows live, shows its live state and title. A merged or closed pull request keeps no bar:
+// it lives in the right panel's Changes card instead. The newest two show and the rest wait behind
 // Show more; a dismissed bar stays hidden for this chat (the page's storage, so a reload keeps it
 // hidden). Hovering a bar, or focusing it, opens the shared link card (chips/LinkHoverCard.tsx) with
 // the pull request's full title, state, author and checks.
@@ -11,7 +12,7 @@ import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { Close } from "../conversation/icons";
-import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
+import { pullRequestStateSince, useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { sessionPullRequests, type SummaryPullRequest } from "./sessionSummary";
 import { GitHubMark } from "../conversation/icons";
 import { LinkHoverCard } from "../chips/LinkHoverCard";
@@ -22,8 +23,6 @@ const SHOWN = 2;
 const BADGES: Record<string, StringKey> = {
   open: "header.prBadge.open",
   draft: "header.prBadge.draft",
-  merged: "header.prBadge.merged",
-  closed: "header.prBadge.closed",
 };
 
 const storageKey = (sessionId: string) => `acpmux.prDock.dismissed.${sessionId}`;
@@ -55,7 +54,19 @@ function shown(
   live: HeaderPullRequest | undefined,
 ): { state: string; title: string; labeled: boolean } {
   if (live?.url === pr.url) return { state: live.state, title: live.title || (pr.title ?? ""), labeled: true };
-  return { state: pr.state, title: pr.title ?? "", labeled: pr.state !== "open" };
+  return { state: pr.state, title: pr.title ?? "", labeled: false };
+}
+
+/// Whether `pr` is merged or closed, so it keeps no bar. A merge the chat ran is final; a close it
+/// ran holds until the header reads the pull request again after it (a reopen), as the Changes card
+/// decides (inspector/ChangesSection.tsx rowState). An open one defers to the header's live read.
+function ended(pr: SummaryPullRequest, live: HeaderPullRequest | undefined): boolean {
+  if (pr.state === "merged") return true;
+  const state = live?.url === pr.url ? live.state : undefined;
+  if (pr.state !== "closed") return state === "merged" || state === "closed";
+  const since = state === undefined ? undefined : pullRequestStateSince(pr.url);
+  const reopened = since !== undefined && pr.closedAt !== undefined && since > pr.closedAt;
+  return !(reopened && (state === "open" || state === "draft"));
 }
 
 /// Mount keyed by the chat: dismissals and Show more belong to one chat.
@@ -81,7 +92,7 @@ export function PullRequestDock({ rows, sessionId }: { rows: readonly AcpmuxRow[
       next ?? document.querySelector<HTMLElement>(".acpmux-composer [contenteditable], .acpmux-composer textarea")
     )?.focus();
   }, [refocus]);
-  const prs = all.filter((pr) => !dismissed.includes(pr.url)).reverse();
+  const prs = all.filter((pr) => !dismissed.includes(pr.url) && !ended(pr, live)).reverse();
   if (prs.length === 0) return null;
   const visible = expanded ? prs : prs.slice(0, SHOWN);
   const dismiss = (url: string, index: number) => {
