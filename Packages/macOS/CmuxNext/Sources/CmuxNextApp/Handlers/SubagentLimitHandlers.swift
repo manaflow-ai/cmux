@@ -4,12 +4,10 @@ import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextSettings
 
-/// Subagent Limit… (``SubagentLimit``) on a chat tab and its sidebar row, and on a workspace row;
-/// the palette runs them on the focused chat or the shown workspace.
-/// The chat row is left out of other tabs' menus.
+/// Subagent Limit… (``SubagentLimit``) on a chat tab and its sidebar row; the palette runs it on
+/// the focused chat. The row is left out of other tabs' menus.
 enum SubagentLimitHandlers {
     static let chatAction: ActionID = "agentChat.subagentLimit"
-    static let workspaceAction: ActionID = "workspace.subagentLimit"
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
@@ -38,14 +36,6 @@ enum SubagentLimitHandlers {
         ActionTargetVisibility.hide(chatAction, in: registry) { invocation in
             invocation.target?.kind == .tab && registry.withoutRefusals { chat(invocation) } == nil
         }
-        registry.bind(workspaceAction, run: { invocation in
-            let key = try context.workspace(invocation).key
-            guard let scope = SubagentLimit.Scope.workspace(key: key.rawValue) else {
-                throw ActionFailure(message: SubagentLimitStrings.failed)
-            }
-            let run = flow(context.activeWindow?.window)
-            context.report { await run.run(scope) }
-        })
     }
 }
 
@@ -59,9 +49,11 @@ struct SubagentLimitFlow {
     /// `agents.subsessions.maxRunning`.
     let setting: @MainActor () -> Int
 
-    /// Nil when it was set, cleared or cancelled; else why not.
+    /// Nil when it was set, cleared or cancelled; else why not. A read that gets no answer (no
+    /// acpmux, a connection acpmux did not take as the person, a refusal) says it could not be
+    /// read; only an answer without `maxRunning` says this acpmux has no limit.
     func run(_ scope: SubagentLimit.Scope) async -> ActionWorkFailure? {
-        guard let reply = await call(scope.params(nil)) else { return ActionWorkFailure(SubagentLimitStrings.unsupported) }
+        guard let reply = await call(scope.params(nil)) else { return ActionWorkFailure(SubagentLimitStrings.unreadable) }
         guard let current = SubagentLimit.Current(reply: reply, scope: scope) else {
             return ActionWorkFailure(SubagentLimitStrings.unsupported)
         }
@@ -74,9 +66,12 @@ struct SubagentLimitFlow {
         }
     }
 
+    /// The request's result; nil when no acpmux answered, it refused the person proof, or it
+    /// refused the request.
     private func call(_ params: [String: Any]) async -> [String: Any]? {
         guard let line = await open() else { return nil }
         defer { line.close() }
+        guard line.isPerson else { return nil }
         return await line.call(SubagentLimit.method, params)
     }
 }
