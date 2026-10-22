@@ -17,6 +17,21 @@ struct SidebarLagTests {
         return frames
     }
 
+    /// A pull request read landing (one row's badge turns red) patches that row; it does not lay out
+    /// every row of the list again.
+    @Test func aBadgeChangePatchesItsRowOnly() {
+        let bench = SidebarLagBench(count: 500)
+        defer { bench.close() }
+        bench.drain()
+        _ = SidebarPerfCounters.report(reset: true)
+        SidebarSessionTree.shared.pullRequests[bench.ids[2]] = SidebarPullRequestBadge(count: 2, status: .failing)
+        bench.drain()
+        bench.drawFrame()
+        let counts = SidebarPerfCounters.report(reset: true)
+        #expect((counts["list_reloads"] ?? 0) == 0, "a badge change laid the list out again: \(counts)")
+        #expect((counts["row_patches"] ?? 0) >= 1, "the badge change patched no row: \(counts)")
+    }
+
     /// Agents streaming, the pointer moving, the list scrolling and the selection stepping lay the
     /// list out again in no frame, and each p95 stays inside half a 60 Hz frame at 150 workspaces and
     /// grows less than twofold from 150 to 500.
