@@ -18,7 +18,36 @@ pub(crate) struct Step {
 /// The steps that remove `device` from every store, in an order where a
 /// failed step leaves nothing that lets it in that a later step would have
 /// removed first: credentials before peers.
-pub(crate) fn plan(_device: &Device) -> Vec<Step> {
-    let _ = Via::Peer { name: String::new() };
-    Vec::new()
+pub(crate) fn plan(device: &Device) -> Vec<Step> {
+    let step = |args: &[&str], what: String| Step {
+        args: args.iter().map(|a| (*a).to_owned()).collect(),
+        what,
+    };
+    let mut credentials = Vec::new();
+    let mut peers = Vec::new();
+    for via in &device.via {
+        match via {
+            Via::Paired { id } => credentials.push(step(
+                &["acp", "host", "ticket", "revoke", id, "--json"],
+                format!(
+                    "{} can no longer sign in here; its open connections close now",
+                    device.name
+                ),
+            )),
+            Via::Grant { login } => credentials.push(step(
+                &["host", "revoke", login, "--json"],
+                format!("{login} loses the access you granted to this computer"),
+            )),
+            Via::Allow { login } => credentials.push(step(
+                &["host", "deny", login],
+                format!("{login} can no longer open this computer's terminals"),
+            )),
+            Via::Peer { name } => peers.push(step(
+                &["acp", "host", "rm", name, "--json"],
+                format!("this computer stops running agents on {name}"),
+            )),
+        }
+    }
+    credentials.extend(peers);
+    credentials
 }
