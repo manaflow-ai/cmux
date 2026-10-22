@@ -60,7 +60,11 @@ await requireBrowserLane("working-loops-compositor.test.tsx", async () => {
     describe(`working loops run on the compositor (${engine})`, () => {
       let browser: Browser | undefined;
       beforeAll(async () => {
-        browser = await type.launch({ headless: true }).catch(() => undefined);
+        // Bounded: on some fleet workers WebKit's launch hangs; then this engine's half warns and skips.
+        browser = await type.launch({ headless: true, timeout: 30_000 }).catch((error) => {
+          console.warn(`working-loops-compositor: ${engine} did not launch: ${String(error).slice(0, 200)}`);
+          return undefined;
+        });
       });
       afterAll(async () => {
         // WebKit's close can hang on the fleet with loops still running; the pages are closed.
