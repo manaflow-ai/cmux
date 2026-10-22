@@ -25,7 +25,7 @@ import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
 import { useBlockWrap } from "./blockWrap";
 import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
 import { cleanText } from "./mcpCalls";
-import { useFold } from "./fold";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
 /// ACP tool kinds (`ToolKind`) to row glyphs.
@@ -64,7 +64,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       setReveal((count) => count + 1);
     },
   );
-  const fold = useFold(open);
+  const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const detailsId = useId();
   const tool = item.tool!;
   const hasDiff = Boolean(tool.diffs?.length);
@@ -126,7 +126,8 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
           className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
           aria-expanded={open}
           aria-controls={open ? detailsId : undefined}
-          onClick={() => setOpen((value) => !value)}
+          ref={fold.headerRef}
+          onClick={fold.toggle}
         >
           {content}
           <ChevronRight
@@ -141,7 +142,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       )}
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (shell || files.length > 0 || body) && (
-        <div ref={fold.ref} className="cv-fold">
+        <div {...fold.bodyProps}>
           {shell ? (
             <ShellBlock id={detailsId} command={tool.command} output={body} exitCode={tool.exitCode} reveal={reveal} />
           ) : files.length > 0 ? (

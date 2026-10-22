@@ -12,7 +12,7 @@ import { ChevronRight, Magnifier, OpenBook, Pencil, Spinner, TerminalSquare } fr
 import { isFailed, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { useT } from "../i18n";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
-import { useFold } from "./fold";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -50,7 +50,7 @@ export function ToolGroupRow({
   const t = useT();
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey, kind !== "edits" && !folded);
   const [all, setAll] = useTranscriptDisclosure(`${disclosureKey}:all`);
-  const fold = useFold(open);
+  const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const hidden = kind === "edits" || all ? 0 : Math.max(0, items.length - GROUP_TAIL);
   useFindReveal(items, () => setOpen(true));
   // A match in a call behind "+K more" shows the whole group.
@@ -76,7 +76,8 @@ export function ToolGroupRow({
         className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
-        onClick={() => setOpen((value) => !value)}
+        ref={fold.headerRef}
+        onClick={fold.toggle}
       >
         <span className="cv-tool__icon">{running ? <Spinner size={16} /> : groupIcon(kind)}</span>
         <span className="cv-tool__text" data-find-skip>
@@ -101,7 +102,7 @@ export function ToolGroupRow({
         />
       </button>
       {fold.present && (
-        <div ref={fold.ref} className="cv-fold">
+        <div {...fold.bodyProps}>
           <div className={kind === "edits" ? "cv-tool-group" : "cv-tool-group is-flat"} id={detailsId}>
             {hidden > 0 && (
               <button type="button" className="cv-tool cv-tool-group__more" onClick={() => setAll(true)}>

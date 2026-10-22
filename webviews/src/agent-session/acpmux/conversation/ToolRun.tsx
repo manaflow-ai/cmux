@@ -7,7 +7,7 @@ import type { AcpmuxActivity } from "../model";
 import { ChevronRight, Globe, Magnifier, Pencil, TerminalSquare, ToolGroup } from "./icons";
 import { toolRunCategories, toolRunSummary, type ToolRunCategory } from "./toolRunSummary";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
-import { useFold } from "./fold";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
 
 /// The summary's glyph: its leading category's, with searches and reads both as the magnifier.
 function runIcon(category: ToolRunCategory | undefined): ReactNode {
@@ -38,7 +38,7 @@ export function ToolRun({
   const t = useT();
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
   useFindReveal(items, () => setOpen(true));
-  const fold = useFold(open);
+  const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const list = useId();
   return (
     <>
@@ -47,7 +47,8 @@ export function ToolRun({
         className="cv-tool is-toggle is-strong"
         aria-expanded={open}
         aria-controls={open ? list : undefined}
-        onClick={() => setOpen((value) => !value)}
+        ref={fold.headerRef}
+        onClick={fold.toggle}
       >
         <span className="cv-tool__icon">{runIcon(toolRunCategories(items)[0])}</span>
         <span className="cv-tool__text" data-find-skip>
@@ -60,7 +61,7 @@ export function ToolRun({
         />
       </button>
       {fold.present && (
-        <div ref={fold.ref} className="cv-fold">
+        <div {...fold.bodyProps}>
           <div className="cv-tool-run" id={list}>
             {children}
           </div>

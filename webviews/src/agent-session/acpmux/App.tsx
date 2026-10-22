@@ -193,7 +193,7 @@ import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
 import { stopReadingAloud } from "./conversation/readAloud";
-import { foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
+import { ANCHORED_COLLAPSE_EVENT, foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
 import { endTurnFold, playTurnFold, startTurnFold, type TurnFold } from "./conversation/turnFold";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
@@ -3116,6 +3116,16 @@ export function VirtualTranscript({
       for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
       foldAnchor.current = holdFold(toggle);
     };
+    // A collapsible's header that asks to be held (useAnchoredCollapse.ts): a toggle from the keyboard
+    // or a header that is no disclosure button, as well as the click above.
+    const holdAsked = (event: Event) => {
+      const header = event.target as HTMLElement | null;
+      if (!node || typeof header?.closest !== "function" || !node.contains(header) || !header.closest(".acpmux-row"))
+        return;
+      event.preventDefault();
+      for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
+      foldAnchor.current = holdFold(header);
+    };
     // The reader scrolling lets go of it.
     const release = (event: Event) => {
       const key = (event as KeyboardEvent).key;
@@ -3124,6 +3134,7 @@ export function VirtualTranscript({
     };
     const releases = ["wheel", "touchstart", "keydown"] as const;
     node?.addEventListener("click", holdClicked, { capture: true });
+    node?.addEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
     for (const name of releases) node?.addEventListener(name, release, { passive: true });
     // The wheel over Jump to latest scrolls the transcript (wheelPassThrough.ts).
     // The chat's own transcript only (a replay's sits in its own screen).
@@ -3133,6 +3144,7 @@ export function VirtualTranscript({
       clearTimeout(settle.current);
       for (const name of inputs) node?.removeEventListener(name, reader);
       node?.removeEventListener("click", holdClicked, { capture: true });
+      node?.removeEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
       for (const name of releases) node?.removeEventListener(name, release);
       removeWheel?.();
     };

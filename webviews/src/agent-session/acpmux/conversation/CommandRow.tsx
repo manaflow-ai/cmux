@@ -17,7 +17,7 @@ import { Check, ChevronRight, Spinner, TerminalSquare } from "./icons";
 import { isFailed, isRunning, toolDuration } from "./toolGroups";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { shortCommand } from "./shortCommand";
-import { useFold } from "./fold";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
 
 export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
@@ -32,7 +32,8 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
       setReveal((count) => count + 1);
     },
   );
-  const fold = useFold(open);
+  const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
+  const menuPart = menuPartRef({ command: tool.command, output: tool.output?.replace(/\n$/, "") });
   const detailsId = useId();
   // Running in the foreground; a call that went on in the background shows BackgroundMark instead.
   const foreground = isRunning(tool);
@@ -53,8 +54,11 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
         className={`cv-tool cv-command is-toggle${running ? " is-live" : " is-strong"}`}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
-        ref={menuPartRef({ command: tool.command, output: tool.output?.replace(/\n$/, "") })}
-        onClick={() => setOpen((value) => !value)}
+        ref={(node) => {
+          fold.headerRef(node);
+          menuPart(node);
+        }}
+        onClick={fold.toggle}
       >
         <span className="cv-tool__icon">
           <TerminalSquare />
@@ -97,7 +101,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
         />
       </button>
       {fold.present && (
-        <div ref={fold.ref} className="cv-fold">
+        <div {...fold.bodyProps}>
           <ShellBlock
             id={detailsId}
             command={tool.command}
