@@ -55,6 +55,44 @@ import Testing
         #expect(!h.sidebar.searchButton.isHidden && search.minX >= frame.maxX, "search \(search) after the avatar \(frame)")
     }
 
+    /// Signed in, the avatar alone shows at rest; hovering it says the email (Leo 2026-10-21).
+    @Test func theSignedInAvatarSaysTheEmailOnHover() async throws {
+        let h = await make(width: 240)
+        defer { h.window.close() }
+        h.sidebar.model.profileAvatar = .account(name: "Leo Li", email: "leo@cmux.com")
+        for _ in 0..<20 {
+            h.settle()
+            if h.sidebar.footerBand.profileControl?.view.themedToolTip == "leo@cmux.com" { break }
+            await Task.yield()
+        }
+        let control = try #require(h.sidebar.footerBand.profileControl?.view)
+        #expect(control.showsAvatar)
+        #expect(control.titleFrame == .zero, "no email or name beside the avatar")
+        #expect(control.themedToolTip == "leo@cmux.com")
+        #expect(control.accessibilityLabel() == "Leo Li", "VoiceOver still hears the name")
+    }
+
+    /// The monogram is drawn on the theme accent, glazed, at any scale: a 1x and a 3x render
+    /// both color the disc's center and leave its corners clear.
+    @Test func theMonogramFillsItsCircleAtEveryScale() throws {
+        let avatar = SidebarAvatar.account(name: "Leo Li", email: "leo@cmux.com")
+        for scale in [1, 2, 3] {
+            let side = 24 * scale
+            let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8,
+                                                    samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                                    bytesPerRow: 0, bitsPerPixel: 0))
+            rep.size = NSSize(width: 24, height: 24)
+            let context = try #require(NSGraphicsContext(bitmapImageRep: rep))
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            ThemeScope.app.perform { SidebarAvatarView.draw(avatar, in: NSRect(x: 0, y: 0, width: 24, height: 24), strong: false) }
+            NSGraphicsContext.restoreGraphicsState()
+            let edge = (rep.colorAt(x: side / 2, y: side / 10)?.alphaComponent ?? 0)
+            #expect(edge > 0.5, "@\(scale)x: the disc is filled near its top: \(edge)")
+            #expect((rep.colorAt(x: 0, y: 0)?.alphaComponent ?? 1) < 0.05, "@\(scale)x: the corner stays clear")
+        }
+    }
+
     @Test func aNarrowFooterKeepsTheAvatarAlone() async throws {
         let h = await make(width: 120)
         defer { h.window.close() }

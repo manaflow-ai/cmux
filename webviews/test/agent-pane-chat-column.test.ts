@@ -690,7 +690,8 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     expect(await page.locator(".cv-thought.is-live .cv-thought__label").textContent()).toBe("Thinking");
     const seen = await text.evaluate((element) => {
       const box = element.getBoundingClientRect();
-      const node = element.firstChild!;
+      // The text node itself: the text draws in its parts (ThoughtRow.tsx thoughtParts).
+      const node = element.querySelector(".cv-thought__part")!.firstChild!;
       const at = (words: string) => {
         const range = document.createRange();
         const start = node.textContent!.indexOf(words);
