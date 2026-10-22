@@ -207,7 +207,12 @@ test("a JSON file printed on lines stays as printed even when it looks like an e
   const rpc = '{\n  "jsonrpc": "2.0",\n  "id": 1,\n  "result": "ok"\n}';
   for (const file of [blocks, rpc]) {
     expect(toolResult(file)).toEqual({ text: file.trimEnd(), lang: "json", images: [], unwrapped: false });
-    expect(prettyOutput(file)?.[0]).toBe(file[0]);
+    expect(prettyOutput(file)).toBe(JSON.stringify(JSON.parse(file), null, 2));
+    // Read through an MCP tool, the file is the text inside the envelope and stays as printed too.
+    expect(toolResult(JSON.stringify([{ type: "text", text: file }]))).toMatchObject({
+      text: file.trimEnd(),
+      lang: "json",
+    });
   }
 });
 
@@ -227,4 +232,74 @@ test("blocks the pane cannot draw stay in the result as JSON beside its text", (
   expect(result.text).not.toContain("UklGRg==");
   expect(result.images).toEqual([]);
   expect(prettyOutput(output)).toContain('"type": "audio"');
+});
+
+test("structured content a text block does not repeat shows after the text", () => {
+  // Codex re-review finding 1: structured content was dropped whenever there was text.
+  const output = JSON.stringify({
+    content: [{ type: "text", text: "Found one record" }],
+    structuredContent: { records: [{ id: 42 }] },
+  });
+  expect(toolResult(output).text).toBe('Found one record\n\n{\n  "records": [\n    {\n      "id": 42\n    }\n  ]\n}');
+  // MCP's own shape, the structured content also sent as text, shows it once.
+  const repeated = JSON.stringify({
+    content: [{ type: "text", text: '{"ok":true}' }],
+    structuredContent: { ok: true },
+  });
+  expect(toolResult(repeated)).toMatchObject({ text: '{\n  "ok": true\n}', lang: "json" });
+});
+
+test("an error's data that looks like an envelope stays the JSON it is", () => {
+  // Codex re-review finding 2: residual data went through envelope detection again.
+  const data = { result: "bad path", id: "request-7" };
+  const output = JSON.stringify({ error: { message: "Invalid params", data } });
+  expect(toolResult(output).text).toBe(`Invalid params\n\n${JSON.stringify(data, null, 2)}`);
+  const structured = { content: [{ type: "text", text: "inner" }] };
+  const both = JSON.stringify({ content: [{ type: "text", text: "Summary" }], structuredContent: structured });
+  expect(toolResult(both).text).toBe(`Summary\n\n${JSON.stringify(structured, null, 2)}`);
+});
+
+test("a string that holds JSON stays a string when its object is pretty-printed", () => {
+  // Codex re-review finding 3: pretty-printing parsed string values into arrays and objects.
+  const value = { payload: "[1,2]", kind: "string" };
+  expect(toolResult(JSON.stringify(value)).text).toBe(JSON.stringify(value, null, 2));
+});
+
+test("an image block list inside an envelope's text shows in the call's image strip", () => {
+  // Codex re-review finding 4: escaped quotes hid nested image blocks from envelopeImages.
+  const inner = JSON.stringify([{ type: "image", data: PNG, mimeType: "image/png" }]);
+  const output = JSON.stringify([{ type: "text", text: inner }]);
+  expect(toolResult(output).images).toEqual([`data:image/png;base64,${PNG}`]);
+  expect(envelopeImages(output)).toEqual([`data:image/png;base64,${PNG}`]);
+});
+
+test("Find in Chat reads a Markdown result as it draws, without its marks", () => {
+  // Codex re-review finding 5: Find searched the Markdown source.
+  const output = JSON.stringify([
+    { type: "text", text: "## Status\n\n**critical** failure, see [the log](https://example.com/x)" },
+  ]);
+  const row: AcpmuxRow = {
+    id: "work",
+    version: 1,
+    at: 0,
+    kind: "activity",
+    text: "",
+    items: [{ kind: "tool", text: "Lookup", tool: { id: "c1", title: "Lookup", status: "completed", output } }],
+  };
+  expect(findMatches([row], "critical failure")).toHaveLength(1);
+  expect(findMatches([row], "example.com")).toHaveLength(0);
+  expect(findMatches([row], "##")).toHaveLength(0);
+});
+
+test("envelopes nested past the depth limit stay JSON instead of overflowing the stack", () => {
+  // Codex re-review finding 6: result and content wrappers recursed without a bound.
+  let result: unknown = "deep";
+  for (let i = 0; i < 5000; i++) result = { result };
+  const deepResult = JSON.stringify(result);
+  expect(toolResult(deepResult).lang).toBe("json");
+  let block: unknown = { type: "text", text: "deep" };
+  for (let i = 0; i < 5000; i++) block = { type: "content", content: block };
+  expect(toolResult(JSON.stringify([block])).lang).toBe("json");
+  // A shallow chain still unwraps.
+  expect(toolResult(JSON.stringify({ result: { result: "shallow" } })).text).toBe("shallow");
 });

@@ -8,6 +8,7 @@ import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRe
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { commandFolder } from "./commandFolder";
 import { cleanText, mcpCall, prettyOutput, prettyValue } from "./mcpCalls";
+import { plainText } from "./messageMenu";
 import { drawnThought } from "./thoughts";
 import { toolResult } from "./toolResult";
 
@@ -32,7 +33,9 @@ function drawnText(item: AcpmuxActivity): string {
   if (call) return [prettyValue(call.args), prettyOutput(tool.output)].filter(Boolean).join("\n");
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // Other output reads as ToolRow draws it: out of its envelope, without injected context (toolResult.ts).
-  const output = shell || !tool.output ? tool.output : toolResult(tool.output, cleanText).text;
+  // Markdown reads as it draws: its words, without the marks (messageMenu.ts plainText).
+  const result = shell || !tool.output ? undefined : toolResult(tool.output, cleanText);
+  const output = !result ? tool.output : result.lang === "markdown" ? plainText(result.text) : result.text;
   // The command as its rows draw it, without a leading `cd <folder> &&` (commandFolder).
   return [(tool.command && commandFolder(tool.command).rest) || tool.title, output].filter(Boolean).join("\n");
 }
