@@ -62,7 +62,11 @@ import Testing
                 done.resume(returning: activate)
                 throw CancellationError()
             }
-            #expect(services.linkOpener.openWeb(link, from: source, background: false, cmdClick: true))
+            // A refused open never asks the daemon: fail here rather than wait forever.
+            if !services.linkOpener.openWeb(link, from: source, background: false, cmdClick: true) {
+                Issue.record("the Cmd-click opened nothing")
+                done.resume(returning: true)
+            }
         }
         #expect(!activated, "the split's tab was made the clicked pane's selected tab before it moved")
     }
