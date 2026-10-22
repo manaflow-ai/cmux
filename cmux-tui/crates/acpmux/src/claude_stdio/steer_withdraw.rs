@@ -40,6 +40,9 @@ impl Translator {
         let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
         let cancelled = ok && inner.get("cancelled").and_then(Value::as_bool) == Some(true);
         let mut out = Vec::new();
+        // Withdrawn only while its prompt still waits here: a steer answered meanwhile (the turn
+        // ended, the agent's answers failed) has its own answer, and is not taken back.
+        let mut withdrawn = false;
         if cancelled {
             let mut steers = self.steers.lock().await;
             if let Some(at) = steers.iter().position(|(u, _)| u == uuid)
@@ -49,9 +52,10 @@ impl Translator {
                 self.steer_lines.lock().await.retain(|_, u| u != uuid);
                 let steer: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
                 out.push(Message::err(steer, RpcError::internal(STEER_WITHDRAWN)));
+                withdrawn = true;
             }
         }
-        out.push(Message::ok(id, json!({"withdrawn": cancelled})));
+        out.push(Message::ok(id, json!({"withdrawn": withdrawn})));
         out
     }
 }

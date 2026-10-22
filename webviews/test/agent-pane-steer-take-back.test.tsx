@@ -143,3 +143,41 @@ test("a steer the agent read has no X", async () => {
     await act(async () => root.unmount());
   }
 });
+
+test("a steer whose attachments cannot be read stays, and nothing is withdrawn", async () => {
+  const row = {
+    id: "user-2",
+    version: 1,
+    kind: "user",
+    text: "Use this",
+    steer: "waiting",
+    steerPromptId: "p-steer",
+  } as const;
+  const withdrawn: string[] = [];
+  const restored: string[] = [];
+  const took = await takeBackSteer(row as never, {
+    withdraw: async (promptId) => (withdrawn.push(promptId), true),
+    attachments: () => Promise.reject(new Error("acpmux has no image")),
+    restore: (text) => restored.push(text),
+  });
+  expect([took, withdrawn, restored]).toEqual([false, [], []]);
+});
+
+test("a steer with an image acpmux could not give back stays", async () => {
+  const row = {
+    id: "user-2",
+    version: 1,
+    kind: "user",
+    text: "Use this",
+    steer: "waiting",
+    steerPromptId: "p-steer",
+    images: [{ id: "img-1" }],
+  } as const;
+  const withdrawn: string[] = [];
+  const took = await takeBackSteer(row as never, {
+    withdraw: async (promptId) => (withdrawn.push(promptId), true),
+    attachments: async () => [],
+    restore: () => {},
+  });
+  expect([took, withdrawn]).toEqual([false, []]);
+});
