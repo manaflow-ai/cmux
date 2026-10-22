@@ -654,6 +654,11 @@ const USER_STATUS_HEIGHT = 20;
 const META_GAP = 4;
 const META_ROW = 24;
 const MESSAGE_GAP = 8;
+/// How many lines of another agent's message its card shows before it is cut
+/// (conversation/IncomingMessageCard.tsx, `.cv-received__body[data-cut]`).
+export const RECEIVED_LINES = 6;
+/// The prepared texts of those messages, for their estimates; cleared past 256, as a row's are.
+const receivedPrepared = new Map<string, PreparedText | null>();
 const TURN_GAP = 24;
 /// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx), and the line under a steer the agent
 /// has not read yet (PendingSteer.tsx, `.cv-user__pending`); a read steer draws nothing more.
@@ -992,11 +997,20 @@ function measuredRowHeight(
   if (row.received) return 26 + MESSAGE_GAP;
   // A turn's footer carries its answer's text for Copy (conversation/turns.ts); it draws one line.
   if (row.kind === "turnSummary") return fallbackRowHeight(row, width, beforeFooter, lastFooter);
-  // Another agent's message: one 26px line in `.cv-received`'s 2px margins (opened, the row measures
-  // itself); a notice is a tool row's line under `.cv-tools`' 2px margin
-  // (conversation/IncomingMessageCard.tsx). Each with the row's message gap.
+  // Another agent's message: one 26px line in `.cv-received`'s 2px margins, then its glass card
+  // (4px above, 6px below, 8px padding each side, 22px in from the icon column and 12px padding
+  // across), its text cut to RECEIVED_LINES lines (opened, the row measures itself); a notice is a
+  // tool row's line under `.cv-tools`' 2px margin (conversation/IncomingMessageCard.tsx). Each with
+  // the row's message gap.
   // Its images' 120px row with 2px above and 6px below (UserBubble.tsx SENT_IMAGE_HEIGHT); no steer line.
-  if (row.incoming?.kind === "message") return 26 + 4 + MESSAGE_GAP + (row.images?.length ? 128 : 0);
+  if (row.incoming?.kind === "message") {
+    const { lineHeight } = metrics();
+    const text = row.incoming.message.text;
+    if (receivedPrepared.size > 256) receivedPrepared.clear();
+    const lines = text ? textHeight(text, Math.max(80, width - 46), receivedPrepared) : lineHeight;
+    const card = 4 + 16 + Math.min(lines, RECEIVED_LINES * lineHeight) + 6;
+    return 26 + 4 + card + MESSAGE_GAP + (row.images?.length ? 128 : 0);
+  }
   if (row.incoming?.kind === "notice") return 2 + 26 + MESSAGE_GAP;
   // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).
   if (row.incoming?.kind === "hidden") return 0;
