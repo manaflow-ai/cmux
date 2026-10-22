@@ -278,6 +278,51 @@ class CleanTreeStepsRunAlone(unittest.TestCase):
         self.assertEqual(started_before, [], f"steps started while the workload profile ran: {events}")
 
 
+class AptStepsTakeTurns(unittest.TestCase):
+    """Two guard steps that install packages with apt-get (tesseract, zsh) ran at once in the pool
+    and one failed on the dpkg lock (pane-toolbar, after #24005). The runner runs apt-get steps one
+    at a time, host-wide, and every apt-get in ci-guards.yml waits for the lock instead of failing
+    when another job on the same host holds it."""
+
+    WORKFLOW = ROOT / ".github/workflows/ci-guards.yml"
+
+    def test_every_apt_get_in_the_guard_workflow_waits_for_the_lock(self) -> None:
+        unguarded = [
+            f"ci-guards.yml:{number}: {line.strip()}"
+            for number, line in enumerate(self.WORKFLOW.read_text(encoding="utf-8").splitlines(), 1)
+            if re.search(r"\bapt-get\s+(update|install|upgrade|remove|purge)\b", line)
+            and "DPkg::Lock::Timeout=" not in line
+        ]
+        self.assertEqual(unguarded, [], "pass -o DPkg::Lock::Timeout=300 to apt-get")
+
+    def test_two_apt_get_steps_never_overlap(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            # Each step holds a directory while it runs; a second step running at the same time
+            # finds it taken and exits 9.
+            run = f'# apt-get install stand-in\nmkdir "{temp}/held" || exit 9\nsleep 0.5\nrmdir "{temp}/held"\n'
+            steps = [run_ci_guards.Step(f"apt {n}", run, {}, None) for n in range(2)]
+            with concurrent.futures.ThreadPoolExecutor(2) as pool:
+                futures = [
+                    pool.submit(run_ci_guards.run_step, step, Path(temp), {"PATH": "/usr/bin:/bin"},
+                                Path(temp) / f"log{n}")
+                    for n, step in enumerate(steps)
+                ]
+                codes = [future.result(timeout=60)[0] for future in futures]
+        self.assertEqual(codes, [0, 0])
+
+    def test_steps_without_apt_get_still_run_together(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            run = f'touch "{temp}/$STEP"\nfor _ in $(seq 50); do [ -e "{temp}/a" ] && [ -e "{temp}/b" ] && exit 0; sleep 0.1; done\nexit 9\n'
+            with concurrent.futures.ThreadPoolExecutor(2) as pool:
+                futures = [
+                    pool.submit(run_ci_guards.run_step, run_ci_guards.Step(name, run, {}, None), Path(temp),
+                                {"PATH": "/usr/bin:/bin", "STEP": name}, Path(temp) / f"log-{name}")
+                    for name in ("a", "b")
+                ]
+                codes = [future.result(timeout=60)[0] for future in futures]
+        self.assertEqual(codes, [0, 0])
+
+
 class PortableSubstitutes(unittest.TestCase):
     PAYLOAD = ROOT / "scripts/ci/run_ci_guard_payload.sh"
 
