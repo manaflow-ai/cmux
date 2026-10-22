@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextActions
 import Testing
 import WebKit
 
@@ -45,6 +46,25 @@ import WebKit
         page.isHidden = true
         let window = window([page])
         #expect(ScreenshotPrivacyMask.foreignWebContentRects(in: try #require(window.contentView)).isEmpty)
+    }
+
+    /// Only a person's own run is unmasked. An app's run carries `user` during the person's gesture
+    /// in it (the native provider keeps `callerApp`), and an agent names its chat or terminal: all masked.
+    @Test func onlyAPersonsOwnRunIsUnmasked() {
+        func invocation(_ origin: ActionOrigin) -> ActionInvocation { ActionInvocation(target: nil, arguments: [:], origin: origin) }
+        #expect(!ScreenshotPrivacyMask.applies(to: invocation(.user)))
+        for origin in ActionOrigin.allCases where origin != .user {
+            #expect(ScreenshotPrivacyMask.applies(to: invocation(origin)), "\(origin)")
+        }
+        var app = invocation(.user)
+        app.callerApp = "com.example.sidebar-app"
+        #expect(ScreenshotPrivacyMask.applies(to: app))
+        var chat = invocation(.user)
+        chat.callerAgentSession = "agent-1"
+        #expect(ScreenshotPrivacyMask.applies(to: chat))
+        var terminal = invocation(.user)
+        terminal.callerTerminal = "term_1"
+        #expect(ScreenshotPrivacyMask.applies(to: terminal))
     }
 
     /// The mask layer is opaque: the image under it never shows through.

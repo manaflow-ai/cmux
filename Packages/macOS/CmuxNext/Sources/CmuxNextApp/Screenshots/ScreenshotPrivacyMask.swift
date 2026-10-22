@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDesign
 import WebKit
@@ -14,6 +15,11 @@ import WebKit
 /// browser REPL, which masks them.
 @MainActor
 enum ScreenshotPrivacyMask {
+    /// Whether `invocation`'s capture is masked.
+    static func applies(to invocation: ActionInvocation) -> Bool {
+        invocation.origin != .user
+    }
+
     /// The rectangles to paint over in `window`, in window coordinates.
     static func rects(in window: NSWindow, services: AppServices) -> [NSRect] {
         var rects: [NSRect] = []
