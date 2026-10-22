@@ -264,6 +264,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new
         // one draws in the same frame, its sidebar row already listed (a listed one pays no walk of every row) and selected.
         sidebar.sameTurn.syncNow(rows: controller !== kept && !sidebar.model.lists(SidebarWorkspaceID(workspace.id)))
+        DebugWorkspaceSwitch.mark(self, "sidebar")
         root.show(controller.contentView)
         arrangeOnScreen() // with `sidebar.multiView`, the workspaces shown beside it
         DebugWorkspaceSwitch.mark(self, "swap")

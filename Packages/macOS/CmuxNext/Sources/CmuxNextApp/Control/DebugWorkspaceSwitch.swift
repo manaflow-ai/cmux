@@ -7,7 +7,7 @@ import os
 /// Per switch: `input_ms` (the press or key's age when the switch began, absent for a socket action), `apply_ms` to
 /// the swapped content (`WindowController.show`), `commit_ms` to the Core Animation commit that carries it, its
 /// `late_vsyncs`, and one `<stage>_ms` per stage: `park` (the old content parked), `content` (the new controller kept
-/// or built), `swap` (the content view in the window), `theme`, `did_show` (panes restored), `side` (the
+/// or built), `sidebar` (the same-turn selection pass), `swap` (the content view in the window), `theme`, `did_show` (panes restored), `side` (the
 /// observers, record save and context hooks after it). `kind` is `warm` (a parked controller came back) or `cold`
 /// (built now). Every switch is also an `OSSignposter` interval (subsystem `com.cmuxterm.app.next`, category
 /// `workspace-switch`, name `switch`), recording or not.
