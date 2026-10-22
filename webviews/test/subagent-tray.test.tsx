@@ -246,16 +246,25 @@ describe("a stopped subagent's line says why, and offers Restart", () => {
     }
   });
 
-  test("a subagent nothing named reads by its short id; its full ids are the tooltip, never the text", async () => {
+  test("a subagent nothing named reads by its kind, else as Subagent; its ids are the tooltip, never the text", async () => {
     const raw = "01a15779-206b-72b0-96af-bdbe4868e19c/toolu_01H9Jk66ek2xu2m2SaOS09M1";
     const { root, done } = await draw(
-      lineOf([agent(raw, { name: "01H9Jk66", unnamed: true, state: "completed", endedAt: at(40), agentId: "a39e8" })]),
+      lineOf([
+        agent(raw, { name: "", unnamed: true, state: "completed", endedAt: at(40), agentId: "a39e817af38ddf5e7" }),
+        agent("s/toolu_02Q", { name: "", unnamed: true, kind: "Explore", state: "failed", endedAt: at(90) }),
+      ]),
     );
     try {
-      const line = root.querySelector<HTMLButtonElement>(".cv-subagent-done")!;
-      expect(line.textContent).toBe("Subagent finished: 01H9Jk66 · 30s");
-      expect(line.textContent).not.toContain("toolu_");
-      expect(line.title).toBe(`${raw}\na39e8`);
+      const lines = [...root.querySelectorAll<HTMLButtonElement>(".cv-subagent-done")];
+      expect(lines.map((line) => line.textContent)).toEqual([
+        "Subagent finished · 30s",
+        "Subagent failed: Explore · 1m 20s",
+      ]);
+      // No id, short or raw, in what the line reads: no tool-use or call prefix, no session/tool
+      // path, and no word of 6 or more characters that mixes letters and digits (01H9Jk66, a39e817a…).
+      const ID = /toolu_|call_|\w\/\w|\b(?=\w*\d)(?=\w*[A-Za-z])\w{6,}\b/;
+      for (const line of lines) expect(line.textContent ?? "").not.toMatch(ID);
+      expect(lines[0]!.title).toBe(`${raw}\na39e817af38ddf5e7`);
     } finally {
       await done();
     }

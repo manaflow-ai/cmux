@@ -27,7 +27,8 @@ export function restartPrompt(
 ) {
   if (!canRestart(agent)) return undefined;
   const values = { name: subagentName(agent, t), prompt: agent.prompt! };
-  return agent.kind
+  // One nothing named is called by its kind already: "the Explore subagent \"Explore\"" says it twice.
+  return agent.kind && !agent.unnamed
     ? t("subagents.restartPromptKind", { ...values, kind: agent.kind })
     : t("subagents.restartPrompt", values);
 }

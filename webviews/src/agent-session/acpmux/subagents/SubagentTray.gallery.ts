@@ -317,26 +317,34 @@ export default agentPaneEntry({
       ]),
     },
     "unnamed-line": {
-      note: 'A subagent the harness gave no name, task or description reads by a short form of its id ("Subagent finished: 01H9Jk66"), never its raw <session>/<tool call> id; the full ids are the line\'s tooltip. A named one beside it reads by its name.',
+      note: 'Subagents the harness gave no name, task or description: one reads by its kind ("Subagent failed: Explore"), one with no kind reads "Subagent finished" alone. Never an id, short or raw; the ids are the line\'s tooltip. A named one beside them reads by its name.',
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-subagent-done").length === 2);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-subagent-done").length === 3);
         const texts = [...ctx.document.querySelectorAll(".cv-subagent-done")].map((line) => line.textContent ?? "");
-        if (texts.some((text) => text.includes("toolu_"))) throw new Error("a row never shows a raw tool-use id");
+        if (texts.some((text) => /toolu_|01H9|\w\/\w/.test(text))) throw new Error("a row never shows an id");
       },
       snapshot: chat([
         user(prompt, 130),
         group(
           [
-            agent("01H9Jk66", 129, "completed", {
+            agent("", 129, "completed", {
               ran: 126,
               id: "01a15779-206b-72b0-96af-bdbe4868e19c/toolu_01H9Jk66ek2xu2m2SaOS09M1",
+              task: undefined,
+              unnamed: true,
+            }),
+            agent("", 129, "failed", {
+              ran: 40,
+              id: "01a15779-206b-72b0-96af-bdbe4868e19c/toolu_02QxL1",
+              task: undefined,
+              kind: "Explore",
               unnamed: true,
             }),
             agent("Fix sr2 privacy gateway", 129, "completed", { ran: 6.5 }),
           ],
           129,
         ),
-        assistant("Both are back: the gateway is fixed.", 2),
+        assistant("All three are back: the gateway is fixed.", 2),
         summary(2, { status: "completed", durationMs: 7_680_000 }),
       ]),
     },

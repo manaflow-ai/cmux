@@ -44,3 +44,13 @@ test("a Restart reaches only the chat its row was drawn for, never the next chat
   expect(restartReaches("s1", "s1", "s2")).toBe(false);
   expect(restartReaches("s1", "s1", undefined)).toBe(false);
 });
+
+test("one nothing named restarts by its kind once, or as Subagent, never by an id", () => {
+  const unnamed = { ...ended, name: "", unnamed: true } as const;
+  expect(restartPrompt({ ...unnamed, kind: "Explore" }, translate)).toBe(
+    'Run the subagent "Explore" again with the same prompt:\n\nReview src/app.ts',
+  );
+  expect(restartPrompt(unnamed, translate)).toBe(
+    'Run the subagent "Subagent" again with the same prompt:\n\nReview src/app.ts',
+  );
+});

@@ -184,7 +184,9 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       <span className="cv-subagent__text">
         <span className="cv-subagent__name">
           {subagentName(agent, t)}
-          {agent.kind && agent.kind !== agent.name && <span className="cv-subagent__kind">{agent.kind}</span>}
+          {agent.kind && agent.kind !== subagentName(agent, t) && (
+            <span className="cv-subagent__kind">{agent.kind}</span>
+          )}
         </span>
         <span className="cv-subagent__state">{state}</span>
       </span>
