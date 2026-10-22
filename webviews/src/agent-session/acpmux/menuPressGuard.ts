@@ -18,6 +18,19 @@ const OPEN_CHIP =
 const PASSES = ".ui-positioner, .ui-popup, [aria-haspopup]";
 const SWALLOWED = ["pointerdown", "mousedown", "pointerup", "mouseup", "click"] as const;
 
+/**
+ * A chip says its menu is open and the menu is on screen: the popup it names (`aria-controls`), or,
+ * when it names none, a popup in the page. A chip left saying open with no menu showing must not
+ * swallow every press in the composer (Leo, 2026-10-21: "WHY THE FUCK CANT I CLICK THESE BUTTONS").
+ */
+function menuOnScreen(doc: Document): boolean {
+  for (const chip of doc.querySelectorAll(OPEN_CHIP)) {
+    const controls = chip.getAttribute("aria-controls");
+    if (controls ? doc.getElementById(controls) : doc.querySelector(".ui-popup")) return true;
+  }
+  return false;
+}
+
 let installed: { doc: Document; count: number; remove(): void } | null = null;
 
 /** Installs the guard on the page for as long as a composer is mounted. */
@@ -53,7 +66,7 @@ function install(doc: Document): () => void {
     if (!event.isPrimary) return;
     const target = event.target instanceof Element ? event.target : null;
     swallowing =
-      event.button === 0 && !!doc.querySelector(OPEN_CHIP) && !target?.closest(PASSES) ? event.pointerId : null;
+      event.button === 0 && menuOnScreen(doc) && !target?.closest(PASSES) ? event.pointerId : null;
   };
   const cancel = (event: PointerEvent) => {
     if (event.pointerId === swallowing) swallowing = null;
