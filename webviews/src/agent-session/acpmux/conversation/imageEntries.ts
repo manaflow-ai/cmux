@@ -34,6 +34,22 @@ const sizes = new Map<string, ImageSize>();
 const drawn = new Set<string>();
 /// Data URLs whose header names no size (an SVG, a format it does not read), so it is read once.
 const headless = new Set<string>();
+/// Bubbles showing a sent image not kept yet, by acpmux id: each is told the moment the image is
+/// kept, by whoever keeps it (the pane priming the image it sent, another bubble's read), so none
+/// waits on its own read (Leo, 2026-10-21: a pasted image showed as an empty box; acpmux's echo
+/// named it before the pane had primed it, and acpmux's read scans the whole chat log).
+const waiting = new Map<string, Set<(entry: ImageEntry) => void>>();
+
+/// Calls `tell` when the sent image `id` is kept; the returned function stops it.
+export function watchSentImage(id: string, tell: (entry: ImageEntry) => void): () => void {
+  let watchers = waiting.get(id);
+  if (!watchers) waiting.set(id, (watchers = new Set()));
+  watchers.add(tell);
+  return () => {
+    watchers.delete(tell);
+    if (watchers.size === 0 && waiting.get(id) === watchers) waiting.delete(id);
+  };
+}
 
 /// A short key for an image source: a data URL can be megabytes, so a key never holds the source
 /// itself. Its length, its header and tail, and a sample through its middle.
@@ -123,6 +139,7 @@ function keep(id: string, entry: ImageEntry): ImageEntry {
     entryChars -= value.src.length;
   }
   if (entry.size) rememberImageSize({ id }, entry.size);
+  for (const tell of waiting.get(id) ?? []) tell(entry);
   return entry;
 }
 
@@ -244,15 +261,28 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
         (held.current?.id === id ? held.current.entry : undefined));
   if (id !== undefined && entry && held.current?.entry !== entry) held.current = { id, entry };
   useEffect(() => {
-    if (id === undefined || !canRead || sentImageEntry(id)) return;
+    if (id === undefined || !canRead) return;
+    // Kept between this render and its effect (the pane's priming landed): draw it now.
+    const kept = sentImageEntry(id);
+    if (kept) {
+      if (held.current?.id !== id || held.current.entry !== kept) setLoaded({ id, entry: kept });
+      return;
+    }
     let live = true;
+    // The image kept by anyone else first (the pane's priming, another bubble) draws at once.
+    const stop = watchSentImage(id, (found) => {
+      if (!live) return;
+      setLoaded({ id, entry: found });
+      stop();
+    });
     void loadSentImage(id, (key) => reader.current?.(key) ?? Promise.resolve(undefined)).then(
-      (found) => live && setLoaded({ id, entry: found }),
+      (found) => live && setLoaded((before) => (before?.id === id && before.entry ? before : { id, entry: found })),
       // A read can fail after a reconnect or a session switch: the slot goes, never a stale image.
-      () => live && setLoaded({ id }),
+      () => live && setLoaded((before) => (before?.id === id && before.entry ? before : { id })),
     );
     return () => {
       live = false;
+      stop();
     };
   }, [id, canRead]);
   const src = direct ?? entry?.src;
