@@ -23,7 +23,7 @@ extension CloudHandlers {
             let session = try machine(invocation, context)
             guard attachable(session) else { throw ActionFailure(message: CloudStrings.notConnected) }
             runTracked("open Cloud SSH terminal", context) {
-                try await attached(session, invocation)
+                try await attachedAndConnected(session, invocation)
                 let anchor = try await terminalAnchor(on: session, context)
                 guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
                 let created = try await connection.newTab(in: anchor.pane.handle, options: SpawnOptions(workspace: anchor.key))
@@ -132,9 +132,11 @@ extension CloudHandlers {
             // unless the run asked for focus.
             guard origin(of: invocation) == .user else {
                 // A paused machine resumes first: answer `pending` if that outlasts the run's deadline.
-                return result("new terminal on machine", context, pendingAfter: .seconds(30),
-                              pending: ["machine_id": .string(session.machineID), "resuming": .bool(true)]) {
-                    try await attached(session, invocation)
+                let pending: [String: ActionResultValue] = session.machine.status == .paused
+                    ? ["machine_id": .string(session.machineID), "resuming": .bool(true)]
+                    : ["machine_id": .string(session.machineID)]
+                return result("new terminal on machine", context, pendingAfter: .seconds(30), pending: pending) {
+                    try await attachedAndConnected(session, invocation)
                     guard let id = await context.services.windows.createWorkspace(on: session.daemon) else {
                         throw ActionFailure(message: CloudStrings.notConnected)
                     }
@@ -143,7 +145,7 @@ extension CloudHandlers {
                 }
             }
             run("new terminal on machine", context) {
-                try await attached(session, invocation)
+                try await attachedAndConnected(session, invocation)
                 guard let id = await context.services.windows.createWorkspace(on: session.daemon) else {
                     throw ActionFailure(message: CloudStrings.notConnected)
                 }

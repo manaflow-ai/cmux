@@ -142,6 +142,67 @@ struct CloudIdlePauseTests {
         f.session.disconnect()
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func aFailedResumeDoesNotOutliveTheNextPause() async {
+        let f = Self.pausedMachine(reason: .idle)
+        f.session.resumer = { _ in throw ActionFailure(message: "no capacity") }
+        f.session.attach(origin: .user)
+        let session = f.session
+        for await busy in ObservationStream({ session.resuming }) where !busy { break }
+        #expect(f.session.resumeFailure != nil)
+        // The machine is paused again (another pause, a reconcile): the old failure no longer applies.
+        f.session.suspend()
+        #expect(f.session.resumeFailure == nil)
+        #expect(f.session.stage == .paused(idle: true))
+        f.session.disconnect()
+    }
+
+    /// The app reads the machine list on launch and activation only, so a machine the idle
+    /// auto-pause parked while cmux stayed in front still reads running here. An attach reads the
+    /// record again first, finds it paused and resumes it.
+    @Test(.timeLimit(.minutes(1)))
+    func anAttachToAStaleRunningRecordReadsItAgainAndResumes() async {
+        let f = Self.pausedMachine(reason: nil)
+        f.session.machine.status = .running
+        var reads: [Bool] = []
+        var resumed = 0
+        f.session.refresher = { [session = f.session] force in
+            reads.append(force)
+            session.machine.status = .paused
+            session.machine.pauseReason = .idle
+        }
+        f.session.resumer = { _ in
+            resumed += 1
+            throw ActionFailure(message: "no capacity")
+        }
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .machine, id: f.session.machineID), arguments: [:], origin: .cli)
+        #expect(CloudHandlers.attachable(f.session))
+        await #expect(throws: ActionFailure.self) { try await CloudHandlers.attached(f.session, invocation, within: .seconds(20)) }
+        #expect(reads == [true])
+        #expect(resumed == 1)
+        #expect(f.session.stage.failure?.contains("no capacity") == true)
+        f.session.disconnect()
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func anAttachToAPausedMachineWaitsForItsResume() async {
+        let f = Self.pausedMachine(reason: .idle)
+        var reads = 0
+        f.session.refresher = { _ in reads += 1 }
+        f.session.resumer = { _ in throw ActionFailure(message: "quota reached") }
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .machine, id: f.session.machineID), arguments: [:], origin: .cli)
+        do {
+            try await CloudHandlers.attached(f.session, invocation, within: .seconds(20))
+            Issue.record("a failed resume must fail the attach")
+        } catch let failure as ActionFailure {
+            #expect(failure.message.contains("quota reached"))
+        } catch {
+            Issue.record("unexpected \(error)")
+        }
+        #expect(reads == 0, "a record that already reads paused is not read again")
+        f.session.disconnect()
+    }
+
     // MARK: The setting
 
     @Test func theSettingIsACLIActionWithExactlyTheFiveChoices() throws {
