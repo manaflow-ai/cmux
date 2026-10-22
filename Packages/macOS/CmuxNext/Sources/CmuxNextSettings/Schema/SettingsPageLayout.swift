@@ -19,6 +19,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case importSuggestions
         /// Every release channel's recent builds, with the one this Mac runs (Settings > Updates).
         case channels
+        /// The web UI served now, its last check and Roll Back (plans/cmux-next/web-ota.md); NIGHTLY only.
+        case webUpdates
         /// Settings > Chief's Voice input row: the Debug toggle home.voiceInput, only where it exists.
         case voiceInput
     }
@@ -115,7 +117,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 GroupSpec(keys: ["updates.idleInstallMaxWaitSeconds", "updates.idleInstallQuietSeconds"],
                           title: SettingsText.keyed("settings.pageGroup.updatesAdvanced", "Updates: Advanced")),
             ],
-            trail: [.channels]),
+            // After the groups: the Web UI card (the web half of Updates; NIGHTLY only), then the channels.
+            trail: [.webUpdates, .channels]),
         CategorySpec(
             id: "theme", title: SettingsText.keyed("settings.category.theme", "Theme"), symbol: "paintpalette",
             // appearance.theme and appearance.appTheme are drawn by the theme
