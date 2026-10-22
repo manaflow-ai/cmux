@@ -17,14 +17,21 @@ public final class RegistryControlBridge: ControlActionExecutor {
     private var epoch = 0
     private var isObserving = false
 
-    public init(registry: ActionRegistry) {
+    /// Frames the catalog republishes on (unused before the fix; the red test injects a manual one).
+    private let frames: any ControlFrameSource
+    /// Action entries built (``info(for:in:categoryTitles:)`` calls), for the republish-cost tests.
+    private(set) var entryBuilds = 0
+
+    public init(registry: ActionRegistry, frames: any ControlFrameSource = MainQueueFrameSource()) {
         self.registry = registry
+        self.frames = frames
     }
 
     /// Publishes the current catalog to `router` and keeps it current.
     public func attach(to router: ControlRouter) {
         self.router = router
         router.updateCatalog(Self.catalog(from: registry))
+        entryBuilds += registry.entries.count
         guard !isObserving else { return }
         isObserving = true
         epoch += 1
@@ -55,6 +62,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
             Task { @MainActor in
                 guard let self, self.isObserving, epoch == self.epoch else { return }
                 self.router?.updateCatalog(Self.catalog(from: self.registry))
+                self.entryBuilds += self.registry.entries.count
                 self.observeCatalog(epoch: epoch)
             }
         }
