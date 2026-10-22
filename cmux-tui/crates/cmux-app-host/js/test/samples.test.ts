@@ -28,6 +28,40 @@ describe("samples", () => {
     expect([focus.params, focus.options.gesture]).toEqual([{ tab: "tab_9" }, "g7"])
   })
 
+  test("priority-view ranks needs-you first, hides idle, and one rename sends one update op", async () => {
+    const now = Date.now()
+    let value = [
+      { ...agents[0]!, id: "agent_w", state: "working", source_session: "w", updated_at_ms: String(now) },
+      { ...agents[0]!, id: "agent_i", state: "idle", source_session: "i", updated_at_ms: String(now) },
+      { ...agents[0]!, id: "agent_d", state: "done", source_session: "d", updated_at_ms: String(now - 5) },
+      { ...agents[0]!, id: "agent_b", state: "blocked", source_session: "b", updated_at_ms: String(now - 9) }
+    ]
+    const host = new FakeHost(load("priority-view"), { app: { id: "cmux/priority-view", version: "0.1.0" }, settings: {} })
+    host.handlers["agent.list"] = () => ({ ok: true, body: { value } })
+    expect(host.mount("m", "renderPriority", { contribution: "cmux/priority-view#priority", surface: "sidebarSection" })).toBe("")
+    await host.settle()
+    const rowTitles = () => {
+      const { root, nodes } = host.tree("m")
+      const out: unknown[] = []
+      const walk = (id: string) => {
+        const n = nodes.get(id)
+        if (!n) return
+        if (n.type === "Row") out.push(n.props.title)
+        n.children.forEach(walk)
+      }
+      walk(root)
+      return out
+    }
+    expect(rowTitles()).toEqual(["b", "d", "w"])
+    const before = host.batches("m").length
+    value = value.map((a) => (a.id === "agent_w" ? { ...a, extra: { name: "w2" } } : a))
+    host.emit("agent.changed")
+    await host.settle()
+    const sent = host.batches("m").slice(before).flat()
+    expect(sent.map((op) => op.op)).toEqual(["update"])
+    expect(rowTitles()).toEqual(["b", "d", "w2"])
+  })
+
   test("agent-status summarizes", async () => {
     const host = new FakeHost(load("agent-status"))
     host.handlers["agent.list"] = () => ({ ok: true, body: { value: agents } })
