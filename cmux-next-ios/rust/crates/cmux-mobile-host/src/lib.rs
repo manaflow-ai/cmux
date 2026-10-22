@@ -24,3 +24,4 @@ pub mod notify;
 pub mod pairing;
 pub mod policy;
 pub mod services;
+pub mod size_release;
