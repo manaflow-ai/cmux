@@ -1,6 +1,6 @@
 import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
 import type { ComposerAttachment } from "./attachments";
-import { AttachmentStrip } from "./composer/attachmentIntake";
+import { AttachmentStrip, type PendingAttachment } from "./composer/attachmentIntake";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
@@ -30,6 +30,8 @@ export type ComposerBoxProps = {
   handle?: React.Ref<ComposerBoxHandle>;
   /// What the prompt holds besides its text (attachmentIntake.tsx), shown over the prompt.
   attachments: ComposerAttachment[];
+  /// Files still being read: a placeholder chip each, after the staged ones (PendingAttachment).
+  pending?: readonly PendingAttachment[];
   setAttachments(update: (current: ComposerAttachment[]) => ComposerAttachment[]): void;
   /// The host's copy of `attachments`, written ahead of a render where the host does (a pick
   /// attached at once), so a paste right after it counts it. Unset, the box keeps its own.
@@ -75,6 +77,7 @@ export function ComposerBox({
   fieldRef,
   handle,
   attachments,
+  pending,
   setAttachments,
   attachmentsRef,
   attachError,
@@ -148,6 +151,7 @@ export function ComposerBox({
         {top}
         <AttachmentStrip
           attachments={attachments}
+          {...(pending ? { pending } : {})}
           {...(attachError ? { error: attachError } : {})}
           dropping={dropping}
           codex={codex}

@@ -69,10 +69,12 @@ extension WindowController {
         setOnScreen(Set(views.keys))
     }
 
-    /// A sidebar workspace dropped on `edge` of a pane of the shown workspace (`WorkspaceDropTarget.beside`): it shows
-    /// on that side of the shown one, which keeps the focus; one from another window moves into this one first.
-    func placeBeside(_ id: String, edge: TabDropEdge) {
-        guard let shown = content?.workspace.id, let set = (state.viewSet ?? .workspace(shown)).placing(id, beside: shown, edge: edge) else { return }
+    /// A sidebar workspace dropped on `edge` of a pane of a shown workspace (`WorkspaceDropTarget.beside`), the one
+    /// on screen under `screenPoint`: it shows on that side of it, and the focused one keeps the focus; one from
+    /// another window moves into this one first.
+    func placeBeside(_ id: String, edge: TabDropEdge, at screenPoint: CGPoint) {
+        guard let shown = content?.workspace.id, let target = content(atScreen: screenPoint)?.workspace.id,
+              let set = (state.viewSet ?? .workspace(shown)).placing(id, beside: target, edge: edge) else { return }
         services.windows.claim(workspaceID: id, in: state, select: false)
         // An incognito and a normal window never share a workspace: the claim refused it.
         guard services.windows.registry.members(of: state.id).contains(id) else { return }
@@ -81,10 +83,10 @@ extension WindowController {
         services.windows.recordSaver.stateDidChange(state)
     }
 
-    /// The half of the shown workspace a workspace dropped on `edge` takes (screen coordinates), where the drag's
-    /// ghost lands.
-    func besideHighlight(_ edge: TabDropEdge) -> CGRect? {
-        guard let view = content?.contentView, let window = view.window else { return nil }
+    /// The half of the shown workspace under `screenPoint` a workspace dropped on `edge` takes (screen coordinates),
+    /// where the drag's ghost lands.
+    func besideHighlight(_ edge: TabDropEdge, at screenPoint: CGPoint) -> CGRect? {
+        guard let view = content(atScreen: screenPoint)?.contentView, let window = view.window else { return nil }
         return WorkspaceViewSet.half(of: window.convertToScreen(view.convert(view.bounds, to: nil)), at: edge, yDown: false)
     }
 
@@ -98,6 +100,42 @@ extension WindowController {
             services.windows.show(workspaceID: id, in: state)
             return
         }
+    }
+
+    /// The workspaces on screen: the focused one, then the ones shown beside it.
+    var onScreenContents: [WorkspaceContentController] {
+        guard let content else { return [] }
+        guard let set = state.viewSet else { return [content] }
+        return [content] + set.ids.compactMap { id in
+            parked[id].flatMap { $0.contentView.superview === root.contentHost && !$0.contentView.isHidden ? $0 : nil }
+        }
+    }
+
+    /// The workspace on screen whose layout has screen `screenID` (a drop's column or dock anchor).
+    func onScreenContent(holdingScreen screenID: String) -> WorkspaceContentController? {
+        onScreenContents.first { $0.layoutModel.screens.contains { $0.id.rawValue == screenID } }
+    }
+
+    /// The workspace a drop at `screenPoint` goes to: one shown beside the focused one when the point is in its area,
+    /// else the focused one (the drag clamps a point off every workspace into its layout).
+    func content(atScreen screenPoint: CGPoint) -> WorkspaceContentController? {
+        guard let window else { return content }
+        let point = window.convertPoint(fromScreen: screenPoint)
+        return onScreenContents.dropFirst().first { $0.contentView.bounds.contains($0.contentView.convert(point, from: nil)) } ?? content
+    }
+
+    /// A drop into a workspace shown beside the focused one focuses it first, as a press there does, so the drop lands
+    /// in the window's focused content: a strip's workspace for a strip drop, the one under the point for a pane
+    /// target. Other outcomes (the sidebar, a new window) leave the focus.
+    func focusDropTarget(_ outcome: TabDragOutcome, atScreen screenPoint: CGPoint) {
+        let target: WorkspaceContentController?
+        switch outcome {
+        case let .strip(stripID, _, _): target = onScreenContents.first { $0.panes.values.contains { $0.stripModel.stripID == stripID } }
+        case .newSplit, .newColumn, .newDock: target = content(atScreen: screenPoint)
+        default: return
+        }
+        guard let target, target !== content else { return }
+        services.windows.show(workspaceID: target.workspace.id, in: state)
     }
 
     /// The parked content of workspace `id`, mounted now when the window has none (a set restored with the window).

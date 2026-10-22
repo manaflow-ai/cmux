@@ -1,6 +1,6 @@
-// A pull request or issue address is a reference chip, as Claude desktop draws
-// "manaflow-ai/cmux#21738 · title" (Leo 2026-10-19). LinkChips.tsx names the reference and takes the
-// item's own title from the page title cmux has for it.
+// A pull request or issue address is a reference chip, as Claude desktop draws them (Leo
+// 2026-10-19). LinkChips.tsx names the reference and takes the item's own title, for its hover card,
+// from the page title cmux has for it.
 import { expect, test } from "bun:test";
 import { githubRefLabel, githubRefTitle } from "./LinkChips";
 
@@ -14,7 +14,7 @@ test("a pull request or issue address names its reference", () => {
   expect(githubRefLabel("https://example.com/a/b/pull/1")).toBeUndefined();
 });
 
-test("the chip's title is the item's own, never GitHub's page furniture", () => {
+test("the card's title is the item's own, never GitHub's page furniture", () => {
   expect(
     githubRefTitle("Agent chat: links are blue by teamleaderleo · Pull Request #22350 · manaflow-ai/cmux · GitHub"),
   ).toBe("Agent chat: links are blue");

@@ -76,6 +76,9 @@ const shot = (hue: number, width = 1440, height = 900) =>
         .join("") +
       "</svg>",
   )}`;
+// Another agent's message waiting behind the turn (Leo, 2026-10-21: it drew as the person's prompt).
+const QUEUED_MESSAGE =
+  "**Rebase onto #23738** before you push: it moves the queue rows.\n\n- `ComposerQueue.tsx` changes\n- the gallery cases too";
 // A prompt queued with two screenshots (Leo, 2026-10-21: "do queued messages have pics?").
 const pictured = {
   id: "q1",
@@ -593,7 +596,7 @@ export default agentPaneEntry({
           type: "image/png",
         });
         pasteFiles(ctx, [file]);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment:not([aria-busy])"));
         await new Promise((resolve) => setTimeout(resolve, 300));
       },
     },
@@ -866,6 +869,45 @@ export default agentPaneEntry({
         ],
       }),
     },
+    "queued-from-agent": {
+      note: "Another agent's message waiting behind the turn: its received line (the sender's mark, its name as a chip that opens its chat, a one-line preview, the card when opened), its actions (Steer, the trash can, ⋯) at the line's end; the person's prompt below is unchanged.",
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          {
+            id: "q1",
+            prompt: QUEUED_MESSAGE,
+            message: { name: "coord-deputy", sessionId: "s-deputy", text: QUEUED_MESSAGE, raw: QUEUED_MESSAGE },
+          },
+          { id: "q2", prompt: "And update the README" },
+        ],
+      }),
+    },
+    "queued-from-agent-open": {
+      note: "Play: the queued agent's message opened: the message as a glass card under its line, as Markdown, the queue as tall as it.",
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          {
+            id: "q1",
+            prompt: QUEUED_MESSAGE,
+            message: { name: "coord-deputy", sessionId: "s-deputy", text: QUEUED_MESSAGE, raw: QUEUED_MESSAGE },
+          },
+          { id: "q2", prompt: "And update the README" },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] .cv-received__toggle' });
+        // Whole: the list fits its height to the opened card, not just a sliver of it.
+        await ctx.waitFor(() => {
+          const body = ctx.document.querySelector(".acpmux-queued .cv-received__body");
+          const list = ctx.document.querySelector(".acpmux-composer-queue");
+          return Boolean(
+            body && list && body.getBoundingClientRect().bottom <= list.getBoundingClientRect().bottom + 1,
+          );
+        });
+      },
+    },
     // Leo, 2026-10-21 ("this is what ChatGPT has"): each queued row shows Steer, the trash can and ⋯.
     "queued-actions": {
       note: "Queued prompts as ChatGPT and Codex show them: each row ends in Steer (its ↪ glyph and its word), a trash can that deletes it, and ⋯; plain glyphs, a soft pill on hover only.",
@@ -894,12 +936,23 @@ export default agentPaneEntry({
       },
     },
     "queued-paused": {
-      note: "A turn failed with prompts queued: they wait, in order, until Resume. A prompt sent meanwhile runs now.",
+      note: 'A turn failed with prompts queued: the note names the turn\'s error, and they wait, in order, until Resume (never "Sends after this turn"). A prompt sent meanwhile runs now.',
       snapshot: (() => {
         const failed = steering(true);
         return {
           ...failed,
           isWorking: false,
+          rows: [
+            ...failed.rows,
+            {
+              id: "summary-failed",
+              version: 1,
+              at: 1,
+              kind: "turnSummary",
+              status: "failed",
+              error: "429 Too Many Requests: the account is rate limited",
+            },
+          ],
           summary: { ...failed.summary!, status: "ready", queuePaused: true },
           queue: waiting,
         };
@@ -954,7 +1007,7 @@ export default agentPaneEntry({
       snapshot: steerMarks(),
     },
     "steer-read-hover": {
-      note: "Play: hover the steer the agent read: the same row as any prompt (age, two checks, Copy, Retry, Pin), and the check's tooltip says who read it. No Steered or Steering text anywhere in the transcript.",
+      note: "Play: hover the steer the agent read: the same row as any prompt (two checks, age, Copy, Retry, Fork), and the check's tooltip says who read it. No Steered or Steering text anywhere in the transcript.",
       snapshot: steerMarks(),
       play: async (ctx) => {
         const steer = ctx.find({ text: "Use the cache dir, not tmp" }).closest(".cv-user");

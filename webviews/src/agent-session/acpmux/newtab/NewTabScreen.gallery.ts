@@ -187,7 +187,7 @@ async function holdsItsPlace(ctx: PlayContext): Promise<void> {
   ctx
     .find({ selector: ".nt-field" })
     .dispatchEvent(new view.ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-  await ctx.waitFor(() => ctx.document.querySelector(".nt-box .acpmux-attachment-image") !== null);
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-box .acpmux-attachment-image:not([aria-busy])") !== null);
   view.cmuxAcpmuxBridge?.applyNowPlaying?.({
     title: "Weightless",
     artist: "Marconi Union",
