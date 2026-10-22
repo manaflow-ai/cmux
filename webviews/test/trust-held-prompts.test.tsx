@@ -54,7 +54,10 @@ function standIn() {
     send: (entry: Entry) =>
       new Promise<string | undefined>((take, refuse) => sent.push({ entry, take: (session) => take(session), refuse })),
     reserve: async (promptId: string) => `ticket-${promptId}`,
-    put: (entries: Entry[]) => {
+    /// Given back behind (`behind`): after one a harness switch gave back itself.
+    behind: [] as boolean[],
+    put(entries: Entry[], behind?: boolean) {
+      this.behind.push(behind === true);
       givenBack.push(entries.map((entry) => entry.text));
       putBack.push(...entries.map((entry) => entry.text));
     },
@@ -81,7 +84,7 @@ function Probe({
     holds,
     send: acpmux.send,
     reserve: acpmux.reserve,
-    putBack: acpmux.put,
+    putBack: (entries, behind) => acpmux.put(entries, behind),
     refusedForTrust: (error) => error === trustRefusal,
   });
   return null;
@@ -346,4 +349,42 @@ test("a new chat whose first held prompt is refused gives its whole backlog back
   await settle();
   expect(acpmux.givenBack).toEqual([["start it", "and this"]]);
   expect(shown!.holdsAny()).toBe(false);
+});
+
+test("a new chat whose start made its session but showed another chat binds its backlog to that session", async () => {
+  const acpmux = standIn();
+  await act(async () => root.render(<Probe key="m" acpmux={acpmux} holds chat={undefined} />));
+  await act(async () => shown!.hold("start it", []));
+  await act(async () => shown!.hold("and this", []));
+  await act(async () => root.render(<Probe key="m" acpmux={acpmux} holds={false} chat={undefined} />));
+  await settle();
+  // Its start made chat-a; chat-b showed before the prompt went (App.tsx: `movedOn(made)`).
+  await act(async () => root.render(<Probe key="m" acpmux={acpmux} holds={false} chat="chat-b" />));
+  acpmux.sent[0]!.refuse(movedOn("chat-a"));
+  await settle();
+  expect(acpmux.putBack).toEqual([]);
+  expect(acpmux.sent).toHaveLength(1);
+  // Back in chat-a, both show and go there, in order.
+  await act(async () => root.render(<Probe key="m" acpmux={acpmux} holds chat="chat-a" />));
+  expect(shown!.rows.map((row) => row.prompt)).toEqual(["start it", "and this"]);
+  await act(async () => root.render(<Probe key="m" acpmux={acpmux} holds={false} chat="chat-a" />));
+  await settle();
+  acpmux.sent[1]!.take("chat-a");
+  await settle();
+  expect(acpmux.sent.map((sent) => sent.entry.text)).toEqual(["start it", "start it", "and this"]);
+  expect(acpmux.sent.slice(1).map((sent) => sent.entry.chat)).toEqual(["chat-a", "chat-a"]);
+});
+
+test("a held prompt a failed harness switch gave back keeps the rest after it", async () => {
+  const acpmux = standIn();
+  await act(async () => root.render(<Probe key="n" acpmux={acpmux} holds chat="chat-s" />));
+  for (const text of ["one", "two", "three"]) await act(async () => shown!.hold(text, []));
+  await act(async () => root.render(<Probe key="n" acpmux={acpmux} holds={false} chat="chat-s" />));
+  await settle();
+  // The switch failed and put "one" back itself (`handedBack`): the rest go behind it, in order.
+  acpmux.sent[0]!.refuse(Object.assign(new Error("switch failed"), { handedBack: true }));
+  await settle();
+  expect(acpmux.givenBack).toEqual([["two", "three"]]);
+  expect(acpmux.behind).toEqual([true]);
+  expect(acpmux.sent).toHaveLength(1);
 });

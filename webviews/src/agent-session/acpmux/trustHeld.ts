@@ -63,9 +63,10 @@ export function whereHeldGoes(
 }
 
 /// A held prompt's send found another chat shown than its own once its ticket came: it did not go.
-export function movedOn(): Error {
-  // l10n-allow: never shown; the hold reads only `moved`.
-  return Object.assign(new Error("the chat shown changed"), { moved: true });
+/// `session`: the session a new chat's start made for it, which it and its backlog belong to now.
+export function movedOn(session?: string): Error {
+  // l10n-allow: never shown; the hold reads only `moved` and `session`.
+  return Object.assign(new Error("the chat shown changed"), { moved: true, ...(session ? { session } : {}) });
 }
 
 /// The held prompts of the chat shown (`chat`, and `cwd` for a new chat), as the composer's queue rows.
@@ -116,7 +117,8 @@ export function useTrustHeldPrompts({
   /// Reserves the current gesture for prompt `promptId` (`transport.gesture`).
   reserve(promptId: string): Promise<string | undefined>;
   /// A held prompt acpmux refused for another reason goes back into the composer.
-  putBack(entries: TrustHeldPrompt[]): void;
+  /// `behind`: after one a harness switch already gave back (they were sent after it).
+  putBack(entries: TrustHeldPrompt[], behind?: boolean): void;
   /// Whether a refusal is acpmux's trust gate: the prompt waits again.
   refusedForTrust(error: unknown): boolean;
 }) {
@@ -179,9 +181,15 @@ export function useTrustHeldPrompts({
           if (released.current.has(entry.id)) break;
           // Another chat showed before it went (`movedOn`): unsent, its ticket unspent, it waits
           // again first in its own chat.
-          if ((error as { moved?: unknown } | null)?.moved === true) {
-            now.current = { ...now.current, held: [entry, ...now.current.held] };
-            setHeld((list) => [entry, ...list]);
+          // A new chat's start that made its session binds it and its folder's backlog there.
+          const moved = error as { moved?: unknown; session?: unknown } | null;
+          if (moved?.moved === true) {
+            const session = chat === undefined && typeof moved.session === "string" ? moved.session : undefined;
+            const ours = (item: TrustHeldPrompt) => item.chat === undefined && item.cwd === entry.cwd;
+            const bind = (list: TrustHeldPrompt[]) =>
+              session ? list.map((item) => (ours(item) ? { ...item, chat: session } : item)) : list;
+            now.current = { ...now.current, held: bind([entry, ...now.current.held]) };
+            setHeld((list) => bind([entry, ...list]));
             break;
           }
           // Refused: its ticket is spent, so it goes back into the composer, unless a harness
@@ -203,7 +211,7 @@ export function useTrustHeldPrompts({
             setHeld((list) => list.filter((item) => !back.has(item.id)));
           }
           const given = [...(handedBack ? [] : [entry]), ...rest];
-          if (given.length) latest.current.putBack(given);
+          if (given.length) latest.current.putBack(given, handedBack);
           break;
         } finally {
           if (chat === undefined) starting.current = false;

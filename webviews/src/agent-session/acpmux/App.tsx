@@ -4055,7 +4055,7 @@ function AcpmuxPane() {
     holds: trustHolds,
     send: (entry) => sendTrustHeld.current(entry),
     reserve: reserveHeldPrompt,
-    putBack: (entries) => void giveBackTrustHeld.current(entries),
+    putBack: (entries, behind) => void giveBackTrustHeld.current(entries, behind),
     refusedForTrust: isTrustRefusal,
   });
   holdRefused.current = (text, attachments, error, sentFrom) => {
@@ -4067,12 +4067,17 @@ function AcpmuxPane() {
   /// refused one, or every one when the page quits.
   /// A new chat's prompts with no composer showing go into the host's draft of that chat's tab
   /// (`chat.unsentDraft`), and their chips are answered (for the wake state, which carries them).
-  const giveBackTrustHeld = useRef(async (_entries: readonly TrustHeldPrompt[]): Promise<ComposerAttachment[]> => []);
-  giveBackTrustHeld.current = async (entries) => {
+  /// `behind`: they go after what the composer or draft holds (sent after one already given back).
+  const giveBackTrustHeld = useRef(
+    async (_entries: readonly TrustHeldPrompt[], _behind?: boolean): Promise<ComposerAttachment[]> => [],
+  );
+  giveBackTrustHeld.current = async (entries, behind = false) => {
     const composer = composerHandle.current;
     const where = whereHeldGoes(entries, snapshot.sessionId, Boolean(composer));
-    // `restore` puts what comes back first: the last one goes in first, so they read in order.
-    for (const entry of [...where.composer].reverse()) composer?.restore(entry.text, entry.attachments);
+    // `restore` puts what comes back first: the last one goes in first, so they read in order;
+    // behind what is there, the first goes first.
+    for (const entry of behind ? where.composer : [...where.composer].reverse())
+      composer?.restore(entry.text, entry.attachments, behind);
     if (where.later.length) {
       heldBack.current = [
         ...(heldBack.current ?? []),
@@ -4084,7 +4089,8 @@ function AcpmuxPane() {
     await Promise.all(
       [...where.drafts].map(async ([chat, entries]) => {
         const text = entries.map((entry) => entry.text).filter((part) => part.trim());
-        writePersistedDraft(chat, [...text, readPersistedDraft(chat)].filter(Boolean).join("\n\n"));
+        const draft = readPersistedDraft(chat);
+        writePersistedDraft(chat, (behind ? [draft, ...text] : [...text, draft]).filter(Boolean).join("\n\n"));
         const chips = keptChips(entries.flatMap((entry) => entry.attachments));
         if (!chips.length) return;
         const kept = await keptAttachments.read(chat);
@@ -6107,7 +6113,7 @@ function AcpmuxPane() {
               fromTrust.chat !== undefined
                 ? fromTrust.chat === shown?.sessionId
                 : selectedBefore === undefined && shown?.empty === true;
-            if (!shown || shown.sessionId !== sessionId || !own) throw movedOn();
+            if (!shown || shown.sessionId !== sessionId || !own) throw movedOn(fromTrust.chat);
           }
           const turn = client
             .send(text, attachments, kept?.promptId, accepted && (() => accepted(sessionId)), kept?.ticket, steer)
