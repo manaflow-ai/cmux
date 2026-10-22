@@ -17,6 +17,7 @@ import Testing
         let surface = ShareCmuxView(writeToPasteboard: { _ in }).surface
         #expect(surface.materialOverride == nil)
         #expect(!surface.isCard)
-        #expect(surface.material == OverlayMaterial.current)
+        #expect(surface.material == OverlayMaterial.select(liquidGlassAvailable: Glass.isLiquidGlassAvailable,
+                                                          reduceTransparency: ReduceTransparency.shared.isEnabled))
     }
 }
