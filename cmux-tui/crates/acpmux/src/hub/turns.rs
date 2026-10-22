@@ -210,6 +210,12 @@ impl Hub {
                 if supersede.is_some() {
                     super::queue::supersede::mark(&mut v, replaced.get());
                 }
+                // Over its CPU or RAM budget, the host says so to whoever sent it (`host_load.rs`).
+                if let Some(obj) = v.as_object_mut()
+                    && let Some(pressure) = self.host_pressure_warning()
+                {
+                    obj.insert("host_pressure".into(), pressure);
+                }
                 f(v);
             }
         };
