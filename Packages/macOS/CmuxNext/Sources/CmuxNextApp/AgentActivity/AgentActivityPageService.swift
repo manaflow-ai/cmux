@@ -82,13 +82,17 @@ final class AgentActivityPageService {
         guard let workspaceID = window.content?.workspace.id else { return services.registry.refuse(MiscHandlerStrings.noPane) }
         // The workspace shows before its panes mount: open the chat in the first one. The wait
         // ends when a pane mounts, when the window closes or shows another workspace, or when
-        // the next pick replaces it.
-        let windows = services.windows, mounts = services.paneMounts, windowID = window.state.id
+        // the next pick replaces it. The registry and the window's state are observable, so
+        // closing the window or showing another workspace (even one already mounted, which
+        // mounts nothing) ends the wait at once.
+        let windows = services.windows, mounts = services.paneMounts, state = window.state, windowID = window.state.id
         paneWait = Task { [weak self] in
             for await next in ObservationStream({ () -> AgentChatJump.PaneWait in
                 _ = mounts.generation
+                let open = windows.registry.value.window(windowID) != nil
                 let window = windows.controller(for: windowID)
-                return .decide(showing: window?.content?.workspace.id, workspaceID: workspaceID, hasPane: window?.focusedPane != nil)
+                let mounted = window?.content?.workspace.id == workspaceID && window?.focusedPane != nil
+                return .decide(showing: open ? state.workspaceID : nil, workspaceID: workspaceID, hasPane: mounted)
             }) where next != .wait {
                 if next == .open, !Task.isCancelled { windows.controller(for: windowID)?.focusedPane?.openAgentSession(session) }
                 break
