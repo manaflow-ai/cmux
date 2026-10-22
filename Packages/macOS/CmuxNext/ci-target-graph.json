@@ -374,6 +374,7 @@
         "CmuxNextTabs",
         "CmuxNextTasks",
         "CmuxNextTerminalGeometry",
+        "CmuxNextTestExitTrace",
         "CmuxNextVSCodeServer",
         "CmuxNextWakeups",
         "CmuxNextWorkspaceNaming"
@@ -1517,6 +1518,12 @@
     "CmuxNextTerminalGeometry": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminalGeometry",
+      "targets": [],
+      "packages": []
+    },
+    "CmuxNextTestExitTrace": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Tests/Support/CmuxNextTestExitTrace",
       "targets": [],
       "packages": []
     },
