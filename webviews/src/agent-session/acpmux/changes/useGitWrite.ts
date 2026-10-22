@@ -2,6 +2,7 @@
 // write at a time, and keeps the outcome until the next write or a dismiss. A stale reply never
 // shows: each status read and each write is numbered, and only the latest settles.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { failureReason, OUTSIDE_REPOSITORY } from "../fileSearchModel";
 import { translate } from "../i18n";
 import type { ChangesSource } from "./model";
 import {
@@ -34,6 +35,8 @@ export type GitWrite = {
   available: boolean;
   status?: WriteStatus;
   statusFailed: boolean;
+  /// The folder is not in a git repository: no Commit or Push, and no failure to report.
+  notRepository: boolean;
   state?: GitWriteState;
   commit: (message: string, scope: CommitScope, includeNew: boolean) => Promise<boolean>;
   /// The untracked files "Include new files" would commit, from the Uncommitted diff.
@@ -61,6 +64,7 @@ export function useGitWrite(
   const available = !!(source?.status && source.commit && source.push);
   const [status, setStatus] = useState<WriteStatus>();
   const [statusFailed, setStatusFailed] = useState(false);
+  const [notRepository, setNotRepository] = useState(false);
   const [state, setState] = useState<GitWriteState>();
   const statusRef = useRef<WriteStatus | undefined>(undefined);
   const reads = useRef(0);
@@ -79,13 +83,18 @@ export function useGitWrite(
         statusRef.current = next;
         setStatus(next);
         setStatusFailed(!next);
+        setNotRepository(false);
       }
       return next;
-    } catch {
+    } catch (error) {
       if (read === reads.current) {
+        // A folder outside any repository (a scratch folder) is a state, not a failed read.
+        const reason = failureReason(error);
+        const outside = reason === OUTSIDE_REPOSITORY || reason === "no_working_directory";
         statusRef.current = undefined;
         setStatus(undefined);
-        setStatusFailed(true);
+        setStatusFailed(!outside);
+        setNotRepository(outside);
       }
       return undefined;
     }
@@ -182,7 +191,7 @@ export function useGitWrite(
     return files;
   }, [source]);
 
-  return { available, status, statusFailed, state, commit, listNewFiles, push, retry, refresh, dismiss };
+  return { available, status, statusFailed, notRepository, state, commit, listNewFiles, push, retry, refresh, dismiss };
 }
 
 function doneText(op: GitWriteOp, result: unknown): string {

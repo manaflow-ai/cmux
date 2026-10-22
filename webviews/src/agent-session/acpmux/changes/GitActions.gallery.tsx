@@ -14,6 +14,7 @@ const fakeGit = (state?: GitWriteState, statusFailed = false): GitWrite => ({
   available: true,
   status: { branch: "feat/commit-push", upstream: "origin/feat/commit-push", detached: false, ahead: 2, behind: 0 },
   statusFailed,
+  notRepository: false,
   state,
   commit: async () => true,
   listNewFiles: async () => ({ paths: ["src/notes/draft.md", "src/notes/todo.md"], skipped: 0 }),

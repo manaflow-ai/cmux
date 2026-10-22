@@ -21,7 +21,7 @@ export function GitToolbarButtons({
   onToggleForm: () => void;
 }) {
   const t = useT();
-  if (!git.available) return null;
+  if (!git.available || git.notRepository) return null;
   const busy = git.state?.phase === "busy";
   const pushable = canPush(git.status);
   const ahead = git.status?.ahead ?? 0;

@@ -60,6 +60,14 @@ const workedScopes: Record<Exclude<ChangeScope, "lastTurn">, ReturnType<typeof c
 /// The sessions whose folder is not a git repository.
 const outsideGit = new Set(mockSessions.filter((session) => session.cwd === "~/code/dotfiles").map((s) => s.sessionId));
 
+/// The session host's refusal for a folder outside any repository (cmux-tui-core git_ops.rs
+/// `not_a_repository`): an `operation.failed` whose `details.extra.code` names the reason.
+const notRepository = () =>
+  Object.assign(new Error("Not a git repository"), {
+    code: "operation.failed",
+    details: { extra: { code: "not_a_repository" } },
+  });
+
 const rootOf = (sessionId: string) =>
   mockSessions.find((session) => session.sessionId === sessionId)?.cwd ?? workedSources.root;
 
@@ -71,7 +79,7 @@ export function mockGitDiff(
   includePatch: boolean,
   narrow: { paths?: string[]; context?: number } = {},
 ) {
-  if (outsideGit.has(sessionId)) throw new Error("Not a git repository");
+  if (outsideGit.has(sessionId)) throw notRepository();
   if (!Object.hasOwn(workedScopes, scope)) throw new Error(`Unknown scope ${scope}`);
   const { paths, context } = narrow;
   const files = (sessionId === WORKED_SESSION ? workedScopes[scope as keyof typeof workedScopes] : [])
@@ -103,7 +111,7 @@ export function mockGitDiff(
 
 /// A GitStatusResult.
 export function mockGitStatus(sessionId: string) {
-  if (outsideGit.has(sessionId)) throw new Error("Not a git repository");
+  if (outsideGit.has(sessionId)) throw notRepository();
   const session = mockSessions.find((entry) => entry.sessionId === sessionId);
   const branch = session?.branch ?? "main";
   const state = repo(sessionId);

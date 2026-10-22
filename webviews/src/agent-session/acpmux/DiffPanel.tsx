@@ -500,8 +500,9 @@ export function DiffPanel({
           </button>
         </div>
       )}
-      {(branch || skipped > 0 || turnNote) && (
+      {(branch || skipped > 0 || turnNote || git.notRepository) && (
         <div className="acpmux-diff-notes">
+          {git.notRepository && <output className="acpmux-turn-note">{t("git.notRepository")}</output>}
           {turnNote && <output className="acpmux-turn-note">{turnNote}</output>}
           {branch && (
             <div className="acpmux-branch-row">
