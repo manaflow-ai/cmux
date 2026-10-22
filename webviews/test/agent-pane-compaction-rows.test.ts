@@ -678,3 +678,61 @@ test("a compaction the newer page goes on with keeps its end; a later end-only r
   await client.loadOlder();
   expect(compactions(rows())).toEqual(compactions(whole.rows()));
 });
+
+// Review of #24296 (Codex): a compaction still running across three pages drew its oldest page's
+// row as failed beside the newer one: each page's fold kept the newer row, so the next page back
+// compared its notes with a start that was not the compaction's. Its live end then left both.
+test("a compaction running across three pages stays one row, and its live end ends that row", async () => {
+  const events = record([
+    ["mux", "user_message", { text: "a" }],
+    ["mux", "turn_started", {}],
+    ["mux", "turn_result", { status: "completed" }],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running", reason: "account_switch" })],
+    ["mux", "user_message", { text: "b" }],
+    ["mux", "turn_started", {}],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ["mux", "user_message", { text: "c" }],
+    ["mux", "turn_started", {}],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+  ]);
+  // Claude Code's note every 30 seconds: at 0, 30, 60, 90 and 120.
+  const t0 = events[3]!.at;
+  for (const [index, at] of [
+    [3, 0],
+    [4, 10],
+    [5, 20],
+    [6, 30],
+    [7, 60],
+    [8, 90],
+    [9, 100],
+    [10, 110],
+    [11, 120],
+  ] as const)
+    events[index]!.at = t0 + at * 1000;
+  const end = record(
+    [
+      [
+        "in",
+        "compaction",
+        update({ sessionUpdate: "compaction", state: "completed", preTokens: 352235, postTokens: 24315 }),
+      ],
+    ],
+    13,
+  );
+  end[0]!.at = t0 + 130_000;
+  const compactions = (rows: AcpmuxRow[]) =>
+    rows.filter((row) => row.kind === "compaction").map((row) => [row.seq, row.compaction?.state]);
+  const whole = await connect(fakeDaemon([...events]));
+  expect(compactions(whole.rows())).toEqual([[4, "running"]]);
+  const daemon = fakeDaemon([...events], 3, 5);
+  const { client, rows } = await connect(daemon);
+  await client.loadOlder();
+  await client.loadOlder();
+  expect(compactions(rows())).toEqual([[4, "running"]]);
+  expect(spinners(rows())).toBe(1);
+  daemon.push(end);
+  expect(compactions(rows())).toEqual([[4, "completed"]]);
+  expect(spinners(rows())).toBe(0);
+});
