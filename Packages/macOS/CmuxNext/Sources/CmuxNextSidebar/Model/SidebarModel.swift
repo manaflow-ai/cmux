@@ -20,6 +20,8 @@ public final class SidebarModel {
             return storedSections
         }
         set {
+            // A group's indent comes only from the groups this list holds (`resolvingGroupDepths`).
+            let newValue = newValue.map { $0.resolvingGroupDepths() }
             // An unchanged set is no structural change (an intent that edits nothing).
             guard newValue != storedSections else { return }
             withMutation(keyPath: \.sections) {
@@ -200,6 +202,10 @@ public final class SidebarModel {
     public var hidesWorkspaces = false
     /// Minimal mode (`sidebar.minimal`): rows draw only icon, name and marks.
     public var minimal = false
+    /// `sidebar.style`: the standard sidebar or the thin rail (plans/cmux-next/minimal-sidebar.md).
+    public var style: SidebarLayoutStyle = .standard
+    /// The rail's full sidebar is open over the content (`SidebarRailPeek`); window view state.
+    public var isRailOpen = false
     /// Expanded rows (`sidebar.density`), unless minimal.
     public var expanded = false
     /// Row badges draw each state apart (`sidebar.detailedStatusIcons`), not Working or Ready only.
@@ -250,7 +256,7 @@ public final class SidebarModel {
     @ObservationIgnored public var onPresentationChange: ((SidebarPresentation) -> Void)?
 
     public init(sections: [SidebarSection] = [], activeWorkspaceID: WorkspaceID? = nil) {
-        storedSections = sections
+        storedSections = sections.map { $0.resolvingGroupDepths() }
         collapsedSections = Set(sections.filter(\.isCollapsed).map(\.id))
         self.activeWorkspaceID = activeWorkspaceID
         if let activeWorkspaceID { selection = [activeWorkspaceID] }
@@ -261,8 +267,18 @@ public final class SidebarModel {
     /// Width the sidebar should occupy for the current presentation.
     public var displayWidth: CGFloat {
         switch presentation {
-        case .shown: width
+        case .shown: style == .rail && !isRailOpen ? SidebarRailLayout.Metrics().railWidth : width
         case .hidden: 0
+        }
+    }
+
+    /// How far the content sits from the sidebar's window edge (before the gutter). The rail's
+    /// full sidebar opens over the content, so the content keeps the rail's width beside it.
+    public var contentInset: CGFloat {
+        switch (presentation, style) {
+        case (.hidden, _): 0
+        case (.shown, .standard): width
+        case (.shown, .rail): SidebarRailLayout.Metrics().railWidth
         }
     }
 
@@ -504,6 +520,7 @@ public final class SidebarModel {
         hidesWorkspaces = !preferences.showProjects
         grouping.by = preferences.groupBy
         groupsByComputer = preferences.groupsByComputer
+        if style != preferences.style { (style, isRailOpen) = (preferences.style, false) }
     }
 
     /// The disclosure on a workspace row: hide its listed tabs, or list them again.
@@ -535,8 +552,7 @@ public final class SidebarModel {
                 o.machineStatusLabels[machine.id] = status
             }
         }
-        // The local Chief runs on this Mac (SidebarRowIndex.machineLabel): not another machine.
-        let listed = sections.compactMap(\.machine).filter { !$0.id.isLocalChief }
+        let listed = sections.compactMap(\.machine)
         if Set(listed.map(\.id)).count > 1 {
             o.machines = Dictionary(listed.filter { $0.kind != .local || showsLocalMachine }.map { ($0.id, $0) },
                                     uniquingKeysWith: { first, _ in first })
