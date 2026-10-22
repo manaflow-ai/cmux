@@ -45,6 +45,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "unicode-normalization",
  "unicode-width",
  "uuid",
  "wait-timeout",
