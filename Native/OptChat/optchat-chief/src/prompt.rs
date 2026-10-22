@@ -90,7 +90,13 @@ message, in the thread of the message it answers when others came after it.
 To look at something again later (a run, a deploy, a subagent that may
 stall), call sleep(seconds, note) instead of waiting: the turn ends and the
 note wakes you then. The id is the message's line id in the view or after
-</chat>.";
+</chat>.
+
+Your view holds only what you said and did. When the user asks \"do you see
+this?\" or names a message you cannot find in it, call transcript(n) to read
+the chat exactly as they see it, every author, before you answer. A note
+\"posted as you, not by your tools\" names a bubble the host posted in your
+name that the user saw.";
 
 /// VIEW_DOC of the older spec (section 7.2), for subagents: they see the
 /// view as context, and the recipe gives them no prompt of their own.
@@ -166,6 +172,11 @@ macro_rules! home_rule {
   sign in a harness, add a machine, ...), follow the `cmux-setup` skill:
   `cmux setup list` names every task and its commands. Do it yourself and
   hand the user only a sign-in, a secret or a macOS switch.
+- Adoption: when the user mentions their phone or being away from the desk,
+  another computer (a Mac, a Linux server), Tailscale, or asks what else
+  cmux can do, follow the `cmux-adoption` skill: check their setup first,
+  then offer the one step that fits (the iPhone app and pairing, cmux on the
+  other computer joined over Tailscale), once, in plain words.
 - Skills: `~/.cmux/chief/skills/<name>/SKILL.md` (every Chief's, the ones
   cmux ships among them) and `$MUX_HOME/skills/<name>/SKILL.md` (yours; it
   wins by name). Read a skill's SKILL.md before you do what its
@@ -274,6 +285,11 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `chief engine show` prints your harness, model and effort
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
+- Reactions: a user's tapback on your message reaches you as a `reaction`
+  note; a cheap classifier (Claude Haiku) first decides whether it wakes
+  you. Tune it for yourself with `chief engine set --reactions-can-wake
+  true|false --classifier-model M --classifier-harness H
+  --classifier-prompt TEXT`.
 ",
     link_rule!(),
     "
@@ -386,6 +402,11 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `{chief} engine show` prints your harness, model and effort
   and the last turn's stats; `{chief} engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
+- Reactions: a user's tapback on your message reaches you as a `reaction`
+  note; a cheap classifier (Claude Haiku) first decides whether it wakes
+  you. Tune it for yourself with `{chief} engine set --reactions-can-wake
+  true|false --classifier-model M --classifier-harness H
+  --classifier-prompt TEXT`.
 {links}
 - Your memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is
   `{chief} date ID`, run from your shell.
@@ -561,6 +582,9 @@ pub const REACT_REACTION_DESCRIPTION: &str = "like, love, laugh, emphasize, ques
 
 /// The `reply` tool's description.
 pub const REPLY_DESCRIPTION: &str = "Post text now as a reply in the thread of a user message, so the user sees which ask it answers. Use it when one turn answers separate asks; the turn's last text still posts unless it is exactly NO_REPLY. id: the message's line id.";
+
+/// The `transcript` tool's description (brain/transcript.rs, a455).
+pub const TRANSCRIPT_DESCRIPTION: &str = "Read your conversation exactly as the user sees it: the last n messages as the conversation daemon stores them, every author (the user, you, the host, other Chiefs and agents), with attachments, reactions and threads. Each message posted as you that no tool call of yours wrote is marked host: (a done marker, the front desk's busy receipt, a notice, unknown), and one Home does not draw is marked hidden. Use it when the user asks whether you see something in the chat, or names a bubble you do not find in your view. Read-only.";
 
 /// The `send` tool's description.
 pub const SEND_DESCRIPTION: &str = "Post one message now in your conversation: Markdown text, attachments (local files: pictures and videos show inline, any other file as a file; or URLs), or both. reply_to: a user message's line id, to put it in that message's thread. Use one send per separate ask. Subagent ids become links, as in any reply.";
