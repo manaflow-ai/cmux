@@ -28,6 +28,7 @@ import * as turnLoop from "./brain-turn.ts"
 import { ccRoute } from "../chief-brain-cc/vm.ts"
 import { ccNotes } from "../chief-brain-cc/turn.ts"
 import { toolFiles, toolsCall } from "../chief-brain-cc/tools.ts"
+import { ccSandbox, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
 import { IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, importBatch, importing, importStatus } from "./memory-import.ts"
 
 /**
@@ -454,6 +455,19 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /** The Chief's own tools as path -> text, for its next turn machine (chief-brain-cc/turn.ts). */
   async ccToolFiles(): Promise<Record<string, string>> {
     return toolFiles(this.sql)
+  }
+
+  /**
+   * The Chief's sandboxes (chief-brain-cc/sandbox.ts), on its `<agent>/sandboxes` object only: one `chief-vm` call.
+   * `legacy`: sandboxes a conversation brain kept before they moved here (adopted once).
+   */
+  async ccSandboxCall(agent: string, req: unknown, legacy: ReadonlyArray<{ id: string; name: string; created_at: number }> = []): Promise<{ status: number; json: unknown }> {
+    return ccSandbox(this, agent, req, legacy)
+  }
+
+  /** The Chief was archived: its sandboxes pause and its Freestyle identity goes, with every token and grant. */
+  async ccSandboxRetire(): Promise<{ paused: number; revoked: boolean }> {
+    return ccSandboxRetire(this)
   }
 
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
