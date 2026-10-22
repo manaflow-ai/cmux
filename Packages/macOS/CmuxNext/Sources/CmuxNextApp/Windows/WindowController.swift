@@ -191,11 +191,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // here (a provisional member, a move) pays the window's member list (Lawrence 2026-10-21, workspace switch
         // speed of light: 500 workspaces built a 500-id set on every switch).
         let registry = services.windows.registry, windowID = state.id
-        var members: Set<String>?
+        var listedHere: Set<String>?
         func isListed(_ id: String) -> Bool {
             if registry.value.owner(of: id) == windowID { return true }
-            if members == nil { members = Set(registry.members(of: windowID)) }
-            return members?.contains(id) == true
+            if listedHere == nil { listedHere = Set(registry.members(of: windowID)) }
+            return listedHere?.contains(id) == true
         }
         for (id, controller) in parked where !isListed(id) || machines.workspace(id: id)?.0 !== controller.workspace {
             parked[id] = nil
