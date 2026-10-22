@@ -305,3 +305,32 @@ fn compact_registry_is_refused_while_the_owner_runs_and_shrinks_it_offline() {
     owner.stop();
     assert_eq!(state, (2, true), "the owner marks the compacted registry migrated");
 }
+
+/// The app starts its owner with stderr on /dev/null, so a diagnostic the
+/// daemon writes with `eprintln!` (here the deferred auto-vacuum conversion,
+/// which names the live data) must reach the bounded client log instead of
+/// being lost (2026-10-21: a 12-15 s owner stall left no trace of its cause).
+#[test]
+fn a_headless_owner_without_a_terminal_writes_its_stderr_to_the_client_log() {
+    let dir = state_dir("stderr");
+    let session = "lrm-stderr";
+    let registry = first_start(&dir.0, session);
+    make_legacy(&registry, 2 * TEST_BOUND_BYTES);
+
+    let owner = Owner::start(&dir.0, session);
+    let log = dir.0.join("client.log");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut text = String::new();
+    while Instant::now() < deadline {
+        text = fs::read_to_string(&log).unwrap_or_default();
+        if text.contains("auto-vacuum conversion deferred:") && text.contains("MiB live data") {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    owner.stop();
+    assert!(
+        text.contains("auto-vacuum conversion deferred:") && text.contains("MiB live data"),
+        "the owner's stderr line must reach the client log; it holds:\n{text}"
+    );
+}
