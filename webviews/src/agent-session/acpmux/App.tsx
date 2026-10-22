@@ -156,6 +156,7 @@ import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
 import {
   type DoneLineCache,
   configureSubagentTray,
+  finishedTrayItems,
   trayItems,
   useSubagentTray,
   withSubagentLines,
@@ -358,6 +359,7 @@ import { FolderChoice, showsFolderChoice } from "./FolderChoice";
 import { type FolderAsk, StartFolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
+import { MissingChat } from "./MissingChat";
 import { WatchBanner } from "./WatchBanner";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
@@ -820,12 +822,23 @@ const MessageRow = memo(
             <>
               <ChiefPromptBubble text={envelope ? envelope.task : (row.text ?? "")} />
               <PromptActions row={row} text={envelope ? envelope.task : (row.text ?? "")} />
+              {/* A Chief's bubble can clip its text, so its Send now keeps a line under it. */}
+              <PendingSteer row={row} send={editQueued} />
             </>
           ) : (
-            <UserBubble row={row} text={row.text ?? ""} />
+            // A waiting steer's Send now sits at the bubble's left, on its row (Claude's queued
+            // prompts; Leo, 2026-10-21): it never takes a line of its own. A prompt of images
+            // alone draws no bubble, so its Send now keeps the line under the images.
+            <>
+              <UserBubble
+                row={row}
+                text={row.text ?? ""}
+                pending={row.text?.trim() ? <PendingSteer row={row} send={editQueued} beside /> : undefined}
+              />
+              {!row.text?.trim() && <PendingSteer row={row} send={editQueued} />}
+            </>
           )}
           <DeliveryFailure row={row} />
-          <PendingSteer row={row} send={editQueued} />
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>
@@ -3760,6 +3773,15 @@ function AcpmuxPane() {
   const [continuing, setContinuing] = useState(false);
   const [reviewReload, setReviewReload] = useState(0);
   useEffect(() => setContinuing(false), [snapshot.sessionId]);
+  // Each time the pane says a tab's chat isn't available, the app's log records the chat and why
+  // (`chat.missing`, os_log category agentPane), so the views can be counted (Lawrence 2026-10-21).
+  useEffect(() => {
+    if (!snapshot.missingSession) return;
+    void callNative("chat.missing", {
+      session: snapshot.missingSession,
+      reason: snapshot.missingReason ?? "unknown",
+    }).catch(() => undefined);
+  }, [snapshot.missingSession, snapshot.missingReason]);
   const stopContinuing = useCallback(() => setContinuing(false), []);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   /// The subagent whose own view the transcript shows (its line in a group opens it), or none.
@@ -4105,7 +4127,7 @@ function AcpmuxPane() {
   // A chat on a Cloud VM or another machine lists the children its daemon reports with its own
   // session (RemoteAcpmuxWire `_acpmux/watch`). A new list only when an entry changes.
   const childSessions = useMemo(
-    () => (spawned.length ? startedSessions(spawned, snapshot.sessionId) : NO_STARTED),
+    () => (spawned.length ? startedSessions(spawned, snapshot.sessionId, { doing: true }) : NO_STARTED),
     [spawned, snapshot.sessionId],
   );
   // Only a chat it started can be an offer's started task: the rows are read only when there is one.
@@ -5009,13 +5031,25 @@ function AcpmuxPane() {
   // the started chats that run. A new list only when what it shows changes, so streamed text never redraws the tray.
   const commandsKey = runningCommandList
     .map((task) =>
-      [task.id, task.command, task.startedAt ?? "", task.processId ?? "", task.toolCallId ?? ""].join("\u0000"),
+      [
+        task.id,
+        task.command,
+        task.description ?? "",
+        task.startedAt ?? "",
+        task.processId ?? "",
+        task.toolCallId ?? "",
+      ].join("\u0000"),
     )
     .join("\u0001");
   const trayList = useMemo(
-    () => (subagentTray ? trayItems(chatAgents, runningCommandList, runningChildSessions, snapshot.isWorking) : []),
+    () => (subagentTray ? trayItems(chatAgents, runningCommandList, childSessions, snapshot.isWorking) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runningCommandList is new on every snapshot; its key is not
-    [subagentTray, chatAgents, commandsKey, runningChildSessions, snapshot.isWorking],
+    [subagentTray, chatAgents, commandsKey, childSessions, snapshot.isWorking],
+  );
+  // What ended, behind the tray's one folded line; never in its count.
+  const trayFinished = useMemo(
+    () => (subagentTray ? finishedTrayItems(chatAgents, childSessions) : []),
+    [subagentTray, chatAgents, childSessions],
   );
   // The turn's tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
@@ -5082,8 +5116,14 @@ function AcpmuxPane() {
       sessions: runningSessions.length,
       tokens: turnTokens,
       openAgents: () => {
-        const { runningAgents: agents, summaryCard: card, inspector: panel } = counted.current;
-        if (agents.length === 1) showSubagent(agents[0]!.id);
+        const {
+          runningAgents: agents,
+          runningSessions: sessions,
+          summaryCard: card,
+          inspector: panel,
+        } = counted.current;
+        // One count with the chats it started (WorkingFor.tsx `workingParts`): one subagent alone opens.
+        if (agents.length === 1 && sessions.length === 0) showSubagent(agents[0]!.id);
         // The Inspector takes the summary card's place while it is on (its panel is never drawn).
         else if (panel.reveal) panel.reveal("subagents");
         else card.show();
@@ -7394,6 +7434,7 @@ function AcpmuxPane() {
             <SubagentTray
               key={shownSessionId}
               items={trayList}
+              finished={trayFinished}
               working={snapshot.isWorking}
               waiting={waitingAgents}
               onOpen={showSubagent}
@@ -8057,9 +8098,12 @@ function AcpmuxPane() {
                 {!diffView && checkpoints.review}
                 {/* The lines under the header drop in from the top (ui/popupSurface.css `data-enter`). */}
                 {snapshot.missingSession && (
-                  <p className="acpmux-link-missing" role="alert" data-enter="top">
-                    {t("link.sessionMissing")}
-                  </p>
+                  <MissingChat
+                    session={snapshot.missingSession}
+                    {...(machineName ? { machine: machineName } : {})}
+                    onResume={showAllChats}
+                    onClose={() => void callNative("pane.action", { id: "closeTab" }).catch(() => undefined)}
+                  />
                 )}
                 {snapshot.liveChat && (
                   <LiveChatChoice
