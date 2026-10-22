@@ -84,7 +84,10 @@ async function render(files: ReturnType<typeof turn>) {
     container,
     names: () => blocks().map((block) => block.querySelector(".acpmux-fh-name")?.textContent ?? ""),
     kinds: () => blocks().map((block) => block.querySelector(".acpmux-fh-kind")?.textContent ?? ""),
-    folded: () => blocks().filter((block) => block.dataset.collapsed !== undefined).map((block) => block.dataset.path),
+    folded: () =>
+      blocks()
+        .filter((block) => block.dataset.collapsed !== undefined)
+        .map((block) => block.dataset.path),
     noTests: () => container.querySelector(".acpmux-diff-no-tests")?.textContent,
     unmount: () => act(async () => root.unmount()),
   };
