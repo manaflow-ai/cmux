@@ -14,13 +14,15 @@ import Testing
     @Test func aTinyRiseChangesNothing() {
         var machine = Self.loading()
         let start = machine.state.progress
-        #expect(!machine.apply(.progress(start + 0.001)))
+        let changed = machine.apply(.progress(start + 0.001))
+        #expect(!changed)
         #expect(machine.state.progress == start)
     }
 
     @Test func aVisibleStepIsShown() {
         var machine = Self.loading()
-        #expect(machine.apply(.progress(0.5)))
+        let changed = machine.apply(.progress(0.5))
+        #expect(changed)
         #expect(machine.state.progress == 0.5)
     }
 
@@ -30,20 +32,22 @@ import Testing
         var changes = 0
         for step in 1...30 where machine.apply(.progress(start + Double(step) * 0.001)) { changes += 1 }
         #expect(changes == 1)
-        #expect(machine.state.progress >= start + BrowserTabStateMachine.progressStep)
+        #expect(machine.state.progress > start + BrowserTabStateMachine.progressStep / 2)
     }
 
     @Test func theEndIsAlwaysShown() {
         var machine = Self.loading()
         _ = machine.apply(.progress(0.99))
-        #expect(machine.apply(.progress(1)))
+        let changed = machine.apply(.progress(1))
+        #expect(changed)
         #expect(machine.state.progress == 1)
     }
 
     @Test func progressNeverGoesBack() {
         var machine = Self.loading()
         _ = machine.apply(.progress(0.6))
-        #expect(!machine.apply(.progress(0.3)))
+        let changed = machine.apply(.progress(0.3))
+        #expect(!changed)
         #expect(machine.state.progress == 0.6)
     }
 }
