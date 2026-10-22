@@ -36,6 +36,7 @@ export default changelogPageEntry({
     "pages/changelog/RailPage.tsx",
     "pages/changelog/DigestPage.tsx",
     "pages/changelog/ReleaseParts.tsx",
+    "pages/changelog/SpanNews.tsx",
   ],
   variants: {
     "nightly-3913596493801": {

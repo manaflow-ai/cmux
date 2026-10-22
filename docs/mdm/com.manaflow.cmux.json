@@ -3395,6 +3395,12 @@
       "title" : "Show All Chats on New Tab",
       "type" : "boolean"
     },
+    "sidebar.showLocalMachine" : {
+      "default" : false,
+      "description" : "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too.",
+      "title" : "Mark This Mac's Workspaces",
+      "type" : "boolean"
+    },
     "sidebar.showProfileControl" : {
       "default" : true,
       "description" : "sidebar.showProfileControl",
@@ -3989,9 +3995,10 @@
       "type" : "string"
     },
     "tabs.newTabTemplate" : {
-      "default" : "cards",
+      "default" : "minimal",
       "description" : "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.",
       "enum" : [
+        "minimal",
         "cards",
         "default",
         "composer",
@@ -4002,6 +4009,36 @@
       ],
       "title" : "New Tab Template",
       "type" : "string"
+    },
+    "tabs.newTabWidgets.actions" : {
+      "default" : false,
+      "description" : "Chats that need you, and New Terminal, New Browser Tab and New Chat.",
+      "title" : "Show Quick Actions on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.chats" : {
+      "default" : false,
+      "description" : "Your recent chats under the composer. The palette finds any chat.",
+      "title" : "Show Recent Chats on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.greeting" : {
+      "default" : true,
+      "description" : "A short greeting over the composer.",
+      "title" : "Show Greeting on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.projects" : {
+      "default" : false,
+      "description" : "A card of this Mac and its recent projects over the composer.",
+      "title" : "Show Projects on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.styleDots" : {
+      "default" : false,
+      "description" : "Dots under the page that switch its template.",
+      "title" : "Show Template Dots on New Tab",
+      "type" : "boolean"
     },
     "tabs.overflow" : {
       "default" : "shrink",
@@ -4290,6 +4327,17 @@
       "description" : "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it.",
       "title" : "Show What's New After Updates",
       "type" : "boolean"
+    },
+    "updates.web" : {
+      "default" : "every-merge",
+      "description" : "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with.",
+      "enum" : [
+        "every-merge",
+        "nightly",
+        "off"
+      ],
+      "title" : "Web UI Updates",
+      "type" : "string"
     },
     "window.titlebar" : {
       "default" : "minimal",

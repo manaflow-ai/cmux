@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { AgentMark } from "../../shared/AgentMark";
 import { useMinuteClock } from "../clock";
 import { agentDisplayName } from "../agents";
+import { HEADER_GLYPH } from "../header/ChatHeaderTools";
 import { useT, type StringKey, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { shortAge } from "../sessionList";
@@ -96,7 +97,7 @@ export function NeedsYouButton({
         aria-expanded={open}
         {...trigger}
       >
-        <Icon name="inbox" size={15} />
+        <Icon name="inbox" size={HEADER_GLYPH} />
         {count > 0 && (
           <span className="acpmux-needs-you-count">
             <span className="acpmux-needs-you-dot" aria-hidden="true" />
