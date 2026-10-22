@@ -128,6 +128,7 @@ extension SidebarBridge {
     /// notice is the footer's pill, never an item control (SIDEBAR-FOOTER-MINIMAL).
     static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
                          unread: Int = 0,
+                         homeUnread: Int = 0,
                          app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) },
                          shortcut: (ActionID) -> String? = { _ in nil },
                          workspace: (LayoutItemRef) -> SidebarItemInfo? = { _ in nil },
