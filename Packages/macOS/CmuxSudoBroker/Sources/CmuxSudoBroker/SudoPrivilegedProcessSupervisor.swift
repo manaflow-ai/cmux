@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -139,6 +140,7 @@ struct SudoPrivilegedProcessSupervisor: Sendable {
                 )
             )
         )
+        try requireSuccess(POSIXSpawnSignalPolicy().apply(to: &attributes))
 
         let executable = "/bin/bash"
         let arguments = [executable, "-c", Self.sourceCommand, displayName]

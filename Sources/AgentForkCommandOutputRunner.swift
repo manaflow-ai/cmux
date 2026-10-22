@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -196,7 +197,8 @@ actor AgentForkCommandOutputRunner {
         // commands cannot exit before cleanup owns their pgid.
         let flags = Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_START_SUSPENDED | POSIX_SPAWN_CLOEXEC_DEFAULT)
         guard posix_spawnattr_setflags(&attributes, flags) == 0,
-              posix_spawnattr_setpgroup(&attributes, 0) == 0 else {
+              posix_spawnattr_setpgroup(&attributes, 0) == 0,
+              POSIXSpawnSignalPolicy().apply(to: &attributes) == 0 else {
             return nil
         }
 

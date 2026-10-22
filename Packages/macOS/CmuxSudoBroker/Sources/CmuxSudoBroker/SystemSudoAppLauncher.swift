@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -41,6 +42,7 @@ struct SystemSudoAppLauncher: SudoAppLaunching {
                 Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETPGROUP)
             )
         )
+        try Self.requireSuccess(POSIXSpawnSignalPolicy().apply(to: &attributes))
 
         let arguments = ["/usr/bin/open", "-g", "-a", appBundleURL.path]
         let environment = SudoProcessEnvironment().entries

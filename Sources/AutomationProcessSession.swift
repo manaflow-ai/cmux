@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -211,6 +212,7 @@ actor AutomationProcessSession {
             }
             groupEnabled = false
         }
+        guard POSIXSpawnSignalPolicy().apply(to: &attributes) == 0 else { return nil }
 
         let arguments = ["/bin/sh", "-c", command]
         let mergedEnvironment = ProcessInfo.processInfo.environment.merging(environment) { _, value in value }

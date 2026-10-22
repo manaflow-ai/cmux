@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -118,8 +119,6 @@ struct OwnedProcessSupervisor {
             POSIX_SPAWN_CLOEXEC_DEFAULT
                 | POSIX_SPAWN_SETPGROUP
                 | POSIX_SPAWN_START_SUSPENDED
-                | POSIX_SPAWN_SETSIGDEF
-                | POSIX_SPAWN_SETSIGMASK
         )
         try CodexTeamsPOSIXSupport.require(
             posix_spawnattr_setflags(&attributes, flags),
@@ -130,16 +129,10 @@ struct OwnedProcessSupervisor {
             operation: "configure target group leader"
         )
 
-        var defaultSignals = sigset_t()
-        sigemptyset(&defaultSignals)
-        for signum in [SIGTERM, SIGINT, SIGHUP] { sigaddset(&defaultSignals, signum) }
-        var mask = sigset_t()
-        sigemptyset(&mask)
+        // This supervisor ignores SIGTERM, SIGINT and SIGHUP itself; the target
+        // must not inherit that, or the mask of the thread that started it.
         try CodexTeamsPOSIXSupport.require(
-            posix_spawnattr_setsigdefault(&attributes, &defaultSignals), operation: "reset target signals"
-        )
-        try CodexTeamsPOSIXSupport.require(
-            posix_spawnattr_setsigmask(&attributes, &mask), operation: "reset target signal mask"
+            POSIXSpawnSignalPolicy().apply(to: &attributes), operation: "reset target signal state"
         )
 
         let argv = [executablePath] + arguments

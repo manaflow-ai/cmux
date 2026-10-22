@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -137,7 +138,6 @@ final class CodexTeamsAppServerProcess {
             POSIX_SPAWN_CLOEXEC_DEFAULT
                 | POSIX_SPAWN_SETPGROUP
                 | POSIX_SPAWN_START_SUSPENDED
-                | POSIX_SPAWN_SETSIGMASK
         )
         try CodexTeamsPOSIXSupport.require(
             posix_spawnattr_setflags(&attributes, flags),
@@ -149,11 +149,9 @@ final class CodexTeamsAppServerProcess {
         )
         // The watcher runs on a Swift concurrency thread, whose nearly full
         // signal mask the app server would otherwise inherit (#12681).
-        var childSignalMask = sigset_t()
-        sigemptyset(&childSignalMask)
         try CodexTeamsPOSIXSupport.require(
-            posix_spawnattr_setsigmask(&attributes, &childSignalMask),
-            operation: "reset Codex Teams process signal mask"
+            POSIXSpawnSignalPolicy().apply(to: &attributes),
+            operation: "reset Codex Teams process signal state"
         )
 
         let targetExecutable = executablePath.hasPrefix("/") ? executablePath : "/usr/bin/env"

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -16,6 +17,12 @@ struct SystemSudoTouchIDSetupLauncher: SudoTouchIDSetupLaunching {
             helperArguments: []
         )
         let environment = SudoProcessEnvironment().entries
+        var attributes: posix_spawnattr_t?
+        let attributesStatus = posix_spawnattr_init(&attributes)
+        guard attributesStatus == 0 else { throw Failure.spawn(attributesStatus) }
+        defer { posix_spawnattr_destroy(&attributes) }
+        let signalStatus = POSIXSpawnSignalPolicy().apply(to: &attributes)
+        guard signalStatus == 0 else { throw Failure.spawn(signalStatus) }
         var processIdentifier: Int32 = 0
         let status = try withCStringArray(arguments) { arguments in
             try withCStringArray(environment) { environment in
@@ -24,7 +31,7 @@ struct SystemSudoTouchIDSetupLauncher: SudoTouchIDSetupLaunching {
                         &processIdentifier,
                         executable,
                         nil,
-                        nil,
+                        &attributes,
                         arguments,
                         environment
                     )

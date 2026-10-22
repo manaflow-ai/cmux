@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -96,23 +97,7 @@ extension CMUXCLI {
             )
         }
         defer { posix_spawnattr_destroy(&spawnAttributes) }
-        var childSignalMask = sigset_t()
-        sigemptyset(&childSignalMask)
-        var childDefaultSignals = sigset_t()
-        sigemptyset(&childDefaultSignals)
-        for signalNumber in cliChildLaunchDefaultDispositionSignals {
-            sigaddset(&childDefaultSignals, signalNumber)
-        }
-        var signalStatus = posix_spawnattr_setflags(
-            &spawnAttributes,
-            Int16(POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF)
-        )
-        if signalStatus == 0 {
-            signalStatus = posix_spawnattr_setsigmask(&spawnAttributes, &childSignalMask)
-        }
-        if signalStatus == 0 {
-            signalStatus = posix_spawnattr_setsigdefault(&spawnAttributes, &childDefaultSignals)
-        }
+        let signalStatus = POSIXSpawnSignalPolicy().apply(to: &spawnAttributes)
         guard signalStatus == 0 else {
             throw loggedRestoreError(
                 stage: "provider.spawn-signals",

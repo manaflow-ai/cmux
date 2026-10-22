@@ -79,7 +79,7 @@ struct CLIExecInheritedSignalStateTests {
     /// and `cmux fork` exec the resumed agent from their own files, so one
     /// direct `execve` hands the agent the blocked mask again. Every exec under
     /// `CLI/` must run inside `cliExecFailureErrno`, and every `posix_spawn`
-    /// must set `POSIX_SPAWN_SETSIGMASK`.
+    /// must set `POSIX_SPAWN_SETSIGMASK` or apply `POSIXSpawnSignalPolicy`.
     @Test func everyCLIExecAndSpawnSiteStartsChildrenFromDefaultSignalState() throws {
         let cliDirectory = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
@@ -99,8 +99,9 @@ struct CLIExecInheritedSignalStateTests {
             let lines = try String(contentsOfFile: path, encoding: .utf8)
                 .components(separatedBy: "\n")
             let source = lines.joined(separator: "\n")
-            let spawnSetsMask = source.contains("POSIX_SPAWN_SETSIGMASK")
-                && source.contains("posix_spawnattr_setsigmask(")
+            let spawnSetsMask = source.contains("POSIXSpawnSignalPolicy(")
+                || (source.contains("POSIX_SPAWN_SETSIGMASK")
+                    && source.contains("posix_spawnattr_setsigmask("))
             for (index, line) in lines.enumerated() {
                 if line.trimmingCharacters(in: .whitespaces).hasPrefix("//") { continue }
                 if line.contains(execCall) {
