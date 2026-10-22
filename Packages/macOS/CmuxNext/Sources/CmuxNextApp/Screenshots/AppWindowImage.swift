@@ -22,7 +22,8 @@ struct AppWindowImage {
     /// - Throws: ``WindowScreenshotFailure`` when the window server gives no image.
     func capture(_ window: NSWindow) async throws -> CGImage {
         let together = window.screenshotImageWithOverlays()?.image
-        let base = try await together ?? window.screenshotImage(includeChild: WindowOverlayHost.isPageWindow)
+        let base: CGImage
+        if let together { base = together } else { base = try await window.screenshotImage(includeChild: WindowOverlayHost.isPageWindow) }
         var layers: [WindowImageLayer] = []
         for (page, rect) in DebugWindowSnapshot.chromiumPages(in: window, services: services) {
             // A page that cannot give its image keeps the window server's
