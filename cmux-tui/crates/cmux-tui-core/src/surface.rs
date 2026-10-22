@@ -491,6 +491,8 @@ pub(crate) struct PrelaunchedHost {
     id: SurfaceId,
     terminal_id: crate::terminal_host::TerminalId,
     opts: SurfaceOptions,
+    /// The Launch the host got; the next spare is prepared from it.
+    launch: crate::terminal_host_runtime::HostLaunch,
     attachment: crate::terminal_host_runtime::HostAttachment,
     kitty_reservation: Option<crate::mux::KittyImageBudgetReservation>,
     terminal_public_id: Option<TerminalPublicId>,
@@ -499,6 +501,11 @@ pub(crate) struct PrelaunchedHost {
 
 #[cfg(any(unix, windows))]
 impl PrelaunchedHost {
+    /// The Launch the host got (new-terminal-100x: the next spare's).
+    pub(crate) fn launch(&self) -> &crate::terminal_host_runtime::HostLaunch {
+        &self.launch
+    }
+
     pub(crate) fn terminal_id(&self) -> crate::terminal_host::TerminalId {
         self.terminal_id
     }

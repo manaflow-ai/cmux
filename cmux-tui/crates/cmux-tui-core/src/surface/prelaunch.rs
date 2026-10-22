@@ -34,7 +34,7 @@ impl Surface {
             .map(crate::mux::KittyImageBudgetReservation::initial_limits)
             .unwrap_or_default();
         let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-        let attachment = crate::terminal_host_runtime::launch_terminal_host_from(
+        let (attachment, launch) = crate::terminal_host_runtime::launch_terminal_host_from(
             &opts,
             &root,
             default_colors,
@@ -48,6 +48,7 @@ impl Surface {
             id,
             terminal_id,
             opts,
+            launch,
             attachment,
             kitty_reservation,
             terminal_public_id,

@@ -1,23 +1,42 @@
-//! The one terminal-host process started ahead of the next new tab (R81).
+//! The terminal-host processes started ahead of the next new tabs (R81;
+//! prepared with their PTY and shell launcher, new-terminal-100x).
 //!
-//! Most of a new tab's launch is starting its host process. The owner keeps
-//! at most one host process that has only run `exec` and waits on its
-//! bootstrap pipe ([`StandbyTerminalHost`]): no identity, no PTY, no child,
-//! no timers, so it uses no CPU. A `new-tab` prelaunch adopts it and sends
-//! the tab's directory, command, environment and size in the Launch frame,
-//! so the spare never carries a previous tab's environment. Rules:
+//! Most of a new tab's launch is starting its host process, then its PTY
+//! and shell (login(1) alone prints its first text some 40 ms after it
+//! starts). The owner keeps up to [`SPARES`] host processes started ahead
+//! ([`StandbyTerminalHost`]). On Unix each is prepared for the latest new
+//! tab's launch: it already runs its PTY and the shell's launcher, which
+//! waits for the next tab's own ids (`terminal_host_runtime` shell_handoff).
+//! A `new-tab` prelaunch adopts one and sends the tab's directory, command,
+//! environment and size in the Launch frame; the host hands its prepared
+//! launch over only when that is the same launch but the tab's ids, and
+//! launches cold otherwise, so a spare never carries a previous tab's
+//! environment. Rules:
 //!
-//! - Lazy: the spare exists only after the first new tab of this owner, so a
+//! - Lazy: spares exist only after the first new tab of this owner, so a
 //!   headless daemon that never opens a tab never starts one.
-//! - A burst of new tabs takes the spare once; the rest launch as before. The
-//!   refill runs on the terminal work pool, one at a time, cap one spare.
+//! - Prepared for the latest launch: spares for an earlier one are dropped
+//!   when a tab with another launch runs.
+//! - Refills run on the terminal work pool, one at a time, up to the cap.
 //! - A spare that died before adoption is dropped and the tab launches as
 //!   before, with no error.
-//! - Memory pressure (macOS) drops the spare.
+//! - Each prepared spare holds a PTY: a launch that finds none free drops
+//!   them all, and none is kept until a launch succeeds again.
+//! - Memory pressure (macOS) drops the spares.
+//! - A spare never outlives the daemon: its bootstrap pipe's EOF ends its
+//!   host, and closing its PTY hangs its prepared session up.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
-use crate::terminal_host_runtime::StandbyTerminalHost;
+use crate::terminal_host_runtime::{HostLaunch, StandbyTerminalHost};
+
+/// Spares kept at most, all for the latest launch (new-terminal-100x: two,
+/// so a quick second new tab also finds one).
+pub(crate) const SPARES: usize = 2;
+
+/// Which launch a spare was prepared for: the new tab's directory and
+/// command as asked (before defaults), the cheap part of its launch.
+pub(crate) type PrepareKey = (Option<String>, Option<Vec<String>>);
 
 #[derive(Default)]
 struct StandbyState {
@@ -27,22 +46,38 @@ struct StandbyState {
     refilling: bool,
     /// Memory pressure is warning or critical: keep no spare until normal.
     suppressed: bool,
-    host: Option<StandbyTerminalHost>,
+    /// The last launch found no free PTY: keep no spare (each holds a PTY)
+    /// until a launch succeeds again.
+    pty_starved: bool,
+    /// The launch the next spares are prepared for (its key and Launch).
+    prepare: Option<(PrepareKey, HostLaunch)>,
+    hosts: Vec<(Option<PrepareKey>, StandbyTerminalHost)>,
 }
 
-/// The spare host slot of one owner (cap one).
+/// Starts a spare process, prepared for a launch when one is given
+/// ([`StandbyTerminalHost::spawn_prepared`]; tests start a stand-in).
+pub(crate) type SpareSpawner = fn(Option<&HostLaunch>) -> anyhow::Result<StandbyTerminalHost>;
+
+fn spawn_spare(prepare: Option<&HostLaunch>) -> anyhow::Result<StandbyTerminalHost> {
+    #[cfg(unix)]
+    if let Some(template) = prepare {
+        return StandbyTerminalHost::spawn_prepared(template);
+    }
+    let _ = prepare;
+    StandbyTerminalHost::spawn()
+}
+
+/// The spare host slot of one owner (up to [`SPARES`]).
 pub(crate) struct StandbyHostSlot {
     state: Mutex<StandbyState>,
-    /// Starts a spare process ([`StandbyTerminalHost::spawn`]; tests start a
-    /// stand-in that also waits on its stdin).
-    spawn: fn() -> anyhow::Result<StandbyTerminalHost>,
+    spawn: SpareSpawner,
     #[cfg(target_os = "macos")]
     pressure: std::sync::OnceLock<()>,
 }
 
 impl Default for StandbyHostSlot {
     fn default() -> Self {
-        Self::with_spawner(StandbyTerminalHost::spawn)
+        Self::with_spawner(spawn_spare)
     }
 }
 
@@ -53,7 +88,7 @@ impl StandbyHostSlot {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    pub(crate) fn with_spawner(spawn: fn() -> anyhow::Result<StandbyTerminalHost>) -> Self {
+    pub(crate) fn with_spawner(spawn: SpareSpawner) -> Self {
         Self {
             state: Mutex::default(),
             spawn,
@@ -62,69 +97,131 @@ impl StandbyHostSlot {
         }
     }
 
-    /// The spare for a new tab, if one is alive; marks spares as wanted.
-    /// A spare killed before adoption is dropped here: the tab launches as
-    /// before, with no error.
-    pub(crate) fn take(&self) -> Option<StandbyTerminalHost> {
+    /// A spare for a new tab whose launch has `key`: one prepared for it
+    /// first, else one prepared for nothing, else any (its host then
+    /// launches cold). Marks spares as wanted. A spare killed before
+    /// adoption is dropped: the tab launches as before, with no error.
+    pub(crate) fn take(&self, key: Option<&PrepareKey>) -> Option<StandbyTerminalHost> {
         let mut host = {
             let mut state = self.state();
             state.wanted = true;
-            state.host.take()?
+            let index = state
+                .hosts
+                .iter()
+                .position(|(prepared, _)| key.is_some() && prepared.as_ref() == key)
+                .or_else(|| state.hosts.iter().position(|(prepared, _)| prepared.is_none()))
+                .or(if state.hosts.is_empty() { None } else { Some(0) })?;
+            state.hosts.remove(index).1
         };
         host.is_alive().then_some(host)
+    }
+
+    /// Spares from now on are prepared for `template`, the Launch of the
+    /// tab whose launch had `key`; spares prepared for another launch are
+    /// dropped (killed), so the refill prepares the latest one.
+    pub(crate) fn prepare_for(&self, key: PrepareKey, template: HostLaunch) {
+        let stale = {
+            let mut state = self.state();
+            state.pty_starved = false;
+            let (keep, stale): (Vec<_>, Vec<_>) = std::mem::take(&mut state.hosts)
+                .into_iter()
+                .partition(|(prepared, _)| prepared.as_ref() == Some(&key));
+            state.hosts = keep;
+            state.prepare = Some((key, template));
+            stale
+        };
+        drop(stale);
+    }
+
+    /// A launch found no free PTY: drop every spare (each holds one) and
+    /// keep none until a launch succeeds. Returns how many it dropped.
+    pub(crate) fn release_for_pty_capacity(&self) -> usize {
+        let hosts = {
+            let mut state = self.state();
+            state.pty_starved = true;
+            std::mem::take(&mut state.hosts)
+        };
+        hosts.len()
     }
 
     /// Whether a refill should start now; marks it started.
     fn begin_refill(&self) -> bool {
         let mut state = self.state();
-        if !state.wanted || state.suppressed || state.refilling || state.host.is_some() {
+        if !state.wanted
+            || state.suppressed
+            || state.pty_starved
+            || state.refilling
+            || state.hosts.len() >= SPARES
+        {
             return false;
         }
         state.refilling = true;
         true
     }
 
-    /// A refill finished with `spawned`; a spare that is no longer wanted
-    /// (dropped meanwhile, or the slot filled) is killed as it drops.
-    fn finish_refill(&self, spawned: Option<StandbyTerminalHost>) {
-        let unused = {
-            let mut state = self.state();
-            state.refilling = false;
-            if state.wanted && !state.suppressed && state.host.is_none() {
-                state.host = spawned;
-                None
-            } else {
-                spawned
-            }
-        };
-        drop(unused);
+    /// What the next spare is prepared for.
+    fn next_prepare(&self) -> Option<(PrepareKey, HostLaunch)> {
+        self.state().prepare.clone()
     }
 
-    /// Memory pressure changed: under warning or critical pressure the spare
-    /// is dropped and no new one starts; back to normal, the next new tab
-    /// refills it.
+    /// A refill finished with `spawned` (prepared for `key`); a spare that is
+    /// no longer wanted (dropped meanwhile, or the slot full) is killed as it
+    /// drops. Returns whether another spare is still wanted.
+    fn finish_refill(&self, key: Option<PrepareKey>, spawned: Option<StandbyTerminalHost>) -> bool {
+        let (unused, more) = {
+            let mut state = self.state();
+            state.refilling = false;
+            let room = state.wanted
+                && !state.suppressed
+                && !state.pty_starved
+                && state.hosts.len() < SPARES
+                && (key.is_none()
+                    || state.prepare.as_ref().map(|(current, _)| current) == key.as_ref());
+            let unused = match spawned {
+                Some(host) if room => {
+                    state.hosts.push((key, host));
+                    None
+                }
+                other => other,
+            };
+            let more = room && unused.is_none() && state.hosts.len() < SPARES;
+            (unused, more)
+        };
+        drop(unused);
+        more
+    }
+
+    /// Memory pressure changed: under warning or critical pressure the
+    /// spares are dropped and no new one starts; back to normal, the next
+    /// new tab refills them.
     #[cfg(any(target_os = "macos", test))]
     pub(crate) fn set_memory_pressure(&self, pressured: bool) {
-        let host = {
+        let hosts = {
             let mut state = self.state();
             state.suppressed = pressured;
-            if pressured { state.host.take() } else { None }
+            if pressured { std::mem::take(&mut state.hosts) } else { Vec::new() }
         };
-        drop(host);
+        drop(hosts);
     }
 
     #[cfg(test)]
     pub(crate) fn has_spare(&self) -> bool {
-        self.state().host.is_some()
+        !self.state().hosts.is_empty()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn spares(&self) -> usize {
+        self.state().hosts.len()
     }
 
     #[cfg(test)]
     pub(crate) fn finish_refill_for_test(&self, host: StandbyTerminalHost) {
         self.state().refilling = true;
-        self.finish_refill(Some(host));
+        self.finish_refill(None, Some(host));
     }
 
-    /// Starts one refill on `pool` when a spare is wanted and none exists.
+    /// Starts refills on `pool` until [`SPARES`] spares exist, one at a time,
+    /// when spares are wanted.
     pub(crate) fn refill(self: &Arc<Self>, pool: &super::TerminalWorkPool) {
         if !self.begin_refill() {
             return;
@@ -134,10 +231,17 @@ impl StandbyHostSlot {
         let slot: Weak<Self> = Arc::downgrade(self);
         let spawn = self.spawn;
         let job: Box<dyn FnOnce() + Send> = Box::new(move || {
-            let spawned = spawn().ok();
-            match slot.upgrade() {
-                Some(slot) => slot.finish_refill(spawned),
-                None => drop(spawned),
+            loop {
+                let Some(current) = slot.upgrade() else { return };
+                let prepare = current.next_prepare();
+                drop(current);
+                let spawned = spawn(prepare.as_ref().map(|(_, template)| template)).ok();
+                let Some(current) = slot.upgrade() else { return };
+                if !current.finish_refill(prepare.map(|(key, _)| key), spawned)
+                    || !current.begin_refill()
+                {
+                    return;
+                }
             }
         });
         if let Err(job) = pool.try_submit(job) {

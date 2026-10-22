@@ -35,7 +35,23 @@ pub fn serve_terminal_host_stdio(
     writer: &mut impl Write,
 ) -> anyhow::Result<()> {
     let adopt_fd = adopt_launch::adopt_pty_fd(args)?;
-    let mut bootstrapped = crate::terminal_host::bootstrap_stdio_once(reader, writer)?;
+    // A standby host may be prepared before its terminal (Prepare, then
+    // Bootstrap): its PTY and shell launcher start now (`shell_handoff`).
+    let first = read_frame(reader, adopt_launch::max_payload(adopt_fd))?
+        .ok_or_else(|| anyhow::anyhow!("missing bootstrap frame"))?;
+    #[cfg(unix)]
+    let (prepared, first) = if first.kind == MessageKind::Prepare {
+        // A failed prepare only costs the head start: the Launch runs cold.
+        let prepared = super::super::codec::HostLaunch::decode(&first.payload)
+            .and_then(super::super::super::PreparedShell::start)
+            .ok();
+        let bootstrap = read_frame(reader, adopt_launch::max_payload(adopt_fd))?
+            .ok_or_else(|| anyhow::anyhow!("missing bootstrap frame"))?;
+        (prepared, bootstrap)
+    } else {
+        (None, first)
+    };
+    let mut bootstrapped = crate::terminal_host::bootstrap_stdio_frame(first, writer)?;
     let Some(launch_frame) = read_frame(reader, adopt_launch::max_payload(adopt_fd))? else {
         // Keep the one-frame bootstrap probe useful for compatibility and
         // packaging diagnostics. Production launchers always follow it
@@ -45,7 +61,11 @@ pub fn serve_terminal_host_stdio(
     let (launch, adopt) = adopt_launch::decode(&launch_frame, adopt_fd, &mut bootstrapped)?;
     crate::debug_spans::install(crate::debug_spans::Trace::start("host", Instant::now()));
     crate::debug_spans::label_terminal(|| bootstrapped.terminal_id.to_hex());
-    let (shared, _pty_lock) = match adopt_launch::start(&launch, adopt, &bootstrapped) {
+    #[cfg(unix)]
+    let started = adopt_launch::start(&launch, adopt, &bootstrapped, prepared);
+    #[cfg(windows)]
+    let started = adopt_launch::start(&launch, adopt, &bootstrapped);
+    let (shared, _pty_lock) = match started {
         Ok(shared) => shared,
         Err(error) => {
             let failure = host_launch_failure(&error);

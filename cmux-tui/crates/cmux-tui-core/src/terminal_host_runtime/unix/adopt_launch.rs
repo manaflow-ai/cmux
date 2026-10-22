@@ -223,6 +223,7 @@ pub(crate) fn start(
     launch: &HostLaunch,
     adopt: Option<AdoptSpec>,
     bootstrapped: &crate::terminal_host::BootstrappedHost,
+    prepared: Option<super::PreparedShell>,
 ) -> anyhow::Result<(Arc<HostShared>, PtyOwnershipLock)> {
     let record_path = Path::new(&launch.record_path);
     if let Some(parent) = record_path.parent() {
@@ -234,8 +235,11 @@ pub(crate) fn start(
         &bootstrapped.incarnation.to_hex(),
     )?;
     let shared = match adopt {
-        None => spawn_host_runtime(launch, bootstrapped)?,
-        Some(spec) => spawn_adopted_runtime(launch, bootstrapped, spec)?,
+        None => super::start_host_runtime_prepared(launch, bootstrapped, prepared)?,
+        Some(spec) => {
+            drop(prepared);
+            spawn_adopted_runtime(launch, bootstrapped, spec)?
+        }
     };
     Ok((shared, lock))
 }

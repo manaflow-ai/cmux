@@ -522,6 +522,7 @@ mod unix {
     mod pty_custody;
     mod pty_lock;
     pub(crate) mod session_cleanup;
+    mod shell_handoff;
     mod standby;
     use super::shared::attachment::*;
     use super::shared::clipboard_read::OwnerIntent;
@@ -538,6 +539,8 @@ mod unix {
     pub(crate) use pty_custody::serve as serve_pty_custody;
     pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};
     pub(crate) use pty_lock::{remove_released, sweep_released_pty_locks};
+    pub(crate) use shell_handoff::{PreparedShell, prepare_template};
+    pub use shell_handoff::{SHELL_HANDOFF_ARG, serve_shell_handoff};
     pub(crate) use standby::StandbyTerminalHost;
 
     pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
@@ -595,18 +598,9 @@ mod unix {
         host_signals::install()
     }
 
-    fn spawn_host_runtime(
-        launch: &HostLaunch,
-        bootstrapped: &crate::terminal_host::BootstrappedHost,
-    ) -> anyhow::Result<Arc<HostShared>> {
-        let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
-        let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels);
-        let pty = cmux_pty::open(initial_pty_size)?;
-        crate::debug_spans::mark("host.pty_opened");
-        // A frontend's shell starts through login(1) (`login_shell`); the
-        // recorded launch command stays the shell's.
-        let login = crate::login_shell::wrap(&launch.command, &launch.extra_env);
-        let argv = login.as_deref().unwrap_or(&launch.command);
+    /// The PTY child of `launch` running `argv` (the shell, or what starts
+    /// it): its TERM, COLORTERM, environment and directory.
+    fn host_pty_command(launch: &HostLaunch, argv: &[String]) -> anyhow::Result<PtyCommand> {
         let Some((program, args)) = argv.split_first() else {
             anyhow::bail!("terminal-host launch command is empty");
         };
@@ -624,6 +618,51 @@ mod unix {
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
         }
+        Ok(command)
+    }
+
+    /// The host runtime on `prepared`'s PTY and launch when `launch` is the
+    /// same launch but its terminal ids, else a cold [`spawn_host_runtime`].
+    fn start_host_runtime_prepared(
+        launch: &HostLaunch,
+        bootstrapped: &crate::terminal_host::BootstrappedHost,
+        prepared: Option<PreparedShell>,
+    ) -> anyhow::Result<Arc<HostShared>> {
+        if let Some(prepared) = prepared {
+            match prepared.hand_off(launch) {
+                Ok((master, child)) => {
+                    crate::debug_spans::mark("host.prepared_handed_off");
+                    return start_host_runtime(
+                        launch,
+                        bootstrapped,
+                        master,
+                        child,
+                        &launch.seed,
+                        None,
+                    );
+                }
+                Err(prepared) => {
+                    crate::debug_spans::mark("host.prepared_unmatched");
+                    drop(prepared);
+                }
+            }
+        }
+        spawn_host_runtime(launch, bootstrapped)
+    }
+
+    fn spawn_host_runtime(
+        launch: &HostLaunch,
+        bootstrapped: &crate::terminal_host::BootstrappedHost,
+    ) -> anyhow::Result<Arc<HostShared>> {
+        let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
+        let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels);
+        let pty = cmux_pty::open(initial_pty_size)?;
+        crate::debug_spans::mark("host.pty_opened");
+        // A frontend's shell starts through login(1) (`login_shell`); the
+        // recorded launch command stays the shell's.
+        let login = crate::login_shell::wrap(&launch.command, &launch.extra_env);
+        let argv = login.as_deref().unwrap_or(&launch.command);
+        let command = host_pty_command(launch, argv)?;
         let cmux_pty::SpawnedPty { master, child } = pty.spawn(command)?;
         crate::debug_spans::mark("host.child_spawned");
         let process_group_leader = master.process_group_leader();
@@ -654,7 +693,8 @@ pub(crate) use shared::attachment::launch::{
 pub(crate) use shared::clipboard_read::ClipboardReadSignal;
 #[cfg(any(unix, windows))]
 pub(crate) use shared::codec::{
-    DecodedHostResize, decode_host_resize_payload_for_version, decode_resync_kitty_graphics_limits,
+    DecodedHostResize, HostLaunch, decode_host_resize_payload_for_version,
+    decode_resync_kitty_graphics_limits,
 };
 #[cfg(any(unix, windows))]
 pub use shared::codec::{decode_host_snapshot_payload, encode_host_snapshot_payload};
@@ -695,11 +735,15 @@ pub(crate) use unix::launch_terminal_host_adopting_with_program_status;
 #[cfg(unix)]
 pub(crate) use unix::sweep_released_pty_locks;
 #[cfg(unix)]
+pub(crate) use unix::{PreparedShell, prepare_template};
+#[cfg(unix)]
 pub use unix::{
     PtyCustody, TerminalHostAdoption, enter_terminal_host_process,
     isolate_terminal_host_process_fds, launch_terminal_host_adopting,
     request_terminal_host_pty_custody, terminal_host_root,
 };
+#[cfg(unix)]
+pub use unix::{SHELL_HANDOFF_ARG, serve_shell_handoff};
 
 #[cfg(not(unix))]
 pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {

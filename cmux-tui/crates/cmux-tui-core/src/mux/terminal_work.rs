@@ -220,9 +220,11 @@ impl Mux {
                 Some(terminal_id) => terminal_id,
                 None => TerminalId::random()?,
             };
-            // The spare host process, when one is ready (R81); the next one
-            // starts in the background after this launch.
-            let standby = self.terminal_work.standby.take();
+            // A spare host process, when one is ready (R81), preferably one
+            // prepared for this launch (new-terminal-100x); the next ones
+            // start in the background after this launch.
+            let prepare_key = (launch_opts.cwd.clone(), launch_opts.command.clone());
+            let standby = self.terminal_work.standby.take(Some(&prepare_key));
             let used_spare = standby.is_some();
             crate::debug_spans::mark(if used_spare { "spare.taken" } else { "spare.none" });
             let launch = |standby| {
@@ -242,7 +244,22 @@ impl Mux {
             if launched.is_err() && used_spare {
                 launched = launch(None);
             }
+            // Each prepared spare holds a PTY: when none is free, give theirs
+            // back and launch again.
+            if let Err(error) = &launched
+                && pty_capacity_exhausted(error)
+                && self.terminal_work.standby.release_for_pty_capacity() > 0
+            {
+                launched = launch(None);
+            }
             crate::debug_spans::mark("host.launched");
+            #[cfg(unix)]
+            if let Ok(host) = &launched {
+                self.terminal_work.standby.prepare_for(
+                    prepare_key,
+                    crate::terminal_host_runtime::prepare_template(host.launch()),
+                );
+            }
             self.terminal_work.standby.refill(&self.terminal_work);
             let mut host = launched?;
             debug_assert!(host.terminal_id() == terminal_id);
@@ -413,4 +430,17 @@ mod tests {
         assert!(peak <= MAX_TERMINAL_WORKERS, "peak {peak} workers");
         assert!(peak > 1, "jobs did not overlap");
     }
+}
+
+/// Whether `error` is a terminal host's report that no PTY was free.
+#[cfg(any(unix, windows))]
+fn pty_capacity_exhausted(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause.downcast_ref::<crate::terminal_host_protocol::HostLaunchFailure>().is_some_and(
+            |failure| {
+                failure.kind
+                    == crate::terminal_host_protocol::HostLaunchFailureKind::PtyCapacityExhausted
+            },
+        )
+    })
 }

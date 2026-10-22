@@ -1757,6 +1757,15 @@ fn run_main() {
     // before installing the interactive daemon's signal handlers: the host
     // owns its own lifecycle and must not inherit "request mux shutdown"
     // semantics.
+    // A prepared terminal's shell launcher (new-terminal-100x), started by
+    // a terminal host running this binary: it waits on its PTY for the
+    // terminal's ids, then execs the shell.
+    #[cfg(unix)]
+    if raw_args.first().map(String::as_str)
+        == Some(cmux_tui_core::terminal_host_runtime::SHELL_HANDOFF_ARG)
+    {
+        cmux_tui_core::terminal_host_runtime::serve_shell_handoff(&raw_args);
+    }
     if raw_args.first().map(String::as_str) == Some("__terminal-host") {
         if let Err(error) = run_terminal_host_process(&raw_args[1..]) {
             crate::client_log::stderr_log!("startup", "cmux-tui terminal host: {error}");

@@ -45,6 +45,7 @@ pub fn launch_terminal_host_with_identity(
 ) -> anyhow::Result<HostAttachment> {
     let (colors, kitty) = (default_colors, kitty_graphics_limits);
     launch_terminal_host_from(options, root, colors, cell_pixels, kitty, terminal_id, None, "")
+        .map(|(attachment, _)| attachment)
 }
 
 /// A one-shot owner connection (for example to terminate a host no
@@ -115,6 +116,7 @@ pub(crate) fn adopt_terminal_host_with_kitty_limits(
 /// process when `standby` is `None`. The terminal's directory, command,
 /// environment and size reach the host only now, in its Launch frame, with
 /// the workspace its first record names (`workspace_key`, empty for none).
+/// Also returns that Launch, from which the next spare is prepared.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn launch_terminal_host_from(
     options: &SurfaceOptions,
@@ -153,6 +155,7 @@ pub(crate) fn launch_terminal_host_seeded(
     seed: &[u8],
 ) -> anyhow::Result<HostAttachment> {
     launch_terminal_host_seeded_in(options, root, presentation, terminal_id, standby, seed, "")
+        .map(|(attachment, _)| attachment)
 }
 
 /// [`launch_terminal_host_seeded`] whose host's first record names
@@ -165,7 +168,7 @@ fn launch_terminal_host_seeded_in(
     standby: Option<StandbyTerminalHost>,
     seed: &[u8],
     workspace_key: &str,
-) -> anyhow::Result<HostAttachment> {
+) -> anyhow::Result<(HostAttachment, HostLaunch)> {
     let launch_publication_lock = reserve_terminal_host_publication(root)?;
     crate::debug_spans::mark("host.publication_reserved");
     let owner_token = CapabilityToken::random()?;
@@ -279,5 +282,5 @@ fn launch_terminal_host_seeded_in(
         attachment.launch_activation_pending,
         attachment.protocol_version >= LAUNCH_ACTIVATION_PROTOCOL_VERSION
     );
-    Ok(attachment)
+    Ok((attachment, launch))
 }

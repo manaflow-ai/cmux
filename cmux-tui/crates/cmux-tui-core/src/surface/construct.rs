@@ -143,6 +143,7 @@ impl Surface {
             id,
             terminal_id: _,
             opts,
+            launch: _,
             attachment,
             kitty_reservation,
             terminal_public_id,

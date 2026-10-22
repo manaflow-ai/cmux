@@ -640,7 +640,7 @@ pub(crate) fn put_optional_string(output: &mut Vec<u8>, value: Option<&str>) -> 
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct HostLaunch {
     pub(crate) endpoint: String,
     pub(crate) record_path: String,
@@ -689,6 +689,27 @@ impl HostLaunch {
 }
 
 impl HostLaunch {
+    /// A plain launch for tests that only carry one around.
+    #[cfg(test)]
+    pub(crate) fn stand_in_for_tests() -> Self {
+        Self {
+            endpoint: String::new(),
+            record_path: String::new(),
+            term: "xterm-256color".into(),
+            cols: 80,
+            rows: 24,
+            cell_pixels: (8, 16),
+            scrollback: 0,
+            cwd: None,
+            command: vec!["/bin/sh".into()],
+            extra_env: Vec::new(),
+            default_colors: Default::default(),
+            kitty_graphics_limits: Default::default(),
+            seed: Vec::new(),
+            workspace_key: String::new(),
+        }
+    }
+
     pub(crate) fn encode(&self) -> anyhow::Result<Vec<u8>> {
         if self.command.is_empty() || self.command.len() > MAX_ARGV {
             anyhow::bail!("terminal-host command count is out of range");

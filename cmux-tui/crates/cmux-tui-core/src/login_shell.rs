@@ -35,8 +35,7 @@ const DISABLE: &str = "CMUX_TUI_NO_LOGIN_SHELL";
 /// The script bash runs under login(1): the shell keeps its own `SHELL`
 /// (login(1) sets the account's) and starts as a login shell (`-zsh`).
 /// `$0` and `$@` are the shell's argv, so no argument is quoted into it.
-#[cfg(target_os = "macos")]
-const SCRIPT: &str = "export SHELL=\"$0\"; exec -l \"$0\" \"$@\"";
+pub(crate) const SCRIPT: &str = "export SHELL=\"$0\"; exec -l \"$0\" \"$@\"";
 
 /// Marks `env` for a login(1) start of `argv`, the frontend's shell
 /// (macOS only).
@@ -60,6 +59,18 @@ pub(crate) fn is_marker(key: &str) -> bool {
 /// start when `env` is marked and `argv` is an interactive shell, else None
 /// (run `argv` itself).
 pub(crate) fn wrap(argv: &[String], env: &[(String, String)]) -> Option<Vec<String>> {
+    wrap_with_script(argv, env, SCRIPT)
+}
+
+/// [`wrap`] whose bash runs `script` (with the shell's argv as `$0 "$@"`)
+/// instead of the plain login-shell exec: a prepared terminal's launcher
+/// (`terminal_host_runtime` `shell_handoff`) waits there for its ids after
+/// login(1) has run, then execs the shell as [`wrap`] would.
+pub(crate) fn wrap_with_script(
+    argv: &[String],
+    env: &[(String, String)],
+    script: &str,
+) -> Option<Vec<String>> {
     if !env.iter().any(|(key, value)| is_marker(key) && value == "1") {
         return None;
     }
@@ -73,11 +84,11 @@ pub(crate) fn wrap(argv: &[String], env: &[(String, String)]) -> Option<Vec<Stri
         .find(|(key, _)| key == "HOME")
         .map(|(_, value)| value.clone())
         .or_else(|| std::env::var("HOME").ok());
-    login_argv(argv, home.as_deref())
+    login_argv(argv, home.as_deref(), script)
 }
 
 #[cfg(target_os = "macos")]
-fn login_argv(argv: &[String], launch_home: Option<&str>) -> Option<Vec<String>> {
+fn login_argv(argv: &[String], launch_home: Option<&str>, script: &str) -> Option<Vec<String>> {
     const LOGIN: &str = "/usr/bin/login";
     if !std::path::Path::new(LOGIN).is_file() {
         return None;
@@ -98,14 +109,14 @@ fn login_argv(argv: &[String], launch_home: Option<&str>) -> Option<Vec<String>>
     // -f: no password (a user starting a session as themselves); -l: keep the
     // working directory (bash's `exec -l` makes the login shell instead);
     // -p: keep the environment.
-    let login = ["-flp", &user, "/bin/bash", "--noprofile", "--norc", "-c", SCRIPT];
+    let login = ["-flp", &user, "/bin/bash", "--noprofile", "--norc", "-c", script];
     wrapped.extend(login.map(String::from));
     wrapped.extend(argv.iter().cloned());
     Some(wrapped)
 }
 
 #[cfg(not(target_os = "macos"))]
-fn login_argv(_argv: &[String], _launch_home: Option<&str>) -> Option<Vec<String>> {
+fn login_argv(_argv: &[String], _launch_home: Option<&str>, _script: &str) -> Option<Vec<String>> {
     None
 }
 

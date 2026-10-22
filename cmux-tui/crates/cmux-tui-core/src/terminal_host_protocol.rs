@@ -437,6 +437,12 @@ pub enum MessageKind {
     /// Private-pipe launch of a replacement host that adopts an inherited
     /// PTY master and its running session instead of spawning a child.
     LaunchAdopt = 27,
+    /// Private-pipe frame a standby host may get before `Bootstrap`
+    /// (new-terminal-100x): a `Launch` payload with no identity, for which
+    /// the host opens its PTY and starts the shell launcher now. A later
+    /// Launch of the same directory, command and environment (all but the
+    /// terminal's own ids) hands that launcher the ids and runs its shell.
+    Prepare = 28,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -501,6 +507,7 @@ impl TryFrom<u16> for MessageKind {
             25 => Ok(Self::ClipboardReadCancel),
             26 => Ok(Self::PtyCustody),
             27 => Ok(Self::LaunchAdopt),
+            28 => Ok(Self::Prepare),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),

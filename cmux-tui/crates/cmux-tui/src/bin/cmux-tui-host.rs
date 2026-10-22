@@ -40,6 +40,14 @@ fn main() -> std::process::ExitCode {
         println!("cmux-tui-host {}", cmux_build_identity::BUILD_IDENTITY);
         return std::process::ExitCode::SUCCESS;
     }
+    // A prepared terminal's shell launcher (new-terminal-100x): it waits
+    // on its PTY for the terminal's ids, then execs the shell.
+    #[cfg(unix)]
+    if args.first().map(String::as_str)
+        == Some(cmux_tui_core::terminal_host_runtime::SHELL_HANDOFF_ARG)
+    {
+        cmux_tui_core::terminal_host_runtime::serve_shell_handoff(&args);
+    }
     if args.first().map(String::as_str) == Some("__terminal-host") {
         args.remove(0);
     }

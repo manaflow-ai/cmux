@@ -55,9 +55,19 @@ impl StandbyTerminalHost {
         Ok(Self { process, stdin, stdout, host_pid })
     }
 
+    /// [`Self::spawn`], then prepared for `template` (new-terminal-100x): the
+    /// host opens its PTY and starts the launch's shell launcher now, before
+    /// its terminal exists (`shell_handoff`). A failed prepare in the host
+    /// only costs the head start; its Launch then runs cold.
+    pub(crate) fn spawn_prepared(template: &HostLaunch) -> anyhow::Result<Self> {
+        let mut host = Self::spawn()?;
+        write_frame(&mut host.stdin, &Frame::new(MessageKind::Prepare, template.encode()?))?;
+        Ok(host)
+    }
+
     /// A stand-in for tests: `cat` also waits on its stdin and exits at EOF.
     #[cfg(test)]
-    pub(crate) fn spawn_stand_in() -> anyhow::Result<Self> {
+    pub(crate) fn spawn_stand_in(_prepare: Option<&HostLaunch>) -> anyhow::Result<Self> {
         let mut command = Command::new("cat");
         command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
         let child = command.spawn()?;

@@ -576,6 +576,15 @@ pub fn bootstrap_stdio_once(
 ) -> Result<BootstrappedHost, HostHandshakeError> {
     let frame = read_frame(reader, MAX_HANDSHAKE_PAYLOAD)?
         .ok_or(HostHandshakeError::MalformedPayload("missing bootstrap frame"))?;
+    bootstrap_stdio_frame(frame, writer)
+}
+
+/// [`bootstrap_stdio_once`] on a `Bootstrap` frame the caller already read
+/// (a standby host reads an optional `Prepare` frame first).
+pub(crate) fn bootstrap_stdio_frame(
+    frame: Frame,
+    writer: &mut impl Write,
+) -> Result<BootstrappedHost, HostHandshakeError> {
     if frame.kind != MessageKind::Bootstrap {
         return Err(HostHandshakeError::UnexpectedMessage {
             expected: MessageKind::Bootstrap,
