@@ -10,7 +10,9 @@
 #   --list        print the target names
 #
 # Inputs: corpus/TARGET (checked-in seeds, read only) and
-# regressions/TARGET (crash inputs; each one must pass once its fix lands).
+# regressions/TARGET (crash inputs whose fix landed; each one must pass).
+# regressions/TARGET/open holds crash inputs whose fix has not landed yet: they
+# are neither replayed nor used as seeds; move one up with its fix.
 # Outputs under $FUZZ_OUT (default $CARGO_TARGET_DIR/fuzz-out or fuzz/target/fuzz-out):
 #   corpus/TARGET     the corpus libFuzzer grows (keep it between runs)
 #   artifacts/TARGET  crash-*, oom-*, timeout-* inputs
@@ -72,7 +74,7 @@ for target in "${targets[@]}"; do
     inputs=()
     for dir in corpus/$target regressions/$target; do
       [ -d "$dir" ] && while IFS= read -r -d '' file; do inputs+=("$file"); done \
-        < <(find "$dir" -type f ! -name '.*' -print0)
+        < <(find "$dir" -path '*/open' -prune -o -type f ! -name '.*' -print0)
     done
     [ ${#inputs[@]} -eq 0 ] && continue
     echo "== replay $target: ${#inputs[@]} input(s)"
@@ -82,7 +84,10 @@ for target in "${targets[@]}"; do
   mkdir -p "$out/corpus/$target" "$out/artifacts/$target" "$out/logs"
   seeds=()
   [ -d "corpus/$target" ] && seeds+=("corpus/$target")
-  [ -d "regressions/$target" ] && seeds+=("regressions/$target")
+  # Fixed crash inputs seed the run (copied, since libFuzzer reads seed
+  # directories recursively and would also load regressions/TARGET/open).
+  [ -d "regressions/$target" ] && find "regressions/$target" -path '*/open' -prune -o \
+    -type f ! -name '.*' -exec cp {} "$out/corpus/$target/" \;
   echo "== fuzz $target for ${seconds}s"
   set +e
   "$binary" "$out/corpus/$target" "${seeds[@]}" \

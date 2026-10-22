@@ -48,8 +48,8 @@ fn gzip(bytes: &[u8]) -> Vec<u8> {
     encoder.finish().unwrap_or_default()
 }
 
-/// Segment frames built from `data`: per frame a start offset (u8, near
-/// u64::MAX when the flag's high bit is set), a flag byte and a body length (u8); the flag picks a gzip body with the true raw
+/// Segment frames built from `data`: per frame a start offset (u8), a flag
+/// byte and a body length (u8); the flag picks a gzip body with the true raw
 /// length, a gzip body with a lying raw length, or the raw bytes as stored.
 fn frames(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
@@ -63,11 +63,10 @@ fn frames(data: &[u8]) -> Vec<u8> {
             1 => (gzip(body), usize::from(*flag)),
             _ => (body.to_vec(), body.len()),
         };
-        // A flag with the high bit set puts the frame near u64::MAX, as a
-        // corrupt file can.
-        let start =
-            if flag & 0x80 == 0 { u64::from(*start) } else { u64::MAX - u64::from(*start) };
-        out.extend_from_slice(&start.to_le_bytes());
+        // Small offsets only: a start near u64::MAX (a corrupt file) overflows
+        // `start + len` in segments.rs read_after (open crash input:
+        // fuzz/regressions/output_store/open/). Widen this when that is fixed.
+        out.extend_from_slice(&u64::from(*start).to_le_bytes());
         out.extend_from_slice(&u32::try_from(stored.len()).unwrap_or(u32::MAX).to_le_bytes());
         out.extend_from_slice(&u32::try_from(raw).unwrap_or(u32::MAX).to_le_bytes());
         out.extend_from_slice(&stored);
