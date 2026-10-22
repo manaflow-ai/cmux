@@ -3499,6 +3499,8 @@ button.cv-received__name:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+  max-width: 100%;
   padding: 0;
   border: 0;
   background: none;
@@ -3509,8 +3511,19 @@ button.cv-received__name:focus-visible {
 .cv-waiting__show:hover {
   text-decoration: underline;
 }
+/* A long name ends in an ellipsis, the arrow stays. */
+.cv-waiting__words {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-waiting__show > svg {
+  flex: none;
+}
+/* Inside the line, which clips what overflows it. */
 .cv-waiting__show:focus-visible {
   outline: 1.5px solid var(--cv-text);
-  outline-offset: 2px;
+  outline-offset: -1px;
   border-radius: 3px;
 }

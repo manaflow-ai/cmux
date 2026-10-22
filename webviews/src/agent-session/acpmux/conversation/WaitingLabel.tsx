@@ -43,7 +43,9 @@ export function WaitingLabel({ waiting, className }: { waiting: WaitingOn; class
         className="cv-waiting__show"
         onClick={(event) => revealTrustAsk(event.currentTarget.ownerDocument)}
       >
-        {name ? t("turn.waiting.trustNamed", { name }) : t(WAITING_LABEL.trust)}
+        <span className="cv-waiting__words">
+          {name ? t("turn.waiting.trustNamed", { name }) : t(WAITING_LABEL.trust)}
+        </span>
         <ArrowDown size={12} />
       </button>
     </output>

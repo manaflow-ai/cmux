@@ -202379,7 +202379,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "{agent} can run commands and edit files here, and its hooks, MCP servers and settings load."
+            "value": "{agent} can run commands and edit files here, and the folder's hooks, MCP servers and settings load."
           }
         },
         "es": {

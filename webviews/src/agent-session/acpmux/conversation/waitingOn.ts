@@ -2,8 +2,9 @@
 // question, a permission ask, a secret or a question card above the composer. The running turn's
 // line says so ("Waiting for you to trust atlas-web", pointing at the question: WaitingLabel.tsx)
 // instead of "Thinking" or a ticking clock, so nobody waits on an agent that waits on them (Leo,
-// 2026-10-21: "Thinking" that never ends while the trust question sat out of sight). With no ask open, a turn whose model has said nothing
-// since its prompt past acpmux's `silentTurnMs` (direct.ts `silentTurn`) says "No response from the
+// 2026-10-21: "Thinking" that never ends while the trust question sat out of sight). With no ask
+// open, a turn whose model has said nothing since its prompt past acpmux's `silentTurnMs`
+// (direct.ts `silentTurn`) says "No response from the
 // model yet", so a stalled model is not "Thinking" forever.
 import { createContext } from "react";
 import type { FolderTrustAsk } from "../useFolderTrustAsk";

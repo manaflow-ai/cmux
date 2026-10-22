@@ -188,7 +188,7 @@ test("the repository's own folder has no separate Only this folder; a plain fold
   expect(host.querySelector(".acpmux-trust-ask-text")!.textContent).toBe("Trust this folder?");
   expect(host.querySelector(".acpmux-trust-ask-path")!.textContent).toBe("~/Downloads/thing");
   expect(host.querySelector(".acpmux-trust-ask-detail")!.textContent).toBe(
-    "Claude Code can run commands and edit files here, and its hooks, MCP servers and settings load.",
+    "Claude Code can run commands and edit files here, and the folder's hooks, MCP servers and settings load.",
   );
   expect(buttons()).toEqual(["Trust folder", "Not now"]);
 });
