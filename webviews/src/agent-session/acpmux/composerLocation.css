@@ -1084,8 +1084,8 @@
    Each chip's hover pill sits 8 px out from its text on both sides, the inset of the native
    selection pill (an NSMenu row's highlight, Codex's and ChatGPT's mode chip), not a 4 px sliver
    hugging the label (Leo 2026-10-22: "the highlight pill is too small"). The row's padding is
-   counted from that inset, so the mode's text and the model's text stay where they were; only the
-   pill grows (test/composer-foot-pill-inset.test.ts). No fill, no edge: the chips' rest,
+   counted from that inset, and neighbouring chips tuck the extra padding under each other, so every
+   label stays where it was; only the pill grows (test/composer-foot-pill-inset.test.ts). No fill, no edge: the chips' rest,
    hover, open, press and focus states are the bar's (above). Full access shows its shield, in the
    model chip's color as the quiet chip has it (Leo 2026-10-18, #21744): its "!" mark names the risk
    without the menu, and the menu keeps the warning color where the mode is chosen. */
@@ -1120,6 +1120,16 @@
 .acpmux-composer-foot .acpmux-access .acpmux-picker-button { color: var(--agent-soft); }
 .acpmux-composer-foot :is(.acpmux-model, .acpmux-effort) .acpmux-picker-button { color: var(--agent-muted); }
 .acpmux-composer-foot .acpmux-effort { margin-inline-start: 1px; }
+/* Neighbouring chips on the right (the model, Plan, a harness's Options, the effort) keep their
+   labels 8 px apart, as with the old 4 px inset: each one after the first tucks its leading pill
+   padding under the one before it, so the wider pill moves no label. The later chip takes the
+   pointer over the shared 8 px. */
+.acpmux-composer-foot .acpmux-chips > :not(.acpmux-access) ~ :not(.acpmux-access) {
+  margin-inline-start: calc(8px - 2 * var(--acpmux-row-inset));
+}
+.acpmux-composer-foot .acpmux-chips > :not(.acpmux-access) ~ .acpmux-effort {
+  margin-inline-start: calc(9px - 2 * var(--acpmux-row-inset));
+}
 /* The box with the chips gone, as the Claude desktop composer lays it (Leo 2026-10-20): no row of
    its own under the prompt. + sits left of the prompt and the mic and Send or Stop right of it, all
    on the prompt's last line, so the box is only as tall as the text. The bar and its chrome area
