@@ -18,10 +18,13 @@ use common::*;
 use optchat_chief::brain::{Input, JudgeAsk, ReactionJudge};
 use optchat_chief::daemon::DaemonEvent;
 
+/// The fake classifier's scripted answer.
+type Answer = Box<dyn FnMut(&JudgeAsk) -> Result<String, String> + Send>;
+
 /// A classifier that answers from a script and records what it was asked,
 /// with how many typing events the owner had seen at that moment.
 struct FakeJudge {
-    answer: Mutex<Box<dyn FnMut(&JudgeAsk) -> Result<String, String> + Send>>,
+    answer: Mutex<Answer>,
     asks: Mutex<Vec<(JudgeAsk, usize)>>,
     owner: Arc<Mutex<Owner>>,
 }
