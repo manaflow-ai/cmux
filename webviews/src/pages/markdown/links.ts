@@ -15,9 +15,9 @@ export interface ParsedLink {
 }
 
 /** `cmux://workspace/ws_…`, `pane/…`, `tab/…`, `session/…`, `chief/…`, `agent/…` (with its `?host=&name=` hints) in the `cmux` scheme or a build's
- * `cmux-…` one; the host checks the ids again (DeepLink.parse) and opens nothing it does not know. */
+ * `cmux-…` one, and `cmux://stashed` (the Stashed Tabs page); the host checks the ids again (DeepLink.parse) and opens nothing it does not know. */
 const APP_LINK =
-  /^cmux(-[a-z0-9-]+)?:\/\/(workspace|pane|tab|session|chief|agent)\/[A-Za-z0-9._~/-]+(\?[A-Za-z0-9._~=&-]+)?(#[A-Za-z0-9._~-]+)?$/i;
+  /^cmux(-[a-z0-9-]+)?:\/\/((workspace|pane|tab|session|chief|agent)\/[A-Za-z0-9._~/-]+(\?[A-Za-z0-9._~=&-]+)?(#[A-Za-z0-9._~-]+)?|stashed\/?)$/i;
 
 const MARKDOWN_PATH = /\.(md|markdown|mdx|mdown|mkd)$/i;
 

@@ -296,6 +296,13 @@ final class BrowserPageRequests: BrowserTabDelegate {
             if let url { browserTab(page, didRequest: .openURL(url, .foregroundTab)) }
             return
         }
+        // chrome://history and chrome://bookmarks open cmux's pages; chrome://settings and cmux://stashed
+        // open Settings or the Stashed Tabs page and no workspace (PaneBrowserTabOpener.open, the same route).
+        var url = url
+        if child == nil, let typed = url {
+            guard let routed = ChromiumPageRouter.routed(typed, services: services) else { return }
+            url = routed
+        }
         let engine = BrowserEngineResolver.tag(for: page.engineKind).rawValue
         let choice = Self.choice(adopting: child, inherited: engine, browserTabs: browserTabs)
         let profile = services.browserProfiles.profileID(ofTab: tab)

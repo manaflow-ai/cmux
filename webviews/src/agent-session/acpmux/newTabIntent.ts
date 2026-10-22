@@ -98,7 +98,8 @@ export function classifyNewTabInput(input: string, options: NewTabIntentOptions 
 
 /// The address to load for `text`, or undefined for text. BrowserURLResolver's rules, plus
 /// Chromium internal pages (`chrome://`, `chrome-extension://`, `about:` aliases) in canonical
-/// form, which the app opens in a Chromium tab; then the file-name filter.
+/// form, which the app opens in a Chromium tab, and `cmux://stashed`, which the app opens as the
+/// Stashed Tabs page; then the file-name filter.
 export function newTabURL(input: string, home?: string): string | undefined {
   const trimmed = input.trim();
   if (!trimmed) return undefined;
@@ -166,9 +167,21 @@ function explicitURL(text: string, scheme: string): string | undefined {
     case "chrome":
     case "chrome-extension":
       return chromiumInternalURL(text, scheme);
+    case "cmux":
+      return cmuxAppPage(text);
     default:
       return undefined;
   }
+}
+
+/// cmux's own pages that are no browser page (BrowserURLResolver.cmuxAppPageHosts, the same
+/// list), which the app opens instead of loading. Every other `cmux:` link is text.
+const CMUX_APP_PAGE_HOSTS = new Set(["stashed"]);
+
+/// `cmux://stashed` in canonical form, with any path, query or fragment dropped.
+function cmuxAppPage(text: string): string | undefined {
+  const host = hostOf(text).toLowerCase();
+  return CMUX_APP_PAGE_HOSTS.has(host) ? `cmux://${host}` : undefined;
 }
 
 /// A Chromium internal page in Chromium's canonical form (ChromiumInternalURL.swift, the same
