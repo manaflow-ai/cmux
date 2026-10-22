@@ -36,6 +36,8 @@ public final class HomeSidebarView: NSView {
     public var composeMenu: () -> NSMenu? = { nil }
     /// The Message Requests button was clicked (`showRequests`).
     public var onOpenRequests: () -> Void = {}
+    /// The unread dot's color: the user's `notifications.attention.color`; nil is the notification blue.
+    public var unreadDotColor: NSColor? { didSet { if unreadDotColor != oldValue { applyColors() } } }
 
     let list = CmuxSidebarView()
     /// The header band behind its row: a drag on its empty space moves the window, as on
