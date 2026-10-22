@@ -71,19 +71,43 @@ nonisolated struct SidebarGroupReorder: Sendable {
 
     /// The top-level blocks of `layout`, top to bottom.
     static func blocks(of rows: [SidebarRow]) -> [ClosedRange<CGFloat>] {
-        var blocks: [ClosedRange<CGFloat>] = []
+        partition(rows).map { $0.range }
+    }
+
+    /// Where a drop beside one block goes: its top-level row (the drop goes before or after that row's item) and the
+    /// list position (`DropPosition.index` among the section's nodes) a gap right after the whole block opens at.
+    struct Anchor: Equatable, Sendable {
+        /// The block's first row: a top-level group's header, a loose workspace or item, a section header.
+        var head: SidebarRow
+        /// The node index right after the block: past a group's subgroups, which are nodes of the section too.
+        var nextIndex: Int
+    }
+
+    /// Each block's ``Anchor``, top to bottom, in step with ``blocks(of:)``.
+    static func anchors(of rows: [SidebarRow]) -> [Anchor] {
+        partition(rows).map { $0.anchor }
+    }
+
+    /// One pass over `rows`: a block opens at a top-level row and takes the rows that belong to it. A group's block
+    /// holds its header, its members and their tab rows, its "Done" and "Show more" rows and every subgroup under
+    /// it (rows deeper than the top level, remote-groups-DESIGN.md slice 2), so a parent and its subgroups move as
+    /// one block. A loose workspace's block holds its tab rows.
+    private static func partition(_ rows: [SidebarRow]) -> [(range: ClosedRange<CGFloat>, anchor: Anchor)] {
+        var blocks: [(range: ClosedRange<CGFloat>, anchor: Anchor)] = []
         var open: (group: GroupID?, workspace: WorkspaceID?)? = nil
         for row in rows where row.height > 0 {
+            let inOpenGroup = open?.group != nil && (row.group == open?.group || row.depth > 0)
             let joins: Bool = switch row.key {
-            case .workspace, .item: row.group != nil && row.group == open?.group
-            case let .tab(owner, _): owner == open?.workspace || (row.group != nil && row.group == open?.group)
+            case .workspace, .item, .group, .doneFold, .showMore: inOpenGroup
+            case let .tab(owner, _): owner == open?.workspace || inOpenGroup
             default: false
             }
             if joins, let last = blocks.last {
-                blocks[blocks.count - 1] = last.lowerBound...max(last.upperBound, row.maxY)
+                blocks[blocks.count - 1].range = last.range.lowerBound...max(last.range.upperBound, row.maxY)
+                if case .group = row.key { blocks[blocks.count - 1].anchor.nextIndex = max(last.anchor.nextIndex, row.siblingIndex + 1) }
                 continue
             }
-            blocks.append(row.y...row.maxY)
+            blocks.append((row.y...row.maxY, Anchor(head: row, nextIndex: row.siblingIndex + 1)))
             open = switch row.key {
             case let .group(id): (id, nil)
             case let .workspace(id): (nil, id)
