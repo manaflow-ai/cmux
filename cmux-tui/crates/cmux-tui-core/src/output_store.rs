@@ -207,7 +207,7 @@ struct LogState {
 
 impl LogState {
     fn next_offset(&self) -> u64 {
-        self.tail_start + self.tail.len() as u64
+        self.tail_start.saturating_add(self.tail.len() as u64)
     }
 }
 
@@ -359,12 +359,12 @@ impl OutputStore {
         let overflow = (state.tail.len() + keep).saturating_sub(OUTPUT_TAIL_BYTES);
         let drained = overflow.min(state.tail.len());
         state.tail.drain(..drained);
-        state.tail_start += overflow as u64 + skipped;
+        state.tail_start = state.tail_start.saturating_add(overflow as u64 + skipped);
         state.tail.extend(bytes.get(bytes.len().saturating_sub(keep)..).unwrap_or_default());
         state.last_output = Instant::now();
         if self.full.enabled() {
             if state.pending.is_empty() {
-                state.pending_start = state.next_offset() - bytes.len() as u64;
+                state.pending_start = state.next_offset().saturating_sub(bytes.len() as u64);
             }
             state.pending.extend_from_slice(bytes);
             if state.pending.len() >= FULL_PENDING_WAKE_BYTES {
@@ -449,7 +449,7 @@ impl OutputStore {
         };
         Some(OutputWindow {
             start_offset: start,
-            next_offset: start + take as u64,
+            next_offset: start.saturating_add(take as u64),
             bytes,
             truncated: take < available,
         })

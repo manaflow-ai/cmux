@@ -318,7 +318,9 @@ pub(super) fn stream_ends(
             let terminal_id = TerminalPublicId::parse(path.file_stem()?.to_str()?).ok()?;
             let header = read_header(&path)?;
             let generation = header.get("generation")?.as_str()?.to_owned();
-            let end = header.get("stream_end")?.as_u64()?;
+            // A stream end past half of u64 is no real stream (a corrupt
+            // header); resuming from it would overflow the next offsets.
+            let end = header.get("stream_end")?.as_u64().filter(|end| *end <= u64::MAX / 2)?;
             Some((terminal_id, (generation, end)))
         })
         .collect()
