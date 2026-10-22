@@ -63,6 +63,17 @@ nonisolated extension SidebarLayout {
         return kept.count == shown.count ? shown : kept + [(showMoreIndex, shown.count - kept.count)]
     }
 
+    /// The `drawn` entry a drop gap opens before when its model index is one a fold hides (a drag keeps the folds,
+    /// and a drop between two drawn rows can name the hidden index between them): the first drawn row after it,
+    /// else the fold row itself, so the gap sits where the dropped row will show; the list's end too opens before the
+    /// fold. Nil when the list draws no fold, the gap is elsewhere, or its index is drawn (`openGapIfNeeded` places it).
+    static func gapEntry(_ drawn: [(index: Int, depth: Int)], gap: DropPosition?, section: SectionID, group: GroupID?, count: Int) -> Int? {
+        guard let gap, gap.section == section, gap.group == group, gap.index <= count, drawn.contains(where: { $0.index < 0 }),
+              !drawn.contains(where: { $0.index == gap.index }) else { return nil }
+        // Shown rows come first in model order, then the fold rows (`foldingDone`).
+        return drawn.first { $0.index < 0 || $0.index > gap.index }?.index
+    }
+
     /// Appends the row of a `foldingDone` entry (`doneFoldIndex` or `showMoreIndex`) at `y`: one line, as a document
     /// item's row.
     static func appendFold(_ entry: Int, _ id: SidebarDoneFoldID, count: Int, parent: Int?, color: GroupColor?, last: Bool,
