@@ -124,11 +124,13 @@ public struct PaneContentMatcher: Sendable {
         case let .regex(box):
             let text = String(searchable)
             let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
-            for result in box.expression.matches(in: text, range: nsRange) {
-                guard ranges.count < limit else { break }
-                if let range = Range(result.range, in: text) {
+            // Enumerated so matching stops at `limit`, and with progress reports so a
+            // backtracking pattern stops when the search that asked for it is cancelled.
+            box.expression.enumerateMatches(in: text, options: [.reportProgress], range: nsRange) { result, _, stop in
+                if let result, let range = Range(result.range, in: text) {
                     ranges.append(Self.translate(range, from: text, to: line))
                 }
+                if ranges.count >= limit || Task.isCancelled { stop.pointee = true }
             }
         }
         return ranges
