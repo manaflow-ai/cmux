@@ -5672,10 +5672,13 @@ function AcpmuxPane() {
       const at = parts.findIndex(([id]) => id === promptId);
       const waiting = heldBack.current;
       const unmounted = waiting?.findIndex(
-        (draft) => draft.text === back.text && draft.attachments === back.attachments,
+        (draft) =>
+          draft.text === back.text &&
+          draft.attachments === back.attachments &&
+          (draft.sessionId ?? back.sessionId) === back.sessionId,
       );
       let taken = false;
-      if (composerHandle.current) taken = composerHandle.current.takeBack(parts.map(([, part]) => part), at);
+      if (composerHandle.current) taken = composerHandle.current.takeBack(parts.map(([, part]) => part), at, back.sessionId);
       else if (waiting && unmounted !== undefined && unmounted >= 0) {
         heldBack.current = waiting.filter((_, index) => index !== unmounted);
         taken = true;

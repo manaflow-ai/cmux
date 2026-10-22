@@ -138,8 +138,13 @@ export type ComposerHandle = {
   restore(text: string, attachments: ComposerAttachment[], sessionId?: string): void;
   /// Takes out `parts[index]`, one of the prompts `restore` put in (`parts`, in the order they came
   /// back), when the composer still holds them as they came back (lostPrompt.ts
-  /// `withoutRestored`); true when it did.
-  takeBack(parts: readonly { text: string; attachments: ComposerAttachment[] }[], index: number): boolean;
+  /// `withoutRestored`); true when it did. `sessionId`: the chat they belong to; while the composer
+  /// does not hold that chat with its draft read, only a part still waiting to go in is taken.
+  takeBack(
+    parts: readonly { text: string; attachments: ComposerAttachment[] }[],
+    index: number,
+    sessionId: string,
+  ): boolean;
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
   /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
   attach(attachment: ComposerAttachment): void;
@@ -546,7 +551,22 @@ export function Composer({
         }
         restoreNow(restoredText, restoredAttachments);
       },
-      takeBack(parts, index) {
+      takeBack(parts, index, forSession) {
+        // Not put in yet: it goes from the prompts waiting for that chat.
+        const part = parts[index];
+        const waiting = waitingRestores.current.get(forSession);
+        const queued =
+          part && waiting
+            ? waiting.findIndex((back) => back.text === part.text && back.attachments === part.attachments)
+            : -1;
+        if (waiting && queued >= 0) {
+          const rest = waiting.filter((_, at) => at !== queued);
+          if (rest.length) waitingRestores.current.set(forSession, rest);
+          else waitingRestores.current.delete(forSession);
+          return true;
+        }
+        // Another chat's draft, however alike, is never this chat's.
+        if (shownSession.current !== forSession || readySession.current !== forSession) return false;
         const held = {
           text: field.current?.value() ?? textRef.current,
           attachmentIds: attachmentsRef.current.map((attachment) => attachment.id),
