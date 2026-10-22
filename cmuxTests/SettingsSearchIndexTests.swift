@@ -50,6 +50,7 @@ struct SettingsSearchIndexTests {
         assertSearch("environment variables", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "notification-command"))
         assertSearch("canvas", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "canvas-pane-gap"))
         assertSearch("canvas", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "canvas-snapping"))
+        assertSearch("canvas", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "canvas-dot-grid"))
         assertSearch("canvas", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts"))
     }
 

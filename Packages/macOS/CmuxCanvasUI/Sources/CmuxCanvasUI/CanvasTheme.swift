@@ -13,15 +13,19 @@ public struct CanvasTheme {
     /// pane fills then stay clear so the backdrop shows through, and
     /// ``paneBackground`` only seeds the tab fill colors.
     public var showsWindowBackdrop: Bool
+    /// Whether the canvas draws its orientation dot grid in empty space.
+    public var showsDotGrid: Bool
 
     public init(
         canvasBackground: NSColor,
         paneBackground: NSColor,
-        showsWindowBackdrop: Bool = false
+        showsWindowBackdrop: Bool = false,
+        showsDotGrid: Bool = true
     ) {
         self.canvasBackground = canvasBackground
         self.paneBackground = paneBackground
         self.showsWindowBackdrop = showsWindowBackdrop
+        self.showsDotGrid = showsDotGrid
     }
 }
 

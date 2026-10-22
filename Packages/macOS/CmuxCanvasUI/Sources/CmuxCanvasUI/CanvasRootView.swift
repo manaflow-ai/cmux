@@ -192,6 +192,7 @@ public final class CanvasRootView: NSView {
         scrollView.drawsBackground = !theme.showsWindowBackdrop
         documentView.canvasBackground = theme.canvasBackground
         documentView.drawsBackground = !theme.showsWindowBackdrop
+        documentView.showsDotGrid = theme.showsDotGrid
         for paneView in paneViews.values {
             paneView.paneBackground = theme.paneBackground
             paneView.drawsBackground = !theme.showsWindowBackdrop

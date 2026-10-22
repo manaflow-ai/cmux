@@ -3475,7 +3475,8 @@
         },
         "canvas": {
           "paneGap": "Spacing between panes in the canvas layout, in points. Snapping, tidy, and new-pane placement all use this one gap.",
-          "snappingEnabled": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture."
+          "snappingEnabled": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture.",
+          "showDotGrid": "Draw the orientation dot grid in empty canvas space."
         },
         "fileEditor": {
           "wordWrap": "Soft-wrap lines longer than the editor is wide, so no horizontal scrolling is needed.",
