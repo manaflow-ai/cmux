@@ -590,6 +590,8 @@ def main() -> int:
         return 0
     baseline_path = args.baseline or args.root / "scripts" / DEBT_BASELINE
     baseline = load_debt_baseline(baseline_path)
+    if args.base_root and not args.base_baseline:
+        parser.error("--base-root needs --base-baseline: the base's debt is judged against its own baseline")
     if (args.write_baseline or args.base_baseline or args.base_root) and (args.catalog or args.locale):
         parser.error("--write-baseline, --base-baseline and --base-root judge every catalog and locale")
     debt = debt_counts(findings)
@@ -623,12 +625,14 @@ def main() -> int:
     failed = False
     allowed = baseline
     if args.base_root:
-        # A pull request runs on its merge with the base, so debt the base added since its
+        # A pull request runs on its merge with the base, so debt the base added past its own
         # baseline is in every pull request's count; only the push that added it fails.
+        base_baseline = load_debt_baseline(args.base_baseline) or {}
         base_debt = debt_counts(debt_findings(args.base_root, locales, omissions, counts))
-        for line in debt_raises(base_debt, baseline, DEBT_ENFORCED):
-            print(f"warning: the base is already over the baseline, not this change: {line}")
-        allowed = {catalog: {kind: max(baseline.get(catalog, {}).get(kind, 0), base_debt.get(catalog, {}).get(kind, 0))
+        for line in debt_raises(base_debt, base_baseline, DEBT_ENFORCED):
+            print(f"warning: the base is already over its baseline, not this change: {line}")
+        allowed = {catalog: {kind: baseline.get(catalog, {}).get(kind, 0)
+                             + max(0, base_debt.get(catalog, {}).get(kind, 0) - base_baseline.get(catalog, {}).get(kind, 0))
                              for kind in DEBT_KINDS}
                    for catalog in set(baseline) | set(base_debt)}
     raised = debt_raises(debt, allowed, DEBT_ENFORCED)

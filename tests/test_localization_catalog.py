@@ -465,7 +465,7 @@ class LocalizationDebtRatchetTests(unittest.TestCase):
         base_arguments = self.write_base({"open": self.copied("Open"), "close": self.copied("Close")})
         status, output = self.check(*base_arguments)
         self.assertEqual(status, 0, output)
-        self.assertIn("warning: the base is already over the baseline", output)
+        self.assertIn("warning: the base is already over its baseline", output)
         self.assertIn("identical 1 -> 2", output)
 
     def test_debt_a_pull_request_adds_on_top_of_a_red_base_still_fails(self):
