@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextRemote
 import CmuxNextSettings
 import CmuxNextTabs
 import Observation
@@ -203,8 +204,14 @@ final class AgentTabStore {
         let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase)
         host = resolvedHost
         // Start acpmux while the first pane is loading. The page still owns
-        // the authenticated WebSocket handshake and session selection.
-        Task { try? await resolvedHost.prewarm() }
+        // the authenticated WebSocket handshake and session selection. Then
+        // other machines' daemons get this build, in the background (DaemonUpdatePolicy).
+        Task {
+            try? await resolvedHost.prewarm()
+            guard resolvedHost is AcpmuxHost else { return }
+            let installer = RemoteInstaller(paths: .standard(bundleID: Bundle.main.bundleIdentifier))
+            DaemonUpdatePolicy.startOnce(build: build, environment: environment) { try await installer.download(artifact: $0, nextTo: $1) }
+        }
         #if DEBUG
         switch environment["CMUX_NEXT_AGENT_PANE_FULL_RATE"] {
         case "1": renderRate = .full

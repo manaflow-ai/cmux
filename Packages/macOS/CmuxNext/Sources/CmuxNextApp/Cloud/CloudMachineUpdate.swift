@@ -9,6 +9,12 @@ import Foundation
 /// app's own pinned build (`cmux link machine update`, cmux-tui `link/machine_update.rs`), then moves
 /// the chat. Neither the CLI nor an agent can ask for it, and nothing the invocation carries reaches
 /// the machine: the CLI takes only the machine daemon's socket.
+///
+/// The app may also start the same update by itself (``CloudMachineUpdates``): a connected
+/// machine on another build than the app's is updated, also while an agent works there, with the same
+/// `cmux link machine update` and the same build source (the app's own pinned build; nothing picks
+/// it). That trigger lives only in the app; no CLI verb, action argument or agent reaches it. This
+/// button never reads its ledger: a click always runs.
 @MainActor
 enum CloudMachineUpdate {
     /// The invocation argument the "Update Machine" button sets.
@@ -40,8 +46,9 @@ enum CloudMachineUpdate {
     }
 }
 
-/// Update Machine's text (``CloudMachineUpdate``). Keys live in Resources/Cloud.xcstrings.
-enum CloudMachineUpdateStrings {
+/// Update Machine's text (``CloudMachineUpdate``, and the automatic update's reasons,
+/// ``CloudMachineUpdateTarget``). Keys live in Resources/Cloud.xcstrings.
+nonisolated enum CloudMachineUpdateStrings {
     /// The button on a `machine_outdated` stop's toast.
     static var button: String {
         String(localized: "cloud.machineUpdate.button", defaultValue: "Update Machine", table: "Cloud", bundle: .module)

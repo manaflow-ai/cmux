@@ -80,7 +80,7 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
 /// share one lookup, so they never race to spawn two daemons. A reconnect
 /// only looks; it never starts a daemon.
 public actor AcpmuxHost: AgentPaneHostProviding {
-    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
+    static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
     private let resolveEnvironment: @Sendable () -> AcpmuxEnvironment?
     /// The Computer Use socket and agent token now (`AcpmuxEnvironment.computerUse`),
     /// read at each daemon start, since Computer Use turns on and off while the app runs.
@@ -110,11 +110,26 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// owner hands it off and starts the bundled one (the Chief host,
     /// `ChiefAcpmuxHeal`). Returns whether it did. Nil: this host cannot heal.
     private let healReplaced: (@Sendable () async -> Bool)?
+    /// Restarts this app's own daemon when it is alive but stops answering, while
+    /// `restartsUnresponsive` (the `agent.restartUnresponsiveAcpmux` toggle) is on.
+    private let unresponsive: AcpmuxUnresponsiveWatch
+    private let restartsUnresponsive: @Sendable () -> Bool
+    /// Hands a stale daemon off at a quiet moment while `handsOffWhenQuiet`
+    /// (`agent.replaceStaleAcpmuxWhenQuiet`, ``AcpmuxVersionHandoff``) is on.
+    private let quietHandoff: AcpmuxQuietHandoff
+    private let handsOffWhenQuiet: @Sendable () -> Bool
 
     /// - Parameter healReplaced: called once per daemon pid when a daemon this
     ///   host does not start (`startsDaemons: false`) runs from a replaced bundle.
     public init(environment: AcpmuxEnvironment?, startsDaemons: Bool = true,
                 healReplaced: (@Sendable () async -> Bool)? = nil) {
+        self.init(environment: environment, startsDaemons: startsDaemons, healReplaced: healReplaced, unresponsive: .shared)
+    }
+
+    init(environment: AcpmuxEnvironment?, startsDaemons: Bool = true, healReplaced: (@Sendable () async -> Bool)? = nil,
+         unresponsive: AcpmuxUnresponsiveWatch, quietHandoff: AcpmuxQuietHandoff = .shared,
+         restartsUnresponsive: @escaping @Sendable () -> Bool = { AgentPaneTunables.restartUnresponsiveAcpmux.value },
+         handsOffWhenQuiet: @escaping @Sendable () -> Bool = { AgentPaneTunables.replaceStaleAcpmuxWhenQuiet.value }) {
         self.resolveEnvironment = { environment }
         self.computerUse = { [:] }
         self.offersSessionTools = { environment?.offersSessionTools ?? false }
@@ -123,6 +138,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.daemonReady = { _ in }
         self.startsDaemons = startsDaemons
         self.healReplaced = healReplaced
+        self.unresponsive = unresponsive
+        self.restartsUnresponsive = restartsUnresponsive
+        self.quietHandoff = quietHandoff
+        self.handsOffWhenQuiet = handsOffWhenQuiet
     }
 
     /// Looks for acpmux (bundled, PATH, install directories) on the actor,
@@ -143,6 +162,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.daemonReady = daemonReady ?? { _ in }
         self.startsDaemons = true
         self.healReplaced = nil
+        self.unresponsive = .shared
+        self.restartsUnresponsive = { AgentPaneTunables.restartUnresponsiveAcpmux.value }
+        self.quietHandoff = .shared
+        self.handsOffWhenQuiet = { AgentPaneTunables.replaceStaleAcpmuxWhenQuiet.value }
     }
 
     public func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
@@ -182,6 +205,12 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         // A reconnect during a start waits for that daemon instead of
         // reporting it stopped.
         if !startsDaemon, let task = inFlight[true] { return try await task.value }
+        // A start during a reconnect's lookup waits for it: that lookup may hand a stale daemon
+        // off, and a second handoff at the same time could stop the daemon it started.
+        if startsDaemon, let task = inFlight[false] {
+            _ = try? await task.value
+            if let task = inFlight[true] { return try await task.value }
+        }
         if environment == nil { environment = resolveEnvironment() }
         guard var environment else {
             Self.logger.error("acpmux environment unresolved startsDaemon=\(startsDaemon, privacy: .public)")
@@ -199,12 +228,42 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if let healReplaced {
             heal = { @Sendable (pid: Int32) async -> Bool in await self.healOnce(pid: pid, healReplaced) }
         }
-        let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal) }
+        let upkeep = makeUpkeep(environment, owned: owned)
+        let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal, upkeep: upkeep) }
         inFlight[startsDaemon] = task
-        defer { if inFlight[startsDaemon] == task { inFlight[startsDaemon] = nil } }
-        let endpoint = try await task.value
+        // Cleared as soon as the lookup settles, not after `daemonReady`: a recheck that comes
+        // during it needs a fresh lookup, not this one's sessions read.
+        let result = await task.result
+        if inFlight[startsDaemon] == task { inFlight[startsDaemon] = nil }
+        let endpoint = try result.get()
         await daemonReady(daemonSocket)
         return endpoint
+    }
+
+    /// This host's watchdog and quiet handoff for a lookup in `environment`, per their toggles now.
+    private func makeUpkeep(_ environment: AcpmuxEnvironment, owned: Bool) -> Upkeep {
+        guard owned else { return Upkeep() }
+        var upkeep = Upkeep(watch: restartsUnresponsive() ? unresponsive : nil)
+        guard handsOffWhenQuiet() else { return upkeep }
+        let quiet = quietHandoff
+        let (socket, home) = (environment.socketPath, environment.home.standardizedFileURL.path)
+        upkeep.quietWait = quiet
+        upkeep.onWaiting = { pid in
+            quiet.waitForQuiet(socketPath: socket, home: home, pid: pid) { await self.recheckStale() }
+        }
+        return upkeep
+    }
+
+    /// A stale daemon that was busy may be quiet now: a reconnect's lookup hands it off and
+    /// starts the bundled one (``AcpmuxQuietHandoff``).
+    private func recheckStale() async {
+        // A lookup already under way read the sessions before the event that woke this one.
+        var waited: Task<AcpmuxWebEndpoint, any Error>?
+        while let task = inFlight[false] ?? inFlight[true], task != waited {
+            waited = task
+            _ = try? await task.value
+        }
+        _ = try? await endpoint(startsDaemon: false)
     }
 
     /// The pane's endpoint from `_acpmux/status` read on a connection whose server peer is the
@@ -213,7 +272,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// `~/.acpmux` with older builds) is accepted under ``AcpmuxServerPeer``'s rules 1 and 2; it is never
     /// enrolled, so its allows stay refused. (The pane also checks the port's listener and the
     /// accepted end before its first frame.)
-    private static func verifiedEndpoint(_ environment: AcpmuxEnvironment) async throws -> AcpmuxWebEndpoint {
+    static func verifiedEndpoint(_ environment: AcpmuxEnvironment) async throws -> AcpmuxWebEndpoint {
         let result = try await AcpmuxServerPeer.call(socketPath: environment.socketPath, method: "_acpmux/status",
                                                      params: [:], executable: environment.executable,
                                                      allowForeign: true, deadline: .seconds(2))
@@ -242,119 +301,5 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         let task = Task { await heal() }
         heals[pid] = task
         return await task.value
-    }
-
-    /// A shutdown removes `daemon.pid`; kill -9 or a crash leaves it naming a dead process,
-    /// and a daemon nobody reaped leaves a zombie, which `kill(pid, 0)` still reports alive.
-    private static func crashed(_ home: URL) -> Bool {
-        guard let text = try? String(contentsOf: home.appendingPathComponent("daemon.pid"), encoding: .utf8),
-              let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0 else { return false }
-        return !agentPaneProcessIsRunning(pid)
-    }
-
-    /// Logs `cause` to the daemon's log and makes the error the pane shows.
-    private static func failure(_ environment: AcpmuxEnvironment, _ cause: AcpmuxFailureCause, detail: String) -> AgentPaneHostError {
-        AcpmuxFailureLog(logPath: environment.logPath).record(cause, detail: detail)
-        return .daemonFailed(logPath: environment.logPath, cause: cause)
-    }
-
-    private static func findOrStart(_ environment: AcpmuxEnvironment, startsDaemon: Bool, owned: Bool,
-                                    heal: (@Sendable (Int32) async -> Bool)?) async throws -> AcpmuxWebEndpoint {
-        // cmux NEXT adopts its old acpmux home before it asks or starts a daemon (cx-is1kf.9).
-        await AcpmuxEnvironment.adoptBuildHomes()
-        do {
-            let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
-            // A daemon of another acpmux home answers on this socket: it is another app's or
-            // tag's. Never hand it off, stop it or use it.
-            guard status.serves(home: environment.home) else {
-                logger.error("acpmux socket=\(environment.socketPath, privacy: .public) serves home=\(status.home ?? "", privacy: .public), not this app's home=\(environment.home.path, privacy: .public)")
-                AcpmuxFailureLog(logPath: environment.logPath).record(.foreignHome, detail: "home \(status.home ?? "?")")
-                let holder = status.pid.flatMap(AcpmuxVersionHandoff.executablePath(pid:)).map(AcpmuxServerPeer.holderName(executablePath:))
-                throw AgentPaneHostError.daemonRefused(holder: holder, socketPath: environment.socketPath,
-                                                       reason: "it serves the acpmux home \(status.home ?? ""), not \(environment.home.path)")
-            }
-            // After an update the daemon may be the previous build's: hand it
-            // off (its agents keep running under their hosts) and start ours.
-            // A reconnect never stops or starts a daemon. It still gives a daemon that restarted
-            // this launch's person key (a signed daemon takes it by this app's signature), so
-            // the reconnected pane's allows keep working.
-            guard startsDaemon else {
-                _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
-                await AcpmuxComputerUse.enroll(environment)
-                do {
-                    return try await Self.verifiedEndpoint(environment)
-                } catch let refusal as AcpmuxServerPeer.Refusal {
-                    // A daemon that only runs an old version an update replaced: its owner
-                    // hands it off (its agents are adopted) and starts the bundled one.
-                    if let pid = status.pid, AcpmuxVersionHandoff.replaced(pid: pid) {
-                        AcpmuxFailureLog(logPath: environment.logPath).record(.replacedBundle, detail: "pid \(pid): \(refusal)")
-                        if let heal, await heal(pid) {
-                            logger.info("acpmux \(pid) ran a replaced bundle; its owner restarts it")
-                            throw AgentPaneHostError.daemonRestarting
-                        }
-                        throw Self.refused(refusal, environment, reason: AcpmuxFailureCause.replacedBundle.logText)
-                    }
-                    throw Self.refused(refusal, environment)
-                }
-            }
-            // After an update, or for this launch's person key (`AcpmuxPersonKey`): a daemon
-            // that cannot take the key is handed off and ours starts with it. A daemon no cmux
-            // install runs (`~/.local/bin/acpmux`) is taken over first (`AcpmuxStrayDaemon`).
-            let stray = await AcpmuxStrayDaemon.handOffIfStray(status, environment: environment)
-            let stale = stray ? true : await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment)
-            let stopped = stale ? true : await AcpmuxPersonKey.enroll(status, environment: environment)
-            guard stopped else {
-                await AcpmuxComputerUse.enroll(environment)
-                return try await Self.verifiedEndpoint(environment)
-            }
-        } catch AcpmuxStatusClient.Failure.unreachable {
-            logger.info("acpmux status unreachable socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
-            // Nothing listens on the socket: start a daemon below, unless
-            // the user stopped it. A reconnect starts one only after a crash
-            // (cx-6bgzj); the new daemon adopts the agents still running.
-            guard startsDaemon || owned && crashed(environment.home) else {
-                throw owned ? AgentPaneHostError.daemonStopped : AgentPaneHostError.chiefStopped
-            }
-        } catch AcpmuxStatusClient.Failure.noWebSocket {
-            logger.error("acpmux status returned no websocket socket=\(environment.socketPath, privacy: .public)")
-            throw failure(environment, .noWebSocket, detail: environment.socketPath)
-        } catch is AgentPaneDeadlineExceeded {
-            logger.error("acpmux status timed out socket=\(environment.socketPath, privacy: .public)")
-            throw AgentPaneHostError.timedOut
-        } catch let error as AgentPaneHostError {
-            throw error
-        } catch let refusal as AcpmuxServerPeer.Refusal {
-            throw Self.refused(refusal, environment)
-        } catch {
-            logger.error("acpmux status failed error=\(String(describing: error), privacy: .public)")
-            throw failure(environment, .other, detail: String(describing: error))
-        }
-        do {
-            let endpoint = try await AcpmuxDaemonLauncher.launch(environment)
-            // A signed daemon ignores the spawn key: it takes the key by this app's signature.
-            if let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath) {
-                _ = await AcpmuxPersonKey.enroll(status, environment: environment)
-                await AcpmuxComputerUse.enroll(environment)
-            }
-            return endpoint
-        } catch AcpmuxDaemonLauncher.Failure.exited {
-            logger.error("acpmux launcher exited before ready log=\(environment.logPath, privacy: .public)")
-            // Another client may have started the daemon first; the loser
-            // exits because the socket is taken. Ask the winner.
-            do {
-                await AcpmuxComputerUse.enroll(environment)
-                return try await Self.verifiedEndpoint(environment)
-            } catch let refusal as AcpmuxServerPeer.Refusal {
-                throw Self.refused(refusal, environment)
-            } catch {
-                throw failure(environment, .exited, detail: String(describing: error))
-            }
-        } catch is AgentPaneDeadlineExceeded {
-            logger.error("acpmux launcher timed out log=\(environment.logPath, privacy: .public)")
-            throw AgentPaneHostError.timedOut
-        } catch {
-            logger.error("acpmux launcher failed error=\(String(describing: error), privacy: .public) log=\(environment.logPath, privacy: .public)")
-            throw failure(environment, .other, detail: String(describing: error))
-        }
     }
 }
