@@ -219,11 +219,6 @@ impl Hub {
             Some(child) => child.is_alive().await,
             None => false,
         };
-        let m = session.meta();
-        if !live {
-            let cfg = self.config.read().await;
-            super::resolve::session_profile_checked(&cfg, &m.harness, &m.cwd, m.remote_origin)?;
-        }
         let text = prompt_text(&blocks);
         let running = session.turn();
         let steer_now = steer && session.steering.load(Ordering::SeqCst) && running.is_some();
@@ -232,6 +227,13 @@ impl Hub {
                 "steer.unavailable: the session has no running turn that its agent can steer",
             )
             .with_data(json!({"reason": "steer.unavailable"})));
+        }
+        if !live {
+            // Its folder first: a folder harness is found from the folder (`folder_profiles.rs`).
+            self.folder_ready(session).await?;
+            let m = session.meta();
+            let cfg = self.config.read().await;
+            super::resolve::session_profile_checked(&cfg, &m.harness, &m.cwd, m.remote_origin)?;
         }
         if steer_now && session.moving().is_some() {
             return Err(super::queue::moving_error());
