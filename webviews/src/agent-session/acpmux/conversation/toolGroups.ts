@@ -3,6 +3,7 @@
 // other agents and calls to the cmux-subsessions tools as cards, and everything else as its own row.
 import type { AcpmuxActivity } from "../model";
 import type { Translate } from "../i18n";
+import { isBareShellName } from "../toolPaths";
 import { agentMessage, type AgentMessage } from "./agentMessages";
 import { mcpCall, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
@@ -92,14 +93,17 @@ export function isRunning(tool: Tool): boolean {
   return tool.status === "pending" || tool.status === "in_progress";
 }
 
-/// A call in flight with nothing to show yet: Claude sends a call before its input, which the
-/// model is still writing (a Bash with no command for up to 20s), and one a turn left that way
+/// A shell call in flight with nothing to show yet: Claude sends a call before its input, which
+/// the model is still writing (a Bash with no command for up to 20s), and one a turn left that way
 /// never gets any. Its row would only say "Running a command", so the transcript draws none
-/// (conversation/turns.ts `withoutDrafts`): the live line names it, and its row comes with its input.
+/// (conversation/turns.ts `withoutDrafts`): the live line names it ("Writing a command"), and its
+/// row comes with its input. Only a shell call: another tool may take no input at all (`{}`), and
+/// its row is the only record that it ran.
 export function isDraftCall(tool: Tool): boolean {
   return (
     isRunning(tool) &&
-    !tool.command?.trim() &&
+    tool.kind === "execute" &&
+    isBareShellName(tool, tool.title) &&
     !tool.description &&
     !tool.output &&
     !tool.background &&
