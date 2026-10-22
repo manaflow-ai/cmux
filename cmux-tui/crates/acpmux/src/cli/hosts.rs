@@ -136,6 +136,12 @@ pub(crate) fn ssh_argv(host: &str, script: &str) -> Result<Vec<String>> {
         .collect())
 }
 
+/// The script inside an [`ssh_argv`] command string (tests and diagnostics).
+pub(crate) fn script_of(command: &str) -> Option<String> {
+    let _ = command;
+    None
+}
+
 /// `scp -q -o BatchMode=yes -- LOCAL HOST:REMOTE`.
 fn scp_push_argv(host: &str, local: &str, remote: &str) -> Result<Vec<String>> {
     let host = checked_host(host)?;
@@ -571,6 +577,32 @@ fn getrandom_fill(buf: &mut [u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What the remote login shell does with ssh's command string: runs it with `-c`.
+    fn as_login_shell(shell: &str, argv: &[String]) -> Option<String> {
+        let out = std::process::Command::new(shell).arg("-c").arg(argv.last()?).output().ok()?;
+        Some(String::from_utf8_lossy(&out.stdout).into_owned())
+    }
+
+    #[test]
+    fn a_remote_script_runs_the_same_under_zsh_bash_and_sh_login_shells() {
+        // macOS logs in with zsh, where an unmatched glob aborts the whole command
+        // ("no matches found"): enroll's probe saw no daemon and no config on a Mac
+        // without a cmux app. Every script runs under /bin/sh whatever the login shell.
+        let script = "for f in /nonexistent-cmux*.app/x; do [ -e \"$f\" ] && echo hit; done; printf 'after %s\\n' \"it's\"";
+        let argv = ssh_argv("leo@huge-blue", script).unwrap();
+        assert_eq!(
+            &argv[..6],
+            ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "--", "leo@huge-blue"]
+        );
+        for shell in ["/bin/sh", "/bin/bash", "/bin/zsh"] {
+            if !std::path::Path::new(shell).exists() {
+                continue;
+            }
+            assert_eq!(as_login_shell(shell, &argv).as_deref(), Some("after it's\n"), "{shell}");
+        }
+        assert_eq!(script_of(&argv[6]).as_deref(), Some(script));
+    }
 
     /// Records each script and its stdin; answers ok with `stdout`.
     struct Recorder(std::cell::RefCell<Vec<(String, Option<Vec<u8>>)>>, &'static str);
