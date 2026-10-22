@@ -201,6 +201,9 @@ impl Hub {
         let control = opts.control;
         let trust_gate = opts.trust_gate;
         let mut on_accepted = opts.on_accepted;
+        // Over its CPU or RAM budget, the host says so to whoever sent it (`host_load.rs`). Never
+        // waits: an await here would let a later prompt overtake this one.
+        let host_pressure = self.host_pressure_warning();
         // The prompts this one replaced (`supersede.rs`), named in its acceptance: set where it
         // is committed (queued, started, or steered in), never before a refusal.
         let supersede = opts.supersede.clone();
@@ -209,6 +212,9 @@ impl Hub {
             if let Some(f) = on_accepted.take() {
                 if supersede.is_some() {
                     super::queue::supersede::mark(&mut v, replaced.get());
+                }
+                if let (Some(obj), Some(pressure)) = (v.as_object_mut(), &host_pressure) {
+                    obj.insert("host_pressure".into(), pressure.clone());
                 }
                 f(v);
             }

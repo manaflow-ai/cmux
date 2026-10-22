@@ -417,7 +417,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     .filter(|_| !lost_race && launch::never_prompted(info));
                 if let Some(text) = &first {
                     let prompt = PromptId::new(args.prompt_id.clone());
-                    queue_prompt(client, &id, text, false, None, &prompt).await?;
+                    warn_host_pressure(
+                        &queue_prompt(client, &id, text, false, None, &prompt).await?,
+                    );
                 }
                 show();
                 if json_out {
@@ -485,7 +487,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 if args.detach {
                     // The prompt is queued before the sidebar step, so a
                     // session never runs without its instructions.
-                    queue_prompt(client, &id, &text, false, None, &prompt).await?;
+                    warn_host_pressure(
+                        &queue_prompt(client, &id, &text, false, None, &prompt).await?,
+                    );
                     show();
                     return Ok(());
                 }
