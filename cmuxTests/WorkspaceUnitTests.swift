@@ -1527,31 +1527,14 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
     }
 
     func testSettingsFileStoreParsesSidebarGroupMemberIndentWithinRange() throws {
-        let defaults = UserDefaults.standard
         let managedKey = SettingCatalog().sidebar.groupMemberIndent.userDefaultsKey
-        let previousValue = defaults.object(forKey: managedKey)
-        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
-        defer {
-            if let previousValue {
-                defaults.set(previousValue, forKey: managedKey)
-            } else {
-                defaults.removeObject(forKey: managedKey)
-            }
-
-            if let previousBackups {
-                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
-            } else {
-                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
-            }
-        }
-
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
         let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
 
         for (raw, expected) in [("28", 28), ("0", 0), ("49", nil), ("-1", nil)] as [(String, Int?)] {
-            defaults.removeObject(forKey: managedKey)
-            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            let (defaults, suiteName) = try makeIsolatedSettingsFileDefaults()
+            defer { defaults.removePersistentDomain(forName: suiteName) }
             try writeSettingsFile(
                 """
                 {
@@ -1566,6 +1549,10 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             _ = KeyboardShortcutSettingsFileStore(
                 primaryPath: settingsFileURL.path,
                 fallbackPath: nil,
+                additionalFallbackPaths: [],
+                notificationCenter: NotificationCenter(),
+                userDefaults: defaults,
+                languageSettingsStore: LanguageSettingsStore(defaults: defaults, domainName: suiteName),
                 startWatching: false
             )
 
