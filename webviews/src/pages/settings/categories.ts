@@ -27,6 +27,7 @@ export const CATEGORY_CARDS = [
   "density",
   "importSuggestions",
   "channels",
+  "webUpdates",
   "voiceInput",
   "notices",
 ] as const;
