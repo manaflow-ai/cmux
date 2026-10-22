@@ -627,7 +627,16 @@ export class MockSettingsProvider {
       { id: "default", title: "Default", subtitle: null, active: true },
       { id: "work", title: "Work", subtitle: null, active: false },
     ],
-    machines: [{ id: "ssh:build", title: "build-mac", subtitle: "cmux@build-mac", active: true }],
+    machines: [
+      {
+        id: "ssh:build",
+        title: "build-mac",
+        subtitle: "cmux@build-mac",
+        active: true,
+        color: "#7F5FA8",
+        color_key: "build-mac",
+      },
+    ],
     // A DEV build: the home.voiceInput tunable exists, on as Leo set it.
     voice_input: { on: true },
     browser_profiles: [

@@ -21,7 +21,7 @@ extension TabCell {
         }()
         label.font = Typography.caption
         label.string = badge
-        themeScope.perform { [name = item.machineName ?? badge] in label.foregroundColor = MachineColor(name: name).color.cgColor }
+        themeScope.perform { label.foregroundColor = item.machineColor.color.cgColor }
     }
 
     /// Places the machine badge at the end of the title area when the title
@@ -39,4 +39,10 @@ extension TabCell {
         machineLayer.opacity = 1
         return titleEnd - width - Metrics.space2
     }
+}
+
+extension TabItem {
+    /// The badge's machine color (MachineColor, with the person's pick): from the machine's own
+    /// name when the badge shows another.
+    var machineColor: MachineColor { MachineColor(name: machineName ?? machineBadge ?? "") }
 }
