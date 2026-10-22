@@ -164,8 +164,8 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
     /// goes by `daemon`'s audit token (`proc_signal_with_audittoken`): the kernel looks the pid up,
     /// holds that process and refuses with `ESRCH` unless its pid version is the token's, so
     /// however long this thread stops between the look and the signal (a debugger, say), a pid
-    /// handed to another process meanwhile is never signalled. Without a watch (no kqueue) or a
-    /// look at it (`kevent` fails) nothing is sent.
+    /// handed to another process meanwhile is never signalled. Without a watch (no kqueue), a
+    /// look at it (`kevent` fails) or that call (macOS 14.0 and 14.1, ``signalByToken``) nothing is sent.
     static func signal(_ daemon: Daemon, _ signal: Int32, process: (Int32) -> Daemon?) -> Bool? {
         let pid = daemon.pid
         let queue = kqueue()
@@ -182,10 +182,20 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
         var now = timespec(tv_sec: 0, tv_nsec: 0)
         let looked = Darwin.kevent(queue, nil, 0, &seen, 1, &now)
         guard looked == 0 else { return looked > 0 }
+        guard let signalByToken = Self.signalByToken else { return false }
         var token = daemon.token
         // libproc returns the error itself (0 when sent), not -1 and errno.
-        let failure = proc_signal_with_audittoken(&token, signal)
+        let failure = signalByToken(&token, signal)
         return failure == 0 ? nil : failure == ESRCH
+    }
+
+    /// libproc's `proc_signal_with_audittoken`, looked up at run time: the libproc of macOS 14.0
+    /// and 14.1 lacks it (14.2's has it) and the SDK declares it with no availability, so a direct call
+    /// would fail to load the app there. Nil where it is missing; looked up at each signal (a restart).
+    typealias SignalByToken = @convention(c) (UnsafeMutablePointer<audit_token_t>, Int32) -> Int32
+    static var signalByToken: SignalByToken? {
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "proc_signal_with_audittoken") else { return nil }
+        return unsafeBitCast(symbol, to: SignalByToken.self)
     }
 
     /// The process `pid` names now (its start time from `proc_pidinfo`, its audit token from its
