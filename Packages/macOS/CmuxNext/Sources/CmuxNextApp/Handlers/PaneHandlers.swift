@@ -38,6 +38,7 @@ enum PaneHandlers {
     /// A pane-navigation key (Focus Pane Left, Next Pane, a pane number, a column key) moves focus
     /// where the person asked, so the layout records a keyboard move: no without-a-click flash.
     static func focusByKey(_ pane: LayoutPaneID, in content: WorkspaceContentController) {
+        DebugPaneFocus.began(content.focus)
         content.layoutModel.focus(pane, notify: false, source: .keyboard)
         focus(pane, in: content)
     }

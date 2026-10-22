@@ -808,3 +808,21 @@ code {
     mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
   }
 }
+
+/* Host glyphs (apps-web-DESIGN.md): cmux's own drawing as an alpha mask, inked in the text color. */
+.apps-glyph {
+  display: inline-block;
+  flex: none;
+  background-color: currentColor;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+}
+
+.apps-icon-tile {
+  display: inline-grid;
+  place-items: center;
+  color: var(--page-text);
+  background: var(--page-hover);
+  border: 1px solid var(--page-separator);
+}
