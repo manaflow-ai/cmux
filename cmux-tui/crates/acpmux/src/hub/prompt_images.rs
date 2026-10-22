@@ -18,6 +18,43 @@ fn dir() -> PathBuf {
 /// The records that name a prompt's images.
 const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
 
+/// The type a kept file's bytes are, from their magic number: PNG, JPEG, GIF, WebP, BMP, TIFF,
+/// HEIC/HEIF, AVIF and PDF. `None` for anything else (an SVG is text: its record names it).
+fn sniffed_type(bytes: &[u8]) -> Option<&'static str> {
+    let at = |offset: usize, magic: &[u8]| bytes.get(offset..offset + magic.len()) == Some(magic);
+    if at(0, b"\x89PNG\r\n\x1a\n") {
+        return Some("image/png");
+    }
+    if at(0, b"\xff\xd8\xff") {
+        return Some("image/jpeg");
+    }
+    if at(0, b"GIF87a") || at(0, b"GIF89a") {
+        return Some("image/gif");
+    }
+    if at(0, b"RIFF") && at(8, b"WEBP") {
+        return Some("image/webp");
+    }
+    if at(0, b"BM") && bytes.len() >= 14 {
+        return Some("image/bmp");
+    }
+    if at(0, b"II*\0") || at(0, b"MM\0*") {
+        return Some("image/tiff");
+    }
+    if at(0, b"%PDF-") {
+        return Some("application/pdf");
+    }
+    // An ISO base media file: its `ftyp` box names the brand.
+    if at(4, b"ftyp") {
+        match bytes.get(8..12)? {
+            b"heic" | b"heix" | b"heim" | b"heis" | b"hevc" | b"hevx" => return Some("image/heic"),
+            b"mif1" | b"msf1" | b"heif" => return Some("image/heif"),
+            b"avif" | b"avis" => return Some("image/avif"),
+            _ => {}
+        }
+    }
+    None
+}
+
 /// A kept image's name: 64 lowercase hex digits, never a path.
 fn valid_id(id: &str) -> bool {
     id.len() == 64 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
@@ -100,6 +137,10 @@ impl Hub {
     /// read stops at the first that names it; an image never kept is refused without reading the
     /// log. Reading every record from the first took 16.7 s for one image of a 701 MB chat, and
     /// the bubble showed an empty box meanwhile (Leo, 2026-10-21).
+    ///
+    /// Its `mimeType` is the type its bytes are (`sniffed_type`), so it does not depend on which
+    /// record the read finds: one id is one set of bytes, though two prompts may have labelled
+    /// them differently. Only bytes of no known type take the newest record's label.
     pub fn prompt_image(&self, session: &str, id: &str) -> Result<Value, RpcError> {
         let missing = || RpcError::not_found(format!("no image {id} in this chat"));
         let path = dir().join(id);
@@ -130,9 +171,42 @@ impl Hub {
         let named = named.ok_or_else(missing)?;
         let bytes = std::fs::read(path).map_err(|_| missing())?;
         use base64::Engine;
+        let mime = sniffed_type(&bytes)
+            .map(|known| json!(known))
+            .or_else(|| named.get("mimeType").cloned())
+            .unwrap_or_else(|| json!("image/png"));
         Ok(json!({
-            "mimeType": named.get("mimeType").cloned().unwrap_or_else(|| json!("image/png")),
+            "mimeType": mime,
             "data": base64::engine::general_purpose::STANDARD.encode(bytes),
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sniffed_type;
+
+    #[test]
+    fn a_kept_files_type_comes_from_its_magic_number() {
+        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+        assert_eq!(sniffed_type(png), Some("image/png"));
+        assert_eq!(sniffed_type(b"\xff\xd8\xff\xe0\0\x10JFIF"), Some("image/jpeg"));
+        assert_eq!(sniffed_type(b"GIF89a\x01\0\x01\0"), Some("image/gif"));
+        assert_eq!(sniffed_type(b"GIF87a\x01\0\x01\0"), Some("image/gif"));
+        assert_eq!(sniffed_type(b"RIFF\x24\0\0\0WEBPVP8 "), Some("image/webp"));
+        assert_eq!(sniffed_type(b"BM\x36\0\0\0\0\0\0\0\x36\0\0\0"), Some("image/bmp"));
+        assert_eq!(sniffed_type(b"II*\0\x08\0\0\0"), Some("image/tiff"));
+        assert_eq!(sniffed_type(b"MM\0*\0\0\0\x08"), Some("image/tiff"));
+        assert_eq!(sniffed_type(b"\0\0\0\x18ftypheic\0\0\0\0"), Some("image/heic"));
+        assert_eq!(sniffed_type(b"\0\0\0\x18ftypmif1\0\0\0\0"), Some("image/heif"));
+        assert_eq!(sniffed_type(b"\0\0\0\x1cftypavif\0\0\0\0"), Some("image/avif"));
+        assert_eq!(sniffed_type(b"%PDF-1.7\n"), Some("application/pdf"));
+        // Text, a short or truncated header, another ISO brand, or nothing: no type.
+        assert_eq!(sniffed_type(b"<svg xmlns='http://www.w3.org/2000/svg'/>"), None);
+        assert_eq!(sniffed_type(b"\x89PNG"), None);
+        assert_eq!(sniffed_type(b"BM"), None);
+        assert_eq!(sniffed_type(b"\0\0\0\x18ftypisom\0\0\0\0"), None);
+        assert_eq!(sniffed_type(b"\0\0\0\x18ftyp"), None);
+        assert_eq!(sniffed_type(b""), None);
     }
 }
