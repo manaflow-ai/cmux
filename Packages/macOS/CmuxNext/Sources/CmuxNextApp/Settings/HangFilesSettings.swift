@@ -9,12 +9,12 @@ import CmuxNextSettings
 /// (``HangEpisodeRecorder``) and the list of recent ones on the Debug Settings page. English
 /// developer text, as every Debug Settings section (plans/cmux-next/debug-settings.md).
 enum HangFileTunables {
-    static let section = TunableSection(id: "hangs", title: "Hangs", symbol: "exclamationmark.triangle", order: 100)
+    nonisolated static let section = TunableSection(id: "hangs", title: "Hangs", symbol: "exclamationmark.triangle", order: 100)
 
     /// On (the default): a main thread blocked for 2 s writes its stack to
     /// `~/Library/Logs/<bundle id>/hangs`, one file per hang. Release and RC never activate the
     /// tunable store, so they keep it on too.
-    static let enabled = Tunable<Bool>.toggle(
+    nonisolated static let enabled = Tunable<Bool>.toggle(
         "diagnostics.hangFiles", section, "Write a file for each main-thread hang",
         help: "When the main thread is blocked for 2 seconds, the watchdog writes its stack to ~/Library/Logs/<bundle id>/hangs (the newest 20 files are kept) and finishes the file with the duration once the app answers again. The list below shows them.",
         default: true, code: "HangFileTunables.enabled")
