@@ -174,6 +174,41 @@ fn busy_chief_answers_every_message_that_stopped_it_in_the_next_turn() {
     assert_no_receipt(&h);
 }
 
+/// The turn the message stops may end in an error instead of a clean
+/// cancel (the harness dies on the cancel): it still posts nothing, no
+/// "turn failed" line, and is not run again; the next turn answers.
+#[test]
+fn busy_chief_stopped_turn_that_ends_in_an_error_posts_nothing() {
+    let mut h = Harness::new(busy_first_turn());
+    h.connect();
+    busy(&mut h);
+    {
+        let mut inner = h.agents.inner.lock().unwrap();
+        inner.ignore_cancels = usize::MAX;
+        inner.answer_error = Some("the agent process exited".into());
+    }
+    h.say("user_local", "use the other branch");
+    h.agents.wait_cancels(1);
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle_posts();
+    let prompts = prompt_texts(&h);
+    assert_eq!(
+        prompts.len(),
+        2,
+        "no retry of the stopped turn: {prompts:?}"
+    );
+    assert!(
+        prompts[1].contains("use the other branch"),
+        "{}",
+        prompts[1]
+    );
+    let sends = h.owner.lock().unwrap().sends();
+    assert_eq!(sends.len(), 1, "only the next turn's reply: {sends:?}");
+    assert!(sends[0].1.contains("answer 1"), "{sends:?}");
+    assert_no_receipt(&h);
+}
+
 /// A message that comes while the turn's session is still starting is never
 /// steered into it once it starts: the turn stops, the next one answers.
 #[test]
