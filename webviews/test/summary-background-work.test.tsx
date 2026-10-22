@@ -4,26 +4,20 @@
 // (inspector/processes.ts `backgroundCommands`, whose merge chat-inspector-tasks.test.tsx covers),
 // running ones first with their time and Stop, the finished folded into one row; the chats the
 // agent started sit under Subagents with their state; an empty card draws one quiet line instead
-// of "None" under every title. The running turn's line counts started chats; and between turns one
-// compact row says what still runs.
-import { afterEach, expect, setSystemTime, test } from "bun:test";
+// of "None" under every title. The running turn's line counts started chats. What still runs
+// between turns shows in the tray above the composer (subagent-tray.test.tsx).
+import { afterEach, expect, jest, setSystemTime, test } from "bun:test";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
-import { BackgroundWorkLine } from "../src/agent-session/acpmux/conversation/BackgroundWorkRow";
 import {
   type WorkingCounts,
   WorkingCountsContext,
   WorkingFor,
 } from "../src/agent-session/acpmux/conversation/WorkingFor";
-import { isLastFooter, type AcpmuxRow } from "../src/agent-session/acpmux/model";
+import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
-import {
-  BACKGROUND_WORK,
-  backgroundRowShown,
-  NO_BACKGROUND,
-} from "../src/agent-session/acpmux/conversation/backgroundWork";
 import { orderedSessions } from "../src/agent-session/acpmux/inspector/ChildSessionRows";
 import { backgroundCommands, processesOf } from "../src/agent-session/acpmux/inspector/processes";
 import type { SessionSummary, SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
@@ -68,6 +62,7 @@ afterEach(async () => {
     else scope[key] = value;
   }
   saved.clear();
+  jest.useRealTimers();
   setSystemTime();
 });
 
@@ -106,6 +101,8 @@ const emptySummary = (fields: Partial<SessionSummary> = {}): SessionSummary => (
 });
 
 test("the card lists running commands with their time and Stop, and folds the finished into one row", async () => {
+  // The running times tick on a clock the test moves.
+  jest.useFakeTimers();
   setSystemTime(new Date(100_000));
   const container = installDom();
   const commands = backgroundCommands(
@@ -150,11 +147,8 @@ test("the card lists running commands with their time and Stop, and folds the fi
   expect(stops.map((stop) => stop.getAttribute("aria-label"))).toEqual(["Stop bun run dev", "Stop tsc --watch"]);
   await act(async () => stops[0]!.click());
   expect(stopped).toEqual(["s1/a"]);
-  // The time ticks.
-  await act(async () => {
-    setSystemTime(new Date(102_000));
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
-  });
+  // The time ticks: two seconds on, the row reads two seconds more.
+  await act(async () => void jest.advanceTimersByTime(2_000));
   expect(rows()[0]).toEqual(["bun run dev", "1m 18s"]);
 });
 
@@ -262,46 +256,4 @@ test("the running turn's line counts the started chats that run", () => {
     </WorkingCountsContext.Provider>,
   );
   expect(text(html)).toBe("Working for 26s · 2 commands · 3 sessions");
-});
-
-test("between turns, one row says what still runs; nothing while a turn runs or nothing does", () => {
-  const work = { commands: 2, sessions: 3, agents: 0 };
-  expect(backgroundRowShown(false, work)).toBe(true);
-  // The running line counts the same work.
-  expect(backgroundRowShown(true, work)).toBe(false);
-  expect(backgroundRowShown(false, NO_BACKGROUND)).toBe(false);
-  expect(backgroundRowShown(false, { commands: 0, sessions: 0, agents: 1 })).toBe(true);
-  const html = renderToStaticMarkup(
-    <WorkingCountsContext.Provider value={counts({ background: work, openBackground: () => {} })}>
-      <BackgroundWorkLine />
-    </WorkingCountsContext.Provider>,
-  );
-  expect(text(html)).toBe("Running in background · 2 commands · 3 sessions");
-  // Status, not transcript: chat find skips it.
-  expect(html).toContain("data-find-skip");
-  // Without its counts it draws nothing.
-  expect(renderToStaticMarkup(<BackgroundWorkLine />)).toBe("");
-});
-
-test("the row opens the summary card", async () => {
-  const container = installDom();
-  let opened = 0;
-  await render(
-    container,
-    <WorkingCountsContext.Provider
-      value={counts({ background: { commands: 1, sessions: 0, agents: 0 }, openBackground: () => (opened += 1) })}
-    >
-      <BackgroundWorkLine />
-    </WorkingCountsContext.Provider>,
-  );
-  await act(async () => container.querySelector<HTMLButtonElement>(".cv-bgwork")!.click());
-  expect(opened).toBe(1);
-});
-
-test("the row under the last footer leaves it the last footer, so it moves nothing", () => {
-  const footer: AcpmuxRow = { id: "f", kind: "turnSummary", version: 1, at: 0 };
-  const row: AcpmuxRow = { id: BACKGROUND_WORK, kind: BACKGROUND_WORK, version: 1, at: 0 };
-  expect(isLastFooter(footer, undefined)).toBe(true);
-  expect(isLastFooter(footer, row)).toBe(true);
-  expect(isLastFooter(footer, { id: "u", kind: "user", version: 1, at: 1 })).toBe(false);
 });

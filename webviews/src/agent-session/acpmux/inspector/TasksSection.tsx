@@ -5,8 +5,10 @@
 // `backgroundCommands`: Claude's background Bash, Ctrl-B's included). A row opens the command's
 // terminal beside the chat (processTerminal.ts); a command the registry lists also has Stop.
 // Dev servers are listed under Servers instead (ServersSection.tsx). The list scrolls inside the
-// section; nothing is cut to a few rows.
+// section; nothing is cut to a few rows. A command that starts while the list is drawn drops in at
+// the top (ui/presence.ts `useArrivals`); the ones the list is drawn with are simply there.
 import { useState } from "react";
+import { useArrivals } from "../../../ui/presence";
 import { formatDuration } from "../conversation/turns";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -14,7 +16,7 @@ import { rowIconSize } from "../icons/iconSize";
 import { openProcessTerminal } from "../processTerminal";
 import { useNow } from "../subagents/SubagentGroup";
 import type { SummaryWakeup } from "../summary/sessionSummary";
-import { splitCommands, type BackgroundCommand } from "./processes";
+import { arrivalKey, splitCommands, type BackgroundCommand } from "./processes";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -42,13 +44,19 @@ export function TasksSection({
   const [showFinished, setShowFinished] = useState(false);
   const { running, finished } = splitCommands(commands);
   const now = useNow(running.length > 0);
-  const row = (command: BackgroundCommand, time: string | undefined, state?: string) => {
+  // Every command's id, so opening the finished fold, or a command finishing, replays nothing.
+  const { arrived, played } = useArrivals(commands.map(arrivalKey));
+  const row = (command: BackgroundCommand, time: string | undefined, state?: string, enters = false) => {
     const toolCallId = command.toolCallId;
     return (
       <li
         key={command.id}
         className="acpmux-chat-inspector-task acpmux-chat-inspector-task--command"
         data-state={command.state}
+        data-enter={enters ? "top" : undefined}
+        onAnimationEnd={
+          enters ? (event) => event.target === event.currentTarget && played(arrivalKey(command)) : undefined
+        }
       >
         <button
           type="button"
@@ -80,6 +88,8 @@ export function TasksSection({
               command.startedAt !== undefined
                 ? formatDuration(Math.max(0, now - command.startedAt))
                 : t(COMMAND_STATE.running),
+              undefined,
+              arrived.has(arrivalKey(command)),
             ),
           )}
           {scheduled.map((wakeup) => (

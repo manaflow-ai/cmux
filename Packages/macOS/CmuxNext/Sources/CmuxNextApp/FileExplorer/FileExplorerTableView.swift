@@ -9,6 +9,8 @@ final class FileExplorerTableView: NSTableView {
     var perform: (@MainActor (String) -> Void)?
     /// The rows of the right-click menu, made for the clicked row.
     var contextMenu: (@MainActor () -> NSMenu?)?
+    /// Cmd-Delete: Move to Trash, as in Finder.
+    var trash: (@MainActor () -> Void)?
 
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -16,6 +18,7 @@ final class FileExplorerTableView: NSTableView {
         case (36, []), (76, []): perform?("fileExplorerOpenSelection")
         case (125, [.command]), (125, [.command, .numericPad, .function]), (125, [.command, .function]):
             perform?("fileExplorerOpenSelectionFinderAlias")
+        case (51, [.command]): trash?()
         default: super.keyDown(with: event)
         }
     }
@@ -23,6 +26,8 @@ final class FileExplorerTableView: NSTableView {
     override func menu(for event: NSEvent) -> NSMenu? {
         let row = row(at: convert(event.locationInWindow, from: nil))
         if row >= 0, !selectedRowIndexes.contains(row) { selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
-        return row >= 0 ? contextMenu?() : nil
+        // The empty area: no selection, so the menu offers New File and New Folder in the root.
+        if row < 0 { deselectAll(nil) }
+        return contextMenu?()
     }
 }

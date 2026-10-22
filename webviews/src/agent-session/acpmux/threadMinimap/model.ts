@@ -2,6 +2,7 @@
 // (the Codex desktop app's prompt rail). Pure functions, so geometry and previews need no DOM.
 import type { AcpmuxRow } from "../model";
 import { opensTurn } from "../turnStart";
+import { MOTION_MS } from "../../../motion/scale.generated";
 
 export type ReplySpan = { text: string; bold: boolean };
 export type ReplyBlock = { kind: "paragraph" | "item"; spans: ReplySpan[] };
@@ -46,13 +47,13 @@ export const THREAD_PADDING_TOP = 16;
 /// A click's smooth scroll (Codex's Chromium smooth scroll, fitted), and a Previous or Next Turn step's.
 export const JUMP_CURVE = [0.35, 0.05, 0, 1] as const;
 export const STEP_CURVE = [0.3, 0.2, 0, 1] as const;
-export const STEP_MS = 200;
+export const STEP_MS = MOTION_MS.standard;
 /// The preview card opens this long after the pointer reaches the rail (Codex's `delayOpen`, 250 ms).
 /// Shorter than the app's 450 ms hover delay (ui/hoverIntent.ts): the rail is a deliberate target,
 /// and the card is the point of hovering it. Once one shows, the next row's follows at once.
 export const CARD_DELAY = 250;
 /// When older turns load above the rail's rows and move them, the rail glides back over this long.
-export const SHIFT_MS = 200;
+export const SHIFT_MS = MOTION_MS.standard;
 /// A jump keeps correcting its landing for up to this many frames while the rows it crossed measure.
 export const SETTLE_FRAMES = 45;
 /// The landing highlight on the prompt's bubble.

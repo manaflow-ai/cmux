@@ -9,4 +9,6 @@ nonisolated struct FileExplorerRow: Equatable, Sendable {
     var depth: Int
     var isFolder: Bool
     var isExpanded: Bool
+    /// The item's git state; nil when clean or outside a repository.
+    var git: FileGitState?
 }

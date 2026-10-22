@@ -188,29 +188,10 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${CHAT}`);
     await page.getByText(`Question ${TURNS}`, { exact: true }).waitFor({ timeout: 60_000 });
-    await page.waitForTimeout(500);
-
-    // Opening fetched the tail only, and capped its size: acpmux ends a page at maxBytes, the most a
-    // remote session's open downloads.
-    const attach = requests.find((request) => request.method === "_acpmux/attach")!;
-    expect(attach.sent).toBeLessThanOrEqual(400);
-    // The only other read at open is the turn opener's (direct.ts fetchTurnOpener): the tail starts
-    // mid-turn, so the pane asks for a few prompt records before it to show what that turn was asked.
-    const openerReads = requests.filter(isOpenerRead);
-    expect(openerReads.length).toBeLessThanOrEqual(1);
-    expect(openerReads.every((request) => request.params.limit <= 16)).toBe(true);
-    expect(
-      requests.filter(
-        (request) => request.method === "_acpmux/events" && request.params.limit > 1 && !isOpenerRead(request),
-      ),
-    ).toEqual([]);
-    expect(attach.params.maxBytes).toBeLessThanOrEqual(128 * 1024);
-    expect(await page.getByText("Question 1", { exact: true }).count()).toBe(0);
-
-    // Each wheel step settles: no page in flight and the offset still for 120ms, timed in the page by
-    // frame. Polled from here (three reads 40ms apart, after one to start from) it cost four round
-    // trips a step: 65s of the 281 steps on the CI runner, where the wheel lands in one frame, and the
-    // file ran into its 120s limit when the runner was loaded.
+    // The open, and each wheel step, settles: no page in flight and the offset still for 120ms, timed
+    // in the page by frame. Polled from here (three reads 40ms apart, after one to start from) it cost
+    // four round trips a step: 65s of the 281 steps on the CI runner, where the wheel lands in one
+    // frame, and the file ran into its 120s limit when the runner was loaded.
     const settle = async () => {
       for (const started = Date.now(); Date.now() - started < 5_000;) {
         const sent = replies;
@@ -234,6 +215,25 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
         if (held && inflight === 0 && replies === sent) return;
       }
     };
+    await settle();
+
+    // Opening fetched the tail only, and capped its size: acpmux ends a page at maxBytes, the most a
+    // remote session's open downloads.
+    const attach = requests.find((request) => request.method === "_acpmux/attach")!;
+    expect(attach.sent).toBeLessThanOrEqual(400);
+    // The only other read at open is the turn opener's (direct.ts fetchTurnOpener): the tail starts
+    // mid-turn, so the pane asks for a few prompt records before it to show what that turn was asked.
+    const openerReads = requests.filter(isOpenerRead);
+    expect(openerReads.length).toBeLessThanOrEqual(1);
+    expect(openerReads.every((request) => request.params.limit <= 16)).toBe(true);
+    expect(
+      requests.filter(
+        (request) => request.method === "_acpmux/events" && request.params.limit > 1 && !isOpenerRead(request),
+      ),
+    ).toEqual([]);
+    expect(attach.params.maxBytes).toBeLessThanOrEqual(128 * 1024);
+    expect(await page.getByText("Question 1", { exact: true }).count()).toBe(0);
+
     // The reader scrolls up with the wheel. Each step, a message in the upper part of the view must
     // move down by at most what the wheel scrolled and stay in view, however many older turns landed
     // above it meanwhile.
@@ -289,7 +289,7 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
       if (moved < -1 || moved > 301)
         jumps.push(`${before.mark.text}: moved ${moved.toFixed(1)}px at scrollTop ${before.top} -> ${after.top}`);
     }
-    await page.waitForTimeout(500);
+    await settle();
 
     const older = requests.filter(
       (request) =>

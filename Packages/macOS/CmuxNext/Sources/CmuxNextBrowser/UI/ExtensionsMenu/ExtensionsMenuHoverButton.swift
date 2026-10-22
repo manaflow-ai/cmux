@@ -40,11 +40,11 @@ final class ExtensionsMenuHoverButton: NSView {
         }
     }
 
-    /// Selected: the accent fill and glyph (a pinned extension's pin).
+    /// Selected: the accent fill and the lit glyph (a pinned extension's pin).
     var isSelected = false {
         didSet {
             guard isSelected != oldValue else { return }
-            if isSelected { imageView.themeTint = { Palette.accentFill } } else { imageView.themeTint = tint }
+            if isSelected { imageView.themeTint = { Palette.litGlyph } } else { imageView.themeTint = tint }
             needsDisplay = true
         }
     }

@@ -8,28 +8,47 @@ public nonisolated enum MotionTunables {
     // MARK: Springs (speed "fast")
 
     static let springDefaults: [MotionSpring: (SpringParameters, String)] = [
+        // Every spring ends visibly (within 0.5% of its travel, `SpringParameters.perceivedDuration`)
+        // by `MotionScale.ceiling`, 240 ms (Leo 2026-10-20: "animations all around are a bit slow";
+        // MotionScaleTests). A spring over it got a shorter response and kept its damping fraction,
+        // so its character stays. Visible ends below are simulated at 480 Hz.
         // Structural (design-tokens.json motion.springs, motion.structural): critically damped by
         // default, response short enough that a move ends visibly (within 0.5%) by 0.18 s (hq-1d D1).
         .move: (SpringParameters(response: 0.15, dampingFraction: 1), "Tab reflow and reorder, sidebar row moves, pane and divider frames."),
-        .zoom: (SpringParameters(response: 0.30, dampingFraction: 1), "A pane zooming to fill its screen and back (Cmd-Shift-Enter)."),
-        .exit: (SpringParameters(response: 0.24, dampingFraction: 1), "A window closing: its fade out (a pane close takes the split spring)."),
+        // 0.30 ended visibly at 354 ms; 0.2 ends at 235 ms, under the ceiling (Leo 2026-10-20).
+        .zoom: (SpringParameters(response: 0.2, dampingFraction: 1), "A pane zooming to fill its screen and back (Cmd-Shift-Enter)."),
+        // 0.24 ended visibly at 283 ms; 0.2 ends at 235 ms, under the ceiling (Leo 2026-10-20).
+        .exit: (SpringParameters(response: 0.2, dampingFraction: 1), "A window closing: its fade out (a pane close takes the split spring)."),
         .tabOpen: (SpringParameters(response: 0.1, dampingFraction: 1), "A new tab growing in at its slot and the tabs right of it making room."),
-        // plans/cmux-next/split-spring-animation/DESIGN.md: half its travel at ~73 ms (the key reads as
-        // answered), a 700 pt split visibly at rest by ~375 ms, overshoot under 0.1 pt.
-        .split: (SpringParameters(response: 0.28, dampingFraction: 0.95), "Cmd-D and Cmd-Shift-D: the new pane growing in while its whole chain makes room, on one spring."),
+        // plans/cmux-next/split-spring-animation/DESIGN.md: slightly under-damped (0.95) for a short
+        // tail, overshoot under 0.1 pt on 700 pt. 0.28 ended visibly at 287 ms (half its travel at
+        // 73 ms); 0.23 ends at 235 ms, under the ceiling, half its travel at 60 ms (Leo 2026-10-20).
+        .split: (SpringParameters(response: 0.23, dampingFraction: 0.95), "Cmd-D and Cmd-Shift-D: the new pane growing in while its whole chain makes room, on one spring."),
         .appear: (SpringParameters(response: 0.135, dampingFraction: 1), "Palette scale-in, tab grow-in, group expand, row insert, sidebar show."),
         .disappear: (SpringParameters(response: 0.11, dampingFraction: 1), "Tab close, group collapse, row removal, sidebar hide."),
+        // Ends visibly at 235 ms, between standard and the ceiling on purpose: it carries the
+        // pointer's release velocity, and reaching 180 ms would take a 0.168 response (70% stiffer),
+        // which makes a drop snap instead of land.
         .settle: (SpringParameters(response: 0.22, dampingFraction: 0.85), "Release after a drag: tab drop, ghost landing, sidebar row drop."),
-        .scroll: (SpringParameters(response: 0.22, dampingFraction: 0.9), "Tab strip reveal, strip column reveal, wheel notch, fling snap."),
-        .screen: (SpringParameters(response: 0.22, dampingFraction: 0.9), "Screen switch slide."),
+        // 0.22 ended visibly at 190 ms; 0.2 ends at 173 ms, inside standard (Leo 2026-10-20).
+        .scroll: (SpringParameters(response: 0.2, dampingFraction: 0.9), "Tab strip reveal, strip column reveal, wheel notch, fling snap."),
+        .screen: (SpringParameters(response: 0.2, dampingFraction: 0.9), "Screen switch slide."),
         .track: (SpringParameters(response: 0.12, dampingFraction: 0.9), "Drop-zone overlay and the drag ghost jumping between targets."),
         .selection: (SpringParameters(response: 0.15, dampingFraction: 0.9), "Page info toggle state change. The sidebar selection does not animate."),
-        .panel: (SpringParameters(response: 0.18, dampingFraction: 0.85), "Hover card slide."),
+        // 0.18 ended visibly at 194 ms; 0.165 ends at 177 ms, inside standard (Leo 2026-10-20).
+        .panel: (SpringParameters(response: 0.165, dampingFraction: 0.85), "Hover card slide."),
         // Lawrence 2026-10-20 (Home's Chief pill popover, "animation needs to be better"): the card
-        // grows out of its control on a ~0.25 s spring with a hint of give, like an NSPopover.
-        .popover: (SpringParameters(response: 0.25, dampingFraction: 0.86), "A popup growing out of its control (Chief pill, group editors, page info, menus)."),
-        .popoverClose: (SpringParameters(response: 0.16, dampingFraction: 1), "A popup shrinking back toward its control as it fades: faster than its open."),
-        .pinDrag: (SpringParameters(response: 0.3512407365520363, dampingFraction: 0.8385254915624211),
+        // grows out of its control on a spring with a hint of give (0.86), like an NSPopover. 0.25
+        // ended visibly at 248 ms; 0.24 ends at 238 ms, under the ceiling (Leo 2026-10-20).
+        .popover: (SpringParameters(response: 0.24, dampingFraction: 0.86), "A popup growing out of its control (Chief pill, group editors, page info, menus)."),
+        // Leaving: 0.16 ended visibly at 188 ms; 0.15 ends at 177 ms, inside standard and still
+        // well over the 0.1 s that reads as a cut (Leo 2026-10-20).
+        .popoverClose: (SpringParameters(response: 0.15, dampingFraction: 1), "A popup shrinking back toward its control as it fades: faster than its open."),
+        // MessagesLab `SidebarPinDragging.spring` (stiffness 320, damping 30: response 0.351) ended
+        // visibly at 390 ms. Its damping fraction stays, so tiles still land with the same give
+        // (about 1.6 pt overshoot on 200 pt); response 0.215 ends at 238 ms, under the ceiling
+        // (Leo 2026-10-20).
+        .pinDrag: (SpringParameters(response: 0.215, dampingFraction: 0.8385254915624211),
                    "Home list pin drag: tiles making room, rows below the grid, a dropped tile landing."),
     ]
 
@@ -57,29 +76,33 @@ public nonisolated enum MotionTunables {
 
     // MARK: Fades and loops
 
+    /// Every timed fade is a `MotionScale` step (or 0, instant), so nothing reads slow (Leo
+    /// 2026-10-20: "animations all around are a bit slow"). Off-scale values went to the nearest
+    /// step that is not longer. `highlight` and `hibernateRing` are long ambient fades, not
+    /// transitions, and stay off the scale (MotionScaleTests lists them).
     static let fadeDefaults: [MotionFade: (TimeInterval, String)] = [
-        .hover: (0.08, "Hover and pressed fills easing in, hover-revealed buttons, divider hover."),
-        .hoverReveal: (0.12, "A group header's + and more fading in and out with the pointer (opacity only)."),
+        .hover: (MotionScale.quick, "Hover and pressed fills easing in, hover-revealed buttons, divider hover."),
+        .hoverReveal: (MotionScale.micro, "A group header's + and more fading in and out with the pointer (opacity only)."),
         .hoverOut: (0, "Hover and pressed fills clearing: 0 is instant (as in Edge); about 0.12 leaves a short trail on a sweep."),
-        .focus: (0.1, "Pane focus ring."),
-        .paneDim: (0.15, "The dim over an unfocused pane easing in and out when focus moves."),
+        .focus: (MotionScale.quick, "Pane focus ring."),
+        .paneDim: (MotionScale.micro, "The dim over an unfocused pane easing in and out when focus moves."),
         .focusFlash: (0.5, "The focus ring flashed on a pane focus moved to without a click, fading out (focus.flashOnMove)."),
-        .fadeIn: (0.12, "Palette, find bar, notices, hover card appear."),
-        .fadeOut: (0.08, "Palette close, find bar, notices, hover card hide."),
-        .crossfade: (0.1, "Hover card thumbnail swap; also the Reduce Motion ceiling."),
-        .scrim: (0.18, "Whole-window wash easing in and out (the dim under the palette, an inactive window)."),
-        .lift: (0.12, "Sidebar drag lift shadow."),
-        .theme: (0.16, "Room, workspace or terminal theme switch."),
+        .fadeIn: (MotionScale.micro, "Palette, find bar, notices, hover card appear."),
+        .fadeOut: (MotionScale.quick, "Palette close, find bar, notices, hover card hide."),
+        .crossfade: (MotionScale.quick, "Hover card thumbnail swap; also the Reduce Motion ceiling of every fade."),
+        .scrim: (MotionScale.standard, "Whole-window wash easing in and out (the dim under the palette, an inactive window)."),
+        .lift: (MotionScale.micro, "Sidebar drag lift shadow."),
+        .theme: (MotionScale.micro, "Room, workspace or terminal theme switch."),
         .highlight: (1.2, "Settings row highlight after a search jump or deep link fades out."),
-        .launch: (0.24, "Launch mark resolving on the glass (scaled by the animation speed; stays under 400 ms)."),
-        .clickPulse: (0.25, "Agent cursor click ripple grows and fades (cmux-cua timing)."),
-        .cursorHide: (0.3, "Agent cursor fades out once its agent goes idle."),
-        .hibernateIcon: (0.25, "Hibernated tab favicon shrinks into its ring, and grows back on wake (Chrome: 250 ms)."),
+        .launch: (MotionScale.large, "Launch mark resolving on the glass (scaled by the animation speed; stays under 400 ms)."),
+        .clickPulse: (MotionScale.large, "Agent cursor click ripple grows and fades (cmux-cua timing, 250 ms there)."),
+        .cursorHide: (MotionScale.large, "Agent cursor fades out once its agent goes idle."),
+        .hibernateIcon: (MotionScale.large, "Hibernated tab favicon shrinks into its ring, and grows back on wake (Chrome: 250 ms)."),
         .hibernateRing: (1.0, "Hibernated tab dotted ring fades in (Chrome: 1 s)."),
     ]
 
     static let fades: [MotionFade: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionFade.allCases.map { token in
-        let entry = fadeDefaults[token] ?? (0.1, "")
+        let entry = fadeDefaults[token] ?? (MotionScale.quick, "")
         return (token, Tunable.number("motion.fade.\(token.rawValue)", .fades, "\(token.rawValue) fade", help: entry.1,
                                       default: entry.0, range: 0...(token == .highlight ? 3 : 1), step: 0.01, unit: .seconds,
                                       code: "MotionTunables.fadeDefaults[.\(token.rawValue)]"))
@@ -102,6 +125,11 @@ public nonisolated enum MotionTunables {
     })
 
     // MARK: Marquee and panel scale
+
+    // Not on the motion scale: the marquee delay and hold, the tooltip delay and warm time, the
+    // hover card grace and aim, and the launch delays below are hover-intent and wait times, not
+    // animations (no transition plays during them), and the marquee scroll is an ambient pass at a
+    // reading speed. The panel and popup scales are sizes, not durations.
 
     public static let marqueeDelay = Tunable<Double>.number(
         "motion.marquee.delay", .hover, "Marquee delay", help: "Pointer rest before a clipped title starts to scroll.",
@@ -151,7 +179,8 @@ public nonisolated enum MotionTunables {
     /// User, 2026-10-20: the agent cursor's motion is "quick: short, snappy".
     /// A glide keeps the cmux-cua path (speed envelope, then the spring
     /// settle) and plays it in this share of its time, never longer than
-    /// ``agentCursorGlideMax``.
+    /// ``agentCursorGlideMax``, the motion scale's ceiling (Leo 2026-10-20;
+    /// it was 0.28 s).
     public static let agentCursorGlideScale = Tunable<Double>.number(
         "motion.agentCursor.glideScale", .fades, "Agent cursor glide time",
         help: "Share of the cmux-cua glide time an agent cursor glide plays in.",
@@ -159,7 +188,7 @@ public nonisolated enum MotionTunables {
     public static let agentCursorGlideMax = Tunable<Double>.number(
         "motion.agentCursor.glideMax", .fades, "Agent cursor glide limit",
         help: "The longest an agent cursor glide plays, however far it goes.",
-        default: 0.28, range: 0.05...1, step: 0.01, unit: .seconds, code: "MotionTunables.agentCursorGlideMax")
+        default: MotionScale.large, range: 0.05...1, step: 0.01, unit: .seconds, code: "MotionTunables.agentCursorGlideMax")
 
     // MARK: Launch
 

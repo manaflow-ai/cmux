@@ -1,4 +1,6 @@
-// The line over a running turn's work: "Working for 42s", ticking each second from the prompt,
+// The line over a running turn's work, with the Codex-style turn off (Debug toggles codexToolRuns
+// or liveLineBelow; with both on, the default, the turn's one live line at its bottom is
+// Thinking.tsx and it draws the same counts): "Working for 42s", ticking each second from the prompt,
 // or held at `durationMs` while text streams. While a call runs (`row.doing`, turns.ts) it names
 // that call beside the time instead, as Claude desktop's line does, after the terminal glyph when
 // the call is a command; not while the call's own tool row is on screen, which names it already.
@@ -8,7 +10,9 @@
 // commands that have not ended (the process registry's and the transcript's,
 // inspector/processes.ts `backgroundCommands`) and chats the agent started that are running. Each count opens what it
 // counts. The counts follow on the same fixed-height line, so one that comes or goes moves neither
-// the label nor the rows below. Before them, as Claude desktop's line does, it says the turn's tokens so far
+// the label nor the rows below. With the running tray on (the default, subagents/runningTray.ts)
+// the tray above the composer is the count, and App.tsx counts nothing here. Before them, as Claude
+// desktop's line does, it says the turn's tokens so far
 // ("5m 54s · 2.1M tokens") when the harness reports them (direct.ts `turnTokens`). When the turn
 // ends, the "Worked for" disclosure takes its place. While the turn waits on the person (an ask
 // above the composer, waitingOn.ts), the line says so in place of the time and the call: the clock
@@ -20,7 +24,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { type PaneLanguage, type Translate, usePaneLanguage, useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
-import type { BackgroundCounts } from "./backgroundWork";
 import { TerminalSquare } from "./icons";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { formatDuration } from "./turns";
@@ -40,10 +43,6 @@ export type WorkingCounts = {
   openSessions: () => void;
   /// The turn's tokens so far (snapshot `turnTokens`), when the harness reports them.
   tokens?: number;
-  /// What still runs between turns, and what opens it: the "Running in background" row at the
-  /// transcript's end counts it (BackgroundWorkRow.tsx).
-  background?: BackgroundCounts;
-  openBackground?: () => void;
 };
 
 /// "2.1M tokens": the running turn's tokens, compact in the pane's language.

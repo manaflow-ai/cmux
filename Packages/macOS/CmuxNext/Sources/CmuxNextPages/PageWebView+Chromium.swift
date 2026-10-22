@@ -34,8 +34,12 @@ extension PageWebView {
             // its own reason, any other one is on WebKit because Chromium is missing.
             return PageEnginePolicy(preference: .chromium, chromiumAvailable: false).decide(for: descriptor, options: options)
         }
+        // A live web override reaches only WebKit pages; deciding also arms its watch, so a launch
+        // whose first page is a Chromium one still reads web-dev.json.
+        WebDevOverrideWatcher.shared.start()
         return PageEnginePolicy(preference: hosting.preference, chromiumAvailable: hosting.isAvailable,
-                                chromiumServes: hosting.serves(descriptor)).decide(for: descriptor, options: options)
+                                chromiumServes: hosting.serves(descriptor),
+                                liveWebOverride: WebDevOverride.current.isActive).decide(for: descriptor, options: options)
     }
 
     /// The view that takes the keyboard when the page is focused: Chromium's view or the WebKit view.
@@ -90,12 +94,13 @@ extension PageWebView {
     }
 
     private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts) async {
-        let bridge = ChromiumPageHostBridge(page: page, fireAndForget: Self.chromiumFireAndForget)
+        let handlers = Self.chromiumFireAndForget + chromiumMessageHandlers.keys.sorted()
+        let bridge = ChromiumPageHostBridge(page: page, fireAndForget: handlers)
         let session = PageChromiumSession(page: page, bridge: bridge, clock: chromiumClock)
         page.onEvent = { [weak self] event in self?.chromiumEvent(event) }
         page.resources = { [weak self] url in await self?.chromiumResource(url) ?? .notFound }
         do {
-            for (method, params) in ChromiumPageHostBridge.setupCalls(handlers: Self.chromiumFireAndForget,
+            for (method, params) in ChromiumPageHostBridge.setupCalls(handlers: handlers,
                                                                        documentScripts: scripts.sources) {
                 _ = try await page.devTools(method, params: params)
             }
@@ -122,6 +127,7 @@ extension PageWebView {
         page.contentView.frame = bounds
         page.contentView.autoresizingMask = [.width, .height]
         addSubview(page.contentView)
+        applyNativeRects()
         page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
         page.load(descriptor.url(route: route))
         let wait = chromiumDeadline
@@ -221,7 +227,7 @@ extension PageWebView {
             case .cancel: break
             }
         default:
-            break
+            chromiumMessageHandlers[name]?(body)
         }
     }
 

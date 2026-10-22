@@ -75,6 +75,7 @@ beforeEach(() => {
   header = "duration";
   live = true;
   content = 0;
+  // The tests below this file's "every finished thought" block check the older Debug choices.
   threshold = "viewport";
   animations = [];
   thoughtLayout.threshold = () => threshold;
@@ -336,4 +337,57 @@ test("with explicit animation off the toggle does not schedule a Web Animation",
 test("the folded line reads the first line without heading marks", () => {
   expect(thoughtPreview("**Planning the retry fix**\n\nMore detail.")).toBe("Planning the retry fix");
   expect(thoughtPreview("## Check errors\nnext")).toBe("Check errors");
+});
+
+// Every finished thought folds to one quiet "Thought for 12s" with no text inline, as Claude Desktop
+// and Codex draw it (Leo 2026-10-20: "Thought I am here" read weird); a quiet one draws nothing.
+const SUMMARY = "I am here: the retry helper swallows the status, so check how it parses errors.";
+
+test("by default a short finished thought folds to Thought for 12s with no text inline, and opens to it", () => {
+  threshold = "every";
+  height = 20;
+  render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 13_400 }, false, "every:0");
+  expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+  expect(toggle()?.textContent).toBe("Thought for 12s");
+  expect(container.textContent).not.toContain("I am here");
+  expect(body()).toBeNull();
+  click();
+  expect(body()?.textContent).toBe(SUMMARY);
+});
+
+test("by default a finished thought that took under a second reads Thought, folded", () => {
+  threshold = "every";
+  height = 20;
+  render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 1_400 }, false, "every-quick:0");
+  expect(toggle()?.textContent).toBe("Thought");
+  expect(body()).toBeNull();
+});
+
+test("an empty, blank or very short quick thought draws no row once done", () => {
+  threshold = "every";
+  for (const [index, item] of [
+    thought(""),
+    thought("  \n "),
+    { ...thought("I am here"), startedAt: 1_000, endedAt: 1_500 },
+    thought("Done."),
+  ].entries()) {
+    render(item, false, `quiet-${index}:0`);
+    expect(container.textContent).toBe("");
+    act(() => root!.unmount());
+    root = undefined;
+  }
+  // A short thought the agent spent seconds on still says so.
+  render({ ...thought("I am here"), startedAt: 1_000, endedAt: 4_000 }, false, "quiet-long:0");
+  expect(toggle()?.textContent).toBe("Thought for 3s");
+});
+
+test("a short thought still streaming draws, and folds once done", () => {
+  threshold = "every";
+  height = 20;
+  render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 1_200 }, true, "every-live:0");
+  expect(toggle()).toBeNull();
+  expect(container.querySelector(".cv-thought__text")?.textContent).toBe(SUMMARY);
+  render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 6_000 }, false, "every-live:0");
+  expect(toggle()?.textContent).toBe("Thought for 5s");
+  expect(body()).toBeNull();
 });

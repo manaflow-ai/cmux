@@ -29,7 +29,7 @@ extension SidebarListViewComponents {
             view.isSelected = selectedRowKey == key
             switch (key, view) {
             case let (.workspace(id), row as WorkspaceRowView):
-                row.isSecondarySelected = model.selection.contains(id) && !row.isSelected
+                paintSecondaryFills(row, id)
                 row.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id)
             case let (.group(id), header as GroupHeaderRowView):
                 header.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)

@@ -243,11 +243,12 @@ declare namespace Cmux {
   type LaunchCredential = { credential: string; actor: string }
   type LaunchKeyRotation = { kid: string }
   type LayoutBulkResult = { tab_ids: Array<string /* tab_… */>; pane_ids: Array<string /* pane_… */>; screen_ids: Array<string /* screen_… */>; workspace_ids: Array<string /* workspace_… */>; closed_ids?: Array<Cmux.StateId> }
-  type LayoutColumn = { column_id: string /* split_… */; width: number; root: Cmux.LayoutNode; dock?: Cmux.LayoutColumnDock | null }
+  type LayoutColumn = { column_id: string /* split_… */; width: number; root: Cmux.LayoutNode; dock?: Cmux.LayoutColumnDock | null; rows?: Array<Cmux.LayoutRow> }
   type LayoutColumnDock = { edge: "left" | "right" | "top" | "bottom"; mode: "docked" | "overlay"; role?: "agent_chat"; permanent?: boolean; pinned?: boolean; allow_tabs?: boolean }
   type LayoutDocument = { version: number; screen_id: string /* screen_… */; active_pane_id: string /* pane_… */; zoomed_pane_id: string /* pane_… */ | null; root: Cmux.LayoutNode; extra?: Record<string, Cmux.JsonValue> }
   type LayoutLeaf = { kind: "leaf"; pane_id: string /* pane_… */; tab_ids: Array<string /* tab_… */>; active_tab_id?: string /* tab_… */ }
   type LayoutNode = unknown
+  type LayoutRow = { row_id?: string /* split_… */; height: number }
   type LayoutSplit = { kind: "split"; split_id: string /* split_… */; direction: "horizontal" | "vertical"; ratio: number; first: Cmux.LayoutNode; second: Cmux.LayoutNode }
   type LayoutStack = { kind: "stack"; pane_ids: Array<string /* pane_… */>; expanded_pane_id: string /* pane_… */ }
   type LayoutViewport = { kind: "viewport"; base_width: number; columns: Array<Cmux.LayoutColumn> }
@@ -1115,7 +1116,7 @@ interface CmuxGlobal {
   }
   pane: {
     /** `pane.create` (mutation, scope `workspace:write`) */
-    create: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; correlation_key?: string; cwd?: string; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
+    create: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; correlation_key?: string; cwd?: string; argv?: Array<string>; shell?: string; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `pane.focus` (mutation, scope `workspace:write`) */
     focus: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; expected_revision?: string }, Cmux.MutationResult<Cmux.PaneSnapshot>>
     /** `pane.focus_direction` (mutation, scope `workspace:write`) */
@@ -1273,7 +1274,7 @@ interface CmuxGlobal {
   }
   screen: {
     /** `screen.create` (mutation, scope `workspace:write`) */
-    create: CmuxOp<{ machine?: string; session?: string; workspace?: string; correlation_key?: string; name?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
+    create: CmuxOp<{ machine?: string; session?: string; workspace?: string; correlation_key?: string; name?: string; argv?: Array<string>; shell?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `screen.focus` (mutation, scope `workspace:write`) */
     focus: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen: string; expected_revision?: string }, Cmux.MutationResult<Cmux.ScreenSnapshot>>
     /** `screen.get` (read, scope `workspace:read`) */
@@ -1477,7 +1478,7 @@ interface CmuxGlobal {
     /** `tab.create_browser` (mutation, scope `workspace:write`) */
     create_browser: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; correlation_key?: string; url: string; name?: string; engine?: "webkit" | "cef"; width_px?: number; height_px?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedBrowserPath>>
     /** `tab.create_terminal` (mutation, scope `workspace:write`) */
-    create_terminal: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; correlation_key?: string; cwd?: string; name?: string; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
+    create_terminal: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; correlation_key?: string; cwd?: string; argv?: Array<string>; shell?: string; name?: string; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `tab.focus` (mutation, scope `workspace:write`) */
     focus: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>>
     /** `tab.get` (read, scope `workspace:read`) */

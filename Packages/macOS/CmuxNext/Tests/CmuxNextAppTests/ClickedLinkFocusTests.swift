@@ -69,7 +69,7 @@ struct ClickedLinkFocusTests {
             let opened = try await Self.click(services, from: pane, cmdClick: true)
             try await PinnedPageTests.until({ store.tab(id: opened).map { _ in right.pane.tabs.contains { $0.id == opened } } == true },
                                             report: { "the link's tab is not in the pane on the right" })
-            // The pane on the right by what it holds: the window may show it through a new controller by now.
+            // The pane on the right by what it holds: the focus may have moved to another pane by now.
             try await PinnedPageTests.until({
                 content.focusedPane !== pane && content.focusedPane?.pane.tabs.contains { $0.id == opened } == true
                     && content.focusedPane?.stripModel.selectedID?.rawValue == opened
@@ -238,6 +238,25 @@ struct ClickedLinkFocusTests {
         }
     }
 
+    /// A split's pane keeps its controller from the key press through the daemon's confirm: the
+    /// window mounts the provisional pane in the key's turn, and the confirm swaps only its tab.
+    /// So a controller taken before the confirm (by the focus, or by a test) is the one that shows
+    /// the confirmed pane, never a dead one the window has released and built again.
+    @Test func aSplitsPaneKeepsItsControllerThroughItsConfirm() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let content = try #require(services.windows.active?.workspaceContent)
+            let panes = Set(content.panes.keys)
+            #expect(services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)))
+            let provisional = try #require(content.panes.first { !panes.contains($0.key) }?.value, "the split's pane is not shown in the key's turn")
+            #expect(!provisional.pane.tabs.isEmpty && provisional.pane.tabs.allSatisfy { ProvisionalTab.isProvisional(surface: $0.surface) }, "the split confirmed before the window showed it")
+
+            let id = provisional.layoutPaneID
+            try await PinnedPageTests.until({ content.panes[id]?.pane.tabs.contains { !ProvisionalTab.isProvisional(surface: $0.surface) } == true },
+                                            report: { "the split did not confirm in its pane" })
+            #expect(content.panes[id] === provisional, "the window built the split's pane again on its confirm")
+        }
+    }
+
     /// Opens the link from `pane` as a click does and returns the new tab's id once the store has it.
     private static func click(_ services: AppServices, from pane: PaneController, cmdClick: Bool = false) async throws -> String {
         let store = services.daemon.store
@@ -252,8 +271,8 @@ struct ClickedLinkFocusTests {
 
     /// Splits the focused pane right and gives the new pane's controller once the daemon confirmed
     /// the split. The split shows a provisional pane at once; the daemon refuses a tab aimed at it
-    /// ("unknown pane") until it confirms, which swaps in its own handle and tab, and the window may
-    /// show the confirmed pane through a new controller.
+    /// ("unknown pane") until it confirms, which swaps in its own handle and tab in the same
+    /// controller (``aSplitsPaneKeepsItsControllerThroughItsConfirm``).
     private static func splitRight(_ services: AppServices, _ content: WorkspaceContentController) async throws -> PaneController {
         let panes = Set(content.panes.keys)
         #expect(services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)))

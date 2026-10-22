@@ -33,6 +33,7 @@ use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use cmux_chief::acp::{TurnFolder, TurnOutput};
 use optchat_host::OptChat;
 use serde_json::{Value, json};
 
@@ -354,6 +355,8 @@ pub struct Spawner {
     cloud_text: Option<String>,
     /// The VMs behind cloud peers (B4): resumed before a subagent starts.
     cloud_vms: Option<Arc<dyn crate::cloud_vms::CloudVms>>,
+    /// Issues each cloud subagent its own sandbox key (agent_keys.rs); None: off.
+    agent_keys: Option<Arc<dyn crate::agent_keys::AgentKeys>>,
 }
 
 impl Spawner {
@@ -380,7 +383,45 @@ impl Spawner {
             cloud: None,
             cloud_text: None,
             cloud_vms: None,
+            agent_keys: None,
         }
+    }
+
+    /// Cloud subagents get their own sandbox key from `keys` (None: off).
+    pub fn with_agent_keys(
+        mut self,
+        keys: Option<Arc<dyn crate::agent_keys::AgentKeys>>,
+    ) -> Spawner {
+        self.agent_keys = keys;
+        self
+    }
+
+    /// A cloud subagent's own sandbox key: issued, placed on its VM, and the
+    /// task note that names its file; None (logged) when keys are off or a
+    /// step failed, and then the subagent starts without one. A key placed
+    /// nowhere is revoked at once.
+    fn agent_key(&self, peer: &str, id: &str) -> Option<(String, String)> {
+        let keys = self.agent_keys.as_ref()?;
+        let Some(vms) = &self.cloud_vms else {
+            (self.log)(&format!("agent key for {id}: no pool tool to place it"));
+            return None;
+        };
+        let key = match keys.issue(id) {
+            Ok(key) => key,
+            Err(e) => {
+                (self.log)(&format!("agent key for {id}: {e}"));
+                return None;
+            }
+        };
+        if let Err(e) = vms.put_agent_key(peer, id, &key.file) {
+            (self.log)(&format!("agent key for {id} on {peer}: {e}"));
+            if let Err(e) = keys.revoke(&key.id) {
+                (self.log)(&format!("agent key {} (unplaced): revoke: {e}", key.id));
+            }
+            return None;
+        }
+        (self.log)(&format!("agent key {} for {id} on {peer}", key.id));
+        Some((key.id, crate::agent_keys::task_note(id)))
     }
 
     /// New subagents start on this peer (None: on this machine).
@@ -652,7 +693,7 @@ impl Spawner {
             tx,
         )?;
         let _ = self.to_brain(Input::SubagentPrompted { id: id.to_owned() });
-        self.forward_answer(id, rx);
+        self.forward_answer(id, &session, &prompt_id, rx);
         self.trace.emit(
             "subagent.start",
             json!({"id": id, "spawn": spawn, "session": session, "harness": s.harness, "harness_profile": admitted.profile, "harness_kind": admitted.kind, "harness_argv0": admitted.argv0, "ms": began.elapsed().as_millis() as u64}),
@@ -666,13 +707,13 @@ impl Spawner {
             );
             return Ok(format!("no cmux workspace ({})", self.no_workspace_reason));
         };
-        let name = crate::workspaces::name(id, task);
+        let name = crate::workspaces::title(task);
         let group = crate::workspaces::topic_group(task);
         let key = key.unwrap_or_else(crate::workspaces::new_key);
         match workspaces.open(&key, &session, &name, &group, &s.cwd) {
             Ok(key) => {
                 let place = workspaces.place();
-                // a313: the real ws_ id and its session, so the CLI can list, move and pin it.
+                // a313: the real ws_ id, so the CLI can list, move and pin it.
                 let located = workspaces.locate(&key);
                 self.trace.emit(
                     "subagent.workspace",
@@ -684,9 +725,8 @@ impl Spawner {
                 let mut note = format!("workspace \"{name}\" in group \"{group}\" in {place}");
                 if let Some(r) = &located {
                     note.push_str(&format!(
-                        " (id {}, cmux session \"{}\"; `{}` moves it to the top)",
+                        " (id {}; `{}` moves it to the top)",
                         r.id,
-                        r.session,
                         r.move_to_top()
                     ));
                 }
@@ -766,18 +806,45 @@ impl Spawner {
         }
     }
 
-    /// Sends the prompt's answer (token use, cost) to the brain.
-    fn forward_answer(&self, id: &str, rx: std::sync::mpsc::Receiver<TurnSignal>) {
+    /// Sends the start of the task prompt's turn (`SubagentTurnStarted`),
+    /// then the prompt's answer (token use, cost), to the brain.
+    fn forward_answer(
+        &self,
+        id: &str,
+        session: &str,
+        prompt_id: &str,
+        rx: std::sync::mpsc::Receiver<TurnSignal>,
+    ) {
         let tx = self
             .tx
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
-        let id = id.to_owned();
+        let agents = self.agents.clone();
+        let (id, session, prompt_id) = (id.to_owned(), session.to_owned(), prompt_id.to_owned());
         std::thread::spawn(move || {
+            // Folded until the session's first turn starts, then no more.
+            let mut start = Some(TurnFolder::default());
             while let Ok(signal) = rx.recv() {
                 match signal {
-                    TurnSignal::Changed | TurnSignal::Noted | TurnSignal::Streamed => {}
+                    TurnSignal::Changed | TurnSignal::Noted => {
+                        let Some(folder) = start.as_mut() else {
+                            continue;
+                        };
+                        match first_turn_start(&*agents, &session, &prompt_id, folder) {
+                            None => {}
+                            Some(ours) => {
+                                start = None;
+                                if ours {
+                                    let _ = tx.send(Input::SubagentTurnStarted {
+                                        id: id.clone(),
+                                        prompt_id: prompt_id.clone(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    TurnSignal::Streamed => {}
                     TurnSignal::Done(answer) => {
                         let _ = tx.send(Input::SubagentAnswer { id, answer });
                         return;
@@ -1231,6 +1298,21 @@ impl Orchestrator for Spawner {
                 }
                 _ => Ok(()),
             };
+            // On a VM that is up: its own sandbox key, named in its task.
+            let key = match (&resumed, &sub_peer) {
+                (Ok(()), Some(p)) => self.agent_key(p, id),
+                _ => None,
+            };
+            let task = match &key {
+                Some((key_id, note)) => {
+                    let _ = self.to_brain(Input::SubagentAgentKey {
+                        id: id.clone(),
+                        key_id: key_id.clone(),
+                    });
+                    format!("{task}\n\n{note}")
+                }
+                None => task,
+            };
             let started_one = resumed.and_then(|()| {
                 self.start_one(
                     &plan.spawn,
@@ -1477,6 +1559,26 @@ pub fn recover_launch(
         }
     }
     None
+}
+
+/// Reads `session`'s new events into `folder` and says whether its first
+/// turn started: Some(true) when it is the turn of prompt `prompt_id`
+/// (acpmux's `turn_started` after that prompt's `user_message`),
+/// Some(false) when it is another's, None while none has started (or the
+/// events could not be read: the next signal reads them again).
+fn first_turn_start(
+    agents: &dyn AgentPort,
+    session: &str,
+    prompt_id: &str,
+    folder: &mut TurnFolder,
+) -> Option<bool> {
+    let events = agents.events(session, folder.seq()).ok()?;
+    events.iter().find_map(|e| {
+        folder.apply(e).into_iter().find_map(|out| match out {
+            TurnOutput::Started { turn, .. } => Some(turn.prompt_id.as_deref() == Some(prompt_id)),
+            _ => None,
+        })
+    })
 }
 
 /// The answer of a prompt to a subagent: its token use and cost.

@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextPages
@@ -13,7 +14,7 @@ import Testing
 @Suite struct PageChromiumCoverageTests {
     /// Every page the app ships, with the engine options its service makes it with.
     private static let surfaces: [(page: PageDescriptor, options: PageEngineOptions)] = [
-        (.agent, .standard), (.history, .standard), (.cloud, .standard), (.apps, .standard), (.settings, PageFactory.settingsEngineOptions),
+        (.agent, PageEngineOptions(chromiumAgentChat: AgentPaneTunables.chromium.value)), (.history, .standard), (.cloud, .standard), (.apps, .standard), (.settings, PageFactory.settingsEngineOptions),
         (.keybindings, .standard), (.diff, DiffPageService.engineOptions), (.markdown, FilePageService.engineOptions),
         (.editor, FilePageService.engineOptions), (.iconPicker, IconPickerService.engineOptions), (.passwords, .standard),
         (.chiefInspector, .standard), (.debugSettings, .standard), (.homeChannels, PageFactory.homeChannelsEngineOptions),
@@ -23,7 +24,6 @@ import Testing
 
     /// The pages that still show in WebKit, and why (webviews-chromium-AUDIT.md).
     private static let stillOnWebKit: [String: PageWebKitReason] = [
-        PageDescriptor.agent.id: .agentChat,
         PageDescriptor.iconPicker.id: .transparentOverlay,
     ]
 

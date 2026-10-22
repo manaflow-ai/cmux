@@ -3,6 +3,9 @@
 1 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView+ContextMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserProfiles/BrowserProfileLinkMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserDownloadsMenu.swift
+# 2026-10-21 (base red): the Files tree's rows from 56d448575ce (its item menu) and dd018d41b6a (Open With's app rows and Other…); file rows have no file-target registered action yet.
+2 Packages/macOS/CmuxNext/Sources/CmuxNextApp/FileExplorer/FileExplorerOpenWithMenu.swift
+1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/FileExplorer/FileExplorerSectionView.swift
 3 Packages/macOS/CmuxNext/Sources/CmuxNextApp/MainMenu.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/Panel/NotificationsPanelController.swift
 # 2026-10-20 (base red): was an NSMenuItem subclass the check could not see; f408f10cb16c made it a target object. Markdown Share rows have no registered action yet.

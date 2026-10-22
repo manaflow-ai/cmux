@@ -8,6 +8,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -137,6 +138,7 @@ await requireBrowserLane("agent-pane-mode-keys.test.ts", async () => {
 
   test("number keys pick a mode while the menu is open", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
     await page.goto(url(CHAT));
     await page.getByText("Retry added.").waitFor();
     await page.locator(".acpmux-access-trigger").click();
@@ -168,8 +170,9 @@ await requireBrowserLane("agent-pane-mode-keys.test.ts", async () => {
     await page.locator(".acpmux-access-trigger").click();
     await menu.waitFor();
     await page.keyboard.press("7");
+    // The page has taken the key once a frame after it has painted.
+    await page.evaluate(() => window.cmuxPaintFrame());
     // The current mode's number closes the menu without sending it again.
-    await page.waitForTimeout(200);
     expect(await menu.isVisible()).toBe(true);
     await page.keyboard.press("3");
     await page.waitForFunction(() => document.querySelector(".acpmux-access-menu") === null, undefined, {

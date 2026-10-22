@@ -1,6 +1,6 @@
 import { focusedArea } from "./composerFocus";
 import { sessionModels } from "./modelCatalog";
-import { turnFiles } from "./diff";
+import { turnFiles, turnPathsOnly } from "./diff";
 import type { AcpmuxSnapshot } from "./model";
 import { permissionKeys, permissionOption } from "./permissionKeys";
 import type { PermissionDecision } from "./permissions/protocol";
@@ -72,7 +72,9 @@ export function automationState(host: AutomationHost) {
         decisions: group.decisions,
         items: group.items.length,
       })),
-    changedFiles: turnFiles(snapshot.rows).map((file) => file.path),
+    /// Every file the chat's edits changed: those with counts, then those listed without (an edit
+    /// with no diff, a Write whose old contents are unknown), as the edited-files card lists them.
+    changedFiles: [...new Set([...turnFiles(snapshot.rows).map((file) => file.path), ...turnPathsOnly(snapshot.rows)])],
     diff: host.diff(),
     /// What has the page's focus: composer, none, or the focused element.
     focus: focusedArea(typeof document === "undefined" ? null : document.activeElement),

@@ -230,6 +230,9 @@ public final class AgentTurnStateStore {
         var generatedTitle: String?
         /// The model and running turn (`AgentChatDetail`), for the hover card.
         var detail: AgentChatDetail?
+        /// The session whose agent started this one (acpmux `startedBy`); nil for a root. Not
+        /// observed: only a chat page's open request reads it.
+        @ObservationIgnored var startedBy: String?
         /// The chat's recent prompts, waits and finished turns (u3320), read when a hover card
         /// opens; not observed (a new moment redraws nothing).
         @ObservationIgnored var timeline = AgentTimeline()

@@ -123,7 +123,11 @@ fn plan(
         let message = "the session host has no home folder for worktrees";
         return Err(refused(OPERATION, "no_home", message, Value::Null));
     };
-    let folder = home.join(".cmux").join("worktrees").join(project(common_dir));
+    let root = cmux_git::worktree_root::worktree_root(&home).map_err(|error| {
+        let message = format!("cannot prepare ~/.cmux/worktrees: {error}");
+        refused(OPERATION, "no_worktree_root", message, Value::Null)
+    })?;
+    let folder = root.join(project(common_dir));
     let name = fields
         .get("name")
         .and_then(Value::as_str)

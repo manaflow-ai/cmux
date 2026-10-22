@@ -443,7 +443,25 @@
     "promptId": 1,
     "op": 1,
     "text": 1,
+    "images": 1,
     "index": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/queue_edit text with the image ids it keeps",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/queue_edit",
+   "params": {
+    "sessionId": "s",
+    "promptId": "p",
+    "op": "update",
+    "text": "why does this overlap?",
+    "images": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
    }
   },
   "mode_fields": null,
@@ -1288,5 +1306,49 @@
   },
   "mode_fields": null,
   "breaks": true
+ },
+ {
+  "name": "process/kill known params pass",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/process/kill",
+   "params": {
+    "sessionId": "a",
+    "processId": "a/r1"
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "process/kill signal is not the pane's",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/process/kill",
+   "params": {
+    "sessionId": "a",
+    "processId": "a/r1",
+    "signal": "kill"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "chat/route.set known params pass",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/chat/route.set",
+   "params": {
+    "sessionId": "a",
+    "routeId": "r",
+    "when": "after-turn"
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
  }
 ]

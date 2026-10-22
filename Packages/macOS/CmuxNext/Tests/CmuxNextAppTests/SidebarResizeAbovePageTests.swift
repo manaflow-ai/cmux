@@ -44,7 +44,7 @@ import Testing
     /// Areas the window's catcher panels cover that resize columns and lie on the sidebar's edge.
     func sidebarAreas(in window: ShellWindow, root: WindowRootView) -> [CGRect] {
         let edge = root.sidebar.convert(root.sidebar.bounds, to: nil).maxX
-        return window.overlayLayer.dividerAreas.filter { $0.resizesColumns && $0.rect.minX < edge && $0.rect.maxX > edge }.map(\.rect)
+        return window.overlayLayer.catcherAreas.filter { $0.resizesColumns && $0.rect.minX < edge && $0.rect.maxX > edge }.map(\.rect)
     }
 
     /// The press that makes the window key (a page had it) starts the drag.
@@ -59,7 +59,7 @@ import Testing
         let (window, root) = root()
         defer { window.close() }
         let band = try handle(in: root).convert(try handle(in: root).bounds, to: nil)
-        #expect(sidebarAreas(in: window, root: root) == [band], "areas \(window.overlayLayer.dividerAreas), band \(band)")
+        #expect(sidebarAreas(in: window, root: root) == [band], "areas \(window.overlayLayer.catcherAreas), band \(band)")
     }
 
     @Test func theCatcherAreaFollowsTheSidebarWidth() throws {
@@ -71,12 +71,26 @@ import Testing
         root.layoutSubtreeIfNeeded()
         let band = try handle(in: root).convert(try handle(in: root).bounds, to: nil)
         #expect(band.minX > before.minX, "band \(before) -> \(band)")
-        #expect(sidebarAreas(in: window, root: root) == [band], "areas \(window.overlayLayer.dividerAreas), band \(band)")
+        #expect(sidebarAreas(in: window, root: root) == [band], "areas \(window.overlayLayer.catcherAreas), band \(band)")
     }
 
     @Test func aHiddenSidebarHasNoCatcherArea() throws {
-        let (window, root) = root(sidebarHidden: true)
+        let (window, _) = root(sidebarHidden: true)
         defer { window.close() }
-        #expect(!window.overlayLayer.dividerAreas.contains { $0.id == WindowOverlayLayer.sidebarResizeAreaID }, "\(window.overlayLayer.dividerAreas)")
+        #expect(window.overlayLayer.sidebarResizeArea == nil)
+        #expect(!window.overlayLayer.catcherAreas.contains { $0.id == WindowOverlayLayer.sidebarResizeAreaID }, "\(window.overlayLayer.catcherAreas)")
+    }
+
+    /// `debug.layers` publishes `dividerAreas` as `divider_areas_in_window`, and the perf gate and
+    /// live drag scripts take its leftmost vertical area as the first pane divider. The sidebar's
+    /// band is no pane divider: with it in the list they dragged the sidebar edge instead. The
+    /// catcher panels still cover it.
+    @Test func theDividerAreasLeaveOutTheBand() throws {
+        let (window, _) = root()
+        defer { window.close() }
+        let layer = window.overlayLayer
+        #expect(!layer.dividerAreas.contains { $0.id == WindowOverlayLayer.sidebarResizeAreaID }, "\(layer.dividerAreas)")
+        let band = try #require(layer.sidebarResizeArea)
+        #expect(layer.catcherAreas == layer.dividerAreas + [band], "catchers \(layer.catcherAreas)")
     }
 }

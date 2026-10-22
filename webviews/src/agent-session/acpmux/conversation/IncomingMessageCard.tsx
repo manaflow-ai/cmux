@@ -1,20 +1,34 @@
-// Another agent's message to this chat (incomingMessage.ts) as Claude desktop draws one: a quiet
-// line, "Received message from <sender> ›", never the person's bubble and never folded away. The
-// sender's name opens its chat beside this one when it is a chat here; › opens the message under
-// the line, the body only; the prompt as the agent got it (cmux's or Claude Code's envelope) waits
-// behind Details under it. Whether it is open
-// lasts while the page does, so scrolling it out of the virtualized transcript keeps it. Reply, at the
-// line's end, answers in place: the answer goes to the sending chat in the message's thread
-// (AcpmuxDirectClient.reply), from an editor under the opened message. An open reply and its draft
-// last while the page does too; closing the message closes the reply and keeps the draft.
+// Another agent's message to this chat (incomingMessage.ts): one left-aligned line among the tool
+// rows, never the person's bubble and never folded away. The line is the sender's harness mark (a
+// small bot when it has none), the sender's name as a chip, and the message's first line as a
+// preview; the chip opens the sender's chat beside this one (its id from the message, else the
+// listed chat with its name), and the rest of the line opens the message under it as a glass card,
+// its text drawn as Markdown with PR, issue and file references linked. The prompt as the agent got
+// it (cmux's or Claude Code's envelope) waits behind Details under the card. Whether it is open
+// lasts while the page does, so scrolling it out of the virtualized transcript keeps it. A
+// sub-session family's sender reads with who it is to this chat: "Parent · coordinator". Reply, at
+// the line's end, answers in place: the answer goes to the sending chat in the message's thread
+// (AcpmuxDirectClient.reply), from an editor under the card. An open reply and its draft last
+// while the page does too; closing the message closes the reply and keeps the draft.
 import { useContext, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { useT } from "../i18n";
+import { useT, type StringKey } from "../i18n";
 import type { PromptImage } from "../model";
-import type { IncomingMessage } from "./incomingMessage";
+import { messagePreview, type IncomingMessage, type IncomingRelation } from "./incomingMessage";
 import { PromptEditor, SentImages } from "./UserBubble";
 import { FindReveal } from "./chatFind";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
-import { ChevronRight, TerminalSquare } from "./icons";
+import { Bot, ChevronRight, TerminalSquare } from "./icons";
+import { Markdown } from "./Markdown";
+import { AgentMark, agentBrand } from "../../shared/AgentMark";
+import { useSenderChat } from "../subagents/subsessions";
+
+/// A family sender's label, its relation before its name ("Parent · coordinator").
+const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
+  parent: "message.from.parent",
+  subsession: "message.from.subsession",
+  ancestor: "message.from.ancestor",
+  descendant: "message.from.descendant",
+};
 
 /// The messages the person opened, by chat and row (row ids repeat across chats).
 const opened = new Set<string>();
@@ -29,6 +43,7 @@ export function IncomingMessageLine({
   onOpen,
   onReply,
   actions,
+  githubRepository,
 }: {
   /// The row's id, which keeps the line open across remounts.
   id: string;
@@ -40,6 +55,8 @@ export function IncomingMessageLine({
   onReply?(message: IncomingMessage, text: string): Promise<void>;
   /// The message's hover row (MessageActions.tsx ReceivedActions), at the line's end.
   actions?: ReactNode;
+  /// The repository a bare `#123` in the message names (MessageRow's).
+  githubRepository?: string;
 }) {
   const t = useT();
   const key = `${useContext(PromptMarksSession) ?? ""}\u0000${id}`;
@@ -67,13 +84,15 @@ export function IncomingMessageLine({
     reveal?.repaint();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
   }, [inText, inRaw, reveal]);
-  // The name sits where the sentence puts it ("Received message from {title}").
-  const [before, after = ""] = t("offer.received", { title: "\u0000" }).split("\u0000");
   const raw = message.raw.trim() === message.text ? undefined : message.raw;
-  const sessionId = message.sessionId;
-  const label = t("message.label", { from: message.name, to: t("message.self") });
+  const sender = useSenderChat(message.name, message.sessionId);
+  const sessionId = sender.sessionId;
+  const preview = messagePreview(message.text);
+  // A sub-session family's sender says who it is to this chat.
+  const from = message.relation ? t(RELATION_LABEL[message.relation], { name: message.name }) : message.name;
+  const label = t("message.label", { from, to: t("message.self") });
   // A reply needs a chat to go to and the message's id to answer: acpmux's `agent_message`.
-  const replies = onReply !== undefined && sessionId !== undefined && message.msgId !== undefined;
+  const replies = onReply !== undefined && message.sessionId !== undefined && message.msgId !== undefined;
   const [reply, setReplyState] = useState<"closed" | "open" | "sent" | "failed">(() =>
     replying.has(key) ? "open" : "closed",
   );
@@ -109,10 +128,8 @@ export function IncomingMessageLine({
   return (
     <div className="cv-received" data-open={open || undefined}>
       <div className="cv-received__line">
-        {/* The sentence toggles too, for the pointer; the chevron is the control, and its label reads
-            the line. */}
-        <span className="cv-received__text" aria-hidden onClick={toggle}>
-          {before}
+        <span className="cv-received__icon">
+          {agentBrand(sender.harness) ? <AgentMark agent={sender.harness} size={14} /> : <Bot size={16} />}
         </span>
         {sessionId ? (
           <button
@@ -121,18 +138,14 @@ export function IncomingMessageLine({
             aria-label={t("subagents.open", { name: message.name })}
             onClick={() => onOpen(sessionId)}
           >
-            {message.name}
+            {from}
           </button>
         ) : (
           <span className="cv-received__name is-plain" aria-hidden onClick={toggle}>
-            {message.name}
+            {from}
           </span>
         )}
-        {after && (
-          <span className="cv-received__text" aria-hidden onClick={toggle}>
-            {after}
-          </span>
-        )}
+        {/* The preview and its chevron open the message; the label reads the line. */}
         <button
           ref={toggleButton}
           type="button"
@@ -142,6 +155,7 @@ export function IncomingMessageLine({
           aria-label={label}
           onClick={toggle}
         >
+          <span className="cv-received__preview">{open ? "" : preview}</span>
           <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
         </button>
         {replies && !editing && (
@@ -153,7 +167,7 @@ export function IncomingMessageLine({
       </div>
       {open && (
         <div id={bodyId} className="cv-received__body selectable">
-          {message.text || t("message.noText")}
+          {message.text ? <Markdown githubRepository={githubRepository}>{message.text}</Markdown> : t("message.noText")}
         </div>
       )}
       {open && raw !== undefined && (

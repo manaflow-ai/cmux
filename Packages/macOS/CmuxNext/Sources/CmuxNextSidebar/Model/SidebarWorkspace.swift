@@ -74,6 +74,12 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// An agent turn runs in one of the workspace's tabs (daemon agent
     /// state): the row's working indicator.
     public var agentWorking: Bool
+    /// The Priority view's chip for the workspace's most urgent agent chat on this Mac
+    /// (`sidebar.rowStatus`): needs you, done, failed or lost. Nil when every chat works or is idle.
+    public var agentChip: SidebarPriorityEntry.State?
+    /// What the agent working in the workspace does right now (its acpmux lane's step, masked by
+    /// acpmux; `sidebar.nowLine`): the row's "Now:" line. Nil while no chat on this Mac works.
+    public var agentStep: String?
     /// Set only when the user chose an icon or color. When nil, the row
     /// draws no icon (WORKSPACE-ROWS-NO-DEFAULT-ICON).
     public var icon: WorkspaceIcon?
@@ -120,6 +126,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// carries it whatever `sidebar.workspaceRow` shows, until the machine's
     /// own workspace replaces the row. Nil for every other row.
     public var stage: String?
+    /// Nobody named the workspace and its title says nothing (the daemon's default name, or a
+    /// terminal in the home folder): the row reads quiet while idle (`SidebarTunables.quietUnnamedRows`).
+    public var isUnnamed = false
     /// Agents acting in the workspace's tabs right now, in a stable order
     /// (`agent-presence-v1`); drawn only with `sidebar.presenceDots` on.
     public var presence: [SidebarPresence] = []

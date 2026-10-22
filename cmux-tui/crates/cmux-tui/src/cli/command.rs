@@ -177,7 +177,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
             parse_screen(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?
         }
         "pane" => parse_pane(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?,
-        "tab" => parse_tab(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
+        "tab" => parse_tab(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?,
         "terminal" => parse_terminal(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "browser" => parse_browser(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "notification" => parse_notification(&tokens.words[1..], &mut tokens.flags)?,
@@ -206,10 +206,7 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         ["status"] => super::lifecycle::ServerAction::Status,
         ["stats"] => super::lifecycle::ServerAction::Stats,
         ["ensure"] => server_ensure::parse(flags)?,
-        ["stop"] => super::lifecycle::ServerAction::Stop {
-            force: flags.boolean("force"),
-            end_terminals: flags.boolean("end-terminals"),
-        },
+        ["stop"] => stop_action(flags)?,
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
         ["compact-registry"] => super::lifecycle::ServerAction::CompactRegistry {
             state_dir: flags.take("state-dir").map(PathBuf::from),
@@ -244,6 +241,30 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         }
     };
     Ok(CommandPlan::Server(super::lifecycle::ServerPlan { action, session: None }))
+}
+
+/// `server stop` and `session <name> stop`: `[--force] [--end-terminals]
+/// [--restore-wait-seconds <n>]`. The wait for an owner that still restores
+/// defaults to the bound `server ensure` gives a restore
+/// (`local_owner::RESTORE_DEADLINE`), and is at most an hour.
+fn stop_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, UsageError> {
+    const MAX_RESTORE_WAIT_SECONDS: u64 = 3600;
+    let restore_wait = match flags.take("restore-wait-seconds") {
+        None => crate::local_owner::RESTORE_DEADLINE,
+        Some(value) => match value.parse::<u64>() {
+            Ok(seconds @ 1..=MAX_RESTORE_WAIT_SECONDS) => std::time::Duration::from_secs(seconds),
+            _ => {
+                return Err(UsageError::new(
+                    crate::localization::catalog().local_server.stop_restore_wait_invalid,
+                ));
+            }
+        },
+    };
+    Ok(super::lifecycle::ServerAction::Stop {
+        force: flags.boolean("force"),
+        end_terminals: flags.boolean("end-terminals"),
+        restore_wait,
+    })
 }
 
 fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
@@ -291,17 +312,22 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
     Ok(Tokens { words, flags, argv })
 }
 
-/// Whether the command `scope words…` reads the words after `--`: workspace
-/// create and run, pane split and run (also under a workspace or screen
-/// path), the workspace status/progress/log and checklist commands (which
-/// check their own verbs), and agent messages. Every other command would drop
+/// Whether the command `scope words…` reads the words after `--`: workspace,
+/// screen, pane and terminal-tab create, workspace and pane run, pane split
+/// (also under a workspace, screen or pane path), the workspace
+/// status/progress/log and checklist commands (which check their own verbs),
+/// and agent messages. Every other command would drop
 /// them, so the caller is told instead.
 fn takes_argv(scope: &str, words: &[&str]) -> bool {
+    fn tab(words: &[&str]) -> bool {
+        matches!(words, ["create", "terminal"])
+    }
     fn pane(words: &[&str]) -> bool {
-        matches!(words, [_, "split"] | [_, "run", ..])
+        matches!(words, ["create"] | [_, "split"] | [_, "run", ..])
+            || matches!(words, [_, "tab", tail @ ..] if tab(tail))
     }
     fn screen(words: &[&str]) -> bool {
-        matches!(words, [_, "pane", tail @ ..] if pane(tail))
+        matches!(words, ["create"]) || matches!(words, [_, "pane", tail @ ..] if pane(tail))
     }
     fn workspace(words: &[&str]) -> bool {
         let area = |word: &&str| state::STATUS_AREAS.contains(word) || *word == "checklist";
@@ -317,8 +343,30 @@ fn takes_argv(scope: &str, words: &[&str]) -> bool {
         "workspace" => workspace(words),
         "screen" => screen(words),
         "pane" => pane(words),
+        "tab" => tab(words),
         "agent" => matches!(words, ["message", ..]),
         _ => false,
+    }
+}
+
+/// `argv` (the words after `--`) or `--shell SCRIPT` for a command that
+/// creates a terminal: the new terminal runs it instead of a plain shell.
+fn insert_creation_command(
+    params: &mut Map<String, Value>,
+    argv: Option<Vec<String>>,
+    flags: &mut Flags,
+) -> Result<(), UsageError> {
+    match (argv, flags.take("shell")) {
+        (None, None) => Ok(()),
+        (Some(argv), None) if argv.first().is_some_and(|program| !program.is_empty()) => {
+            params.insert("argv".into(), json!(argv));
+            Ok(())
+        }
+        (None, Some(script)) if !script.is_empty() => {
+            params.insert("shell".into(), Value::String(script));
+            Ok(())
+        }
+        _ => Err(UsageError::new("give exact argv after -- or one --shell script")),
     }
 }
 
@@ -485,10 +533,7 @@ fn parse_session(
                 }
             };
             Ok(CommandPlan::Server(super::lifecycle::ServerPlan {
-                action: super::lifecycle::ServerAction::Stop {
-                    force: flags.boolean("force"),
-                    end_terminals: flags.boolean("end-terminals"),
-                },
+                action: stop_action(flags)?,
                 session,
             }))
         }
@@ -728,6 +773,7 @@ fn parse_pane_strings(
             let mut params = Map::new();
             add_size(&mut params, flags)?;
             insert_optional_string(&mut params, flags, "cwd", "cwd");
+            insert_creation_command(&mut params, argv, flags)?;
             request(ResourceOperation::PaneCreate, selectors, flags, params)
         }
         [selector, "show"] => {
@@ -756,16 +802,7 @@ fn parse_pane_strings(
             insert_optional_string(&mut params, flags, "cwd", "cwd");
             // The new pane runs this instead of a shell, so no empty shell
             // tab is left beside the command's (agent evals, mode 3).
-            match (argv, flags.take("shell")) {
-                (None, None) => {}
-                (Some(argv), None) if argv.first().is_some_and(|program| !program.is_empty()) => {
-                    params.insert("argv".into(), json!(argv));
-                }
-                (None, Some(script)) if !script.is_empty() => {
-                    params.insert("shell".into(), Value::String(script));
-                }
-                _ => return Err(UsageError::new("give exact argv after -- or one --shell script")),
-            }
+            insert_creation_command(&mut params, argv, flags)?;
             // A script's split keeps the user's focus unless it asks.
             if flags.boolean("focus") {
                 params.insert("focus".into(), Value::Bool(true));
@@ -849,7 +886,7 @@ fn parse_pane_strings(
         }
         [selector, "tab", tail @ ..] => {
             selectors.insert("pane", "pane", selector)?;
-            parse_tab_strings(tail, selectors, flags)
+            parse_tab_strings(tail, selectors, flags, argv)
         }
         _ => usage("pane action"),
     }
@@ -859,15 +896,17 @@ fn parse_tab(
     words: &[String],
     selectors: &mut Selectors,
     flags: &mut Flags,
+    argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     let refs = strs(words);
-    parse_tab_strings(&refs, selectors, flags)
+    parse_tab_strings(&refs, selectors, flags, argv)
 }
 
 fn parse_tab_strings(
     words: &[&str],
     selectors: &mut Selectors,
     flags: &mut Flags,
+    argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     match words {
         ["group", rest @ ..] => state::parse_tab_group(rest, flags),
@@ -884,6 +923,7 @@ fn parse_tab_strings(
             let mut params = Map::new();
             insert_optional_string(&mut params, flags, "cwd", "cwd");
             insert_optional_string(&mut params, flags, "name", "name");
+            insert_creation_command(&mut params, argv, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_size(&mut params, flags)?;
             request(ResourceOperation::TabCreateTerminal, selectors, flags, params)

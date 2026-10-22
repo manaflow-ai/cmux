@@ -5,7 +5,7 @@
 // opening to its Shell block. A command that went on in the background shows how it stands there
 // instead (BackgroundMark.tsx), and its time once it ends.
 import { useFindReveal } from "./chatFind";
-import { useId, useMemo } from "react";
+import { useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { commandFolder } from "./commandFolder";
@@ -23,9 +23,14 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
   const tool = item.tool!;
   const [open, setOpen] = useTranscriptDisclosure(`command:${tool.id}`);
+  // Find in Chat counts matches in the whole output, so a command it reveals shows all of it.
+  const [reveal, setReveal] = useState(0);
   useFindReveal(
     useMemo(() => [item], [item]),
-    () => setOpen(true),
+    () => {
+      setOpen(true);
+      setReveal((count) => count + 1);
+    },
   );
   const fold = useFold(open);
   const detailsId = useId();
@@ -98,6 +103,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
             command={tool.command}
             output={tool.output?.replace(/\n$/, "")}
             exitCode={tool.exitCode}
+            reveal={reveal}
           />
         </div>
       )}

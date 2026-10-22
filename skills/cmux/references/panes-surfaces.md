@@ -13,6 +13,7 @@ cmux pane pane_… split --down --ratio 0.3 --cwd "$PWD"
 cmux pane pane_… run --name dev -- npm run dev
 cmux pane pane_… run shell 'tail -f logs/dev.log'
 cmux tab create terminal --pane pane_… --cwd "$PWD" --name shell
+cmux tab create terminal --pane pane_… --name top -- htop   # the new tab runs htop, not a shell
 cmux tab create browser --pane pane_… --url https://example.com
 
 # focus and close

@@ -49,7 +49,7 @@ const baseName = (path: string) => trim(path).split("/").pop() ?? path;
 export function guessProjectRepo(cwd: string): ProjectRepo | undefined {
   const path = trim(cwd);
   const patterns: [RegExp, (match: RegExpMatchArray) => { name: string; branch?: string }][] = [
-    [/\/\.cmux\/worktrees\/([^/]+)\/([^/]+)$/, (m) => ({ name: m[1]!, branch: m[2]! })],
+    [/\/\.cmux\/worktrees(?:\.noindex)?\/([^/]+)\/([^/]+)$/, (m) => ({ name: m[1]!, branch: m[2]! })],
     [/\/conductor\/workspaces\/([^/]+)\/([^/]+)$/, (m) => ({ name: m[1]!, branch: m[2]! })],
     [/\/\.codex\/worktrees\/[^/]+\/([^/]+)$/, (m) => ({ name: m[1]! })],
     [/\/([^/]+)\/(?:\.worktrees|\.claude\/worktrees)\/([^/]+)$/, (m) => ({ name: m[1]!, branch: m[2]! })],

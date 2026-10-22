@@ -38,13 +38,59 @@ nothing, and the content lifecycle trace (`host-present ...`) goes to the in-mem
 which is gone once the process ends; so the run proves the gate only by the clean exit of the
 same scenario that aborts on the base.
 
-  scripts/cmux-next/quit-hidden-chromium-live.py --app PATH [--runs N] [--windows N] [--tabs N] [--out DIR]
+--case in-flight: a Chromium browser's creation is still under way when quit stops Chromium.
+`CEFRuntime.shutdown` calls `cmux_shim_close_all`, which closes only the browsers that exist; a
+browser whose `cmux_shim_create_window` ran but whose OnAfterCreated had not arrived reaches
+AFTER_CREATED during the shutdown wait. Before the fix the runtime registered it and never closed it,
+so the wait ran out (3 s, `CEFEngine.shutdown`): "CEF shutdown timed out; exiting without
+CefShutdown" and a slower quit. Each run:
+
+  1. one workspace of three panes, each with a front Chromium tab (made and shown, its page in the
+     default profile), so quit has browsers and windows to close;
+  2. --profiles fresh browser profiles (`cmux browser profile create`). A profile's first browser
+     makes its request context, and Chromium builds the browser only once that context initialized
+     (a profile load), so its creation stays under way for 0.2 s to 2 s (more under load) instead
+     of one pump turn;
+  3. the burst: every --open-interval-ms, on its own thread, a front Chromium tab of the next fresh
+     profile (`openBrowser {engine: cef, profile}`), cycling over the panes. The Quit Apple event
+     (aevt/quit, built ahead and sent with AESendMessage, so the send is a moment on the clock; the
+     same event `osascript -e 'tell application id ... to quit'` sends, from which it took about
+     350 ms to reach the app) goes after --quit-after-opens of them, and the burst goes on until
+     quit's close of every browser reached a live page, so creations start all through the quit's
+     steps before Chromium stops (saving windows, sidebar and browser records: 1 to 3 s here). Only
+     a creation started within its own creation time before close_all lands; the steady burst makes
+     one do.
+
+Then the same checks as above, and: the pid's `CEF shutdown complete` line, no `CEF shutdown timed
+out`, and that the race landed. Quit-to-exit is reported, not checked: the burst slows the quit's
+own steps (1 to 4 s on a busy capture mini), so a clean quit took 2.0 to 6.4 s and a timed-out one
+(its 3 s wait run out) 4.7 to 7.2 s; only the shutdown lines tell them apart. --quit-bound S makes
+it a check where the host is quiet enough for one.
+
+How the landing is seen (closeAll logs nothing; run-N/timeline.json has it all, in ms from the
+Apple event's send):
+  - the input journal (`debug.journal`, read every 10 ms during the quit; run-N/journal-content.json)
+    has each fresh tab's lifecycle trace: `host-present ... created=false` (the shown tab asks for
+    its browser: create_window, as no window of its profile exists) and `attach` (AFTER_CREATED
+    registered the browser for the tab);
+  - when the shutdown wait began: on a timed-out quit its line comes once the 3 s ran out, so the
+    wait began at most 3 s before it; the first live page's held request ending (Chromium tore the
+    page down) bounds it from above (run-N/quit-log.ndjson, `log stream --level info`, also has the
+    quit's `quit origin` line);
+  - landed: a fresh browser registered after the wait began (the bug: AFTER_CREATED after
+    close_all, kept), or asked for before the last fresh browser registered ahead of the close and
+    never registered (with the fix no browser is registered once the wait began, so it was asked
+    for before; it was closed at AFTER_CREATED, or never made in time).
+
+  scripts/cmux-next/quit-hidden-chromium-live.py --app PATH [--case hidden|in-flight] [--runs N]
+      [--windows N] [--tabs N] [--profiles N] [--quit-after-opens N] [--open-interval-ms MS]
+      [--quit-bound S] [--out DIR]
 
 GUI host only (a leased capture mini; ssh is outside the Aqua session, so the app starts with
 `open -n`). Ends the tag's daemons between runs and at the end (tag_teardown.py). Writes
-run-N/app.log, run-N/setup.json and verdict.json to --out. Exit 1 when a check fails.
+run-N/app.log, run-N/setup.json (and for in-flight run-N/timeline.json) and verdict.json to --out. Exit 1 when a check fails.
 """
-import argparse, glob, http.server, json, os, plistlib, re, socket, subprocess, sys, tempfile, threading, time
+import argparse, datetime, glob, http.server, json, os, plistlib, re, socket, subprocess, sys, tempfile, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
@@ -57,6 +103,14 @@ parser.add_argument("--runs", type=int, default=3)
 parser.add_argument("--windows", type=int, default=2)
 parser.add_argument("--tabs", type=int, default=2, help="background Chromium tabs per pane before the park")
 parser.add_argument("--ips-wait", type=float, default=45, help="seconds to wait for a crash report")
+parser.add_argument("--case", choices=["hidden", "in-flight"], default="hidden",
+                    help="hidden: never-made tabs in parked workspaces (default); in-flight: creations under way at quit")
+parser.add_argument("--profiles", type=int, default=24,
+                    help="in-flight: fresh profiles, one first tab each in the burst (it stops once quit closed the browsers)")
+parser.add_argument("--quit-after-opens", type=int, default=1, help="in-flight: burst opens sent before the Quit Apple event")
+parser.add_argument("--open-interval-ms", type=float, default=200, help="in-flight: time between the burst's opens")
+parser.add_argument("--quit-bound", type=float, default=None,
+                    help="in-flight: fail a quit-to-exit longer than this many seconds (default: report it only)")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 
@@ -70,6 +124,8 @@ SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 REPORTS = os.path.expanduser("~/Library/Logs/DiagnosticReports")
 runs = []
+ENGINE_CLOSE_WAIT = 3.0  # CEFEngine.shutdown(timeout:)'s default: how long quit waits for Chromium's windows
+streams = []  # LogStream and fallback osascript processes, stopped in the end's `finally` too
 
 
 class Run:
@@ -95,9 +151,28 @@ class Run:
 
 
 # The pages: a local server, so every tab has a real http page to load once it is made.
+# In-flight pages (/live-..., /fresh-...) are timed by their requests: a page's first GET says its
+# browser exists (Chromium starts the first navigation as it builds the browser), and each holds a
+# request open (GET /hold/...) that the server never answers, whose connection ends when Chromium
+# tears the page down: the first live page's says quit's close of every browser reached it.
+hits = []
+HOLD = "<script>fetch('/hold' + location.pathname)</script>"
+
+
 class Pages(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        body = f"<!doctype html><title>{self.path}</title><body>{self.path}</body>".encode()
+        hits.append((time.time(), "GET", self.path))
+        if self.path.startswith("/hold/"):
+            self.connection.settimeout(None)
+            try:
+                self.rfile.read(1)  # no answer: blocks until the page's connection closes
+            except OSError:
+                pass
+            hits.append((time.time(), "CLOSED", self.path))
+            self.close_connection = True
+            return
+        script = HOLD if self.path.startswith(("/live-", "/fresh-")) else ""
+        body = f"<!doctype html><title>{self.path}</title><body>{self.path}{script}</body>".encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.send_header("Content-Length", str(len(body)))
@@ -254,9 +329,9 @@ def crash_reports_for(pid, before):
     return found
 
 
-def build_window(run, index, layout):
-    """One window: workspace A (three panes of Chromium tabs, made, parked, hibernated and never made)
-    parked behind a shown workspace B, then in A each pane selects a never-made Chromium tab."""
+def three_pane_workspace(run, index, layout):
+    """Window `index` (a new one past the first) with a shown workspace A of three terminal panes
+    (a terminal, split right, the right pane split down). (window, entry, panes), or None."""
     before = {w.get("id") for w in windows()}
     if index > 0 or not before:
         action("newWindow", focus=True)
@@ -290,6 +365,17 @@ def build_window(run, index, layout):
     action("splitDown", target=f"pane:{right}", focus=True)  # the right pane splits: a hidden tab in a split
     panes = wait(lambda: (lambda t: t if len(t) == 3 else None)(panes_of(window)), 15) or panes_of(window)
     run.check(len(panes) == 3, f"window {index}: three panes in workspace A", [p.get("pane") for p in panes])
+    return window, entry, panes
+
+
+def build_window(run, index, layout):
+    """One window: workspace A (three panes of Chromium tabs, made, parked, hibernated and never made)
+    parked behind a shown workspace B, then in A each pane selects a never-made Chromium tab."""
+    made = three_pane_workspace(run, index, layout)
+    if not made:
+        return
+    window, entry, panes = made
+    workspace_a = entry["workspace_a"]
     for number, pane in enumerate(panes):
         pane_id = pane["pane"]
         terminal = pane.get("selected")
@@ -340,6 +426,316 @@ def build_window(run, index, layout):
     entry["shown_chromium_tabs_at_quit"] = sorted(t for t in shown_chromium_tabs() if t)
 
 
+def cli(*args):
+    """The bundled cmux CLI on this tag's socket, --json; its parsed reply or None."""
+    try:
+        done = subprocess.run([CLI, "--app-socket", SOCKET, "--json", *args], capture_output=True, text=True, timeout=30,
+                              env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")})
+        return json.loads(done.stdout)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
+def profile_id(reply):
+    """The id in a `browser profile create` reply, wherever the envelope puts it."""
+    if isinstance(reply, dict):
+        record = reply.get("browser_profile")
+        if isinstance(record, dict) and record.get("id"):
+            return record["id"]
+        for value in reply.values():
+            found = profile_id(value)
+            if found:
+                return found
+    return None
+
+
+class LogStream:
+    """`log stream --level info` kept across the quit. The quit's `quit origin` line is an info line,
+    which `log show` after the exit does not have, and on a busy capture mini RunningBoard's
+    `termination reported` line had left `log show`'s memory buffer within minutes."""
+
+    def __init__(self, path, predicate):
+        self.path = path
+        self.handle = open(path, "w")
+        self.process = subprocess.Popen(["/usr/bin/log", "stream", "--level", "info", "--style", "ndjson", "--predicate", predicate],
+                                        stdout=self.handle, stderr=subprocess.STDOUT)
+        streams.append(self.process)
+        # Its first line ("Filtering the log data ...") says the stream is attached.
+        self.attached = bool(wait(lambda: os.path.getsize(path) > 0, 10, step=0.05))
+
+    def stop(self):
+        time.sleep(1)  # the stream delivers a moment after the line is logged
+        self.process.terminate()  # this stream's exact process
+        try:
+            self.process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+        self.handle.close()
+
+    def events(self):
+        """[(epoch seconds, category, message)] in order (the stream's own header is not one)."""
+        found = []
+        with open(self.path, errors="replace") as handle:
+            for line in handle:
+                try:
+                    event = json.loads(line)
+                    stamp = datetime.datetime.strptime(event["timestamp"], "%Y-%m-%d %H:%M:%S.%f%z").timestamp()
+                except (ValueError, KeyError, TypeError):
+                    continue
+                found.append((stamp, event.get("category"), event.get("eventMessage") or ""))
+        return found
+
+
+class JournalWatch:
+    """Reads the app's input journal (`debug.journal`) every few ms from before the burst until the
+    socket is gone, keeping every entry by seq. A Chromium tab's lifecycle trace is in it, timed on
+    CLOCK_UPTIME_RAW: `host-present ... created=false` (the shown tab asks for its browser:
+    `ensureCreated`, create_window for a new window) and `attach ...` (AFTER_CREATED registered the
+    browser for the tab). The ring is in memory only, so it is read while the app still runs."""
+
+    def __init__(self):
+        self.entries, self.reads, self.stop = {}, 0, False
+        self.thread = threading.Thread(target=self.loop, daemon=True)
+        self.thread.start()
+
+    def loop(self):
+        misses, deadline = 0, time.monotonic() + 30
+        while not self.stop and misses < 3 and time.monotonic() < deadline:  # test harness: bounded read of the app's own ring
+            reply = rpc("debug.journal", {"last": 600}, timeout=2) or {}
+            if "error" in reply:
+                misses += 1
+            else:
+                misses = 0
+                self.reads += 1
+                for entry in reply.get("entries") or []:
+                    self.entries[entry.get("seq")] = entry
+            time.sleep(0.01)
+
+    def finish(self):
+        self.thread.join(timeout=40)
+        self.stop = True
+
+    def content(self):
+        """[(epoch seconds, tab, event)] of the lifecycle trace, in order."""
+        offset = time.time() - time.clock_gettime(time.CLOCK_UPTIME_RAW)
+        found = []
+        for seq in sorted(k for k in self.entries if k is not None):
+            entry = self.entries[seq]
+            content = (entry.get("kind") or {}).get("content") if isinstance(entry.get("kind"), dict) else None
+            if content:
+                found.append((entry.get("uptimeNanos", 0) / 1e9 + offset, content.get("tab"), content.get("event")))
+        return found
+
+
+def app_quit_predicate(pid):
+    return f'processID == {pid} AND subsystem == "com.cmuxterm.app.next" AND (category == "cef" OR category == "app.quit")'
+
+
+def termination_predicate(pid):
+    return f'process == "runningboardd" AND eventMessage CONTAINS "termination reported by launchd" AND eventMessage CONTAINS ":{pid}]"'
+
+
+class QuitEvent:
+    """The Quit Apple event (aevt/quit, no kAEQuitReason: an interactive quit, as `osascript -e 'tell
+    application id ... to quit'` sends it), built ahead and sent with no reply wait, so the send is a
+    moment on the clock; osascript took about 350 ms from its stdin to the app's `quit origin` line."""
+
+    def __init__(self, bundle_id):
+        self.bundle_id = bundle_id
+        self.event, self.error = None, None
+        try:
+            import ctypes
+            self.ctypes = ctypes
+            self.core = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/CoreServices.framework/CoreServices")
+
+            class AEDesc(ctypes.Structure):
+                _fields_ = [("descriptorType", ctypes.c_uint32), ("dataHandle", ctypes.c_void_p)]
+
+            code = lambda text: int.from_bytes(text.encode(), "big")
+            self.core.AECreateDesc.argtypes = [ctypes.c_uint32, ctypes.c_char_p, ctypes.c_long, ctypes.POINTER(AEDesc)]
+            self.core.AECreateAppleEvent.argtypes = [ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(AEDesc),
+                                                     ctypes.c_int16, ctypes.c_int32, ctypes.POINTER(AEDesc)]
+            self.core.AESendMessage.argtypes = [ctypes.POINTER(AEDesc), ctypes.POINTER(AEDesc), ctypes.c_int32, ctypes.c_long]
+            target, event = AEDesc(), AEDesc()
+            name = bundle_id.encode()
+            # typeApplicationBundleID 'bund'; kAutoGenerateReturnID -1, kAnyTransactionID 0.
+            status = self.core.AECreateDesc(code("bund"), name, len(name), ctypes.byref(target)) or \
+                self.core.AECreateAppleEvent(code("aevt"), code("quit"), ctypes.byref(target), -1, 0, ctypes.byref(event))
+            if status == 0:
+                self.event, self.reply_type = event, AEDesc
+            else:
+                self.error = f"AE build status {status}"
+        except (OSError, AttributeError) as error:
+            self.error = str(error)
+
+    def send(self):
+        """'AESendMessage' or the osascript fallback, with how it went."""
+        if self.event is not None:
+            reply = self.reply_type()
+            status = self.core.AESendMessage(self.ctypes.byref(self.event), self.ctypes.byref(reply), 0x1, -1)  # kAENoReply
+            if status == 0:
+                return "AESendMessage aevt/quit, no reply wait"
+            fallback = f"AESendMessage status {status}; osascript"
+        else:
+            fallback = f"{self.error}; osascript"
+        done = subprocess.Popen(["osascript", "-e", f'tell application id "{self.bundle_id}" to quit'],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        streams.append(done)
+        return fallback
+
+
+def in_flight_quit(run, pid):
+    """--case in-flight: three panes with a made Chromium tab each, then the burst of first tabs of
+    fresh profiles with the Quit Apple event inside it. The quit's timing, or None when setup failed."""
+    layout = []
+    made = three_pane_workspace(run, 0, layout)
+    if not made:
+        return None
+    _, entry, panes = made
+    anchors = []
+    for number, pane in enumerate(panes):
+        terminal = pane.get("selected")
+        action("tab.focus", target=f"tab:{terminal}", focus=True)
+        reply = action("openBrowser.chromium", target=f"tab:{terminal}", focus=True, url=f"{ORIGIN}/live-r{run.index}-p{number}")
+        tab = (created(reply) or [None])[0]
+        run.check(tab and wait(lambda: tab in shown_chromium_tabs(), 30), f"pane {number}: a front Chromium tab is made and shown", tab)
+        entry["panes"][pane["pane"]] = {"terminal": terminal, "front": [tab]}
+        if tab:
+            anchors.append(tab)
+    if not run.check(anchors, "made Chromium tabs to anchor the burst", anchors):
+        return None
+    profiles = []
+    for k in range(opts.profiles):
+        profiles.append(profile_id(cli("browser", "profile", "create", "--name", f"quit-in-flight-{os.getpid()}-{run.index}-{k}")))
+    if not run.check(all(profiles), f"{opts.profiles} fresh browser profiles", profiles):
+        return None
+    time.sleep(2)  # the app's mirror of the profile records follows the daemon's reply
+    entry["fresh_profiles"] = profiles
+    log = LogStream(os.path.join(run.dir, "quit-log.ndjson"), app_quit_predicate(pid))
+    run.check(log.attached, "log stream attached before the quit")
+    quit_event = QuitEvent(BUNDLE_ID)
+    journal = JournalWatch()
+    time.sleep(0.3)
+    journal.entries.clear()
+    # The burst: one open every --open-interval-ms, each on its own thread (an open's reply waits on
+    # the daemon for about 200 ms; waiting for it would leave gaps no creation spans), cycling over
+    # the panes; the Quit Apple event goes in its place in the schedule.
+    burst = [None] * len(profiles)
+
+    def open_fresh(k, profile):
+        sent = time.time()
+        # Short timeout: once quit ended the app the socket is gone.
+        reply = rpc("action.run", {"action": "openBrowser", "origin": "script", "focus": True,
+                                   "target": f"tab:{anchors[k % len(anchors)]}",
+                                   "args": {"engine": "cef", "profile": profile, "url": f"{ORIGIN}/fresh-r{run.index}-{k}"}}, timeout=5) or {}
+        burst[k] = {"profile": profile, "sent": sent, "reply_ms": round((time.time() - sent) * 1000, 1),
+                    "created": created(reply), "error": reply.get("error")}
+
+    threads, quit_at, quit_wall, sent_by = [], None, None, None
+    start_at = time.monotonic()
+    quit_slot = min(opts.quit_after_opens, len(profiles))
+    for k in range(len(profiles) + 1):
+        slot = start_at + k * opts.open_interval_ms / 1000
+        if k == quit_slot:
+            quit_wall, quit_at = time.time(), time.monotonic()
+            sent_by = quit_event.send()
+        if slot > time.monotonic():
+            time.sleep(slot - time.monotonic())
+        if any(m == "CLOSED" and path.startswith(f"/hold/live-r{run.index}-") for t, m, path in hits):
+            break  # quit closed every browser: a later open can make no browser, only load
+        if k < len(profiles):
+            thread = threading.Thread(target=open_fresh, args=(k, profiles[k]), daemon=True)
+            thread.start()
+            threads.append(thread)
+    for thread in threads:
+        thread.join(timeout=10)
+    burst = [b for b in burst if b]  # the opens that ran (the burst stops at quit's close)
+    run.note(f"Quit Apple event: {sent_by}")
+    for b in burst:
+        sent = b.pop("sent")
+        b["after_quit"], b["sent_ms"] = sent >= quit_wall, round((sent - quit_wall) * 1000, 1)
+    before = [b for b in burst if not b["after_quit"]]
+    run.check(before and all(b["created"] for b in before), "the burst's opens before the quit each made a tab",
+              [{k: b[k] for k in ("created", "error", "reply_ms")} for b in before])
+    with open(os.path.join(run.dir, "setup.json"), "w") as handle:
+        json.dump({"pid": pid, "layout": layout, "burst": burst}, handle, indent=1)
+    run.note("burst (ms from the quit's send): " + ", ".join(
+        f"{b['sent_ms']:+.0f}{'' if b['created'] else ' refused'}" for b in burst))
+    return {"quit_at": quit_at, "quit_wall": quit_wall, "log": log, "burst": burst, "journal": journal}
+
+
+def in_flight_evidence(run, quit, exit_seconds):
+    """Times everything against the Apple event's send (see the docstring: how the landing is seen):
+    the quit's `quit origin` line, each fresh tab's host-present and attach, its page's first GET,
+    the first live page torn down, the `CEF shutdown` line and the exit; then the in-flight checks."""
+    log = quit["log"]
+    log.stop()
+    events = log.events()
+    zero = quit["quit_wall"]
+    ms = lambda t: round((t - zero) * 1000)
+    origin = next((t for t, c, m in events if c == "app.quit" and m.startswith("quit origin")), None)
+    shutdown = [(t, m) for t, c, m in events if c == "cef" and m.startswith("CEF shutdown")]
+    live_closed = sorted(t for t, method, path in hits if method == "CLOSED" and path.startswith(f"/hold/live-r{run.index}-"))
+    first_close = live_closed[0] if live_closed else None
+    gets = {}
+    for t, method, path in hits:
+        if method == "GET" and path.startswith(f"/fresh-r{run.index}-"):
+            gets.setdefault(int(path.rsplit("-", 1)[-1]), t)
+    journal = quit["journal"]
+    journal.finish()
+    content = journal.content()
+    with open(os.path.join(run.dir, "journal-content.json"), "w") as handle:
+        json.dump([(ms(t), tab, event) for t, tab, event in content], handle, indent=0)
+    tab_of = {tab: k for k, b in enumerate(quit["burst"]) for tab in b["created"]}
+    present, attach = {}, {}
+    for t, tab, event in content:
+        k = tab_of.get(tab)
+        if k is None:
+            continue
+        if event.startswith("host-present") and "created=false" in event:
+            present.setdefault(k, t)
+        elif event.startswith("attach"):
+            attach.setdefault(k, t)
+    # When the shutdown wait began (cmux_shim_close_all): on a timed-out quit, its line is logged once
+    # the 3 s wait (CEFEngine.shutdown's) ran out, so the wait began at most 3 s before it. A quit
+    # that completes logs nothing there; the first live page torn down bounds it from above.
+    timed_out_at = next((t for t, m in shutdown if "timed out" in m), None)
+    wait_began = timed_out_at - ENGINE_CLOSE_WAIT if timed_out_at is not None else None
+    # Registered after the wait began: AFTER_CREATED arrived after close_all and the runtime kept the
+    # browser (the bug).
+    registered_late = sorted(k for k, t in attach.items() if wait_began is not None and t > wait_began)
+    # Asked for before the last fresh browser was registered ahead of the close, and never registered:
+    # its create_window ran before the wait began (with the fix, no browser is registered once it
+    # began), and its AFTER_CREATED never registered it (the fix closes such a browser).
+    registered_early = [t for t in attach.values() if first_close is not None and t < first_close]
+    cutoff = max(registered_early) if registered_early else None
+    never_registered = sorted(k for k, t in present.items() if k not in attach and cutoff is not None and t < cutoff)
+    fresh = {k: {"present": ms(present[k]) if k in present else None, "attach": ms(attach[k]) if k in attach else None,
+                 "get": ms(gets[k]) if k in gets else None} for k in sorted(set(present) | set(attach) | set(gets))}
+    timeline = {"quit_origin_ms": ms(origin) if origin else None,
+                "wait_began_ms": ms(wait_began) if wait_began is not None else None,
+                "first_live_page_torn_down_ms": ms(first_close) if first_close else None,
+                "registered_after_wait_began": {k: fresh[k] for k in registered_late},
+                "under_way_never_registered": {k: fresh[k] for k in never_registered},
+                "shutdown_line": [(ms(t), m) for t, m in shutdown], "exit_ms": round(exit_seconds * 1000),
+                "journal_reads": journal.reads}
+    with open(os.path.join(run.dir, "timeline.json"), "w") as handle:
+        json.dump(dict(timeline, fresh=fresh, live_pages_torn_down_ms=[ms(t) for t in live_closed]), handle, indent=1)
+    run.note("quit timeline (ms from the Apple event's send): " + json.dumps(timeline))
+    run.check(registered_late or never_registered,
+              "the race landed: a fresh browser's creation was under way when quit closed every browser "
+              "(registered after the wait began, or asked for before it and never registered)", timeline)
+    timed_out = [m for t, m in shutdown if "timed out" in m]
+    run.check(not timed_out, "no `CEF shutdown timed out`", timed_out or "none")
+    run.check(any(m == "CEF shutdown complete" for t, m in shutdown), "`CEF shutdown complete` logged",
+              [m for t, m in shutdown] or "no CEF shutdown line")
+    if opts.quit_bound is None:
+        run.note(f"quit to exit {exit_seconds:.2f} s")
+    else:
+        run.check(exit_seconds < opts.quit_bound, f"quit to exit under {opts.quit_bound:g} s", f"{exit_seconds:.2f} s")
+    return timeline
+
+
 def one_run(index):
     run = Run(index)
     runs.append(run)
@@ -365,21 +761,28 @@ def one_run(index):
         if len(windows()) > 1:
             action("window.closeOthers", focus=True, confirm=True)
             wait(lambda: len(windows()) <= 1, 15)
-    layout = []
-    for w in range(opts.windows):
-        build_window(run, w, layout)
-    with open(os.path.join(run.dir, "setup.json"), "w") as handle:
-        json.dump({"pid": pid, "layout": layout, "windows": windows()}, handle, indent=1)
-    run.note(f"{len(windows())} windows; {sum(len(e['panes']) for e in layout)} panes in parked workspaces; "
-             f"{sum(len(r['background']) for e in layout for r in e['panes'].values())} never-made Chromium tabs; "
-             f"{sum(1 for e in layout for r in e['panes'].values() if r['hibernated'])} hibernated")
-
-    # Quit as Leo did: the Quit Apple event.
     start = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 2))
-    quit_at = time.monotonic()
-    osa = subprocess.run(["osascript", "-e", f'tell application id "{BUNDLE_ID}" to quit'],
-                         capture_output=True, text=True, timeout=120)
-    run.note(f"osascript quit -> exit {osa.returncode} {(osa.stdout + osa.stderr).strip()[:200]}")
+    # RunningBoard's exit line, streamed from before the quit (see LogStream).
+    rb_stream = LogStream(os.path.join(run.dir, "termination.ndjson"), termination_predicate(pid))
+    in_flight = in_flight_quit(run, pid) if opts.case == "in-flight" else None
+    if in_flight:
+        quit_at = in_flight["quit_at"]
+    else:
+        if opts.case == "hidden":
+            layout = []
+            for w in range(opts.windows):
+                build_window(run, w, layout)
+            with open(os.path.join(run.dir, "setup.json"), "w") as handle:
+                json.dump({"pid": pid, "layout": layout, "windows": windows()}, handle, indent=1)
+            run.note(f"{len(windows())} windows; {sum(len(e['panes']) for e in layout)} panes in parked workspaces; "
+                     f"{sum(len(r['background']) for e in layout for r in e['panes'].values())} never-made Chromium tabs; "
+                     f"{sum(1 for e in layout for r in e['panes'].values() if r['hibernated'])} hibernated")
+        # Quit as Leo did: the Quit Apple event (also ends an in-flight run whose setup failed).
+        start = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 2))
+        quit_at = time.monotonic()
+        osa = subprocess.run(["osascript", "-e", f'tell application id "{BUNDLE_ID}" to quit'],
+                             capture_output=True, text=True, timeout=120)
+        run.note(f"osascript quit -> exit {osa.returncode} {(osa.stdout + osa.stderr).strip()[:200]}")
     # A quit sheet (running terminals) is answered with keep; the socket is gone once quit ends.
     sheet = wait(lambda: (lambda r: r if "error" in r or r.get("asking") else None)(rpc("debug.quit", timeout=3) or {"error": 1}), 5)
     if sheet and sheet.get("asking"):
@@ -387,8 +790,9 @@ def one_run(index):
         choice = next((b for b in buttons if "keep" in str(b)), buttons[0] if buttons else None)
         run.note(f"quit sheet asked ({buttons}); pressing {choice}")
         rpc("debug.quit", {"press": choice}, timeout=5)
-    exited = wait(lambda: not alive(pid), 60)
-    run.check(exited, "the process exits after the Quit Apple event", f"pid {pid}, {time.monotonic() - quit_at:.1f} s")
+    exited = wait(lambda: not alive(pid), 60, step=0.01)
+    exit_seconds = time.monotonic() - quit_at
+    run.check(exited, "the process exits after the Quit Apple event", f"pid {pid}, {exit_seconds:.2f} s")
     if not exited:
         os.kill(pid, 9)  # this run's exact PID, never a pattern
         wait(lambda: not alive(pid), 10)
@@ -397,11 +801,12 @@ def one_run(index):
     termination = []
     for _ in range(3):  # the log can lag the exit by a moment
         # The app's own line, not its WebContent helpers' (their names embed the app's pid too).
-        termination = [l for l in unified_log(start, f'process == "runningboardd" AND eventMessage CONTAINS "termination reported by launchd" AND eventMessage CONTAINS ":{pid}]"')
+        termination = [l for l in [m for t, c, m in rb_stream.events()] + unified_log(start, termination_predicate(pid))
                        if re.search(r"\[app<application\.%s\.[^>]*>:%d\] termination reported" % (re.escape(BUNDLE_ID), pid), l)]
         if termination:
             break
         time.sleep(2)
+    rb_stream.stop()
     status = None
     if termination:
         match = re.search(r"termination reported by launchd \((-?\d+), (-?\d+), (-?\d+)\)", termination[-1])
@@ -431,10 +836,16 @@ def one_run(index):
     run.check(not os_fatal, "no FATAL in the pid's unified log", os_fatal[:2] or "none")
     shutdown = [l for l in app_lines if "CEF shutdown" in l]
     run.note("CEF quit log: " + (" | ".join(l.split("] ", 1)[-1] for l in shutdown) or "no CEF shutdown line"))
-    run.note("refusals of ensureCreated/create_window are not logged by the fix; not observable after exit")
+    if opts.case == "hidden":
+        run.note("refusals of ensureCreated/create_window are not logged by the fix; not observable after exit")
+    timeline = None
+    if in_flight:
+        timeline = in_flight_evidence(run, in_flight, exit_seconds)
+    elif opts.case == "in-flight":
+        run.check(False, "the in-flight setup ran (see the failures above)")
     run.result = {"pid": pid, "wait_status": status, "signal": signal_number or None, "exit_code": exit_code,
                   "crash_reports": ips, "fatal": fatal[:2], "stack": stack[:8], "cef_log": shutdown,
-                  "termination": termination[-1:]}
+                  "termination": termination[-1:], "quit_to_exit_s": round(exit_seconds, 3), "timeline": timeline}
     end_tag()
     return run
 
@@ -445,6 +856,9 @@ try:
     for n in range(1, opts.runs + 1):
         one_run(n)
 finally:
+    for stream in streams:
+        if stream.poll() is None:
+            stream.terminate()  # that process's exact PID
     teardown.end()
     end_tag()
     server.shutdown()

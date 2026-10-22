@@ -1,6 +1,8 @@
 import AppKit
 @testable import CmuxNextApp
+@testable import CmuxNextHome
 import CmuxHomeCore
+@testable import MessagesLabSidebar
 import Testing
 
 /// Lawrence 2026-10-19: "If I type randomly, or if I focus using Command + Up/Down Arrow key to
@@ -224,14 +226,12 @@ import Testing
         case .page(let view): page = try #require((view.content as? HomeDockView)?.messages ?? view.content as? TopHomePageView)
         default: Issue.record("not a page"); return
         }
-        var stack: [NSView] = [page.list]
-        var list: NSView?
-        while let next = stack.popLast(), list == nil {
-            stack.append(contentsOf: next.subviews)
-            if next.acceptsFirstResponder, !(next is NSText || next is NSTextField), !next.isHiddenOrHasHiddenAncestor { list = next }
-        }
-        let holder = try #require(list, "the conversation list takes no keyboard")
+        // The list's own keyboard view (its rows' document view), not the first view of the list
+        // that accepts the keyboard: that was the header's compose button until the avatar-only
+        // list hid it (33224e07f08), then the scroll view, which hands the keyboard to its document.
+        let holder = page.list.list.controller.document
         try #require(h.window.makeFirstResponder(holder))
+        try #require(h.window.firstResponder === holder, "the conversation list takes no keyboard")
         #expect(h.content.landKeyboardInPrimaryInput(in: h.window))
         #expect(h.window.firstResponder === holder, "a pane focus took the keyboard from the list")
         h.type("yo")

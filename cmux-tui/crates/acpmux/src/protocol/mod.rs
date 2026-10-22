@@ -160,6 +160,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_OFFER_SESSION, Request),
         untyped(method::MUX_OFFER_RESPOND, Request),
         // Sub-sessions (`server/subsessions.rs`).
+        untyped(method::MUX_SUBSESSION_ANSWER, Request),
         untyped(method::MUX_SUBSESSION_GET, Request),
         untyped(method::MUX_SUBSESSION_LIMITS, Request),
         untyped(method::MUX_SUBSESSION_LIST, Request),
@@ -176,6 +177,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_BOOKMARK_GET, Request),
         untyped(method::MUX_BOOKMARK_SET, Request),
         untyped(method::MUX_PROMPT_WITHDRAW, Request),
+        untyped(method::MUX_SEND_QUEUE, Request),
+        untyped(method::MUX_SEND_STATUS, Request),
+        // The hub asks a session's agent adapter (claude_stdio, the Codex bridge).
+        untyped(method::MUX_STEP_NOW, Request),
         untyped(method::MUX_AGENT_PAIR_RESUME, Request),
         untyped(method::MUX_PROCESS_LIST, Request),
         untyped(method::MUX_PROCESS_TAIL, Request),
@@ -213,6 +218,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_COMPOSERS, Request),
         untyped(method::MUX_EXPORT, Request),
         untyped(method::MUX_IMPORT, Request),
+        untyped(method::MUX_FILE_PUT, Request),
         // Permissions.
         request::<PermissionRespondParams, PermissionRespondResult>(method::MUX_PERMISSION_RESPOND),
         request::<PermissionGroupsParams, PermissionGroupList>(method::MUX_PERMISSION_GROUPS),
@@ -229,6 +235,11 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_COMPUTER_USE_ENROLL, Request),
         untyped(method::MUX_PERSON_PROVE, Request),
         untyped(method::MUX_PERSON_HOLDS, Request),
+        // The person's phones and their chats (`hub/approvers.rs`, `hub/person.rs`).
+        untyped(method::MUX_APPROVERS, Request),
+        untyped(method::MUX_APPROVERS_SET, Request),
+        untyped(method::MUX_NEW_CHAT_PICKS_SET, Request),
+        untyped(method::MUX_WORKSPACE_ROOTS_SET, Request),
         untyped(method::MUX_SECRET_REQUEST, Request),
         untyped(method::MUX_SECRET_SUBMIT, Request),
         untyped(method::MUX_SECRET_RUN, Request),
@@ -301,6 +312,11 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peer_lease", Request),
         untyped("_acpmux/peer_reconnect", Request),
         untyped("_acpmux/peer_remove", Request),
+        untyped(method::MUX_PAIR_TICKET_NEW, Request),
+        untyped(method::MUX_PAIR_LIST, Request),
+        untyped(method::MUX_PAIR_REVOKE, Request),
+        untyped(method::MUX_PAIR_ISSUE, Request),
+        untyped(method::MUX_PAIR_REDEEM, Request),
         // Notifications.
         notification::<events::SessionEvent>(method::MUX_EVENT),
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),

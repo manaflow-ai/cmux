@@ -509,16 +509,23 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 | `cmux vm new --detach` | yes |
 | `cmux vm attach <id>` | yes |
 | `cmux vm ssh <id>` | yes (cmux-remote alias) |
-| `cmux vm ssh-info <id>` | no (managed API has no SSH credential endpoint) |
+| `cmux vm ssh-info <id>` | no (no web route; agents use the cmux-vm Worker's client sessions) |
 | `cmux vm exec <id> -- ...` | yes |
 | `cmux vm ls / rm` | yes |
 | snapshot / restore | yes |
 
 `cmux vm ssh <id>` is the user-facing interactive alias and opens the same managed workspace path
 as `cmux vm attach <id>`. Freestyle's provider SSH proxy is available outside cmux's managed
-session protocol, but the managed API does not mint or expose its scoped identities. This keeps
-workspace, tab, terminal, and revision state on one authoritative cmux-tui path. Therefore
-`cmux vm ssh-info <id>` and `POST /api/vm/:id/ssh-endpoint` stay unsupported.
+session protocol. The Freestyle driver can mint a scoped identity for it (`openSSH`): a new
+Freestyle identity granted only that VM as the work user `cmux`, with one access token
+(freestyle.sh/docs/vms/client-sessions), never the team key. The identity id is the opaque
+`identityHandle`; destroy, lease revocation and sign-out delete it through
+`revokeSSHIdentity`. SSH is still not an advertised transport (`attachTransports` is
+`cmux-remote` only), so workspace, tab, terminal, and revision state stay on one authoritative
+cmux-tui path, and `cmux vm ssh-info <id>` / `POST /api/vm/:id/ssh-endpoint` have no web route.
+Cloud agents get per-VM provider tokens from the cmux-vm Worker instead
+(`POST /v1/vms/{vmId}/client-session`, workers/cmux-vm/README.md "Agent keys and client
+sessions").
 
 ## Capabilities: the client-visible provider contract
 
@@ -562,6 +569,14 @@ one Rust facade (`cmux-tui/crates/cmux-cloud-cli`). The facade forwards the comp
 CodeRouter argument list to the official Rust core and local/peer commands to the
 guest adapter, which uses the machine's cmux-tui daemon. `cmux coderouter` and
 `cmux cr` use the same CodeRouter implementation as the top-level aliases.
+
+`cmux sandbox create|list|exec|token|delete|whoami` (`guestSandboxCli.ts`) runs a cloud
+agent's own throwaway VMs through the cmux VM API with the agent key it was given
+(`CMUX_AGENT_KEY`, else `CMUX_AGENT_CONFIG` or `~/.config/cmux/agent.json`, which must be
+mode 0600). The key reaches only the VMs it created, within its VM count and USD/h
+budget; the service deletes them when the key expires or is revoked. The same verbs ship
+as the standalone `cmux-sandbox` script (`GUEST_SANDBOX_STANDALONE`) for agent hosts
+without this adapter; the hq cloud-subagents pool tool installs it with each key.
 
 The facade and CodeRouter core are one checksum-pinned archive described by
 `guestCliDistribution.json`. Create and attach heal this distribution separately

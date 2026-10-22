@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("quiet-access-chip.test.ts", async () => {
@@ -56,9 +57,24 @@ await requireBrowserLane("quiet-access-chip.test.ts", async () => {
   });
 
   const trigger = ".acpmux-access .acpmux-picker-button";
+  /** Until no menu is still opening or closing and no transition is running (Base UI unmounts a
+   *  closed menu, and hands focus back, once its fade has finished), and two frames have painted. */
+  const settled = (page: Page) =>
+    page.evaluate(async () => {
+      for (let tries = 0; tries < 20; tries++) {
+        const finite = () =>
+          document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+        await Promise.all(finite().map((animation) => animation.finished.catch(() => undefined)));
+        await window.cmuxPaintFrame();
+        await window.cmuxPaintFrame();
+        const moving = document.querySelector("[data-starting-style], [data-ending-style]");
+        if (!moving && finite().every((animation) => animation.playState !== "running")) return;
+      }
+    });
   /** The composer's access-menu stage with Full access picked and the menu closed. */
   const fullAccess = async (engine: string): Promise<Page> => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width: 760, height: 600 } });
+    await installPaintedFrames(page);
     await page.goto(stageURL("agent-pane.composer", "access-menu"));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
@@ -69,10 +85,11 @@ await requireBrowserLane("quiet-access-chip.test.ts", async () => {
     await page.locator(".acpmux-access.acpmux-unrestricted").waitFor();
     // The menu hands focus back to its chip after its close fade; blur after that, so the chip shows
     // its resting color, not its focus step.
-    await page.waitForTimeout(500);
+    await page.locator("[role=menuitemradio]").first().waitFor({ state: "detached" });
+    await settled(page);
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.mouse.move(2, 2);
-    await page.waitForTimeout(400);
+    await settled(page);
     return page;
   };
 

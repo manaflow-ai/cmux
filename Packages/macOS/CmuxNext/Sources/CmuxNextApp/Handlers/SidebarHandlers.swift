@@ -10,11 +10,12 @@ enum SidebarHandlers {
         let services = context.services
         FileExplorerHandlers.bind(into: registry, explorer: { [weak services] in services?.fileExplorers.activeExplorer },
                                   effects: services.fileExplorers.effects)
-        // Open Find as Pane: the Find section in a tab, on the focused terminal's folder.
+        // Open Find as Pane: the Find section in a tab, on the focused terminal's folder
+        // (or the CLI's `--pane` or `--path`).
         let findPanes = services.fileExplorers.findPanes
         services.pages.register(findPanes) // at launch, so a restored tab finds it
         registry.bind("palette.openFindPane", run: { invocation in
-            let folder = services.windows.active.flatMap { services.fileExplorers.folder(focusedIn: $0) }
+            guard let folder = context.openAsPaneFolder(invocation) else { return }
             try findPanes.open(folder: folder, focus: invocation.allowsViewChange)
         })
     }

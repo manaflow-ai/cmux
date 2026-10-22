@@ -6,6 +6,10 @@
 //! A queued prompt keeps its images too (Leo, 2026-10-21: his queued row showed text only, and
 //! editing the queued text dropped the screenshot): the queue lists them, they read back before
 //! the prompt runs, and an edit of its text keeps them (or only the ones it names).
+//!
+//! A prompt's pasted text blocks (`_meta.cmux.pasted`, the composer's) are named on its
+//! `user_message` and `queued` records as UTF-16 ranges of the text, so the chat folds each
+//! into a "Pasted text" chip.
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -350,4 +354,105 @@ async fn a_queued_prompts_images_are_listed_and_read_back_before_it_runs() {
     open(&gate);
     let answer = q.reply(sent).await;
     assert_eq!(answer["result"]["stopReason"], "end_turn", "{answer}");
+}
+
+/// A text block the composer marks as pasted (`_meta.cmux.pasted`).
+fn pasted(text: &str) -> Value {
+    json!({"type": "text", "text": text, "_meta": {"cmux": {"pasted": true}}})
+}
+
+/// `text` from UTF-16 offset `start` to `end`, as JS `text.slice(start, end)` reads it.
+fn utf16_slice(text: &str, range: &Value) -> String {
+    let units: Vec<u16> = text.encode_utf16().collect();
+    let (start, end) = (range["start"].as_u64().unwrap(), range["end"].as_u64().unwrap());
+    String::from_utf16(&units[start as usize..end as usize]).unwrap()
+}
+
+// A sent prompt names the parts that were pasted (`pasted: [{start, end}]`, UTF-16 offsets
+// into its text), so the chat can fold each into a "Pasted text" chip.
+#[tokio::test]
+async fn a_prompts_pasted_blocks_are_named_by_their_utf16_range_in_its_text() {
+    let hub = hub(&store("pasted"));
+    let mut c = client(&hub);
+    let session = new_session(&mut c).await;
+    // 👀 is outside the BMP: two UTF-16 units, four bytes, one char.
+    let reply = c
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [
+                {"type": "text", "text": "see 👀 this"},
+                pasted("line one\nline two"),
+                pasted("ünïcode"),
+            ], "_meta": {"acpmux": {"promptId": "p-paste"}}}),
+        )
+        .await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    let sent = user_messages(&mut c, &session).await;
+    let sent = sent.iter().find(|m| m["promptId"] == "p-paste").expect("the prompt ran");
+    let text = sent["text"].as_str().unwrap();
+    assert_eq!(text, "see 👀 this\nline one\nline two\nünïcode");
+    assert_eq!(
+        sent["pasted"],
+        json!([{"start": 12, "end": 29}, {"start": 30, "end": 37}]),
+        "{sent}"
+    );
+    let parts: Vec<String> =
+        sent["pasted"].as_array().unwrap().iter().map(|r| utf16_slice(text, r)).collect();
+    assert_eq!(parts, ["line one\nline two", "ünïcode"]);
+}
+
+#[tokio::test]
+async fn a_prompt_with_nothing_pasted_names_no_pasted_range() {
+    let hub = hub(&store("not-pasted"));
+    let mut c = client(&hub);
+    let session = new_session(&mut c).await;
+    let reply = c
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [
+                {"type": "text", "text": "typed"},
+                {"type": "text", "text": "also typed", "_meta": {"cmux": {"pasted": false}}},
+            ], "_meta": {"acpmux": {"promptId": "p-typed"}}}),
+        )
+        .await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    let sent = user_messages(&mut c, &session).await;
+    let sent = sent.iter().find(|m| m["promptId"] == "p-typed").expect("the prompt ran");
+    assert_eq!(sent["text"], "typed\nalso typed");
+    assert!(sent.get("pasted").is_none(), "{sent}");
+}
+
+// A queued prompt's row names its pasted parts too, and so does its message once it runs.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_queued_prompts_pasted_blocks_are_named_while_it_waits_and_once_it_runs() {
+    let name = "queued-pasted";
+    let hub = hub(&store(name));
+    let mut c = client(&hub);
+    let session = new_session(&mut c).await;
+    let gate = root().join(format!("gate-{name}"));
+    gated_turn(&mut c, &session, &gate).await;
+    let mut q = client(&hub);
+    let sent = q
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "🦀 fix"}, pasted("a log")], "_meta": {"acpmux": {"promptId": "q-paste"}}}),
+        )
+        .await;
+    wait_event(&mut c, &session, "queued record", |e| {
+        e["kind"] == "queued" && e["msg"]["promptId"] == "q-paste"
+    })
+    .await;
+    let range = json!([{"start": 7, "end": 12}]);
+    let page = c.call("_acpmux/events", json!({"sessionId": session, "kinds": ["queued"]})).await;
+    let events = page["result"]["events"].as_array().cloned().unwrap_or_default();
+    let queued = events.iter().find(|e| e["msg"]["promptId"] == "q-paste").expect("queued");
+    assert_eq!(queued["msg"]["pasted"], range, "{queued}");
+    open(&gate);
+    let answer = q.reply(sent).await;
+    assert_eq!(answer["result"]["stopReason"], "end_turn", "{answer}");
+    let sent = user_messages(&mut c, &session).await;
+    let sent = sent.iter().find(|m| m["promptId"] == "q-paste").expect("the queued prompt ran");
+    assert_eq!(sent["text"], "🦀 fix\na log");
+    assert_eq!(sent["pasted"], range, "{sent}");
 }

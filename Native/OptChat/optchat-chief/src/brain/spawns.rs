@@ -143,6 +143,108 @@ impl Brain {
         }
     }
 
+    /// Subagent `id` holds sandbox key `key_id`.
+    pub(super) fn sub_agent_key(&mut self, id: &str, key_id: String) {
+        if let Some(sub) = self
+            .state
+            .spawns
+            .values_mut()
+            .flat_map(|r| r.subs.iter_mut())
+            .find(|s| s.id == id)
+        {
+            sub.agent_key = Some(key_id);
+            self.save();
+        }
+    }
+
+    /// Subagent `id`'s sandbox key is revoked: forgotten.
+    pub(super) fn agent_key_revoked(&mut self, id: &str) {
+        self.agent_key_revoking.remove(id);
+        self.agent_key_done_since.remove(id);
+        if let Some(sub) = self
+            .state
+            .spawns
+            .values_mut()
+            .flat_map(|r| r.subs.iter_mut())
+            .find(|s| s.id == id)
+        {
+            sub.agent_key = None;
+            self.save();
+        }
+    }
+
+    /// Revokes the sandbox key of each cloud subagent done (not starting,
+    /// queued or running) for `agent_keys::REVOKE_AFTER_DONE`, off the brain
+    /// thread; the service then deletes its VMs, and the pool tool removes
+    /// the key file. A subagent told again within it keeps its key; one
+    /// running again restarts the wait. [`CLOUD_TICK`](super::control::CLOUD_TICK) runs it.
+    pub(super) fn agent_key_tick(&mut self) {
+        let Some(keys) = self.agent_keys.clone() else {
+            return;
+        };
+        let now = now_ms();
+        let keyed: Vec<(String, String, Option<String>, bool)> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter_map(|s| {
+                let live = matches!(
+                    s.status,
+                    SubStatus::Starting | SubStatus::Queued | SubStatus::Running
+                );
+                s.agent_key
+                    .clone()
+                    .map(|k| (s.id.clone(), k, s.peer.clone(), live))
+            })
+            .collect();
+        for (id, key_id, peer, live) in keyed {
+            if live {
+                self.agent_key_done_since.remove(&id);
+                continue;
+            }
+            if self.agent_key_revoking.contains(&id) {
+                continue;
+            }
+            let since = *self.agent_key_done_since.entry(id.clone()).or_insert(now);
+            if now.saturating_sub(since) < self.agent_key_grace.as_millis() as u64 {
+                continue;
+            }
+            self.agent_key_revoking.insert(id.clone());
+            let keys = keys.clone();
+            let vms = self.cloud_vms.clone();
+            let log = self.log.clone();
+            let tx = self.tx.clone();
+            let _ = std::thread::Builder::new()
+                .name("agent-key-revoke".into())
+                .spawn(move || {
+                    match keys.revoke(&key_id) {
+                        Ok(()) => {
+                            log(&format!(
+                                "agent key {key_id} of {id} revoked; its sandboxes are deleted"
+                            ));
+                            if let (Some(vms), Some(peer)) = (vms, peer)
+                                && let Err(e) = vms.drop_agent_key(&peer, &id)
+                            {
+                                log(&format!("agent key file of {id} on {peer}: {e}"));
+                            }
+                            let _ = tx.send(super::Input::AgentKeyRevoked { id });
+                        }
+                        // Tried again next tick: the key stays recorded.
+                        Err(e) => {
+                            log(&format!("agent key {key_id} of {id}: revoke: {e}"));
+                            let _ = tx.send(super::Input::AgentKeyRevokeFailed { id });
+                        }
+                    }
+                });
+        }
+    }
+
+    /// A revoke failed: the next tick tries again.
+    pub(super) fn agent_key_revoke_failed(&mut self, id: &str) {
+        self.agent_key_revoking.remove(id);
+    }
+
     /// The pool tool refused or failed to pause `peer`: it is not paused,
     /// and its idle time starts again.
     pub(super) fn cloud_pause_failed(&mut self, peer: &str) {
@@ -239,7 +341,7 @@ impl Brain {
                     };
                     SubRecord {
                         id: id.clone(),
-                        title: crate::workspaces::name(id, task),
+                        title: crate::workspaces::title(task),
                         task: task.chars().take(TASK_KEPT).collect(),
                         run_ms: now_ms(),
                         status,
@@ -1252,9 +1354,11 @@ impl Brain {
                 SubStatus::Done => "finished, report not read yet",
                 SubStatus::Reported => "finished",
             };
+            // A record from before 2026-10-21 carries its workspace's `aN · ` id prefix.
             let title = sub
                 .title
                 .split_once(" · ")
+                .filter(|(id, _)| *id == sub.id)
                 .map_or(sub.title.as_str(), |(_, t)| t);
             let you = if sub.id == caller { " (you)" } else { "" };
             let workspace = sub
@@ -2012,9 +2116,23 @@ impl Brain {
         }
     }
 
+    /// Subagent `id`'s task turn started at acpmux. One cancelled while it
+    /// was starting is cancelled again now: the cancel sent as its prompt
+    /// went out (`SubagentPrompted`) is lost when it reached acpmux before
+    /// the prompt did. Only its task prompt's turn comes here, and only
+    /// while it is still cancelled: a Restart in between lets it run.
+    pub(super) fn sub_turn_started(&mut self, id: &str, prompt_id: &str) {
+        self.trace.emit(
+            "subagent.turn_started",
+            json!({"id": id, "prompt": prompt_id}),
+        );
+        self.stop_if_cancelled(id);
+    }
+
     /// A subagent cancelled while it was starting has its first prompt
-    /// sent now: its turn is cancelled at once. Best effort: a cancel that
-    /// beats the prompt to acpmux is lost, same as before.
+    /// sent, or its task turn started (`sub_turn_started`): its turn is
+    /// cancelled now. A cancel acpmux refuses leaves it at work, and the
+    /// Chief is told: the stop's answer already went out saying it stopped.
     pub(super) fn stop_if_cancelled(&mut self, id: &str) {
         let Some(session) = self
             .state
@@ -2040,6 +2158,14 @@ impl Brain {
                     s.cancelled = false;
                 }
                 self.save();
+                self.trace
+                    .emit("subagent.stop_refused", json!({"id": id, "error": e}));
+                self.queue(
+                    format!(
+                        "[{id}] did not stop: it was stopped while it was starting, and acpmux refused to cancel its turn ({e}). It goes on with its task."
+                    ),
+                    Source::Note,
+                );
             }
         }
     }

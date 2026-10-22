@@ -123,3 +123,38 @@ fn chat_create_and_replies_run_the_home_group_actions() {
         serde_json::json!({ "members": "Chief, Unii", "title": "Ship it", "replies": "all" })
     );
 }
+
+/// `cmux pane open-files-as` and `cmux pane open-find-as` are verbs (and so MCP
+/// tools): the app offers Open Files / Find as Pane under those CLI names, the
+/// mux grammar leaves the words alone, and `--path` reaches the action as an
+/// absolute folder of the caller's working directory.
+#[test]
+fn pane_open_files_and_find_as_run_their_actions_with_a_path() {
+    let surfaces = action_surfaces();
+    let actions = surfaces["actions"].as_array().expect("actions array");
+    for (id, cli) in [
+        ("palette.openFilesPane", "pane open-files-as"),
+        ("palette.openFindPane", "pane open-find-as"),
+    ] {
+        let action = actions
+            .iter()
+            .find(|action| action["id"] == id)
+            .unwrap_or_else(|| panic!("{id} is exported"));
+        assert_eq!(action["cli"], "offered", "{id}");
+        assert_eq!(action["mcp"], "offered", "{id}");
+        assert_eq!(action["cli_name"], cli, "{id}");
+        let words = cli.split(' ').map(str::to_owned).collect::<Vec<_>>();
+        assert!(parse(&words, Surface::Cmux).is_err(), "the mux grammar must not shadow `{cli}`");
+        assert_eq!(action_hint::non_verb_action(cli), None, "`{cli}` is a verb, not a hint");
+        let command = app::run_action(cli, &strings(&["--path", "src"]), app::ActionName::Cli)
+            .expect("flags parse");
+        let app::AppCommand::Call { method, params, .. } = command else {
+            panic!("expected a call")
+        };
+        assert_eq!(method, "action.run");
+        assert_eq!(params["action"], cli);
+        assert_eq!(params["cli"], true);
+        let cwd = std::env::current_dir().expect("cwd");
+        assert_eq!(params["args"]["path"], cwd.join("src").to_string_lossy().as_ref());
+    }
+}

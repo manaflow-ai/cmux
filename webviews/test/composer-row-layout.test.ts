@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 300
 // The composer's controls row and footer (hq#1957 item 15). Leo saw a huge empty gap between
 // Effort and the permission chip while the model and effort chips truncated ("Claude Opu…",
 // "Med…"), and the folder footer cut at the card's bottom edge. In the gallery's

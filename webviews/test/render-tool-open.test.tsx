@@ -104,8 +104,8 @@ async function pane(input: Record<string, unknown>) {
   };
   const root = createRoot(dom.window.document.getElementById("root")!);
   await act(async () => root.render(<AcpmuxApp />));
-  for (let tries = 0; tries < 50 && !dom.window.document.querySelector(".acpmux-render-card"); tries += 1)
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  for (let tries = 0; tries < 500 && !dom.window.document.querySelector(".acpmux-render-card"); tries += 1)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   return root;
 }
 
