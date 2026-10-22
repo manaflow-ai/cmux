@@ -47,10 +47,15 @@
 //!   new (the cut turn already holds them), so attempt `n` follows the attempts before it back
 //!   to the turn the connection first cut, and resumes what each of those held.
 //! - Usage limits and sign-in failures are not transport errors: the fallback profile handles
-//!   those (`turns.rs`). A daemon restart mid-turn stays `outcome_unknown` (`mod.rs`).
+//!   those (`turns.rs`). A daemon restart mid-turn settles the turn `outcome_unknown` (`mod.rs`)
+//!   and queues its continuation first in the chat's queue (`restart_resume.rs`).
 //! - A wait in progress is not persisted: a daemon restart during it drops the attempt.
 //! - `_acpmux/retry` retries a failed turn on demand, taking over a continuation that waits
 //!   ([`retry_turn`]).
+
+// A turn a daemon restart cut off is continued from the restored queue.
+#[path = "restart_resume.rs"]
+mod restart_resume;
 
 use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
 use crate::rpc::RpcError;
