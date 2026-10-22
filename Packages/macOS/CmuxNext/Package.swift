@@ -110,6 +110,8 @@ import PackageDescription
 //     path bar, Quick Look, drag in and out)
 //   CmuxNextCrashReporting -> CmuxSentryReporting, Sentry (crash and exception reports to Sentry:
 //     consent, channel environment, release, scrubbing; no UI, no daemon; cx-urd.58)
+//   CmuxNextTestSupport -> system frameworks only (helpers test targets share, under Tests/; no
+//     product links it)
 
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [
@@ -1325,7 +1327,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextBrowserTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextRemoteFetch"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextRemoteFetch", "CmuxNextTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // The WebKit driver for the Rust browser host (plans/cmux-next/browser-host.md).
@@ -1404,6 +1406,13 @@ let package = Package(
             dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextPages", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
+        // Helpers test targets share, linked into no product: FrameBudgetCalibration, which
+        // scales a main-thread frame budget to the runner a suite runs on.
+        .target(
+            name: "CmuxNextTestSupport",
+            path: "Tests/CmuxNextTestSupport",
+            swiftSettings: uiSwiftSettings
+        ),
         .testTarget(
             name: "CmuxNextAppTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -1445,6 +1454,7 @@ let package = Package(
                 "CmuxNextTabs",
                 "CmuxNextTasks",
                 "CmuxNextTerminalGeometry",
+                "CmuxNextTestSupport",
                 "CmuxNextVSCodeServer",
                 "CmuxNextWakeups",
                 "CmuxNextWorkspaceNaming",
