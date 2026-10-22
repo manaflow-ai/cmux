@@ -46,6 +46,7 @@ import {
   tickProgress,
   turnScrollTop,
   visibleTurns,
+  type MinimapTick as MinimapTickRow,
   type MinimapTurn,
   type MinimapTurns,
 } from "./model";
@@ -118,10 +119,12 @@ export function ThreadMinimap({
   const full = arm === "full";
   const marks = usePromptMarks(sessionId);
   const lastTurns = useRef<MinimapTurns | undefined>(undefined);
-  const turns = useMemo(() => {
+  // Every streamed token is a new `rows`: `turns` then changes with the live reply (the card reads
+  // it), while `ticks` stays as long as the prompts do, so the tick list below renders nothing.
+  const { turns, ticks } = useMemo(() => {
     const next = minimapTurns(rows, sessionId, lastTurns.current);
     lastTurns.current = next;
-    return next.turns;
+    return next;
   }, [rows, sessionId]);
   /// The row under the pointer, or the one a scrub is on.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
@@ -606,24 +609,18 @@ export function ThreadMinimap({
           onPointerUp={endScrub}
           onPointerCancel={endScrub}
         >
-          {turns.map((turn, index) => (
-            <Tick
-              key={turn.key}
-              index={index}
-              last={turns.length - 1}
-              progress={hovered !== undefined ? tickProgress(index - hovered) : index === focused ? 1 : 0}
-              active={index === active}
-              current={index >= onScreen.first && index <= onScreen.last}
-              marked={marks.has(turn)}
-              describedBy={showCard && cardRow === index ? cardId : undefined}
-              label={t(marks.has(turn) ? "minimap.tickBookmarked" : "minimap.tick", {
-                index: index + 1,
-                count: turns.length,
-                prompt: turn.prompt,
-              })}
-              actions={actions}
-            />
-          ))}
+          <TickList
+            ticks={ticks}
+            sessionId={sessionId}
+            hovered={hovered}
+            focused={focused}
+            active={active}
+            first={onScreen.first}
+            last={onScreen.last}
+            described={showCard ? cardRow : undefined}
+            cardId={cardId}
+            actions={actions}
+          />
         </div>
       </nav>
       {showCard && (
@@ -653,6 +650,56 @@ export function ThreadMinimap({
     </div>
   );
 }
+
+/// The rail's rows, one per prompt. Memoized on what they show: a render of the rail that changes
+/// none of these (a token streaming into the live reply, a scroll that keeps the band) renders no
+/// row, so the rail's work per token does not grow with the chat.
+const TickList = memo(function TickList({
+  ticks,
+  sessionId,
+  hovered,
+  focused,
+  active,
+  first,
+  last,
+  described,
+  cardId,
+  actions,
+}: {
+  ticks: readonly MinimapTickRow[];
+  sessionId: string | undefined;
+  hovered: number | undefined;
+  focused: number | undefined;
+  active: number | undefined;
+  /// The band: the prompts on screen.
+  first: number;
+  last: number;
+  /// The row the open card describes.
+  described: number | undefined;
+  cardId: string;
+  actions: TickActions;
+}) {
+  const t = useT();
+  const marks = usePromptMarks(sessionId);
+  return ticks.map((tick, index) => (
+    <Tick
+      key={tick.key}
+      index={index}
+      last={ticks.length - 1}
+      progress={hovered !== undefined ? tickProgress(index - hovered) : index === focused ? 1 : 0}
+      active={index === active}
+      current={index >= first && index <= last}
+      marked={marks.has(tick)}
+      describedBy={described === index ? cardId : undefined}
+      label={t(marks.has(tick) ? "minimap.tickBookmarked" : "minimap.tick", {
+        index: index + 1,
+        count: ticks.length,
+        prompt: tick.prompt,
+      })}
+      actions={actions}
+    />
+  ));
+});
 
 type TickActions = {
   enter(index: number): void;
