@@ -539,7 +539,7 @@ mod unix {
     pub(crate) use pty_custody::serve as serve_pty_custody;
     pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};
     pub(crate) use pty_lock::{remove_released, sweep_released_pty_locks};
-    pub(crate) use shell_handoff::{PreparedShell, prepare_template};
+    pub(crate) use shell_handoff::{PrepareOutcome, PreparedShell, prepare_template};
     pub use shell_handoff::{SHELL_HANDOFF_ARG, serve_shell_handoff};
     pub(crate) use standby::StandbyTerminalHost;
 
@@ -621,16 +621,23 @@ mod unix {
         Ok(command)
     }
 
-    /// The host runtime on `prepared`'s PTY and launch when `launch` is the
-    /// same launch but its terminal ids, else a cold [`spawn_host_runtime`].
+    /// The host runtime on the prepared PTY and launch when `launch` is the
+    /// same launch but its terminal ids, else a cold [`spawn_host_runtime`]
+    /// (logged when the host had been prepared: `log_prepare_failure`).
     fn start_host_runtime_prepared(
         launch: &HostLaunch,
         bootstrapped: &crate::terminal_host::BootstrappedHost,
-        prepared: Option<PreparedShell>,
+        prepared: shell_handoff::PrepareOutcome,
     ) -> anyhow::Result<Arc<HostShared>> {
-        if let Some(prepared) = prepared {
-            match prepared.hand_off(launch) {
-                Some((master, child)) => {
+        let terminal_hex = bootstrapped.terminal_id.to_hex();
+        let record_path = Path::new(&launch.record_path);
+        match prepared {
+            shell_handoff::PrepareOutcome::NotAsked => {}
+            shell_handoff::PrepareOutcome::Failed(reason) => {
+                shell_handoff::log_prepare_failure(record_path, &terminal_hex, &reason);
+            }
+            shell_handoff::PrepareOutcome::Started(prepared) => match prepared.hand_off(launch) {
+                Ok((master, child)) => {
                     crate::debug_spans::mark("host.prepared_handed_off");
                     return start_host_runtime(
                         launch,
@@ -641,8 +648,12 @@ mod unix {
                         None,
                     );
                 }
-                None => crate::debug_spans::mark("host.prepared_unmatched"),
-            }
+                Err(reason) => shell_handoff::log_prepare_failure(
+                    record_path,
+                    &terminal_hex,
+                    &format!("not handed off: {reason}"),
+                ),
+            },
         }
         spawn_host_runtime(launch, bootstrapped)
     }
@@ -732,7 +743,7 @@ pub(crate) use unix::launch_terminal_host_adopting_with_program_status;
 #[cfg(unix)]
 pub(crate) use unix::sweep_released_pty_locks;
 #[cfg(unix)]
-pub(crate) use unix::{PreparedShell, prepare_template};
+pub(crate) use unix::{PrepareOutcome, PreparedShell, prepare_template};
 #[cfg(unix)]
 pub use unix::{
     PtyCustody, TerminalHostAdoption, enter_terminal_host_process,

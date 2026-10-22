@@ -111,7 +111,13 @@ impl StandbyHostSlot {
                 .position(|(prepared, _)| key.is_some() && prepared.as_ref() == key)
                 .or_else(|| state.hosts.iter().position(|(prepared, _)| prepared.is_none()))
                 .or(if state.hosts.is_empty() { None } else { Some(0) })?;
-            state.hosts.remove(index).1
+            let (prepared, host) = state.hosts.remove(index);
+            crate::debug_spans::mark(match prepared {
+                Some(prepared) if key == Some(&prepared) => "spare.prepared_for_this_launch",
+                Some(_) => "spare.prepared_for_another_launch",
+                None => "spare.unprepared",
+            });
+            host
         };
         host.is_alive().then_some(host)
     }

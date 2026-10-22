@@ -22,6 +22,7 @@
 
 use std::collections::BTreeMap;
 use std::io::{self, Read, Write as _};
+use std::path::Path;
 
 use anyhow::Context as _;
 use base64::Engine as _;
@@ -181,6 +182,49 @@ pub(crate) fn prepared_argv(launch: &HostLaunch, waiter: &str) -> anyhow::Result
     Ok(argv)
 }
 
+/// What became of a standby host's Prepare frame, reported once the host
+/// knows its terminal (its trace and record directory exist only then).
+pub(crate) enum PrepareOutcome {
+    /// No Prepare frame came (an unprepared spare or a direct launch).
+    NotAsked,
+    /// The prepared launch started.
+    Started(PreparedShell),
+    /// The Prepare frame came but its launch could not start.
+    Failed(String),
+}
+
+impl PrepareOutcome {
+    /// Decode and start the launch in a Prepare frame's `payload`.
+    pub(crate) fn prepare(payload: &[u8]) -> Self {
+        match HostLaunch::decode(payload).and_then(PreparedShell::start) {
+            Ok(prepared) => Self::Started(prepared),
+            Err(error) => Self::Failed(format!("{error:#}")),
+        }
+    }
+}
+
+/// Log a prepared terminal that ran cold instead (new-terminal-100x): a host
+/// span mark, and one line in `prepare-errors.log` beside the terminal's
+/// record (bounded), so the failure is never silent: hosts have no stderr.
+pub(crate) fn log_prepare_failure(record_path: &Path, terminal_hex: &str, reason: &str) {
+    const LOG_FILE: &str = "prepare-errors.log";
+    const MAX_LOG_BYTES: u64 = 64 * 1024;
+    let reason = reason.replace('\n', " ");
+    crate::debug_spans::mark_with(|| format!("host.prepare_failed: {reason}").into());
+    let Some(dir) = record_path.parent() else { return };
+    let path = dir.join(LOG_FILE);
+    if std::fs::metadata(&path).is_ok_and(|metadata| metadata.len() >= MAX_LOG_BYTES) {
+        return;
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or_default();
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = writeln!(file, "{stamp} {terminal_hex} {reason}");
+    }
+}
+
 /// A PTY and its prepared launch, before the host knows its terminal.
 pub(crate) struct PreparedShell {
     template: HostLaunch,
@@ -201,52 +245,52 @@ impl PreparedShell {
     }
 
     /// Hand the prepared launch to `launch`: resize the PTY, write the ids
-    /// line, and return the PTY and its child for the host's runtime. None
-    /// (the prepared session ends as this drops) when `launch` differs from
-    /// it, its child already ended, or its line would not fit.
+    /// line, and return the PTY and its child for the host's runtime. `Err`
+    /// names why not (the prepared session ends as this drops): `launch`
+    /// differs from it, its child already ended, or its line would not fit.
     pub(crate) fn hand_off(
         mut self,
         launch: &HostLaunch,
-    ) -> Option<(Box<dyn MasterPty + Send>, HostChild)> {
-        let mut handoff = Handoff::between(&self.template, launch)?;
+    ) -> Result<(Box<dyn MasterPty + Send>, HostChild), &'static str> {
+        let mut handoff = Handoff::between(&self.template, launch).ok_or("another launch")?;
         let alive = self.child.as_mut().is_some_and(|child| matches!(child.try_wait(), Ok(None)));
         if !alive {
-            return None;
+            return Err("the prepared launcher ended");
         }
-        let fd = self.master.as_ref().and_then(|master| master.as_raw_fd())?;
+        let fd = self.master.as_ref().and_then(|master| master.as_raw_fd()).ok_or("no PTY")?;
         let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
         let size = pty_size(launch.cols, launch.rows, cell_pixels);
         let resized =
             matches!(self.master.as_ref().map(|master| master.resize(size)), Some(Ok(())));
         if !resized {
-            return None;
+            return Err("PTY resize failed");
         }
         // Echo off for the line, so it never shows; the launcher restores it.
         let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
         // SAFETY: tcgetattr writes into `termios` on the PTY this owns.
         if unsafe { libc::tcgetattr(fd, termios.as_mut_ptr()) } != 0 {
-            return None;
+            return Err("tcgetattr failed");
         }
         // SAFETY: tcgetattr succeeded, so `termios` is initialized.
         let mut termios = unsafe { termios.assume_init() };
         handoff.echo = termios.c_lflag & libc::ECHO != 0;
         let line = handoff.encode_line();
         if line.len() > MAX_LINE {
-            return None;
+            return Err("the ids line is too long");
         }
         termios.c_lflag &= !libc::ECHO;
         // SAFETY: a valid termios for the PTY this owns.
         if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &termios) } != 0 {
-            return None;
+            return Err("tcsetattr failed");
         }
         if write_all_fd(fd, line.as_bytes()).is_err() {
-            return None;
+            return Err("writing the ids line failed");
         }
         let (Some(master), Some(child)) = (self.master.take(), self.child.take()) else {
-            return None;
+            return Err("no PTY");
         };
         let process_group_leader = master.process_group_leader();
-        Some((master, HostChild::Spawned(SpawnedPtyChild::new(child, process_group_leader))))
+        Ok((master, HostChild::Spawned(SpawnedPtyChild::new(child, process_group_leader))))
     }
 }
 

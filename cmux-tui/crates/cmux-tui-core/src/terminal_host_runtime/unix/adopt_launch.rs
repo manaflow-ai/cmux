@@ -223,7 +223,7 @@ pub(crate) fn start(
     launch: &HostLaunch,
     adopt: Option<AdoptSpec>,
     bootstrapped: &crate::terminal_host::BootstrappedHost,
-    prepared: Option<PreparedShell>,
+    prepared: PrepareOutcome,
 ) -> anyhow::Result<(Arc<HostShared>, PtyOwnershipLock)> {
     let record_path = Path::new(&launch.record_path);
     if let Some(parent) = record_path.parent() {

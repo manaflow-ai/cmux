@@ -41,13 +41,14 @@ pub fn serve_terminal_host_stdio(
         .ok_or_else(|| anyhow::anyhow!("missing bootstrap frame"))?;
     #[cfg(unix)]
     let (prepared, first) = if first.kind == MessageKind::Prepare {
-        // A failed prepare only costs the head start: the Launch runs cold.
-        let prepared = HostLaunch::decode(&first.payload).and_then(PreparedShell::start).ok();
+        // A failed prepare only costs the head start: the Launch runs cold,
+        // and the failure is logged once the terminal is known.
+        let prepared = PrepareOutcome::prepare(&first.payload);
         let bootstrap = read_frame(reader, adopt_launch::max_payload(adopt_fd))?
             .ok_or_else(|| anyhow::anyhow!("missing bootstrap frame"))?;
         (prepared, bootstrap)
     } else {
-        (None, first)
+        (PrepareOutcome::NotAsked, first)
     };
     let mut bootstrapped = crate::terminal_host::bootstrap_stdio_frame(first, writer)?;
     let Some(launch_frame) = read_frame(reader, adopt_launch::max_payload(adopt_fd))? else {

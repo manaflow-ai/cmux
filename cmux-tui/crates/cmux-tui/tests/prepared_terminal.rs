@@ -66,9 +66,9 @@ fn start_daemon() -> Daemon {
     fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("mux.sock");
     let spans = dir.join("spans.jsonl");
-    let quiet = dir.join("quiet-shell");
-    fs::write(&quiet, "#!/bin/sh\nexec sleep 600\n").unwrap();
-    fs::set_permissions(&quiet, fs::Permissions::from_mode(0o755)).unwrap();
+    // The daemon's own shell is every new tab's command (no frontend client
+    // names one): a script that prints its surface id, then waits.
+    let shell = id_shell(&dir);
     let child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
         .args(["--headless", "--socket"])
         .arg(&socket)
@@ -76,7 +76,7 @@ fn start_daemon() -> Daemon {
         .arg(dir.join("state"))
         .env("CMUX_TUI_CONFIG", dir.join("config.json"))
         .env("CMUX_TUI_DEBUG_SPANS", &spans)
-        .env("SHELL", &quiet)
+        .env("SHELL", &shell)
         .env_remove("SSH_CONNECTION")
         .env_remove("SSH_CLIENT")
         .env_remove("SSH_TTY")
@@ -133,10 +133,50 @@ fn prepared_launchers(shell: &Path) -> usize {
     String::from_utf8_lossy(&output.stdout).lines().count()
 }
 
+/// What the daemon and its hosts logged about prepared shells: span marks
+/// that name a spare or a prepare, and every `prepare-errors.log`.
+fn prepare_diagnostics(daemon: &Daemon) -> String {
+    let mut out = String::new();
+    for line in fs::read_to_string(&daemon.spans).unwrap_or_default().lines() {
+        if line.contains("prepare") || line.contains("spare.") {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    let mut dirs = vec![daemon.dir.join("state")];
+    while let Some(dir) = dirs.pop() {
+        for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.file_name().is_some_and(|name| name == "prepare-errors.log") {
+                out.push_str(&format!(
+                    "{}:\n{}",
+                    path.display(),
+                    fs::read_to_string(&path).unwrap_or_default()
+                ));
+            }
+        }
+    }
+    out
+}
+
 fn wait_for(what: &str, mut ready: impl FnMut() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(20);
     while !ready() {
         assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn wait_until_prepared(daemon: &Daemon, shell: &Path) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while prepared_launchers(shell) == 0 {
+        assert!(
+            Instant::now() < deadline,
+            "no prepared shell for the tab's launch; the daemon and hosts logged:\n{}",
+            prepare_diagnostics(daemon)
+        );
         std::thread::sleep(Duration::from_millis(50));
     }
 }
@@ -169,11 +209,11 @@ fn a_new_tab_where_one_ran_takes_a_prepared_shell_that_gets_its_own_ids() {
     let mut daemon = start_daemon();
     let work = daemon.dir.join("work");
     fs::create_dir_all(&work).unwrap();
-    let shell = id_shell(&daemon.dir);
+    let shell = daemon.dir.join("id-shell");
 
     let first = terminal_id(0x200);
     new_tab(&mut daemon, &work, &shell, &first);
-    wait_for("a prepared shell for the tab's launch", || prepared_launchers(&shell) > 0);
+    wait_until_prepared(&daemon, &shell);
 
     let second = terminal_id(0x201);
     let created = new_tab(&mut daemon, &work, &shell, &second);
@@ -212,9 +252,9 @@ fn prepared_shells_end_with_their_daemon() {
     let mut daemon = start_daemon();
     let work = daemon.dir.join("work");
     fs::create_dir_all(&work).unwrap();
-    let shell = id_shell(&daemon.dir);
+    let shell = daemon.dir.join("id-shell");
     new_tab(&mut daemon, &work, &shell, &terminal_id(0x300));
-    wait_for("a prepared shell for the tab's launch", || prepared_launchers(&shell) > 0);
+    wait_until_prepared(&daemon, &shell);
 
     // The daemon dies without a word; its spares must not outlive it.
     let _ = daemon.child.kill();
