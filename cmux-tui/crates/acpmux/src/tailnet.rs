@@ -102,22 +102,21 @@ impl Tailnet {
             return Ok(Self { bin: PathBuf::from(bin) });
         }
         let name = if cfg!(windows) { "tailscale.exe" } else { "tailscale" };
+        let mut candidates = Vec::new();
         if let Some(paths) = std::env::var_os("PATH") {
-            for dir in std::env::split_paths(&paths) {
-                let candidate = dir.join(name);
-                if candidate.is_file() {
-                    return Ok(Self { bin: candidate });
-                }
-            }
+            candidates.extend(std::env::split_paths(&paths).map(|dir| dir.join(name)));
         }
-        for candidate in platform_candidates() {
-            if candidate.is_file() {
-                return Ok(Self { bin: candidate });
-            }
-        }
-        bail!(
-            "Tailscale is not installed on this machine (no `tailscale` command found). Install it and sign in, then run this again."
-        )
+        candidates.extend(platform_candidates());
+        Self::locate_among(&candidates).ok_or_else(|| {
+            anyhow!(
+                "Tailscale is not installed on this machine (no `tailscale` command found). Install it and sign in, then run this again."
+            )
+        })
+    }
+
+    /// The first of `candidates` that is a file.
+    fn locate_among(candidates: &[PathBuf]) -> Option<Self> {
+        candidates.iter().find(|c| c.is_file()).map(|bin| Self { bin: bin.clone() })
     }
 
     fn run(&self, args: &[&str]) -> anyhow::Result<Vec<u8>> {
@@ -297,5 +296,54 @@ pub fn is_tailnet_ip(ip: IpAddr) -> bool {
             let s = v6.segments();
             s[0] == 0xfd7a && s[1] == 0x115c && s[2] == 0xa1e0
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod cli_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    /// A fake `tailscale` in a fresh folder: `body` is the shell after `#!/bin/sh`.
+    fn fake(name: &str, body: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tailnet-{}-{}-{name}",
+            std::process::id(),
+            line!()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin = dir.join("tailscale");
+        std::fs::write(&bin, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        bin
+    }
+
+    /// The macOS app binary starts its GUI (and prints nothing) unless
+    /// `TAILSCALE_BE_CLI=1`; under launchd nothing else sets it.
+    #[test]
+    fn every_cli_call_sets_tailscale_be_cli() {
+        let bin = fake("becli", r#"[ "$TAILSCALE_BE_CLI" = 1 ] && echo 1.90.0"#);
+        let out = Tailnet { bin }.run(&["version"]).unwrap();
+        assert_eq!(String::from_utf8_lossy(&out).trim(), "1.90.0");
+    }
+
+    /// A candidate that answers `version` with nothing (an app binary that
+    /// is not a CLI there) is skipped for the next one.
+    #[test]
+    fn locate_skips_a_candidate_that_prints_no_version() {
+        let silent = fake("silent", "exit 0");
+        let good = fake("good", "echo 1.90.0");
+        let found = Tailnet::locate_among(&[silent, good.clone()]).unwrap();
+        assert_eq!(found.bin, good);
+    }
+
+    #[test]
+    fn locate_skips_a_candidate_that_fails_or_is_missing() {
+        let failing = fake("failing", "exit 1");
+        let good = fake("good2", "echo 1.90.0");
+        let missing = PathBuf::from("/nonexistent/cmux/tailscale");
+        let found = Tailnet::locate_among(&[missing, failing, good.clone()]).unwrap();
+        assert_eq!(found.bin, good);
+        assert!(Tailnet::locate_among(&[PathBuf::from("/nonexistent/x")]).is_none());
     }
 }
