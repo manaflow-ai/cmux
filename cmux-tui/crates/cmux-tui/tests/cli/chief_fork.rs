@@ -16,7 +16,8 @@ if [ "$1" = memory ] && [ "$2" = fork ]; then
     case "$prev" in --to-home) to="$a" ;; --name) name="$a" ;; esac
     prev="$a"
   done
-  if [ "$name" = Broken ]; then echo "optchat-chief memory: memory fork: disk full" >&2; exit 1; fi
+  if [ -e "$(dirname "$(dirname "$to")")/fail-fork" ]; then echo "optchat-chief memory: memory fork: disk full" >&2; exit 1; fi
+  echo copy >> "$(dirname "$(dirname "$to")")/copies"
   mkdir -p "$to/optchat"
   echo "$@" > "$to/fork-argv"
   echo forked > "$to/optchat/memory.sqlite3"
@@ -51,12 +52,6 @@ fn v2(conn: &mut Conn, operation: &str, params: Value, key: Option<&str>) -> Val
 
 fn create(conn: &mut Conn, key: &str, fields: Value) -> Value {
     v2(conn, "chief.profile.create", fields, Some(key))
-}
-
-fn rename(conn: &mut Conn, key: &str, chief: &str, name: &str) {
-    let answer =
-        v2(conn, "chief.profile.update", json!({"chief": chief, "display_name": name}), Some(key));
-    assert_eq!(answer["ok"], true, "{answer}");
 }
 
 fn wait_file(path: &std::path::Path) -> String {
@@ -195,6 +190,9 @@ fn the_person_forks_a_chief_at_a_message_and_a_chief_forks_itself() {
     // A replay of the same create answers the same Chief and copies nothing.
     let dirs = || fs::read_dir(chief_home.join("c")).unwrap().count();
     let dirs_before = dirs();
+    let copies =
+        || fs::read_to_string(chief_home.join("copies")).unwrap_or_default().lines().count();
+    let copies_before = copies();
     let again = create(
         &mut home,
         "fork-scout",
@@ -203,6 +201,7 @@ fn the_person_forks_a_chief_at_a_message_and_a_chief_forks_itself() {
     assert_eq!(again["result"]["value"]["id"], json!(fork_id), "{again}");
     assert_eq!(again["result"]["replayed"], true);
     assert_eq!(dirs(), dirs_before, "a replay left a copy");
+    assert_eq!(copies(), copies_before, "a replay copied the memory again");
 
     // Ops: a Chief whose brain ran but has no memory yet.
     let ops = create(&mut home, "make-ops", json!({"display_name": "Ops"}));
@@ -243,15 +242,15 @@ fn the_person_forks_a_chief_at_a_message_and_a_chief_forks_itself() {
     let (reason, message) = refusal(&answer);
     assert_eq!(reason, "fork_refused", "{answer}");
     assert!(message.contains("does not take part"), "{answer}");
-    // A copy that fails (the stub fails for a source named Broken): refused
-    // with the copy's reason, and nothing stays.
-    rename(&mut home, "to-broken", &scout, "Broken");
+    // A copy that fails (the stub fails while the Chief home has a
+    // fail-fork file): refused with the copy's reason, and nothing stays.
+    fs::write(chief_home.join("fail-fork"), "").unwrap();
     let answer =
         create(&mut home, "bad-copy", json!({"display_name": "X", "fork": {"chief": scout}}));
     let (reason, message) = refusal(&answer);
     assert_eq!(reason, "fork_refused", "{answer}");
     assert!(message.contains("disk full"), "{answer}");
-    rename(&mut home, "to-scout", &scout, "Scout");
+    fs::remove_file(chief_home.join("fail-fork")).unwrap();
     assert_eq!(chief_count(&mut home), count);
     assert_eq!(dirs(), dirs_before, "a refused fork left a copy");
 

@@ -50,6 +50,20 @@ public final class ChiefProfilePageRelay {
     /// 2 s request deadline: a connect (identify, hello, subscribe: 6 s), a confirmation and the
     /// call (4 s), so 10 s per attempt and 16 s leave room for the one reconnect's connect.
     nonisolated static let callDeadline: Duration = .seconds(16)
+    /// The owner answers `chief.profile.create` with `fork` only after it copied the source
+    /// Chief's memory into the new Chief's home (cmux-tui chief_fork.rs, at most 120 s): its
+    /// request waits this long, and its call that much more than ``callDeadline``.
+    nonisolated static let forkRequestTimeout: Duration = .seconds(150)
+
+    /// Whether this call is a create that forks a Chief (its params name `fork`).
+    nonisolated static func isFork(_ operation: String, params: [String: JSONValue]) -> Bool {
+        operation == "chief.profile.create" && params["fork"] != nil
+    }
+
+    /// The deadline of one page call: ``callDeadline``, longer for a fork.
+    nonisolated static func deadline(_ operation: String, params: [String: JSONValue]) -> Duration {
+        isFork(operation, params: params) ? callDeadline + forkRequestTimeout : callDeadline
+    }
 
     /// The owner process a relay connection serves: a restarted owner (same socket, new process)
     /// is another owner, and its page calls go on a connection to it.
@@ -99,10 +113,11 @@ public final class ChiefProfilePageRelay {
         let elapsed = { Int((ContinuousClock.now - started) / .milliseconds(1)) }
         logger.info("\(operation, privacy: .public): start, gesture \(gesture)")
         do {
-            let result = try await PageCallDeadline.answer(within: Self.callDeadline, clock: clock, onTimeout: { [weak self] in
+            let deadline = Self.deadline(operation, params: params)
+            let result = try await PageCallDeadline.answer(within: deadline, clock: clock, onTimeout: { [weak self] in
                 // A step that never answered: the next call starts on a new connection.
                 self?.dropRelay()
-                return DaemonError.timedOut("\(operation) (no answer from the Chief owner within \(Self.callDeadline))")
+                return DaemonError.timedOut("\(operation) (no answer from the Chief owner within \(deadline))")
             }) { [self] in
                 try await call(operation: operation, params: params, idempotencyKey: idempotencyKey, gesture: gesture)
             }
@@ -136,7 +151,8 @@ public final class ChiefProfilePageRelay {
                 }
                 try Task.checkCancellation()
                 return try await ResourceRelayClient(connection: relay.connection).send(
-                    operation: operation, params: params, idempotencyKey: idempotencyKey, origin: origin)
+                    operation: operation, params: params, idempotencyKey: idempotencyKey, origin: origin,
+                    timeout: Self.isFork(operation, params: params) ? Self.forkRequestTimeout : nil)
             } catch let error as DaemonError where attempt == 1 && Self.isConnectionLost(error) {
                 logger.info("\(operation, privacy: .public): relay connection lost (\(error.description, privacy: .public)); again on a new one")
                 if let used, self.relay?.connection === used { dropRelay() }

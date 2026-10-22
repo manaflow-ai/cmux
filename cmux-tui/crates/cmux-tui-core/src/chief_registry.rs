@@ -589,6 +589,21 @@ impl ChiefStore {
     /// `request` answers the committed result with `replayed` true; another
     /// request under the key is [`Refusal::KeyConflict`]. The newest
     /// [`LEDGER_KEYS_PER_ACTOR`] keys of each actor are kept.
+    /// Whether `actor` committed a write under `key` already (with the same
+    /// or other params): `mutate` then answers from the ledger, and a caller
+    /// skips work the write does not need (a fork's copy).
+    pub(crate) fn committed(&self, actor: &str, key: &str) -> anyhow::Result<bool> {
+        let found: Option<i64> = self
+            .connection
+            .query_row(
+                "SELECT 1 FROM op_ledger WHERE actor = ?1 AND key = ?2",
+                params![actor, key],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(found.is_some())
+    }
+
     pub(crate) fn mutate(
         &mut self,
         actor: &str,

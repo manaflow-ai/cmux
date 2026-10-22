@@ -180,8 +180,9 @@ pub fn resolve_cut(conn: &Connection, point: &ForkPoint) -> Result<u64, ForkErro
 /// folder) are rewritten to `attachments.1` (the new home's); the caller
 /// copies the folders [`ForkStats::attachments`] names.
 ///
-/// Atomic: the new database is built beside `destination` and renamed into
-/// place, so a failed fork leaves nothing a brain would open.
+/// Atomic: the new database is built beside `destination` and linked into
+/// place (never over a file that is there), so a failed fork leaves nothing
+/// a brain would open.
 pub fn fork_memory(
     source: &Path,
     destination: &Path,
@@ -189,10 +190,15 @@ pub fn fork_memory(
     provenance: &Provenance,
     attachments: Option<(&str, &str)>,
 ) -> Result<ForkStats, ForkError> {
-    if destination.exists() {
-        return Err(ForkError::DestinationExists(
-            destination.display().to_string(),
-        ));
+    // A stale -wal or -shm would be read into the new file as its own.
+    for path in [
+        destination.to_owned(),
+        wal_of(destination, "-wal"),
+        wal_of(destination, "-shm"),
+    ] {
+        if path.exists() {
+            return Err(ForkError::DestinationExists(path.display().to_string()));
+        }
     }
     let building = destination.with_extension(format!("forking-{}", std::process::id()));
     for stale in [
@@ -202,26 +208,29 @@ pub fn fork_memory(
     ] {
         let _ = std::fs::remove_file(stale);
     }
-    let result = build(source, &building, point, provenance, attachments);
-    match result {
-        Ok(stats) => {
-            std::fs::rename(&building, destination)?;
-            if let Some(Ok(dir)) = destination.parent().map(std::fs::File::open) {
-                let _ = dir.sync_all();
-            }
-            Ok(stats)
+    let placed = build(source, &building, point, provenance, attachments).and_then(|stats| {
+        // A hard link never replaces a file another writer put there since
+        // the check above (a rename would); then the build name goes.
+        match std::fs::hard_link(&building, destination) {
+            Ok(()) => Ok(stats),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(
+                ForkError::DestinationExists(destination.display().to_string()),
+            ),
+            Err(e) => Err(ForkError::Io(e)),
         }
-        Err(e) => {
-            for file in [
-                building.clone(),
-                wal_of(&building, "-wal"),
-                wal_of(&building, "-shm"),
-            ] {
-                let _ = std::fs::remove_file(file);
-            }
-            Err(e)
-        }
+    });
+    for file in [
+        building.clone(),
+        wal_of(&building, "-wal"),
+        wal_of(&building, "-shm"),
+    ] {
+        let _ = std::fs::remove_file(file);
     }
+    let stats = placed?;
+    if let Some(Ok(dir)) = destination.parent().map(std::fs::File::open) {
+        let _ = dir.sync_all();
+    }
+    Ok(stats)
 }
 
 fn wal_of(path: &Path, suffix: &str) -> std::path::PathBuf {

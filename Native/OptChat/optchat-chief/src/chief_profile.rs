@@ -577,6 +577,10 @@ pub struct ProfileClient {
 
 static KEYS: AtomicU64 = AtomicU64::new(0);
 
+/// How long a fork's `chief.profile.create` may take: the daemon's copy
+/// deadline (120 s) and the brain start.
+const FORK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(150);
+
 impl ProfileClient {
     pub fn new(socket: PathBuf, token_file: Option<PathBuf>, chief: String) -> ProfileClient {
         ProfileClient {
@@ -587,8 +591,17 @@ impl ProfileClient {
     }
 
     fn connect(&self) -> Result<Client, String> {
-        let mut client = Client::connect(ClientConfig::from_socket_path(&self.socket))
-            .map_err(|e| format!("connecting to the daemon: {e}"))?;
+        self.connect_with(None)
+    }
+
+    /// [`Self::connect`] whose requests wait `timeout` (None: the SDK's default).
+    fn connect_with(&self, timeout: Option<std::time::Duration>) -> Result<Client, String> {
+        let mut config = ClientConfig::from_socket_path(&self.socket);
+        if let Some(timeout) = timeout {
+            config = config.with_timeout(timeout);
+        }
+        let mut client =
+            Client::connect(config).map_err(|e| format!("connecting to the daemon: {e}"))?;
         let token = crate::daemon::read_token(self.token_file.as_deref())
             .ok_or("MUX_AGENT_TOKEN_FILE is missing or empty")?;
         client
@@ -619,7 +632,11 @@ impl ProfileClient {
         mutation: bool,
         key: Option<String>,
     ) -> Result<Value, SdkError> {
-        let mut client = self.connect().map_err(|e| SdkError::Protocol {
+        // A fork's create answers only after the daemon copied the memory
+        // (cmux-tui chief_fork.rs, at most 120 s).
+        let timeout = (operation == "chief.profile.create" && params.contains_key("fork"))
+            .then_some(FORK_TIMEOUT);
+        let mut client = self.connect_with(timeout).map_err(|e| SdkError::Protocol {
             code: "transport".into(),
             message: e,
             details: Value::Null,

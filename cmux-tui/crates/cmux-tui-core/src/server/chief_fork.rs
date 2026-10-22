@@ -11,6 +11,12 @@
 //! forked memory, never an empty one; so the id is taken first
 //! (`chief_registry::new_id`) and the record is written with it.
 //!
+//! Three steps, so the registry lock is never held during the copy (every
+//! `chief.profile.*`, Home's inbox names and brain routing wait on it):
+//! [`plan`] under the lock (the caller's rules, the source, a replay of a
+//! committed key copies nothing), [`copy`] with no lock, then the record's
+//! write under the lock again, which checks the source still exists.
+//!
 //! Rules:
 //! - A Chief forks only itself (its own memory is its to give); the owner and
 //!   the person's page (with the gesture a create needs anyway) fork any Chief
@@ -18,7 +24,7 @@
 //! - The message must be in a conversation the source takes part in.
 //! - The copy is the new Chief's alone: rows and files, no link. The source's
 //!   host state (its conversation, turns, subagents) is not copied.
-//! - A failed write after the copy removes the copy (`Prepared::discard`).
+//! - A copy no record keeps is removed (`Prepared`'s drop).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -45,21 +51,33 @@ pub(super) struct Fork {
     pub message: Option<(String, u64)>,
 }
 
-/// A fork whose memory is in place, waiting for its record.
+/// A fork whose memory is in place, waiting for its record. Dropped without
+/// [`Prepared::keep`] (a refusal, a failure, a replay, a panic) it removes
+/// the copy, so no brain directory is left without its Chief.
 #[derive(Debug)]
 pub(super) struct Prepared {
     /// The id the record must be written with (its brain directory holds the copy).
     pub id: String,
+    /// The source Chief's id (the write checks it still exists).
+    pub source: String,
     /// The record's `forked_from`.
     pub forked_from: Value,
     home: PathBuf,
+    kept: bool,
 }
 
 impl Prepared {
-    /// The record was not written with this id (refused, failed, or a
-    /// replay of an earlier create): the copy goes, so no brain directory
-    /// is left without its Chief.
-    pub(super) fn discard(self) {
+    /// The record was written with this id: the copy is that Chief's memory.
+    pub(super) fn keep(mut self) {
+        self.kept = true;
+    }
+}
+
+impl Drop for Prepared {
+    fn drop(&mut self) {
+        if self.kept {
+            return;
+        }
         if let Err(error) = std::fs::remove_dir_all(&self.home)
             && error.kind() != std::io::ErrorKind::NotFound
         {
@@ -69,6 +87,19 @@ impl Prepared {
             );
         }
     }
+}
+
+/// What [`plan`] resolved under the registry lock, for [`copy`].
+#[derive(Debug)]
+pub(super) struct Plan {
+    fork: Fork,
+    source_id: String,
+    source_name: String,
+    source_home: PathBuf,
+    id: String,
+    target: PathBuf,
+    executable: PathBuf,
+    by: String,
 }
 
 /// The request's `fork`, checked for shape (the spec's `ChiefFork`); None
@@ -147,20 +178,22 @@ pub(super) fn inherit(
     Ok(())
 }
 
+/// The source Chief was deleted while its memory was copied.
+pub(super) fn source_gone(source: &str) -> ResourceError {
+    refused(format!("Chief {source} was deleted during the fork"))
+}
+
 fn refused(why: impl Into<String>) -> ResourceError {
     ResourceError::operation_failed(OPERATION, "fork_refused", json!({"message": why.into()}))
 }
 
-/// Checks who may fork what, resolves the source's home and message, and
-/// copies the memory into the new Chief's brain directory. `by` is the
-/// calling Chief (None: the person). Runs under the registry lock (lock
-/// order: registry, then conversations, as `chief.profile.adopt`).
-pub(super) fn prepare(
-    mux: &Mux,
+/// Checks who may fork what and resolves the source's home and the new id,
+/// under the registry lock. `by` is the calling Chief (None: the person).
+pub(super) fn plan(
     store: &ChiefStore,
     fork: &Fork,
     by: Option<&str>,
-) -> Result<Prepared, ResourceError> {
+) -> Result<Plan, ResourceError> {
     let (home, executable) = chief_brains::configured_home_and_brain().ok_or_else(|| {
         refused("this cmux runs no Chief brains here, so it cannot hold a forked memory")
     })?;
@@ -190,55 +223,71 @@ pub(super) fn prepare(
     if !source_home.join("optchat").join("memory.sqlite3").is_file() {
         return Err(refused(format!("{} has no memory yet", source.display_name)));
     }
-    let point = match &fork.message {
-        None => None,
-        Some((conversation, seq)) => Some(message_point(mux, &source.id, conversation, *seq)?),
-    };
     let id = chief_registry::new_id().map_err(|e| refused(format!("{e:#}")))?;
     let target = chief_brains::brain_home(&home, &id);
     if target.exists() {
         return Err(refused("the new Chief's directory exists already; try again"));
     }
-    let by_text = by.unwrap_or("person");
+    Ok(Plan {
+        fork: fork.clone(),
+        source_id: source.id,
+        source_name: source.display_name,
+        source_home,
+        id,
+        target,
+        executable,
+        by: by.unwrap_or("person").to_owned(),
+    })
+}
+
+/// Finds the message and copies the memory into the new Chief's directory,
+/// with no registry lock held (the conversation store's own lock only).
+pub(super) fn copy(mux: &Mux, plan: Plan) -> Result<Prepared, ResourceError> {
+    let point = match &plan.fork.message {
+        None => None,
+        Some((conversation, seq)) => Some(message_point(mux, &plan.source_id, conversation, *seq)?),
+    };
     let mut args: Vec<String> = vec![
         "memory".into(),
         "fork".into(),
         "--mux-home".into(),
-        path_arg(&source_home)?,
+        path_arg(&plan.source_home)?,
         "--to-home".into(),
-        path_arg(&target)?,
+        path_arg(&plan.target)?,
         "--chief".into(),
-        source.id.clone(),
+        plan.source_id.clone(),
         "--name".into(),
-        source.display_name.clone(),
+        plan.source_name.clone(),
         "--by".into(),
-        by_text.to_owned(),
+        plan.by.clone(),
         "--json".into(),
     ];
     if let Some((key, at)) = &point {
         args.extend(["--key".into(), key.clone(), "--at".into(), at.clone()]);
     }
-    let prepared_home = target.clone();
-    let output = match run_copy(&executable, &args) {
-        Ok(output) => output,
-        Err(why) => {
-            let _ = std::fs::remove_dir_all(&prepared_home);
-            return Err(refused(why));
-        }
+    // From here the guard owns the directory: any way out removes it.
+    let mut prepared = Prepared {
+        id: plan.id,
+        source: plan.source_id.clone(),
+        forked_from: Value::Null,
+        home: plan.target,
+        kept: false,
     };
+    let output = run_copy(&plan.executable, &args).map_err(refused)?;
     let cut = output.get("cut").and_then(Value::as_u64).unwrap_or(0);
     let mut forked_from = json!({
-        "chief": source.id,
-        "name": source.display_name,
+        "chief": plan.source_id,
+        "name": plan.source_name,
         "cut": cut,
-        "by": by_text,
+        "by": plan.by,
         "at": cmux_conversation::format_rfc3339_millis(now_ms()),
     });
-    if let Some((conversation, seq)) = &fork.message {
+    if let Some((conversation, seq)) = &plan.fork.message {
         forked_from["conversation"] = json!(conversation);
         forked_from["seq"] = json!(seq);
     }
-    Ok(Prepared { id, forked_from, home: prepared_home })
+    prepared.forked_from = forked_from;
+    Ok(prepared)
 }
 
 /// The memory key and commit time of message `seq` of `conversation`, a
@@ -271,10 +320,12 @@ fn path_arg(path: &Path) -> Result<String, ResourceError> {
 }
 
 /// Runs the brain's `memory fork` and returns its JSON answer, or why not.
-/// The child is killed when it outlives [`COPY_DEADLINE`] (the registry lock
-/// is held meanwhile).
+/// The child is killed when it outlives [`COPY_DEADLINE`]. A thread waits for
+/// its exit without reaping it (`waitid` with `WNOWAIT`), so the pid stays
+/// this child's until `Child::wait` below: the kill never hits another process.
 fn run_copy(executable: &Path, args: &[String]) -> Result<Value, String> {
-    let child = Command::new(executable)
+    use std::io::Read as _;
+    let mut child = Command::new(executable)
         .args(args)
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
@@ -283,37 +334,62 @@ fn run_copy(executable: &Path, args: &[String]) -> Result<Value, String> {
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("starting the memory copy: {e}"))?;
-    let pid = child.id();
-    #[cfg(not(unix))]
-    let _ = pid;
-    let (done, finished) = mpsc::channel();
-    std::thread::Builder::new()
-        .name("chief-fork-copy".into())
-        .spawn(move || {
-            let _ = done.send(child.wait_with_output());
-        })
-        .map_err(|e| format!("starting the memory copy: {e}"))?;
-    let output = match finished.recv_timeout(COPY_DEADLINE) {
-        Ok(output) => output.map_err(|e| format!("the memory copy: {e}"))?,
-        Err(_) => {
-            #[cfg(unix)]
-            // SAFETY: kill(2) on the pid of the child this function started,
-            // which the waiting thread has not reaped (no answer came yet).
-            unsafe {
-                libc::kill(pid as libc::pid_t, libc::SIGKILL);
+    let drain = |pipe: Option<Box<dyn std::io::Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut text = String::new();
+            if let Some(mut pipe) = pipe {
+                let _ = pipe.read_to_string(&mut text);
             }
-            let _ = finished.recv_timeout(Duration::from_secs(5));
-            return Err("the memory copy took too long and was stopped".into());
-        }
+            text
+        })
     };
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = drain(child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
+    let stderr = drain(child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
+    let exited = exit_signal(child.id());
+    let in_time = exited.recv_timeout(COPY_DEADLINE).is_ok();
+    if !in_time {
+        let _ = child.kill();
+    }
+    let status = child.wait().map_err(|e| format!("the memory copy: {e}"))?;
+    let (stdout, stderr) = (stdout.join().unwrap_or_default(), stderr.join().unwrap_or_default());
+    if !in_time {
+        return Err("the memory copy took too long and was stopped".into());
+    }
+    if !status.success() {
         let why = stderr.trim().trim_start_matches("optchat-chief memory: ").trim();
         return Err(if why.is_empty() { "the memory copy failed".into() } else { why.to_owned() });
     }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let line = text.lines().rev().find(|l| l.trim_start().starts_with('{')).unwrap_or("");
+    let line = stdout.lines().rev().find(|l| l.trim_start().starts_with('{')).unwrap_or("");
     serde_json::from_str(line).map_err(|e| format!("the memory copy answered no result ({e})"))
+}
+
+/// A channel that hears when process `pid` (this process's child) has
+/// exited, without reaping it.
+fn exit_signal(pid: u32) -> mpsc::Receiver<()> {
+    let (done, exited) = mpsc::channel();
+    let _ = std::thread::Builder::new().name("chief-fork-copy".into()).spawn(move || {
+        #[cfg(unix)]
+        loop {
+            // SAFETY: waitid on our own child's pid with a zeroed siginfo it fills in.
+            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            let rc = unsafe {
+                libc::waitid(
+                    libc::P_PID,
+                    pid as libc::id_t,
+                    &mut info,
+                    libc::WEXITED | libc::WNOWAIT,
+                )
+            };
+            if rc == 0 || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+            {
+                break;
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = pid;
+        let _ = done.send(());
+    });
+    exited
 }
 
 fn now_ms() -> u64 {
