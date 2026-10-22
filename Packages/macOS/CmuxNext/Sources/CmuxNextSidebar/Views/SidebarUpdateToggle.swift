@@ -66,13 +66,15 @@ final class SidebarUpdateToggle: NSView {
     static var switchSize: CGSize { CGSize(width: ceil(boxSize * 1.75), height: boxSize) }
     static var height: CGFloat { max(boxSize, ceil(font.boundingRectForFont.height)) }
 
-    func configure(title: String, isOn: Bool) {
+    /// - Parameter animated: Whether a change of `isOn` may slide (the card passes false while it
+    ///   is not already showing); it still slides only when ``canSlide``.
+    func configure(title: String, isOn: Bool, animated: Bool = true) {
         label.stringValue = title
         let changed = isOn != self.isOn
         self.isOn = isOn
         // Only a switch already on screen slides: the card's first configure (isOn starts false,
         // the track has no frame yet) or a hidden card puts the knob in place with no motion.
-        if changed, canSlide { slideSwitch() }
+        if changed, animated, canSlide { slideSwitch() }
         setAccessibilityLabel(title)
         setAccessibilityValue(isOn ? 1 : 0)
         setAccessibilitySubrole(look == .switchControl ? .switch : nil)
@@ -85,7 +87,8 @@ final class SidebarUpdateToggle: NSView {
 
     /// The switch has a laid-out track (set by `layout()`'s switch case).
     private(set) var hasLaidOutSwitch = false
-    /// A state change animates: the switch has been laid out and is visible in a window.
+    /// A state change animates: the switch has been laid out and is visible in a window. Before
+    /// its first layout the track has no frame, so a slide would start from the row's corner.
     var canSlide: Bool { look == .switchControl && hasLaidOutSwitch && window != nil && !isHiddenOrHasHiddenAncestor }
 
     /// The switch follows a new state: the knob slides and the track fills on the sidebar's
@@ -138,6 +141,7 @@ final class SidebarUpdateToggle: NSView {
             let boxFrame = CGRect(x: 0, y: (b.height - side) / 2, width: side, height: side)
             box.frame = boxFrame
             box.cornerRadius = Metrics.space1
+            hasLaidOutSwitch = false
             knob.isHidden = true
             let inset = side * 0.18
             mark.image = NSImage.icon(.stateSelected, size: side - 2 * inset)

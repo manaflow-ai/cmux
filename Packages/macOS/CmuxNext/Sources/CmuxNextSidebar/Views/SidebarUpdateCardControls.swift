@@ -148,7 +148,8 @@ final class SidebarUpdateButton: NSView {
             if neutral, isPressed { return Palette.pressedFill }
             // Over its resting hover fill, the neutral step, never the accent selection.
             if neutral, isHovered { return ChromeHover.raisedHoverFill }
-            if !isEnabled { return base.withAlphaComponent(0.4) }
+            // Scaled, not set: a translucent fill (the neutral primary) set to 0.4 got brighter.
+            if !isEnabled { return base.withAlphaComponent(base.alphaComponent * 0.4) }
             if isPressed { return base.withAlphaComponent(0.75) }
             return isHovered ? base.withAlphaComponent(0.88) : base
         }

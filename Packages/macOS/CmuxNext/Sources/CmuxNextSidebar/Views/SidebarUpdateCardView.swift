@@ -163,7 +163,7 @@ final class SidebarUpdateCardView: NSView {
         detailLabel.isHidden = card.detail == nil
         closeButton.isHidden = card.closeTitle == nil || card.closeAction == nil
         closeButton.configure(title: card.closeTitle ?? "", help: card.closeLabel)
-        toggle.configure(title: card.automaticUpdatesTitle, isOn: card.automaticUpdates)
+        toggle.configure(title: card.automaticUpdatesTitle, isOn: card.automaticUpdates, animated: wasShowing)
         button.configure(title: card.buttonTitle, enabled: card.isEnabled,
                          help: [card.notes.headline, card.notes.keepsRunning].joined(separator: " "))
         // The popup with "See all changes" opens on hover only: VoiceOver reaches it here.
