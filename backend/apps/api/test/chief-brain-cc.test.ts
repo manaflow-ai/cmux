@@ -73,6 +73,11 @@ const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: S
   const execAuth: Array<{ vm: string; by: string; user: string | null }> = []
   const states = new Map<string, string>()
   const patches: Array<{ vm: string; body: any }> = []
+  // Guest files per VM (fs routes), uploads, snapshots and every lifecycle call.
+  const files = new Map<string, Map<string, Uint8Array>>()
+  const uploads = new Map<string, { vm: string; path: string; size: number; got: Array<number> }>()
+  const snapshots = new Map<string, { source: string; body: any; deleted?: boolean }>()
+  const lifecycle: Array<string> = []
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = new Request(input, init)
     const url = new URL(req.url)
@@ -108,6 +113,10 @@ const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: S
       if (body.command.includes("resize2fs")) return Response.json({ statusCode: 0, stdout: "/dev/vda 63G 1.2G 62G 2% /\n", stderr: "" })
       if (body.command === "printenv GREETING; cat") return Response.json({ statusCode: 0, stdout: `${body.env?.GREETING ?? ""}\n${body.stdin ? atob(body.stdin) : ""}`, stderr: "" })
       if (body.command === "whoami") return Response.json({ statusCode: 0, stdout: `${body.linuxUser}\n`, stderr: "" })
+      if (body.command.startsWith("nproc; awk")) {
+        const z = sizes.get(ex[1]!)!
+        return Response.json({ statusCode: 0, stdout: `${z.cpu}\n${z.memory - 190}\n/dev/vda ${Math.round(z.storage / 1024) - 1}G 1.2G 62G 2% /\n`, stderr: "" })
+      }
       return Response.json({ statusCode: 0, stdout: body.command.startsWith("echo ") ? `${body.command.slice(5)}\n` : "", stderr: "" })
     }
     expect(req.headers.get("authorization")).toBe("Bearer test-freestyle-key-not-real")
@@ -146,7 +155,63 @@ const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: S
       return new Response("unexpected", { status: 500 })
     }
     const life = /^\/v5\/vms\/([^/]+)\/(pause|start)$/.exec(url.pathname)
-    if (req.method === "POST" && life) return states.set(life[1]!, life[2] === "pause" ? "paused" : "running"), Response.json({ id: life[1], state: states.get(life[1]!) })
+    if (req.method === "POST" && life) return lifecycle.push(`${life[1]} ${life[2]}`), states.set(life[1]!, life[2] === "pause" ? "paused" : "running"), Response.json({ id: life[1], state: states.get(life[1]!) })
+    const fsm = /^\/v5\/vms\/([^/]+)\/fs\/([a-z]+)(?:\/([^/]+)(\/commit)?)?$/.exec(url.pathname)
+    if (fsm) {
+      const [, vm, op, up, commit] = fsm
+      const fsOf = files.get(vm!) ?? new Map<string, Uint8Array>()
+      files.set(vm!, fsOf)
+      const path = url.searchParams.get("path") ?? ""
+      if (op === "write" && req.method === "PUT") {
+        const body = (await req.json()) as { path: string; content: string; encoding?: string }
+        fsOf.set(body.path, body.encoding === "base64" ? Uint8Array.from(atob(body.content), (c) => c.charCodeAt(0)) : new TextEncoder().encode(body.content))
+        return new Response(null, { status: 204 })
+      }
+      if (op === "read") {
+        const f = fsOf.get(path)
+        if (!f) return Response.json({ code: "NOT_FOUND", message: "no such file" }, { status: 404 })
+        const m = /^bytes=(\d+)-(\d+)$/.exec(req.headers.get("range") ?? "")
+        if (!m) return new Response(f)
+        const a = Number(m[1])
+        if (a >= f.length) return new Response(null, { status: 416 })
+        const part = f.subarray(a, Math.min(f.length, Number(m[2]) + 1))
+        return new Response(part, { status: 206, headers: { "content-range": `bytes ${a}-${a + part.length - 1}/${f.length}` } })
+      }
+      if (op === "dir") return Response.json({ entries: [...fsOf.keys()].filter((k) => k.startsWith(`${path.replace(/\/$/, "")}/`)).map((k) => ({ name: k.slice(path.replace(/\/$/, "").length + 1).split("/")[0], kind: "file" })) })
+      if (op === "stat") return fsOf.has(path) ? Response.json({ size: fsOf.get(path)!.length, isFile: true, isDirectory: false, isSymlink: false, permissions: "0644", owner: "root", group: "root", modified: "2026-10-21T00:00:00Z" }) : Response.json({ code: "NOT_FOUND", message: "no such path" }, { status: 404 })
+      if (op === "exists") return Response.json({ exists: fsOf.has(path) })
+      if (op === "mkdir") return new Response(null, { status: 204 })
+      if (op === "remove") return fsOf.delete(path), new Response(null, { status: 204 })
+      if (op === "uploads" && req.method === "POST" && !up) {
+        const body = (await req.json()) as { path: string; size: number }
+        const id = `up-${uploads.size + 1}`
+        uploads.set(id, { vm: vm!, path: body.path, size: body.size, got: [] })
+        return Response.json({ uploadId: id, receivedBytes: 0, size: body.size })
+      }
+      const u = up ? uploads.get(up) : undefined
+      if (op === "uploads" && u && req.method === "PUT") {
+        expect(req.headers.get("content-type")).toBe("application/octet-stream")
+        if (Number(url.searchParams.get("offset")) !== u.got.length) return Response.json({ code: "CONFLICT", message: "offset" }, { status: 409 })
+        for (const x of new Uint8Array(await req.arrayBuffer())) u.got.push(x)
+        return Response.json({ uploadId: up, receivedBytes: u.got.length, size: u.size })
+      }
+      if (op === "uploads" && u && commit && req.method === "POST") return fsOf.set(u.path, Uint8Array.from(u.got)), uploads.delete(up!), new Response(null, { status: 204 })
+      return new Response("unexpected fs", { status: 500 })
+    }
+    const snapOf = /^\/v5\/vms\/([^/]+)\/snapshot$/.exec(url.pathname)
+    if (snapOf && req.method === "POST") {
+      const id = `sn-test${snapshots.size + 1}`
+      snapshots.set(id, { source: snapOf[1]!, body: await req.json() })
+      return Response.json({ snapshotId: id, snapshot: { id }, sourceVmId: snapOf[1] })
+    }
+    const sn = /^\/v5\/snapshots\/([^/]+)$/.exec(url.pathname)
+    if (sn) {
+      const it = snapshots.get(sn[1]!)
+      if (!it || it.deleted) return Response.json({ code: "NOT_FOUND", message: "no such snapshot" }, { status: 404 })
+      if (req.method === "DELETE") return (it.deleted = true), Response.json({})
+      if (req.method === "PATCH") it.body = { ...it.body, ...((await req.json()) as object) }
+      return Response.json({ id: sn[1], displayName: it.body.displayName ?? null, ttlSeconds: it.body.ttlSeconds ?? null })
+    }
     if (req.method === "POST" && url.pathname === "/v5/vms") {
       const id = `vm-test${made.length + 1}`
       made.push({ id, body: await req.json() })
@@ -202,7 +267,7 @@ const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: S
     }
     return new Response("unexpected", { status: 500 })
   })
-  return { made, deleted, boots, started, nets, steps, keys, tags, other, execs, sizes, resizes, identities, tokens, execAuth, states, patches }
+  return { made, deleted, boots, started, nets, steps, keys, tags, other, execs, sizes, resizes, identities, tokens, execAuth, states, patches, files, uploads, snapshots, lifecycle }
 }
 const notes = (s: Started, body: unknown, token = s.input.token) => worker.fetch(s.input.notes_url, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) })
 const machine = async (s: Started, reply: string) => {
@@ -605,6 +670,8 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     // The disk grew, so the guest's root filesystem is grown too and df shows it.
     expect(cloud.execs.some((e) => e.vm === id && e.command.includes("resize2fs"))).toBe(true)
     expect(seen.grow.body.df).toContain("63G")
+    // The guest sees the new CPUs and memory before resize answers.
+    expect(seen.grow.body.guest).toEqual({ nproc: 8, memory_mb: 16194, df: "/dev/vda 63G 1.2G 62G 2% /" })
     // Grow only, within the cap, a number on some axis, and only the Chief's own sandboxes; none reaches Freestyle.
     expect(seen.shrink.status).toBe(400)
     expect(seen.shrink.body.error).toMatch(/grow/)
@@ -814,6 +881,88 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     } finally {
       before === undefined ? delete testEnv.CHIEF_CC_SANDBOX_CAP : (testEnv.CHIEF_CC_SANDBOX_CAP = before)
     }
+  })
+
+  it("gives the Chief files (also while paused, chunked uploads), snapshots of its own and live forks", async () => {
+    const seen: Record<string, any> = {}
+    const call = async (s: Started, vm: unknown) => {
+      const r = await notes(s, { run: s.run, vm })
+      return { status: r.status, body: await r.json().catch(() => null) }
+    }
+    const big = Uint8Array.from({ length: 300_000 }, (_, i) => (i * 7) % 251)
+    const b64 = (u: Uint8Array) => btoa(Array.from(u, (c) => String.fromCharCode(c)).join(""))
+    const cloud = fakeCloud(
+      () => "files",
+      async (s) => {
+        seen.made = await call(s, { action: "create" })
+        const id = seen.made.body?.vm?.id
+        const fs = (op: string, more: object) => call(s, { action: "fs", id, op, ...more })
+        seen.write = await fs("write", { path: "/root/a.txt", data: btoa("hello file") })
+        seen.relative = await fs("write", { path: "root/a.txt", data: btoa("x") })
+        seen.pause = await call(s, { action: "pause", id })
+        seen.read = await fs("read", { path: "/root/a.txt" })
+        seen.readPart = await fs("read", { path: "/root/a.txt", offset: 6, length: 4 })
+        seen.ls = await fs("ls", { path: "/root" })
+        seen.stat = await fs("stat", { path: "/root/a.txt" })
+        seen.exists = await fs("exists", { path: "/root/missing" })
+        seen.begin = await fs("upload_begin", { path: "/root/big.bin", size: big.length })
+        const up = seen.begin.body?.upload?.uploadId
+        seen.chunks = []
+        for (let off = 0; off < big.length; off += 128 * 1024) { const r = await fs("upload_chunk", { upload_id: up, offset: off, data: b64(big.subarray(off, off + 128 * 1024)) }); seen.chunks.push(r.status); (seen.chunkBodies ??= []).push(r.status === 200 ? 200 : r.body) }
+        seen.tooBig = await fs("upload_chunk", { upload_id: up, offset: 0, data: b64(new Uint8Array(128 * 1024 + 1)) })
+        seen.commit = await fs("upload_commit", { upload_id: up })
+        seen.rm = await fs("rm", { path: "/root/a.txt" })
+        seen.snap = await call(s, { action: "snapshot", id, name: "clean" })
+        const snap = seen.snap.body?.snapshot?.id
+        seen.snaps = await call(s, { action: "snapshots" })
+        seen.rename = await call(s, { action: "snapshot_rename", snapshot: snap, name: "cleaner" })
+        seen.foreignSnap = await call(s, { action: "snapshot_delete", snapshot: "sn-not-mine" })
+        seen.fromSnap = await call(s, { action: "create", snapshot: snap })
+        seen.fork = await call(s, { action: "fork", id, name: "try" })
+        seen.forkOver = seen.fork
+        seen.del = await call(s, { action: "snapshot_delete", snapshot: snap })
+      }
+    )
+    const before = testEnv.CHIEF_CC_SANDBOX_CAP
+    testEnv.CHIEF_CC_SANDBOX_CAP = "3"
+    const { token, chief } = await enabledChief("chief-cc-sandbox-files", "cc")
+    try {
+      expect((await send(token, chief.main_conversation, "f1", "files")).ok).toBe(true)
+      await replies(token, chief.main_conversation, chief.id, 1)
+    } finally {
+      before === undefined ? delete testEnv.CHIEF_CC_SANDBOX_CAP : (testEnv.CHIEF_CC_SANDBOX_CAP = before)
+    }
+    const id = seen.made.body.vm.id
+    expect(seen.write).toMatchObject({ status: 200, body: { bytes: 10 } })
+    expect(seen.relative.status).toBe(400)
+    // Reads on a paused VM do not start it.
+    expect(atob(seen.read.body.data)).toBe("hello file")
+    expect(seen.read.body).toMatchObject({ size: 10, eof: true })
+    expect(atob(seen.readPart.body.data)).toBe("file")
+    expect(cloud.lifecycle).toEqual([`${id} pause`])
+    expect(seen.ls.body.entries).toContainEqual({ name: "a.txt", kind: "file" })
+    expect(seen.stat.body).toMatchObject({ size: 10, isFile: true })
+    expect(seen.exists.body).toEqual({ exists: false })
+    expect(seen.chunks, JSON.stringify(seen.chunkBodies)).toEqual([200, 200, 200])
+    expect(seen.tooBig.status).toBe(400)
+    expect(seen.commit.status).toBe(200)
+    expect(cloud.files.get(id)!.get("/root/big.bin")).toEqual(big)
+    expect(cloud.files.get(id)!.has("/root/a.txt")).toBe(false)
+    // Snapshots: its own only, kept 7 days by default; a sandbox can start from one; fork = snapshot + create.
+    expect(seen.snap.status).toBe(200)
+    const snap = seen.snap.body.snapshot.id
+    expect(cloud.snapshots.get(snap)).toMatchObject({ source: id, body: { displayName: "cleaner", ttlSeconds: 7 * 86_400 } })
+    expect(seen.snaps.body.snapshots.map((x: any) => x.id)).toEqual([snap])
+    expect(seen.rename.body.snapshot.name).toBe("cleaner")
+    expect(seen.foreignSnap.status).toBe(404)
+    expect(seen.fromSnap.status).toBe(200)
+    expect(cloud.made.find((m) => m.id === seen.fromSnap.body.vm.id)!.body.snapshotId).toBe(snap)
+    expect(seen.fork.status).toBe(200)
+    expect(seen.fork.body).toMatchObject({ forked_from: id })
+    expect(cloud.made.find((m) => m.id === seen.fork.body.vm.id)!.body.snapshotId).toBe(seen.fork.body.snapshot)
+    expect(cloud.snapshots.get(seen.fork.body.snapshot)!.source).toBe(id)
+    expect(seen.del.status).toBe(200)
+    expect(cloud.snapshots.get(snap)!.deleted).toBe(true)
   })
 
   it("refuses notes without the running turn's token, and after the turn ended", async () => {

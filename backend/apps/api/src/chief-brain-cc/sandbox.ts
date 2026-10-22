@@ -3,14 +3,16 @@ import { writeConfig } from "../chief-brain/brain-store.ts"
 import { CcError, freestyle, vmName } from "./vm.ts"
 import type { Env } from "../env.ts"
 import { execAs, grant, LINUX_USERS, revokeGrant, revokeIdentity } from "./sandbox-access.ts"
-import { costOf, GROW_FS, hasSize, planOf, resourcesOf, sizeOf, toFreestyle, type Resources, type Size } from "./sandbox-size.ts"
+import { fileVerb, snapshotVerb, snapsOf, takeSnapshot } from "./sandbox-files.ts"
+import { costOf, GROW_FS, GUEST_SIZE, guestOf, hasSize, planOf, resourcesOf, sizeOf, toFreestyle, type Guest, type Resources, type Size } from "./sandbox-size.ts"
 
 /**
  * The Chief's own sandbox VMs (`chief-vm` in the turn machine; msg 8200 items 6 and 13): machines that outlive a
  * turn, so the Chief keeps a disk, repos and builds between turns without holding a Freestyle key. Every key the
  * Worker could hand out controls the whole Freestyle account (production VMs too), so the key stays here and the
  * Chief gets actions through its running turn's token (plans/cmux-next/chief-vm-freestyle-parity.md): list, get,
- * create, update, resize, pause, start, stop, exec, delete, cap.
+ * create, update, resize, pause, start, stop, exec, delete, cap; fs (sandbox-files.ts); snapshot, snapshots,
+ * snapshot_get, snapshot_rename, snapshot_delete, fork.
  *
  * Kept per Chief, not per conversation: everything here runs in the Chief's `<agent>/sandboxes` object (a brain-class
  * object named after no conversation; turn.ts forwards each call with the running turn's agent). Owner check on
@@ -95,6 +97,8 @@ const fetchVm = async (b: ChiefBrainDO, id: string): Promise<Vm | null | "unknow
 /** A sandbox as the Chief sees it: the record plus its size and cost per hour. */
 const view = (s: Sandbox, v: Vm | "unknown") => (v === "unknown" ? { ...s, state: "unknown" } : { ...s, state: v.state, display_name: v.display_name, resources: v.resources, cost: costOf(v.resources), idle_timeout_seconds: v.idle_timeout_seconds, ttl_seconds: v.ttl_seconds, metadata: v.metadata })
 
+const liveCount = async (b: ChiefBrainDO) => (await live(b)).length
+
 /** The sandboxes still alive (gone ones are dropped from the list), each with its size and cost. */
 const live = async (b: ChiefBrainDO) => {
   const out: Array<ReturnType<typeof view>> = []
@@ -155,7 +159,16 @@ const grow = async (b: ChiefBrainDO, vm: Vm, want: Size): Promise<Out> => {
   if (!res.ok) return { status: passStatus(res.status), json: { error: `Freestyle did not resize it (${res.status})${await errOf(res)}` } }
   const after = resourcesOf(((await res.json().catch(() => null)) as { resources?: unknown } | null)?.resources)
   const df = disk ? (await execAs(b, vm.id, { command: GROW_FS, timeout_ms: 120_000, user: "root" }).catch(() => ({ stdout: "" }))).stdout.trim() : undefined
-  return { status: 200, json: { id: vm.id, resources: after, cost: costOf(after), ...(df !== undefined ? { df } : {}) } }
+  // CPUs and memory come online in the guest about a second after Freestyle answers: wait for them (at most 15 s).
+  let guest: Guest | null = null
+  if (vm.state === "running" || disk) {
+    for (let i = 0; i < 15; i++) {
+      guest = guestOf((await execAs(b, vm.id, { command: GUEST_SIZE, timeout_ms: 10_000, user: "root" }).catch(() => ({ stdout: "" }))).stdout)
+      if (!guest || !after || (guest.nproc >= after.cpu && guest.memory_mb >= after.memory_mb * 0.9)) break
+      await new Promise((r) => setTimeout(r, 1_000))
+    }
+  }
+  return { status: 200, json: { id: vm.id, resources: after, cost: costOf(after), ...(df !== undefined ? { df } : {}), ...(guest ? { guest } : {}) } }
 }
 
 /** Display name, metadata (the owner key is ours), idle timeout and ttl, as create and update take them. */
@@ -204,7 +217,9 @@ const snapshotOf = (b: ChiefBrainDO, req: Req): { id: string; base: Resources | 
   if (req.image === "chief") return { id: b.doEnv.CHIEF_CC_SNAPSHOT ?? "", base: CHIEF_IMAGE, small: false }
   if (req.snapshot === undefined) return { id: SMALL, base: BASES[SMALL]!, small: true }
   if (typeof req.snapshot === "string" && /^freestyle\/[a-z0-9._-]{1,64}$/.test(req.snapshot)) return { id: req.snapshot, base: BASES[req.snapshot] ?? null, small: false }
-  return { status: 400, json: { error: "snapshot must be a Freestyle base snapshot (freestyle/NAME, e.g. freestyle/ubuntu); omit it for the default small Ubuntu, or use image chief" } }
+  // One of its own snapshots: the VM starts at the size it was taken at (Freestyle refuses a smaller ask).
+  if (typeof req.snapshot === "string" && snapsOf(b).some((s) => s.id === req.snapshot)) return { id: req.snapshot, base: null, small: false }
+  return { status: 400, json: { error: "snapshot must be a Freestyle base snapshot (freestyle/NAME, e.g. freestyle/ubuntu) or one of yours (chief-vm snapshots); omit it for the default small Ubuntu, or use image chief" } }
 }
 
 const execIn = (req: Req) => {
@@ -223,8 +238,60 @@ const execIn = (req: Req) => {
   }
 }
 
-const ACTIONS = "list, get, create, update, resize, pause, start, stop, exec, delete or cap"
-const VM_ACTIONS = ["get", "update", "resize", "pause", "start", "stop", "exec", "delete"]
+const ACTIONS = "list, get, create, update, resize, pause, start, stop, exec, fs, snapshot, snapshots, snapshot_get, snapshot_rename, snapshot_delete, fork, delete or cap"
+const VM_ACTIONS = ["get", "update", "resize", "pause", "start", "stop", "exec", "fs", "snapshot", "fork", "delete"]
+const SNAP_ACTIONS = ["snapshots", "snapshot_get", "snapshot_rename", "snapshot_delete"]
+
+/** Makes a sandbox (size, settings, snapshot), grants the Chief's identity on it, then grows it to the size asked. */
+const create = async (b: ChiefBrainDO, agent: string, req: Req): Promise<Out> => {
+  const env = b.doEnv
+    const size = sizeOf(env, req)
+    if (typeof size === "string") return { status: 400, json: { error: size } }
+    const settings = settingsOf(req)
+    if (typeof settings === "string") return { status: 400, json: { error: settings } }
+    const from = snapshotOf(b, req)
+    if ("status" in from) return from
+    const snapshot = from.id
+    // Below the image's size is impossible (a VM only grows); the small default grows to the usual CPU and memory.
+    const under = from.base ? (["cpu", "memory_mb", "disk_gb"] as const).filter((k) => size[k] !== undefined && size[k]! < from.base![k]) : []
+    if (under.length) return { status: 400, json: { error: `that image starts at ${from.base!.cpu} vCPU / ${from.base!.memory_mb / 1024} GiB / ${from.base!.disk_gb} GB; ${under.join(", ")} cannot be smaller` } }
+    if (from.small) Object.assign(size, { cpu: size.cpu ?? DEFAULT_SIZE.cpu, memory_mb: size.memory_mb ?? DEFAULT_SIZE.memory_mb })
+    const { metadata, ...rest } = settings as { metadata?: Record<string, string>; ttlSeconds?: number; idleTimeoutSeconds?: number }
+    const reserved = await serial(b, async (): Promise<Out | Sandbox> => {
+    const now = await live(b)
+    const cap = capOf(b, agent)
+    if (now.length >= cap) return { status: 429, json: { error: `at most ${cap} sandboxes; delete one first (chief-vm delete ID)`, vms: now } }
+    const name = vmName(env).replace("-ccb-", "-ccs-")
+    const res = await freestyle(env, "POST", "/v5/vms", {
+      slug: name,
+      snapshotId: snapshot,
+      idleTimeoutSeconds: IDLE_S,
+      ttlSeconds: TTL_S,
+      automaticRestart: false,
+      ...rest,
+      metadata: { ...(metadata ?? {}), [OWNER_KEY]: agent },
+      firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }
+    }, 120_000)
+    const body = (await res.json().catch(() => null)) as { id?: string; vmId?: string } | null
+    const id = body?.id ?? body?.vmId
+    if (!res.ok || !id) return { status: 502, json: { error: `Freestyle did not make the VM (${res.status})` } }
+    const s: Sandbox = { id, name, created_at: Date.now() }
+    save(b, [...listOf(b), s])
+    return s
+    })
+    if ("status" in reserved) return reserved
+    const { id } = reserved
+    const s = reserved
+    await grant(b, id).catch(() => undefined)
+    const made = { vm: s, ttl_seconds: rest.ttlSeconds ?? TTL_S, idle_pause_seconds: rest.idleTimeoutSeconds ?? IDLE_S }
+    const v = await fetchVm(b, id)
+    const vm = v && v !== "unknown" ? v : null
+    if (!hasSize(size) || !vm) return { status: 200, json: { ...made, resources: vm?.resources ?? null, cost: costOf(vm?.resources ?? null) } }
+    // Freestyle makes it at its snapshot's size; grow it now (it is running). The VM stays even when this fails.
+    const g = await grow(b, vm, size).catch((e) => ({ status: 502, json: { error: e instanceof CcError ? e.message : "the resize failed" } }))
+    const gj = g.json as { resources?: Resources; cost?: unknown; df?: string; error?: string }
+    return { status: 200, json: { ...made, ...(g.status === 200 ? { resources: gj.resources, cost: gj.cost, ...(gj.df ? { df: gj.df } : {}) } : { resources: vm.resources, cost: costOf(vm.resources), resize_error: gj.error }) } }
+}
 
 export async function ccSandbox(b: ChiefBrainDO, agent: string, raw: unknown, legacy: ReadonlyArray<Sandbox> = []): Promise<Out> {
   const req = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Req
@@ -236,54 +303,8 @@ export async function ccSandbox(b: ChiefBrainDO, agent: string, raw: unknown, le
   try {
     if (req.action === "list") return { status: 200, json: { vms: await live(b), max: capOf(b, agent), plan: planOf(env) } }
     if (req.action === "cap") return { status: 200, json: { cap: capOf(b, agent), live: (await live(b)).length, plan: planOf(env) } }
-    if (req.action === "create") {
-      const size = sizeOf(env, req)
-      if (typeof size === "string") return { status: 400, json: { error: size } }
-      const settings = settingsOf(req)
-      if (typeof settings === "string") return { status: 400, json: { error: settings } }
-      const from = snapshotOf(b, req)
-      if ("status" in from) return from
-      const snapshot = from.id
-      // Below the image's size is impossible (a VM only grows); the small default grows to the usual CPU and memory.
-      const under = from.base ? (["cpu", "memory_mb", "disk_gb"] as const).filter((k) => size[k] !== undefined && size[k]! < from.base![k]) : []
-      if (under.length) return { status: 400, json: { error: `that image starts at ${from.base!.cpu} vCPU / ${from.base!.memory_mb / 1024} GiB / ${from.base!.disk_gb} GB; ${under.join(", ")} cannot be smaller` } }
-      if (from.small) Object.assign(size, { cpu: size.cpu ?? DEFAULT_SIZE.cpu, memory_mb: size.memory_mb ?? DEFAULT_SIZE.memory_mb })
-      const { metadata, ...rest } = settings as { metadata?: Record<string, string>; ttlSeconds?: number; idleTimeoutSeconds?: number }
-      const reserved = await serial(b, async (): Promise<Out | Sandbox> => {
-      const now = await live(b)
-      const cap = capOf(b, agent)
-      if (now.length >= cap) return { status: 429, json: { error: `at most ${cap} sandboxes; delete one first (chief-vm delete ID)`, vms: now } }
-      const name = vmName(env).replace("-ccb-", "-ccs-")
-      const res = await freestyle(env, "POST", "/v5/vms", {
-        slug: name,
-        snapshotId: snapshot,
-        idleTimeoutSeconds: IDLE_S,
-        ttlSeconds: TTL_S,
-        automaticRestart: false,
-        ...rest,
-        metadata: { ...(metadata ?? {}), [OWNER_KEY]: agent },
-        firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }
-      }, 120_000)
-      const body = (await res.json().catch(() => null)) as { id?: string; vmId?: string } | null
-      const id = body?.id ?? body?.vmId
-      if (!res.ok || !id) return { status: 502, json: { error: `Freestyle did not make the VM (${res.status})` } }
-      const s: Sandbox = { id, name, created_at: Date.now() }
-      save(b, [...listOf(b), s])
-      return s
-      })
-      if ("status" in reserved) return reserved
-      const { id } = reserved
-      const s = reserved
-      await grant(b, id).catch(() => undefined)
-      const made = { vm: s, ttl_seconds: rest.ttlSeconds ?? TTL_S, idle_pause_seconds: rest.idleTimeoutSeconds ?? IDLE_S }
-      const v = await fetchVm(b, id)
-      const vm = v && v !== "unknown" ? v : null
-      if (!hasSize(size) || !vm) return { status: 200, json: { ...made, resources: vm?.resources ?? null, cost: costOf(vm?.resources ?? null) } }
-      // Freestyle makes it at its snapshot's size; grow it now (it is running). The VM stays even when this fails.
-      const g = await grow(b, vm, size).catch((e) => ({ status: 502, json: { error: e instanceof CcError ? e.message : "the resize failed" } }))
-      const gj = g.json as { resources?: Resources; cost?: unknown; df?: string; error?: string }
-      return { status: 200, json: { ...made, ...(g.status === 200 ? { resources: gj.resources, cost: gj.cost, ...(gj.df ? { df: gj.df } : {}) } : { resources: vm.resources, cost: costOf(vm.resources), resize_error: gj.error }) } }
-    }
+    if (req.action === "create") return await create(b, agent, req)
+    if (SNAP_ACTIONS.includes(String(req.action))) return await snapshotVerb(b, String(req.action), req)
     if (!VM_ACTIONS.includes(String(req.action))) return { status: 400, json: { error: `action must be ${ACTIONS}` } }
     const o = await own(b, agent, req.id)
     if ("status" in o) return o
@@ -333,6 +354,21 @@ export async function ccSandbox(b: ChiefBrainDO, agent: string, raw: unknown, le
           await new Promise((r) => setTimeout(r, 1_000))
         }
         return { status: 504, json: { error: "powered off, but Freestyle did not report it stopped within 60 s (chief-vm get ID)" } }
+      }
+      case "fs":
+        return await fileVerb(b, vm.id, String(req.op ?? ""), req)
+      case "snapshot": {
+        const { snap: _, ...out } = await takeSnapshot(b, vm.id, req)
+        return out
+      }
+      case "fork": {
+        // A snapshot of this VM (memory and disk), then a new sandbox from it, with the same create options.
+        // The cap is checked here for a fast answer, and again by create inside its lock.
+        if ((await liveCount(b)) >= capOf(b, agent)) return { status: 429, json: { error: `at most ${capOf(b, agent)} sandboxes; delete one first (chief-vm delete ID)` } }
+        const t = await takeSnapshot(b, vm.id, { name: typeof req.name === "string" ? `fork of ${vm.id}: ${req.name}` : `fork of ${vm.id}` })
+        if (!t.snap) return { status: t.status, json: t.json }
+        const made = await create(b, agent, { ...req, snapshot: t.snap.id })
+        return made.status === 200 ? { status: 200, json: { ...(made.json as object), forked_from: vm.id, snapshot: t.snap.id } } : made
       }
       case "exec": {
         const x = execIn(req)

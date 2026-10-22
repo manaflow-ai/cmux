@@ -67,3 +67,13 @@ export const GROW_FS = [
   'case "$fs" in ext*) resize2fs "$src" >/dev/null 2>&1 ;; xfs) xfs_growfs / >/dev/null 2>&1 ;; btrfs) btrfs filesystem resize max / >/dev/null 2>&1 ;; esac',
   "df -h / | tail -1"
 ].join("\n")
+
+/** What the guest sees: CPUs online, memory and the root filesystem (one line each). */
+export const GUEST_SIZE = "nproc; awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo; df -h / | tail -1"
+export type Guest = { nproc: number; memory_mb: number; df: string }
+export const guestOf = (out: string): Guest | null => {
+  const [n, m, ...df] = out.trim().split("\n")
+  const nproc = Number(n)
+  const memory_mb = Number(m)
+  return Number.isFinite(nproc) && Number.isFinite(memory_mb) ? { nproc, memory_mb, df: df.join(" ").trim() } : null
+}
