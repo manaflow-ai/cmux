@@ -105,6 +105,19 @@ const steerMarks = () =>
     { isWorking: true },
   );
 
+// Two steers the agent has not read yet, one after the other (Leo's report, 2026-10-21): each one's
+// clock and Send now sit at its bubble's left, and the pair is as tall as two prompts.
+const waitingSteers = () =>
+  chat(
+    [
+      user("Add retries", 6),
+      assistant("Adding retries to the fetch loop…", 3, { streaming: true }),
+      user("Use the cache dir, not tmp", 1, { steer: "waiting", steerPromptId: "p-steer-1" }),
+      user("Also keep the old flag working", 0.5, { steer: "waiting", steerPromptId: "p-steer-2" }),
+    ],
+    { isWorking: true },
+  );
+
 // A running turn of an agent that steers (Claude Code, Codex) or not (acpmux `steering`).
 const steering = (steers: boolean) => {
   const running = chat(working, { isWorking: true });
@@ -340,6 +353,7 @@ export default agentPaneEntry({
   },
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",
+    "agent-session/acpmux/ComposerBox.tsx#ComposerBox",
     "agent-session/acpmux/ComposerFoot.tsx#ComposerFoot",
     "agent-session/acpmux/conversation/PendingSteer.tsx#PendingSteer",
     "agent-session/acpmux/conversation/icons.tsx#Clock",
@@ -840,6 +854,15 @@ export default agentPaneEntry({
         await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-cancel"));
       },
     },
+    "working-escape-armed": {
+      note: "Play: the first Esc of the double press. Stop keeps its plain square glyph and footprint and takes the theme's accent; its name and the placeholder say Esc again stops (Leo 2026-10-21: no discs).",
+      snapshot: chat(working, { isWorking: true }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-box .acpmux-md" });
+        await ctx.press("Escape");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cancel[data-escape-armed] svg"));
+      },
+    },
     "working-steer": {
       note: "A prompt typed while the turn runs: one ↵ control puts it into the turn now, as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn; Stop sits left of the mic, as in Claude's desktop app.",
       snapshot: steering(true),
@@ -1002,8 +1025,22 @@ export default agentPaneEntry({
         queue: [{ id: "q0", prompt: "Stop and fix the space thing first", next: true }, ...waiting],
       }),
     },
+    "steer-waiting-stack": {
+      note: "Two steers the agent has not read, one after the other: each one's clock and Send now sit at its bubble's left, on its first line, so the pair takes no more room than two prompts and nothing trails the last one.",
+      snapshot: waitingSteers(),
+      play: async (ctx) => {
+        const lines = [...ctx.document.querySelectorAll(".cv-user__pending")];
+        if (lines.length !== 2) throw new Error(`expected two Send now marks, found ${lines.length}`);
+        for (const line of lines) {
+          const bubble = line.parentElement;
+          if (!bubble?.classList.contains("cv-user__bubble")) throw new Error("Send now is not on its bubble's row");
+          if (line.getBoundingClientRect().right > bubble.getBoundingClientRect().left)
+            throw new Error("Send now is not at its bubble's left");
+        }
+      },
+    },
     "steer-marks": {
-      note: "A steer never carries a label: it looks like any sent prompt. While the agent has not read it, a faint clock and Send now sit under it (Send now stops the agent's current step so it reads the steer at once; the turn goes on); once read, nothing. On hover it shows the row every prompt shows, with the same read check (one while it waits, two once read) and the detail in its tooltip. A prompt sent now to an agent that cannot steer goes on with the turn and carries no mark.",
+      note: "A steer never carries a label: it looks like any sent prompt. While the agent has not read it, a faint clock and Send now sit at its bubble's left, on the bubble's first line, adding no height (Send now stops the agent's current step so it reads the steer at once; the turn goes on); once read, nothing. On hover it shows the row every prompt shows, with the same read check (one while it waits, two once read) and the detail in its tooltip. A prompt sent now to an agent that cannot steer goes on with the turn and carries no mark.",
       snapshot: steerMarks(),
     },
     "steer-read-hover": {
