@@ -1657,12 +1657,18 @@ pre.cv-math-source {
   color: var(--cv-text-dim);
 }
 /* A thought in full (while it streams, or with a Debug choice that folds only long ones): a muted
-   "Thought", then its text wrapped on the tool rows' 20px lines, the first line where a single-line
-   row's text sits (Leo 2026-10-13). */
+   "Thinking" (or "Thought for 12s" once done) on its own line, then its text under the opened
+   fold's left rule, so the label and the first words never read as one sentence (Leo 2026-10-21:
+   "Thought I am here" read weird). */
 .cv-thought {
   align-items: flex-start;
   gap: 6px;
   padding-block: 3px;
+}
+.cv-thought.is-full {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
 }
 .cv-thought__label {
   flex: none;
@@ -1693,11 +1699,29 @@ pre.cv-math-source {
 }
 .cv-thought__body {
   display: block;
+}
+/* A flex item already, so no display here: the live viewport's column (above) keeps its own. */
+.cv-thought__body,
+.cv-thought.is-full .cv-thought__text {
   margin: 2px 0 6px 7px;
   padding-left: 16px;
   border-left: 1px solid var(--cv-rule);
   line-height: 20px;
   overflow: hidden;
+}
+/* A heading in a thought's text (Codex's `**Heading**`, ThoughtRow.tsx thoughtParts): its own muted
+   title, without the marks, a paragraph's gap over the text it heads. */
+.cv-thought__parts,
+.cv-thought__part,
+.cv-thought__title {
+  display: block;
+}
+.cv-thought__title {
+  font-weight: 600;
+  color: var(--cv-text-muted);
+}
+.cv-thought__part + .cv-thought__title {
+  margin-top: 10px;
 }
 .cv-tool.is-toggle {
   cursor: pointer;
@@ -1858,6 +1882,20 @@ pre.cv-math-source {
   gap: 4px;
   margin-left: 6px;
   font-variant-numeric: tabular-nums;
+}
+/* A written file's name (WriteLabel.tsx): it opens the file, so it underlines under the pointer. */
+.cv-tool__file.is-link {
+  cursor: pointer;
+  border-radius: 3px;
+}
+.cv-tool__file.is-link:hover {
+  color: var(--cv-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cv-tool__file.is-link:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
 }
 .cv-tool__failed,
 .cv-command__failed {
@@ -2279,6 +2317,18 @@ button.cv-received__name:focus-visible {
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
   font-size: var(--text-body);
+}
+/* An empty footer (turns.ts isEmptyFooter: no label, no answer to copy, only Pin, Fork and the age,
+   all hover-only) takes no line: the row is its turn gap alone, and pointed at, the controls show
+   over that gap (24px, the line's height), so nothing moves (Leo, 2026-10-21: a "Worked for 0s" row
+   took a full line). The chat's last footer has only the 8px message gap, too short for the line,
+   so there it draws nothing: the prompt's own hover row has the same Fork and age. */
+.cv-turn-actions--empty {
+  position: absolute;
+  inset: 0 0 auto;
+}
+.acpmux-row--last-footer .cv-turn-actions--empty {
+  display: none;
 }
 /* Debug Settings `agentPane.debug.turnActionsPlacement` "right": the earlier row at the column's
    right edge, the actions after the time. */
@@ -3500,7 +3550,8 @@ article.acpmux-row:empty {
   padding-bottom: var(--cv-message-gap);
 }
 
-/* A steer the agent has not read yet (PendingSteer.tsx): a faint clock, then Send now. */
+/* A steer the agent has not read yet (PendingSteer.tsx): a faint clock, then Send now. Under a
+   Chief's bubble it is a line of its own; under the person's it sits beside the bubble (below). */
 .cv-user__pending {
   display: flex;
   align-items: center;
@@ -3512,6 +3563,19 @@ article.acpmux-row:empty {
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   color: var(--cv-text-muted);
+}
+/* Beside the bubble's left edge, centred on its first line and out of the layout, as Claude draws a
+   queued prompt's controls: a waiting steer is as tall as any prompt (Leo, 2026-10-21). The bubble
+   is at most 70% of its row, so the 30% left of it holds the clock and Send now. */
+.cv-user__pending--beside {
+  position: absolute;
+  top: 0;
+  right: calc(100% + 8px);
+  height: calc(16px + var(--cv-line-height));
+  margin: 0;
+  padding: 0;
+  white-space: nowrap;
+  user-select: none;
 }
 .cv-user__pending-clock {
   display: inline-flex;

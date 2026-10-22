@@ -125,6 +125,9 @@ impl Translator {
                         let d = ev.get("delta").cloned().unwrap_or(Value::Null);
                         match d.get("type").and_then(Value::as_str) {
                             Some("text_delta") => {
+                                if let Some(p) = parent {
+                                    self.streamed_subagents.lock().await.insert(p.to_owned());
+                                }
                                 let mut chunk = json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": d.get("text").and_then(Value::as_str).unwrap_or("")}});
                                 if let Some(id) =
                                     self.message_ids.lock().await.get(parent.unwrap_or(""))
@@ -134,6 +137,9 @@ impl Translator {
                                 out.push(upd(chunk));
                             }
                             Some("thinking_delta") => {
+                                if let Some(p) = parent {
+                                    self.streamed_subagents.lock().await.insert(p.to_owned());
+                                }
                                 let t = d.get("thinking").and_then(Value::as_str).unwrap_or("");
                                 if !t.is_empty() {
                                     out.push(upd(json!({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": t}})));
@@ -173,6 +179,37 @@ impl Translator {
                 }
             }
             "assistant" => {
+                // A subagent's text and thinking, which Claude Code sends only
+                // in its whole lines (Leo: "why subagents have so little
+                // talking?"), go to its session before the line's tool calls.
+                // The chat's own, and a subagent's that streams, came as
+                // stream events already.
+                if let Some(p) = parent
+                    && !self.streamed_subagents.lock().await.contains(p)
+                {
+                    let id = line.pointer("/message/id").and_then(Value::as_str);
+                    for c in line
+                        .pointer("/message/content")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                    {
+                        let (kind, key) = match c.get("type").and_then(Value::as_str) {
+                            Some("text") => ("agent_message_chunk", "text"),
+                            Some("thinking") => ("agent_thought_chunk", "thinking"),
+                            _ => continue,
+                        };
+                        let text = c.get(key).and_then(Value::as_str).unwrap_or("");
+                        if text.is_empty() {
+                            continue;
+                        }
+                        let mut chunk = json!({"sessionUpdate": kind, "content": {"type": "text", "text": text}});
+                        if let (Some(id), "agent_message_chunk") = (id, kind) {
+                            chunk["messageId"] = json!(id);
+                        }
+                        out.push(upd(chunk));
+                    }
+                }
                 for c in line
                     .pointer("/message/content")
                     .and_then(Value::as_array)

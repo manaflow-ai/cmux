@@ -156,6 +156,11 @@ function buildDynamic(m: Mount, fn: () => unknown, depth: number): string {
   effect(() => {
     const result = fn()
     untrack(() => {
+      const isEmpty = !(Array.isArray(result) ? result : [result]).some((v) => v instanceof ViewNode)
+      // Empty before and after (an `() => cond ? View : null` slot whose inputs changed but whose
+      // answer stayed null): nothing to rebuild, so no op. Without this, every refresh of a list
+      // with an empty-state slot sent a `children: []` op for the slot.
+      if (current && current.ids.length === 0 && isEmpty) return
       if (current) {
         disposeOwner(current.owner)
         for (const old of current.ids) removeNode(m, old)
