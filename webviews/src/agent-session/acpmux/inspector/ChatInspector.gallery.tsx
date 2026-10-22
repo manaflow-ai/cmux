@@ -247,10 +247,10 @@ export default componentEntry<Props>({
       props: full,
     },
     "environment-folders": {
-      note: "Environment for a chat in ~/Projects that worked across six projects: the machine with Save, its folder with its parent, each project it touched (each opens in Files), the repository and the branch (each opens on GitHub).",
+      note: "Environment for a chat in ~/Projects/cmux that worked across six projects: the machine with Save, its folder with its parent, each other project it touched (each opens in Files), the repository and the branch (each links to GitHub).",
       props: {
         ...full,
-        summary: { ...summary, cwd: PROJECTS, branch: "leo/next-backgrounds-batch" },
+        summary: { ...summary, cwd: `${PROJECTS}/cmux`, branch: "leo/next-backgrounds-batch" },
         rows: projectRows,
         onOpenFolder: () => undefined,
         remoteControl: undefined,
