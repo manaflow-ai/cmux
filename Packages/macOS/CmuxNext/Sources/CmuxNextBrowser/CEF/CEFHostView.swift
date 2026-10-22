@@ -84,13 +84,15 @@ final class CEFHostView: NSView {
     /// on every geometry update, so window rects convert at the current
     /// position.
     @objc func cmuxOcclusionRects() -> NSArray {
-        allOcclusionRects.map { NSValue(rect: $0) } as NSArray
+        Self.trackerStats.occlusionReads += 1
+        return allOcclusionRects.map { NSValue(rect: $0) } as NSArray
     }
 
     /// Read by the fork (`-cmuxClipPath`) on every geometry update: the
     /// pane's rounded clip and the window's rounded corners, so no square
     /// page corner shows past either. Nil when the page is a plain rect.
     @objc func cmuxClipPath() -> NSBezierPath? {
+        Self.trackerStats.clipReads += 1
         let shape = pageClip
         // A page clipped away entirely is hidden by an occlusion hole over all of it
         // (`allOcclusionRects`), the fork's documented way to keep a page from showing.
@@ -100,7 +102,10 @@ final class CEFHostView: NSView {
 
     /// The pane's rounded clip, the column strip's clip and the window's corners, in this view.
     var pageClip: CGPath? {
-        CEFClipShape.path(bounds: bounds, clips: CEFClipShape.clips(around: self), cutouts: CEFClipShape.cutouts(around: self))
+        let started = CEFTrackerStats.now()
+        defer { Self.trackerStats.clipSeconds += CEFTrackerStats.now() - started }
+        Self.trackerStats.clipBuilds += 1
+        return CEFClipShape.path(bounds: bounds, clips: CEFClipShape.clips(around: self), cutouts: CEFClipShape.cutouts(around: self))
     }
 
     /// The chrome's rects plus the window's interactive overlays over this
@@ -141,8 +146,12 @@ final class CEFHostView: NSView {
     /// Tells the tracker about moves AppKit does not report (layer
     /// transforms, manual frame animation in an ancestor).
     func postGeometryChange() {
+        Self.trackerStats.geometryPosts += 1
         NotificationCenter.default.post(name: CEFHostView.geometryDidChange, object: self)
     }
+
+    /// What the fork's tracker read from host views so far (`debug.cef` `tracker`).
+    static var trackerStats = CEFTrackerStats()
 
     /// `CmuxParentViewGeometryDidChange` in the fork.
     static let geometryDidChange = Notification.Name("CmuxParentViewGeometryDidChange")
