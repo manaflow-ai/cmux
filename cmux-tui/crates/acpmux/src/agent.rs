@@ -720,6 +720,34 @@ impl ChildAgent {
         rx.await.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped")))
     }
 
+    /// [`Self::request`], given up after `limit`: the pending entry goes too, so an agent that
+    /// never answers leaves nothing waiting, and a late answer to this id (never reused: ids
+    /// only grow) finds no one and is dropped. None on timeout.
+    pub async fn request_within(
+        &self,
+        method: &str,
+        params: Value,
+        limit: std::time::Duration,
+    ) -> Option<Result<Value, RpcError>> {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let (tx, rx) = oneshot::channel();
+        self.pending.lock().await.map.insert(key(&Value::from(id)), tx);
+        let msg = Message::request(id, method, params);
+        if let Err(e) = self.write(&msg).await {
+            self.pending.lock().await.map.remove(&key(&Value::from(id)));
+            return Some(Err(RpcError::internal(e.to_string())));
+        }
+        match tokio::time::timeout(limit, rx).await {
+            Ok(answer) => Some(
+                answer.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped"))),
+            ),
+            Err(_) => {
+                self.pending.lock().await.map.remove(&key(&Value::from(id)));
+                None
+            }
+        }
+    }
+
     pub async fn notify(&self, method: &str, params: Value) -> Result<()> {
         self.write(&Message::notification(method, params)).await
     }
