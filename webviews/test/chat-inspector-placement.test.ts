@@ -3,7 +3,8 @@
 // DOESN'T shift the layout. OR it shifts the layout if there isn't enough space"). In a wide pane it
 // floats in the right gutter beside the transcript's centered column, and the transcript does not
 // move; in a narrow one, a pane of a split included, it pushes the chat aside, and the panel's rect
-// meets no transcript row and not the composer. A click elsewhere in the chat leaves it open; its toggle closes it. In Leo's
+// meets no transcript row and not the composer. Either way it is a dropdown as tall as its sections,
+// not a full-height column. A click elsewhere in the chat leaves it open; its toggle closes it. In Leo's
 // chat it lay over the transcript at a narrow width: his prompt sat on "Background tasks".
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
@@ -129,6 +130,32 @@ await requireBrowserLane("chat-inspector-placement.test.ts", async () => {
             placement: await panel.getAttribute("data-placement"),
             covers: rows.filter((row) => meets(row, box)),
           }).toEqual({ placement: "push", covers: [] });
+        } finally {
+          await page.close();
+        }
+      });
+    }
+
+    // A dropdown that hugs its sections, never a full-height column of empty glass (Leo 2026-10-21:
+    // "this BECAME A FUCKING SIDEBAR FOR NO FUCKING REASON ALL THIS FUCKING DEAD SPACE"): floating or
+    // pushing, the panel is under half the pane's height with this chat's few short sections, and
+    // the foot of the column it takes is the chat's page, not the panel.
+    for (const width of [700, 1600]) {
+      test(`${name}: in a ${width}px pane the panel hugs its sections and leaves the column's foot empty`, async () => {
+        current = browsers.get(name)!;
+        const page = await pane!.open({ width, height: 700 });
+        try {
+          const { panel } = await openInspector(page);
+          const box = await rect(page);
+          const foot = await page.evaluate(
+            ([x, y]) => (document.elementFromPoint(x!, y!)?.closest("aside.acpmux-chat-inspector") ? "the panel" : "the page"),
+            [(box.left + box.right) / 2, 700 - 24],
+          );
+          expect({
+            placement: await panel.getAttribute("data-placement"),
+            short: box.bottom - box.top < 700 * 0.5,
+            foot,
+          }).toEqual({ placement: width === 1600 ? "overlay" : "push", short: true, foot: "the page" });
         } finally {
           await page.close();
         }
