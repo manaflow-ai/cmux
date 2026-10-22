@@ -576,6 +576,7 @@ public final class SidebarModel {
 
     /// Toggle Sidebar: fully shown at `width`, or fully hidden.
     public func toggle() {
+        // Red: the rail style toggles like the standard sidebar for now.
         presentation = presentation == .hidden ? .shown : .hidden
     }
 }
