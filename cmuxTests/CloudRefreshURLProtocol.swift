@@ -22,6 +22,8 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
     static func waitUntilStopped(after baseline: Int) async { await responses.waitUntilStopped(after: baseline) }
     static func reset() async { await responses.reset() }
     static func requestCounts() async -> [String: Int] { await responses.counts }
+    /// The URLSession timeout applied to each request, keyed by path.
+    static func requestTimeouts() async -> [String: [TimeInterval]] { await responses.requestTimeouts }
     /// The `X-Cmux-Team-Id` header of every request, in arrival order.
     static func teamHeaders() async -> [String?] { await responses.teamHeaders }
     /// The `x-cmux-client-timeout-ms` header of every request, in arrival order.
@@ -33,6 +35,7 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
 
     private actor Responses {
         private(set) var counts: [String: Int] = [:]
+        private(set) var requestTimeouts: [String: [TimeInterval]] = [:]
         private(set) var teamHeaders: [String?] = []
         private(set) var budgetHeaders: [String?] = []
         private var tasks: [UUID: Task<Void, Never>] = [:]
@@ -67,6 +70,7 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
             for task in tasks.values { task.cancel() }
             tasks.removeAll()
             counts.removeAll()
+            requestTimeouts.removeAll()
             teamHeaders.removeAll()
             budgetHeaders.removeAll()
             behavior = .normal
@@ -79,6 +83,7 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
             let path = source.request.url!.path
             let method = source.request.httpMethod ?? "GET"
             counts[path, default: 0] += 1
+            requestTimeouts[path, default: []].append(source.request.timeoutInterval)
             teamHeaders.append(source.request.value(forHTTPHeaderField: "X-Cmux-Team-Id"))
             budgetHeaders.append(source.request.value(forHTTPHeaderField: "x-cmux-client-timeout-ms"))
             let count = counts.values.reduce(0, +)
