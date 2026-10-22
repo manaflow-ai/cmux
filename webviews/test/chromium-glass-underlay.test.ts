@@ -26,9 +26,10 @@ await requireBrowserLane("chromium-glass-underlay.test.ts", async () => {
   const FLOATING = { x: 20, y: 40 };
   const IN_FLOW = { x: 260, y: 40 };
   const BOX = { width: 200, height: 80 };
-  const html = (arm: string) =>
+  // `page` is the page's own background: clear as over the window glass, or a grey as an opaque page.
+  const html = (arm: string, page = "transparent") =>
     `<!doctype html><html data-cmux-see-through data-glass="plain" data-glass-underlay="${arm}"
-       style="--cmux-surface-background:transparent;--cmux-surface-solid:rgb(30,30,30);background:transparent">
+       style="--cmux-surface-background:transparent;--cmux-surface-solid:rgb(30,30,30);background:${page}">
      <head><style>${css}
        body { margin: 0; background: transparent }
        .bars { position: absolute; top: 0; left: 0; width: 480px; height: 160px;
@@ -40,9 +41,9 @@ await requireBrowserLane("chromium-glass-underlay.test.ts", async () => {
      <div class="box ui-glass" id="in-flow" style="left:${IN_FLOW.x}px;top:${IN_FLOW.y}px"></div>
      </body></html>`;
 
-  async function open(browser: Browser, arm: string): Promise<Page> {
+  async function open(browser: Browser, arm: string, background?: string): Promise<Page> {
     const page = await browser.newPage({ viewport: { width: 480, height: 160 }, deviceScaleFactor: 1 });
-    await page.setContent(html(arm));
+    await page.setContent(html(arm, background));
     return page;
   }
 
@@ -86,6 +87,14 @@ await requireBrowserLane("chromium-glass-underlay.test.ts", async () => {
       expect(await barContrast(after, IN_FLOW)).toBeCloseTo(await barContrast(before, IN_FLOW), 0);
       await before.close();
       await after.close();
+    });
+
+    // The cause, not the CSS: the same glass with no underlay frosts the bars away once the page
+    // itself is opaque, because the blurred copy then covers what is under it.
+    test("over an opaque page the tint alone already frosts the bars", async () => {
+      const opaque = await open(browser, "none", "rgb(128, 128, 128)");
+      expect(await barContrast(opaque, FLOATING)).toBeLessThan(8);
+      await opaque.close();
     });
 
     test("the arms order by strength, and the glass is never opaque", async () => {
