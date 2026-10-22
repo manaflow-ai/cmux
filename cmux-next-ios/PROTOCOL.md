@@ -769,6 +769,7 @@ characters become spaces, then it cuts to the limit in code points):
 | `questions` | 4 × (`question` 200, `header` 30, `multiSelect`, `allowsOther`, `options` 6 × `label` 60) | an AskUserQuestion-style ask |
 | `tail` | 6 × 160 | the last lines: the chat's last messages, or a terminal's last screen rows |
 | `state` | | `waiting`, `finished`, `failed`, `notified` |
+| `replyable` | | a terminal notification whose poster takes a typed reply (`notify --reply`, daemon `notification-reply-v1`) |
 
 The answer adds `wants`: the kinds any phone of the owner that has not muted
 this Mac still wants, so the host skips kinds nobody wants (it asks again at
