@@ -28,6 +28,7 @@ pub mod pairing;
 pub mod process;
 pub mod run;
 pub mod session_folder;
+pub mod session_limits;
 pub mod shutdown;
 pub mod stdio;
 pub mod uniichat_agent;

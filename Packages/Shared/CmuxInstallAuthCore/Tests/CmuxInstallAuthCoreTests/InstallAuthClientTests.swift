@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 import Testing
 @testable import CmuxInstallAuthCore
@@ -52,6 +56,8 @@ actor FakeOwner: InstallAuthTransport {
     var replyTeamOverride: String?
     var claimOverrides: [String: String] = [:]
 
+    /// The count crosses the actor boundary, not the dictionary: swift-crypto's keys are not Sendable on Linux.
+    var installCount: Int { installs.count }
     func revoke(_ install: String) { revoked.insert(install) }
     func setFailNextChallenge() { failNextChallenge = true }
     func setPrefixOverride(_ value: String) { prefixOverride = value }
@@ -125,8 +131,10 @@ actor FakeOwner: InstallAuthTransport {
             let jwk = params["public_jwk"] as! [String: String]
             let x = Data(base64URLEncoded: jwk["x"]!)!, y = Data(base64URLEncoded: jwk["y"]!)!
             let publicKey = try P256.Signing.PublicKey(x963Representation: Data([0x04]) + x + y)
-            if installs.values.contains(where: { $0.rawRepresentation == publicKey.rawRepresentation })
-                && !installs.filter({ $0.value.rawRepresentation == publicKey.rawRepresentation }).keys.allSatisfy(revoked.contains) {
+            // The closures compare bytes: swift-crypto's P256 keys are not Sendable on Linux.
+            let raw = publicKey.rawRepresentation
+            if installs.values.contains(where: { $0.rawRepresentation == raw })
+                && !installs.filter({ $0.value.rawRepresentation == raw }).keys.allSatisfy(revoked.contains) {
                 return try reply(["ok": false, "error": ["code": "validation.invalid", "message": "this public key is already registered"]])
             }
             let id = "inst_\(installs.count + 1)"
@@ -218,7 +226,7 @@ func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRec
         let again = makeClient(owner, signer)
         _ = try await again.installToken()
         #expect(await again.currentRecord?.install == "inst_1")
-        #expect(await owner.installs.count == 1)
+        #expect(await owner.installCount == 1)
     }
 
     @Test func aRevokedInstallRegistersAgainWithANewKey() async throws {
@@ -334,7 +342,7 @@ func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRec
         await #expect(throws: InstallAuthError.clientTooOld(minimumVersion: "2.4.0")) { try await old.installToken() }
         // Not a revoked install: the key is kept and nothing registers again.
         #expect(await signer.rotations == 0)
-        #expect(await owner.installs.count == 1)
+        #expect(await owner.installCount == 1)
         // Without a version the owner refuses too; the same install mints once updated.
         let record = await old.currentRecord
         await #expect(throws: InstallAuthError.clientTooOld(minimumVersion: "2.4.0")) {
