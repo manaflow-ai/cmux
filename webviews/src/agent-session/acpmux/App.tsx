@@ -1224,6 +1224,27 @@ function glide(node: HTMLElement | null, step: number): Animation | undefined {
   });
 }
 const GLIDE_MS = MOTION_MS.standard;
+
+/// The longest a chat opened cold takes to fade in (Leo 2026-10-21: "a fast fade in").
+const CHAT_OPEN_FADE_MS = 150;
+
+/// Fades the transcript of a chat this page opened cold in over the host's fade-in token (the
+/// motion scale's micro step without the host), at most CHAT_OPEN_FADE_MS: opacity only, so no row
+/// moves, starting on the frame its rows first draw. None when the host turned motion off or its
+/// token is 0 (Reduce Motion, ui.animationSpeed off), or while the page is away (entranceAllowed).
+function fadeInOpenedChat(node: HTMLElement | null): void {
+  if (!node || typeof node.animate !== "function" || !entranceAllowed()) return;
+  const style = getComputedStyle(document.documentElement);
+  const token = style.getPropertyValue("--agent-motion-in").trim();
+  const value = Number.parseFloat(token);
+  const asked = !token || !Number.isFinite(value) ? MOTION_MS.micro : token.endsWith("ms") ? value : value * 1000;
+  const duration = Math.min(asked, CHAT_OPEN_FADE_MS);
+  if (!(duration > 0)) return;
+  node.animate([{ opacity: 0 }, { opacity: 1 }], {
+    duration,
+    easing: style.getPropertyValue("--agent-ease-out").trim() || "ease-out",
+  });
+}
 /// How many rows from the end a glide looks for the row it holds.
 const FOLLOWED_ROW_SEARCH = 64;
 
@@ -1707,6 +1728,8 @@ export function VirtualTranscript({
   onAnchor,
   anchorNow,
   onLoadOlder,
+  coldOpen,
+  chatRead = true,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
@@ -1750,6 +1773,14 @@ export function VirtualTranscript({
   /// A row to bring into view (a count on the running line, WorkingFor.tsx); a new `key` asks again.
   /// The run that holds call `toolId` opens, as for a Find match.
   reveal?: { rowId: string; key: number; toolId: string };
+  /// A chat the page switched to and read cold, by its open (a new number per open): its rows fade
+  /// in once, on the frame they first draw (fadeInOpenedChat). Undefined for a chat drawn from a kept
+  /// tail, which shows whole on the frame the switch lands ("instant if cached"), and for the first
+  /// chat a page shows, which the host reveals (pane.painted).
+  coldOpen?: number;
+  /// The chat's rows are in (AcpmuxSnapshot.chatRead): a cold open read with no rows (a new chat)
+  /// has nothing to fade in, and its first prompt enters as a live row.
+  chatRead?: boolean;
 }) {
   const t = useT();
   // Debug measurement (acpmuxPerf): off until the first debug call.
@@ -2062,6 +2093,17 @@ export function VirtualTranscript({
   // Read aloud speaks one of this chat's answers: moving to another session (or closing the
   // transcript) stops it, so it neither talks over the next chat nor says Stop reading on return.
   useEffect(() => () => stopReadingAloud(), [sessionId]);
+  /// The last cold open whose fade was decided: it runs on the first frame with rows, or not at all.
+  const fadedOpen = useRef<number | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (coldOpen === undefined || fadedOpen.current === coldOpen) return;
+    if (rows.length === 0) {
+      if (chatRead) fadedOpen.current = coldOpen;
+      return;
+    }
+    fadedOpen.current = coldOpen;
+    fadeInOpenedChat(ref.current);
+  }, [coldOpen, chatRead, rows.length]);
   const previousSession = useRef(sessionId);
   // A layout effect: the first measure lands before the first paint, so a mounted transcript (a page
   // load, a new chat's first send, back from Harnesses) never draws a frame at a guessed size.
@@ -4111,6 +4153,21 @@ function AcpmuxPane() {
   // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
   // popover under the header button so it never covers the composer controls.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  // Leo, 2026-10-21: "no layout shift then a fast fade in, instant if cached". A switch in place
+  // (chat.select: the page's list, a branch, a fork) to a chat read cold fades its transcript in;
+  // one drawn from a kept tail (direct.ts drawKeptTail) shows on the frame it lands. The first chat
+  // the page shows has no chat before it: the host reveals that one (pane.painted).
+  const [opened, setOpened] = useState<{ shown?: string; open: number; cold: boolean }>({
+    shown: shownSessionId,
+    open: 0,
+    cold: false,
+  });
+  if (opened.shown !== shownSessionId)
+    setOpened({
+      shown: shownSessionId,
+      open: opened.open + 1,
+      cold: opened.shown !== undefined && shownSessionId !== undefined && snapshot.drewKeptTail !== true,
+    });
   /// The chat shown now, for a permission card's deny with instructions (PermissionAsk), which
   /// reads it after the deny goes, never a render's stale copy.
   const shownChat = useRef(shownSessionId);
@@ -6850,6 +6907,8 @@ function AcpmuxPane() {
                                                 }
                                                 expanded={expanded}
                                                 reveal={childRows ? undefined : revealRow}
+                                                coldOpen={!childRows && opened.cold ? opened.open : undefined}
+                                                chatRead={snapshot.chatRead === true}
                                                 registry={registry}
                                                 githubRepository={githubRepository}
                                                 fallbackRepository={pullRequestRef(headerPullRequest?.url ?? "")?.repo}
