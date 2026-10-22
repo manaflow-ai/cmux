@@ -57,6 +57,7 @@ export function automationState(host: AutomationHost) {
       title: session.displayTitle ?? session.title ?? session.name ?? null,
       harness: session.harness ?? null,
       status: session.status ?? null,
+      unread: session.unread === true,
     })),
     permission: snapshot.permission?.pending
       ? {

@@ -48,7 +48,7 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
               onClick={() => store.setTab(tab)}
               onKeyDown={(event) => moveTab(event, tab)}
             >
-              {t(tab === "discover" ? "store.tab.discover" : "store.tab.installed")}
+              {t(`store.tab.${tab}`)}
             </button>
           ))}
         </div>

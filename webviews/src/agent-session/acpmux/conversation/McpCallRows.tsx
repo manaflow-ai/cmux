@@ -104,7 +104,7 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
         </span>
         <span className="cv-tool__text" data-find-skip>
           {mcpLabel(t, [call], names)}
-          {tool.status === "failed" && <span className="cv-tool__detail"> {t("tools.failed")}</span>}
+          {tool.status === "failed" && <span className="cv-tool__failed"> {t("tools.failed")}</span>}
         </span>
         <ChevronRight
           size={14}

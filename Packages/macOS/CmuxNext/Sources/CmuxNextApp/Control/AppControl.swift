@@ -17,6 +17,7 @@ final class AppControl {
     let watchdog = MainThreadWatchdog()
     private let frames = FrameBatcher(owner: "Control.frames")
     private let frameProbe = DebugFrameProbe()
+    private let mainCPUProbe = DebugMainCPUProbe()
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
     private(set) var errorJournal: ErrorJournalService?
@@ -82,6 +83,8 @@ final class AppControl {
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
         service.router.register([
             .mainActor("debug.frames") { [probe = frameProbe] call in .value(probe.handle(call.params)) },
+            // Main-thread CPU per frame against a 120 Hz frame (anim-perf-terminal.py).
+            .mainActor("debug.main_cpu") { [probe = mainCPUProbe] call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
             .mainActor("debug.motion") { [weak services] call in .value(DebugMotion.handle(call.params, services)) },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).

@@ -16,6 +16,10 @@ responsible for, cmux-tui, acpmux and the terminal hosts). One session, after a 
      app hidden. The final sample keeps every process's pid, kind, command, CPU %, wakeups/s,
      footprint and RSS, so a PR can quote before and after numbers per process.
 
+  4. Spinners (spinners.py): with the window in view again, one window with no spinner, then with
+     `scenario.spinners` loading spinners visible (default 1 and 20): tree CPU, wakeups/s and the
+     app's main thread CPU.
+
 budgets.json holds the scenario's sizes and one budget per row: `limit` in the row's unit,
 `enforce` true fails the step (xbench.py report exits 1), false only reports (advisory). A
 budget starts advisory while the base breaks it; tighten it (and enforce it) once the base holds it.
@@ -26,6 +30,8 @@ import json
 import os
 import shutil
 import time
+
+import spinners
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_BUDGETS = os.path.join(HERE, "budgets.json")
@@ -57,6 +63,7 @@ ROWS = [
     ("budget-processes", "Processes, every tab hidden", "n"),
     ("budget-threads", "Threads, every tab hidden", "n"),
 ]
+ROWS += spinners.ROWS
 ROW_INFO = {row: (label, unit, False) for row, label, unit in ROWS}
 
 
@@ -216,6 +223,12 @@ def session(run, browser, round_no: int, log, budgets_path: str | None = None):
             for row in ("budget-idle-cpu-app-hidden", "budget-idle-wakeups-app-hidden",
                         "budget-idle-disk-writes-app-hidden", "budget-idle-csw-app-hidden"):
                 run.record(name, round_no, row, None, note="the app did not hide")
+        # 4. Spinners (spinners.py): the same window in view, with 0, 1 and 20 loading spinners.
+        spinner_counts = [int(c) for c in scenario.get("spinners", [1, 20])]
+        if spinner_counts:
+            _sleep(phase_settle)
+            spinners.phase(run, browser, round_no, log, spinner_counts, float(scenario.get("spinner_settle_s", 10)),
+                           _sleep)
     except Exception as error:  # noqa: BLE001 - a failed session is logged, the run goes on
         run.record(name, round_no, "session-error", None, note=f"{type(error).__name__}: {error}"[:400])
     finally:

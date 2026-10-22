@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextFiles
 
 /// The Files context menus, in Finder's order. Every item calls the same
@@ -66,7 +67,7 @@ extension FilesPaneView {
     private func item(_ title: String, _ symbol: String, _ action: Selector) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
-        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        item.image = NSImage.menuSymbol(symbol)
         return item
     }
 

@@ -1686,6 +1686,10 @@ path = "tests/test_ci_compile_test_plan.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_tip_test_compile.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_internal_builder.py"
 lane = "linux-guard"
 
@@ -1827,4 +1831,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_fixture_host_names.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_step_coverage.py"
 lane = "linux-guard"

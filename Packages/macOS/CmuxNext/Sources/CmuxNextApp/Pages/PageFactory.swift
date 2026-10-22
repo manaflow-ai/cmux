@@ -30,12 +30,11 @@ struct PageFactory {
         return page
     }
 
-    /// The React App Store page (react-pages.md 3) on `route` (`#/discover?app=<id>`,
-    /// `#/installed`) when Debug Settings `apps.store.surface` is `web`, else nil (the Swift
-    /// store). `cmux.apps.` goes to the daemon relay behind the native sheet of
-    /// ``AppsPageConfirmations``; the sheet reads the listing first so it can name the scopes.
+    /// The App Store page (react-pages.md 3, apps-web-DESIGN.md) on `route` (`#/discover?app=<id>`,
+    /// `#/installed`); nil only when the page resources are missing.
+    /// `cmux.apps.` goes to the daemon relay behind the native sheet of ``AppsPageConfirmations``
+    /// (the sheet reads the listing first so it can name the scopes); `glyph/` is ``AppsGlyphResource``.
     func appsWebPage(route: String?) -> PageWebView? {
-        guard PageTunables.appStore.value == .web else { return nil }
         // The organization's DisabledFeatures `apps` turns the store off for this page too (the
         // native store reads the same transport state), checked on every call.
         let relay = PolicyGatedPageProvider(inner: DaemonPageRelay(services: services)) { [weak apps = services.apps] in
@@ -49,7 +48,7 @@ struct PageFactory {
         }
         let native = AppPageNativeProvider(services: services, page: .apps)
         let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = PageWebView(descriptor: .apps, routes: routes, route: route) else { return nil }
+        guard let page = PageWebView(descriptor: .apps, routes: routes, route: route, dynamicResources: AppsGlyphResource()) else { return nil }
         confirming.anchor = { [weak page] in page }
         native.anchor = { [weak page] in page }
         PageConnectionWatch(page: page, store: services.machines.local.store).start()
