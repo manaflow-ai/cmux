@@ -903,9 +903,14 @@ class Gate:
                     continue
                 # A row scrolled out of the viewport sits above 0 or below the window's 800 pt test height.
                 frame = row.get("window_frame") or {}
-                if frame.get("height", 0) <= 0 or not (0 <= frame.get("y", -1) and frame["y"] + frame["height"] <= 760):
+                if frame.get("height", 0) <= 0 or frame.get("y", -1) < 0:
                     continue
                 return frame["x"] + frame["width"] / 2, frame["y"] + frame["height"] / 2
+        if not getattr(self, "_row_miss_shown", False):
+            self._row_miss_shown = True
+            rows = [r for w in (self.app.rpc("debug.sidebar_rows") or {}).get("windows") or [] for r in w.get("rows") or []]
+            sample = [{k: r.get(k) for k in ("key", "in_list", "window_frame")} for r in rows if "workspace" in str(r.get("key"))][:3]
+            print(f"  no pressable sidebar row for {workspace}: {len(rows)} rows, first workspace rows {sample}", flush=True)
         return None
 
     def fill_workspaces(self, want, made):
