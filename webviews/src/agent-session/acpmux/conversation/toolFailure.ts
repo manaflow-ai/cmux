@@ -107,6 +107,18 @@ function jsonCause(value: unknown, depth = 0): string | undefined {
   return undefined;
 }
 
+/// An error a JSON result names, through JSON inside its text (an MCP text block that is itself a
+/// JSON error), without the context a host injects into it, as the opened call's response reads.
+function nestedCause(value: unknown): string | undefined {
+  let said = jsonCause(value);
+  for (let depth = 0; depth < 3 && said !== undefined; depth++) {
+    const inner = jsonCause(parseJson(said.trim()));
+    if (inner === undefined) break;
+    said = inner;
+  }
+  return said === undefined ? undefined : cleanText(said);
+}
+
 function parseJson(text: string): unknown {
   if (text.length > MAX_JSON || !/^\s*\{/.test(text)) return undefined;
   try {
@@ -146,13 +158,16 @@ export function toolFailure(tool: Tool): ToolFailure | undefined {
     body.length > HEAD_CHARS + TAIL_CHARS ? `${body.slice(0, HEAD_CHARS)}\n${body.slice(-TAIL_CHARS)}` : body
   ).trim();
 
-  if (isRecord(json) && json.status === "declined") return { kind: "denied", exitCode, output, detail: body };
-  const hook = HOOK.exec(text);
+  // A refusal or a hook's block is the whole result of a call that never ran, so it carries no exit
+  // code; a command that ran and printed the same words ("payment declined") is read as its exit.
+  const ran = exitCode !== undefined;
+  if (!ran && isRecord(json) && json.status === "declined") return { kind: "denied", exitCode, output, detail: body };
+  const hook = ran ? null : HOOK.exec(text);
   if (hook) {
     const reason = text.slice(hook[0].length).replace(/^blocked\s*:\s*/i, "");
     return { kind: "hook", hook: hook[1] ?? hook[2], cause: oneLine(reason), exitCode, output, detail: body };
   }
-  if (exitCode === undefined && DENIED.test(text))
+  if (!ran && DENIED.test(text))
     return { kind: "denied", cause: oneLine(DENIED_SAID.exec(text)?.[1]), exitCode, output, detail: body };
 
   const lines = text.split("\n").filter((line) => WORDS.test(line));
@@ -161,11 +176,11 @@ export function toolFailure(tool: Tool): ToolFailure | undefined {
   if (timedOut || exitCode === 124) return { kind: "timeout", exitCode, output, detail: body };
 
   const tagged = TOOL_USE_ERROR.exec(text)?.[1];
-  const said = json === undefined ? undefined : jsonCause(json);
+  const said = json === undefined ? undefined : nestedCause(json);
   const cause = tagged
     ? oneLine(tagged)
     : json !== undefined
-      ? oneLine(said && cleanText(said))
+      ? oneLine(said)
       : exitCode !== undefined
         ? // A call that exited 0 yet failed has no last line to blame: only a line that names an error.
           shellCause(lines, exitCode !== 0)

@@ -246,3 +246,22 @@ test("Copy error copies the result as drawn: no colour codes, fence or injected 
   );
   expect(failure?.detail).toBe("Error: boom");
 });
+
+test("a command that ran and printed a refusal or a hook's words reads as its exit", () => {
+  expect(toolFailure(call('{"status":"declined","error":"payment declined"}', { exitCode: 22 }))).toMatchObject({
+    kind: "exit",
+    exitCode: 22,
+    cause: "payment declined",
+  });
+  expect(toolFailure(call("Exit code 1\nPreToolUse:Bash hook error: Blocked: fixture"))?.kind).toBe("exit");
+});
+
+test("context injected inside an MCP text block's own JSON stays out of the cause", () => {
+  const inner = JSON.stringify({
+    error: "<system-reminder>ambient UI state</system-reminder>\nError: server unavailable",
+  });
+  const mcp = JSON.stringify({ content: [{ type: "text", text: inner }], isError: true });
+  expect(toolFailure(call(mcp, { title: "mcp__mail__read", kind: "other", command: undefined }))?.cause).toBe(
+    "server unavailable",
+  );
+});

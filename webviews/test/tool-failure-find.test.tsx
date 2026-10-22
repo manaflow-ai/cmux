@@ -91,3 +91,11 @@ for (const grouped of [false, true])
     for (const query of ["Exit code 0", "transport failed"])
       expect([query, count(painted, query)]).toEqual([query, count(indexed(item, grouped), query)]);
   });
+
+for (const grouped of [false, true])
+  test(`a completed call with a nonzero exit is drawn and counted alike (${grouped ? "command row" : "lone call"})`, async () => {
+    const item = command(`c${grouped}`, "Exit code 1\nbuild failed", { status: "completed", exitCode: 1 });
+    const painted = await paintedText(item, grouped);
+    for (const query of ["Exit code 1", "build failed"])
+      expect([query, count(painted, query)]).toEqual([query, count(indexed(item, grouped), query)]);
+  });
