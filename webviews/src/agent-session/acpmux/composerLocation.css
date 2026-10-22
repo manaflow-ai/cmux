@@ -913,6 +913,19 @@
   box-shadow: none;
   color: var(--agent-muted);
 }
+/* Reduce Transparency turns bare text over art solid: the plain strip's queue takes the queue's
+   solid fill (--acpmux-queue-fill, composerStates.css), the same as its fold, never clear text over
+   the wallpaper with a solid fold under it (queued-glass.test.ts). */
+:root[data-top-strip="plain"][data-reduce-transparency] .acpmux-composer > .acpmux-composer-queue,
+:root[data-top-strip="plain"][data-reduce-transparency] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+  background: var(--acpmux-queue-fill);
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-top-strip="plain"] .acpmux-composer > .acpmux-composer-queue,
+  :root[data-top-strip="plain"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+    background: var(--acpmux-queue-fill);
+  }
+}
 :root[data-top-strip="plain"] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-queue { margin-bottom: 0; }
 :root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queued { padding-inline: 0; color: var(--agent-muted); }
 :root[data-top-strip="plain"] .acpmux-composer-queue .acpmux-queued-mark { min-width: 0; text-align: left; }
