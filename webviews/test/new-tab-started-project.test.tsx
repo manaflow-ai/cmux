@@ -86,11 +86,26 @@ const noop = () => {};
 
 /// The person's send on a New Tab page: Enter with `picked` as the page's project pick, through the
 /// page's real actions (screenActions). Returns what the app was told.
-async function startChat(picked: string | undefined, options: { noProject?: boolean; startsHere?: boolean } = {}) {
+async function startChat(
+  picked: string | undefined,
+  options: { noProject?: boolean; startsHere?: boolean; start?: "started" | "refused" | "failed" } = {},
+) {
   const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
   const sent: [string, unknown][] = [];
+  let starting: Promise<unknown> = Promise.resolve();
   const actions = newTabScreenActions({
-    callNative: async (method, params) => void sent.push([method, params]),
+    callNative: (method, params) => {
+      sent.push([method, params]);
+      if (method !== "chat.new") return Promise.resolve();
+      // `chat.new` resolves to the chat it started; none when the host refused it; a rejection when
+      // the daemon went away.
+      const start = options.start ?? "started";
+      starting =
+        start === "failed"
+          ? Promise.reject(new Error("daemon stopped"))
+          : Promise.resolve(start === "started" ? "session-1" : undefined);
+      return starting;
+    },
     cwd: HOME,
     leave: noop,
     selectSession: noop,
@@ -99,6 +114,9 @@ async function startChat(picked: string | undefined, options: { noProject?: bool
     ...(options.startsHere === false ? { startsHere: () => false } : {}),
   });
   actions.onAsk("claude", "fix the flaky upload test", picked, undefined, options.noProject);
+  // The start settles, and what follows it runs.
+  await starting.catch(() => undefined);
+  await Promise.resolve();
   return sent;
 }
 
@@ -192,4 +210,17 @@ test("the New Tab context's started project reaches the page, a relative or home
   expect(newTabHost({ newTab: { startedProject: PICKED } })?.startedProject).toBe(PICKED);
   expect(newTabHost({ newTab: { startedProject: "briefs/2026-10-20-gui-push" } })?.startedProject).toBeUndefined();
   expect(newTabHost({ newTab: { startedProject: HOME } })?.startedProject).toBeUndefined();
+});
+
+// Codex review of #24274: a start the host refuses, or one that fails because the daemon went away,
+// creates no chat, so its folder never becomes the default.
+test("a refused or failed chat start leaves the remembered project unchanged", async () => {
+  await startChat(PICKED);
+  for (const start of ["refused", "failed"] as const) {
+    const sent = await startChat("/Users/you/src/billing", { start });
+    expect(sent.some(([method, params]) => method === "newTab.remember" && "started" in (params as object))).toBe(
+      false,
+    );
+    expect((await newTab([theirs, ...agents])).folder).toBe(PICKED);
+  }
 });
