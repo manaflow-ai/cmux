@@ -20,7 +20,7 @@ stdio pipes in their own process group (`acpmux/src/agent.rs:136-152`).
 | Event | Terminals | Agents (ACP) |
 | --- | --- | --- |
 | App quit or crash | survive: the daemon is not the app's child; `applicationWillTerminate` only closes the connection (`AppDelegate.swift:215-226`); only "End Sessions" sends `shutdown-daemon end_terminals` | survive: acpmux is not the app's child and the app never stops it |
-| Sparkle update and relaunch | survive; the app hands the old daemon off to the bundled build (slice UP: `DaemonService` runs `DaemonLauncher.handOffIfStale`, fenced `shutdown-daemon`, hosts adopted) | survive; the app hands an acpmux off only when it reports `agentHosts` (`AcpmuxVersionHandoff`); with agent hosts the new acpmux adopts every agent mid-turn |
+| Sparkle update and relaunch | survive; the app hands the old daemon off to the bundled build (slice UP: `DaemonService` runs `DaemonLauncher.handOffIfStale`, fenced `shutdown-daemon`, hosts adopted) | survive; the app hands an acpmux of another build off at once, busy or not (`AcpmuxVersionHandoff`); with agent hosts the new acpmux adopts every agent mid-turn, without them each chat's next prompt resumes it from disk; only a memory store without agent hosts is kept |
 | Daemon restart (SIGTERM, `shutdown-daemon`, crash, SIGKILL) | survive: hosts outlive the daemon; the new daemon re-adopts them from `terminal-hosts-<token>/*.json` records (`mux.rs:3518-3780`); tested by `terminal_host_survives_sigkill_and_is_adopted_with_io_and_size`, `fenced_daemon_shutdown_acks_then_preserves_and_re_adopts_terminal_host`, `terminal_host_survives_daemon_process_group_hangup` | n/a (acpmux is a separate process) |
 | acpmux restart (SIGTERM, `_acpmux/shutdown`) | n/a | survive under agent hosts (default on): the daemon detaches every host and the next daemon adopts it; `_acpmux/shutdown {endAgents: true}` (the app's Quit Everything) ends them and records the turn in progress as `turn_result {status: cancelled, detail: quit}` (`hub/shutdown.rs`). With `ACPMUX_AGENT_HOSTS=0`: LOST, as before |
 | acpmux crash (SIGKILL) | n/a | survive under agent hosts: the host keeps every unacknowledged entry and the next daemon resumes after the last logged `hseq`. With `ACPMUX_AGENT_HOSTS=0`: LOST |
@@ -182,8 +182,9 @@ Implemented (UP): `DaemonService.start` runs `DaemonLauncher.handOffIfStale` aft
 It compares `identify.build_commit` with the bundled `cmux-tui --version` commit; a mismatch sends the
 fenced `shutdown-daemon`, and the endpoint provider waits for the old pid's kernel exit event (bounded
 by a `DemandTimer` deadline) before `server ensure`. An unknown build on either side keeps the running
-daemon. `AgentPaneHost.findOrStart` reads `_acpmux/status`; it hands off a stale acpmux only when the
-status reports `agentHosts`, because without agent hosts the restart would end its agents.
+daemon. `AgentPaneHost.findOrStart` reads `_acpmux/status` and hands off a stale acpmux at once, busy or
+not: with `agentHosts` its agents keep running, without them they end and each chat's next prompt
+resumes it from disk. Only a memory store without agent hosts is kept, since nothing could resume it.
 
 A daemon restart is ~seconds for normal state but data-dependent (journal replay; a 12 GB journal took
 ~3 min, cloud-guest-upgrades.md); the app shows "Updating terminals…" over views during the restart and

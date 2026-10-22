@@ -99,11 +99,12 @@ struct AcpmuxExecutableOverrideTests {
         #expect(!AcpmuxVersionHandoff.swapsOverride(runningPath: override.path, override: override, executable: other))
     }
 
-    @Test func aSwapStillNeedsAgentHosts() {
-        // The swap goes through `decide(replaced:)`: a daemon without agent hosts keeps running
-        // (its agents would end), same as a replaced bundle.
+    @Test func aSwapRestartsLikeAReplacedBundle() {
+        // The swap goes through `decide(replaced:)`: with or without agent hosts it restarts,
+        // same as a replaced bundle; only a memory store without agent hosts keeps running.
         #expect(AcpmuxVersionHandoff.decide("a", "a", true, replaced: true) == .restart)
-        #expect(AcpmuxVersionHandoff.decide("a", "a", false, replaced: true) != .restart)
+        #expect(AcpmuxVersionHandoff.decide("a", "a", false, replaced: true) == .restart)
+        #expect(AcpmuxVersionHandoff.decide("a", "a", false, replaced: true, memoryStore: true) != .restart)
     }
 }
 #endif

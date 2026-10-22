@@ -1,0 +1,472 @@
+import CmuxNextCompat
+import Darwin
+import Foundation
+import Testing
+@testable import CmuxNextAgentPane
+
+/// After an update, this app's acpmux of another build is handed off to the bundled one at
+/// once, busy or not: with agent hosts its agents keep running; without them its chats resume
+/// from disk at their next prompt. With the `agent.replaceStaleAcpmuxWhenQuiet` toggle on, the
+/// handoff waits for a quiet moment instead: no session runs a turn or waits on a permission. A
+/// busy daemon then keeps running until a session change makes it quiet, and that wait does not
+/// use up the build's one handoff.
+struct AcpmuxQuietHandoffDecisionTests {
+    typealias Handoff = AcpmuxVersionHandoff
+
+    @Test func withTheToggleOffAStaleDaemonRestartsAtOnceBusyOrNot() {
+        for hosts in [true, false] {
+            #expect(Handoff.decide("old", "new", hosts) == .restart)
+            #expect(Handoff.decide("old", "new", hosts, quiet: false) == .restart)
+            #expect(Handoff.decide("a", "a", hosts, replaced: true) == .restart)
+        }
+        // Nothing on disk resumes a memory store's chats: only agent hosts let it restart.
+        #expect(Handoff.decide("old", "new", true, memoryStore: true) == .restart)
+        #expect(Handoff.decide("old", "new", false, memoryStore: true) != .restart)
+    }
+
+    @Test func withTheToggleOnEveryStaleDaemonWaitsForQuiet() {
+        #expect(Handoff.decide("old", "new", true, whenQuiet: true) == .restartWhenQuiet)
+        #expect(Handoff.decide("old", "new", false, whenQuiet: true) == .restartWhenQuiet)
+        for hosts in [true, false] {
+            #expect(Handoff.decide("old", "new", hosts, whenQuiet: true, quiet: true) == .restart)
+            #expect(Handoff.decide("old", "new", hosts, whenQuiet: true, quiet: false) != .restart)
+        }
+    }
+
+    @Test func agentHostsWaitNoLongerThanTheCapNorForAReplacedBundle() {
+        #expect(Handoff.decide("old", "new", true, whenQuiet: true, quiet: false, overdue: true) == .restart)
+        #expect(Handoff.decide("a", "a", true, replaced: true, whenQuiet: true, quiet: false) == .restart)
+        // Without agent hosts a busy daemon would lose its turns: it waits.
+        #expect(Handoff.decide("old", "new", false, whenQuiet: true, quiet: false, overdue: true) != .restart)
+        #expect(Handoff.decide("a", "a", false, replaced: true, whenQuiet: true, quiet: false) != .restart)
+        #expect(Handoff.decide("a", "a", false, replaced: true, whenQuiet: true, quiet: true) == .restart)
+    }
+
+    @Test func theSameBuildIsNeverReplaced() {
+        #expect(Handoff.decide("a", "a", true, whenQuiet: true, quiet: true) == .keep("same build"))
+        #expect(Handoff.decide(nil, "a", false, whenQuiet: true, quiet: true) == .keep("running build unknown"))
+    }
+
+    @Test func quietMeansNoTurnNoPermissionNoMove() {
+        func quiet(_ sessions: [[String: Any]]) -> Bool { AcpmuxQuietHandoff.quiet(sessions: sessions) }
+        let idle: [String: Any] = ["sessionId": "a", "status": "idle", "turn": NSNull(), "pendingPermissions": 0]
+        #expect(quiet([]))
+        #expect(quiet([idle, ["sessionId": "b", "status": "disconnected"]]))
+        #expect(!quiet([idle, ["status": "idle", "turn": ["prompt": "p", "startedAt": 5]]]))
+        #expect(!quiet([["status": "running"]]))
+        #expect(!quiet([["status": "waiting"]]))
+        #expect(!quiet([["status": "idle", "pendingPermissions": 1]]))
+        #expect(!quiet([["status": "idle", "moving": true]]))
+        // A peer's session runs on that peer.
+        #expect(quiet([["status": "running", "turn": ["prompt": "p"], "peer": "mini"]]))
+        // A reply this build cannot read is not quiet.
+        #expect(!AcpmuxQuietHandoff.quiet(sessions: nil))
+        #expect(!AcpmuxQuietHandoff.quiet(sessions: "sessions"))
+    }
+
+    @Test func aTurnEndOrAnAnsweredPermissionEndsTheWait() throws {
+        func line(_ params: [String: Any], method: String = "_acpmux/session_changed") throws -> Data {
+            try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "method": method, "params": params] as [String: Any])
+        }
+        #expect(AcpmuxQuietHandoff.endsBusy(try line(["sessionId": "s", "kind": "turn_end"])))
+        #expect(AcpmuxQuietHandoff.endsBusy(try line(["sessionId": "s", "kind": "permission_decision"])))
+        #expect(!AcpmuxQuietHandoff.endsBusy(try line(["sessionId": "s", "kind": "titled"])))
+        #expect(!AcpmuxQuietHandoff.endsBusy(try line(["sessionId": "s", "kind": "turn_end", "peer": "mini"])))
+        #expect(!AcpmuxQuietHandoff.endsBusy(try line(["kind": "turn_end"], method: "_acpmux/permission_pending")))
+    }
+
+    @Test func aBusyDaemonWithAgentHostsIsOverdueAfterTheCap() {
+        let clock = AcpmuxWatchClock()
+        let wait = AcpmuxQuietHandoff(clock: clock, cap: .seconds(600))
+        #expect(!wait.overdue(home: "/h", pid: 7))
+        wait.deferred(home: "/h", pid: 7)
+        clock.advance(.seconds(599))
+        wait.deferred(home: "/h", pid: 7)
+        #expect(!wait.overdue(home: "/h", pid: 7))
+        clock.advance(.seconds(1))
+        #expect(wait.overdue(home: "/h", pid: 7))
+        #expect(!wait.overdue(home: "/h", pid: 8))
+    }
+
+    @Test func aMemoryStoreIsReadFromStatus() {
+        #expect(AcpmuxStatus(["store": ["mode": "memory"]]).memoryStore)
+        #expect(!AcpmuxStatus(["store": ["mode": "local"]]).memoryStore)
+        #expect(!AcpmuxStatus([:]).memoryStore)
+    }
+}
+
+/// The handoff end to end against a stand-in old daemon (this test process, never this app's
+/// acpmux) whose pid is a `sleep` child it ends at `_acpmux/shutdown`, then answers as the
+/// daemon the app started (the bundled stand-in only prints its ready line).
+@Suite(.serialized, .timeLimit(.minutes(2)))
+struct AcpmuxQuietHandoffTests {
+    /// An old daemon and a new bundle, with the toggle off (the default): a turn runs, and the
+    /// daemon is stopped at once all the same, with a plain shutdown that keeps its agents.
+    @Test func anOldDaemonIsStoppedAtOnceMidTurnAndKeepsItsAgents() async throws {
+        for hosts in [true, false] {
+            let fixture = try QuietFixture(agentHosts: hosts)
+            defer { fixture.remove() }
+            fixture.daemon.busy.withLock { $0 = true }
+            let status = try await AcpmuxStatusClient.status(socketPath: fixture.environment.socketPath)
+
+            let outcome = await AcpmuxVersionHandoff.handOffIfStale(status, environment: fixture.environment)
+            #expect(outcome == .stopped, "agentHosts=\(hosts)")
+            #expect(fixture.daemon.shutdownEndedAgents.withLock { $0 } == false, "the handoff asked to end the agents")
+            #expect(await fixture.eventually { !agentPaneProcessIsRunning(fixture.oldPid) })
+            // Settings > Updates says it restarts until the lookup that starts the bundled one settles.
+            #expect(await AcpmuxDaemonSummary.current(fixture.environment).state == .restarting)
+            // This build's handoff is used up: were the old daemon still there, no lookup would
+            // stop it again, so Settings would not say it restarts.
+            #expect(!AcpmuxVersionHandoff.handsOff(status, environment: fixture.environment,
+                                                   bundled: fixture.newBuild).handsOff)
+        }
+    }
+
+    /// Settings > Updates says a stale daemon restarts only when a lookup would hand it off: never
+    /// a memory store without agent hosts, whose chats nothing on disk could resume.
+    @Test func aMemoryStoreWithoutAgentHostsIsNeverHandedOff() throws {
+        let fixture = try QuietFixture(agentHosts: false)
+        defer { fixture.remove() }
+        let memory = AcpmuxStatus(build: "old", pid: fixture.oldPid, memoryStore: true)
+        #expect(!AcpmuxVersionHandoff.handsOff(memory, environment: fixture.environment, bundled: fixture.newBuild).handsOff)
+        let hosted = AcpmuxStatus(build: "old", pid: fixture.oldPid, agentHosts: true, memoryStore: true)
+        #expect(AcpmuxVersionHandoff.handsOff(hosted, environment: fixture.environment, bundled: fixture.newBuild).handsOff)
+        let disk = AcpmuxStatus(build: "old", pid: fixture.oldPid)
+        #expect(AcpmuxVersionHandoff.handsOff(disk, environment: fixture.environment, bundled: fixture.newBuild).handsOff)
+    }
+
+    /// The app's launch with the toggle off: the old daemon runs a turn, the bundled acpmux is
+    /// another build. The launch stops it, starts the bundled daemon and never ends its agents.
+    @Test func aLaunchRestartsAnOldDaemonMidTurn() async throws {
+        let fixture = try QuietFixture(agentHosts: true)
+        defer { fixture.remove() }
+        fixture.daemon.busy.withLock { $0 = true }
+        #expect(await AcpmuxDaemonSummary.current(fixture.environment)
+            == AcpmuxDaemonSummary(build: "old", state: .restarting))
+
+        try await fixture.host(whenQuiet: false).prewarm()
+        #expect(fixture.daemon.shutDown.withLock { $0 }, "the busy old daemon was kept")
+        #expect(fixture.daemon.shutdownEndedAgents.withLock { $0 } == false, "the handoff asked to end the agents")
+        #expect(fixture.launches == 1)
+        #expect(await AcpmuxDaemonSummary.current(fixture.environment)
+            == AcpmuxDaemonSummary(build: fixture.newBuild, state: .upToDate))
+    }
+
+    /// Settings > Updates reads the daemon while a handoff's shutdown runs, and the shutdown
+    /// fails before the read is done: the handoff keeps the old daemon and has used up its build,
+    /// so the card says the daemon is not the app's build, not that it restarts.
+    @Test func aShutdownThatFailsDuringASettingsReadIsNotTheAppsBuild() async throws {
+        let fixture = try QuietFixture(agentHosts: true)
+        defer { fixture.remove() }
+        let environment = fixture.environment
+        let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
+        fixture.daemon.failsShutdown.withLock { $0 = true }
+        let shutdown = fixture.daemon.hold("_acpmux/shutdown")
+        let read = fixture.daemon.hold("_acpmux/status", after: "_acpmux/shutdown")
+        defer {
+            shutdown.signal()
+            read.signal()
+        }
+
+        let handoff = Task { await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment) }
+        #expect(await fixture.eventually { fixture.daemon.held.withLock { $0.contains("_acpmux/shutdown") } })
+        // The handoff waits on its shutdown, marked restarting; Settings starts its read.
+        let summary = Task { await AcpmuxDaemonSummary.current(environment) }
+        #expect(await fixture.eventually { fixture.daemon.held.withLock { $0.contains("_acpmux/status") } })
+        shutdown.signal()
+        #expect(await handoff.value == .kept)
+        read.signal()
+
+        #expect(await summary.value == AcpmuxDaemonSummary(build: "old", state: .otherBuild))
+        #expect(!fixture.daemon.shutDown.withLock { $0 })
+    }
+
+    @Test func aBusyDaemonWithoutAgentHostsWaitsWithTheToggleOnAndIsReplacedOnceQuiet() async throws {
+        let fixture = try QuietFixture(agentHosts: false)
+        defer { fixture.remove() }
+        let wait = AcpmuxQuietHandoff(clock: AcpmuxWatchClock())
+        let status = try await AcpmuxStatusClient.status(socketPath: fixture.environment.socketPath)
+
+        fixture.daemon.busy.withLock { $0 = true }
+        let whileBusy = await AcpmuxVersionHandoff.handOffIfStale(status, environment: fixture.environment, quietWait: wait)
+        #expect(whileBusy == .waitingForQuiet)
+        #expect(!fixture.daemon.shutDown.withLock { $0 })
+        fixture.daemon.busy.withLock { $0 = false }
+        // Quiet: the wait did not use up the build's handoff.
+        let whenQuiet = await AcpmuxVersionHandoff.handOffIfStale(status, environment: fixture.environment, quietWait: wait)
+        #expect(whenQuiet == .stopped)
+        #expect(fixture.daemon.shutDown.withLock { $0 })
+        #expect(await fixture.eventually { !agentPaneProcessIsRunning(fixture.oldPid) })
+    }
+
+    /// A stale daemon with agent hosts and a running turn: the app keeps it, watches its
+    /// sessions, and at the turn's end hands it off and starts the bundled daemon.
+    @Test func aBusyDaemonWithAgentHostsIsHandedOffAtTheTurnsEnd() async throws {
+        let fixture = try QuietFixture(agentHosts: true)
+        defer { fixture.remove() }
+        fixture.daemon.busy.withLock { $0 = true }
+        let host = fixture.host()
+
+        _ = try? await host.prewarm()
+        #expect(!fixture.daemon.shutDown.withLock { $0 }, "a busy daemon was handed off mid-turn")
+        #expect(fixture.launches == 0)
+        #expect(await fixture.eventually { fixture.daemon.watchers.withLock { !$0.isEmpty } }, "the app does not watch the busy daemon")
+
+        fixture.daemon.busy.withLock { $0 = false }
+        fixture.daemon.notify(kind: "turn_end")
+        #expect(await fixture.eventually { fixture.launches == 1 }, "the turn's end did not hand the daemon off")
+        #expect(fixture.daemon.shutDown.withLock { $0 })
+        #expect(await fixture.eventually { !agentPaneProcessIsRunning(fixture.oldPid) })
+    }
+
+    /// An update replaces the bundled acpmux while the app and its daemon run (an in-place
+    /// bundle update): the next reconnect hands the daemon off.
+    @Test func aReconnectAfterTheBundledBuildChangesHandsOff() async throws {
+        let fixture = try QuietFixture(agentHosts: true, daemonBuild: "same")
+        defer { fixture.remove() }
+        try fixture.writeBundled(build: "same")
+        let host = fixture.host()
+
+        _ = try? await host.prewarm()
+        #expect(!fixture.daemon.shutDown.withLock { $0 }, "a daemon of this app's build was handed off")
+
+        try fixture.writeBundled(build: fixture.newBuild)
+        _ = try? await host.reconnectHandshake(sessionId: "s")
+        #expect(fixture.daemon.shutDown.withLock { $0 }, "the reconnect kept the old daemon")
+        #expect(fixture.launches == 1)
+    }
+
+    /// The daemon started after a handoff keeps answering with the old build: the app starts it
+    /// once more, then the chat says acpmux did not start and the log says why.
+    @Test func aStartThatIsNotHealthyIsRetriedOnceThenReported() async throws {
+        let fixture = try QuietFixture(agentHosts: true, answersNewBuildAfterShutdown: false)
+        defer { fixture.remove() }
+        let host = fixture.host()
+
+        await #expect(throws: AgentPaneHostError.daemonFailed(logPath: fixture.environment.logPath, cause: .unhealthyAfterRestart)) {
+            try await host.prewarm()
+        }
+        #expect(fixture.launches == 2)
+        #expect(fixture.log.contains(AcpmuxFailureCause.unhealthyAfterRestart.logText))
+        let message = AgentPaneHostError.userMessage(for: AgentPaneHostError.daemonFailed(
+            logPath: fixture.environment.logPath, cause: .unhealthyAfterRestart))
+        #expect(message.contains(fixture.environment.logPath))
+    }
+}
+
+/// A temp home whose bundled `acpmux` prints a build and, as a daemon, only its ready line; a
+/// `sleep` child standing for the old daemon's process; and the stand-in daemon on the socket.
+struct QuietFixture {
+    let root: URL
+    let tag = String(UUID().uuidString.prefix(8))
+    let environment: AcpmuxEnvironment
+    let sleeper: Process
+    let daemon: StubDaemon
+    var newBuild: String { "new-\(tag)" }
+    var oldPid: Int32 { sleeper.processIdentifier }
+    var launches: Int {
+        ((try? String(contentsOf: root.appendingPathComponent("launches"), encoding: .utf8)) ?? "").split(separator: "\n").count
+    }
+
+    var log: String { (try? String(contentsOfFile: environment.logPath, encoding: .utf8)) ?? "" }
+
+    init(agentHosts: Bool, daemonBuild: String = "old", answersNewBuildAfterShutdown: Bool = true) throws {
+        root = URL(fileURLWithPath: "/tmp/aqh-\(tag)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let socketPath = home.appendingPathComponent("s.sock").path
+        try Self.writeStandIn(at: bin.appendingPathComponent("acpmux"), build: "new-\(tag)", root: root)
+        environment = try #require(AcpmuxEnvironment.resolve(
+            build: nil, bundledBinDirectory: bin, environment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socketPath],
+            executableOverride: nil))
+        FileManager.default.createFile(atPath: environment.logPath, contents: nil)
+        sleeper = Process()
+        sleeper.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        sleeper.arguments = ["60"]
+        try sleeper.run()
+        daemon = try StubDaemon(socketPath: socketPath, home: home.path, pid: sleeper.processIdentifier,
+                                build: daemonBuild, agentHosts: agentHosts,
+                                buildAfterShutdown: answersNewBuildAfterShutdown ? "new-\(tag)" : nil)
+    }
+
+    static func writeStandIn(at url: URL, build: String, root: URL) throws {
+        let script = """
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then echo 'acpmux 0.1.0 (\(build))'; exit 0; fi
+        echo started >> '\(root.path)/launches'
+        echo '{"ready":true,"webUrl":"http://127.0.0.1:9/?token=t"}' >&3
+        """
+        try script.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    /// Replaces the bundled acpmux with one of `build`, as an in-place update does.
+    func writeBundled(build: String) throws {
+        try Self.writeStandIn(at: environment.executable, build: build, root: root)
+    }
+
+    /// A host that hands stale daemons off when quiet (`whenQuiet`, the toggle on) or at once,
+    /// and never restarts one for not answering.
+    func host(whenQuiet: Bool = true) -> AcpmuxHost {
+        AcpmuxHost(environment: environment, unresponsive: AcpmuxUnresponsiveWatch(clock: AcpmuxWatchClock()),
+                   quietHandoff: AcpmuxQuietHandoff(clock: AcpmuxWatchClock()),
+                   restartsUnresponsive: { false }, handsOffWhenQuiet: { whenQuiet })
+    }
+
+    /// Waits (bounded) until `condition` holds. The old daemon's exit event can come before the
+    /// process table shows it gone.
+    func eventually(_ condition: @escaping () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(20)
+        while !condition(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+        return condition()
+    }
+
+    func remove() {
+        daemon.stop()
+        kill(sleeper.processIdentifier, SIGKILL)
+        try? FileManager.default.removeItem(at: root)
+    }
+}
+
+/// A unix socket served by this test process: `_acpmux/status` names `pid`, `home` and `build`;
+/// `_acpmux/sessions` lists one session that runs a turn while `busy`; `_acpmux/watch` keeps the
+/// connection for ``notify(kind:)``; `_acpmux/shutdown` ends `pid` and from then on answers with
+/// `buildAfterShutdown`, as the daemon the app starts next would.
+nonisolated final class StubDaemon: Sendable {
+    let busy = Mutex(false)
+    let shutDown = Mutex(false)
+    /// The last `_acpmux/shutdown`'s `endAgents` (false when it did not ask); nil before one.
+    let shutdownEndedAgents = Mutex<Bool?>(nil)
+    /// `_acpmux/shutdown` answers an error and stops nothing.
+    let failsShutdown = Mutex(false)
+    /// The methods whose reply a ``hold(_:after:)`` gate holds now.
+    let held = Mutex<Set<String>>([])
+    let watchers = Mutex<Set<Int32>>([])
+    private let gates = Mutex<[String: (gate: DispatchSemaphore, after: String?)]>([:])
+    private let build: Mutex<String>
+    private let buildAfterShutdown: String?
+    private let agentHosts: Bool
+    private let descriptor: Int32
+    private let path: String
+
+    init(socketPath: String, home: String, pid: Int32, build: String, agentHosts: Bool, buildAfterShutdown: String?) throws {
+        path = socketPath
+        self.build = Mutex(build)
+        self.buildAfterShutdown = buildAfterShutdown
+        self.agentHosts = agentHosts
+        descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            buffer.copyBytes(from: socketPath.utf8)
+            buffer[socketPath.utf8.count] = 0
+        }
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bound == 0, listen(descriptor, 16) == 0 else { throw POSIXError(.EADDRINUSE) }
+        let listener = descriptor
+        Thread.detachNewThread { [self] in
+            while true {
+                let client = accept(listener, nil, nil)
+                guard client >= 0 else { return }
+                Thread.detachNewThread { self.serve(client, home: home, pid: pid) }
+            }
+        }
+    }
+
+    /// Holds the next reply to `method` (once a reply to `after` is held) until the returned gate
+    /// is signalled, so a test acts while that call waits.
+    func hold(_ method: String, after: String? = nil) -> DispatchSemaphore {
+        // concurrency-allow: the gate is waited on by this test socket's own connection thread, never the main thread
+        let gate = DispatchSemaphore(value: 0)
+        gates.withLock { $0[method] = (gate, after) }
+        return gate
+    }
+
+    /// Sends `_acpmux/session_changed` of `kind` to every watching connection.
+    func notify(kind: String) {
+        let note: [String: Any] = ["jsonrpc": "2.0", "method": "_acpmux/session_changed",
+                                   "params": ["sessionId": "s", "kind": kind, "recordKind": kind, "seq": 1] as [String: Any]]
+        guard var data = try? JSONSerialization.data(withJSONObject: note) else { return }
+        data.append(0x0A)
+        for client in watchers.withLock({ $0 }) { _ = data.withUnsafeBytes { send(client, $0.baseAddress, data.count, 0) } }
+    }
+
+    private func result(for method: String, params: [String: Any], client: Int32, home: String, pid: Int32) -> [String: Any] {
+        switch method {
+        case "_acpmux/status":
+            return ["webUrl": "ws://127.0.0.1:9/?token=t", "pid": Int(pid), "build": build.withLock { $0 },
+                    "agentHosts": agentHosts, "home": home]
+        case "_acpmux/sessions", "_acpmux/watch":
+            if method == "_acpmux/watch" { _ = watchers.withLock { $0.insert(client) } }
+            var session: [String: Any] = ["sessionId": "s", "status": "idle", "turn": NSNull(), "pendingPermissions": 0]
+            if busy.withLock({ $0 }) { session["turn"] = ["prompt": "p", "startedAt": 5] as [String: Any] }
+            return ["sessions": [session]]
+        case "_acpmux/shutdown":
+            shutDown.withLock { $0 = true }
+            shutdownEndedAgents.withLock { $0 = (params["endAgents"] as? Bool) ?? false }
+            if let buildAfterShutdown { build.withLock { $0 = buildAfterShutdown } }
+            kill(pid, SIGTERM)
+            return [:]
+        default:
+            return [:]
+        }
+    }
+
+    private func serve(_ client: Int32, home: String, pid: Int32) {
+        defer {
+            _ = watchers.withLock { $0.remove(client) }
+            close(client)
+        }
+        var buffer = Data()
+        var chunk = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let count = recv(client, &chunk, chunk.count, 0)
+            guard count > 0 else { return }
+            buffer += Data(chunk[0..<count])
+            while let newline = buffer.firstIndex(of: 0x0A) {
+                let line = Data(buffer[buffer.startIndex..<newline])
+                buffer.removeSubrange(buffer.startIndex...newline)
+                guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                      let id = object["id"], let method = object["method"] as? String else { continue }
+                waitIfHeld(method)
+                var reply: [String: Any] = ["jsonrpc": "2.0", "id": id]
+                if method == "_acpmux/shutdown" && failsShutdown.withLock({ $0 }) {
+                    reply["error"] = ["code": -32603, "message": "shutdown refused"] as [String: Any]
+                } else {
+                    reply["result"] = result(for: method, params: object["params"] as? [String: Any] ?? [:],
+                                             client: client, home: home, pid: pid)
+                }
+                guard var data = try? JSONSerialization.data(withJSONObject: reply) else { continue }
+                data.append(0x0A)
+                _ = data.withUnsafeBytes { send(client, $0.baseAddress, data.count, 0) }
+            }
+        }
+    }
+
+    /// Waits on the gate ``hold(_:after:)`` put on `method`, once: only on a connection's thread.
+    private func waitIfHeld(_ method: String) {
+        let gate = gates.withLock { pending -> DispatchSemaphore? in
+            guard let entry = pending[method] else { return nil }
+            if let after = entry.after, !held.withLock({ $0.contains(after) }) { return nil }
+            pending[method] = nil
+            return entry.gate
+        }
+        guard let gate else { return }
+        _ = held.withLock { $0.insert(method) }
+        // concurrency-allow: a connection thread of this test socket, never the main thread
+        gate.wait()
+        _ = held.withLock { $0.remove(method) }
+    }
+
+    func stop() {
+        shutdown(descriptor, SHUT_RDWR)
+        close(descriptor)
+        unlink(path)
+    }
+}

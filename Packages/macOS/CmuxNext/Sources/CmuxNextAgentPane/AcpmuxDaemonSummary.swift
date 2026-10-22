@@ -1,0 +1,105 @@
+import CmuxNextCompat
+import Foundation
+
+/// The app's local acpmux daemon as Settings > Updates shows it: its build, and whether it is
+/// the bundled build, restarting on it (``AcpmuxVersionHandoff``), or another build the app
+/// keeps. Read when the card shows.
+public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
+    public enum State: Sendable, Equatable {
+        case upToDate
+        case restarting
+        /// Another build than the bundle's that no lookup hands off: a memory store without agent
+        /// hosts, or one this launch's handoff could not stop.
+        case otherBuild
+        case notRunning
+    }
+
+    /// The running daemon's build, or the bundled one while a handoff starts it; nil when unknown.
+    public var build: String?
+    public var state: State
+
+    /// Homes whose daemon a handoff stopped and whose bundled daemon has not started yet.
+    private static let restartingHomes = Mutex<Set<String>>([])
+
+    public init(build: String?, state: State) {
+        self.build = build
+        self.state = state
+    }
+
+    /// - Parameters:
+    ///   - answered: the daemon answered `_acpmux/status` from this app's home.
+    ///   - running: its build; nil when it does not say.
+    ///   - bundled: the bundled acpmux's build; nil when unknown.
+    ///   - restarting: a handoff stopped it and the bundled daemon is starting.
+    ///   - replaced: it runs the executable of a bundle an update replaced.
+    ///   - handsOff: a lookup would hand it off when it is stale
+    ///     (``AcpmuxVersionHandoff/handsOff(_:environment:bundled:)``).
+    /// A daemon of another build than the bundle's, or a replaced bundle's, is restarted at the
+    /// next lookup, so it is restarting too unless no lookup hands it off; a build either side
+    /// does not know is taken as up to date.
+    public init(answered: Bool, running: String?, bundled: String?, restarting: Bool,
+                replaced: Bool = false, handsOff: Bool = true) {
+        let stale = if let running, let bundled { running != bundled } else { false }
+        if restarting {
+            self.init(build: running ?? bundled, state: .restarting)
+        } else if !answered {
+            self.init(build: nil, state: .notRunning)
+        } else if stale || replaced {
+            self.init(build: running ?? bundled, state: handsOff ? .restarting : .otherBuild)
+        } else {
+            self.init(build: running ?? bundled, state: .upToDate)
+        }
+    }
+
+    /// The row's title.
+    public static var title: String {
+        String(localized: "agentPane.acpmuxDaemon.title", defaultValue: "acpmux daemon", bundle: .module)
+    }
+
+    /// The row's value: "<build> (up to date)", "<build> (restarting…)", "<build> (not the app's
+    /// build)" or "Not running".
+    public var text: String {
+        let build = build ?? "?"
+        switch state {
+        case .upToDate:
+            return String(format: String(localized: "agentPane.acpmuxDaemon.upToDate", defaultValue: "%@ (up to date)",
+                                         bundle: .module), build)
+        case .restarting:
+            return String(format: String(localized: "agentPane.acpmuxDaemon.restarting", defaultValue: "%@ (restarting…)",
+                                         bundle: .module), build)
+        case .otherBuild:
+            return String(format: String(localized: "agentPane.acpmuxDaemon.otherBuild", defaultValue: "%@ (not the app's build)",
+                                         bundle: .module), build)
+        case .notRunning:
+            return String(localized: "agentPane.acpmuxDaemon.notRunning", defaultValue: "Not running", bundle: .module)
+        }
+    }
+
+    /// Notes that a handoff stopped the daemon of `home` (standardized path), or that the lookup
+    /// that started the bundled one settled.
+    static func mark(home: String, restarting: Bool) {
+        restartingHomes.withLock { homes in
+            if restarting {
+                _ = homes.insert(home)
+            } else {
+                _ = homes.remove(home)
+            }
+        }
+    }
+
+    /// The daemon of `environment` now; nil `environment` (no acpmux) is not running.
+    @concurrent public static func current(_ environment: AcpmuxEnvironment?) async -> Self {
+        guard let environment else { return Self(build: nil, state: .notRunning) }
+        let bundled = await AcpmuxVersionHandoff.bundledBuild(environment)
+        let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath)
+        // Read after the awaits: a handoff whose shutdown failed meanwhile cleared its mark and
+        // used up its build, so the daemon it kept is not the app's build, not restarting.
+        let restarting = restartingHomes.withLock { $0.contains(environment.home.standardizedFileURL.path) }
+        guard let status, status.serves(home: environment.home) else {
+            return Self(answered: false, running: nil, bundled: bundled, restarting: restarting)
+        }
+        let handoff = AcpmuxVersionHandoff.handsOff(status, environment: environment, bundled: bundled)
+        return Self(answered: true, running: status.build, bundled: bundled, restarting: restarting,
+                    replaced: handoff.replaced, handsOff: handoff.handsOff)
+    }
+}
