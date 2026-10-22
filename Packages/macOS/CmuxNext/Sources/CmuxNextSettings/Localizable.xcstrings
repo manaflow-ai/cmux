@@ -154563,6 +154563,270 @@
         }
       }
     },
+    "settings.agentPane.display.minimap": {
+      "comment": "Settings > Appearance > Agent Chat: the VS Code-like minimap of the whole chat down its edge, instead of the prompt rail",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خريطة مصغّرة للمحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mini mapa razgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minikort over chatten"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat-Minimap"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Minimap"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimapa del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minicarte du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimappa della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットのミニマップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផែនទីតូចនៃការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 미니맵"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minikart for chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimapa czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minimapa do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мини-карта чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มินิแมปของแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet mini haritası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мінікарта чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản đồ thu nhỏ của cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天缩略图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天縮圖"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.minimap.help": {
+      "comment": "Settings > Appearance > Agent Chat > Chat Minimap: help for the toggle",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خريطة للمحادثة كلها على حافتها، كل رسالة في مكانها، مع مربع لما يظهر على الشاشة. عند الإيقاف يظهر شريط الطلبات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mapa cijelog razgovora uz njegovu ivicu, svaka poruka na svom mjestu, s okvirom za ono što je na ekranu. Kad je isključeno, prikazuje se traka upita."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et kort over hele chatten langs kanten, hver besked på sin plads, med en boks for det, der er på skærmen. Slået fra vises promptlinjen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Karte des ganzen Chats an seinem Rand, jede Nachricht an ihrer Stelle, mit einem Rahmen für das, was zu sehen ist. Aus zeigt die Prompt-Leiste."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A map of the whole chat down its edge, every message at its place, with a box for what is on screen. Off shows the prompt rail."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un mapa de todo el chat en su borde, cada mensaje en su lugar, con un recuadro para lo que está en pantalla. Desactivado muestra la barra de prompts."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une carte de tout le chat le long de son bord, chaque message à sa place, avec un cadre pour ce qui est à l’écran. Désactivé affiche la barre des prompts."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una mappa dell’intera chat lungo il bordo, ogni messaggio al suo posto, con un riquadro per ciò che è sullo schermo. Disattivata mostra la barra dei prompt."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャット全体のマップを端に表示し、各メッセージをその位置に、画面に映っている部分を枠で示します。オフのときはプロンプトレールを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផែនទីនៃការជជែកទាំងមូលនៅតាមគែម សារនីមួយៗនៅកន្លែងរបស់វា ដោយមានប្រអប់សម្រាប់អ្វីដែលនៅលើអេក្រង់។ ពេលបិទ វាបង្ហាញរបារសំណើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 전체를 가장자리에 지도로 보여 주며, 각 메시지는 제자리에, 화면에 보이는 부분은 상자로 표시합니다. 끄면 프롬프트 레일이 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et kart over hele chatten langs kanten, hver melding på sin plass, med en boks for det som er på skjermen. Av viser ledetekstlinjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mapa całego czatu przy jego krawędzi, każda wiadomość na swoim miejscu, z ramką dla tego, co widać na ekranie. Wyłączona pokazuje pasek promptów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um mapa de todo o chat na borda, cada mensagem no seu lugar, com uma caixa para o que está na tela. Desativado mostra a barra de prompts."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Карта всего чата вдоль его края, каждое сообщение на своём месте, с рамкой для того, что на экране. Если выключено, показывается панель запросов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แผนที่ของแชททั้งหมดตามขอบ แต่ละข้อความอยู่ในตำแหน่งของมัน พร้อมกรอบแสดงส่วนที่อยู่บนหน้าจอ เมื่อปิดจะแสดงแถบพรอมต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tüm sohbetin kenarında bir haritası; her ileti kendi yerinde, ekranda olan kısım bir kutuyla gösterilir. Kapalıyken istem çubuğu görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Карта всього чату вздовж його краю, кожне повідомлення на своєму місці, з рамкою для того, що на екрані. Якщо вимкнено, показано панель запитів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản đồ của toàn bộ cuộc trò chuyện dọc theo cạnh, mỗi tin nhắn ở đúng chỗ, với một khung cho phần đang hiển thị. Khi tắt sẽ hiện thanh lời nhắc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在边缘显示整个聊天的缩略图，每条消息都在其位置，并用方框标出屏幕上的内容。关闭时显示提示轨道。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在邊緣顯示整個聊天的縮圖，每則訊息都在其位置，並用方框標出螢幕上的內容。關閉時顯示提示軌道。"
+          }
+        }
+      }
+    },
     "settings.choice.agentChatInspectorPush": {
       "comment": "Settings > Agent Chat > Inspector choice: the Inspector pushes the chat aside, which narrows",
       "extractionState": "manual",

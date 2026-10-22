@@ -70,6 +70,13 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("overlay", SettingsText.keyed("settings.choice.agentChatInspectorOverlay", "Overlay")),
                 ]),
                 .string("overlay"), ["inspector", "panel", "side", "right", "overlay", "push", "details"]),
+            // The VS Code-like minimap down the chat's edge (webviews threadMinimap/ScrollMap.tsx)
+            // instead of the prompt rail; the App Store's Chat Minimap card turns it on (Leo,
+            // 2026-10-22: "addng in the app store the vscode-like minimap situation").
+            row(["minimap"], SettingsText.keyed("settings.agentPane.display.minimap", "Chat Minimap"),
+                help: SettingsText.keyed("settings.agentPane.display.minimap.help",
+                                         "A map of the whole chat down its edge, every message at its place, with a box for what is on screen. Off shows the prompt rail."),
+                .toggle, .bool(false), ["minimap", "map", "overview", "scroll", "vscode", "rail"]),
         ]
     }
 }
