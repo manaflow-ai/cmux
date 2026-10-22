@@ -1259,8 +1259,15 @@ func windowDragHandleShouldCaptureHit(
         guard sibling !== dragHandleView else { continue }
         guard !sibling.isHidden, sibling.alphaValue > 0 else { continue }
 
-        let pointInSibling = dragHandleView.convert(point, to: sibling)
-        if let hitView = sibling.hitTest(pointInSibling) {
+        // NSView.hitTest(_:) receives a point in the receiver's superview
+        // coordinate space. Convert through that shared superview instead of
+        // handing the sibling a point in its own local coordinates; the latter
+        // misses translated titlebar controls and lets the drag handle capture
+        // their clicks.
+        let pointInSiblingSuperview = sibling.superview.map {
+            dragHandleView.convert(point, to: $0)
+        } ?? point
+        if let hitView = sibling.hitTest(pointInSiblingSuperview) {
             let passiveHostHit = windowDragHandleShouldTreatTopHitAsPassiveHost(hitView)
             if passiveHostHit {
                 #if DEBUG
