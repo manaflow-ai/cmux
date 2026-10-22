@@ -1,6 +1,7 @@
-// A queued prompt's row shows its actions (Leo, 2026-10-20: "where the hell is the edit button?"):
-// Edit, Remove and Send now, each a button named by its tooltip, and each does what it says through
-// `_acpmux/queue_edit` or the withdraw. Send now is a click only: no key sends it.
+// A queued prompt's row shows ChatGPT's and Codex's actions, in their order (Leo, 2026-10-21: "I
+// thought we had a trash can"): Steer (its text beside its glyph), a trash can that deletes it, and
+// a ⋯ menu with Edit message and Turn off queueing. Steer sends the prompt now through
+// `_acpmux/queue_edit` send_now; Delete withdraws it. Steer is a click only: no key sends it.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -8,6 +9,7 @@ import { JSDOM } from "jsdom";
 import { ComposerQueue } from "./ComposerQueue";
 import { queuedRowsState } from "./queuedRowsState";
 import type { QueueEdit } from "./model";
+import { queueingOn, setQueueing } from "./queueing";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -16,7 +18,22 @@ const saved = new Map<string, unknown>();
 
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
-  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
+  // The ⋯ menu (ui/Menu, Base UI) places its popup on the next frame.
+  const requestAnimationFrame = (callback: FrameRequestCallback) =>
+    setTimeout(() => callback(Date.now()), 0) as unknown as number;
+  const cancelAnimationFrame = (handle: number) => clearTimeout(handle);
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "Element",
+    "getComputedStyle",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ])
     saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
@@ -25,14 +42,22 @@ function installDom(): HTMLElement {
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+    requestAnimationFrame,
+    cancelAnimationFrame,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   return dom.window.document.getElementById("root")!;
 }
 
 afterEach(async () => {
-  if (root) await act(async () => root!.unmount());
+  if (root)
+    await act(async () => {
+      root!.unmount();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
   root = undefined;
+  await new Promise((resolve) => setTimeout(resolve, 0));
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -40,6 +65,7 @@ afterEach(async () => {
     else scope[key] = value;
   }
   saved.clear();
+  setQueueing(true);
 });
 
 const t = (key: string) => key;
@@ -65,24 +91,64 @@ function actions(container: HTMLElement, id: string) {
   return [...row.querySelectorAll<HTMLButtonElement>(".acpmux-queued-action")];
 }
 
-test("every queued row shows Edit, Remove and Send now, each with its tooltip", async () => {
+async function settle() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+/** A menu item's label, without the key it names (Edit message's ↩). */
+const itemLabel = (item: Element) =>
+  [...item.childNodes]
+    .filter((node) => !(node instanceof dom!.window.Element && node.classList.contains("ui-menu-shortcut")))
+    .map((node) => node.textContent)
+    .join("")
+    .trim();
+
+/** Opens a row's ⋯ menu; resolves with its items' labels. */
+async function openMore(container: HTMLElement, id: string) {
+  const more = actions(container, id).find((button) => button.dataset.menu === "queued-more")!;
+  await act(async () => more.click());
+  await settle();
+  return [...dom!.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(itemLabel);
+}
+
+function menuItem(label: string) {
+  return [...dom!.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (item) => itemLabel(item) === label,
+  )!;
+}
+
+/** Return on a row edits it in place, as the ⋯ menu's Edit message does. */
+async function startEdit(container: HTMLElement, id: string) {
+  const row = container.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`)!;
+  row.focus();
+  await act(async () => {
+    row.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+}
+
+test("every queued row shows Steer, Delete and More, in that order, each named", async () => {
   const container = await render(
     async () => true,
     async () => true,
   );
   for (const entry of queue) {
     const buttons = actions(container, entry.id);
-    expect(buttons.map((b) => b.dataset.action)).toEqual(["edit", "remove", "send"]);
-    expect(buttons.map((b) => b.title)).toEqual([
-      "composer.queueEdit",
-      "composer.queueRemove",
-      "composer.queueSendNow",
+    expect(buttons.map((b) => b.dataset.action ?? b.dataset.menu)).toEqual(["steer", "delete", "queued-more"]);
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
+      "composer.queueSteer",
+      "composer.queueDelete",
+      "composer.queueActions",
     ]);
-    for (const b of buttons) expect(b.getAttribute("aria-label")).toBe(b.title);
+    // Steer is a text button: its word shows beside its glyph. Delete is the trash can.
+    expect(buttons[0]!.textContent?.trim()).toBe("composer.queueSteer");
+    expect(buttons[1]!.querySelector("svg")?.dataset.icon).toBe("action.delete");
+    expect(buttons[1]!.title).toBe("composer.queueDelete");
   }
 });
 
-test("Send now sends the prompt now, Remove withdraws it", async () => {
+test("Steer sends the prompt now through the queue's steer path; Delete withdraws it", async () => {
   const edits: [string, QueueEdit][] = [];
   const removed: string[] = [];
   const container = await render(
@@ -95,23 +161,68 @@ test("Send now sends the prompt now, Remove withdraws it", async () => {
       return true;
     },
   );
-  const [, , send] = actions(container, "p-2");
-  await act(async () => send.click());
+  const [steer] = actions(container, "p-2");
+  await act(async () => steer!.click());
   const [, remove] = actions(container, "p-1");
-  await act(async () => remove.click());
+  await act(async () => remove!.click());
   expect(edits).toEqual([["p-2", { op: "send_now" }]]);
   expect(removed).toEqual(["p-1"]);
+  expect(container.querySelector('[data-prompt-id="p-1"]')).toBeNull();
 });
 
-test("Edit opens the prompt's text in its row", async () => {
+test("the ⋯ menu holds Edit message and Turn off queueing; Edit message opens the text in its row", async () => {
   const container = await render(
     async () => true,
     async () => true,
   );
-  const [edit] = actions(container, "p-1");
-  await act(async () => edit.click());
+  expect(await openMore(container, "p-1")).toEqual(["composer.queueEditMessage", "composer.queueingOff"]);
+  await act(async () => menuItem("composer.queueEditMessage").click());
+  await settle();
   const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea');
   expect(field?.value).toBe("first");
+});
+
+test("Turn off queueing turns queueing off, and the menu then offers to turn it back on", async () => {
+  const container = await render(
+    async () => true,
+    async () => true,
+  );
+  expect(queueingOn()).toBe(true);
+  await openMore(container, "p-1");
+  await act(async () => menuItem("composer.queueingOff").click());
+  await settle();
+  expect(queueingOn()).toBe(false);
+  expect(await openMore(container, "p-1")).toEqual(["composer.queueEditMessage", "composer.queueingOn"]);
+});
+
+test("where the chat opens side chats, the ⋯ menu's Open in side chat asks the prompt there and withdraws it", async () => {
+  const container = installDom();
+  const asked: [string, string][] = [];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={queue}
+        chat="c"
+        t={t}
+        onChange={async () => true}
+        onRemove={async () => true}
+        onSideChat={async (id, prompt) => {
+          asked.push([id, prompt]);
+          return true;
+        }}
+      />,
+    );
+  });
+  expect(await openMore(container, "p-2")).toEqual([
+    "composer.queueEditMessage",
+    "composer.queueSideChat",
+    "composer.queueingOff",
+  ]);
+  await act(async () => menuItem("composer.queueSideChat").click());
+  await settle();
+  expect(asked).toEqual([["p-2", "second"]]);
+  expect(container.querySelector('[data-prompt-id="p-2"]')).toBeNull();
 });
 
 test("⌘↩ on a row, held or not, sends nothing and keeps focus on it", async () => {
@@ -192,8 +303,7 @@ test("editing a queued prompt removes one of its images and saves the rest", asy
     edits.push([id, edit]);
     return true;
   }, []);
-  const [edit] = actions(container, "p-1");
-  await act(async () => edit.click());
+  await startEdit(container, "p-1");
   const removes = [
     ...container.querySelectorAll<HTMLButtonElement>('[data-prompt-id="p-1"] .acpmux-queued-image-remove'),
   ];
@@ -213,8 +323,7 @@ test("focus moving from the edit's field to an image's remove control keeps the 
     edits.push([id, edit]);
     return true;
   }, []);
-  const [edit] = actions(container, "p-1");
-  await act(async () => edit.click());
+  await startEdit(container, "p-1");
   const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
   const [remove] = container.querySelectorAll<HTMLButtonElement>('[data-prompt-id="p-1"] .acpmux-queued-image-remove');
   // Focus moves from the field to the first image's remove control (Tab, in a browser): the
@@ -238,8 +347,7 @@ test("focus leaving an image's remove control for outside the row saves the edit
     edits.push([id, edit]);
     return true;
   }, []);
-  const [edit] = actions(container, "p-1");
-  await act(async () => edit.click());
+  await startEdit(container, "p-1");
   const [first, second] = container.querySelectorAll<HTMLButtonElement>(
     '[data-prompt-id="p-1"] .acpmux-queued-image-remove',
   );
@@ -261,8 +369,7 @@ test("focus moving from an image's remove control to its row saves the edit", as
     edits.push([id, edit]);
     return true;
   }, []);
-  const [edit] = actions(container, "p-1");
-  await act(async () => edit.click());
+  await startEdit(container, "p-1");
   const row = container.querySelector<HTMLElement>('[data-prompt-id="p-1"]')!;
   const [remove, second] = container.querySelectorAll<HTMLButtonElement>(
     '[data-prompt-id="p-1"] .acpmux-queued-image-remove',
@@ -282,8 +389,7 @@ test("Esc on an image's remove control cancels the edit and keeps every image", 
     edits.push([id, edit]);
     return true;
   }, []);
-  const [edit] = actions(container, "p-1");
-  await act(async () => edit.click());
+  await startEdit(container, "p-1");
   const [remove, second] = container.querySelectorAll<HTMLButtonElement>(
     '[data-prompt-id="p-1"] .acpmux-queued-image-remove',
   );
@@ -305,8 +411,7 @@ test("editing only a queued prompt's text sends no image list, so it keeps them 
     edits.push([id, edit]);
     return true;
   }, []);
-  const [edit] = actions(container, "p-1");
-  await act(async () => edit.click());
+  await startEdit(container, "p-1");
   const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
   await act(async () => {
     field.value = "why does the sidebar overlap?";
@@ -336,8 +441,7 @@ test("chat_state reads each queued row's text, its image ids and how far each th
   });
   expect(queuedRowsState(container)[0]!.images.map((image) => image.thumbnail)).toEqual(["loaded", "failed"]);
   // In edit mode the row reads the field's text.
-  const [edit] = actions(container, "p-1");
-  await act(async () => edit.click());
+  await startEdit(container, "p-1");
   const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
   field.value = "why does the toolbar overlap?";
   expect(queuedRowsState(container)[0]).toMatchObject({ editing: true, text: "why does the toolbar overlap?" });

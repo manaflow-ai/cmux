@@ -264,7 +264,18 @@ export class MockSettingsProvider {
           defaultHarness: "claude",
           harnesses: { claude: { displayName: "Claude Code" }, codex: { displayName: "Codex" } },
         },
-        models: { harnesses: [] },
+        // Codex's probed models, named as acpmux names them; Claude's are not probed (read off the id).
+        models: {
+          harnesses: [
+            {
+              harness: "codex",
+              models: [
+                { id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "medium", "high"] },
+                { id: "gpt-6-astra-mini", name: "GPT-6 Astra Mini", efforts: ["low", "medium"] },
+              ],
+            },
+          ],
+        },
       }),
       "cmux.chief.backend.doctor": () => ({ ok: true, steps: [{ name: "prompt", ok: true }] }),
       "cmux.settings.theme.set": (params) => {

@@ -7,11 +7,14 @@
 // past the last goes back to the prompt), Return edits it in place, ⌥↑/⌥↓ move it in the queue
 // and Delete removes it. Esc goes back to the prompt.
 //
-// Every row shows its actions (Leo, 2026-10-20: "where the hell is the edit button?"): Edit,
-// Remove and Send now. The menu has them too. Send now is the user's override: it steers the prompt
-// into the running turn and stops only its current step, so the agent reads it at once and the turn
-// runs on; to an agent that cannot steer it runs next. It never cancels a turn. Only a click sends
-// now, never a key: a held or repeated key once sent row after row (claude-sr2, 2026-10-20).
+// Every row shows ChatGPT's and Codex's actions, in their order (Leo, 2026-10-21: "is this really
+// the right order? ... I thought we had a trash can"): Steer (its word beside its ↪ glyph), a trash
+// can that deletes the prompt, and a ⋯ menu with Edit message, Open in side chat (where the chat
+// can open one) and Turn off queueing (queueing.ts). Steer is the user's override: it steers the
+// prompt into the running turn and stops only its current step, so the agent reads it at once and
+// the turn runs on; to an agent that cannot steer it runs next. It never cancels a turn. Only a
+// click steers, never a key: a held or repeated key once sent row after row (claude-sr2,
+// 2026-10-20). The row's right-click menu has Steer, Edit message, the moves and Delete.
 //
 // A prompt's images show as small thumbnails under its text (QueuedImages.tsx), each opening the
 // image viewer; while it is edited each has a remove control, and Save keeps only the images left
@@ -32,7 +35,9 @@ import { QueuedImages } from "./QueuedImages";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
+import { setQueueing, useQueueing } from "./queueing";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
@@ -115,6 +120,7 @@ export function ComposerQueue({
   onLost,
   onLeave,
   readImage,
+  onSideChat,
 }: {
   queue: AcpmuxSnapshot["queue"];
   /// The chat the queue belongs to: a long queue opened stays open for it.
@@ -134,9 +140,13 @@ export function ComposerQueue({
   onLeave?(): void;
   /// Reads an image a queued prompt sends by its acpmux id, as a data URL (`_acpmux/attachment`).
   readImage?(id: string): Promise<string | undefined>;
+  /// Opens a side chat that asks this prompt (as `/btw` does) and withdraws it from the queue; false
+  /// when it already started. Absent where the chat opens no side chat.
+  onSideChat?(id: string, prompt: string): Promise<boolean>;
 }) {
   // A row leaves as soon as it is removed; it comes back only if acpmux kept it waiting.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
+  const queueing = useQueueing();
   const [editing, setEditingId] = useState<string>();
   // The paused note's whole error, opened with Show more.
   const [errorOpen, setErrorOpen] = useState(false);
@@ -272,6 +282,11 @@ export function ComposerQueue({
     }, 1000);
   };
   const remove = onRemove && ((entry: QueuedEntry) => act(entry.id, () => onRemove(entry.id)));
+  // A side chat asks the prompt's text alone, so a prompt with images stays in the queue.
+  const sideChat =
+    onSideChat &&
+    ((entry: QueuedEntry) =>
+      entry.images?.length ? undefined : () => act(entry.id, () => onSideChat(entry.id, entry.prompt)));
   // A prompt sent now stays in place: to an agent that cannot steer acpmux marks it next
   // (`queue_order`), so its row reads Steering until it runs; to an agent that steers it leaves
   // once acpmux takes it (`dequeued`). Hiding it as leaving showed nothing until it ran (live run
@@ -372,14 +387,14 @@ export function ComposerQueue({
     ...(sendNow
       ? [
           {
-            id: "send",
-            ariaLabel: t("composer.queueSendNow"),
-            label: t("composer.queueSendNow"),
+            id: "steer",
+            ariaLabel: t("composer.queueSteer"),
+            label: t("composer.queueSteer"),
             onSelect: () => sendNow(entry),
           },
         ]
       : []),
-    ...(onChange ? [item("edit", t("composer.queueEdit"), "↩", () => setEditing(entry.id))] : []),
+    ...(onChange ? [item("edit", t("composer.queueEditMessage"), "↩", () => setEditing(entry.id))] : []),
     ...(move
       ? [
           {
@@ -396,27 +411,77 @@ export function ComposerQueue({
     ...(remove
       ? [
           {
-            ...item("remove", t("composer.queueRemove"), "⌫", () => remove(entry)),
+            ...item("delete", t("composer.queueDelete"), "⌫", () => remove(entry)),
             destructive: true,
             separatorBefore: true,
           },
         ]
       : []),
   ];
-  // One of a row's actions: an icon button named by its tooltip.
-  const action = (id: string, icon: string, label: string, onClick: () => void) => (
-    <button
-      key={id}
-      type="button"
-      className="acpmux-queued-action"
-      data-action={id}
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-    >
-      <Icon name={icon} size={14} />
-    </button>
-  );
+  // The row's actions, as ChatGPT and Codex show them: Steer (a glyph and its word), the trash can
+  // (an icon named by its tooltip), and the ⋯ menu. Plain glyphs: a soft pill on hover only.
+  const actions = (entry: QueuedEntry) => {
+    const side = sideChat?.(entry);
+    return (
+      <span className="acpmux-queued-actions">
+        {sendNow && (
+          <button
+            type="button"
+            className="acpmux-queued-action acpmux-queued-steer"
+            data-action="steer"
+            aria-label={t("composer.queueSteer")}
+            onClick={() => sendNow(entry)}
+          >
+            <Icon name="composer.steer" size={14} />
+            <span>{t("composer.queueSteer")}</span>
+          </button>
+        )}
+        {remove && (
+          <button
+            type="button"
+            className="acpmux-queued-action"
+            data-action="delete"
+            aria-label={t("composer.queueDelete")}
+            title={t("composer.queueDelete")}
+            onClick={() => remove(entry)}
+          >
+            <Icon name="action.delete" size={14} />
+          </button>
+        )}
+        <Menu>
+          <MenuButton
+            className="acpmux-queued-action"
+            data-menu="queued-more"
+            label={t("composer.queueActions")}
+            title={t("composer.queueActions")}
+            aria-haspopup="menu"
+          >
+            <Icon name="action.more" size={14} />
+          </MenuButton>
+          <MenuPopup
+            side="top"
+            align="end"
+            className="acpmux-quick-menu acpmux-queued-more"
+            label={t("composer.queueActions")}
+          >
+            {onChange && (
+              <MenuItem className="acpmux-quick-item" shortcut="↩" onSelect={() => setEditing(entry.id)}>
+                {t("composer.queueEditMessage")}
+              </MenuItem>
+            )}
+            {side && (
+              <MenuItem className="acpmux-quick-item" onSelect={side}>
+                {t("composer.queueSideChat")}
+              </MenuItem>
+            )}
+            <MenuItem className="acpmux-quick-item" onSelect={() => setQueueing(!queueing)}>
+              {t(queueing ? "composer.queueingOff" : "composer.queueingOn")}
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
+      </span>
+    );
+  };
   // A row's mark, text (or its edit) and actions.
   const cells = (entry: QueuedEntry, index: number) => (
     <>
@@ -461,13 +526,7 @@ export function ComposerQueue({
           </span>
         </button>
       )}
-      {editing !== entry.id && (onChange || remove) && (
-        <span className="acpmux-queued-actions">
-          {onChange && action("edit", "action.edit", t("composer.queueEdit"), () => setEditing(entry.id))}
-          {remove && action("remove", "action.close", t("composer.queueRemove"), () => remove(entry))}
-          {sendNow && action("send", "composer.send", t("composer.queueSendNow"), () => sendNow(entry))}
-        </span>
-      )}
+      {editing !== entry.id && actions(entry)}
       {/* Under the text, in its column. */}
       <QueuedImages
         images={
