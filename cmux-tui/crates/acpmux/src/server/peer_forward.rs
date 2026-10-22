@@ -155,13 +155,18 @@ async fn forward_inner(
             }
             if peer.mark_attached(&id) && m != method::MUX_ATTACH {
                 // The link is not a person: only a client's own attach or view shows the chat.
-                // Not past a client that left (as the request below).
-                let attach = peer.request(method::MUX_ATTACH, crate::peer::hidden_attach(&id));
+                // Its own task, so the attach the marker stands for always goes out, whoever else
+                // relies on it; only this client's wait for it ends when the client leaves.
+                let attach = tokio::spawn({
+                    let (peer, id) = (peer.clone(), id.clone());
+                    async move {
+                        let _ =
+                            peer.request(method::MUX_ATTACH, crate::peer::hidden_attach(&id)).await;
+                    }
+                });
                 tokio::select! {
                     _ = attach => {}
                     () = conn.closed() => {
-                        // Maybe never sent: the next prompt attaches again (attach is idempotent).
-                        peer.unmark_attached(&id);
                         return Err(RpcError::internal("the client closed the connection"));
                     }
                 }
