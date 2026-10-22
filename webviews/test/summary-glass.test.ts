@@ -9,8 +9,8 @@
 // blur.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+// summary-glass-class.test.ts keeps the glass class on the popover in SummaryCard.tsx.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -18,11 +18,6 @@ import { warmViteServer } from "./support/warmDevServer";
 
 type Rgb = [number, number, number];
 type Rgba = [number, number, number, number];
-
-test("the Summary card gives the popover, and only the popover, the glass class", () => {
-  const source = readFileSync(new URL("../src/agent-session/acpmux/summary/SummaryCard.tsx", import.meta.url), "utf8");
-  expect(source).toContain('className={card.column ? "acpmux-summary-card" : "ui-glass acpmux-summary-card"}');
-});
 
 await requireBrowserLane("summary-glass.test.ts", async () => {
   /** Parses a computed color (`rgb()`, `rgba()` or `color(srgb …)`) into 0-1 channels and alpha. */
