@@ -167,6 +167,29 @@ struct AgentPaneUnsentPromptTests {
         #expect(journal.entries().isEmpty)
     }
 
+    /// The pane's Retry sends a prompt again under its prompt id, and the page may not mark it a
+    /// resend: the host does, for an id it sent this daemon before, so acpmux also looks for a
+    /// first copy in the chat's log (which a daemon restart keeps). A first send is not marked.
+    @Test func aRetriedPromptIdGoesAsAResend() async throws {
+        let url = Self.journalURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let daemon = AcpmuxStandInServer()
+        try await daemon.start()
+        defer { daemon.stop() }
+        // No answer to the first send: the page gives up on it and offers Retry.
+        daemon.hold("session/prompt")
+        let pane = try await Self.pane(daemon, journal: AgentPanePromptJournal(url: url))
+        pane.transport.gestures.record()
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 1, promptId: "p-5")]) == nil)
+        pane.transport.gestures.record()
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 2, promptId: "p-5")]) == nil)
+        #expect(await daemon.wait { _ in Self.prompts(daemon, peer: 0).count == 2 })
+        let sent = Self.prompts(daemon, peer: 0)
+        try #require(sent.count == 2)
+        #expect(Self.mux(sent[0])?["resend"] == nil, "a first send is not a resend")
+        #expect(Self.mux(sent[1])?["resend"] as? Bool == true, "a Retry must say so, so acpmux runs the prompt id at most once")
+    }
+
     /// The page cannot send `resend` itself: only the host sends a prompt again, and only one it
     /// recorded from a frame every page rule let through.
     @Test func thePageCannotMarkAPromptAsAResend() async throws {
