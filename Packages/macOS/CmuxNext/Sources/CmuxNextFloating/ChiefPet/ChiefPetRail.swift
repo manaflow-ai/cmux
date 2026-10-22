@@ -64,7 +64,7 @@ final class ChiefPetTool: NSButton {
         imagePosition = .imageOnly
         setIcon(icon)
         setAccessibilityLabel(label)
-        toolTip = label
+        themedToolTip = label
         target = self
         self.action = #selector(fire)
     }

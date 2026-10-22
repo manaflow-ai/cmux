@@ -117,7 +117,7 @@ export function MentionMenu({
       ref={escape}
       aria-label={t("files.search")}
       aria-busy={state?.kind === "searching"}
-      className="ui-popup acpmux-slash-menu acpmux-mention-menu"
+      className="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu"
       id="acpmux-mention-menu"
     >
       {items.map((item, index) => (
@@ -134,7 +134,6 @@ export function MentionMenu({
               : "acpmux-slash-row acpmux-mention-row"
           }
           data-mention-kind={item.kind}
-          title={item.kind === "session" ? item.title : item.path}
           onPointerMove={() => onHover(index)}
           // A mouse-down here would take focus from the prompt.
           onMouseDown={(event) => {

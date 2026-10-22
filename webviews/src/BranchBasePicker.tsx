@@ -550,9 +550,7 @@ export function BranchPickerRowView({
           {entry.raw ? label("branchPickerUseRaw").replace("{ref}", row.ref) : renderMatched(row.label, entry.match)}
         </span>
         {secondary ? <span className="base-picker-row-secondary">{secondary}</span> : null}
-        <span className="base-picker-row-check" title={current ? label("branchPickerCurrent") : undefined}>
-          {current ? <Icon name="check" /> : null}
-        </span>
+        <span className="base-picker-row-check">{current ? <Icon name="check" /> : null}</span>
       </div>
       {entry.moreCount > 0 ? (
         <div className="base-picker-more" role="presentation">

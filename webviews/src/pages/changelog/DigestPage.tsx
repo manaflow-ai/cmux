@@ -3,7 +3,7 @@
 // category column and a small thumbnail where a change has media.
 import type { Strings } from "../shared/i18n";
 import { formatReleaseDate, releaseView, type ReleaseItem } from "./model";
-import { categoryLabel, ChangesFold, Media, type PartsContext } from "./ReleaseParts";
+import { categoryLabel, ChangesFold, Media, RowActions, type PartsContext } from "./ReleaseParts";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
 import type { IndexEntry } from "./types";
 
@@ -71,11 +71,12 @@ function DigestRelease({
           <div>
             <span className="cl-row-title">{item.title}</span>
             {item.summary && <span className="cl-row-summary">{item.summary.split(/\n{2,}/)[0]}</span>}
+            <RowActions item={item} ctx={ctx} />
           </div>
           {item.media ? <Media media={item.media} className="cld-thumb" /> : <span />}
         </div>
       ))}
-      {view && <ChangesFold changes={view.changes} internal={view.internalChanges} strings={ctx.strings} />}
+      {view && <ChangesFold changes={view.changes} hidden={view.underTheHood} strings={ctx.strings} />}
     </section>
   );
 }

@@ -172,11 +172,16 @@ public final class CEFEngine: BrowserEngine {
     public var startMarks: [CEFStartMark] { CEFStartSteps.shared.marks }
 
 
-    /// The framework read before CefInitialize (`CEFFrameworkPrefetch`):
-    /// bytes, files and milliseconds; nil before one ran.
-    public var frameworkPrefetch: (bytes: Int, files: Int, milliseconds: Double, servicesMilliseconds: Double)? {
+    /// The framework read before CefInitialize (`CEFFrameworkPrefetch`), `debug.cef`'s
+    /// `prefetch` fields: bytes, files and milliseconds; nil before one ran. `map_ms` is the time
+    /// inside `cef_load_library`, which holds dyld's loader lock (every main-thread dlopen/dladdr
+    /// waits on it); `binary_ms` is the read of the binary before it.
+    public var frameworkPrefetchFields: [String: Double]? {
         let ms: (Duration) -> Double = { Double($0.components.attoseconds) / 1e15 + Double($0.components.seconds) * 1000 }
-        return CEFFrameworkPrefetch.last.map { ($0.bytes, $0.files, ms($0.duration), ms($0.services)) }
+        return CEFFrameworkPrefetch.last.map {
+            ["bytes": Double($0.bytes), "files": Double($0.files), "ms": ms($0.duration), "services_ms": ms($0.services),
+             "binary_ms": ms($0.binary), "map_ms": ms($0.map)]
+        }
     }
 
     /// `none`, `creating`, `live`, `taken` or `closed` (`debug.cef`).
@@ -264,6 +269,12 @@ public final class CEFEngine: BrowserEngine {
     public var openOffTheRecord: ((URL?, (any BrowserTab)?) -> Void)? {
         get { CEFRuntime.shared.openOffTheRecord.map { handler in { url, tab in handler(url, tab as? CEFTab) } } }
         set { CEFRuntime.shared.openOffTheRecord = newValue.map { handler in { url, tab in handler(url, tab) } } }
+    }
+
+    /// Whether an assistive client (VoiceOver, an automation driver) asks for the app's
+    /// accessibility tree: Chromium pages build theirs only while one does (`CEFAccessibility`).
+    public func setAssistiveClientActive(_ active: Bool) {
+        CEFRuntime.shared.accessibility.setEnabled(active)
     }
 
     /// Chromium never opens a window of its own: what the window requests,

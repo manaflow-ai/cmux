@@ -501,8 +501,21 @@ the pages it opened close again and every member stays, so a retry opens
 each page once. App tabs and pages that are not http(s) are never stashed.
 `stash.delete` drops members or a stash, `stash.import {source: onetab,
 groups}` stores OneTab groups (http(s) pages only), and `stash.list` never
-shows back/forward history. Changes are `state_upsert`/`state_delete` of
-resource `stash`. Restore opens URLs and every mutation changes local state,
+shows back/forward history. Every listed member has a `kind`: `tab` (a
+page) or `workspace`. With `stash-workspaces-v1`, `stash.create {workspaces,
+name?}` closes those workspaces whole, every tab and terminal, in one commit
+as one stash (named `name`, else the workspace's name when there is one
+workspace) of `kind: "workspace"` members in the closed-history workspace
+record (screens, splits, presentation), and records nothing in the closed
+history; an incognito workspace refuses the request and the home workspace
+is `home.not_closable`, with nothing closed. Their terminals end and keep no
+archived screen. `stash.list` shows a workspace member's `name`,
+`tab_count` and its first 50 `tabs` (`kind`, `title`, and `url` for a web
+page only). `stash.restore` reopens a workspace member as its own workspace
+for either target, with its screens, splits, name, color, group, sidebar
+place and tab groups; `new_workspace` takes only the pages. Deleting a
+workspace member moves its agent-home folder to the Trash, as `closed.delete`
+does. Changes are `state_upsert`/`state_delete` of resource `stash`. Restore opens URLs and every mutation changes local state,
 so no remote relay may forward `stash.*`; MCP and the CLI do not offer them.
 
 ## Selectors

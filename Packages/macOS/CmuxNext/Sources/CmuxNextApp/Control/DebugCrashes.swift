@@ -61,13 +61,20 @@ enum DebugCrashes {
 
     #if DEBUG
     /// `debug.crash.app`: ends this process like a crash (DEBUG builds), to
-    /// verify relaunch recovery. `signal`: "segv" (default), "abort", "trap".
+    /// verify relaunch recovery. `signal`: "segv" (default), "abort", "trap",
+    /// "frozen". "frozen" is a crash that blocks: it starts the crash path
+    /// (as an uncaught exception does), then traps with the task's
+    /// EXC_BREAKPOINT port on a port nothing receives, so the main thread
+    /// waits for an exception reply forever, as in the 2026-10-20 NIGHTLY
+    /// freezes. Only the crash deadline can end it.
     /// `reporting` tags the Sentry event `deliberate_crash`, so it can be filtered out.
     static func crashApp(_ params: [String: JSONValue], _ reporting: AppCrashReporting? = nil) -> Never {
         reporting?.reporter.markDeliberateCrash("debug.crash.app")
         switch params["signal"]?.stringValue {
         case "abort": abort()
-        case "trap": fatalError("debug.crash.app")
+        case let signal? where signal == "trap" || signal == "frozen":
+            if signal == "frozen" { reporting?.reporter.freezeNextTrap() }
+            fatalError("debug.crash.app")
         default:
             _ = raise(SIGSEGV)
             abort()
@@ -83,7 +90,8 @@ enum DebugCrashes {
         reporting?.reporter.markDeliberateCrash("debug.crash.exception")
         DebugExceptionRaiser.shared.perform(#selector(DebugExceptionRaiser.raiseNow), with: nil, afterDelay: 0)
         return .object(["scheduled": .bool(true),
-                        "crash_on_exceptions": .bool(UserDefaults.standard.bool(forKey: CrashOnExceptions.key))])
+                        "crash_on_exceptions": .bool(UserDefaults.standard.bool(forKey: CrashOnExceptions.key)),
+                        "crash_reporting": .bool(reporting?.reporter.isStarted ?? false)])
     }
     #endif
 }

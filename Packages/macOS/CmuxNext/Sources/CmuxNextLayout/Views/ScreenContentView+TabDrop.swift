@@ -5,8 +5,10 @@ extension ScreenContentView {
     /// Drop target, its highlight rect and the region it belongs to (the
     /// whole pane content rect, or the column gap), in local coordinates.
     /// `removing`: the pane the drag empties (frees room; the commit obeys).
-    /// `previous` is the zone hit the preview shows now (`hit`, before the
-    /// room check), so the shown zone holds near its line.
+    /// `previous` is the target hit the preview shows now (`hit`, before the
+    /// room check): panes, docks and column gaps hold near their lines with
+    /// `dropZoneHysteresis`. Docks and gaps shrink for entry from the split
+    /// zone that faces them; dock, gap and pane priority stays the same.
     /// `edgesArmed` false: a pane edge (a new split) joins the pane instead, until the drag has
     /// held that edge (`LayoutRootView.updateTabDrag`'s dwell); `hit` stays the edge.
     /// `joinsFrom`: a terminal tab's source pane (`DropZoneGeometry.joiningSharedEdge`).
@@ -17,7 +19,7 @@ extension ScreenContentView {
         let (topInset, bottomInset) = dockInsets(at: localPoint)
         if context.model.acceptsEdgeDockDrops,
            let dock = DropZoneGeometry.dockTarget(atView: localPoint, screen: screenID, geometry: geometry, style: context.style,
-                                                  topInset: topInset, bottomInset: bottomInset),
+                                                  topInset: topInset, bottomInset: bottomInset, previous: previous),
            let rect = DropZoneGeometry.highlightRectInView(for: dock, offset: scroll.value, geometry: geometry, style: context.style) {
             return (dock, dock, rect, rect, [])
         }
@@ -81,10 +83,10 @@ extension ScreenContentView {
     /// moves (view coordinates, inset 2 pt so neighbors read apart); nil when the layout cannot be
     /// predicted here, and the caller falls back to the half.
     private func finalLayoutPreview(splitting pane: PaneID, zone: PaneDropZone, removing: PaneID?) -> (newPane: CGRect, resized: [CGRect])? {
-        // A tab drop splits the target at 0.5 and then applies `layout.splitSizing`, as a keyboard split
-        // does (TabMoves.toNewSplit, #22287), so the preview shows exactly that.
+        // The drop sends this prediction's ratios once its move landed (`LayoutModel.dropSizingChanges`,
+        // TabMoves.toNewSplit), so the preview shows exactly the layout that lands.
         guard let predicted = DropPreviewLayout(splitting: pane, zone: zone, in: layout, removing: removing,
-                                                evenSizing: context.model.splitSizing == .even) else { return nil }
+                                                evenSizing: context.model.splitSizing == .even, equalizesClose: !zoomed) else { return nil }
         // A drop that closes a column moves the strip's camera after it; show the half rather than guess.
         if case let .columns(before) = layout, case let .columns(after) = predicted.layout, before.map(\.id) != after.map(\.id) {
             return nil

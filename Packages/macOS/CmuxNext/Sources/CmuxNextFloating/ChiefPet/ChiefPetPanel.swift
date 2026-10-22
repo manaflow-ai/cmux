@@ -192,7 +192,7 @@ final class ChiefPetView: NSView {
         character.setAccessibilityRole(.button)
         character.setAccessibilityLabel(ChiefPetStrings.accessibilityLabel)
         character.onPress = { [weak self] in self?.onClick?() }
-        toolTip = ChiefPetStrings.accessibilityLabel
+        themedToolTip = ChiefPetStrings.accessibilityLabel
     }
 
     @available(*, unavailable)

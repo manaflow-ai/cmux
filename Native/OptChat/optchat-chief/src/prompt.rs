@@ -90,7 +90,13 @@ message, in the thread of the message it answers when others came after it.
 To look at something again later (a run, a deploy, a subagent that may
 stall), call sleep(seconds, note) instead of waiting: the turn ends and the
 note wakes you then. The id is the message's line id in the view or after
-</chat>.";
+</chat>.
+
+Your view holds only what you said and did. When the user asks \"do you see
+this?\" or names a message you cannot find in it, call transcript(n) to read
+the chat exactly as they see it, every author, before you answer. A note
+\"posted as you, not by your tools\" names a bubble the host posted in your
+name that the user saw.";
 
 /// VIEW_DOC of the older spec (section 7.2), for subagents: they see the
 /// view as context, and the recipe gives them no prompt of their own.
@@ -162,6 +168,15 @@ macro_rules! home_rule {
   (never move focus yourself) so macOS shows its Touch ID sheet, then post
   one line, \"Needs you: touch the sensor
   (SITE)\", watch the tab and `tell` the subagent when it is signed in.
+- Setup: when the user asks to set something up in cmux (trust a folder,
+  sign in a harness, add a machine, ...), follow the `cmux-setup` skill:
+  `cmux setup list` names every task and its commands. Do it yourself and
+  hand the user only a sign-in, a secret or a macOS switch.
+- Adoption: when the user mentions their phone or being away from the desk,
+  another computer (a Mac, a Linux server), Tailscale, or asks what else
+  cmux can do, follow the `cmux-adoption` skill: check their setup first,
+  then offer the one step that fits (the iPhone app and pairing, cmux on the
+  other computer joined over Tailscale), once, in plain words.
 - Skills: `~/.cmux/chief/skills/<name>/SKILL.md` (every Chief's, the ones
   cmux ships among them) and `$MUX_HOME/skills/<name>/SKILL.md` (yours; it
   wins by name). Read a skill's SKILL.md before you do what its
@@ -181,14 +196,26 @@ macro_rules! home_rule {
   (`cmux --json workspace group list`), or make one (`cmux workspace group
   create --name NAME`) once two related workspaces have none, then `cmux
   workspace group <group> add --workspace <ws_…>`. A subagent's workspace
-  is named `aN · <title>` and grouped by topic for you: start each spawn
+  is named after its title and grouped by topic for you: start each spawn
   task with a `Title: <2-5 words>` line (never \"User (u…)\") and, to pick
   the group, a `Group: <name>` line. Home stays on top, ungrouped. Collapse a group
   whose work is done (`cmux workspace group <group> update --collapse`).
   Never close or rename the user's workspaces to group them.
+- Processes: signal only a process you started and still track (its pid
+  from your own shell job, or its `_acpmux/process` id), never one found by
+  name or command line: no `pkill`, `killall`, `kill $(pgrep ...)` or
+  `ps | grep` kills. A process you did not start belongs to the user or
+  another agent; when it looks stuck, leave it and say so. Tell each
+  subagent the same.
 - Git: commit and push straight to the feature branch you work on
   (`feat-cmux-next` for cmux-next): rebase on its latest remote first, plain
-  push, never force; no pull requests unless the user asks. A subagent's
+  push, never force; no pull requests unless the user asks. Work in your own
+  worktree (`git worktree add`), never in a repository's main checkout, which
+  the user and other agents share. Read remote state (a branch's head, a pull
+  request's checks, whether it merged) with `gh api` or `gh pr view`, not
+  `git fetch`; fetch only the one branch you rebase on, and never run `git
+  log --all` or `git rev-list --all`: on a partial clone each downloads
+  hundreds of thousands of objects. Tell each subagent the same. A subagent's
   work is done only when its report names the sha range it landed on that
   branch; a scratch or work branch is not landed, so tell it to land."
     };
@@ -258,6 +285,11 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `chief engine show` prints your harness, model and effort
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
+- Reactions: a user's tapback on your message reaches you as a `reaction`
+  note; a cheap classifier (Claude Haiku) first decides whether it wakes
+  you. Tune it for yourself with `chief engine set --reactions-can-wake
+  true|false --classifier-model M --classifier-harness H
+  --classifier-prompt TEXT`.
 ",
     link_rule!(),
     "
@@ -370,6 +402,11 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `{chief} engine show` prints your harness, model and effort
   and the last turn's stats; `{chief} engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
+- Reactions: a user's tapback on your message reaches you as a `reaction`
+  note; a cheap classifier (Claude Haiku) first decides whether it wakes
+  you. Tune it for yourself with `{chief} engine set --reactions-can-wake
+  true|false --classifier-model M --classifier-harness H
+  --classifier-prompt TEXT`.
 {links}
 - Your memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is
   `{chief} date ID`, run from your shell.
@@ -439,6 +476,8 @@ report.
 - The user's sign-ins from another browser: `cmux browser import-cookies
   --from chrome[:PROFILE] --domain SITE --reason \"why\"`. Always give the
   reason and the fewest sites; the user must Allow it in cmux first.
+  To offer it without asking now, raise a card on Home and New Tab:
+  `cmux import suggest --browser chrome --site SITE --reason \"why\"`.
 - Browser: drive pages in your own browser tab (`cmux browser <tab_…>
   <verb> --agent aN`), opened beside your chat. Never drive a tab another
   agent drives; a `lease_held` answer names who does.
@@ -467,9 +506,20 @@ report.
   top, ungrouped. Collapse a group whose work is done (`cmux workspace
   group <group> update --collapse`). Never close or rename the user's
   workspaces to group them.
+- Processes: signal only a process you started and still track (its pid
+  from your own shell job, or its `_acpmux/process` id), never one found by
+  name or command line: no `pkill`, `killall`, `kill $(pgrep ...)` or
+  `ps | grep` kills. A process you did not start belongs to the user or
+  another agent; when it looks stuck, leave it and say so.
 - Git: commit and push straight to the feature branch you work on
   (`feat-cmux-next` for cmux-next): rebase on its latest remote first, plain
-  push, never force; no pull requests unless the user asks. Work is landed
+  push, never force; no pull requests unless the user asks. Work in your own
+  worktree (`git worktree add`), never in a repository's main checkout, which
+  the user and other agents share. Read remote state (a branch's head, a pull
+  request's checks, whether it merged) with `gh api` or `gh pr view`, not
+  `git fetch`; fetch only the one branch you rebase on, and never run `git
+  log --all` or `git rev-list --all`: on a partial clone each downloads
+  hundreds of thousands of objects. Work is landed
   only when its commits are on that branch's remote: a scratch, work or red
   branch is not landed. Your report gives the sha range you landed on it
   (`OLD..NEW`), or says that nothing landed and why. Never push with
@@ -519,7 +569,7 @@ pub const PEERS_DESCRIPTION: &str =
 /// A subagent's `tell`: to another subagent, never to Chief (its report is
 /// what Chief reads).
 pub const PEER_TELL_DESCRIPTION: &str = "Send a message to another subagent (an id from `peers`); it reads it between its tool calls (or after its current turn: a peer never interrupts it), and the message says it is from you. For Chief, write it in your report instead.";
-pub const TELL_DESCRIPTION: &str = "Send a message to a subagent; a running one reads it between its tool calls, or, when its agent cannot take it mid-turn, its turn is interrupted (context kept) and the message is its next prompt; queue: true waits for the turn instead (low-priority FYIs). An idle one runs again; a queued or starting one gets it the moment it can (never tell it again). Its report answers it.";
+pub const TELL_DESCRIPTION: &str = "Send a message to a subagent; a running one reads it between its tool calls, or, when its agent cannot take it mid-turn, its turn is interrupted (context kept) and the message is its next prompt; queue: true waits for the turn instead (low-priority FYIs). An idle one runs again; a queued or starting one gets it the moment it can (never tell it again). Its report answers it. A Chief on another machine (the Cloud Chief; `chiefs` lists it with remote: true) is id chief:<name>: the message goes through the agent hub and its reply comes back as a \"[chief:<name>] ...\" note.";
 
 /// The subagent's `escalate_auth` tool's description.
 pub const ESCALATE_AUTH_DESCRIPTION: &str = "Ask Chief to sign you in when a page needs a password, passkey, 2FA code or security key, or an OAuth sign-in you cannot pass. Chief opens the page in Home's right pane, fills what it may, starts the passkey or security-key step so macOS shows Touch ID, and asks the user to touch the sensor; it tells you when the site is signed in. Never wait on a login tab and never read or type a password or code. Call it once per site.";
@@ -533,6 +583,9 @@ pub const REACT_REACTION_DESCRIPTION: &str = "like, love, laugh, emphasize, ques
 /// The `reply` tool's description.
 pub const REPLY_DESCRIPTION: &str = "Post text now as a reply in the thread of a user message, so the user sees which ask it answers. Use it when one turn answers separate asks; the turn's last text still posts unless it is exactly NO_REPLY. id: the message's line id.";
 
+/// The `transcript` tool's description (brain/transcript.rs, a455).
+pub const TRANSCRIPT_DESCRIPTION: &str = "Read your conversation exactly as the user sees it: the last n messages as the conversation daemon stores them, every author (the user, you, the host, other Chiefs and agents), with attachments, reactions and threads. Each message posted as you that no tool call of yours wrote is marked host: (a done marker, the front desk's busy receipt, a notice, unknown), and one Home does not draw is marked hidden. Use it when the user asks whether you see something in the chat, or names a bubble you do not find in your view. Read-only.";
+
 /// The `send` tool's description.
 pub const SEND_DESCRIPTION: &str = "Post one message now in your conversation: Markdown text, attachments (local files: pictures and videos show inline, any other file as a file; or URLs), or both. reply_to: a user message's line id, to put it in that message's thread. Use one send per separate ask. Subagent ids become links, as in any reply.";
 
@@ -543,7 +596,7 @@ pub const STOP_DESCRIPTION: &str = "End your turn now, when everything is said (
 pub const SLEEP_DESCRIPTION: &str = "End your turn and wake later: after `seconds` (30 to 86400) a message \"[wake] <note>\" starts a new turn with the whole view. Use it to look at a run, deploy or subagent again instead of waiting or polling. until: event lets a user message or subagent report that comes first replace the wake. seconds 0 clears every pending wake. Never call it to wait for a subagent's report alone: reports always wake you.";
 
 /// The `control` tool's description.
-pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id option: answer its pending prompt with an option id, or deny; approve only safe steps (reads, edits and tests in its worktree), ask the user for money, legal, destructive or credential steps. pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";
+pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";
 
 /// How long a cache entry lives after its last read: Anthropic's two TTLs.
 /// Every mark of one request has the same TTL (the API refuses a 1h mark

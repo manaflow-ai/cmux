@@ -4,6 +4,10 @@ import Foundation
 enum Strings {
     static var axStrip: String { String(localized: "tabs.ax.strip", defaultValue: "Tabs", bundle: .module) }
     static var axNewTab: String { String(localized: "tabs.ax.newTab", defaultValue: "New Tab", bundle: .module) }
+    /// The + button's tooltip: a click opens a tab, holding it opens the new tab menu.
+    static var newTabHoldHint: String {
+        String(localized: "tabs.newTab.holdHint", defaultValue: "New Tab (hold for more)", bundle: .module)
+    }
     /// A pane's "…" at the tab bar's trailing end (`PaneToolbarView`).
     static var paneMore: String { String(localized: "paneToolbar.more", defaultValue: "More", bundle: .module) }
     static var axClose: String { String(localized: "tabs.ax.close", defaultValue: "Close Tab", bundle: .module) }

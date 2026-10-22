@@ -28,6 +28,7 @@ nonisolated enum TabSettingsSchema {
             help: SettingsText.keyed("settings.tabs.newTabTemplate.help",
                                      "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it."),
             kind: .choice([
+                SettingChoice(NewTabTemplate.minimal.rawValue, SettingsText.keyed("settings.choice.newTabTemplateMinimal", "Minimal")),
                 SettingChoice(NewTabTemplate.cards.rawValue, SettingsText.keyed("settings.choice.newTabTemplateCards", "Cards")),
                 SettingChoice(NewTabTemplate.default.rawValue, SettingsText.keyed("settings.choice.newTabTemplateDefault", "Default")),
                 SettingChoice(NewTabTemplate.composer.rawValue, SettingsText.keyed("settings.choice.newTabTemplateComposer", "Composer")),
@@ -37,7 +38,7 @@ nonisolated enum TabSettingsSchema {
                 SettingChoice(NewTabTemplate.terminal.rawValue, SettingsText.keyed("settings.choice.newTabTemplateTerminal", "Terminal")),
             ]),
             default: .string(NewTabTemplate.fallback.rawValue),
-            keywords: ["new tab", "template", "layout", "page", "terminal", "classic", "composer", "threads", "console", "cards", "search", "ask"]
+            keywords: ["new tab", "template", "layout", "page", "minimal", "greeting", "terminal", "classic", "composer", "threads", "console", "cards", "search", "ask"]
         )
     }
 
@@ -52,6 +53,19 @@ nonisolated enum TabSettingsSchema {
             kind: .toggle,
             default: .bool(NewTerminalWorkspaceSetting.fallback),
             keywords: ["new terminal", "workspace", "space", "tab", "option"]
+        )
+    }
+
+    /// `tabs.terminalFirst`: Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic (#23021).
+    static func terminalFirst(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(
+            TerminalFirstSetting.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.terminalFirst", "New Tabs and Splits Open a Terminal"),
+            help: SettingsText.keyed("settings.tabs.terminalFirst.help",
+                                     "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page."),
+            kind: .toggle,
+            default: .bool(TerminalFirstSetting.fallback),
+            keywords: ["terminal", "classic", "new tab", "split", "cmd-t", "cmd-d", "new tab page", "default"]
         )
     }
 

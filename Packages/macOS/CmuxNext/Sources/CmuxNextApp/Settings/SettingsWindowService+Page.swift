@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
+import CmuxNextImportCards
 import CmuxNextSettings
 import CmuxNextSettingsWindow
 
@@ -44,6 +45,9 @@ extension SettingsWindowService {
             // Computer Use Setup (Agents): the helper's grants, the same state as the palette action.
             "computer_use": services.onboarding.computerUseSetup.pageJSON,
             "iphone": services.iphone.pageJSON,
+            "import_suggestions": ImportSuggestionsCenter.shared.settingsJSON,
+            // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).
+            "voice_input": ChiefVoiceInputPageRoute().hostJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
             "backdrops": Self.backdrops.pageRows,
             "derived": .object(pageDerivedNumbers()),

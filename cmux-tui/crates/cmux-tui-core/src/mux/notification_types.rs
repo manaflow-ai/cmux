@@ -4,7 +4,7 @@
 
 use super::NotificationLevel;
 use crate::SurfaceId;
-use crate::resource::{NotificationPublicId, TerminalPublicId};
+use crate::resource::{NotificationPublicId, TerminalPublicId, WorkspacePublicId};
 
 /// Who posted a notification (`notification-source-v1`). Frontends apply
 /// per-source preferences from it instead of guessing.
@@ -76,6 +76,9 @@ pub struct NotificationEvent {
     pub preview: Option<String>,
     pub level: NotificationLevel,
     pub surface: Option<SurfaceId>,
+    /// The workspace a terminal-less notification belongs to (`cmux notify
+    /// --workspace ws_…`); None for a terminal's or a session-level one.
+    pub workspace_id: Option<WorkspacePublicId>,
     pub source: NotificationSource,
     /// false: the app shows no desktop banner (`notify --desktop false`).
     pub desktop: bool,
@@ -92,6 +95,9 @@ pub struct ResourceNotification {
     pub body: String,
     pub level: NotificationLevel,
     pub terminal_id: Option<TerminalPublicId>,
+    /// `notify --workspace ws_…`: the workspace it belongs to, with no
+    /// terminal. Stored as the row's `extra.workspace_id`.
+    pub workspace_id: Option<WorkspacePublicId>,
     pub created_at_ms: u64,
     pub source: NotificationSource,
     pub(crate) surface: Option<SurfaceId>,

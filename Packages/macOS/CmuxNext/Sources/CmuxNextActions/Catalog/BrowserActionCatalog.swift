@@ -204,7 +204,7 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.browserClearHistory",
-                title: String(localized: "action.palette.browserClearHistory", defaultValue: "Clear Browser History", bundle: .module),
+                title: String(localized: "action.palette.browserClearHistory", defaultValue: "Clear Browser History…", bundle: .module),
                 keywords: ["browser", "privacy", "clear", "delete"], category: .browser, symbol: "clock.badge.xmark", surfaces: [.palette],
                 arguments: [HistoryActionCatalog.historyRange, CatalogArgument.browserProfile],
                 targets: [.pane], cliName: "browser clear-history", destructive: true

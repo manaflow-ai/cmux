@@ -10,6 +10,27 @@ extension UpdateController {
         set { driver.installsInBackground = newValue }
     }
 
+    /// Whether a staged background update should enter the safe idle relaunch gate automatically.
+    /// The gate waits for active agent turns, running commands and recent user input.
+    public var installsUpdatesWhenIdle: Bool {
+        get { driver.installsWhenIdle }
+        set { driver.installsWhenIdle = newValue }
+    }
+
+    /// The longest an automatic idle install waits for agents, commands and input before it
+    /// relaunches anyway (default 15 minutes).
+    public var idleInstallWaitCap: Duration {
+        get { driver.relaunchGate.automaticWaitCap }
+        set { driver.relaunchGate.automaticWaitCap = newValue }
+    }
+
+    /// Whether an install the user asked for (a click, Install Now, Restart Now) waits for busy
+    /// agents and running commands. Automatic idle installs always wait.
+    public var holdsUserInstalls: Bool {
+        get { driver.holdsUserInstalls }
+        set { driver.holdsUserInstalls = newValue }
+    }
+
     /// The downloaded update waiting for ``installStagedUpdate()``, or nil.
     public var stagedUpdate: SUAppcastItem? {
         driver.stagedItem
@@ -43,7 +64,9 @@ extension UpdateController {
         }
         if case .installing(let installing) = model.state, installing.isAutoUpdate {
             log.append("background install: installing the update Sparkle staged silently")
+            driver.quitInstallItem = nil
             model.setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
+            driver.relaunchIsAutomatic = false
             installing.retryTerminatingApplication()
             armStagedInstallWatchdog()
             return
@@ -68,8 +91,9 @@ extension UpdateController {
     }
 
     /// Cancels the staged update's pending installer (Sparkle would install it when the app
-    /// quits) without skipping its version. No-op without one.
-    public func cancelStagedUpdate() {
+    /// quits) without skipping its version. No-op without one; returns whether one was cancelled.
+    @discardableResult
+    public func cancelStagedUpdate() -> Bool {
         driver.cancelStaged()
     }
 
@@ -100,9 +124,26 @@ extension UpdateController {
         set { driver.feedOverride = newValue }
     }
 
+    /// The release ring (`updates.channel`) whose appcast items are offered; the next check
+    /// uses it. Only the cmux-next feed has rings.
+    public var ring: UpdateRing {
+        get { driver.ring }
+        set { driver.ring = newValue }
+    }
+
     /// Builds at or below this `sparkle:version` are not offered (the build a rollback left).
     public var skipsBuildsThrough: String? {
         get { driver.skipsBuildsThrough }
         set { driver.skipsBuildsThrough = newValue }
+    }
+
+    /// How long after its `pubDate` an update that lists no Sparkle deltas is held back from a
+    /// scheduled check, so the delta its feed lists minutes later is downloaded instead of the
+    /// full archive. A held update is taken by the next scheduled check either way, and a check
+    /// the person starts never waits. Nil (the default) offers every update at once; set it only
+    /// for a feed that lists deltas after the full archive (the cmux-next nightly).
+    public var pendingDeltaWindow: TimeInterval? {
+        get { driver.pendingDeltaWait?.window }
+        set { driver.pendingDeltaWait = newValue.map(PendingDeltaWait.init(window:)) }
     }
 }

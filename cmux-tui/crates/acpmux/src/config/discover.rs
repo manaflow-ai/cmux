@@ -46,9 +46,9 @@ pub const UNIICHAT_PROFILE: &str = "unii";
 /// This process's own binary and the prefix that reaches its subcommands
 /// (`cmux acp …` when acpmux runs inside cmux): the bundled adapter.
 fn self_argv() -> Option<Vec<String>> {
-    let exe = std::env::current_exe().ok()?;
-    let mut argv = vec![exe.to_string_lossy().into_owned()];
-    argv.extend(crate::daemon::daemon_prefix().iter().map(|p| p.to_string_lossy().into_owned()));
+    let this = crate::self_command::SelfCommand::current().ok()?;
+    let mut argv = vec![this.exe.to_string_lossy().into_owned()];
+    argv.extend(this.args_lossy::<&str>(&[]));
     Some(argv)
 }
 

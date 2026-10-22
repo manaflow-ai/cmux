@@ -21,13 +21,13 @@ final class HomeRecipientChip: NSView {
         label.stringValue = token.text
         label.font = Typography.body
         label.lineBreakMode = .byTruncatingTail
-        label.themeColor = { [isValid = token.isValid] in isValid ? Palette.accent : Palette.danger }
+        label.themeColor = { [isValid = token.isValid] in isValid ? Palette.litGlyph : Palette.danger }
         addSubview(label)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(HomeConversationStrings.removeRecipient(token.text))
         setAccessibilityIdentifier("cmux.home.newMessage.token")
-        if !token.isValid { toolTip = HomeConversationStrings.unknownRecipient(token.text) }
+        if !token.isValid { themedToolTip = HomeConversationStrings.unknownRecipient(token.text) }
         applyColors()
     }
 

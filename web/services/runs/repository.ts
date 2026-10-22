@@ -1,7 +1,7 @@
 import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
-import { runArtifacts, runAttempts, runEvents, runs } from "../../db/schema";
+import { cloudRuntimes, runArtifacts, runAttempts, runEvents, runs } from "../../db/schema";
 import {
   DEFAULT_LEASE_TTL_MS,
   DEFAULT_ATTACH_TICKET_TTL_MS,
@@ -798,13 +798,17 @@ export async function claimExpiredAttemptCleanups(input: { readonly limit?: numb
       attempt: runAttempts,
       userId: runs.userId,
       billingTeamId: runs.billingTeamId,
-    }).from(runAttempts).innerJoin(runs, eq(runs.id, runAttempts.runId)).where(and(
+    }).from(runAttempts).innerJoin(runs, eq(runs.id, runAttempts.runId))
+      .leftJoin(cloudRuntimes, eq(cloudRuntimes.id, runAttempts.runtimeId)).where(and(
       inArray(runAttempts.status, ["succeeded", "failed", "cancelled"]),
       isNotNull(runAttempts.providerVmId),
+      // Every launched attempt has its own ephemeral runtime (dogfood.ts); a promoted attempt's VM
+      // belongs to a persistent runtime now, so only that one is never reaped.
+      or(isNull(runAttempts.runtimeId), eq(cloudRuntimes.runtimeKind, "ephemeral")),
       isNotNull(runAttempts.terminalRetainUntil),
       lte(runAttempts.terminalRetainUntil, nowAt),
       or(isNull(runAttempts.cleanupLeaseExpiresAt), lt(runAttempts.cleanupLeaseExpiresAt, nowAt)),
-    )).orderBy(asc(runAttempts.terminalRetainUntil)).limit(limit).for("update");
+    )).orderBy(asc(runAttempts.terminalRetainUntil)).limit(limit).for("update", { of: runAttempts });
     const claimed: ExpiredAttemptCleanup[] = [];
     for (const candidate of candidates) {
       const token = randomUUID();

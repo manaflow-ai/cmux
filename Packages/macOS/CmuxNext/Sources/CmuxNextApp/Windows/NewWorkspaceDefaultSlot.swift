@@ -10,9 +10,9 @@ import CmuxNextSidebar
 /// session, else the owning daemon's order. Either survives a relaunch and
 /// shows in every window.
 ///
-/// The rule: `top` is the first slot of the group the window's current
-/// workspace is in (Cmd-N in a group makes the group's newest workspace,
-/// cx-de23); else the first slot of the workspace's machine section, which
+/// The rule: `top` is right below the window's current workspace when that
+/// one is in a group (Cmd-N in a group keeps the new one in it, next to
+/// where you are); else the first slot of the workspace's machine section, which
 /// lists no pinned workspace (they show in the Pinned section above), above
 /// every group, and right below the home workspace's row when the list shows
 /// it. `afterCurrent` is right after the workspace the window showed
@@ -44,11 +44,23 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
             return Self.top(for: id, section: section, in: sections, home: home)
         case .top:
             if let current, current != id, current != home,
-               WorkspaceSlot.top(anchor: current).position(moving: [id], section: section, in: sections)?.group != nil {
-                return .top(anchor: current)
+               WorkspaceSlot.below(current).position(moving: [id], section: section, in: sections)?.group != nil {
+                return .below(current)
             }
             return Self.top(for: id, section: section, in: sections, home: home)
         }
+    }
+
+    /// The move the app sends once the daemon reports new workspace `id`, or nil when the daemon's
+    /// create already put it at ``slot(for:section:in:home:)``: the daemon places every new workspace
+    /// by `workspaces.newPlacement` in the commit that creates it (first below Home under `top`,
+    /// last under `bottom`), so a second write would be a second state change and a second render
+    /// for the same order (plans/cmux-next/sidebar-ordering-DESIGN.md). Only a slot the daemon does
+    /// not know is moved to: inside the current workspace's group, after the window's current one.
+    func move(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?) -> WorkspaceSlot? {
+        guard let slot = slot(for: id, section: section, in: sections, home: home) else { return nil }
+        if slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
+        return slot
     }
 
     /// First in the section, below a leading home row.

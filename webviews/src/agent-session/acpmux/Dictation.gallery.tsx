@@ -62,7 +62,7 @@ function GalleryDictation({ initialState, initialNotice }: Props) {
           <DictationNotice dictation={dictation} />
         </div>
         <div className="acpmux-composer">
-          <div className="acpmux-composer-box">
+          <div className="ui-glass acpmux-composer-box">
             <div className="acpmux-composer-bar">
               <div className="acpmux-composer-actions">
                 <DictationMic dictation={dictation} />
@@ -98,8 +98,7 @@ const stop: Play = async (ctx) => {
 /// Right-click Hide Dictation Button takes the mic out of the composer (every composer reads the
 /// same setting); the play puts it back as the button row's Show or Settings would.
 const hide: Play = async (ctx) => {
-  const mic = ctx.find({ role: "button", name: "Dictate" });
-  mic.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 200, clientY: 100 }));
+  await ctx.contextMenu({ role: "button", name: "Dictate" });
   await ctx.click({ role: "menuitem", name: "Hide Dictation Button" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mic") === null);
   setComposerSettings({ showDictation: true });
@@ -119,7 +118,7 @@ export default componentEntry<Props>({
   area: "Agent pane",
   pane: true,
   height: 180,
-  widths: { narrow: 360, normal: 520, wide: 720 },
+  widths: { narrow: 260, normal: 520, wide: 720 },
   anchors: [{ selector: "[data-dictation-fixture]" }],
   covers: [
     "agent-session/acpmux/DictationButton.tsx#DictationButton",

@@ -11,56 +11,15 @@ impl PtySurface {
             .then_some((mux, terminal_id))
     }
 
-    pub(super) fn journal_output_if_open(
+    /// Hand output the parser accepted to the output store. Output never
+    /// enters the session journal (output_store.rs); the store only copies
+    /// the bytes into memory here.
+    pub(super) fn record_output(
         &self,
         (mux, terminal_id): (Arc<Mux>, Arc<TerminalPublicId>),
-        bytes: Vec<u8>,
+        bytes: &[u8],
     ) {
-        let occurred_at_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
-        for chunk in bytes.chunks(crate::journal_ingress::TERMINAL_OUTPUT_INGRESS_BYTES) {
-            let mut pending = chunk.to_vec();
-            loop {
-                let retry = {
-                    let _gate = self.journal_capture_gate.lock().unwrap();
-                    if !self.journal_capture_open.load(Ordering::Acquire)
-                        || self.journal_capture_disabled.load(Ordering::Acquire)
-                    {
-                        return;
-                    }
-                    mux.try_journal_terminal_output(
-                        terminal_id.clone(),
-                        self.journal_generation.clone(),
-                        occurred_at_ms,
-                        pending,
-                    )
-                };
-                let retry = match retry {
-                    Ok(retry) => retry,
-                    Err(error) => {
-                        return self.stop_journal_capture(
-                            &mux,
-                            terminal_id,
-                            "journal_output_write_failed",
-                            None,
-                            &error,
-                        );
-                    }
-                };
-                let Some((retry, space_epoch)) = retry else { break };
-                pending = retry;
-                let deadline = mux.terminal_journal_durable_deadline();
-                if let Err(error) = mux.wait_for_terminal_journal_space_until(space_epoch, deadline)
-                {
-                    return self.stop_journal_capture(
-                        &mux,
-                        terminal_id,
-                        "journal_output_deadline_expired",
-                        Some(deadline),
-                        &error,
-                    );
-                }
-            }
-        }
+        mux.output_store.append(&terminal_id, &self.journal_generation, bytes);
     }
 
     pub(super) fn journal_geometry(&self, geometry: PtyGeometry) {
@@ -707,40 +666,5 @@ impl PtySurface {
         // one consistent boundary for text and dimensions.
         self.stream_progress.notify();
         Ok(true)
-    }
-}
-
-impl PtyTerminalRuntime {
-    /// A failed journal writer, or one that stays full past the durable
-    /// deadline, stops this terminal's capture; the terminal reader, the
-    /// terminal and the daemon keep running. The journal gets a
-    /// `terminal.output.gap` record when it still accepts one. The failure is
-    /// involuntary, so it must not take the user shutdown path
-    /// (`request_daemon_shutdown` marks a session shutdown, which records
-    /// signal deaths as session_shutdown).
-    pub(super) fn stop_journal_capture(
-        &self,
-        mux: &Mux,
-        terminal_id: Arc<TerminalPublicId>,
-        reason: &'static str,
-        deadline: Option<Instant>,
-        error: &str,
-    ) {
-        self.journal_capture_disabled.store(true, Ordering::Release);
-        let generation = self.journal_generation.clone();
-        let gap = match deadline {
-            Some(deadline) => {
-                mux.try_journal_terminal_output_gap_until(terminal_id, generation, reason, deadline)
-            }
-            None => mux.try_journal_terminal_output_gap(terminal_id, generation, reason),
-        };
-        if gap.is_err() {
-            eprintln!(
-                "cmux-tui: terminal journal gap marker could not be recorded; terminal capture remains disabled"
-            );
-        }
-        eprintln!(
-            "cmux-tui: terminal journal capture disabled after a write failure; daemon remains available: {error}"
-        );
     }
 }

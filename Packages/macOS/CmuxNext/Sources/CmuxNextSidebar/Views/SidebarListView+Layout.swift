@@ -17,6 +17,7 @@ extension SidebarListViewComponents {
         workspaces = [:]
         tabs = [:]
         groups = [:]
+        groupSubtrees = [:]
         sections = [:]
         listItems = [:]
         for section in listSections {
@@ -26,6 +27,13 @@ extension SidebarListViewComponents {
                 case let .workspace(ws): workspaces[ws.id] = ws
                 case let .group(group):
                     groups[group.id] = group
+                    if groupSubtrees[group.id] == nil { groupSubtrees[group.id] = [group.id] }
+                    var ancestor = group.parent, seen: Set<GroupID> = [group.id]
+                    // A malformed parent chain (a cycle) stops at the first group seen again.
+                    while let id = ancestor, groupSubtrees[id] != nil, seen.insert(id).inserted {
+                        groupSubtrees[id]?.append(group.id)
+                        ancestor = groups[id]?.parent
+                    }
                     for ws in group.workspaces { workspaces[ws.id] = ws }
                     for member in group.items { listItems[member.item.id] = member.item } // a group's link, tab or app member row
                 case let .item(item): listItems[item.id] = item
@@ -56,7 +64,15 @@ extension SidebarListViewComponents {
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = model.listOptions()
         o.showsSoleMachineHeader = true
+        o.pullRequests = SidebarSessionTree.shared.pullRequests
+        if let tree = SidebarSessionTree.shared.drawn {
+            (o.sessionTree, o.keycaps) = (tree, model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation))
+            o.chatHistory = SidebarChatHistory.shared.state
+        }
         o.excludedWorkspaces.formUnion(leaving)
+        (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)
+        // A drop resolves by the drawn rows' model indexes: while a drag runs, every row shows in its place.
+        if shownDrag != nil || external != nil { (o.foldsDone, o.rowLimit) = (false, 0) }
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight
@@ -84,16 +100,12 @@ extension SidebarListViewComponents {
         return o
     }
     func frame(for row: SidebarRow) -> NSRect {
-        // Group members start right of their group's line (`SidebarStyle.groupGutter`).
         // A block's region draws its own insets, as the band did.
         if case .block = row.key { return NSRect(x: 0, y: row.y, width: bounds.width, height: row.height) }
-        // One gutter per group level (`SidebarRow.depth`): a nested group's header and members move in
-        // with it (remote-groups-DESIGN.md slice 2).
-        let gutter: CGFloat = switch row.key {
-        case .workspace, .tab, .item: row.group == nil ? 0 : SidebarStyle.groupGutter * CGFloat(max(1, row.depth))
-        case .group: SidebarStyle.groupGutter * CGFloat(row.depth)
-        default: 0
-        }
+        // A top-level group's rows keep the ungrouped rows' left edge; its line sits in the inset
+        // beside them (`SidebarStyle.groupLineX`). A nested group's header and members step in one
+        // gutter per level below the top (`SidebarRow.groupGutter`, remote-groups-DESIGN.md slice 2).
+        let gutter = row.groupGutter
         // Rows end `rowTrailingTrim` short of the list's right inset, so a row's pill never runs to
         // the sidebar's edge (Leo 2026-10-20, Chrome's vertical tabs).
         return NSRect(x: inset + gutter, y: row.y, width: max(0, bounds.width - inset * 2 - gutter - SidebarStyle.rowTrailingTrim),
@@ -112,6 +124,7 @@ extension SidebarListViewComponents {
         defer { updateHover() }
         let old = displayed
         displayed = layout
+        onApply?(layout)
         groupEditing.adoptReidentified(from: old, to: layout)
         selectedRowKey = layout.selectedRowKey(for: model.selectedItem, in: model.sections)
         updateDocumentHeight()
@@ -219,6 +232,8 @@ extension SidebarListViewComponents {
         let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: animate || adopting)
+        chatHistory.place(layout, state: SidebarChatHistory.shared.state, metrics: model.minimal ? metrics.minimal : metrics, in: self,
+                          animated: animate || adopting)
         let lines = groupLineViews.update(groupLines(layout), from: animate || adopting ? groupLines(layout, current: true) : [], in: self, above: decorations,
                                           animated: animate || adopting)
         if adopting { return adoptRows(targets: targets, leaving: leaving, lines: lines) }
@@ -232,7 +247,7 @@ extension SidebarListViewComponents {
         case let (.workspace(id), view as WorkspaceRowView):
             guard let ws = workspaces[id] else { return }
             view.configure(ws, row: row, badgeStyle: model.rowBadgeStyle)
-            view.isSecondarySelected = model.selection.contains(id) && !view.isSelected
+            paintSecondaryFills(view, id)
             view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id)
         case let (.item(id), view as SidebarItemListRowView):
             guard let item = listItems[id] else { return }
@@ -245,7 +260,8 @@ extension SidebarListViewComponents {
             guard let tab = tabs[tabID] else { return }
             view.configure(tab, row: row)
         case let (.group(id), view as GroupHeaderRowView):
-            guard let group = groups[id] else { return }
+            // The model's own group when the cache (rebuilt on reload) lags it: a held drag shows the live sections.
+            guard let group = groups[id] ?? model.group(id) else { return }
             var details = model.groupHeaderDetails
             details.otherStates = model.detailedStatus
             view.configure(group, row: row, details: details, animated: animated)
@@ -255,6 +271,8 @@ extension SidebarListViewComponents {
             view.configure(section, row: row)
         case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection))
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
+        case let (.status, view as StatusHeaderRowView): view.configure(row)
+        case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView): view.configure(row)
         default:
             break
         }

@@ -14,8 +14,10 @@ struct ChiefPetRoutes {
     weak var services: AppServices?
 
     func makePet() -> ChiefPetController {
+        // The notices' card shows over cmux only; over another app the pet's badge counts what waits.
         ChiefPetController(makePanel: { ChiefPetPanel() }, actions: ChiefPetActions(
-            registry: services?.registry, open: { open($0) }, send: { await send(to: $0, $1) }, openSettings: { openSettings() }))
+            registry: services?.registry, open: { open($0) }, send: { await send(to: $0, $1) }, openSettings: { openSettings() }),
+            appIsActive: { NSApp.isActive })
     }
 
     /// Chief Pet Settings…: the Chief Settings popover over a Chief's Home on screen (its

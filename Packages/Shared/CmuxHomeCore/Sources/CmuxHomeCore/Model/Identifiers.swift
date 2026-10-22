@@ -34,6 +34,18 @@ public struct IdempotencyKey: RawRepresentable, Hashable, Sendable, Codable, Cus
     public init(_ rawValue: String) { self.rawValue = rawValue }
     public var description: String { rawValue }
 
+    /// Who of the Chief's team wrote a message whose `client_msg_id` this is:
+    /// `voice:<name>:<rest>` (optchat-chief `voice.rs`), e.g. `desk` for the
+    /// front desk. Nil for every other key.
+    public var voice: String? {
+        guard rawValue.hasPrefix("voice:") else { return nil }
+        let rest = rawValue.dropFirst("voice:".count)
+        guard let colon = rest.firstIndex(of: ":") else { return nil }
+        let name = rest[..<colon]
+        let allowed = name.unicodeScalars.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" }
+        return !name.isEmpty && allowed ? String(name) : nil
+    }
+
     /// A fresh random key (`cmk_` + 26 lowercase base32 characters).
     public static func make() -> IdempotencyKey {
         var generator = SystemRandomNumberGenerator()

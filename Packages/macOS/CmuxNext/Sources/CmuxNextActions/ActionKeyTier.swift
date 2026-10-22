@@ -3,8 +3,9 @@ public import AppKit
 /// Where an action's shortcut sits in the key routing order
 /// (plans/cmux-next/focus.md section 5). Lower tiers run first.
 public nonisolated enum ActionKeyTier: Int, Comparable, CaseIterable, Sendable {
-    /// App and window control. Always runs: no content, text field or
-    /// browser focus mode can capture it.
+    /// App and window control. Always runs: no content or text field can
+    /// capture it. Browser focus mode gives these keys to the page too,
+    /// except its own toggle and Quit (the key router's rule).
     case system = 0
     /// Navigation and layout. Beats terminal keybinds, page shortcuts and
     /// text fields; yields to browser focus mode.
@@ -33,8 +34,8 @@ public nonisolated enum ActionKeyTier: Int, Comparable, CaseIterable, Sendable {
         }
     }
 
-    /// Actions that must always work, even inside a web app in browser
-    /// focus mode (the exit chord is one of them).
+    /// Actions that must always work, even in a text field. In browser
+    /// focus mode only the exit chord and Quit keep their keys.
     static let systemActions: Set<ActionID> = [
         "quit", "closeTab", "closeWorkspace", "closeWindow", "newWindow", "newIncognitoWindow", "commandPalette",
         "toggleBrowserFocusMode", "openSettings", "showHideAllWindows", "toggleFullScreen",
@@ -53,7 +54,7 @@ public nonisolated enum ActionKeyTier: Int, Comparable, CaseIterable, Sendable {
     static let contentContexts: ActionContext = [
         .terminalFocused, .browserFocused, .simulatorFocused, .diffViewerFocused, .filePreviewFocused, .codeEditorFocused,
         .markdownFocused, .rightSidebarFocused, .fileExplorerFocused, .textBoxFocused, .paletteOpen, .agentPaneFocused,
-        .webViewFocused,
+        .markdownReadOnlyFocused, .markdownEditorFocused, .webViewFocused,
     ]
 
     /// The catalog default for `descriptor`.

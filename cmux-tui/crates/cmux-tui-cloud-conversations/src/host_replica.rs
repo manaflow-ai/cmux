@@ -712,18 +712,21 @@ impl Driver {
             Err(Ok(why)) => return Ok(Ended::Dropped(why)),
         };
         let url = (lease.ws_url)(&format!("/v1/wire/host/{host}"));
-        let wire =
-            match self.inner.backend.connect(&url, &lease.token, lease.client_version.as_deref()) {
-                Ok(wire) => wire,
-                Err(ConnectError::Unauthenticated) => return Err(Phase::Unauthenticated),
-                Err(ConnectError::Forbidden) => {
-                    // The host is gone (410) or no longer ours (403): it stays off
-                    // for this install until the app clears the replica.
-                    self.forget_removed_host(lease);
-                    return Err(Phase::Forbidden);
-                }
-                Err(ConnectError::Unavailable(why)) => return Ok(Ended::Dropped(why)),
-            };
+        let wire = match self.inner.backend.connect(
+            &url,
+            Some(lease.token.as_str()),
+            lease.client_version.as_deref(),
+        ) {
+            Ok(wire) => wire,
+            Err(ConnectError::Unauthenticated) => return Err(Phase::Unauthenticated),
+            Err(ConnectError::Forbidden) => {
+                // The host is gone (410) or no longer ours (403): it stays off
+                // for this install until the app clears the replica.
+                self.forget_removed_host(lease);
+                return Err(Phase::Forbidden);
+            }
+            Err(ConnectError::Unavailable(why)) => return Ok(Ended::Dropped(why)),
+        };
         Ok(self.serve(lease, &host, wire))
     }
 
@@ -751,7 +754,12 @@ impl Driver {
         let reply = self
             .inner
             .backend
-            .post(&lease.enroll_url, &lease.token, lease.client_version.as_deref(), &body)
+            .post(
+                &lease.enroll_url,
+                Some(lease.token.as_str()),
+                lease.client_version.as_deref(),
+                &body,
+            )
             .map_err(|error| Ok(format!("host.enroll: {}", error.0)))?;
         match reply.status {
             200 => {}

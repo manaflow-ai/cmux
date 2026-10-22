@@ -12,6 +12,10 @@ import Foundation
 /// name, command, and extra environment through `newTab`'s arguments.
 struct WorkspaceSpawn: Sendable {
     var cwd: String?
+    /// A person's Cmd-N: the folder of the tab they work in (Ghostty's
+    /// `window-inherit-working-directory`, NewTerminalStart.folder). After
+    /// `cwd` and the room's own default folder, before the daemon's default.
+    var inheritedCwd: String?
     var name: String?
     var command: String?
     var env: [String: String] = [:]
@@ -165,7 +169,7 @@ struct WorkspaceSpawner {
                     _ = await daemon.failure("close-workspace") { connection in
                         try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: terminals, on: connection)
                     }
-                }) { try await named.create(key, rule: rule) }
+                }, settle: { await Self.settled(on: daemon) }) { try await named.create(key, rule: rule) }
             } catch {
                 PendingWorkspaceRows.shared.remove(key.rawValue)
                 throw error
@@ -185,7 +189,8 @@ struct WorkspaceSpawner {
               spawn.browserProfile == nil, spawn.cwd == nil || daemon.isLocal else { return nil }
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         let room = services.machines.local.store.profile(spawn.profile ?? profile)
-        let cwd = spawn.cwd ?? (daemon.isLocal ? room?.defaults : nil)?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
+        let cwd = spawn.cwd ?? (daemon.isLocal ? room?.defaults : nil)?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
+            ?? (daemon.isLocal ? spawn.inheritedCwd : nil) ?? daemon.defaultCwd
         guard services.agentTabs.showsWorkspaceAtOnce(on: daemon) else { return nil }
         // Claimed first, so the reconcile the intent runs places and selects it in this window in this turn;
         // its slot is placed in the turn the daemon's workspace takes the stand-in over.
@@ -202,9 +207,9 @@ struct WorkspaceSpawner {
                     _ = await daemon.failure("close-workspace") { connection in
                         try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: [], on: connection)
                     }
-                }) {
+                }, settle: { await Self.settled(on: daemon) }) {
                     if let room, let session = daemon.store.registryID, let home = services.machines.local.connection {
-                        try await home.pinWorkspace(session: session, key: key, to: room.id); BenchSpans.mark("cmdN.pinWorkspace.returned")
+                        try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) { try await home.pinWorkspace(session: session, key: key, to: room.id) }; BenchSpans.mark("cmdN.pinWorkspace.returned")
                     }
                     return try await shown.confirm()
                 }
@@ -215,6 +220,14 @@ struct WorkspaceSpawner {
                 throw error
             }
         }
+    }
+
+    /// The check that `daemon`'s store has applied every event before now (a
+    /// create's reply): a write barrier taken without waiting for it.
+    private static func settled(on daemon: DaemonService) async -> @MainActor () -> Bool {
+        guard let barrier = await daemon.connection?.eventSequence() else { return { false } }
+        let store = daemon.store
+        return { store.appliedSequence >= barrier }
     }
 
     /// The profile the workspace is born in: its window's, else the active
@@ -243,7 +256,7 @@ struct WorkspaceSpawner {
         let home = services.machines.local
         let room = home.store.profile(spawn.profile ?? profile)
         if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
-            try await homeConnection.pinWorkspace(session: session, key: key, to: room.id); BenchSpans.mark("cmdN.pinWorkspace.returned")
+            try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) { try await homeConnection.pinWorkspace(session: session, key: key, to: room.id) }; BenchSpans.mark("cmdN.pinWorkspace.returned")
         }
         if let browserProfile = spawn.browserProfile {
             let qualified = BrowserProfileService.QualifiedWorkspace(session: daemon.store.registryID ?? daemon.machineID, key: key.rawValue)
@@ -259,7 +272,8 @@ struct WorkspaceSpawner {
         let env: [String: String]? = daemon.supports(DaemonCapabilities.shared.terminalEnv) ? vars : nil
         let keep: Bool? = spawn.keep && daemon.supports(DaemonCapabilities.shared.terminalReap) ? true : nil
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
-        let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
+        let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
+            ?? (daemon.isLocal ? spawn.inheritedCwd : nil) ?? daemon.defaultCwd
         BenchSpans.mark("cmdN.create.sending")
         if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
         let command = spawn.command

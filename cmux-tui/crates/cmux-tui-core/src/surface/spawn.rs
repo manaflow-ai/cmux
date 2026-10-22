@@ -136,7 +136,6 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
-                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -365,7 +364,7 @@ impl Surface {
                         if let (Some(journal_target), Some(journal_output)) =
                             (journal_target, journal_output)
                         {
-                            pty.journal_output_if_open(journal_target, journal_output.into_owned());
+                            pty.record_output(journal_target, journal_output.as_ref());
                         }
                         drop(journal_update);
                         surface.publish_pending_directory();

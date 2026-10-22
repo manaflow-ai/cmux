@@ -14,10 +14,10 @@ struct WorkspaceTodoRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Button { actions.toggle(item.id) } label: {
                 Image(systemName: Self.symbol(item.state))
-                    .foregroundStyle(item.state == .done ? Color(nsColor: Palette.accent) : Color.secondary)
+                    .foregroundStyle(item.state == .done ? Color(nsColor: Palette.litGlyph) : Color.secondary)
             }
             .buttonStyle(.plain)
-            .help(WorkspaceChecklistStrings.toggle)
+            .accessibilityLabel(WorkspaceChecklistStrings.toggle)
             if isEditing {
                 TextField(WorkspaceChecklistStrings.addPlaceholder, text: $text)
                     .textFieldStyle(.plain)
@@ -37,7 +37,7 @@ struct WorkspaceTodoRow: View {
                 Label { Text(verbatim: "\(item.attachments.count)") } icon: { Image(systemName: "photo") }
                     .labelStyle(.titleAndIcon)
                     .foregroundStyle(.secondary)
-                    .help(item.attachments.map(\.name).joined(separator: "\n"))
+                    .themedHelp(item.attachments.map(\.name).joined(separator: "\n"))
             }
         }
         .padding(.vertical, 4)

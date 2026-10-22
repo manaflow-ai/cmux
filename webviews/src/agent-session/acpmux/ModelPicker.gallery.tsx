@@ -142,8 +142,8 @@ const numericSearch: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-mp input[role="combobox"]') !== null);
 };
 
-/// The compact model menu (Debug Settings `agent.modelMenu`, compact by default): numbered top
-/// models, then Effort and Account beside their rows, then More models.
+/// The compact model menu, the one menu every composer's model button opens (Leo 2026-10-20):
+/// numbered top models, then Effort, More models and Account beside their rows, then Fast mode.
 const accounts: ChatAccounts = {
   list: async () => ({
     accounts: [
@@ -170,6 +170,7 @@ const quick: ModelPickerProps = {
       onPick: () => undefined,
     },
     account: { sessionId: "gallery-chat", accounts },
+    fast: { checked: false, onChange: () => undefined },
   },
 };
 
@@ -182,6 +183,7 @@ export default componentEntry<GalleryProps>({
   id: "agent-pane.model-picker",
   title: "Model picker",
   area: "Agent pane",
+  pane: true,
   height: 390,
   widths: { narrow: 200, normal: 420, wide: 760 },
   anchors: [{ selector: ".acpmux-model" }],

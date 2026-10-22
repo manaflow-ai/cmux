@@ -75,7 +75,8 @@ enum WorkspaceMetadataHandlers {
         try context.require(DaemonCapabilities.shared.workspaceMetadata)
         let (workspace, key) = try context.workspace(invocation)
         if let sidebar = context.activeWindow?.sidebar {
-            sidebar.handle(.setColor([SidebarWorkspaceID(workspace.id)], color))
+            // A person's swatch on one of several selected rows colors them all (the selection menu's header).
+            sidebar.handle(.setColor(try WindowMembershipHandlers.rowTargets(invocation, context).map { SidebarWorkspaceID($0.id) }, color))
         } else {
             let update: FieldUpdate<String> = color.map { .set($0.rawValue) } ?? .clear
             let daemon = context.services.activeDaemon, resource = daemon.store.stateResourceID(workspace: key)

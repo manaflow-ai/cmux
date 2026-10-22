@@ -18,9 +18,23 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         var next = 1
         var entries: [Int: Entry] = [:]
         var inFlight: Set<String> = []
+        /// Told when the daemon answers a relay id (``whenAnswered(_:_:)``).
+        var answered: [Int: @Sendable () -> Void] = [:]
     }
 
     private let state = Mutex(State())
+    /// Told the promptId of each `_acpmux/prompt_accepted` the daemon sends (``AgentPanePromptJournal``).
+    private let promptAccepted: (@Sendable (String) -> Void)?
+
+    init(promptAccepted: (@Sendable (String) -> Void)? = nil) {
+        self.promptAccepted = promptAccepted
+    }
+
+    /// Calls `handler` (off the main thread) when the daemon answers request `id`, with a result
+    /// or an error; never when the request is cancelled.
+    func whenAnswered(_ id: Int, _ handler: @escaping @Sendable () -> Void) {
+        state.withLock { $0.answered[id] = handler }
+    }
 
     /// An id for a request the host sends itself (the person proof): its reply matches no page
     /// request, so it never reaches the page.
@@ -48,6 +62,7 @@ nonisolated final class AcpmuxRequestIds: Sendable {
     func cancel(_ id: Int) {
         state.withLock { state in
             if let entry = state.entries.removeValue(forKey: id) { state.inFlight.remove(entry.pageID) }
+            state.answered[id] = nil
         }
     }
 
@@ -72,15 +87,20 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         }
         guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return .drop }
         if object["method"] != nil {
+            if object["method"] as? String == "_acpmux/prompt_accepted", let promptAccepted,
+               let promptId = (object["params"] as? [String: Any])?["promptId"] as? String {
+                promptAccepted(promptId)
+            }
             guard let fresh = Self.encode(object) else { return .drop }
             return .page(fresh, object: object, replyTo: nil)
         }
-        guard let relayID = object["id"].flatMap(AcpmuxPaneMethods.rawID).flatMap({ Int($0) }),
-              let entry = state.withLock({ state -> Entry? in
-                  guard let entry = state.entries.removeValue(forKey: relayID) else { return nil }
-                  state.inFlight.remove(entry.pageID)
-                  return entry
-              }), let id = Self.value(entry.pageID) else { return .drop }
+        guard let relayID = object["id"].flatMap(AcpmuxPaneMethods.rawID).flatMap({ Int($0) }) else { return .drop }
+        state.withLock { $0.answered.removeValue(forKey: relayID) }?()
+        guard let entry = state.withLock({ state -> Entry? in
+            guard let entry = state.entries.removeValue(forKey: relayID) else { return nil }
+            state.inFlight.remove(entry.pageID)
+            return entry
+        }), let id = Self.value(entry.pageID) else { return .drop }
         object["id"] = id
         if let shape = AcpmuxPaneMethods.replyShapes[entry.method] {
             return .page(AcpmuxPaneMethods.filteredReply(object, shape: shape, pageID: entry.pageID), object: object, replyTo: entry.method)

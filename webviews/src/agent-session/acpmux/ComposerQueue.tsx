@@ -4,25 +4,48 @@
 // off or drawn over, and the transcript scrolls in what is left.
 //
 // Keyboard first: ↑ on an empty prompt goes to the last row; on a row, ↑/↓ move between rows (↓
-// past the last goes back to the prompt), Return edits it in place, ⌥↑/⌥↓ move it in the queue,
-// ⌘Return sends it now and Delete removes it. Esc goes back to the prompt.
+// past the last goes back to the prompt), Return edits it in place, ⌥↑/⌥↓ move it in the queue
+// and Delete removes it. Esc goes back to the prompt.
+//
+// Every row shows ChatGPT's and Codex's actions, in their order (Leo, 2026-10-21: "is this really
+// the right order? ... I thought we had a trash can"): Steer (its word beside its ↪ glyph), a trash
+// can that deletes the prompt, and a ⋯ menu with Edit message, Open in side chat (where the chat
+// can open one) and Turn off queueing (queueing.ts). Steer is the user's override: it steers the
+// prompt into the running turn and stops only its current step, so the agent reads it at once and
+// the turn runs on; to an agent that cannot steer it runs next. It never cancels a turn. Only a
+// click steers, never a key: a held or repeated key once sent row after row (claude-sr2,
+// 2026-10-20). The row's right-click menu has Steer, Edit message, the moves and Delete.
+//
+// Another agent's message waiting in the queue (`message`, direct.ts `queuedMessage`) is not the
+// person's prompt: its row is the message's received line (conversation/IncomingMessageCard.tsx), as
+// the transcript draws it once it runs: the sender's mark, its name as a chip that opens its chat,
+// and the message as a card under it, cut to six lines when longer. Its actions, Steer too, sit at
+// the line's end (Leo, 2026-10-21).
+//
+// A prompt's images show as small thumbnails under its text (QueuedImages.tsx), each opening the
+// image viewer; while it is edited each has a remove control, and Save keeps only the images left
+// (Leo, 2026-10-21).
 //
 // After a failed turn acpmux pauses the queue: a note above the rows says so, with Resume.
 //
 // A long queue folds (Leo, 2026-10-14): past three queued prompts it shows the next two and one
 // "N more queued" row, which opens the whole list in place and closes it back ("Show less"). The
 // fold is a button (aria-expanded) under the list, outside its scrolling, so ↑ from the prompt
-// reaches it first and no row runs under it. Opened, the list keeps about its folded height and
-// scrolls whole rows (composerStates.css), so the chat above moves one row at most. It stays open
-// for its chat until closed (not across reloads); prompts sent now always show.
+// reaches it first and no row runs under it. Opened, the list keeps about its folded height
+// (composerStates.css), so the chat above moves one row at most, and scrolls freely: a scroll rests
+// where it stops, its end too. It stays open for its chat until closed (not across reloads);
+// prompts sent now always show.
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
+import { QueuedImages } from "./QueuedImages";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
-import { experimentArm } from "../../experiments/experiment";
-import { hoverActions } from "../../ui/hoverActions.experiment";
+import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
+import { IncomingMessageLine } from "./conversation/IncomingMessageCard";
+import { SubsessionContext, type Subsessions } from "./subagents/subsessions";
+import { setQueueing, useQueueing } from "./queueing";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
@@ -35,8 +58,10 @@ const openQueues = new Set<string>();
 // The list rests on whole rows (captures of 436917b and f1a737b, 2026-10-15). Its height is the
 // bottom of the last row that fits under its cap: the CSS cap folded, the third row's bottom opened
 // (so opening moves the chat above by about a row, whatever the rows' heights), and opening lands at
-// its top. A row that takes focus scrolls in whole, its "Queued" header with it at the top; a row
-// the edge cuts while the list scrolls still draws (a blank slot read as a missing prompt).
+// its top. A row focused from the keyboard scrolls in whole, its "Queued" header with it at the top;
+// a press never scrolls the list (the row under it moved before the release, so a click on a row the
+// edge cut landed on another or none: Leo, 2026-10-20). A row the edge cuts still draws (a blank
+// slot read as a missing prompt).
 
 /** Where `el` sits in the list's content, from its top (not moved by scrolling). */
 function offsets(list: HTMLElement, el: Element) {
@@ -93,17 +118,23 @@ export function ComposerQueue({
   queue,
   chat,
   paused,
+  pauseReason,
   t,
   onRemove,
   onChange,
   onLost,
   onLeave,
+  readImage,
+  subsessions,
+  onSideChat,
 }: {
   queue: AcpmuxSnapshot["queue"];
   /// The chat the queue belongs to: a long queue opened stays open for it.
   chat?: string;
   /// A turn failed and the queue waits for Resume (acpmux `queuePaused`).
   paused?: boolean;
+  /// That turn's error (queuePause.ts), which the paused note names.
+  pauseReason?: string;
   t: Translate;
   /// Withdraws a waiting prompt; false when it already started (it then leaves with the turn).
   onRemove?(id: string): Promise<boolean>;
@@ -113,10 +144,24 @@ export function ComposerQueue({
   onLost?(text: string): void;
   /// Focus leaves the queue for the prompt.
   onLeave?(): void;
+  /// Reads an image a queued prompt sends by its acpmux id, as a data URL (`_acpmux/attachment`).
+  readImage?(id: string): Promise<string | undefined>;
+  /// The listed chats, which an agent's message names its sender among, and how its chip opens one.
+  subsessions?: Subsessions | null;
+  /// Opens a side chat that asks this prompt (as `/btw` does) and withdraws it from the queue; false
+  /// when it already started. Absent where the chat opens no side chat.
+  onSideChat?(id: string, prompt: string): Promise<boolean>;
 }) {
   // A row leaves as soon as it is removed; it comes back only if acpmux kept it waiting.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
-  const [editing, setEditing] = useState<string>();
+  const queueing = useQueueing();
+  const [editing, setEditingId] = useState<string>();
+  // The images the open edit drops from its prompt.
+  const [dropped, setDropped] = useState<ReadonlySet<string>>(new Set());
+  const setEditing = (id: string | undefined) => {
+    setDropped(new Set());
+    setEditingId(id);
+  };
   // Rows opened to their whole text (a row shows two lines until it is opened).
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const toggle = (id: string) =>
@@ -141,6 +186,8 @@ export function ComposerQueue({
   // The row that takes focus once it draws: the next one after a row leaves, when it was folded.
   const focusNext = useRef<string>(undefined);
   const foldButton = useRef<HTMLButtonElement>(null);
+  // A press in the list, until its release: the focus it gives a row does not scroll the list.
+  const pressing = useRef(false);
   useEffect(() => {
     setLeaving((current) => {
       const kept = [...current].filter((id) => queue.some((entry) => entry.id === id));
@@ -150,20 +197,24 @@ export function ComposerQueue({
       const open = draft.current;
       if (open?.id === editing && open.text.trim() && open.text !== open.original) onLost?.(open.text.trim());
       draft.current = undefined;
-      setEditing(undefined);
+      setDropped(new Set());
+      setEditingId(undefined);
     }
   }, [queue, editing, onLost]);
-  // Whole rows only: the list's height, after every draw and when its width changes.
-  const watched = useRef<{ list: HTMLElement; observer: ResizeObserver }>(undefined);
+  // Whole rows only: the list's height, after every draw, when its width changes, and when a row's
+  // height does: an agent's message opened, or its Details, is that line's own state
+  // (IncomingMessageLine), which draws no queue again.
+  const watched = useRef<{ list: HTMLElement; observer: ResizeObserver; rows: ResizeObserver }>(undefined);
   const wasOpen = useRef(unfolded);
   useLayoutEffect(() => {
     const current = list.current;
     if (current) fitList(current);
-    // Opening lands at the top: the header and the next prompt (row snapping kept it on row 2).
+    // Opening lands at the top: the header and the next prompt.
     if (current && unfolded && !wasOpen.current) current.scrollTop = 0;
     wasOpen.current = unfolded;
     if (watched.current?.list !== current) {
       watched.current?.observer.disconnect();
+      watched.current?.rows.disconnect();
       watched.current = undefined;
       if (current && typeof ResizeObserver !== "undefined") {
         let width = current.clientWidth;
@@ -173,11 +224,24 @@ export function ComposerQueue({
           fitList(current);
         });
         observer.observe(current);
-        watched.current = { list: current, observer };
+        const rows = new ResizeObserver(() => fitList(current));
+        watched.current = { list: current, observer, rows };
       }
     }
+    // The rows drawn now; a row gone stops being watched with its element.
+    const rows = watched.current?.rows;
+    if (rows && current) {
+      rows.disconnect();
+      for (const row of current.querySelectorAll(":scope > .acpmux-queued")) rows.observe(row);
+    }
   });
-  useEffect(() => () => watched.current?.observer.disconnect(), []);
+  useEffect(
+    () => () => {
+      watched.current?.observer.disconnect();
+      watched.current?.rows.disconnect();
+    },
+    [],
+  );
   useLayoutEffect(() => {
     const id = refocus.current;
     const row = id ? list.current?.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`) : null;
@@ -235,12 +299,17 @@ export function ComposerQueue({
     }, 1000);
   };
   const remove = onRemove && ((entry: QueuedEntry) => act(entry.id, () => onRemove(entry.id)));
-  // A prompt sent now stays in place: acpmux marks it next (`queue_order`), so its row reads
-  // Steering until it runs; to an agent that steers it leaves once acpmux takes it (`dequeued`).
-  // Hiding it as leaving showed nothing until the turn it stopped had ended (live run 2026-10-14).
+  // A side chat asks the prompt's text alone, so a prompt with images stays in the queue.
+  const sideChat =
+    onSideChat &&
+    ((entry: QueuedEntry) =>
+      entry.images?.length ? undefined : () => act(entry.id, () => onSideChat(entry.id, entry.prompt)));
+  // A prompt sent now stays in place: to an agent that cannot steer acpmux marks it next
+  // (`queue_order`), so its row reads Steering until it runs; to an agent that steers it leaves
+  // once acpmux takes it (`dequeued`). Hiding it as leaving showed nothing until it ran (live run
+  // 2026-10-14).
   const sendNow =
     onChange && ((entry: QueuedEntry) => void onChange(entry.id, { op: "send_now" }).catch(() => undefined));
-  const allActions = experimentArm(hoverActions) === "all";
   // A move to the place of the row shown at `index` (acpmux counts rows still leaving too); the
   // moved row keeps focus once acpmux's new order draws.
   const move =
@@ -257,13 +326,26 @@ export function ComposerQueue({
         }, 500),
       );
     });
+  // The open edit ends unsaved, its images all kept; focus goes back to its row.
+  const cancel = (index: number) => {
+    draft.current = undefined;
+    setEditing(undefined);
+    focusRow(index);
+  };
   const save = (entry: QueuedEntry, text: string) => {
+    const images = entry.images ?? [];
+    const kept = images.filter((image) => !dropped.has(image.id));
     draft.current = undefined;
     setEditing(undefined);
     focusRow(shown.indexOf(entry));
     const next = text.trim();
-    if (!next || next === entry.prompt || !onChange) return;
-    void onChange(entry.id, { op: "update", text: next }).then((ok) => {
+    // Text alone keeps every image; an image removed sends the ones left.
+    const removed = kept.length < images.length;
+    if (!next || (next === entry.prompt && !removed) || !onChange) return;
+    const edit: QueueEdit = removed
+      ? { op: "update", text: next, images: kept.map((image) => image.id) }
+      : { op: "update", text: next };
+    void onChange(entry.id, edit).then((ok) => {
       if (!ok) onLost?.(next);
     });
   };
@@ -274,10 +356,10 @@ export function ComposerQueue({
       event.preventDefault();
       event.stopPropagation();
     };
-    if (event.key === "Enter" && event.metaKey && sendNow) {
+    if (event.key === "Enter" && event.metaKey) {
+      // ⌘↩ on a row does nothing: Send now is a click (above). It would send the prompt from the
+      // composer otherwise.
       done();
-      sendNow(entry);
-      focusAfter(index);
     } else if (event.key === "Enter" && plain && onChange) {
       done();
       setEditing(entry.id);
@@ -319,8 +401,17 @@ export function ComposerQueue({
     onSelect,
   });
   const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] => [
-    ...(sendNow ? [item("send", t("composer.queueSendNow"), "⌘↩", () => sendNow(entry))] : []),
-    ...(onChange ? [item("edit", t("composer.queueEdit"), "↩", () => setEditing(entry.id))] : []),
+    ...(sendNow
+      ? [
+          {
+            id: "steer",
+            ariaLabel: t("composer.queueSteer"),
+            label: t("composer.queueSteer"),
+            onSelect: () => sendNow(entry),
+          },
+        ]
+      : []),
+    ...(onChange ? [item("edit", t("composer.queueEditMessage"), "↩", () => setEditing(entry.id))] : []),
     ...(move
       ? [
           {
@@ -337,13 +428,89 @@ export function ComposerQueue({
     ...(remove
       ? [
           {
-            ...item("remove", t("composer.queueRemove"), "⌫", () => remove(entry)),
+            ...item("delete", t("composer.queueDelete"), "⌫", () => remove(entry)),
             destructive: true,
             separatorBefore: true,
           },
         ]
       : []),
   ];
+  // The row's actions, as ChatGPT and Codex show them: Steer (a glyph and its word), the trash can
+  // (an icon named by its tooltip), and the ⋯ menu. Plain glyphs: a soft pill on hover only.
+  const actions = (entry: QueuedEntry) => {
+    const side = sideChat?.(entry);
+    return (
+      <span className="acpmux-queued-actions">
+        {sendNow && (
+          <button
+            type="button"
+            className="acpmux-queued-action acpmux-queued-steer"
+            data-action="steer"
+            aria-label={t("composer.queueSteer")}
+            onClick={() => sendNow(entry)}
+          >
+            <Icon name="composer.steer" size={14} />
+            <span>{t("composer.queueSteer")}</span>
+          </button>
+        )}
+        {remove && (
+          <button
+            type="button"
+            className="acpmux-queued-action"
+            data-action="delete"
+            aria-label={t("composer.queueDelete")}
+            title={t("composer.queueDelete")}
+            onClick={() => remove(entry)}
+          >
+            <Icon name="action.delete" size={14} />
+          </button>
+        )}
+        <Menu>
+          <MenuButton
+            className="acpmux-queued-action"
+            data-menu="queued-more"
+            label={t("composer.queueActions")}
+            title={t("composer.queueActions")}
+            aria-haspopup="menu"
+          >
+            <Icon name="action.more" size={14} />
+          </MenuButton>
+          <MenuPopup
+            side="top"
+            align="end"
+            className="acpmux-quick-menu acpmux-queued-more"
+            label={t("composer.queueActions")}
+          >
+            {onChange && (
+              <MenuItem className="acpmux-quick-item" shortcut="↩" onSelect={() => setEditing(entry.id)}>
+                {t("composer.queueEditMessage")}
+              </MenuItem>
+            )}
+            {side && (
+              <MenuItem className="acpmux-quick-item" onSelect={side}>
+                {t("composer.queueSideChat")}
+              </MenuItem>
+            )}
+            <MenuItem className="acpmux-quick-item" onSelect={() => setQueueing(!queueing)}>
+              {t(queueing ? "composer.queueingOff" : "composer.queueingOn")}
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
+      </span>
+    );
+  };
+  // Another agent's message: its received line, which finds its sender among the listed chats.
+  const received = (entry: QueuedEntry, message: NonNullable<QueuedEntry["message"]>) => {
+    const line = (
+      <IncomingMessageLine
+        id={`queued:${entry.id}`}
+        message={message}
+        onOpen={(sessionId) => subsessions?.open(sessionId)}
+        actions={editing !== entry.id && actions(entry)}
+      />
+    );
+    return subsessions ? <SubsessionContext.Provider value={subsessions}>{line}</SubsessionContext.Provider> : line;
+  };
   // A row's mark, text (or its edit) and actions.
   const cells = (entry: QueuedEntry, index: number) => (
     <>
@@ -366,13 +533,10 @@ export function ComposerQueue({
           entry={entry}
           label={t("composer.queueEdit")}
           onInput={(text) => (draft.current = { id: entry.id, original: entry.prompt, text })}
-          onDone={(text) => {
-            if (text !== undefined) return save(entry, text);
-            draft.current = undefined;
-            setEditing(undefined);
-            focusRow(index);
-          }}
+          onDone={(text) => (text === undefined ? cancel(index) : save(entry, text))}
         />
+      ) : entry.message ? (
+        received(entry, entry.message)
       ) : (
         <button
           type="button"
@@ -393,63 +557,60 @@ export function ComposerQueue({
           </span>
         </button>
       )}
-      {/* Send now is the row's one hover action; Edit and Remove are on its menu and keys (Leo dogfood
-          2026-10-13). The `hover-actions` experiment's "all" arm shows them too. */}
-      {editing !== entry.id && (sendNow || (allActions && (onChange || remove))) && (
-        <span className="acpmux-queued-actions">
-          {sendNow && (
-            <button
-              type="button"
-              className="acpmux-queued-action"
-              aria-label={t("composer.queueSendNow")}
-              title={t("composer.queueSendNow")}
-              onClick={() => sendNow(entry)}
-            >
-              <Icon name="composer.send" size={14} />
-            </button>
-          )}
-          {onChange && allActions && (
-            <button
-              type="button"
-              className="acpmux-queued-action"
-              aria-label={t("composer.queueEdit")}
-              title={t("composer.queueEdit")}
-              onClick={() => setEditing(entry.id)}
-            >
-              <Icon name="action.edit" size={14} />
-            </button>
-          )}
-          {remove && allActions && (
-            <button
-              type="button"
-              className="acpmux-queued-action"
-              aria-label={t("composer.queueRemove")}
-              title={t("composer.queueRemove")}
-              onClick={() => remove(entry)}
-            >
-              <Icon name="action.delete" size={14} />
-            </button>
-          )}
-        </span>
-      )}
+      {!entry.message && editing !== entry.id && actions(entry)}
+      {/* Under the text, in its column. */}
+      <QueuedImages
+        images={
+          editing === entry.id ? (entry.images ?? []).filter((image) => !dropped.has(image.id)) : (entry.images ?? [])
+        }
+        t={t}
+        read={readImage}
+        onRemove={editing === entry.id ? (id) => setDropped((current) => new Set(current).add(id)) : undefined}
+        onLeave={
+          editing === entry.id
+            ? () => save(entry, draft.current?.id === entry.id ? draft.current.text : entry.prompt)
+            : undefined
+        }
+        onCancel={editing === entry.id ? () => cancel(index) : undefined}
+      />
     </>
   );
   return (
     <>
       <ol
         ref={list}
-        className="acpmux-composer-queue"
+        className="ui-glass acpmux-composer-queue"
         data-unfolded={foldable && !folded ? "" : undefined}
-        // A row that takes focus (keys, a move, ↑ from the prompt) scrolls in whole.
+        // A row that takes focus from the keyboard (keys, a move, ↑ from the prompt) scrolls in whole.
         onFocus={(event) => {
           const row = (event.target as HTMLElement).closest("li");
-          if (row && list.current) reveal(list.current, row);
+          if (row && list.current && !pressing.current) reveal(list.current, row);
+        }}
+        onPointerDown={(event) => {
+          pressing.current = true;
+          // Released anywhere, over the list or not; a press that ends outside the page (a
+          // native menu, the window losing focus) or before a key ends there too.
+          const page = event.currentTarget.ownerDocument;
+          const ended = new AbortController();
+          const done = () => {
+            pressing.current = false;
+            ended.abort();
+          };
+          const options = { capture: true, signal: ended.signal };
+          for (const type of ["pointerup", "pointercancel", "keydown"]) page.addEventListener(type, done, options);
+          // Not capturing: a capturing window listener also hears the blur of whatever had focus.
+          page.defaultView?.addEventListener("blur", done, { signal: ended.signal });
         }}
         aria-label={`${t("composer.queue")} (${shown.length})`}
       >
         {paused && (
           <li className="acpmux-queue-paused">
-            <span>{t("composer.queuePaused")}</span>
+            <span
+              // tooltip-allow: a long error is cut to the row; its whole text is the tooltip
+              title={pauseReason}
+            >
+              {pauseReason ? t("composer.queuePausedWhy", { error: pauseReason }) : t("composer.queuePaused")}
+            </span>
             {onChange && (
               <button
                 type="button"
@@ -467,7 +628,8 @@ export function ComposerQueue({
           index === steering && (
             <li key="queued" className="acpmux-queue-header" aria-hidden="true">
               <span className="acpmux-queued-kind">{t("composer.queued")}</span>
-              <span>{t("composer.queueAfterTurn")}</span>
+              {/* Held by a paused queue, the prompts wait for Resume, not for the turn. */}
+              <span>{t(paused ? "composer.queueHeld" : "composer.queueAfterTurn")}</span>
             </li>
           ),
           // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- A row takes focus from ↑ on the prompt and has its keys (edit, move, send now, remove); its buttons do the same by pointer.
@@ -475,7 +637,7 @@ export function ComposerQueue({
             className="acpmux-queued"
             key={entry.id}
             data-prompt-id={entry.id}
-            aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown Meta+Enter Delete"
+            aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown Delete"
             {...rovingTabStopProps(false, (event) => rowKeyDown(event, entry, index))}
           >
             {editing === entry.id ? (
@@ -490,7 +652,7 @@ export function ComposerQueue({
       </ol>
       {/* The fold sits under the list, outside its scrolling, so no row ever runs under it. */}
       {foldable && (
-        <div className="acpmux-queue-foldbar">
+        <div className="ui-glass acpmux-queue-foldbar">
           <button
             ref={foldButton}
             type="button"
@@ -561,9 +723,13 @@ function QueuedEdit({
           finish(event.key === "Enter" ? event.currentTarget.value : undefined);
         }
       }}
-      // A click elsewhere saves; leaving the window keeps the edit open.
+      // A click elsewhere saves; leaving the window keeps the edit open, and so does Tab to the
+      // prompt's image remove controls (QueuedImages.tsx), which save when focus leaves them.
       onBlur={(event) => {
-        if (document.hasFocus()) finish(event.currentTarget.value);
+        const to = event.relatedTarget;
+        const images = event.currentTarget.parentElement?.querySelector(".acpmux-queued-images");
+        if (to instanceof Node && images?.contains(to)) return;
+        if (to || document.hasFocus()) finish(event.currentTarget.value);
       }}
     />
   );

@@ -56,6 +56,10 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored private(set) var isClosed = false
     /// The re-show that applies the last render-rate change, while it runs (WebKitEngine).
     @ObservationIgnored var rateReshow: Task<Void, Never>?
+    /// Bounds how long the theme color stands in for a committed document
+    /// (`pageDidCommit`). Replaceable, so a test can give it a clock that
+    /// does not wait.
+    @ObservationIgnored var pageBaseHold = DemandTimer(owner: "browser.pageBase")
     /// The daemon's resolved emulation (`WebKitTab+DeviceEmulation`) and the user agent to restore after it.
     @ObservationIgnored public internal(set) var deviceEmulation: BrowserEmulation?
     @ObservationIgnored var userAgentBeforeEmulation: String?
@@ -104,24 +108,12 @@ public final class WebKitTab: NSObject, BrowserTab {
         MainActor.assumeIsolated {
             faviconTask?.cancel()
             rateReshow?.cancel()
+            pageBaseHold.cancel()
         }
     }
 
-    /// WKWebView paints white behind every page by default. macOS has no
-    /// public switch, so this uses WebKit's `_setDrawsBackground:` SPI
-    /// through KVC ("drawsBackground"), checked first; without it the tab
-    /// keeps WebKit's default.
-    func setDrawsPageBackground(_ draws: Bool) {
-        guard webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) else { return }
-        webView.setValue(draws, forKey: "drawsBackground")
-    }
-
-    /// The first real page finished: from now on WebKit draws its default
-    /// behind pages again (white for pages without a background).
-    func pageDidFinish() {
-        guard !PageBackground.isBlank(webView.url) else { return }
-        setDrawsPageBackground(true)
-    }
+    // What the page area shows while a document loads is in
+    // `WebKitTab+LoadingBackground`.
 
     // MARK: Navigation commands
 
@@ -135,6 +127,9 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     public func stop() {
         webView.stopLoading()
+        // Whatever committed keeps the page area from now on, so WebKit draws
+        // its background again even if no `didFail` follows the stop.
+        pageDidFinish()
         apply(.stopped)
     }
 
@@ -253,6 +248,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         isClosed = true
         faviconTask?.cancel()
         rateReshow?.cancel()
+        pageBaseHold.cancel()
         for prompt in pendingPrompts { prompt.respond(prompt.dismissalResponse) }
         pendingPrompts.removeAll()
         observations.removeAll()

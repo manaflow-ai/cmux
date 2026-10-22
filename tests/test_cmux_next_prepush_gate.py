@@ -108,6 +108,7 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/git-hooks",
             INSTALLER,
             "scripts/web_lint_prepush.py",
+            "scripts/ci/base_merge_warning.py",
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",

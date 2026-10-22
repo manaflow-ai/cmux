@@ -111,7 +111,7 @@ class WebviewPathTests(unittest.TestCase):
         for path in ("webviews/src/agent-session/acpmux/harnesses/harnesses.css",
                      "webviews/src/new-tab/NewTabRows.tsx",
                      "webviews/src/settings/Pages.tsx",
-                     "webviews/test/session-rail.test.tsx",
+                     "webviews/test/chat-inspector.test.tsx",
                      "webviews/package.json"):
             with self.subTest(path=path):
                 self.assertEqual(path_map.tours_for_path(path), [])

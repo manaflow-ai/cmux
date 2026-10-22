@@ -7,37 +7,46 @@ import CmuxNextIcons
 /// card window ignores the mouse, so the hover card coordinator hands it the wheel
 /// (`HoverCardPanel.scrollCard`). The compact card's few lines never scroll: no header, one line
 /// each, as tall as they are (Leo 2026-10-20: "no scroll, crisp").
+///
+/// The lines are laid out by frame, each text measured once at its wrap width: a card slides
+/// to every row the pointer crosses while it shows, and the history's lines as stack views
+/// under constraints cost about 7 ms of main thread per row crossed (twenty wrapping lines
+/// solved by `fittingSize`, then again by the card's fit), so the row's hover trailed the
+/// pointer (Lawrence 2026-10-21, "there's lag here fix it"). The view itself keeps its header
+/// and the scroll view's height under constraints.
 final class WorkspaceHoverCardTimelineView: NSView {
     private static var iconSize: CGFloat { 12 }
     private static var timeColumn: CGFloat { 54 }
 
     let scrollView = NSScrollView()
     private let header = ChromeLabel(labelWithString: "")
-    private let rowsStack = NSStackView()
     private let document = FlippedDocumentView()
     private var heightConstraint: NSLayoutConstraint?
     private var underHeader: NSLayoutConstraint?
     private var atTop: NSLayoutConstraint?
-    private var rows: [(time: ChromeLabel, icon: NSImageView, text: ChromeLabel)] = []
+    private var rows: [Line] = []
     private var entries: [SidebarTimelineEntry] = []
-    private var textWidth: CGFloat = 0
+    /// What the lines were last laid out for: the same entries, width and line limit only
+    /// rewrite their times.
+    private var laidOut: (entries: [SidebarTimelineEntry], width: CGFloat, textLines: Int)?
+
+    /// One history line's views, placed by frame in the document.
+    private struct Line {
+        let time: ChromeLabel
+        let icon: NSImageView
+        let text: ChromeLabel
+        var views: [NSView] { [time, icon, text] }
+    }
 
     init() {
         super.init(frame: .zero)
         header.font = Typography.caption
         header.stringValue = Strings.timelineHeader
         header.translatesAutoresizingMaskIntoConstraints = false
-        rowsStack.orientation = .vertical
-        rowsStack.alignment = .leading
-        rowsStack.spacing = Metrics.space2
-        rowsStack.translatesAutoresizingMaskIntoConstraints = false
-        // The document is sized by frame in `configure`, so a wheel right after the card shows
-        // scrolls it before any layout pass (a constraint-sized one is zero high until then).
-        document.addSubview(rowsStack)
         scrollView.documentView = document
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
-        SystemScrollers.followAsCard(scrollView)
+        SystemScrollers.followThin(scrollView)
         scrollView.verticalScrollElasticity = .none
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(header)
@@ -56,10 +65,6 @@ final class WorkspaceHoverCardTimelineView: NSView {
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
             height,
-            rowsStack.topAnchor.constraint(equalTo: document.topAnchor),
-            rowsStack.leadingAnchor.constraint(equalTo: document.leadingAnchor),
-            rowsStack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
-            rowsStack.bottomAnchor.constraint(equalTo: document.bottomAnchor),
         ])
     }
 
@@ -86,21 +91,44 @@ final class WorkspaceHoverCardTimelineView: NSView {
         atTop?.isActive = !scrolls
         scrollView.hasVerticalScroller = scrolls
         let textLines = scrolls ? textLines : 1
-        textWidth = width - Self.timeColumn - Self.iconSize - 2 * Metrics.space2
+        let maxHeight = scrolls ? maxHeight : .greatestFiniteMagnitude
         while rows.count < entries.count { addRow() }
         for (index, row) in rows.enumerated() {
             let entry = index < entries.count ? entries[index] : nil
-            row.time.superview?.isHidden = entry == nil
+            row.views.forEach { $0.isHidden = entry == nil }
             guard let entry else { continue }
             row.time.stringValue = WorkspaceHoverCardContent.timelineTime(entry.date, now: now)
+        }
+        if let laidOut, laidOut.entries == entries, laidOut.width == width, laidOut.textLines == textLines {
+            // Only the times can have moved, and a time sits in its fixed column.
+            heightConstraint?.constant = min(document.frame.height, maxHeight)
+            return applyColors()
+        }
+        laidOut = (entries, width, textLines)
+        let textX = Self.timeColumn + Self.iconSize + 2 * Metrics.space2
+        let textWidth = max(0, width - textX)
+        var y: CGFloat = 0
+        for (index, entry) in entries.enumerated() {
+            let row = rows[index]
             row.icon.image = NSImage.icon(Self.icon(entry.kind), size: Self.iconSize)
             row.text.stringValue = Strings.timelineText(entry)
             row.text.maximumNumberOfLines = entry.kind == .prompt || entry.kind == .waiting ? textLines : 1
             row.text.preferredMaxLayoutWidth = textWidth
+            let text = row.text.size(forWidth: textWidth)
+            let time = row.time.size(forWidth: Self.timeColumn)
+            // The time and the icon sit on the text's first line, as the first-baseline row did.
+            let baseline = row.text.firstBaselineOffsetFromTop
+            let timeY = y + max(0, baseline - row.time.firstBaselineOffsetFromTop)
+            let iconY = y + max(0, baseline - Self.iconSize)
+            row.text.frame = CGRect(x: textX, y: y, width: textWidth, height: text.height)
+            row.time.frame = CGRect(x: 0, y: timeY, width: Self.timeColumn, height: time.height)
+            row.icon.frame = CGRect(x: Self.timeColumn + Metrics.space2, y: iconY, width: Self.iconSize, height: Self.iconSize)
+            y = max(y + text.height, timeY + time.height, iconY + Self.iconSize)
+            if index < entries.count - 1 { y += Metrics.space2 }
         }
-        let content = rowsStack.fittingSize.height
+        let content = y.rounded(.up)
         document.frame = CGRect(x: 0, y: 0, width: width, height: content)
-        heightConstraint?.constant = scrolls ? min(content, maxHeight) : content
+        heightConstraint?.constant = min(content, maxHeight)
         if changed { scrollView.contentView.scroll(to: .zero) }
         applyColors()
     }
@@ -124,19 +152,9 @@ final class WorkspaceHoverCardTimelineView: NSView {
         text.font = Typography.body
         text.lineBreakMode = .byWordWrapping
         text.truncatesLastVisibleLine = true
-        text.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let row = NSStackView(views: [time, icon, text])
-        row.orientation = .horizontal
-        row.alignment = .firstBaseline
-        row.spacing = Metrics.space2
-        NSLayoutConstraint.activate([
-            time.widthAnchor.constraint(equalToConstant: Self.timeColumn),
-            icon.widthAnchor.constraint(equalToConstant: Self.iconSize),
-            icon.heightAnchor.constraint(equalToConstant: Self.iconSize),
-        ])
-        rowsStack.addArrangedSubview(row)
-        row.widthAnchor.constraint(equalTo: rowsStack.widthAnchor).isActive = true
-        rows.append((time, icon, text))
+        let line = Line(time: time, icon: icon, text: text)
+        line.views.forEach(document.addSubview)
+        rows.append(line)
     }
 
     /// Recolors in the card's theme scope (the card runs it inside `performWithTheme`).
@@ -145,7 +163,7 @@ final class WorkspaceHoverCardTimelineView: NSView {
         for (index, row) in rows.enumerated() {
             let entry = index < entries.count ? entries[index] : nil
             row.time.textColor = Palette.textSecondary
-            row.icon.contentTintColor = entry?.kind == .waiting ? Palette.accent : Palette.textSecondary
+            row.icon.contentTintColor = entry?.kind == .waiting ? Palette.litGlyph : Palette.textSecondary
             // What the person said reads in the primary ink, what happened in the secondary.
             row.text.textColor = entry?.kind == .prompt ? Palette.textPrimary : Palette.textSecondary
         }

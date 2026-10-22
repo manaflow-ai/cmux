@@ -26,6 +26,9 @@ export type AgentSessionTheme = {
   softText: string;
   accent: string;
   accentSoft: string;
+  /// A lit (pressed, on) control's glyph or label: the accent lifted to at least the muted text's
+  /// contrast (`ThemeTokens.litGlyph`); without it, `accent`.
+  litGlyph?: string;
   /// Labels on the accent; the cmux-next pane sends it, others fall back to white.
   accentText?: string;
   /// Glyphs on `accent` where it fills a control (Send); without it, `accentText`.
@@ -51,9 +54,12 @@ export type AgentSessionTheme = {
   /// `standard`, `wide` or `wideBlocks`. Absent means standard.
   chatWidth?: string;
   /// Codex-style tool runs in a running turn (Debug Settings `agentPane.debug.codexToolRuns`,
-  /// acpmux codexToolRuns.ts). Native hosts send their default explicitly; absent keeps the
-  /// browser fallback off. true opts in and false opts out.
+  /// acpmux codexToolRuns.ts). Native hosts send their default (true) explicitly; absent keeps it
+  /// on, and false opts out.
   codexToolRuns?: boolean;
+  /// A running turn's status line as its last row (Debug Settings `agentPane.debug.liveLineBelow`,
+  /// acpmux liveLineBelow.ts). Absent or true draws it there; false keeps it over the turn's work.
+  liveLineBelow?: boolean;
   /// The answer footer's copy/retry/fork controls: right by default, or left when selected by the host.
   turnActionsPlacement?: "left" | "right";
   /// The host's motion durations in seconds (MotionFade after ui.animationSpeed and Reduce
@@ -65,6 +71,13 @@ export type AgentSessionTheme = {
   /// `data-status-indicators` on the root; under `static` no status loop runs and color-only
   /// marks draw a shape each. Absent means the stylesheet defaults (animated).
   statusIndicators?: "animated" | "static";
+  /// How agent work shows (Debug Settings `status.working`, CmuxNextDesign StatusWorkingLook): sets
+  /// `data-working-look` on the root. Absent means the stylesheet default, the breathing dot.
+  workingLook?: "breathe" | "shimmer" | "spinner";
+  /// Running subagents in one tray above the composer, a line where each ended (Debug Settings
+  /// `agentPane.debug.subagentTray`, acpmux subagents/runningTray.ts). Absent or true is the tray;
+  /// false keeps the transcript's group cards and the agents pill.
+  subagentTray?: boolean;
 };
 
 export type AppContext = {

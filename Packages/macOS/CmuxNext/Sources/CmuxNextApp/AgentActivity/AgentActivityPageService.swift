@@ -32,15 +32,7 @@ final class AgentActivityPageService {
     }
 
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> AgentActivityPageTab {
-        let page = AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource())
-        followLanes(page)
-        return page
-    }
-
-    /// The lanes view (cx-v9k2f): every acpmux session with its lane, and a row click opens that chat.
-    private func followLanes(_ page: AgentActivityPageTab) {
-        page.model.onJump = { [weak self] lane in self?.jump(to: lane) }
-        page.lanesFeed = page.model.follow(AgentLaneStore.shared)
+        AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource())
     }
 
     /// Reveals the tab that shows a lane's chat, else opens it in the focused pane (the

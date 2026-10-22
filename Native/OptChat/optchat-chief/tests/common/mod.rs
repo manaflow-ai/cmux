@@ -413,6 +413,8 @@ impl ConversationPort for FakeDaemon {
                 let seq = owner.messages.len() as u64 + 1;
                 let mut m = message(seq, "agent_mux", "");
                 m.parts = parts.clone();
+                // The owner keeps the sender's client_msg_id (a voice rides in it).
+                m.client_msg_id = key.to_owned();
                 owner.messages.push(m.clone());
                 Ok(Some(Change::Message { message: m }))
             }
@@ -518,6 +520,9 @@ pub struct Agents {
     pub events_error: Option<String>,
     /// Sessions whose turn was cancelled, in order.
     pub cancels: Vec<String>,
+    /// Sessions whose running background processes were ended
+    /// (`_acpmux/process/kill` of each), in order.
+    pub killed_processes: Vec<String>,
     /// Queued prompts taken out (`_acpmux/queue_remove`): (session, prompt id).
     pub removed_queued: Vec<(String, String)>,
     /// The next prompt's answer (default `{"stopReason": "end_turn"}`), used once.
@@ -533,6 +538,9 @@ pub struct Agents {
     /// The next this many `cancel` calls are recorded but change nothing
     /// (a cancel that reached acpmux before the prompt did).
     pub ignore_cancels: usize,
+    /// The next `cancel` calls are recorded and fail with these texts, one
+    /// each, in order (acpmux refused the cancel).
+    pub cancel_errors_once: std::collections::VecDeque<String>,
     /// The prompt's answer comes this long after its events (acpmux records
     /// `turn_end` before it answers the prompt).
     pub answer_delay: Option<Duration>,
@@ -564,6 +572,9 @@ pub struct Agents {
     pub trusted: Vec<std::path::PathBuf>,
     /// Every permission answer: (session, permission id, option id).
     pub responses: Vec<(String, String, Option<String>)>,
+    /// Allows are refused as acpmux refuses them from anyone but the
+    /// person's app; a deny or a cancel still counts.
+    pub refuse_allows: bool,
     /// Every `_acpmux/prewarm` hint: (harness, preset, cwd).
     pub prewarms: Vec<(String, Option<String>, std::path::PathBuf)>,
     /// Every `set_mode`: (session, mode id, prompts sent before it).
@@ -878,6 +889,7 @@ impl AgentPort for FakeAgents {
         });
         Ok(Some(serde_json::from_value(json!({
             "sessionId": id, "name": spec.name, "harness": harness, "cwd": spec.cwd, "status": status,
+            "tags": spec.tags,
         })).unwrap()))
     }
 
@@ -903,11 +915,16 @@ impl AgentPort for FakeAgents {
         permission: &str,
         option: Option<&str>,
     ) -> Result<(), String> {
-        self.inner.lock().unwrap().responses.push((
+        let mut inner = self.inner.lock().unwrap();
+        if inner.refuse_allows && option.is_some_and(|o| o.starts_with("allow")) {
+            return Err("approve this on the Mac app: allowing a permission is accepted only from the cmux app, never from the CLI, a script or an agent".into());
+        }
+        inner.responses.push((
             session.to_owned(),
             permission.to_owned(),
             option.map(str::to_owned),
         ));
+        drop(inner);
         Ok(())
     }
 
@@ -984,9 +1001,21 @@ impl AgentPort for FakeAgents {
         Ok(true)
     }
 
+    fn kill_processes(&self, session: &str) -> Result<usize, String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .killed_processes
+            .push(session.to_owned());
+        Ok(1)
+    }
+
     fn cancel(&self, session: &str) -> Result<(), String> {
         let mut inner = self.inner.lock().unwrap();
         inner.cancels.push(session.to_owned());
+        if let Some(e) = inner.cancel_errors_once.pop_front() {
+            return Err(e);
+        }
         if inner.ignore_cancels > 0 {
             inner.ignore_cancels -= 1;
             drop(inner);

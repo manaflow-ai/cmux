@@ -182,10 +182,12 @@ public final class FilesPaneView: NSView {
             button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
             button.bezelStyle = .accessoryBarAction
             button.isBordered = false
-            button.toolTip = label
+            button.setAccessibilityLabel(label)
             button.target = self
             button.action = action
         }
+        // Back and forward are plain chevrons; only "up" says where it goes.
+        upButton.themedToolTip = FilesStrings.enclosingFolder
         pathControl.pathStyle = .standard
         pathControl.target = self
         pathControl.action = #selector(pathClicked)
@@ -199,7 +201,6 @@ public final class FilesPaneView: NSView {
             case .columns: ("rectangle.split.3x1", FilesStrings.viewColumns)
             }
             layoutControl.setImage(NSImage(systemSymbolName: symbol, accessibilityDescription: label), forSegment: index)
-            layoutControl.setToolTip(label, forSegment: index)
         }
         layoutControl.segmentStyle = .separated
         layoutControl.target = self
@@ -220,7 +221,7 @@ public final class FilesPaneView: NSView {
         zoomSlider.target = self
         zoomSlider.action = #selector(zoomChanged)
         zoomSlider.controlSize = .small
-        zoomSlider.toolTip = FilesStrings.iconSize
+        zoomSlider.themedToolTip = FilesStrings.iconSize
         for view in [toolbar, sidebarView.view, content, status, zoomSlider] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)

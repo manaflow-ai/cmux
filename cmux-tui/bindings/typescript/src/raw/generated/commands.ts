@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 618580395ad650b750fb7be122cdc20524f93ba299cc62b7afebb68b22ff6b12. */
+/* cmux-tui mux protocol 12, IR 655baaa1d0f11bd63754ffcda70267c4b8f07a2d8d415bf0c302c2ccab838a96. */
 
 
 import type * as T from "./types.js";
@@ -601,6 +601,12 @@ export interface CloudRequestsListRequest extends CmuxRequestBase {
 export type CloudRequestsListResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
+export interface CloudSelfhostInfoRequest extends CmuxRequestBase {
+  cmd: "cloud-selfhost-info";
+}
+export type CloudSelfhostInfoResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
 export interface CloudSessionClearRequest extends CmuxRequestBase {
   cmd: "cloud-session-clear";
 }
@@ -609,10 +615,11 @@ export type CloudSessionClearResult = T.JsonValue;
 /** Protocol v12; authority: local-admin. */
 export interface CloudSessionSetRequest extends CmuxRequestBase {
   cmd: "cloud-session-set";
-  "access_token": string;
+  "access_token"?: string;
   "api_base_url": string;
+  "auth"?: (string) | null;
   "client_version"?: (string) | null;
-  "expires_at": bigint;
+  "expires_at"?: bigint;
 }
 export type CloudSessionSetResult = T.JsonValue;
 
@@ -2596,6 +2603,12 @@ export interface TerminalHistoryRequest extends CmuxRequestBase {
 export type TerminalHistoryResult = T.TerminalHistoryPagesResult;
 
 /** Protocol v12; authority: control. */
+export interface TerminalPortsRequest extends CmuxRequestBase {
+  cmd: "terminal-ports";
+  "surface": T.Id;
+}
+
+/** Protocol v12; authority: control. */
 export interface TerminalReadRangeRequest extends CmuxRequestBase {
   cmd: "terminal-read-range";
   "format"?: (string) | null;
@@ -2904,6 +2917,7 @@ export type CmuxRequest =
   | CloudMuxUnsubscribeRequest
   | CloudParticipantAvatarGetRequest
   | CloudRequestsListRequest
+  | CloudSelfhostInfoRequest
   | CloudSessionClearRequest
   | CloudSessionSetRequest
   | CloudSessionStatusRequest
@@ -3100,6 +3114,7 @@ export type CmuxRequest =
   | TerminalClipboardSubscribeRequest
   | TerminalEventsRequest
   | TerminalHistoryRequest
+  | TerminalPortsRequest
   | TerminalReadRangeRequest
   | TerminalResourcesRequest
   | TerminalResumeCommandRequest
@@ -3592,6 +3607,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-selfhost-info": {
+    request: CloudSelfhostInfoRequest;
+    result: CloudSelfhostInfoResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-selfhost-v1";
     stream: null;
   };
   "cloud-session-clear": {
@@ -5160,6 +5183,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "terminal-snapshot-v1";
+    stream: null;
+  };
+  "terminal-ports": {
+    request: TerminalPortsRequest;
+    result: T.TerminalPortsResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-ports-v1";
     stream: null;
   };
   "terminal-read-range": {

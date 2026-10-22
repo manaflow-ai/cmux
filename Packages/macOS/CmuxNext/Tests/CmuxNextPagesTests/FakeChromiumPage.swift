@@ -9,28 +9,41 @@ import Foundation
 final class FakeChromiumPage: PageChromiumPage {
     let contentView = NSView()
     var onEvent: ((PageChromiumEvent) -> Void)?
+    var resources: (@MainActor (URL) async -> PageChromiumResponse)?
+    var occlusionRects: [CGRect] = []
     /// Every DevTools call, in order.
     private(set) var calls: [(method: String, params: [String: any Sendable])] = []
     private(set) var loaded: [URL] = []
     private(set) var zoom: Double?
     private(set) var closed = false
+    /// The last ``setSeeThrough(_:)``; nil before any.
+    private(set) var seeThrough: Bool?
+    /// ``seeThrough`` when the first document loaded.
+    private(set) var seeThroughAtFirstLoad: Bool??
     var senderURL = "cmux-page://test.plain/index.html"
     var senderIsTop = true
     /// Runs after each call (tests wait on it).
     var onCall: (() -> Void)?
+    /// Answers a call by its method and params before the defaults (nil: the defaults answer).
+    var answer: ((_ method: String, _ params: [String: any Sendable]) -> String?)?
     /// Runs when the host closes the page.
     var onClose: (() -> Void)?
 
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
         calls.append((method, params))
         defer { onCall?() }
+        if let answered = answer?(method, params) { return answered }
         if method == "Runtime.evaluate", params["expression"] as? String == "[location.href, window === window.top]" {
             return #"{"result":{"type":"object","value":["\#(senderURL)",\#(senderIsTop)]}}"#
         }
         return #"{"result":{}}"#
     }
 
-    func load(_ url: URL) { loaded.append(url) }
+    func load(_ url: URL) {
+        if loaded.isEmpty { seeThroughAtFirstLoad = .some(seeThrough) }
+        loaded.append(url)
+    }
+    func setSeeThrough(_ seeThrough: Bool) { self.seeThrough = seeThrough }
     func reload() {}
     func setZoom(_ zoom: Double) { self.zoom = zoom }
     func setFocused(_ focused: Bool) {}

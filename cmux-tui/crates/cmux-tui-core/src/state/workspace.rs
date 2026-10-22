@@ -232,8 +232,12 @@ impl Mux {
                         state.screen_of(pane.id).is_some_and(|(owner, _)| owner == index)
                     })
                     .flat_map(|pane| pane.tabs.iter())
-                    .filter_map(|surface| state.surfaces.get(surface))
-                    .filter_map(|runtime| runtime.terminal_public_id().cloned())
+                    // From the topology, not the surfaces: a host still
+                    // adopting on its own thread has no surface yet.
+                    .filter_map(|tab| match state.resource_indexes.content_ids.get(tab) {
+                        Some(ContentPublicId::Terminal(terminal)) => Some(terminal.clone()),
+                        _ => None,
+                    })
                     .collect::<Vec<_>>();
                 Some((workspace.id, terminals))
             });

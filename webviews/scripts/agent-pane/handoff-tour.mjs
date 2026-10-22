@@ -38,7 +38,7 @@ try {
     page.evaluate(({ name, params }) => window.cmuxAcpmuxActions[name](params), { name, params });
   await actions("chat.new", { harness: "claude" });
   const source = await actions("pane.context");
-  await page.getByRole("button", { name: "Continue in…", exact: true }).click();
+  await page.getByRole("button", { name: "Continue In…", exact: true }).click();
   await page.getByRole("menuitem", { name: "Codex", exact: true }).click();
   const review = page.getByRole("region", { name: "Review continuation" });
   await review.waitFor();

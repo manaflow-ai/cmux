@@ -80,7 +80,8 @@ nonisolated private final class AppcastParserDelegate: NSObject, XMLParserDelega
             releaseNotesURL: (fields["sparkle:fullReleaseNotesLink"] ?? fields["sparkle:releaseNotesLink"]).flatMap(URL.init(string:)),
             downloadURL: enclosure["url"].flatMap(URL.init(string:)),
             itemDescription: fields["description"],
-            date: fields["pubDate"].flatMap(Self.rfc822)
+            date: fields["pubDate"].flatMap(Self.rfc822),
+            sparkleChannel: fields["sparkle:channel"]
         ))
     }
 }

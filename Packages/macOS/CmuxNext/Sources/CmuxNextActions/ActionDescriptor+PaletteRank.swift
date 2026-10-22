@@ -82,6 +82,8 @@ extension ActionDescriptor {
         "layout.centerFocusedColumn.never", "layout.centerFocusedColumn.onOverflow", "layout.toggleStripScrollbar",
         "appearance.titlebar.minimal", "appearance.titlebar.standard", "increaseWorkspaceTerminalFontSize",
         "decreaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize",
+        // Interface Size is a Debug opt-in (chrome.interfaceSize); Interface Scale is the setting.
+        "appearance.interfaceSize.increase", "appearance.interfaceSize.decrease", "appearance.interfaceSize.reset",
         // Cloud machine plumbing.
         "cloudPrepareSCP", "cloudDomainList", "cloudNetworkList", "cloudPublicationList", "palette.cloud.promoteTemplate",
     ]
@@ -268,6 +270,7 @@ extension ActionDescriptor {
                           "palette.forkAgentConversationRight", "palette.forkAgentConversationLeft",
                           "palette.forkAgentConversationTop", "palette.forkAgentConversationBottom",
                           "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace",
+                          "palette.forkAgentConversationNewWindow",
                       ]),
         PaletteFamily("sidebarSection", title: familyTitle("palette.family.sidebarSection", "Sidebar Section: Layout…"),
                       symbol: "sidebar.left", members: [
@@ -275,7 +278,7 @@ extension ActionDescriptor {
                           "sidebar.section.setAlignment", "sidebar.section.setColumns", "sidebar.section.setGap",
                           "sidebar.section.setMaxRows", "sidebar.section.useBuiltInLook", "sidebar.section.useListLook",
                           "sidebar.section.toggleTitle", "sidebar.section.toggleSpaceScope", "sidebar.section.moveToTop",
-                          "sidebar.section.moveToBottom", "sidebar.section.moveToScrolling",
+                          "sidebar.section.moveToScrolling",
                       ]),
         // Families whose parent action already opens the choices.
         PaletteFamily("space.color", parent: "space.setColor", members: colors("space.color")),
@@ -312,16 +315,22 @@ extension ActionDescriptor {
             "browser.pageInfo.reenableCertificateWarnings", "browser.pageInfo.resetPermissions",
             "browser.pageInfo.setPermission", "browser.pageInfo.siteSettings",
         ]),
-        // Duplicates: the same command under two rows.
-        PaletteFamily("feed", parent: "feed.show", members: ["switchRightSidebarToFeed"]),
-        PaletteFamily("newWorkspaceOnMachine", parent: "workspace.newOnMachine", members: ["remote.newWorkspace"]),
-        PaletteFamily("copySSHError", parent: "copyWorkspaceSSHError", members: ["remote.copyError"]),
-        PaletteFamily("interfaceSize.increase", parent: "appearance.uiScale.increase",
-                      members: ["appearance.interfaceSize.increase"]),
-        PaletteFamily("interfaceSize.decrease", parent: "appearance.uiScale.decrease",
-                      members: ["appearance.interfaceSize.decrease"]),
-        PaletteFamily("interfaceSize.reset", parent: "appearance.uiScale.reset", members: ["appearance.interfaceSize.reset"]),
+    ] + paletteDuplicates.sorted { $0.key.rawValue < $1.key.rawValue }
+        .map { PaletteFamily("duplicate.\($0.key.rawValue)", parent: $0.value, members: [$0.key]) }
+
+    /// Duplicates: the same command run on another target (an SSH machine's row, a sidebar app
+    /// item), keyed by the duplicate. Both keep their own target, CLI verb and menu placement, and
+    /// carry the canonical action's name on every surface (`PaletteMenuVocabularyTests`); the
+    /// palette folds the duplicate into the canonical row, where its words still match. Actions
+    /// that only sound alike are not duplicates: they get distinct names instead.
+    nonisolated public static let paletteDuplicates: [ActionID: ActionID] = [
+        "remote.newWorkspace": "workspace.newOnMachine",
+        "remote.copyError": "copyWorkspaceSSHError",
+        "sidebar.item.hideApp": "app.hide",
     ]
+
+    /// The action whose name this one carries: itself unless it is a duplicate.
+    nonisolated public var canonicalActionID: ActionID { Self.paletteDuplicates[id] ?? id }
 
     nonisolated static let paletteFamilyByMember: [ActionID: PaletteFamily] = {
         var byMember: [ActionID: PaletteFamily] = [:]

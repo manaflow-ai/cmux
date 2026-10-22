@@ -9,11 +9,21 @@
 #
 # CMUX_WEB_TEST_FILE_TIMEOUT: seconds one file may run (default 120); a file may declare more
 # with a `// cmux-web-test-timeout: SECONDS` header line.
+# CMUX_WEB_TEST_TIMEOUT_MS: one test's default limit (bun's own default is 5000); a test or file
+# that sets its own (setDefaultTimeout, a per-test timeout) keeps it. 30000 by default: on a fleet
+# worker that also runs GitHub runner jobs, a render-heavy jsdom test that takes 0.5 s alone took
+# 5-23 s with six files beside it (cmuxs-Mac-mini-3, step 7a7920f90018502137c79111: 110 files over
+# 5 s), and each of those files passed alone on the same worker.
+# CMUX_WEB_TEST_RETRIES: files that fail or time out run once more, one at a time, after every
+# file has run (default 60 files; 0 turns it off). A file that passes alone is reported as a retry
+# pass (a contention flake, listed so it stays visible); one that fails again fails the lane.
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
 # CMUX_WEB_TEST_FILES: optional newline-separated test files (relative to webviews/) to run instead
 # of every file, for focused runs (scripts/ci/car_guards.py). A name the git index does not list
 # is an error, so a stale selection never passes by running nothing.
+# CMUX_WEB_TEST_RESULTS: optional file to write each file's and failed test's result into
+# (webviews_test_results.py), for webviews-tests-new-reds.sh.
 # CMUX_WEB_TEST_SHARD / CMUX_WEB_TEST_SHARD_COUNT: optional one-based shard selector (for example
 # 1/2 or 2/2). Sharding happens after the git-index file list is built, so every shard keeps the
 # same per-file process and Vite-cache isolation rules while covering a disjoint deterministic set.
@@ -77,6 +87,10 @@ file_limit() {
   if [ -n "$declared" ] && [ "$declared" -gt "$2" ]; then echo "$declared"; else echo "$2"; fi
 }
 
+test_timeout_ms="${CMUX_WEB_TEST_TIMEOUT_MS:-30000}"
+[[ "$test_timeout_ms" =~ ^[1-9][0-9]*$ ]] || test_timeout_ms=30000
+export CMUX_WEB_TEST_TIMEOUT_MS="$test_timeout_ms"
+
 if [ "${1:-}" = --one-cached ]; then
   # xargs -n 3 appends FILE CACHE SEED after the fixed arguments.
   exec bash "$0" --one "$4" "$2" "$3" "$5" "${6:-}"
@@ -94,12 +108,12 @@ if [ "${1:-}" = --one ]; then
     mkdir -p "$(dirname "$cache")"
     if [ -n "$seed" ] && [ -d "$seed" ]; then cp -R "$seed" "$cache" || true; fi
     mkdir -p "$cache"
-    CMUX_VITE_CACHE_DIR="$cache" run_with_timeout "$timeout_seconds" bun test "./$file" > "$log" 2>&1 < /dev/null ||
+    CMUX_VITE_CACHE_DIR="$cache" run_with_timeout "$timeout_seconds" bun test --timeout "$test_timeout_ms" "./$file" > "$log" 2>&1 < /dev/null ||
       status=$?
     # A warming file's cache (no seed) is the one the rest copy; any other one only costs disk.
     if [ -n "$seed" ]; then rm -rf "$cache" || true; fi
   else
-    run_with_timeout "$timeout_seconds" bun test "./$file" > "$log" 2>&1 < /dev/null || status=$?
+    run_with_timeout "$timeout_seconds" bun test --timeout "$test_timeout_ms" "./$file" > "$log" 2>&1 < /dev/null || status=$?
   fi
   case "$status" in
     0) result=PASS ;;
@@ -127,6 +141,15 @@ case "$(git rev-parse --show-prefix)" in
     bun install --frozen-lockfile
     ;;
 esac
+# A fleet cmux-ci step that runs the browser lane (CMUX_BROWSER_TESTS=1, requireBrowserLane.ts) needs
+# the engines PR CI installs; without them the lane only ever ran in PR CI. They live in the step
+# cache, one directory per Playwright version, so a host downloads each once. GitHub Actions
+# installs its own (cmux-next-web-bundles.yml).
+if [ "${CMUX_BROWSER_TESTS:-}" = 1 ] && [ "${GITHUB_ACTIONS:-}" != true ]; then
+  playwright_version="$(python3 -c 'import json; print(json.load(open("package.json"))["devDependencies"]["playwright"])' 2> /dev/null || echo unknown)"
+  export PLAYWRIGHT_BROWSERS_PATH="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}/playwright-$playwright_version"
+  ./node_modules/.bin/playwright install --only-shell chromium webkit
+fi
 
 timeout_seconds="${CMUX_WEB_TEST_FILE_TIMEOUT:-120}"
 default_jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
@@ -252,6 +275,34 @@ if [ -s "$results/dev-cold" ]; then
   xargs -0 -n 3 -P 1 bash "$self" --one-cached "$results" "$timeout_seconds" < "$results/dev-cold"
 fi
 
+# Retry each failed or timed-out file once, alone, so a file that only lost a race for the CPU
+# with its neighbours gets a verdict of its own. Its first log is kept beside the retry's.
+retries="${CMUX_WEB_TEST_RETRIES:-60}"
+[[ "$retries" =~ ^[0-9]+$ ]] || retries=60
+first="$results/first-summary"
+mv "$results/summary" "$first"
+: > "$results/summary"
+retried=0
+: > "$results/retry-passed"
+while read -r result file log; do
+  if [ "$result" = PASS ] || [ "$retried" -ge "$retries" ]; then
+    printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
+    continue
+  fi
+  retried=$((retried + 1))
+  mv "$log" "$log.first"
+  cache=""
+  if tr '\0' '\n' < "$results/serial" | grep -qxF -- "$file"; then cache="$vite/retry-$retried"; fi
+  bash "$self" --one "$file" "$results" "$timeout_seconds" "$cache" > /dev/null < /dev/null
+  if [ -n "$cache" ]; then rm -rf "$cache" || true; fi
+  if grep -qxF "PASS $file $log" "$results/summary"; then
+    echo "$file (first run: $result)" >> "$results/retry-passed"
+  else
+    { echo "--- first run: $result ---"; cat "$log.first"; echo "--- retry, alone ---"; cat "$log"; } > "$log.both"
+    mv "$log.both" "$log"
+  fi
+done < "$first"
+
 failed=0
 while read -r result file log; do
   # A passing file's workflow annotations (prScope.ts warns about base-branch findings) still reach the run.
@@ -265,7 +316,16 @@ while read -r result file log; do
   echo "::endgroup::"
 done < <(sort -k2 "$results/summary")
 
-echo "### webviews tests: $count files, $failed failed or timed out"
+# Per-test results for webviews-tests-new-reds.sh, which compares them with the base's.
+if [ -n "${CMUX_WEB_TEST_RESULTS:-}" ]; then
+  python3 "$(dirname "$self")/webviews_test_results.py" "$results/summary" "$CMUX_WEB_TEST_RESULTS"
+fi
+
+echo "### webviews tests: $count files, $failed failed or timed out ($retried retried alone, $(wc -l < "$results/retry-passed" | tr -d ' ') passed alone)"
+if [ -s "$results/retry-passed" ]; then
+  echo "passed only when run alone (failed or timed out beside other files):"
+  sed 's/^/  /' "$results/retry-passed"
+fi
 while read -r result file _; do
   [ "$result" = PASS ] || echo "$result $file (limit $(file_limit "$file" "$timeout_seconds")s)"
 done < <(sort -k2 "$results/summary")

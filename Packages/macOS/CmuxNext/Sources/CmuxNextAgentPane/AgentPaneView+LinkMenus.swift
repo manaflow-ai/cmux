@@ -16,7 +16,10 @@ extension AgentPaneView {
         }
         let file = URL(fileURLWithPath: resolved.path, isDirectory: resolved.isFolder)
         let menu = LinkMenu()
-        return menu.items(menu.pathRows(for: file, isDirectory: resolved.isFolder).filter { $0.kind != .open }, file: file)
+        let rows = menu.items(menu.pathRows(for: file, isDirectory: resolved.isFolder).filter { $0.kind != .open }, file: file)
+        // A file (a chip, a video, an audio clip) leads with Copy and Save As…; a folder has neither.
+        guard !resolved.isFolder else { return rows }
+        return AgentPaneFileRows(save: { [weak self] in self?.model.replyLinks.saveFile($0, $1) }).items(for: file) + [.separator()] + rows
     }
 }
 
@@ -28,7 +31,7 @@ extension AgentPaneView {
     public static func debugOpenClickedLink(_ url: URL) -> Bool {
         let gestures = AgentPaneUserGestures()
         gestures.record(click: true)
-        return AgentPaneNavigation.openOutside(url, gestures: gestures) { routedOpenURL($0, false) }
+        return AgentPaneNavigation.openOutside(url, gestures: gestures) { routedOpenURL($0, []) }
     }
 }
 #endif

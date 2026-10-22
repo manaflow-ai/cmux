@@ -1,0 +1,92 @@
+{
+  "_comment": [
+    "Tests no pull request into feat-cmux-next runs, on purpose, each with the reason.",
+    "validate_test_execution_registry.py --pr-lanes feat-cmux-next (cmux-next guards / tooling-tests)",
+    "fails on any other test no such pull request runs, and on an entry here once one does.",
+    "Route a test (a job that runs on those pull requests, by the paths it tests) rather than add it here."
+  ],
+  "exemptions": [
+    {
+      "reason": "A classic-app shell or CLI regression on a macOS runner lane (run_python_test_lane.py in ci-macos.yml). ci.yml calls ci-macos.yml only for pull requests into main; cmux-next has its own Mac tiers.",
+      "tests": [
+        "tests/test_cmux_cua_build_cache_safety.py",
+        "tests/test_cmux_cua_compat_contract.py",
+        "tests/test_cmux_cua_helper_identity.py",
+        "tests/test_cmux_cua_mcp_smoke.py",
+        "tests/test_issue_10926_watcher_pid_reuse_guard.py",
+        "tests/test_issue_13343_claude_integration_toggle.py",
+        "tests/test_issue_13766_terminal_history.py",
+        "tests/test_issue_15066_zsh_watcher_sleep.py",
+        "tests/test_issue_2448_shell_claude_wrapper_dispatch.py",
+        "tests/test_issue_6714_zsh_shim_noclobber.py",
+        "tests/test_issue_7028_claude_shim_persistence.py",
+        "tests/test_issue_8093_ghostty_ssh_binary_path.py",
+        "tests/test_issue_8953_zsh_prompt_wrap_guard.py",
+        "tests/test_issue_9075_shell_socket_reports.py",
+        "tests/test_issue_9356_bash_shim_noclobber.py",
+        "tests/test_nushell_integration_hooks.py",
+        "tests/test_nushell_shim_path_refront.py",
+        "tests/test_shell_cli_shim_private_dir.py",
+        "tests/test_shell_first_prompt_spawns.py",
+        "tests/test_shell_git_branch_stale_cwd.py",
+        "tests/test_shell_git_config_remote_url_parsing.py",
+        "tests/test_shell_no_git_watch.py",
+        "tests/test_shell_pr_watch_private_state.py",
+        "tests/test_shell_welcome_banner_startup.py",
+        "tests/test_stress_cli_socket_api.py"
+      ]
+    },
+    {
+      "reason": "Registry lane `legacy` (migration inventory): no automatic lane runs it on either branch yet. Place it in a lane first.",
+      "tests": [
+        "tests/test_cloud_display_catalog.py",
+        "tests/test_cloud_vm_attach_retry_script.py",
+        "tests/test_ghostty_cli_helper_cache_failures.py",
+        "tests/test_ghostty_zsh_job_table_saturation_guard.py",
+        "tests/test_ghostty_zsh_prompt_redraw_uses_prompt_start.py",
+        "tests/test_ghostty_zsh_pure_hidden_cr_omits_continuation_marker.py",
+        "tests/test_ghostty_zsh_pure_preprompt_redraw.py",
+        "tests/test_issue_11257_prompt_command_export.py",
+        "tests/test_issue_734_shell_integration_none_respected.py",
+        "tests/test_memory_resource_diagnostics.py",
+        "tests/test_mobile_attach_prefers_iroh.py",
+        "tests/test_mobile_stability_soak_attach_contract.py",
+        "tests/test_notarize_computer_use_helper.py",
+        "tests/test_reconcile_entitlements_with_profile.py",
+        "tests/test_reload_tag_lock.py",
+        "tests/test_shell_histfile_ghostty_zdotdir_regression.py",
+        "tests/test_shell_scrollback_restore_color_replay.py",
+        "tests/test_shell_scrollback_restore_replay_path_regression.py",
+        "tests/test_shell_zdotdir_user_override.py",
+        "tests/test_shell_zdotdir_wrapper.py",
+        "tests/test_shell_zsh_prefers_bundled_ghostty_integration.py",
+        "tests/test_ssh_relay_report_tty_retry.py",
+        "tests/test_terminfo_bright_colors.py",
+        "tests/test_vm_scp.py"
+      ]
+    },
+    {
+      "reason": "ci-guards.yml's `release-ios` group, which guards only main's iOS release path: ios-testflight.yml and ios-appstore-upload.yml (scheduled and dispatched from main; their upload, assignment and secret jobs require refs/heads/main and the release environment), the ios/scripts TestFlight and App Store upload tooling those workflows alone run (upload-testflight.sh, generate-testflight-notes.sh, fetch-testflight-notes-history.sh, resolve_testflight_distribution.py, asc_assign_external_testflight_group.py), scripts/ci/ios_upload_batch_decision.py and ios/fastlane. No feat-cmux-next workflow runs any of them, and nothing feat-cmux-next ships (nightly-next, its iOS build in test-ios.yml) reads them, so a feat pull request cannot break an upload; an edit to them takes effect only on main, and ci.yml routes this group by path on every pull request into main. The group's guards of shared tooling (the iOS package conventions diff and test-ios.yml's dispatch ref) moved to `preflight`, which feat pull requests route.",
+      "tests": [
+        "tests/test_ios_appstore_lane_identity.py",
+        "tests/test_ios_appstore_upload_marker.py",
+        "tests/test_ios_screenshot_capture_guard.py",
+        "tests/test_ios_testflight_archive_log.py",
+        "tests/test_ios_testflight_assignment_after_upload.py",
+        "tests/test_ios_testflight_external_distribution.py",
+        "tests/test_ios_testflight_main_push_filter.py",
+        "tests/test_ios_testflight_notes.py",
+        "tests/test_ios_testflight_pro_distribution.py",
+        "tests/test_ios_upload_array_expansion.py",
+        "tests/test_ios_upload_batching.py",
+        "tests/test_ios_upload_lean_checkout.py"
+      ]
+    },
+    {
+      "reason": "Only nightly-next-feed-watch.yml runs it, on a schedule, and a schedule runs main's copy of the workflow and of scripts/ci/nightly_next_feed_watch.py. feat-cmux-next's copies are never executed and lag main's (main changed both after the last sync), so a feat pull request cannot break the watch; main's own pull requests (ci.yml guards) test the copy that runs.",
+      "tests": [
+        "tests/test_nightly_next_feed_watch.py"
+      ]
+    }
+  ]
+}

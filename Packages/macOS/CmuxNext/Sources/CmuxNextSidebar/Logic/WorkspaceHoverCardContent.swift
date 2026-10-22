@@ -83,9 +83,14 @@ struct WorkspaceHoverCardContent: Equatable {
     }
 
     /// The card for `workspace` as `options` lay it out (u3320), with its `timeline` (newest first).
+    /// `looked`: when the person last looked at it (`sidebar.sinceLooked`), for the line that says
+    /// what its agents did since.
     static func make(_ workspace: SidebarWorkspace, machine: SidebarMachine?, now: Date,
-                     options: WorkspaceHoverCardOptions, timeline: [SidebarTimelineEntry]) -> Self {
+                     options: WorkspaceHoverCardOptions, timeline: [SidebarTimelineEntry], looked: Date? = nil) -> Self {
         var card = facts(workspace, machine: machine, now: now)
+        if let looked, let text = sinceLooked(timeline, after: looked) {
+            card.facts.insert(Fact(icon: .historyRecent, text: text, kind: sinceLookedKind), at: 0)
+        }
         card.options = options
         var timeline = timeline
         // The newest wait, while the workspace still waits, says why (the row's own reason).
@@ -121,11 +126,11 @@ struct WorkspaceHoverCardContent: Equatable {
             if options.showsTimings { card.stats = stats(timeline, now: now) }
         case .log:
             // The history alone: only why the workspace waits stays above it.
-            card.facts.removeAll { $0.kind != "needsInput" }
+            card.facts.removeAll { $0.kind != "needsInput" && $0.kind != sinceLookedKind }
             card.timeline = Array(shown.prefix(options.historyRows))
             if options.showsTimings { card.stats = stats(timeline, now: now) }
         case .minimal:
-            card.facts.removeAll { $0.kind != "needsInput" && $0.kind != "task" }
+            card.facts.removeAll { $0.kind != "needsInput" && $0.kind != "task" && $0.kind != sinceLookedKind }
             if !card.facts.contains(where: { $0.kind == "task" }),
                let prompt = timeline.first(where: { $0.kind == .prompt && $0.text != nil })?.text {
                 card.facts.append(Fact(icon: .composerSend, text: prompt, lines: 2, kind: "task"))
@@ -239,7 +244,9 @@ struct WorkspaceHoverCardContent: Equatable {
             // that is not connected says how, in its color, under it.
             let own = ownIcon(remote.icon)
             let tone = connectionTone(remote.status)
-            facts.append(Fact(icon: hostIcon(remote), text: remote.name, mark: own.mark, image: own.image, kind: "machine",
+            // The Chief's subagent workspaces say who started them here, not on their row.
+            let name = remote.id.isLocalChief ? Strings.startedByChief : remote.name
+            facts.append(Fact(icon: hostIcon(remote), text: name, mark: own.mark, image: own.image, kind: "machine",
                               accessory: .dot(tone)))
             if let word = connectionWord(remote.status) {
                 facts.append(Fact(icon: .statusDisconnected, text: word, kind: "machineStatus", ink: tone))
@@ -334,12 +341,14 @@ struct WorkspaceHoverCardContent: Equatable {
         return HoverCardRowContent(text: line, ink: tone == .secondary ? .secondary : tone, accessory: bars)
     }
 
-    /// A machine's link as a color: green connected, yellow on its way, red when it cannot connect.
+    /// A machine's link as a color: green connected, yellow on its way, red when it cannot connect,
+    /// grey when paused (it resumes on attach).
     static func connectionTone(_ status: SidebarMachine.Status) -> HoverCardTone {
         switch status {
         case .connected, .updateAvailable: .success
         case .connecting, .reconnecting, .installing, .updateRequired, .installRequired: .attention
         case .offline, .authFailed, .unreachable, .failed: .danger
+        case .paused, .pausedIdle: .secondary
         }
     }
 

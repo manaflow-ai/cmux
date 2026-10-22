@@ -33,6 +33,8 @@ public struct BrowserSourceProfile: Sendable, Identifiable, Hashable, Codable {
     public var availability: [ImportDataKind: DataAvailability]
     /// The profile's account picture, when the source saved one (Chromium).
     public var avatar: URL?
+    /// The profile's color in the source as 0xRRGGBB (Chromium), when it has one.
+    public var color: UInt32?
     /// The file the bookmarks reader opens, when it is not the format's
     /// file inside `path` (Arc: the shared `StorableSidebar.json`).
     public var bookmarksFile: URL?
@@ -41,13 +43,14 @@ public struct BrowserSourceProfile: Sendable, Identifiable, Hashable, Codable {
     public var id: String { "\(browser.rawValue)/\(directoryName)" }
 
     public init(browser: ImportBrowser, directoryName: String, displayName: String, path: URL,
-                availability: [ImportDataKind: DataAvailability], avatar: URL? = nil, bookmarksFile: URL? = nil) {
+                availability: [ImportDataKind: DataAvailability], avatar: URL? = nil, color: UInt32? = nil, bookmarksFile: URL? = nil) {
         self.browser = browser
         self.directoryName = directoryName
         self.displayName = displayName
         self.path = path
         self.availability = availability
         self.avatar = avatar
+        self.color = color
         self.bookmarksFile = bookmarksFile
     }
 
@@ -60,6 +63,16 @@ public struct BrowserSourceProfile: Sendable, Identifiable, Hashable, Codable {
     /// it explains why the data cannot be imported yet.
     public var needsFullDiskAccess: Bool {
         availability.values.contains(.needsFullDiskAccess)
+    }
+
+    /// The database the history reader opens; nil for browsers cmux reads no history from.
+    public var historyFile: URL? {
+        switch browser.family {
+        case .chromium: path.appending(path: "History")
+        case .firefox: path.appending(path: "places.sqlite")
+        case .safari: path.appending(path: "History.db")
+        case .webkit, .other: nil
+        }
     }
 
     /// Kinds this profile can import now.

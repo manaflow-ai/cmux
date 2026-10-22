@@ -34,6 +34,13 @@ final class ImportStepView: NSView {
         button.setAccessibilityIdentifier("cmux.onboarding.import.fromFiles")
         return button
     }()
+    /// Keep history in sync: shown while History is checked.
+    private lazy var keepInSync: NSButton = {
+        let box = OnboardingControl.checkbox(OnboardingStrings.keepHistoryInSync, target: self, action: #selector(keepInSyncToggled))
+        box.themedToolTip = OnboardingStrings.keepHistoryInSyncHelp
+        box.setAccessibilityIdentifier("cmux.onboarding.import.keepInSync")
+        return box
+    }()
     private var listViews: [NSView] = []
     private var shownProfiles: [BrowserSourceProfile]?
     private var shownAwaiting: [ImportBrowser]?
@@ -80,10 +87,10 @@ final class ImportStepView: NSView {
         separator.fill = { Palette.separator }
         let fileLinks = NSStackView(views: [fromFiles, passwordsCSV])
         fileLinks.spacing = 16
-        listViews = [scroll, separator, kinds, fileLinks]
+        listViews = [scroll, separator, kinds, keepInSync, fileLinks]
         consent.isHidden = true
         access.isHidden = true
-        let stack = NSStackView(views: [scroll, separator, kinds, consent, access, status, fileLinks])
+        let stack = NSStackView(views: [scroll, separator, kinds, keepInSync, consent, access, status, fileLinks])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 14
@@ -110,6 +117,7 @@ final class ImportStepView: NSView {
 
     @objc private func kindToggled(_ sender: NSButton) { model.toggle(shownKinds[sender.tag]) }
     @objc private func importFromFiles() { model.importFromFiles() }
+    @objc private func keepInSyncToggled() { model.toggleKeepInSync() }
     @objc private func importPasswordsCSV() { model.importPasswordsFromCSV() }
     private func render() {
         let confirming = model.isConfirmingPasswords
@@ -154,6 +162,8 @@ final class ImportStepView: NSView {
         }
         let editable = model.canEditSelection
         for profile in profiles {
+            let pick: ((String?) -> Void)? = model.mergeTarget == nil ? { [weak model] in model?.setTarget($0, for: profile) } : nil
+            rows[profile.id]?.configureTargets(model.targetChoices, selected: model.target(profile), onPick: pick)
             rows[profile.id]?.update(checked: model.isSelected(profile), editable: editable, state: model.rowState(profile))
         }
         if model.kindChoices != shownKinds {
@@ -182,6 +192,9 @@ final class ImportStepView: NSView {
             box.state = model.kinds.contains(kind) ? .on : .off
             box.isEnabled = editable
         }
+        keepInSync.isHidden = confirming || explaining || !model.kinds.contains(.history)
+        keepInSync.state = model.keepsHistoryInSync ? .on : .off
+        keepInSync.isEnabled = editable
         status.stringValue = statusText(profiles)
     }
 

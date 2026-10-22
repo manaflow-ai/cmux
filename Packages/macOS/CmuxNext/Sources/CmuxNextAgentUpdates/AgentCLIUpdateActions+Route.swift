@@ -88,6 +88,8 @@ extension AgentCLIUpdateActions.Route {
         guard daemon.identity?.capabilities.contains("agent-cli-update-job-resolve-v1") == true else {
             throw DaemonError.missingCapabilities(["agent-cli-update-job-resolve-v1"])
         }
+        let sideEvents = daemon.store.sideEvents
+        guard let stamp = sideEvents.controlStamp, stamp.sourceID == connection.eventSourceID else { throw DaemonError.notConnected }
         var carrier: AgentCLIJobCarrier?
         // The owner-checked carrier, opened on first use: recovery and Resume start or observe
         // without an inventory read, and a route re-captured after a reconnect opens it to observe.
@@ -103,6 +105,7 @@ extension AgentCLIUpdateActions.Route {
             inventory: { try await captured().inventory() },
             start: { cli, key in try await captured().startUpdate(cli: cli, idempotencyKey: key) },
             observe: { receipt in try await captured().observe(receipt) },
-            resolve: { cli, key in try await captured().resolveUpdate(cli: cli, idempotencyKey: key) })
+            resolve: { cli, key in try await captured().resolveUpdate(cli: cli, idempotencyKey: key) },
+            changes: { AgentCLIUpdateActions.terminalChanges(sideEvents: sideEvents, stamp: stamp, current: current) })
     }
 }

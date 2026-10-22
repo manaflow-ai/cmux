@@ -84,8 +84,8 @@ import Testing
 
         // The sheets' factory-made buttons keep the system's automatic style, so they are named.
         let found = views.flatMap(Self.pushButtons(in:))
-        // The Chief settings' Harness, Model and Effort pickers; its other buttons are links.
-        #expect(Self.pushButtons(in: settings).count == 3)
+        // The Chief settings' Harness, Model, Effort and Speed pickers; its other buttons are links.
+        #expect(Self.pushButtons(in: settings).count == 4)
         #expect(found.count >= 4)
         let buttons = found + [invite.cancelButton]
         let fill = scope.perform { Palette.selectionFill }

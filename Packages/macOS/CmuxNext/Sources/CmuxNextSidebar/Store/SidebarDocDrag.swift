@@ -59,6 +59,8 @@ public struct SidebarDocDrag {
                          blocks: [String: SidebarRegionLayout] = [:]) -> (SidebarDragGeometry, [String: SidebarRow]) {
         var slots: [SidebarDragGeometry.Slot] = []
         var rows: [String: SidebarRow] = [:]
+        // The group header open at each depth, so a subgroup's slot names the group it sits in.
+        var headerAtDepth: [Int: GroupID] = [:]
         for row in layout.rows {
             guard let section = section(row.section) else { continue }
             let frame = CGRect(x: 0, y: row.y, width: width, height: row.height)
@@ -67,7 +69,14 @@ public struct SidebarDocDrag {
                 guard let id = item(row.key) else { continue }
                 var parent: String?
                 var kind = SidebarDragGeometry.Slot.Kind.row
-                if case .group = row.key { kind = .group } else { parent = row.group.flatMap { item(.group($0)) } }
+                if case let .group(group) = row.key {
+                    kind = .group
+                    headerAtDepth = headerAtDepth.filter { $0.key < row.depth }
+                    headerAtDepth[row.depth] = group
+                    parent = row.depth > 0 ? headerAtDepth[row.depth - 1].flatMap { item(.group($0)) } : nil
+                } else {
+                    parent = row.group.flatMap { item(.group($0)) }
+                }
                 slots.append(.init(key: id, item: id, section: section, parent: parent, frame: frame, kind: kind))
                 rows[id] = row
             case .section, .emptySection:
@@ -76,7 +85,12 @@ public struct SidebarDocDrag {
             case .block(let id):
                 // A block's items: tiles and rows of its own arrangement, at their base frames.
                 if let block = blocks[id] { slots += blockSlots(block, at: row.y) }
-            case .tab, .folder:
+            case .tab(let owner, _):
+                // A workspace's tab rows are part of its row: the drag's midpoint rule takes the middle of both.
+                if let last = slots.last, last.kind == .row, item(.workspace(owner)) == last.item {
+                    slots[slots.count - 1].frame.size.height = max(last.frame.height, row.maxY - last.frame.minY)
+                }
+            case .folder, .status, .doneFold, .showMore:
                 continue
             }
         }

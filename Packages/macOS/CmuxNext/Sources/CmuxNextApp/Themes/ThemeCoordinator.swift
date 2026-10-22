@@ -126,7 +126,9 @@ final class ThemeCoordinator {
         registry.choicePreview = { [weak self] action, _, value, target in
             self?.pickerPreview(action, value: value, target: target)
         }
-        registry.choiceState = { [weak self] action, target in self?.currentChoice(action, target: target) }
+        // Other owners (Team Picker) keep the current values they installed.
+        let otherState = registry.choiceState
+        registry.choiceState = { [weak self] action, target in self?.currentChoice(action, target: target) ?? otherState?(action, target) }
         let catalog = catalog
         // A theme's own accent: its `<theme>/accent` edit, else its file's `# cmux-accent`.
         ThemeBridge.accent = { name in ThemeBridge.edited(name) ?? catalog.colors[name]?.accent }

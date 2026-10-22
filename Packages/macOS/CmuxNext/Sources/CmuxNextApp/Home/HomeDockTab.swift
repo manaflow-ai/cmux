@@ -63,6 +63,20 @@ final class HomeDockTab: InternalPageProvider {
         return provider.views[key]
     }
 
+    /// The page command that moves the Channels list (`home.moveConversation`, hostMove.ts).
+    static let moveCommand = "home.moveConversation"
+
+    /// Asks the Channels page to open the conversation `offset` rows away in its list (its own
+    /// Option-Up/Down). False when nothing opened: an empty list, an older page (unknown_op), or
+    /// no answer within a second.
+    static func moveConversation(_ page: PageWebView, by offset: Int) async -> Bool {
+        let router = page.router
+        let answer = await PageAnswerDeadline(.seconds(1)).answer {
+            try await router.callPage(moveCommand, params: .object(["delta": .number(Double(offset))]))
+        }
+        return answer?.objectValue?["moved"]?.boolValue == true
+    }
+
     /// The Channels page's selection: the page op `home.currentSelection` over the host-to-page
     /// call path (`PageRouter.callPage`, hq-ec's page), `{conversation, message?}` or null. Nil
     /// when the page has none, is older or not connected yet (unknown_op), is gone, or does not

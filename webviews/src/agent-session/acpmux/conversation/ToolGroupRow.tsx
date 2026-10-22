@@ -12,6 +12,8 @@ import { ChevronRight, Magnifier, OpenBook, Pencil, Spinner, TerminalSquare } fr
 import { isFailed, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { useT } from "../i18n";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useFold } from "./fold";
+import { WriteLabel, writeCall } from "./WriteLabel";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -31,20 +33,25 @@ function groupIcon(kind: ToolGroupKind): ReactNode {
 export const GROUP_TAIL = 5;
 
 /// Commands, reads and searches open by default, one row per call, as the Codex and Claude Code
-/// desktop apps list them; edits stay closed, since each opens to its whole diff. The glyph turns
-/// while any call runs.
+/// desktop apps list them; edits stay closed, since each opens to its whole diff. A finished run
+/// that is this one group (`folded`: text followed it) stays closed too, one summary line between
+/// the paragraphs ("Ran 3 commands"), as the Codex app folds finished work. The glyph turns while
+/// any call runs.
 export function ToolGroupRow({
   kind,
   items,
   disclosureKey,
+  folded = false,
 }: {
   kind: ToolGroupKind;
   items: readonly AcpmuxActivity[];
   disclosureKey: string;
+  folded?: boolean;
 }) {
   const t = useT();
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, kind !== "edits");
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, kind !== "edits" && !folded);
   const [all, setAll] = useTranscriptDisclosure(`${disclosureKey}:all`);
+  const fold = useFold(open);
   const hidden = kind === "edits" || all ? 0 : Math.max(0, items.length - GROUP_TAIL);
   useFindReveal(items, () => setOpen(true));
   // A match in a call behind "+K more" shows the whole group.
@@ -56,10 +63,15 @@ export function ToolGroupRow({
   const detailsId = useId();
   const tools = useMemo(() => items.map((item) => item.tool!), [items]);
   const files = useMemo(() => (kind === "edits" ? toolFiles(tools) : []), [kind, tools]);
+  // The line's totals leave out a file a Write rewrote with old contents unknown (model.ts
+  // `contentsUnknown`), as the edited-files card does: its written text is not lines added.
+  const counted = useMemo(() => (kind === "edits" ? toolFiles(tools, { known: true }) : []), [kind, tools]);
   const running = tools.some(isRunning);
   const failures = tools.filter(isFailed).length;
-  const additions = files.reduce((sum, file) => sum + file.additions, 0);
-  const deletions = files.reduce((sum, file) => sum + file.deletions, 0);
+  const additions = counted.reduce((sum, file) => sum + file.additions, 0);
+  const deletions = counted.reduce((sum, file) => sum + file.deletions, 0);
+  // A lone Write reads as what it wrote, "Wrote notes.md +18", not as an edit (WriteLabel.tsx).
+  const write = kind === "edits" && tools.length === 1 ? writeCall(tools[0]!) : undefined;
   return (
     <>
       <button
@@ -71,19 +83,30 @@ export function ToolGroupRow({
       >
         <span className="cv-tool__icon">{running ? <Spinner size={16} /> : groupIcon(kind)}</span>
         <span className="cv-tool__text" data-find-skip>
-          {toolGroupLabel(
-            t,
-            kind,
-            items,
-            files.map((file) => file.path),
+          {write ? (
+            <WriteLabel tool={tools[0]!} write={write} t={t} />
+          ) : (
+            <>
+              {toolGroupLabel(
+                t,
+                kind,
+                items,
+                files.map((file) => file.path),
+              )}
+              {counted.length > 0 && (
+                <span className="cv-tool__counts">
+                  <span className="cv-edit-diff__add">+{additions}</span>
+                  <span className="cv-edit-diff__del">-{deletions}</span>
+                </span>
+              )}
+            </>
           )}
-          {files.length > 0 && (
-            <span className="cv-tool__counts">
-              <span className="cv-edit-diff__add">+{additions}</span>
-              <span className="cv-edit-diff__del">-{deletions}</span>
+          {failures > 0 && (
+            <span className="cv-tool__failed">
+              {" "}
+              {write ? t("tools.failed") : t("tools.failedCount", { n: failures })}
             </span>
           )}
-          {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
         </span>
         <ChevronRight
           size={14}
@@ -91,22 +114,24 @@ export function ToolGroupRow({
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
-      {open && (
-        <div className={kind === "edits" ? "cv-tool-group" : "cv-tool-group is-flat"} id={detailsId}>
-          {hidden > 0 && (
-            <button type="button" className="cv-tool cv-tool-group__more" onClick={() => setAll(true)}>
-              <span className="cv-tool__text">{t("tools.more", { n: hidden })}</span>
-            </button>
-          )}
-          {kind === "commands"
-            ? shown.map((item, index) => <CommandRow key={item.tool!.id || index} item={item} />)
-            : [
-                ...files.map((file) => <EditDiff key={file.path} file={file} />),
-                // Reads and searches, and edits that carried no diff (a delete, a move), as rows.
-                ...shown
-                  .filter((item) => !files.length || !item.tool!.diffs?.length)
-                  .map((item, index) => <ToolRow key={item.tool!.id || index} item={item} />),
-              ]}
+      {fold.present && (
+        <div ref={fold.ref} className="cv-fold">
+          <div className={kind === "edits" ? "cv-tool-group" : "cv-tool-group is-flat"} id={detailsId}>
+            {hidden > 0 && (
+              <button type="button" className="cv-tool cv-tool-group__more" onClick={() => setAll(true)}>
+                <span className="cv-tool__text">{t("tools.more", { n: hidden })}</span>
+              </button>
+            )}
+            {kind === "commands"
+              ? shown.map((item, index) => <CommandRow key={item.tool!.id || index} item={item} />)
+              : [
+                  ...files.map((file) => <EditDiff key={file.path} file={file} />),
+                  // Reads and searches, and edits that carried no diff (a delete, a move), as rows.
+                  ...shown
+                    .filter((item) => !files.length || !item.tool!.diffs?.length)
+                    .map((item, index) => <ToolRow key={item.tool!.id || index} item={item} />),
+                ]}
+          </div>
         </div>
       )}
     </>

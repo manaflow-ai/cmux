@@ -65,6 +65,16 @@ extension ControlError {
         return error
     }
 
+    /// This refusal with `data.not_run`: the action never ran, so nothing applied and the CLI
+    /// prints no "may still apply" note. Refusals from an action's work never carry it.
+    func notRun() -> ControlError {
+        var error = self
+        var members = data?.objectValue ?? [:]
+        members["not_run"] = true
+        error.data = .object(members)
+        return error
+    }
+
     /// Typed refusal for a destructive action run without `confirm: true`.
     static func confirmationRequired(_ id: String) -> ControlError {
         ControlError(code: "confirmation_required", message: ActionRegistry.confirmationRequiredReason(forRawID: id),

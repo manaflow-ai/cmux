@@ -1,32 +1,13 @@
-// The wheel over what floats on or under the transcript scrolls the transcript (Leo 2026-10-19:
-// "can't scroll when cursor on the jump to bottom", "can't scroll from bottom composer area"), as
-// it does in the Claude and Codex apps. The Jump to latest button and the bottom stack (questions,
-// notices, the queue, the composer) are not inside the transcript's scroller, so a wheel or
-// trackpad scroll over them reached nothing. A part that scrolls itself (a long prompt, the queue,
-// a menu's list) keeps the wheel, also at its ends: reaching the top or the bottom of a long draft
-// moves nothing else (Leo 2026-10-20: "when I reach the top or the bottom, I don't want that to
-// shift").
-
-/// Parts of the pane over which the wheel scrolls the transcript: Jump to latest, and every part
-/// of `main` outside the stage (the stage holds the header and the transcript itself).
-export function passesWheelToTranscript(target: Element, main: Element): boolean {
-  if (target.closest(".acpmux-jump-latest")) return true;
-  if (target.closest('[role="menu"], [role="listbox"], [role="dialog"]')) return false;
-  let part: Element | null = target;
-  while (part && part.parentElement !== main) part = part.parentElement;
-  if (!part) return false;
-  return !part.classList.contains("acpmux-stage") && !part.classList.contains("acpmux-home-area");
-}
-
-/// Whether something between `target` and `stop` scrolls itself (it is scrollable up and down), so
-/// the wheel is its own, at its ends too.
-export function scrollsItself(target: Element, stop: Element): boolean {
-  for (let box: Element | null = target; box && box !== stop; box = box.parentElement) {
-    if (box.scrollHeight <= box.clientHeight + 1) continue;
-    if (/auto|scroll/.test(getComputedStyle(box).overflowY)) return true;
-  }
-  return false;
-}
+// The wheel over Jump to latest scrolls the transcript (Leo 2026-10-19: "can't scroll when cursor on
+// the jump to bottom"), as it does in the Claude and Codex apps: the button floats over the
+// transcript's foot but is not inside its scroller, so a wheel over it reached nothing. The bottom
+// stack (questions, notices, the queue, the composer and its footer) is a no-scroll zone (Leo
+// 2026-10-20: "all of these areas are essentially a no-scroll zone"): the wheel over its parts
+// scrolls neither the transcript nor the stack, and a part that scrolls itself (a long prompt, the
+// queue, a menu's list) keeps the wheel at its ends too. The gutters and empty room beside each part's
+// card are not part of it (Leo 2026-10-20: "if it's not in the composer it should just scroll"): the
+// composer passes the pointer through beside its card (bottomStack.css), and the other parts' bands,
+// which take the pointer so nothing reaches the masked rows under them, send the wheel on here.
 
 /// The event's vertical distance in pixels (a line is 16px, a page the scroller's height).
 export function wheelPixels(event: Pick<WheelEvent, "deltaY" | "deltaMode">, pageHeight: number): number {
@@ -35,22 +16,37 @@ export function wheelPixels(event: Pick<WheelEvent, "deltaY" | "deltaMode">, pag
   return event.deltaY;
 }
 
-/// Sends the wheel over `main`'s floating parts to `scroller`. The scroller first gets a copy of
+/// Whether the wheel over `target` goes to the transcript: over Jump to latest, or over a part of the
+/// floating stack itself (its gutters and empty room, not what it holds), unless that part scrolls.
+/// The composer passes the pointer through instead, and the dictation notice is a card of its own.
+function passesThrough(target: Element): boolean {
+  if (target.closest(".acpmux-jump-latest")) return true;
+  if (!target.parentElement?.matches(".acpmux-main[data-dock=float] > .acpmux-dock")) return false;
+  if (target.matches(".acpmux-composer, .acpmux-dictation-notice")) return false;
+  return target.scrollHeight <= target.clientHeight;
+}
+
+/// Scrolls `scroller` by a vertical wheel that landed outside it. The scroller first gets a copy of
 /// the event, so its own wheel listeners run as for a wheel over it (the scroll counts as the
-/// reader's, a glide or a Jump to latest in flight ends). The listener is passive: a wheel over the
-/// transcript itself never waits on it, and a part that cannot scroll has no native scroll to stop.
-/// Returns the remover.
+/// reader's, a glide, a minimap jump or a Jump to latest in flight ends). A pinch (ctrl) or a mostly
+/// sideways wheel is left alone.
+export function forwardWheel(scroller: HTMLElement, event: WheelEvent): void {
+  if (event.defaultPrevented || event.ctrlKey) return;
+  if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+  scroller.dispatchEvent(
+    new WheelEvent("wheel", { deltaX: 0, deltaY: event.deltaY, deltaMode: event.deltaMode, bubbles: false }),
+  );
+  scroller.scrollTop += wheelPixels(event, scroller.clientHeight);
+}
+
+/// Sends the wheel over Jump to latest, or over a floating stack part's empty room, in `main` to
+/// `scroller` (forwardWheel). The listener is passive: a wheel over the transcript itself never
+/// waits on it. Returns the remover.
 export function installWheelPassThrough(scroller: HTMLElement, main: HTMLElement): () => void {
   const onWheel = (event: WheelEvent) => {
-    if (event.defaultPrevented || event.ctrlKey) return;
-    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
     const target = event.target instanceof Element ? event.target : null;
-    if (!target || scroller.contains(target) || !passesWheelToTranscript(target, main)) return;
-    if (scrollsItself(target, main)) return;
-    scroller.dispatchEvent(
-      new WheelEvent("wheel", { deltaX: 0, deltaY: event.deltaY, deltaMode: event.deltaMode, bubbles: false }),
-    );
-    scroller.scrollTop += wheelPixels(event, scroller.clientHeight);
+    if (!target || !passesThrough(target) || scroller.contains(target)) return;
+    forwardWheel(scroller, event);
   };
   main.addEventListener("wheel", onWheel, { passive: true });
   return () => main.removeEventListener("wheel", onWheel);

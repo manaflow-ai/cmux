@@ -18,10 +18,15 @@ final class SidebarIconButton: NSButton {
         didSet {
             guard label != oldValue else { return }
             setAccessibilityLabel(label)
-            themedToolTip = label
+            themedToolTip = showsLabelToolTip ? label : nil
             renderedSize = 0
             renderIcon()
         }
+    }
+    /// Hovering shows the label as the themed tooltip. Off for a glyph that names itself (a card's
+    /// ×, media controls), which keeps the label for VoiceOver only (Leo, 2026-10-20).
+    var showsLabelToolTip = true {
+        didSet { if showsLabelToolTip != oldValue { themedToolTip = showsLabelToolTip ? label : nil } }
     }
     /// Full Keyboard Access reaches this button (a card's x, UPDATE-CARD-CLOSE): Tab focuses it,
     /// Space presses it, and the focus shows as a ring in the theme's focus color (cx-wqn5), not

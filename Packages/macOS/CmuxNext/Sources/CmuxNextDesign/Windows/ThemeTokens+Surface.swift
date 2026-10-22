@@ -25,6 +25,11 @@ extension ThemeTokens {
     /// How much of the surface background ``legibilityScrim`` adds.
     public nonisolated static let legibilityScrimOpacity = 0.35
 
+    /// How much the veil over an unfocused pane covers its content (the pane fill at this alpha):
+    /// subtle, about 1.0 to 0.9, so moving focus never reads as the other panes going dark (Leo,
+    /// 2026-10-21). A Ghostty `unfocused-split-opacity` the person set replaces it.
+    public nonisolated var inactivePaneDim: Double { 0.10 }
+
     /// A small capsule behind a label over busy content (the Home header's
     /// name pill): the surface background at ``capsuleScrimOpacity``.
     public nonisolated var capsuleScrim: ThemeRGB { surfaceBackground.withAlpha(Self.capsuleScrimOpacity) }
