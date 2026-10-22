@@ -790,6 +790,10 @@ Mechanisms, phone first, then the Mac:
 - **Link keepalive.** A dead link closes 15-35 s after its last frame
   ("Link"); the daemon socket closes with it.
 
+The Mac app's Swift phone splice (`DaemonLaneSplice`, the irx connection
+server) has no release of its own: a phone on that path relies on its own
+release and the daemon's size lease.
+
 | Path | Mechanism | Mac pane restored within |
 | --- | --- | --- |
 | Back to the workspace list | page disappears → release after debounce | 1 s + one round trip |
@@ -800,7 +804,7 @@ Mechanisms, phone first, then the Mac:
 | Page menu open longer than 1 s | page not interactive → release; claimed again on close | 1 s + RTT |
 | Files and Links, photo picker or file importer over the page | covered → release | 1 s + RTT |
 | A sheet the page does not own (Connected Devices) | still claims (the terminal shows behind it) | n/a |
-| App to the background, screen locked | `didEnterBackground` → release at once | one round trip |
+| App to the background, screen locked | `didEnterBackground` → release at once, inside a short background task | one round trip |
 | Force quit, killed by iOS while foreground | no release; lease ends (or keepalive + hold, capped by the lease) | 45 s |
 | Killed by iOS in the background | already released on entering it | one round trip |
 | Link drop: network loss, roaming | keepalive closes the socket; hold capped by the lease | 45 s (a reattach inside it keeps the phone's grid) |
