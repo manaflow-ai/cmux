@@ -328,6 +328,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             view.frame = contentHost.bounds
         }
         view.autoresizingMask = [.width, .height]
+        // Unparked while still hidden, so the subtree hears only the unhide.
+        (view as? WorkspaceContentView)?.setParked(false)
         view.isHidden = false
         let paneCards = (view as? WorkspaceContentView)?.layoutView as? any PaneCardSource
         if holds, let outgoing {
@@ -359,6 +361,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             window.makeFirstResponder(nil)
         }
         view.isHidden = true
+        // Parked once hidden: the hidden subtree hears nothing more.
+        (view as? WorkspaceContentView)?.setParked(true)
         view.autoresizingMask = []
     }
 
