@@ -73,6 +73,8 @@ import Testing
         let out = Self.repo.appendingPathComponent(".build/artifacts/custom-sidebar-gallery.png")
         try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
         try png.write(to: out)
+        // The fleet returns artifacts of green runs only; the log carries the sheet either way.
+        print("CUSTOM_SIDEBAR_GALLERY_PNG_BASE64 " + png.base64EncodedString())
         #expect(png.count > 10_000)
     }
 }
