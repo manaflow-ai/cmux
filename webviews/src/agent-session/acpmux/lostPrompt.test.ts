@@ -3,7 +3,15 @@
 // for a Refresh). The host sends it again on the next connection; the sender waits for it there.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { clientWaiter, isLostConnection, lostPrompt, lostPromptSlot, waitForResend } from "./lostPrompt";
+import {
+  againSend,
+  clientWaiter,
+  isLostConnection,
+  lostDrafts,
+  lostPrompt,
+  lostPromptSlot,
+  waitForResend,
+} from "./lostPrompt";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -185,4 +193,73 @@ test("a connection waiting for a resend says no as soon as it closes", async () 
   client.close();
   expect(client.isClosed).toBe(true);
   expect(await waiting).toBe(false);
+});
+
+test("a lost prompt sent again goes with resend, so acpmux answers a copy it took before a restart", () => {
+  // The composer's send of the lost prompt: under its id, with resend (as a failed row's Retry).
+  expect(againSend("p-lost")).toEqual({ promptId: "p-lost", resend: true });
+  // A held gesture's id that is the lost prompt's: still that prompt.
+  expect(againSend("p-lost", "p-lost")).toEqual({ promptId: "p-lost", resend: true });
+  // Another id (a seeded prompt's, another held gesture's) is not the lost prompt.
+  expect(againSend("p-lost", "p-seeded")).toEqual({ promptId: "p-seeded", resend: false });
+  // A new prompt gets its own id from the client, with no resend.
+  expect(againSend(undefined)).toEqual({ promptId: undefined, resend: false });
+});
+
+test("a harness switch sends a lost prompt it held with resend", async () => {
+  const { HarnessSwitch } = await import("./harnessSwitch");
+  const sent: { promptId: string; resend?: boolean }[] = [];
+  const store = new HarnessSwitch({ now: () => 0, schedule: () => () => undefined });
+  store.connect({
+    turnRunning: () => false,
+    shown: () => undefined,
+    create: async () => "s-new",
+    leave: () => undefined,
+    open: async (sessionId) => sessionId,
+    send: async (_text, _attachments, promptId, resend) => {
+      sent.push({ promptId, resend });
+    },
+    setModel: async () => undefined,
+    setMode: async () => undefined,
+    setConfig: async () => undefined,
+    discard: () => undefined,
+    prewarm: () => undefined,
+    prewarmSupported: () => false,
+  });
+  void store.switchTo("codex", "/tmp/project");
+  const turn = store.send("fix it", [], undefined, "p-lost", true);
+  expect(turn).toBeDefined();
+  await turn;
+  expect(sent).toEqual([{ promptId: "p-lost", resend: true }]);
+});
+
+test("a lost prompt that comes back while another chat shows waits for its own chat", () => {
+  const drafts = lostDrafts<string>();
+  drafts.hold("s-a", "chat A's task");
+  // Chat B shows: nothing of chat A goes into its composer.
+  expect(drafts.take("s-b")).toEqual([]);
+  expect(drafts.take(undefined)).toEqual([]);
+  // Chat A shows again: its draft comes back, once.
+  expect(drafts.take("s-a")).toEqual(["chat A's task"]);
+  expect(drafts.take("s-a")).toEqual([]);
+});
+
+test("a connection waiting for a resend says no once the pane shows another chat", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    () => undefined,
+    undefined,
+    () => new MockAcpmuxSocket(() => Promise.resolve()) as unknown as WebSocket,
+  );
+  try {
+    await client.send("hello", [], "p-hello");
+    // Far past the test's own timeout: only the selection change can settle it.
+    const waiting = client.awaitResent(client.selectedSession!, "p-never", 600_000);
+    client.leave();
+    expect(await waiting).toBe(false);
+  } finally {
+    client.close();
+  }
 });

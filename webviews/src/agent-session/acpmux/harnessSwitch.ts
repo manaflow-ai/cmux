@@ -51,8 +51,9 @@ export type SwitchPort = {
   leave(): void;
   /// Shows and attaches `sessionId`; undefined when a newer selection won.
   open(sessionId: string): Promise<string | undefined>;
-  /// Sends a prompt to the shown session, its optimistic row keyed by `promptId`.
-  send(text: string, attachments: ComposerAttachment[], promptId: string): Promise<unknown>;
+  /// Sends a prompt to the shown session, its optimistic row keyed by `promptId`. `resend`: the
+  /// prompt went before under this id (direct.ts `send`).
+  send(text: string, attachments: ComposerAttachment[], promptId: string, resend?: boolean): Promise<unknown>;
   setModel(modelId: string): Promise<void>;
   /// `ticket`: the single-use gesture ticket the pick took (transport.gesture), sent with its frame.
   setMode(modeId: string, ticket?: string): Promise<void>;
@@ -113,6 +114,8 @@ export type SwitchView = {
 
 type Queued = QueuedSwitchPrompt & {
   attachments: ComposerAttachment[];
+  /// The prompt went before under its id (a lost prompt sent again, lostPrompt.ts `againSend`).
+  resend?: boolean;
   /// The prompt is on the wire (a Quick Composer may close once it is).
   written?(): void;
   resolve(value: unknown): void;
@@ -308,12 +311,14 @@ export class HarnessSwitch {
 
   /// A prompt sent from the composer. Returns undefined when no switch holds it (the caller sends
   /// it as usual), else a promise that settles as the send would.
-  /// `promptId`: a seeded prompt's own id (its host ticket is bound to it, cx-k21v gap 4).
+  /// `promptId`: a seeded prompt's own id (its host ticket is bound to it, cx-k21v gap 4), or a
+  /// lost prompt's, which goes with `resend`.
   send(
     text: string,
     attachments: ComposerAttachment[] = [],
     written?: () => void,
     promptId?: string,
+    resend = false,
   ): Promise<unknown> | undefined {
     let intent = this.intent;
     if (!intent) return undefined;
@@ -332,7 +337,10 @@ export class HarnessSwitch {
       return { promise, resolve, reject };
     })();
     const id = promptId ?? crypto.randomUUID();
-    intent.queued = [...intent.queued, { id, text, attachments, at: Date.now(), resolve, reject, written }];
+    intent.queued = [
+      ...intent.queued,
+      { id, text, attachments, at: Date.now(), resolve, reject, written, ...(resend ? { resend } : {}) },
+    ];
     // A prompt sent while the switch waits for the trust answer keeps this send's gesture for
     // after Trust (the first held prompt only: one ticket per send).
     if (intent.phase === "trust" && intent.queued.length === 1) this.handlers.holdPrompt?.(id);
@@ -589,7 +597,7 @@ export class HarnessSwitch {
     intent.queued = [];
     this.intent = undefined;
     for (const prompt of queued) {
-      port.send(prompt.text, prompt.attachments, prompt.id).then(prompt.resolve, prompt.reject);
+      port.send(prompt.text, prompt.attachments, prompt.id, prompt.resend).then(prompt.resolve, prompt.reject);
       prompt.written?.();
     }
     this.changed();

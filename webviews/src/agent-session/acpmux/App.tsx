@@ -47,6 +47,8 @@ import {
   LOST_PROMPT_CONNECT_MS,
   LOST_PROMPT_SHOW_MS,
   clientWaiter,
+  againSend,
+  lostDrafts,
   lostPrompt,
   lostPromptSlot,
   waitForResend,
@@ -5477,6 +5479,9 @@ function AcpmuxPane() {
     const startedSessions = new Set<string>();
     /// The prompt a send gave up on after its connection went, for the person's resend (lostPrompt.ts).
     const lostPrompts = lostPromptSlot();
+    /// A lost prompt's draft and "Not sent" for a chat the pane left while it waited, until the pane
+    /// shows that chat again (lostPrompt.ts `lostDrafts`).
+    const lostDraftsKept = lostDrafts<{ text: string; attachments: ComposerAttachment[]; notice: string }>();
     /// Prompts a failed or cancelled switch held go back into the composer with their
     /// attachments, before what was typed since; while no composer is mounted they wait for one.
     /// The gesture of a send acpmux held for the folder trust answer (heldPrompt.ts).
@@ -5637,6 +5642,15 @@ function AcpmuxPane() {
             harnessSwitch.reconcile(next);
             rowsRef.current = next.rows;
             snapshotRef.current = next;
+            // A lost prompt of this chat that came back while the pane showed another one.
+            const backHere = lostDraftsKept.take(next.summary?.sessionId);
+            if (backHere.length > 0)
+              queueMicrotask(() => {
+                for (const draft of backHere) {
+                  if (draft.text || draft.attachments.length > 0) restorePrompt(draft.text, draft.attachments);
+                  directClient.current?.notice(draft.notice);
+                }
+              });
             // What each harness reports feeds the next switch's first frame (harnessProfiles.ts).
             const summary = next.summary;
             const started = summary?.model !== undefined && startedSessions.delete(summary.sessionId);
@@ -5816,13 +5830,26 @@ function AcpmuxPane() {
             }
             lostPrompts.keep(lost.sessionId, lost.promptId, text, ids);
             // Back in the composer once, here: the composer's own catch leaves a prompt handed back.
-            if (released) restorePrompt(text, attachments);
-            (directClient.current ?? client).notice(translate("prompt.notSent", { reason: errorMessage(error) }));
+            // Only into its own chat's composer: in another chat the next Send would run it there,
+            // so it waits until the pane shows its chat again.
+            const notice = translate("prompt.notSent", { reason: errorMessage(error) });
+            const shownNow = directClient.current ?? client;
+            if (shownNow.selectedSession === lost.sessionId) {
+              if (released) restorePrompt(text, attachments);
+              shownNow.notice(notice);
+            } else lostDraftsKept.hold(lost.sessionId, { text: released ? text : "", attachments: released ? attachments : [], notice });
             throw released && error && typeof error === "object" ? Object.assign(error, { handedBack: true }) : error;
           };
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
-          const held = harnessSwitch.send(text, attachments, () => promptLanded.current(), promptId ?? again);
+          const seeded = againSend(again, promptId);
+          const held = harnessSwitch.send(
+            text,
+            attachments,
+            () => promptLanded.current(),
+            seeded.promptId,
+            seeded.resend,
+          );
           if (held) {
             accept?.();
             return held
@@ -5840,8 +5867,9 @@ function AcpmuxPane() {
             return refused(error, Boolean(accepted));
           });
           await persistSession(sessionId);
+          const going = againSend(again, kept?.promptId);
           const turn = client
-            .send(text, attachments, kept?.promptId ?? again, accept, kept?.ticket, steer)
+            .send(text, attachments, going.promptId, accept, kept?.ticket, steer, going.resend)
             .catch(resent)
             .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The prompt is written; a Quick Composer hand-off can close this page now.
@@ -6232,7 +6260,7 @@ function AcpmuxPane() {
           startsOnSend: () => client.startsOnSend,
           open: (sessionId) => client.select(sessionId),
           // A prompt held behind the trust question goes with the gesture its send kept.
-          send: (text, attachments, promptId) => {
+          send: (text, attachments, promptId, resend) => {
             const kept = heldPrompt.take();
             return client.send(
               text,
@@ -6240,6 +6268,8 @@ function AcpmuxPane() {
               promptId,
               undefined,
               kept?.promptId === promptId ? kept.ticket : undefined,
+              false,
+              resend === true,
             );
           },
           setModel: (modelId) => client.setModel(modelId),
