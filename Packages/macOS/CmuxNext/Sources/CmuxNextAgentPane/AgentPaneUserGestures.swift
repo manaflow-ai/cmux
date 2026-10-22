@@ -119,6 +119,11 @@ import CmuxNextCompat
     /// A seeded prompt's ticket stays: it belongs to the pane's one seed, not to a connection.
     public func clearTickets() { tickets.removeAll() }
 
+    /// Drops every pick's ticket and keeps each prompt's (a prompt went out: a switch's picks
+    /// ended with it). A prompt's ticket names its own promptId, so the next prompt the person
+    /// sent before this one went keeps its Enter.
+    public func clearPickTickets() { tickets = tickets.filter { $0.value.intent.method == "session/prompt" } }
+
     // MARK: A seeded prompt's ticket (cx-k21v gap 4)
 
     /// The ticket of a prompt a person's own action seeded (``AgentPaneSeed/PromptBy``): issued

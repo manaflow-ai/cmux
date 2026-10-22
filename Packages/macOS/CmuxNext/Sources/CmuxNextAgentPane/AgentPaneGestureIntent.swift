@@ -24,8 +24,9 @@ public nonisolated enum AgentPaneJSONScalar: Equatable, Sendable {
 /// `{intent: {method: "session/set_config_option", params: {configId, value}}}`, or a prompt the
 /// user sent that acpmux held for the folder trust answer,
 /// `{intent: {method: "session/prompt", params: {promptId}}}`: the send's own gesture, kept for that
-/// one prompt (its `_meta.acpmux.promptId`), so the Trust click's gesture goes to the trust answer.
-/// Nothing else.
+/// one prompt (its `_meta.acpmux.promptId`), so the Trust click's gesture goes to the trust answer,
+/// and a prompt the person sends into a running turn (queued or a steer) goes however late the
+/// relay decides it. Nothing else.
 public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     /// The methods a ticket may be redeemed by, and the exact param keys of their intent.
     public static let methods: [String: Set<String>] = [
@@ -64,10 +65,14 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     }
 
     /// What a newer reserve on the same connection revokes: one ticket for set_mode, one per
-    /// config option for set_config_option (a switch's model and effort picks keep theirs).
+    /// config option for set_config_option (a switch's model and effort picks keep theirs), one
+    /// per prompt for session/prompt (the person's next Enter never revokes the last one's).
     public var slot: String {
-        guard method == "session/set_config_option", case .string(let config)? = params["configId"] else { return method }
-        return method + "#" + config
+        switch (method, params["configId"], params["promptId"]) {
+        case ("session/set_config_option", .string(let config)?, _): return method + "#" + config
+        case ("session/prompt", _, .string(let promptId)?): return method + "#" + promptId
+        default: return method
+        }
     }
 
     /// Whether a frame is the pick: the same method, and its params minus `sessionId` and `_meta`
