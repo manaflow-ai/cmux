@@ -81,8 +81,12 @@ extension AgentTabStore {
             _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: resolve(open)), origin: .user))
             return true
         }
-        return openBeside(provisional, main: provisional, open: { [weak self] pane, daemon in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: session) },
-                          created: { [weak self] key in changes.record(key); self?.revealTurn(reveal, in: key) })
+        // A tab already being made shows this request's turn once it exists.
+        guard changes.begin(reveal) else { return true }
+        let opened = openBeside(provisional, main: provisional, open: { [weak self] pane, daemon in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: session) },
+                                created: { [weak self] key in self?.revealTurn(changes.made(key) ?? reveal, in: key) }, finished: { _ in changes.ended() })
+        if !opened { changes.ended() }
+        return opened
     }
     /// A tab in chat tab `provisional`'s pane, then moved to a new split on its right when `split`; else a tab there, focused when `created` is set.
     /// A split asked for chat `main` when that chat is its screen's main pane (``openInMainPane``) is a tab in the column on its right instead.

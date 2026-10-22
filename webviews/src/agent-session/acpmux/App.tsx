@@ -113,7 +113,16 @@ import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { parseProjectRepos } from "./projectRepos";
 import { HomeLists } from "./HomeLists";
-import { endsTurn, lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
+import {
+  endsTurn,
+  lastChange,
+  turnFiles,
+  turnPathsOnly,
+  turnRows,
+  turnStartLoaded,
+  type PathRef,
+  type TurnFile,
+} from "./diff";
 import { opensTurn } from "./turnStart";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk, trustedLabel } from "./TrustAsk";
@@ -3762,6 +3771,8 @@ function AcpmuxPane() {
   /// This pane was opened on a turn's changes (a `changes:` reveal, turnChanges/changesPane.ts): the
   /// chat, turn and file it shows once it shows that chat and the chat has that turn.
   const [requestedChanges, setRequestedChanges] = useState<ChangesRequest>();
+  const requestedChangesRef = useRef(requestedChanges);
+  requestedChangesRef.current = requestedChanges;
   /// The chat whose changes this pane was opened on, once it shows them: closing that view closes
   /// the tab. A pane that moves to another chat is an ordinary chat pane again.
   const changesPane = useRef<string | undefined>(undefined);
@@ -4542,13 +4553,18 @@ function AcpmuxPane() {
       setRequestedChanges(undefined);
     };
     if (snapshot.sessionId !== requestedChanges.sessionId) return drop();
-    if (!snapshot.rows.some((row) => row.id === requestedChanges.rowId)) {
+    // The whole turn, not just the asked row: its files come from every row of it.
+    if (!turnStartLoaded(snapshot.rows, requestedChanges.rowId, snapshot.canLoadOlder)) {
       // A pane still attaching has no rows yet: its history has not ended.
       if (snapshot.rows.length === 0) return;
       if (!snapshot.canLoadOlder) return drop();
       // Each page that arrives changes the rows and runs this again; a failed page drops the request.
       const asked = requestedChanges;
-      void loadOlderHistory.current().catch(() => setRequestedChanges((current) => (current === asked ? undefined : current)));
+      void loadOlderHistory.current().catch(() => {
+        if (requestedChangesRef.current !== asked) return;
+        changesRequested.current = false;
+        setRequestedChanges(undefined);
+      });
       return;
     }
     const { rowId, path } = requestedChanges;

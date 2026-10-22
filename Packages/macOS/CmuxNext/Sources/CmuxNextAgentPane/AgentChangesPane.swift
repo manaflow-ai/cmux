@@ -5,10 +5,14 @@ import Foundation
 /// not opening up in the right split tab?"). The first request opens a tab on the chat's own session
 /// right of the chat, on a `changes:` reveal (the page's `CHANGES_REVEAL`,
 /// webviews/src/agent-session/acpmux/turnChanges/changesPane.ts); a later one shows its turn in that
-/// tab while it is open, instead of opening another. Closing the changes there closes the tab.
+/// tab while it is open, instead of opening another. While that tab is still being made, later
+/// requests wait for it and the tab shows the newest one, so two quick clicks open one pane. Closing
+/// the changes there closes the tab.
 @MainActor
 public final class AgentChangesPane {
     private var tab: String?
+    /// The reveal the tab being made shows once it exists: the newest request's. Nil while none is made.
+    private var waiting: String?
 
     public init() {}
 
@@ -28,8 +32,21 @@ public final class AgentChangesPane {
         return tab
     }
 
-    /// Records the tab that shows the changes.
-    public func record(_ key: String) { tab = key }
+    /// Starts making the tab for `reveal`; false when one is being made, which then shows `reveal`.
+    public func begin(_ reveal: String) -> Bool {
+        defer { waiting = reveal }
+        return waiting == nil
+    }
+
+    /// The tab being made exists as `key`: records it and returns the reveal it shows.
+    public func made(_ key: String) -> String? {
+        tab = key
+        defer { waiting = nil }
+        return waiting
+    }
+
+    /// The tab being made failed or is done: later requests make or use one again.
+    public func ended() { waiting = nil }
 
     /// The `revealTurn` value that opens a pane on the changes of session `session`'s turn holding
     /// `row`, at `path`: row ids repeat across sessions, so it names the chat too.

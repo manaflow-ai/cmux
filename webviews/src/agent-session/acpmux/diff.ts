@@ -175,6 +175,16 @@ export function turnRows(rows: AcpmuxRow[], rowId: string): AcpmuxRow[] {
   return rows.slice(start, end);
 }
 
+/// Whether `rows` hold the start of the turn holding `rowId`: a row that opens it, or the chat's
+/// first row when no older history is left (`olderLeft` false). A pane holding only a chat's recent
+/// events can have a turn's later rows without its first ones.
+export function turnStartLoaded(rows: readonly AcpmuxRow[], rowId: string, olderLeft: boolean): boolean {
+  const index = rows.findIndex((row) => row.id === rowId);
+  if (index < 0) return false;
+  for (let at = index; at >= 0; at -= 1) if (opensTurn(rows[at])) return true;
+  return !olderLeft;
+}
+
 /// A summary that ends the turn. A turn a prompt sent now stopped goes on under that prompt
 /// (direct.ts `continued`): its summary ends only that part, and the turn ends with a later one.
 export const endsTurn = (row: AcpmuxRow) => row.kind === "turnSummary" && !row.continued;
