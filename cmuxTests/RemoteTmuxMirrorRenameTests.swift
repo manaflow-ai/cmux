@@ -73,14 +73,16 @@ struct RemoteTmuxMirrorRenameTests {
         }
         #expect(focusedOutcome.surfaceID == focusedSurface.surfaceID)
         #expect(focusedOutcome.paneID == focusedSurface.paneID)
-        #expect(harness.workspace.panelCustomTitles[focusedSurface.surfaceID] == focusedTitle)
+        let containerID = try #require(harness.workspace.controlTabTarget(for: focusedSurface.surfaceID)?.panelID)
+        #expect(harness.workspace.panelCustomTitles[containerID] == focusedTitle)
 
         let commands = try harness.finishCommands()
-        #expect(commands.filter { $0.hasPrefix("rename-window ") }.isEmpty)
+        #expect(commands.filter { $0.hasPrefix("rename-window ") } == [
+            "rename-window -t @2 'multi-pane-renamed-focused'",
+        ])
         #expect(commands.filter { $0.hasPrefix("select-pane ") } == [
             "select-pane -t %4 -T 'multi-pane-renamed-0'",
             "select-pane -t %5 -T 'multi-pane-renamed-1'",
-            "select-pane -t %4 -T 'multi-pane-renamed-focused'",
         ])
     }
 
