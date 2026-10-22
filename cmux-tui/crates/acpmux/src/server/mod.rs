@@ -1021,6 +1021,7 @@ mod inventory_watch;
 pub mod local_app;
 mod models_fanout;
 mod new_worktree;
+pub(crate) mod outbox;
 mod pairing;
 pub mod peer_auth;
 mod peer_forward;
