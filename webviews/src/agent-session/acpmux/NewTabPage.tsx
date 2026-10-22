@@ -29,6 +29,7 @@ import {
 import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { parsePageWidgets, type PageWidget } from "./newtab/pageWidgets";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
+import { isStartableProject } from "./newtab/startedProject";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
@@ -92,6 +93,8 @@ export type NewTabHost = {
   template?: NewTabTemplate;
   /// The agent last picked (decision Q3).
   lastAgent?: string;
+  /// The project of the chat the person last picked and started (newtab/startedProject.ts).
+  startedProject?: string;
   /// The home folder, so `~/path` reads as a folder.
   home?: string;
   /// false: leave the field unfocused (Cmd-L opened the page for the omnibar, cx-e2aa).
@@ -151,6 +154,9 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     layout: object.layout === "a" ? "a" : "b",
     ...(template ? { template } : {}),
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
+    ...(isStartableProject(typeof object.startedProject === "string" ? object.startedProject : undefined)
+      ? { startedProject: object.startedProject as string }
+      : {}),
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
     ...(object.focusesField === false ? { focusesField: false } : {}),
