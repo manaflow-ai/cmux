@@ -208,6 +208,13 @@ final class CloudService {
                 await self.refresh()
             }
         })
+        // After sleep the list is stale even with cmux in front: the idle
+        // auto-pause may have parked machines while the lid was closed.
+        observers.append(Task { [weak self] in
+            for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
+                await self?.refresh(ifOlderThan: .seconds(30))
+            }
+        })
     }
 
     /// Set while an administrator turned Cloud off (`DisabledFeatures`).
@@ -296,6 +303,12 @@ final class CloudService {
         }
     }
 
+    /// ``refresh()`` unless the list was read within `age`.
+    func refresh(ifOlderThan age: Duration) async {
+        if let last = lastRefresh, last.duration(to: .now) < age { return }
+        await refresh()
+    }
+
     private func reconcile(_ list: [CloudMachine]) {
         // A list that arrives after Cloud was turned off connects nothing.
         guard !policyDisabled else { return }
@@ -338,6 +351,12 @@ final class CloudService {
             session = CloudMachineSession(machine: machine, link: link)
         }
         session.daemon.workTracker = machines.local.workTracker
+        // An attach to a paused machine resumes it through Resume Machine's own path.
+        session.resumer = { [weak self] id in try await self?.resumeMachine(id) }
+        // An attach reads a record that may be stale (paused behind the app) again first.
+        session.refresher = { [weak self] force in
+            if force { await self?.refresh() } else { await self?.refresh(ifOlderThan: .seconds(30)) }
+        }
         machines.add(session)
         session.connect()
         return session
@@ -387,6 +406,14 @@ final class CloudService {
         try await api.resumeMachine(machineID)
         await refresh()
         logger.info("resumed machine \(machineID, privacy: .public)")
+    }
+
+    /// The machine's idle auto-pause (`PUT /api/vm/{id}/idle-pause`): minutes
+    /// of idle before cmux Cloud pauses it; 0 is Off.
+    func setIdlePause(_ machineID: String, minutes: Int) async throws {
+        try await api.setIdlePause(machineID, minutes: minutes)
+        machines.session(machineID)?.machine.idlePauseMinutes = minutes
+        logger.info("set idle pause \(machineID, privacy: .public) to \(minutes) min")
     }
 
     func renameMachine(_ machineID: String, to name: String) async throws {

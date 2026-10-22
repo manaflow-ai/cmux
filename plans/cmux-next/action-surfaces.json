@@ -16722,7 +16722,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Developer Tools: Start\/Stop Performance Recording",
+      "title" : "Developer Tools: Start or Stop Performance Recording",
       "title_key" : "action.devtools.togglePerformanceRecording",
       "title_table" : "DevToolsActions"
     },
@@ -22348,34 +22348,6 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "guiOnly",
-      "cli_name" : "action chief-toggle-memory-inspector",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "chief.toggleMemoryInspector",
-      "main_menu" : null,
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.agents",
-        "order" : 109,
-        "title" : "Agents",
-        "title_key" : "category.agents",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Chief: Toggle Memory Inspector",
-      "title_key" : "action.chief.toggleMemoryInspector",
-      "title_table" : "ActionCatalog"
-    },
-    {
       "cli" : "familyMember",
       "cli_name" : "action chief-move-to",
       "context_menu" : "noObject",
@@ -24075,6 +24047,34 @@
       "palette_suggested" : null,
       "title" : "Resize Machine…",
       "title_key" : "action.cloudResizeMachine",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud set-idle-pause",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudSetIdlePause",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Pause When Idle…",
+      "title_key" : "action.cloudSetIdlePause",
       "title_table" : "ActionCatalog"
     },
     {
@@ -30652,7 +30652,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Pin\/Unpin Chat",
+      "title" : "Pin or Unpin Chat",
       "title_key" : "action.sidebar.chat.togglePin",
       "title_table" : "SidebarSectionActions"
     },
@@ -33691,7 +33691,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Palette: Show\/Hide Actions",
+      "title" : "Palette: Show or Hide Actions",
       "title_key" : "action.paletteKey.toggleActions",
       "title_table" : "ActionCatalog"
     },
@@ -36147,14 +36147,27 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "cloudSetIdlePause",
+              "kind" : "action",
+              "order" : 10,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 10
+              "order" : 11
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.deleteSnapshot",
               "kind" : "action",
-              "order" : 11,
+              "order" : 12,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
