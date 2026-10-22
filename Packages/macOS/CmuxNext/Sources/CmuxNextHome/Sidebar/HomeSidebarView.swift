@@ -213,7 +213,7 @@ public final class HomeSidebarView: NSView {
     /// the dot read as missing (the user, 2026-10-21). The column lays the theme's legibility
     /// scrim; the selection is the theme's translucent selection tint, never the system blue.
     func applyColors() {
-        list.unreadColor = unreadDotColor ?? Palette.notificationBlue
+        list.unreadColor = unreadDotColor ?? performWithTheme { Palette.notificationBlue }
         noteLabel.textColor = performWithTheme { Palette.textSecondary }
         requestsButton.contentTintColor = performWithTheme { Palette.textSecondary }
         // The menu ring: the label colour, not the system accent.
