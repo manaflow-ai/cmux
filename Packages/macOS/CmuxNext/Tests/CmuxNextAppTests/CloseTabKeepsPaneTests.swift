@@ -67,7 +67,7 @@ struct CloseTabKeepsPaneTests {
                 #expect(services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
                 try await PinnedPageTests.until({ store.tab(id: closed) == nil && browserPane.stripModel.selectedID?.rawValue == next },
                                                 report: { "closing \(closed): " + Self.describe(content, next) })
-                #expect(content.focusedPane === browserPane, "closing \(closed) moved the focus: " + Self.describe(content, next))
+                #expect(content.focusedPane === browserPane, "closing \(closed) moved the focus: \(Self.describe(content, next))")
                 #expect(store.tab(id: chatID) != nil, "Cmd-W closed the agent chat")
             }
 
@@ -98,20 +98,20 @@ struct CloseTabKeepsPaneTests {
     /// Pure: the run that starts when a Cmd-W empties its pane (``EmptiedPaneCloseRun``).
     @Test func quickPressesAfterAPaneEmptiedCloseNothingUntilAPause() {
         var run = EmptiedPaneCloseRun()
+        // A press at each time, in order: whether it closed nothing.
+        func presses(_ times: [TimeInterval]) -> [Bool] { times.map { run.swallows(at: $0, window: 0.5) } }
         // No run: a press closes.
-        #expect(!run.swallows(at: 10, window: 0.5))
+        let before = presses([10])
+        #expect(before == [false])
         run.emptied(at: 10)
-        // Quick presses and key repeats each extend the run.
-        #expect(run.swallows(at: 10.3, window: 0.5))
-        #expect(run.swallows(at: 10.7, window: 0.5))
-        #expect(run.swallows(at: 11.1, window: 0.5))
-        // A pause ends it: that press closes, and so does the next quick one.
-        #expect(!run.swallows(at: 11.7, window: 0.5))
-        #expect(!run.swallows(at: 11.8, window: 0.5))
+        // Quick presses and key repeats each extend the run; a pause ends it, and the quick press after that closes too.
+        let burst = presses([10.3, 10.7, 11.1, 11.7, 11.8])
+        #expect(burst == [true, true, true, false, false])
         #expect(run.last == nil)
         // A clock that went back never swallows.
         run.emptied(at: 20)
-        #expect(!run.swallows(at: 19, window: 0.5))
+        let backwards = presses([19])
+        #expect(backwards == [false])
     }
 
     /// Splits the focused pane right and gives the new pane's controller once the daemon confirmed it.
