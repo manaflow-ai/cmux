@@ -270,10 +270,11 @@ def pr_routes(workflows: dict) -> dict:
     caller, job_id, guards = GUARDS_SCRIPT_ROUTE
     skipped = skipped_jobs(workflows[caller], {}) if caller in routes else {job_id: "no route"}
     job = jobs(workflows.get(caller) or {}).get(job_id) or {}
+    rows = matrix_rows(job, {})
     if job_id not in skipped and guards in workflows and any(
             "guards-local.sh" in str(step.get("run")) and "--feat-routes" in str(step.get("run"))
             and can_hold(step.get("if"), {"skipped": skipped, "matrix": row}) for step in job.get("steps") or []
-            for row in matrix_rows(job, {}) or [None]):
+            for row in (rows if rows is not None else [None])):
         groups = detect_linux_guard_changes.FEAT_ALWAYS + detect_linux_guard_changes.FEAT_ROUTED
         routes[guards] = [{"linux_guard_tests": "true", "linux_guard_test_groups": json.dumps(list(groups))}]
     queue = [(name, inputs) for name in sorted(routes) for inputs in routes[name]]
