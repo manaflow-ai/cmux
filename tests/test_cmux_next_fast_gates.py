@@ -361,6 +361,39 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(git(work, "merge-base", "--all", "refs/fast-gates/head", "HEAD^1"), merged_in)
         self.assertEqual((work / "shared.txt").read_text(), "three\n")
 
+    def test_dispatch_deepens_when_a_cut_hides_that_one_merge_base_descends_from_another(self):
+        # Both sides reach the true base A at the cut and its ancestor B through short side branches, so the
+        # shallow fetch reports {A, B}: no cut lies ahead of them, yet B is stale and the virtual base conflicts.
+        spec = importlib.util.spec_from_file_location("cmux_next_fast_gates", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        seed = self.seed
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        b = self.tip
+        a = commit(seed, {"shared.txt": "two\n"}, "A: the true merge base")
+
+        def side(name: str) -> str:
+            git(seed, "checkout", "-q", "-b", name, b)
+            return commit(seed, {f"{name}.txt": f"{name}\n"}, f"{name} off B")
+
+        def tip(branch: str, files: dict[str, str]) -> None:
+            git(seed, "checkout", "-q", "-B", branch, a)
+            commit(seed, files, f"{branch} after A")
+            for n in range(module.FETCH_DEPTH - 3):
+                git(seed, "commit", "-q", "--allow-empty", "-m", f"{branch} moves on {n}")
+            git(seed, "merge", "-q", "--no-ff", "--no-edit", f"side-{branch}")
+
+        side("side-pr")
+        side("side-feat-cmux-next")
+        tip("pr", {"pr.txt": "pr\n"})
+        tip("feat-cmux-next", {"shared.txt": "three\n"})
+        git(seed, "push", "-q", "-f", str(self.remote), "feat-cmux-next", "pr:refs/pull/7/head")
+        work = self.clone()
+        result = self.dispatch(work)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(git(work, "merge-base", "--all", "refs/fast-gates/head", "HEAD^1"), a)
+        self.assertEqual((work / "shared.txt").read_text(), "three\n")
+
     def test_dispatch_refuses_a_head_that_moved_after_resolve(self):
         work = self.clone()
         result = self.dispatch(work, head="e" * 40)
