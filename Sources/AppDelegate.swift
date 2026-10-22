@@ -2247,7 +2247,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             || mirrorsOwingDetach > 0
         let hasLocalTerminalSurfaces = hasLocalTerminalSurfacesForQuit
         guard hasOwnedRuntimeCleanup || hasLocalTerminalSurfaces
-            || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites else { return false }
+            || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites
+            || FeedCoordinator.shared.store?.hasPendingPersistenceWrites == true else { return false }
         if !isAwaitingTerminateCleanup {
             isAwaitingTerminateCleanup = true
             terminateCleanupPhase = .ownedRuntimeCleanup

@@ -306,6 +306,37 @@ struct WorkstreamStoreStartTests {
         #expect(store.items.map(\.workstreamId) == (0..<700).map { "row-\($0)" })
         #expect(!store.hasMorePersistedItems)
     }
+
+    @Test("The store reports queued journal writes until they land")
+    func pendingPersistenceWritesAreObservableUntilFlushed() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-pending-writes-\(UUID().uuidString).jsonl")
+        defer {
+            try? FileManager.default.removeItem(at: tmp)
+            try? FileManager.default.removeItem(at: tmp.appendingPathExtension("revision"))
+        }
+        let store = WorkstreamStore(persistence: WorkstreamPersistence(fileURL: tmp))
+        await store.start()
+        await store.flushPersistence()
+        #expect(!store.hasPendingPersistenceWrites)
+
+        // Quit consults this synchronously to decide whether to wait for
+        // the Feed before letting AppKit terminate.
+        store.ingest(WorkstreamEvent(
+            sessionId: "live",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Write",
+            toolInputJSON: "{}",
+            requestId: "r1"
+        ))
+        #expect(store.hasPendingPersistenceWrites)
+
+        await store.flushPersistence()
+        #expect(!store.hasPendingPersistenceWrites)
+    }
+
 }
 
 private actor CountingWorkstreamTransport: WorkstreamTransport {
