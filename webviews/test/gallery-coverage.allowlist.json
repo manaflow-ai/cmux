@@ -4,6 +4,7 @@
     "agent-session/acpmux/changes/": "Leo: Sources and Changes (entry agent-pane.sources)"
   },
   "components": [
+    "agent-session/acpmux/App.tsx#ChatComposerChips",
     "agent-session/acpmux/App.tsx#NewTabComposerChips",
     "agent-session/acpmux/ComposerPickers.tsx#ArrowUpIcon",
     "agent-session/acpmux/ComposerPickers.tsx#AtIcon",

@@ -195,14 +195,19 @@ async function open() {
 
 async function showTab(name: string) {
   const tab = railTabs().find((candidate) => candidate.getAttribute("aria-label") === name);
-  expect(tab, `${name} tab in ${railTabs().map((each) => each.getAttribute("aria-label"))}`).toBeDefined();
+  expect(
+    tab,
+    `${name} tab in ${railTabs()
+      .map((each) => each.getAttribute("aria-label") ?? "")
+      .join(", ")}`,
+  ).toBeDefined();
   await act(async () => tab!.click());
   await settle();
 }
 
 async function openAccount() {
   const row = itemsOf(menu()!).find((item) => labelOf(item) === "Account");
-  expect(row, `Account row in ${itemsOf(menu()!).map(labelOf)}`).toBeDefined();
+  expect(row, `Account row in ${itemsOf(menu()!).map(labelOf).join(", ")}`).toBeDefined();
   await act(async () => row!.click());
   await settle();
   return menus().at(-1)!;
@@ -241,7 +246,11 @@ test("each harness's Account row lists only its own accounts, and another accoun
   expect(claude.querySelector('.acpmux-quick-profile[aria-checked="true"]')?.textContent).toContain("Claude Code");
   // The chat's own routes stay after its accounts.
   expect(itemsOf(claude).map(labelOf)).toContain("CLI login");
-  await act(async () => profileRows(claude).find((row) => labelOf(row) === "Claude (work)")!.click());
+  await act(async () =>
+    profileRows(claude)
+      .find((row) => labelOf(row) === "Claude (work)")!
+      .click(),
+  );
   await settle();
   expect(forked).toEqual(["claude-work"]);
   await open();
@@ -250,7 +259,11 @@ test("each harness's Account row lists only its own accounts, and another accoun
   expect(profileRows(codex).map(labelOf)).toEqual(["Codex", "Codex (work)"]);
   // A Fork to tab has no routes: they are the chat's own.
   expect(itemsOf(codex).map(labelOf)).not.toContain("CLI login");
-  await act(async () => profileRows(codex).find((row) => labelOf(row) === "Codex (work)")!.click());
+  await act(async () =>
+    profileRows(codex)
+      .find((row) => labelOf(row) === "Codex (work)")!
+      .click(),
+  );
   await settle();
   expect(forked).toEqual(["claude-work", "codex-work"]);
 });
@@ -272,7 +285,11 @@ test("a chat with no message yet starts on another account of the harness from i
   expect(railTabs().map((tab) => tab.getAttribute("aria-label"))).not.toContain("Claude (work)");
   const account = await openAccount();
   expect(profileRows(account).map(labelOf)).toEqual(["Claude Code", "Claude (work)"]);
-  await act(async () => profileRows(account).find((row) => labelOf(row) === "Claude (work)")!.click());
+  await act(async () =>
+    profileRows(account)
+      .find((row) => labelOf(row) === "Claude (work)")!
+      .click(),
+  );
   await settle();
   expect(switched).toEqual(["claude-work"]);
   expect(forked).toEqual([]);
@@ -299,7 +316,11 @@ test("the chat composer forks through Continue In…'s chat.handoff.prepare", as
   await settle();
   await open();
   await showTab("Codex");
-  await act(async () => itemsOf(menu()!).find((item) => labelOf(item) === "Fork to Codex")!.click());
+  await act(async () =>
+    itemsOf(menu()!)
+      .find((item) => labelOf(item) === "Fork to Codex")!
+      .click(),
+  );
   await settle();
   expect(calls.filter((call) => call.method.startsWith("chat."))).toEqual([
     { method: "chat.handoff.prepare", params: { harness: "codex" } },
