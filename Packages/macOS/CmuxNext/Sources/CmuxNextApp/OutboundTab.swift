@@ -178,8 +178,8 @@ final class OutboundTab {
 
     /// Starts leaving out of `pane`'s strip the tab about to be made there for a move to the side.
     static func begin(in pane: PaneController) -> OutboundTab {
-        // Opens of closed panes go now, not at their timers.
-        for tab in open.values.joined() where tab.pane == nil { tab.drop() }
+        // Opens of closed panes go now, not at their timers (collected first: `drop()` edits `open`).
+        for tab in open.values.joined().filter({ $0.pane == nil }) { tab.drop() }
         let tab = OutboundTab(pane: pane)
         open[tab.key, default: []].append(tab)
         return tab
