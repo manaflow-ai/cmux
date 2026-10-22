@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextSidebar
 
 // Per-machine actions: open, terminal, rename, kill, pause/resume, copy,
 // resize, status, ports, tools, handoff, snapshot, promote to template,
@@ -313,7 +314,7 @@ extension CloudHandlers {
     }
 
     /// `describe`'s facts as `action.run` result fields.
-    static func statusFields(_ session: CloudMachineSession, _ stats: CloudMachineStats) -> [String: ActionResultValue] {
+    static func statusFields(_ session: CloudMachineSession, _ stats: CloudMachineStats, now: Date = Date()) -> [String: ActionResultValue] {
         var fields: [String: ActionResultValue] = [
             "machine_id": .string(session.machineID), "title": .string(session.machine.title),
             "state": .string(stats.state), "status": .string(session.effectiveStatus.rawValue),
@@ -325,15 +326,29 @@ extension CloudHandlers {
         if let used = stats.diskUsedMb { fields["disk_used_mb"] = .double(used) }
         if let total = stats.diskTotalMb { fields["disk_total_mb"] = .double(total) }
         if let address = session.machine.address?.ipv4 { fields["address"] = .string(address) }
+        fields.merge(costFields(session.machine, now: now)) { _, new in new }
         return fields
     }
 
-    static func describe(_ session: CloudMachineSession, _ stats: CloudMachineStats) -> String {
+    /// The machine's cost as `action.run` fields, from server facts: `hourly_rate_usd`,
+    /// `running_since` (ISO 8601) and `estimated_cost_usd` (rate x time running). A
+    /// paused machine has no `running_since` or estimate.
+    static func costFields(_ machine: CloudMachine, now: Date) -> [String: ActionResultValue] {
+        guard let cost = CloudCreationRows.cost(machine, limits: nil) else { return [:] }
+        var fields: [String: ActionResultValue] = [:]
+        if let rate = cost.hourlyRateUsd { fields["hourly_rate_usd"] = .double(rate) }
+        if let since = cost.runningSince { fields["running_since"] = .string(since.ISO8601Format()) }
+        if let spent = cost.estimatedCostUsd(now: now) { fields["estimated_cost_usd"] = .double((spent * 10_000).rounded() / 10_000) }
+        return fields
+    }
+
+    static func describe(_ session: CloudMachineSession, _ stats: CloudMachineStats, now: Date = Date()) -> String {
         var lines = ["\(session.machine.title) (\(session.machineID))", "state: \(stats.state), status: \(session.effectiveStatus.rawValue)"]
         if let cpus = stats.cpus { lines.append("cpus: \(cpus)" + (stats.cpuPercent.map { String(format: ", %.0f%%", $0) } ?? "")) }
         if let used = stats.memoryUsedMb, let total = stats.memoryTotalMb { lines.append(String(format: "memory: %.0f / %.0f MB", used, total)) }
         if let used = stats.diskUsedMb, let total = stats.diskTotalMb { lines.append(String(format: "disk: %.0f / %.0f MB", used, total)) }
         if let address = session.machine.address?.ipv4 { lines.append("address: \(address)") }
+        if let usage = CloudCreationRows.cost(session.machine, limits: nil).flatMap({ $0.usage(now: now) }) { lines.append(usage) }
         return lines.joined(separator: "\n")
     }
 }

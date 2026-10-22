@@ -113,6 +113,8 @@ export function useChatInspector({
   onStopProcess,
   subagents,
   sessions,
+  onOpenFolder,
+  onSaveEnvironment,
 }: {
   snapshot: AcpmuxSnapshot;
   /// This Mac's name from the handshake, for a local chat.
@@ -139,6 +141,10 @@ export function useChatInspector({
   };
   /// The chats the chat's agent started (App.tsx `childSessions`), and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// Opens one of the chat's folders in the Files tree beside the chat (a chat on this Mac).
+  onOpenFolder?: (path: string) => void;
+  /// Saves the chat's machine and folder as an environment (`environment.save`).
+  onSaveEnvironment?: () => Promise<unknown>;
 }): {
   on: boolean;
   button?: ReactNode;
@@ -210,6 +216,8 @@ export function useChatInspector({
         onOpenOutput={openOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
+        onOpenFolder={onOpenFolder}
+        onSaveEnvironment={onSaveEnvironment}
       />
     ),
   };
@@ -237,6 +245,8 @@ function InspectorPresence({
   onOpenOutput,
   onOpenUrl,
   onOpenImage,
+  onOpenFolder,
+  onSaveEnvironment,
 }: {
   shown: boolean;
   snapshot: AcpmuxSnapshot;
@@ -262,6 +272,8 @@ function InspectorPresence({
   onOpenOutput?: (path: string) => void;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
+  onOpenFolder?: (path: string) => void;
+  onSaveEnvironment?: () => Promise<unknown>;
 }) {
   const { width, sections } = useInspectorState();
   const placement = useChatDisplay().inspector;
@@ -330,6 +342,8 @@ function InspectorPresence({
         onOpenOutput={onOpenOutput}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
+        onOpenFolder={onOpenFolder}
+        onSaveEnvironment={onSaveEnvironment}
       />
     </InspectorPanel>
   );
@@ -363,7 +377,7 @@ export function InspectorPanel({
         presence?.props.ref(node);
       }}
       inert={presence?.leaving}
-      className={placement === "overlay" ? "ui-glass acpmux-chat-inspector" : "acpmux-chat-inspector"}
+      className="ui-glass acpmux-chat-inspector"
       data-placement={placement}
       style={under ? ({ width, "--acpmux-inspector-top": under } as CSSProperties) : { width }}
       aria-label={t("chatInspector.title")}
@@ -427,6 +441,7 @@ export function ChatInspector({
   onOpenImage,
   remoteControl,
   onSaveEnvironment,
+  onOpenFolder,
 }: {
   summary?: Summary;
   machineName?: string;
@@ -466,7 +481,9 @@ export function ChatInspector({
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
-  onSaveEnvironment?: () => void;
+  onSaveEnvironment?: () => Promise<unknown> | void;
+  /// Opens one of the chat's folders in the Files tree beside the chat.
+  onOpenFolder?: (path: string) => void;
 }) {
   const t = useT();
   const stored = useInspectorState().sections;
@@ -522,8 +539,10 @@ export function ChatInspector({
           machineName={machineName}
           peerKinds={peerKinds}
           repository={repository}
+          rows={rows}
           remoteControl={remoteControl}
           onSave={onSaveEnvironment}
+          onOpenFolder={onOpenFolder}
         />
       </InspectorSection>
       {known && (
