@@ -79,8 +79,8 @@ import Testing
         let folded = rows()
         #expect(Set(folded.keys) == [a])
         #expect(folded[a]?.treeFold == .collapsed)
-        // d is idle by its lane but unread: finished, unread. An idle descendant is not counted.
-        #expect(folded[a]?.rollUp == SidebarTreeRollUp(blocked: 1, failed: 1, running: 1, unread: 1))
+        // d is idle by its lane but unread: finished, unread. An idle descendant is in no state's count, only the total.
+        #expect(folded[a]?.rollUp == SidebarTreeRollUp(blocked: 1, failed: 1, running: 1, unread: 1, total: 4))
     }
 
     /// A filter opens every fold (search finds a session a fold hides), so a folded parent that

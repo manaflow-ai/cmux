@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextAgentLanes
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
@@ -101,6 +102,32 @@ import Testing
         #expect(rootDone.map(\.id) == [Self.mine])
         let laneDone = Self.rows(Self.sections(order, done: [Self.lane]), tree: tree) { $0.foldsDone = true }
         #expect(laneDone.map(\.id) == [Self.coordinator, Self.lane, Self.mine])
+    }
+
+    /// An idle-only subtree is not empty: its count chip draws.
+    @Test func anIdleOnlyRollUpIsNotEmpty() {
+        #expect(!SidebarTreeRollUp(total: 2).isEmpty)
+        #expect(SidebarTreeRollUp().isEmpty)
+        #expect(SidebarTreeRollUp([.idle, .idle]) == SidebarTreeRollUp(total: 2))
+    }
+
+    /// Lineage nesting alone (the tree state set, `sidebar.sessionTree` off) draws no keycaps.
+    @Test func nestingAloneDrawsNoKeycaps() {
+        SidebarSessionTree.shared.state = SidebarSessionTreeState(parents: [Self.lane: Self.coordinator])
+        let savedTree = DesignSettings.shared.sidebarSections.sessionTree
+        DesignSettings.shared.sidebarSections.sessionTree = false
+        defer {
+            SidebarSessionTree.shared.state = nil
+            DesignSettings.shared.sidebarSections.sessionTree = savedTree
+        }
+        let sidebar = SidebarView(model: SidebarModel(sections: Self.sections([Self.coordinator, Self.lane])), design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        sidebar.layoutSubtreeIfNeeded()
+        sidebar.renderNow()
+        let o = sidebar.list.options(includeGap: false)
+        #expect(o.sessionTree != nil)
+        #expect(o.keycaps.isEmpty)
+        #expect(o.chatHistory == nil)
     }
 
     @Test func runsCutAtEachTopLevelEntry() {

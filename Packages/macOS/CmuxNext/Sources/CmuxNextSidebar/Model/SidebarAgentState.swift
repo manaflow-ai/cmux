@@ -61,7 +61,7 @@ public nonisolated struct SidebarTreeRollUp: Hashable, Sendable {
         }
     }
 
-    public var isEmpty: Bool { blocked == 0 && failed == 0 && running == 0 && unread == 0 }
+    public var isEmpty: Bool { total == 0 && blocked == 0 && failed == 0 && running == 0 && unread == 0 }
 }
 
 /// A tree parent's chevron: its children draw under it, or fold into its roll-up.
