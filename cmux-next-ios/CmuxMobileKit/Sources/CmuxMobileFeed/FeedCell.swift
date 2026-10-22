@@ -420,7 +420,12 @@ struct FeedCell: View {
             sendingToTerminal = true
         }
         Task { @MainActor in
-            let refusal = await FeedRouting.shared.replyToTerminal?(item, text) ?? "Open the terminal to reply."
+            let refusal: String?
+            if let replyToTerminal = FeedRouting.shared.replyToTerminal {
+                refusal = await replyToTerminal(item, text)
+            } else {
+                refusal = "Open the terminal to reply."
+            }
             withAnimation(.cmuxMobileSnappy) {
                 sendingToTerminal = false
                 if let refusal {
