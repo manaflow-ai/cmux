@@ -142,9 +142,8 @@ extension WindowManager {
     /// into a window (the active one, else a new one behind) without
     /// showing it.
     func reveal(workspaceID: String) -> WindowController? {
-        let value = registry.value
         let shows = ActionRunScope.viewChangeAllowed()
-        if let owner = value.owner(of: workspaceID), value.window(owner)?.isOpen == true, let target = controller(for: owner) {
+        if let target = shownWindow(workspaceID: workspaceID) {
             if shows { select(workspaceID, in: target.state) }
             return target
         }

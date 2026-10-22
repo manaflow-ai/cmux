@@ -18,13 +18,20 @@ import Foundation
 /// opened it, gives that tab's input the keyboard.
 ///
 /// A link clicked in model output (``DeepLink/Origin/modelOutput``: an agent's
-/// reply, the Chief's transcript) creates nothing (media safety R8): a tab link
-/// to a closed tab and a session link no tab shows answer "not open" with the
-/// link, and every other kind reveals as it always does
-/// (``DeepLink/Target/effect(for:)``).
+/// reply, the Chief's transcript) creates nothing and moves nothing (media
+/// safety R8, ``DeepLink/Target/effect(for:)``): it shows a target only in a
+/// window that already lists its workspace, never reopens a closed tab, never
+/// opens a session's tab, and never claims a workspace into a window or opens
+/// a window. Anything else answers "not open" with the link.
 @MainActor
 struct DeepLinkNavigator {
     let services: AppServices
+    /// Where the link being opened was clicked (``open(_:background:origin:)``).
+    private var origin: DeepLink.Origin = .person
+
+    init(services: AppServices) {
+        self.services = services
+    }
 
     /// Shows `link`'s target.
     ///
@@ -39,39 +46,46 @@ struct DeepLinkNavigator {
     ///   when only its workspace could be shown; for a model-output link,
     ///   also when a tab or session it names is not open.
     func open(_ link: DeepLink, background: Bool, origin: DeepLink.Origin = .person) throws {
-        let intent: WindowActivation.Intent = background ? .bringForward : .raise
+        var navigator = self
+        navigator.origin = origin
+        try navigator.navigate(link, background ? .bringForward : .raise)
+    }
+
+    private func navigate(_ link: DeepLink, _ intent: WindowActivation.Intent) throws {
         let opens = link.target.effect(for: origin) == .revealOrOpen
+        // What a target that cannot be shown answers: gone, or for model output "not open".
+        let gone = origin == .modelOutput ? notOpen(link) : Self.gone
         switch link.target {
         case .tab(let id):
             // Open: show it. Closed: reopen it by its id, with the same id, and show it
             // (DurableTabLink, plans/cmux-next/durable-links-DESIGN.md); never from model output.
-            if services.revealTab(id, intent: intent) { return }
-            guard opens else { throw notOpen(link) }
+            if revealTab(id, intent) { return }
+            guard opens else { throw gone }
             DurableTabLink.open(id, intent: intent, services: services)
         case .pane(let id):
-            guard let pane = services.pane(id: id) else { throw Self.gone }
-            try reveal(pane, intent)
+            guard let pane = services.pane(id: id) else { throw gone }
+            try reveal(pane, intent, gone)
         case .workspace(let id):
             let workspace = services.machines.allWorkspaces.map(\.0).first { $0.resourceID?.rawValue == id }
-            guard let workspace else { throw Self.gone }
-            try reveal(workspace: workspace.id, intent)
+            guard let workspace else { throw gone }
+            try reveal(workspace: workspace.id, intent, gone)
         case .session(let id, let turn):
-            try openSession(id, turn: turn, intent, opens: opens, link: link)
+            try openSession(id, turn: turn, intent, opens: opens, gone: gone)
         case .chiefSession(let home, let session):
             // Only this app's Chief home, only a tab that shows that session there; never a
             // new tab (the session runs in the Chief home's acpmux, not this Mac's).
             let host = "chief:" + home
             guard services.agentTabs.chiefHost == host, let shown = services.agentTabs.tab(showing: session, host: host),
-                  services.revealTab(shown, intent: intent) else { throw Self.gone }
+                  revealTab(shown, intent) else { throw gone }
         case .agent(let harness, let session):
-            try openAgent(harness: harness, session: session, message: link.message, intent)
+            try openAgent(harness: harness, session: session, message: link.message, intent, gone)
         case .legacyWorkspace(let key, let fallback):
-            guard let workspace = legacyWorkspace(key, fallback: fallback) else { throw Self.gone }
-            try reveal(workspace: workspace.id, intent)
+            guard let workspace = legacyWorkspace(key, fallback: fallback) else { throw gone }
+            try reveal(workspace: workspace.id, intent, gone)
         case .legacyPane(let key, _):
-            try revealLegacyItem(in: key, fallback: nil, intent)
+            try revealLegacyItem(in: key, fallback: nil, intent, gone)
         case .legacySurface(let key, _, let fallbackWorkspace, _):
-            try revealLegacyItem(in: key, fallback: fallbackWorkspace, intent)
+            try revealLegacyItem(in: key, fallback: fallbackWorkspace, intent, gone)
         }
     }
 
@@ -83,11 +97,22 @@ struct DeepLinkNavigator {
         ActionFailure(message: RefusalStrings.linkTargetNotOpen(services.linkText(link) ?? ""))
     }
 
+    /// Shows tab `id` (``AppServices/revealTab(_:intent:)``); for model output only in a window
+    /// that already lists its workspace, so the link never claims it into a window or opens one.
+    private func revealTab(_ id: String, _ intent: WindowActivation.Intent) -> Bool {
+        if origin == .modelOutput {
+            guard let (_, pane) = services.locateTab(id),
+                  let workspace = services.daemon(for: pane).store.workspace(containing: pane.handle),
+                  services.windows.shownWindow(workspaceID: workspace.id) != nil else { return false }
+        }
+        return services.revealTab(id, intent: intent)
+    }
+
     /// A pane opens on its selected tab; a pane with none shows its workspace.
-    private func reveal(_ pane: PaneModel, _ intent: WindowActivation.Intent) throws {
-        if let tab = selectedTab(of: pane), services.revealTab(tab, intent: intent) { return }
-        guard let workspace = services.daemon(for: pane).store.workspace(containing: pane.handle) else { throw Self.gone }
-        try reveal(workspace: workspace.id, intent)
+    private func reveal(_ pane: PaneModel, _ intent: WindowActivation.Intent, _ gone: ActionFailure) throws {
+        if let tab = selectedTab(of: pane), revealTab(tab, intent) { return }
+        guard let workspace = services.daemon(for: pane).store.workspace(containing: pane.handle) else { throw gone }
+        try reveal(workspace: workspace.id, intent, gone)
     }
 
     /// The tab the pane shows: its controller's selection when a window
@@ -100,9 +125,10 @@ struct DeepLinkNavigator {
 
     /// The palette workspace switcher's path: the window that lists the
     /// workspace shows it, and comes forward. Refused when no window could
-    /// show it, never a silent success.
-    private func reveal(workspace id: String, _ intent: WindowActivation.Intent) throws {
-        guard let window = services.windows.reveal(workspaceID: id), let nsWindow = window.window else { throw Self.gone }
+    /// show it, never a silent success. Model output shows only a workspace a window already lists.
+    private func reveal(workspace id: String, _ intent: WindowActivation.Intent, _ gone: ActionFailure) throws {
+        if origin == .modelOutput, services.windows.shownWindow(workspaceID: id) == nil { throw gone }
+        guard let window = services.windows.reveal(workspaceID: id), let nsWindow = window.window else { throw gone }
         services.showJumpWindow(nsWindow, intent)
     }
 
@@ -111,13 +137,13 @@ struct DeepLinkNavigator {
     /// not have (native cannot list acpmux sessions synchronously). Then the
     /// page scrolls to the turn, a page not loaded yet once its row renders.
     /// Without `opens` (a model-output link) it refuses instead of opening a tab.
-    private func openSession(_ id: String, turn: String?, _ intent: WindowActivation.Intent, opens: Bool, link: DeepLink) throws {
+    private func openSession(_ id: String, turn: String?, _ intent: WindowActivation.Intent, opens: Bool, gone: ActionFailure) throws {
         let tabs = services.agentTabs
-        if let shown = tabs.tab(showing: id), services.revealTab(shown, intent: intent) {
+        if let shown = tabs.tab(showing: id), revealTab(shown, intent) {
             if let turn { tabs.revealTurn(turn, in: shown) }
             return
         }
-        guard opens else { throw notOpen(link) }
+        guard opens else { throw gone }
         guard let pane = services.windows.active?.focusedPane else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
         // The store commits the tab first; the turn waits for its page.
         pane.openAgentSession(id) { key in if let turn { tabs.revealTurn(turn, in: key) } }
@@ -130,12 +156,12 @@ struct DeepLinkNavigator {
     /// a message this machine's transcript does not have, or a terminal, leaves the view where it
     /// is (schemas/deeplinks/agent-link.json).
     private func openAgent(harness: String, session: String, message: String?,
-                           _ intent: WindowActivation.Intent) throws {
+                           _ intent: WindowActivation.Intent, _ gone: ActionFailure) throws {
         guard AgentPaneTunables.agentLinks.value else { throw ActionFailure(message: RefusalStrings.agentLinksOff) }
         let adopted = services.agentTabs.tab(resuming: AgentPaneAdopt(harness: harness, agentSessionId: session))
         let tabs = DeepLink.agentTabs(harness: harness, session: session, adopted: adopted,
                                       harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions))
-        guard let shown = tabs.first(where: { services.revealTab($0, intent: intent) }) else { throw Self.gone }
+        guard let shown = tabs.first(where: { revealTab($0, intent) }) else { throw gone }
         if let message, shown == adopted {
             services.agentTabs.revealTurn(AgentTabStore.messageReveal(message), in: shown)
         }
@@ -152,9 +178,9 @@ struct DeepLinkNavigator {
 
     /// Nightly pane and surface UUIDs have no counterpart here: the
     /// workspace opens and the refusal says the item itself wasn't found.
-    private func revealLegacyItem(in key: UUID, fallback: UUID?, _ intent: WindowActivation.Intent) throws {
-        guard let workspace = legacyWorkspace(key, fallback: fallback) else { throw Self.gone }
-        try reveal(workspace: workspace.id, intent)
+    private func revealLegacyItem(in key: UUID, fallback: UUID?, _ intent: WindowActivation.Intent, _ gone: ActionFailure) throws {
+        guard let workspace = legacyWorkspace(key, fallback: fallback) else { throw gone }
+        try reveal(workspace: workspace.id, intent, gone)
         throw ActionFailure(message: RefusalStrings.linkItemNotFound)
     }
 }

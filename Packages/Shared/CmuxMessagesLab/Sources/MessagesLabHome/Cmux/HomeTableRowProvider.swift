@@ -399,10 +399,11 @@ enum HomeCardLinks {
         return CmuxStrings.planOpenLink(url.host ?? url.absoluteString)
     }
 
-    /// Shows the menu of `items` (without repeats) at the pointer.
+    /// Shows the menu of `items` (without repeats, and only links the card may open:
+    /// ``HomeCardLinkTarget/route(_:)``) at the pointer.
     @MainActor static func offer(_ items: [(String, URL)]) {
         var seen = Set<URL>()
-        let unique = items.filter { seen.insert($0.1).inserted }
+        let unique = items.filter { HomeCardLinkTarget.route($0.1) != nil && seen.insert($0.1).inserted }
         guard !unique.isEmpty else { return }
         let menu = NSMenu()
         for (title, url) in unique.prefix(24) {
@@ -415,10 +416,45 @@ enum HomeCardLinks {
     }
 }
 
+/// Opens a card's link. The card is the Chief's text (model output, media safety R8): a cmux app
+/// link or a path goes to the host's `onAppLink` (MessagesLabHomeView), which only reveals what is
+/// open, never to the system; a web or mail link goes to the system; any other scheme opens nothing.
 @MainActor final class HomeCardLinkTarget: NSObject {
     static let shared = HomeCardLinkTarget()
+
+    /// Where a card link goes.
+    enum Route: Equatable {
+        /// The host's app-link opener (`onAppLink`).
+        case app
+        /// The system (`NSWorkspace`), for http, https and mailto with no user name or password.
+        case system
+    }
+
+    /// The host's app-link opener (MessagesLabHomeView.onAppLink); nil: an app link opens nothing.
+    var appLink: ((URL) -> Void)?
+    /// Opens a web or mail link outside the app.
+    var openSystem: (URL) -> Void = { NSWorkspace.shared.open($0) }
+
+    /// Where `url` goes, nil for a link the card never opens (`javascript:`, `file:` with a host,
+    /// `vscode:`, a custom scheme, credentials).
+    static func route(_ url: URL) -> Route? {
+        if url.isCmuxAppLink || url.isHomePathLink { return .app }
+        guard let scheme = url.scheme?.lowercased(), ["http", "https", "mailto"].contains(scheme),
+              url.user == nil, url.password == nil else { return nil }
+        return .system
+    }
+
+    /// Opens `url` where ``route(_:)`` sends it.
+    func open(url: URL) {
+        switch Self.route(url) {
+        case .app?: appLink?(url)
+        case .system?: openSystem(url)
+        case nil: return
+        }
+    }
+
     @objc func open(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
-        NSWorkspace.shared.open(url)
+        open(url: url)
     }
 }

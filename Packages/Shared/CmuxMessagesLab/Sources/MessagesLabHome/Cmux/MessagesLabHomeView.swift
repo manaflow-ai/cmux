@@ -182,11 +182,15 @@ public final class MessagesLabHomeView: NSView {
         demo.compose.rescale()  // the placeholder, waveform and chips are drawn once with the palette
     }
 
-    /// cmux: a click on a cmux app link in agent text (`URL.isCmuxAppLink`); the host
-    /// opens it in the app (`link.open`). Nil: the link opens nothing.
+    /// cmux: a click on a cmux app link in agent text (`URL.isCmuxAppLink`), a table or plan
+    /// card's included (HomeCardLinkTarget); the host opens it in the app (`link.open`). Nil: the
+    /// link opens nothing.
     public var onAppLink: ((URL) -> Void)? {
         get { controller.onAppLink }
-        set { controller.onAppLink = newValue }
+        set {
+            controller.onAppLink = newValue
+            HomeCardLinkTarget.shared.appLink = newValue
+        }
     }
 
     /// cmux: the pointer moved over the transcript, in screen coordinates (nil: it left). The
