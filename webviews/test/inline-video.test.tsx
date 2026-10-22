@@ -81,17 +81,48 @@ let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
+const DIALOG_GLOBALS = [
+  "Node",
+  "Element",
+  "SVGElement",
+  "HTMLIFrameElement",
+  "DocumentFragment",
+  "ShadowRoot",
+  "Event",
+  "MouseEvent",
+  "KeyboardEvent",
+  "FocusEvent",
+  "MutationObserver",
+  "getComputedStyle",
+];
+
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
-  for (const key of ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"])
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "IS_REACT_ACT_ENVIRONMENT",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    ...DIALOG_GLOBALS,
+  ])
     saved.set(key, scope[key]);
+  // The dialog (Base UI, portaled) reads these DOM globals.
+  for (const key of DIALOG_GLOBALS) scope[key] = (dom.window as unknown as Record<string, unknown>)[key];
+  // The dialog (Base UI) schedules its focus with animation frames.
+  const frame = (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number;
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
     navigator: dom.window.navigator,
     HTMLElement: dom.window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
+    requestAnimationFrame: frame,
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
   });
+  Object.assign(dom.window, { requestAnimationFrame: frame, cancelAnimationFrame: (id: number) => clearTimeout(id) });
   const media = dom.window.HTMLMediaElement.prototype as unknown as Record<string, unknown>;
   media.play = function play(this: HTMLMediaElement) {
     this.dataset.played = this.muted ? "muted" : "sound";
@@ -174,6 +205,39 @@ describe("the inline player", () => {
     expect(open).not.toBeNull();
     await act(async () => open!.click());
     expect(calls).toEqual([["link.openPath", { path: SOURCE }]]);
+  });
+
+  test("Expand opens the player paused: nothing plays with sound until Play is pressed", async () => {
+    const { container, video } = await mount();
+    // The pointer resting on the thumbnail previews it muted, then Expand opens the large player.
+    await act(async () => {
+      container
+        .querySelector("button.cv-media__poster")!
+        .dispatchEvent(new dom!.window.MouseEvent("mouseover", { bubbles: true }));
+    });
+    expect(video.dataset.played).toBe("muted");
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>('button.cv-media__action[aria-label="Expand"]')!.click(),
+    );
+    const stage = dom!.window.document.querySelector(".cv-media-stage");
+    expect(stage).not.toBeNull();
+    const large = stage!.querySelector("video")!;
+    expect(large.hasAttribute("autoplay")).toBe(false);
+    expect(large.dataset.played).toBeUndefined();
+    // Play in the large player plays it with sound.
+    const play = stage!.querySelector<HTMLButtonElement>("button.cv-media__poster");
+    expect(play).not.toBeNull();
+    await act(async () => play!.click());
+    expect(large.muted).toBe(false);
+    expect(large.dataset.played).toBe("sound");
+  });
+
+  test("its hover transitions run only when motion is allowed", () => {
+    const css = readFileSync(new URL("../src/agent-session/acpmux/chips/chips.css", import.meta.url), "utf8");
+    const media = css.slice(css.indexOf("/* Video and audio (ReplyMedia)"), css.indexOf(".cv-media-stage {"));
+    const outside = media.replace(/@media \(prefers-reduced-motion: no-preference\) \{[\s\S]*?\n\}/g, "");
+    expect(outside).not.toContain("transition");
+    expect(media).toContain("var(--cmux-motion-micro");
   });
 
   test("every control a click lands on shows the pointing hand", () => {
