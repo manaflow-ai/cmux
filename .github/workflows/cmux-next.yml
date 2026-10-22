@@ -3453,10 +3453,37 @@ jobs:
             exit 0
           fi
           scripts/cmux-next/regenerate-settings-exports.sh "$RUNNER_TEMP/settings-exports" | tee "$RUNNER_TEMP/settings-exported.txt"
-          if grep -q '^regenerated: ' "$RUNNER_TEMP/settings-exported.txt"; then
-            echo "::error::the committed settings exports differ from a fresh export"
+          stale=()
+          while IFS= read -r file; do stale+=("$file"); done < <(sed -n 's/^regenerated: //p' "$RUNNER_TEMP/settings-exported.txt")
+          ((${#stale[@]})) || exit 0
+          # Whose staleness is it? Export again from the base parent's settings sources (the stamp's
+          # inputs, all the export reads), checked out in place so only CmuxNextSettings rebuilds. A
+          # file this event did not edit whose fresh export is the same both ways is the base's lag
+          # (the base autofix regenerates it): a warning. Anything else is this event's.
+          merged="$RUNNER_TEMP/settings-merged"
+          based="$RUNNER_TEMP/settings-based"
+          for file in "${stale[@]}"; do mkdir -p "$merged/${file%/*}" && cp "$file" "$merged/$file"; done
+          inputs=()
+          while IFS= read -r path; do inputs+=("$path"); done < <(printf '%s\n%s\n' "$base_stamp" "$head_stamp" | awk 'NF == 2 { print $2 }' | sort -u)
+          for path in "${inputs[@]}"; do
+            if git cat-file -e "HEAD^1:$path" 2>/dev/null; then git checkout -q HEAD^1 -- "$path"; else rm -f "$path"; fi
+          done
+          scripts/cmux-next/regenerate-settings-exports.sh "$RUNNER_TEMP/settings-base-exports" > "$RUNNER_TEMP/settings-base-exported.txt"
+          for file in "${stale[@]}"; do mkdir -p "$based/${file%/*}" && { cp "$file" "$based/$file" 2>/dev/null || true; }; done
+          for path in "${inputs[@]}"; do
+            if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else rm -f "$path"; fi
+          done
+          git checkout -q HEAD -- "${stale[@]}"
+          for file in "${stale[@]}"; do cp "$merged/$file" "$file"; done
+          own=()
+          for file in "${stale[@]}"; do
+            if ! git diff --quiet HEAD^1 HEAD -- "$file" || ! cmp -s "$merged/$file" "$based/$file"; then own+=("$file"); fi
+          done
+          if ((${#own[@]})); then
+            echo "::error::the committed settings exports differ from a fresh export: ${own[*]}"
             exit 1
           fi
+          echo "::warning title=Settings exports stale on the base::stale on the base $(git rev-parse --short=12 HEAD^1) too, for sources not changed here (the base autofix regenerates them): ${stale[*]}"
 
       # Only the generated paths are collected into the artifact.
       - name: Regenerate stale files

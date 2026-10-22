@@ -67,7 +67,7 @@ class ExportsAreComparedWithAFreshExport(unittest.TestCase):
     def test_the_check_exports_fresh_and_compares(self):
         script = self.step()
         self.assertIn("scripts/cmux-next/regenerate-settings-exports.sh", script)
-        self.assertIn("grep -q '^regenerated: '", script)
+        self.assertIn("s/^regenerated: //p", script)
 
     def test_an_unchanged_source_stamp_exports_nothing(self):
         """Run the step's own gate in a repository where HEAD changed only non-settings Swift."""
