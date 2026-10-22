@@ -345,6 +345,20 @@ final class TerminalPanel: Panel, ObservableObject {
         return focusTextBoxInput()
     }
 
+    /// The toggle for scripts and the CLI (#22308). It shows the TextBox without
+    /// taking keyboard focus, and hides it without focusing this terminal unless the
+    /// TextBox held the keyboard.
+    @discardableResult
+    func toggleTextBoxInputPreservingFocus() -> Bool {
+        if isTextBoxActive {
+            let textBoxHadKeyboard = textBoxInputView.map { $0.window?.firstResponder === $0 } ?? false
+            hideTextBoxInput(refocusTerminal: textBoxHadKeyboard)
+        } else {
+            showTextBoxInputWhenAvailable()
+        }
+        return isTextBoxActive
+    }
+
     @discardableResult
     func focusTextBoxInputOrTerminal() -> Bool {
         if isTextBoxActive,
@@ -426,7 +440,7 @@ final class TerminalPanel: Panel, ObservableObject {
         shouldHideTextBoxOnNextEscape = false
     }
 
-    private func hideTextBoxInput() {
+    private func hideTextBoxInput(refocusTerminal: Bool = true) {
         shouldHideTextBoxOnNextEscape = false
         shouldFocusTextBoxWhenAvailable = false
         shouldOpenTextBoxFilePickerWhenAvailable = false
@@ -434,7 +448,9 @@ final class TerminalPanel: Panel, ObservableObject {
         preserveTextBoxContentFromView()
         isTextBoxActive = false
         textBoxInputView = nil
-        focusTerminalSurface(respectForeignFirstResponder: false)
+        if refocusTerminal {
+            focusTerminalSurface(respectForeignFirstResponder: false)
+        }
     }
 
     private func preserveTextBoxContentFromView() {

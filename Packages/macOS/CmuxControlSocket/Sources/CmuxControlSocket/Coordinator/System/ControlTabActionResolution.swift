@@ -14,6 +14,8 @@ public enum ControlTabActionResolution: Sendable, Equatable {
         case pinned(Bool)
         /// `toggle_full_width_tab` — the resulting full-width tab mode flag.
         case fullWidthTabMode(Bool)
+        /// `toggle_text_box` — whether the terminal's TextBox Input is now shown.
+        case textBoxVisible(Bool)
         /// `duplicate` / `new_terminal_right` / `new_browser_right` — the
         /// created surface's `created_*` identity keys.
         case created(UUID)
@@ -90,6 +92,8 @@ public enum ControlTabActionResolution: Sendable, Equatable {
     case tabPaneNotFound
     /// Bonsplit rejected the full-width tab mode toggle.
     case fullWidthTabToggleFailed
+    /// `toggle_text_box` on a surface that is not a terminal.
+    case textBoxNotTerminal
     /// The anchor tab was not found in its pane (`close_left` / `close_right`).
     case tabNotFoundInPane
     /// A non-forced close batch would terminate one or more active processes.
