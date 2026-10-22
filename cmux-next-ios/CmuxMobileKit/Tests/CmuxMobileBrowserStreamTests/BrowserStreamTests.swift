@@ -353,3 +353,38 @@ final class SinkBox: @unchecked Sendable {
         #expect(StreamedBrowserKey.covered(page: page, keyboard: CGRect(x: 0, y: 0, width: 402, height: 874)) == 700)
     }
 }
+
+
+/// The page's focused field and a hardware keyboard's keys.
+@Suite struct StreamedFocusAndHardwareKeyTests {
+    let wire = RemoteBrowserWire()
+
+    @Test func theFocusedFieldIsRead() {
+        let field = StreamedBrowserField(json: ["t": "rb.text_input", "input_type": "search",
+                                                "caret": ["x": 10.0, "y": 140.0, "width": 1.0, "height": 18.0]])
+        #expect(field?.inputType == "search" && field?.caret == CGRect(x: 10, y: 140, width: 1, height: 18))
+        #expect(StreamedBrowserField(json: ["input_type": "none"]) == nil)
+        #expect(StreamedBrowserField(json: ["input_type": "text"])?.caret == nil)
+    }
+
+    @Test func arrowsEscapeAndShortcutsGoToThePage() {
+        let left = StreamedHardwareKey(usage: 0x50, characters: "", modifiers: [])
+        #expect(left?.code == "ArrowLeft" && left?.editCommands == [])
+        #expect(StreamedHardwareKey(usage: 0x29, characters: "", modifiers: [])?.code == "Escape")
+        let all = StreamedHardwareKey(usage: 0x04, characters: "a", modifiers: .command)
+        #expect(all?.code == "KeyA" && all?.editCommands == ["SelectAll"])
+        #expect(StreamedHardwareKey(usage: 0x1D, characters: "z", modifiers: [.command, .shift])?.editCommands == ["Redo"])
+        #expect(StreamedHardwareKey(usage: 0x50, characters: "", modifiers: [.option, .shift])?.editCommands
+            == ["MoveWordLeftAndModifySelection"])
+        #expect(StreamedHardwareKey(usage: 0x4F, characters: "", modifiers: .command)?.editCommands == ["MoveToEndOfLine"])
+        #expect(StreamedHardwareKey(usage: 0x1E, characters: "1", modifiers: .control)?.code == "Digit1")
+        // Typing keys stay on the text path.
+        #expect(StreamedHardwareKey(usage: 0x04, characters: "a", modifiers: []) == nil)
+        #expect(StreamedHardwareKey(usage: 0x04, characters: "A", modifiers: .shift) == nil)
+        #expect(StreamedHardwareKey(usage: 0x28, characters: "\r", modifiers: []) == nil)
+        #expect(StreamedHardwareKey(usage: 0x2A, characters: "", modifiers: []) == nil)
+        let events = StreamedHardwareKey(usage: 0x52, characters: "", modifiers: .command)!.events(wire)
+        let down = (try? JSONSerialization.jsonObject(with: events[0]) as? [String: Any]) ?? [:]
+        #expect(down["code"] as? String == "ArrowUp" && down["modifiers"] as? Int == 8)
+    }
+}

@@ -86,6 +86,8 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// Why the Mac did not load an address (the address bar's, or a link's inside the
     /// page): shown over the page until the next navigation or a tap.
     public private(set) var notice: String?
+    /// The page's focused text field (`rb.text_input`): the keyboard rises for it.
+    public private(set) var field: StreamedBrowserField?
     /// The newest numbers for the overlay: frames per second, kbit/s,
     /// capture-to-decoded latency (median of the last second), decode time.
     public private(set) var meter = Meter()
@@ -332,6 +334,9 @@ public final class StreamedBrowserModel: BrowserTabState {
             }
         case "refused", "ended":
             phase = .waiting(json["reason"] as? String ?? "The Mac ended the page")
+        case "rb.text_input":
+            let next = StreamedBrowserField(json: json)
+            if next != field { field = next }
         case "rb.navigate.refused":
             refused(code: json["code"] as? String, reason: json["reason"] as? String)
         case "rb.page":

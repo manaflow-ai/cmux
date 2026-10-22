@@ -11,6 +11,8 @@ public struct StreamedBrowserPage: View {
     var insets: EdgeInsets
     var reportScroll: @MainActor (CGFloat) -> Void
     @State private var keyboard = false
+    /// The keyboard rose because the page focused a field (it goes when the field does).
+    @State private var raisedForField = false
     @Environment(\.openURL) private var openURL
 
     /// What the page says when the Mac cannot stream browser tabs.
@@ -69,6 +71,19 @@ public struct StreamedBrowserPage: View {
             model.setVisible(true)
             model.reconnect()
         }
+        // The page focused a field: the keyboard rises (and goes again when the page
+        // blurs a field it raised it for); the page lays out above it, and Chromium
+        // keeps the focused field in view as its viewport shrinks.
+        .onChange(of: model.field) { before, after in
+            if after != nil, before == nil, !keyboard {
+                keyboard = true
+                raisedForField = true
+            } else if after == nil, raisedForField {
+                keyboard = false
+                raisedForField = false
+            }
+        }
+        .onChange(of: keyboard) { _, shown in if !shown { raisedForField = false } }
         .onDisappear { model.setVisible(false) }
     }
 
@@ -381,6 +396,30 @@ final class StreamView: UIView, UIKeyInput {
     // MARK: Keyboard
 
     override var canBecomeFirstResponder: Bool { true }
+
+    /// A hardware keyboard's arrows, Escape, Home/End and shortcuts go to the page
+    /// directly (the text path never sees them); everything else types as usual.
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        var rest = Set<UIPress>()
+        for press in presses {
+            guard let key = press.key else { rest.insert(press); continue }
+            var modifiers: RemoteBrowserWire.Modifiers = []
+            if key.modifierFlags.contains(.shift) { modifiers.insert(.shift) }
+            if key.modifierFlags.contains(.control) { modifiers.insert(.control) }
+            if key.modifierFlags.contains(.alternate) { modifiers.insert(.option) }
+            if key.modifierFlags.contains(.command) { modifiers.insert(.command) }
+            if modifiers == .command, key.keyCode == .keyboardV {
+                pastePhoneClipboard()
+            } else if let hardware = StreamedHardwareKey(usage: key.keyCode.rawValue,
+                                                         characters: key.charactersIgnoringModifiers,
+                                                         modifiers: modifiers) {
+                for event in hardware.events(model.wire) { model.input(event) }
+            } else {
+                rest.insert(press)
+            }
+        }
+        if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+    }
 
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
