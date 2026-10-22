@@ -811,7 +811,11 @@ export default agentPaneEntry({
       snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
       checks: mockDaemonFrames,
       play: async (ctx) => {
-        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-worked")));
+        // The mock daemon's chat replaces the stage's snapshot; open its fold once it is drawn.
+        await chatMenuReady(ctx);
+        await ctx.waitFor(() => ctx.document.body.textContent?.includes("Uploads now retry server errors"), {
+          capMs: 10_000,
+        });
         await openWorked(ctx);
       },
     },
