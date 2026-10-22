@@ -1987,7 +1987,7 @@ button.cv-received__name:focus-visible {
   background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-accent) 55%, transparent);
 }
-/* The preview and its chevron: the rest of the line, one line cut with an ellipsis. */
+/* The rest of the line, which opens the message: its chevron, when opening shows more. */
 .cv-received__toggle {
   display: inline-flex;
   flex: 1;
@@ -1995,12 +1995,6 @@ button.cv-received__name:focus-visible {
   gap: 4px;
   min-width: 0;
   height: 26px;
-}
-.cv-received__preview {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .cv-received__toggle > .cv-rotor {
   flex: none;
@@ -2019,8 +2013,8 @@ button.cv-received__name:focus-visible {
 .cv-received__line > .cv-received-actions {
   margin-inline-start: 0;
 }
-/* The message, opened: a compact glass card under the line, in from the icon column, its text
-   as Markdown. */
+/* The message: a compact glass card under the line, in from the icon column, its text as
+   Markdown. */
 .cv-received__body {
   box-sizing: border-box;
   margin: 4px 0 6px 22px;
@@ -2033,6 +2027,18 @@ button.cv-received__name:focus-visible {
   overflow-wrap: anywhere;
   user-select: text;
   -webkit-user-select: text;
+}
+/* A long message, closed: its first six lines (IncomingMessageCard.tsx RECEIVED_LINES), the last
+   fading out under a mask (the card's glass shows through, never a cover); a click opens it.
+   model.ts estimates the same height: change them together. */
+.cv-received__body[data-cut] {
+  cursor: pointer;
+}
+.cv-received__body[data-cut] > .cv-received__text {
+  max-height: calc(var(--cv-line-height) * 6);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
+  mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
 }
 /* Details under an opened message: the prompt as the agent got it, closed until asked for. */
 .cv-received__details {
