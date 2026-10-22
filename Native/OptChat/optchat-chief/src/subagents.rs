@@ -713,7 +713,7 @@ impl Spawner {
         match workspaces.open(&key, &session, &name, &group, &s.cwd) {
             Ok(key) => {
                 let place = workspaces.place();
-                // a313: the real ws_ id and its session, so the CLI can list, move and pin it.
+                // a313: the real ws_ id, so the CLI can list, move and pin it.
                 let located = workspaces.locate(&key);
                 self.trace.emit(
                     "subagent.workspace",
@@ -725,9 +725,8 @@ impl Spawner {
                 let mut note = format!("workspace \"{name}\" in group \"{group}\" in {place}");
                 if let Some(r) = &located {
                     note.push_str(&format!(
-                        " (id {}, cmux session \"{}\"; `{}` moves it to the top)",
+                        " (id {}; `{}` moves it to the top)",
                         r.id,
-                        r.session,
                         r.move_to_top()
                     ));
                 }
