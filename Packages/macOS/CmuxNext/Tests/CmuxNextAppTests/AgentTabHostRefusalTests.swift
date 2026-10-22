@@ -13,20 +13,20 @@ import Testing
     /// The same session opens without the host (through the peer), so the refusal names the machine
     /// and says so (coord-deputy 2026-10-20).
     @Test func anotherMachinesHostIsRefusedWithHowToOpenIt() throws {
-        let refusal = try #require(AgentTabStore.hostRefusal("cmux16", localHost: local, chiefHost: chief, daemonIsLocal: true))
+        let refusal = try #require(AgentTabRefusal.hostRefusal("cmux16", localHost: local, chiefHost: chief, daemonIsLocal: true))
         #expect(refusal == RefusalStrings.agentTabRunsOnHost("cmux16"))
         #expect(refusal.contains("cmux16"), "the refusal does not name the machine: \(refusal)")
     }
 
     @Test func noHostThisMacsHostAndTheChiefHomeOpen() {
-        #expect(AgentTabStore.hostRefusal(nil, localHost: local, chiefHost: chief, daemonIsLocal: true) == nil)
-        #expect(AgentTabStore.hostRefusal(local, localHost: local, chiefHost: chief, daemonIsLocal: true) == nil)
-        #expect(AgentTabStore.hostRefusal(chief, localHost: local, chiefHost: chief, daemonIsLocal: true) == nil)
+        #expect(AgentTabRefusal.hostRefusal(nil, localHost: local, chiefHost: chief, daemonIsLocal: true) == nil)
+        #expect(AgentTabRefusal.hostRefusal(local, localHost: local, chiefHost: chief, daemonIsLocal: true) == nil)
+        #expect(AgentTabRefusal.hostRefusal(chief, localHost: local, chiefHost: chief, daemonIsLocal: true) == nil)
     }
 
     /// This Mac's session never opens in a pane of another machine (cx-k21v).
     @Test func thisMacsHostInAnotherMachinesPaneIsRefused() {
-        #expect(AgentTabStore.hostRefusal(local, localHost: local, chiefHost: chief, daemonIsLocal: false)
+        #expect(AgentTabRefusal.hostRefusal(local, localHost: local, chiefHost: chief, daemonIsLocal: false)
             == RefusalStrings.agentTabMachineMismatch)
     }
 }

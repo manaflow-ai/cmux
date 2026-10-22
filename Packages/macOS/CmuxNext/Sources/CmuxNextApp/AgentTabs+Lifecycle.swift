@@ -37,7 +37,7 @@ extension AgentTabStore {
             throw AgentTabRefusal(message: reason)
         }
         let record: AgentSessionRef
-        if let refusal = Self.hostRefusal(host, localHost: localHost, chiefHost: chiefHost, daemonIsLocal: daemon.isLocal) {
+        if let refusal = AgentTabRefusal.hostRefusal(host, localHost: localHost, chiefHost: chiefHost, daemonIsLocal: daemon.isLocal) {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
             throw AgentTabRefusal(message: refusal)
         }
@@ -118,17 +118,6 @@ extension AgentTabStore {
             }
         }
         return pending
-    }
-
-    /// Why a tab cannot open on the session host `host`, nil when it can: none, this Mac's own
-    /// host, or this app's Chief home (`chief:<home id>`, a Chief subagent's tab). Another
-    /// machine's session never opens in a tab of this Mac (cx-k21v), and the refusal says so
-    /// (`app_agent_open` with `host: "cmux16"` said only "see the app log", 2026-10-20). This
-    /// Mac's host never opens in a pane of another machine (`daemonIsLocal` false) either.
-    static func hostRefusal(_ host: String?, localHost: String?, chiefHost: String?, daemonIsLocal: Bool) -> String? {
-        guard let host, host != chiefHost else { return nil }
-        if host == localHost { return daemonIsLocal ? nil : RefusalStrings.agentTabMachineMismatch }
-        return RefusalStrings.agentTabRunsOnHost(host)
     }
 
     /// ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` in `pane`: the tab
@@ -397,4 +386,15 @@ final class AgentTabPending {
 /// A refusal to open an agent chat tab, with its localized reason.
 struct AgentTabRefusal: Error {
     let message: String
+
+    /// Why a tab cannot open on the session host `host`, nil when it can: none, this Mac's own
+    /// host, or this app's Chief home (`chief:<home id>`, a Chief subagent's tab). Another
+    /// machine's session never opens in a tab of this Mac (cx-k21v), and the refusal says so
+    /// (`app_agent_open` with `host: "cmux16"` said only "see the app log", 2026-10-20). This
+    /// Mac's host never opens in a pane of another machine (`daemonIsLocal` false) either.
+    static func hostRefusal(_ host: String?, localHost: String?, chiefHost: String?, daemonIsLocal: Bool) -> String? {
+        guard let host, host != chiefHost else { return nil }
+        if host == localHost { return daemonIsLocal ? nil : RefusalStrings.agentTabMachineMismatch }
+        return RefusalStrings.agentTabRunsOnHost(host)
+    }
 }
