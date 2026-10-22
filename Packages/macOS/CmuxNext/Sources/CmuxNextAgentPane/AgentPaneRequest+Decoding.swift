@@ -168,10 +168,12 @@ extension AgentPaneRequest {
             }
         case "newTab.setTemplate":
             if let template = params?["template"] as? String, !template.isEmpty, template.count <= 32 {
-                self = .setNewTabTemplate(template)
+                self = .editNewTab(.template(template))
             } else {
                 self = .unsupported(method)
             }
+        case "newTab.editWidgets":
+            self = AgentPaneNewTabEdit(widgetParams: params).map(AgentPaneRequest.editNewTab) ?? .unsupported(method)
         case "nowPlaying.command":
             if let command = AgentPaneNowPlaying.Command(params) { self = .nowPlaying(command) } else { self = .unsupported(method) }
         case "importCards.act":

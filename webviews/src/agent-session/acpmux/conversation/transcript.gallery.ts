@@ -903,6 +903,48 @@ export default agentPaneEntry({
         if (ctx.document.body.textContent?.includes("I am here")) throw new Error("a quiet thought shows its text");
       },
     },
+    "thought-streaming-short": {
+      note: 'A short thought still streaming (Debug toggle agentPane.debug.codexToolRuns off, where the live thought draws in the run) reads "Thinking" on its own line with the text under it, never "Thought I am here" as one sentence (Leo 2026-10-21).',
+      theme: { codexToolRuns: false },
+      snapshot: chat(
+        [
+          user(prompt, 2),
+          activity(
+            [thought("I am here, reading the retry helper before changing it.", { startedAt: 0, endedAt: 2_000 })],
+            1.5,
+          ),
+        ],
+        { isWorking: true },
+      ),
+      play: async (ctx) => {
+        const label = () => ctx.document.querySelector<HTMLElement>(".cv-thought__label");
+        await ctx.waitFor(() => label()?.textContent === "Thinking");
+        if (!ctx.document.querySelector(".cv-thought.is-full"))
+          throw new Error("the live thought's text is not under its label");
+      },
+    },
+    "thought-codex-headings": {
+      note: 'Play: a Codex reasoning summary opened: "Thought for 12s", then each **Heading** as a muted title of its own over its text, never with its marks and never after "Thought".',
+      checks: {
+        layoutShiftMax: {
+          value: 0.01,
+          reason: "Opening the thought pushes the rows below it down by its text, on purpose.",
+        },
+      },
+      snapshot: thoughtChat([
+        thought(
+          "**Planning the retry fix**\n\nThe retry wrapper in src/net/client.ts swallows the status code, so a 429 looks like a network failure.\n\n**Checking the callers**\n\nTwo call sites pass their own timeout; both keep working with a capped backoff.",
+          { startedAt: 0, endedAt: 12_000 },
+        ),
+      ]),
+      play: async (ctx) => {
+        await ctx.click({ selector: "button.cv-thought" });
+        const titles = () => [...ctx.document.querySelectorAll(".cv-thought__title")].map((node) => node.textContent);
+        await ctx.waitFor(() => titles().length === 2);
+        if (ctx.document.querySelector(".cv-thought__body")?.textContent?.includes("**"))
+          throw new Error("a heading shows its ** marks");
+      },
+    },
     "long-thought-streaming": {
       note: "A long thought still streaming holds a seven-line viewport with its newest line in view (Debug toggle agentPane.debug.liveThoughtViewport) and folds once done; with agentPane.debug.foldLongThoughts off, it shows in full.",
       snapshot: chat([user(prompt, 2), activity([thought(LONG_THOUGHT)], 1.5)], {
@@ -1635,6 +1677,63 @@ export default agentPaneEntry({
           },
         }),
       ]),
+    },
+    "failed-sends-grouped": {
+      note: "Three prompts acpmux held behind the folder's trust question (Leo 2026-10-21): one card under the last of them, one plain sentence with Trust folder, and Retry, Edit, Remove and Details once for the three; the raw code only under Details.",
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("Added retries with backoff.", 5.5),
+        summary(5.5, { status: "completed" }),
+        user("Add a test for the backoff", 3, {
+          failed: true,
+          error: "Not sent until you trust this folder.",
+          delivery: {
+            state: "failed",
+            promptId: "p1",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 40,
+            hop: "acpmux",
+            reason: "trust.pending",
+            error: "trust.pending: answer the trust question for the folder first",
+          },
+        }),
+        user("Then open a PR", 2, {
+          failed: true,
+          error: "Not sent until you trust this folder.",
+          delivery: {
+            state: "failed",
+            promptId: "p2",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 40,
+            hop: "acpmux",
+            reason: "trust.pending",
+            error: "trust.pending: answer the trust question for the folder first",
+          },
+        }),
+        user("And ping me when CI is green", 1, {
+          failed: true,
+          error: "Not sent until you trust this folder.",
+          delivery: {
+            state: "failed",
+            promptId: "p3",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 40,
+            hop: "acpmux",
+            reason: "trust.pending",
+            error: "trust.pending: answer the trust question for the folder first",
+          },
+        }),
+      ]),
+      play: async (ctx) => {
+        await ctx.waitFor(() =>
+          ctx.document.querySelectorAll(".cv-user__status--failed").length === 1
+            ? ctx.document.querySelector('[data-failure-cause="trust-pending"][data-failed-count="3"]')
+            : null,
+        );
+      },
     },
     "edited-files": {
       note: "A turn that edited three files: the edited-files card with Undo.",
