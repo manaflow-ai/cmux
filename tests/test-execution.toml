@@ -665,6 +665,10 @@ path = "tests/test_ci_required_checks_are_bounded.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_pr_runs_cancel_superseded.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_required_checks_have_no_path_filters.py"
 lane = "linux-guard"
 
@@ -1694,6 +1698,10 @@ path = "tests/test_gallery_select.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_gallery_health_merge_ref.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_check_concurrency_generic_deinit.py"
 lane = "linux-guard"
 
@@ -1715,4 +1723,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_linux_compile_runners.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_daemon_tests_linux.py"
 lane = "linux-guard"

@@ -728,8 +728,14 @@ export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxR
   return undefined;
 }
 /// The chat's last footer ends at the message gap, not the turn gap: no band over the composer
-/// (App.tsx marks it `acpmux-row--last-footer`). `next` is the next row that draws.
-export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) => row.kind === "turnSummary" && !next;
+/// (App.tsx marks it `acpmux-row--last-footer`). So does a footer over another agent's line (a
+/// message, a notice or a started task's result): that line belongs with the agent's text above
+/// it, not a turn of its own after a band. `next` is the next row that draws.
+export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
+  row.kind === "turnSummary" &&
+  (!next ||
+    (next.kind === "user" &&
+      (next.received !== undefined || next.incoming?.kind === "message" || next.incoming?.kind === "notice")));
 /// What the row after a row changes about its height (`beforeFooter`, `lastFooter`), as one key.
 const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   isBeforeFooter(row, next) ? "footer" : isLastFooter(row, next) ? "last" : undefined;
