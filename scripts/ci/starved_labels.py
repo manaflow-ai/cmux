@@ -10,6 +10,8 @@ jobs the queue janitor already listed: a label is starved when a job on it has
 been queued with no runner for STARVED_AFTER and no job on it is running or
 started in that window. A running job proves a listener is online, so a pool
 that is merely busy is not starved.
+The wait counts from when the job could first run (wait_start()): a job still
+behind a running sibling in its run, which may be its `needs`, is not counted.
 
 Every glaeda-* label is in scope. Nothing in the tree says which runner label
 a merge-blocking job asks for (cmux-next's build-fleet compile takes
@@ -58,20 +60,41 @@ def fleet_key(job: Mapping[str, Any]) -> str:
     return "+".join(sorted({str(label) for label in job.get("labels") or () if str(label).startswith(FLEET_PREFIX)}))
 
 
+def wait_start(job: Mapping[str, Any], run_jobs: Sequence[Mapping[str, Any]]) -> dt.datetime | None:
+    """When a queued job could first have run; None while a sibling in its run is still running.
+
+    The jobs API can list a job before its `needs` finished and names no `needs`
+    (queue_janitor.lost_wait_start()), so any sibling may be its gate: a running
+    one means the wait may not have begun, and otherwise the wait counts from the
+    later of its `created_at` and the last sibling completion. A queued sibling
+    is no gate, so the jobs that wait on a stuck fleet job never hide it.
+    """
+    if any(other is not job and other.get("status") == "in_progress" for other in run_jobs):
+        return None
+    created = parse_time(job.get("created_at"))
+    if created is None:
+        return None
+    finished = [parse_time(other.get("completed_at")) for other in run_jobs
+                if other is not job and other.get("status") == "completed"]
+    return max([created, *(moment for moment in finished if moment is not None)])
+
+
 def _unserved_queues(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], *,
-                     now: dt.datetime, after: dt.timedelta) -> dict[str, list[Mapping[str, Any]]]:
-    """Fleet label key -> its queued jobs, for labels no job is running on or started on within `after`."""
-    waiting: dict[str, list[Mapping[str, Any]]] = {}
+                     now: dt.datetime, after: dt.timedelta
+                     ) -> dict[str, list[tuple[Mapping[str, Any], dt.datetime | None]]]:
+    """Fleet label key -> its queued jobs with their wait_start(), for labels no job is running on or started on within `after`."""
+    waiting: dict[str, list[tuple[Mapping[str, Any], dt.datetime | None]]] = {}
     served: set[frozenset[str]] = set()
     for run in runs:
-        for job in jobs_by_run.get(run.get("id"), ()):
+        run_jobs = list(jobs_by_run.get(run.get("id"), ()))
+        for job in run_jobs:
             key = fleet_key(job)
             if not key:
                 continue
             status = job.get("status")
             started = parse_time(job.get("started_at"))
             if status == "queued" and not job.get("runner_name"):
-                waiting.setdefault(key, []).append(job)
+                waiting.setdefault(key, []).append((job, wait_start(job, run_jobs)))
             elif status == "in_progress" or (job.get("runner_name") and started and now - started <= after):
                 served.add(frozenset(key.split("+")))
     return {key: jobs for key, jobs in sorted(waiting.items())
@@ -93,12 +116,15 @@ def starved(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequenc
             now: dt.datetime, after: dt.timedelta = STARVED_AFTER) -> list[dict[str, Any]]:
     """The fleet labels with a job queued past `after` and none running or started within it."""
     found = []
-    for key, jobs in _unserved_queues(runs, jobs_by_run, now=now, after=after).items():
-        oldest = min(jobs, key=lambda job: parse_time(job.get("created_at")) or now)
-        age = now - (parse_time(oldest.get("created_at")) or now)
+    for key, entries in _unserved_queues(runs, jobs_by_run, now=now, after=after).items():
+        ready = [(job, since) for job, since in entries if since is not None]
+        if not ready:
+            continue
+        oldest, since = min(ready, key=lambda entry: entry[1])
+        age = now - since
         if age < after:
             continue
-        found.append({"label": key, "oldest_queued_minutes": int(age.total_seconds() // 60), "queued": len(jobs),
+        found.append({"label": key, "oldest_queued_minutes": int(age.total_seconds() // 60), "queued": len(entries),
                       "job": str(oldest.get("name") or ""), "job_url": str(oldest.get("html_url") or "")})
     return found
 

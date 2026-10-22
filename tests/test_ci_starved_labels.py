@@ -71,7 +71,8 @@ class StarvedDetectionTests(unittest.TestCase):
         self.assertEqual(starved(job(created=9)), [])
 
     def test_a_start_on_another_label_does_not_serve_this_one(self) -> None:
-        found = starved(job(created=60), job(label=OTHER, status="in_progress", created=5, started=2, runner="m"))
+        other = job(label=OTHER, status="in_progress", created=5, started=2, runner="m")
+        found = starved_labels.starved([{"id": 1}, {"id": 2}], {1: [job(created=60)], 2: [other]}, now=NOW)
         self.assertEqual([entry["label"] for entry in found], [SIDE])
 
     def test_only_fleet_labels_are_in_scope(self) -> None:
