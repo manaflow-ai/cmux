@@ -150,6 +150,24 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
       },
     },
+    landing: {
+      note: "Clicking row 8 jumps to prompt 8, whose bubble flashes a step brighter (scrollMotion.ts highlightBubble). The gallery finishes animations at once, so this state paints the flash's first color on the landed bubble: the bubble's glass tint over transparent, the backdrop still showing through it, never the opaque base.",
+      snapshot: chat(rows, { title: "Thread minimap landing" }),
+      play: async (ctx) => {
+        if (!ctx.document.querySelector('[data-tick="8"]')) return;
+        await ctx.click({ selector: '[data-tick="8"]' });
+        const scroller = ctx.document.querySelector<HTMLElement>(".acpmux-scroll");
+        if (!scroller) return;
+        // The landed bubble: the first one at or below the transcript's top once the jump settles.
+        const top = scroller.getBoundingClientRect().top;
+        const landed = [...ctx.document.querySelectorAll<HTMLElement>(".cv-user__bubble")].find(
+          (bubble) => bubble.getBoundingClientRect().top >= top,
+        );
+        if (!landed) return;
+        landed.style.backgroundColor = getComputedStyle(landed).getPropertyValue("--acpmux-landing-highlight").trim();
+        landed.dataset.galleryLanding = "";
+      },
+    },
     bookmarked: {
       note: "A bookmarked prompt: its tick at full opacity with the 2 px dot past it, and the card's bookmark filled. The card's button (or a click on the dot's spot, or the prompt's own row button) sets it.",
       snapshot: chat(rows, { title: "Thread minimap bookmarks" }),

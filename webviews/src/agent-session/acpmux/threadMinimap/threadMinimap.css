@@ -244,10 +244,11 @@
   width: 10px;
   text-indent: 0;
 }
-/* The landing highlight's first color (scrollMotion.ts highlightBubble): the bubble's own fill, a
-   step brighter (#2d2d2d over #1e1e1e in the dark reference theme). */
+/* The landing highlight's first color (scrollMotion.ts highlightBubble): the bubble's own glass
+   tint (12% of the text, conversation.css) a step brighter, still over transparent so the bubble
+   stays glass while it flashes (Leo 2026-10-20: never opaque, not even for a moment). */
 .acpmux-row .cv-user__bubble {
-  --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-base, var(--agent-page-bg)));
+  --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, transparent);
 }
 /* The full-height map (ScrollMap.tsx): marks sit where their messages are in the chat. A prompt's
    tick starts at the rail's edge; a reply's is shorter, dimmer and set in 4 px. The bar behind
