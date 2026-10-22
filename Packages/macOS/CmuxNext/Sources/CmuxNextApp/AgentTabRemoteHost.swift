@@ -37,7 +37,15 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         // The tab this run opened may have been provisional when this host was made: the store's
         // surface and the session come from the tab (also on a reconnect after the first send).
         if let existing {
-            if let found = try await existing() {
+            let listed: (surface: UInt64, session: String?)?
+            do {
+                listed = try await existing()
+            } catch {
+                // A machine that cannot be reached says which way and what to fix, never a timeout.
+                if let unreached = AgentRemoteStartRefusal.unreached(error, machine: machine) { throw unreached }
+                throw error
+            }
+            if let found = listed {
                 (surface, session) = (found.surface, found.session ?? session)
             } else if session != nil {
                 // A known chat whose tab the store does not list: never attach through a surface
@@ -47,32 +55,35 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         }
         let route: AgentPaneRemoteRoute
         // The folder trust question of this machine (cx-1bhjj), on the tab as its store lists it.
-        let ask: RemoteAcpmuxWire.Trust = { [existing, surface, endpoint] (cwd: String, level: String?, home: Bool) async throws -> Data in
+        let ask: RemoteAcpmuxWire.Trust = { [existing, surface, endpoint, machine] (cwd: String, level: String?, home: Bool) async throws -> Data in
             let client = AgentSessionAttachClient(surface: try await existing?()?.surface ?? surface, endpoint: endpoint)
             let answer: Result<Data, any Error>
-            do { answer = .success(try await AgentTabRemoteClient(client: client, mode: .attach).mapped { try await client.trust(cwd: cwd, level: level, homeConfirmed: home) }) } catch { answer = .failure(error) }
+            do { answer = .success(try await AgentTabRemoteClient(client: client, mode: .attach, machine: machine).mapped { try await client.trust(cwd: cwd, level: level, homeConfirmed: home) }) } catch { answer = .failure(error) }
             await client.close()
             return try answer.get()
         }
         if let session {
-            route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [surface, session, endpoint] in
+            route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [surface, session, endpoint, machine] in
                 let client = AgentSessionAttachClient(surface: surface, mode: mode, endpoint: endpoint)
-                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, trust: mode == .attach && servesTrust ? ask : nil)
+                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode, machine: machine), session: session, trust: mode == .attach && servesTrust ? ask : nil)
             }
         } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
             // page shows the New Tab page or an empty chat; its `session/new` starts the chat.
-            route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [endpoint] in
-                RemoteAcpmuxWire(start: { [approvals = approvals, servesKeyedReason] cwd, harness in
+            route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [endpoint, machine] in
+                RemoteAcpmuxWire(start: { [approvals = approvals, servesKeyedReason, machine] cwd, harness in
                     let started: AgentTabRemoteStart.Started
                     do {
                         started = try await Self.keyedStart(cwd, harness, approvals: approvals,
                                                             servesKeyedReason: servesKeyedReason, start: start)
                     } catch let refusal as AgentRemoteStartRefusal {
                         throw AgentSessionRemoteError(code: refusal.code, message: servesTrust ? refusal.userMessage : refusal.withoutTrust.userMessage, folder: refusal.folder)
+                    } catch {
+                        guard let unreached = AgentRemoteStartRefusal.unreached(error, machine: machine) else { throw error }
+                        throw AgentSessionRemoteError(code: unreached.code, message: unreached.userMessage)
                     }
                     let client = AgentSessionAttachClient(surface: started.surface, endpoint: endpoint)
-                    return (AgentTabRemoteClient(client: client, mode: .attach), started.session)
+                    return (AgentTabRemoteClient(client: client, mode: .attach, machine: machine), started.session)
                 }, trust: servesTrust ? ask : nil)
             }
         } else {
@@ -119,6 +130,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
 nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
     let client: AgentSessionAttachClient
     let mode: AgentSessionAttachClient.Mode
+    /// The chat's machine, for the sentence of a refusal that names it (unreached, full disk).
+    var machine = ""
 
     var isReadOnly: Bool { mode == .observe }
 
@@ -169,12 +182,20 @@ nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
         }
     }
 
-    /// The daemon's refusal as the pane's error (its `agent_session.*` code reaches the page).
+    /// The daemon's refusal as the pane's error (its `agent_session.*` code reaches the page); a
+    /// machine that cannot be reached, or whose disk is full, says so in the person's words.
     func mapped(_ work: () async throws -> Data) async throws -> Data {
         do {
             return try await work()
         } catch let error as AgentSessionAttachError {
+            if error.code == AgentRemoteStartRefusal.storageFullCode {
+                let refusal = AgentRemoteStartRefusal(code: error.code, machine: machine)
+                throw AgentSessionRemoteError(code: error.code, message: refusal.userMessage)
+            }
             throw AgentSessionRemoteError(code: error.code, message: error.message)
+        } catch {
+            guard let unreached = AgentRemoteStartRefusal.unreached(error, machine: machine) else { throw error }
+            throw AgentSessionRemoteError(code: unreached.code, message: unreached.userMessage)
         }
     }
 }

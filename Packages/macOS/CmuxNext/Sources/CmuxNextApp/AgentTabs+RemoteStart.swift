@@ -118,7 +118,8 @@ nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHostRefusal
     var machineName: String? { machine.isEmpty ? nil : machine }
 
     var errorDescription: String? {
-        switch code {
+        if let unreached = unreachedDescription { return unreached }
+        return switch code {
         case "agent_session.untrusted_folder":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.untrustedFolder",
                                   "%1$@ is not a trusted folder on %2$@. Trust it on that machine, then start the chat again.",

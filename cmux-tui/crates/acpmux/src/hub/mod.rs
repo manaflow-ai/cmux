@@ -313,6 +313,9 @@ pub struct Hub {
     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
     /// daemon's own catalog, so mutual peers cannot ping-pong.
     pub models_fanouts: std::sync::atomic::AtomicUsize,
+    /// A store write found no space (`storage_full.rs`): new prompts and chats are refused
+    /// until free space is seen again.
+    pub(super) storage_full: AtomicBool,
     pub shutdown: Notify,
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
@@ -459,6 +462,7 @@ impl Hub {
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             events,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
+            storage_full: AtomicBool::new(false),
             shutdown: Notify::new(),
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
@@ -887,6 +891,7 @@ impl Hub {
             Ok(()) => true,
             Err(e) => {
                 session.append_errors.fetch_add(1, Ordering::SeqCst);
+                self.note_write_error(&e);
                 tracing::warn!(session = %session.id, "append failed: {e}");
                 false
             }
@@ -1123,12 +1128,47 @@ impl Hub {
     /// the turn, a tag) would write its record back after the purge deleted it, and the next daemon
     /// start loaded it as a closed session: the Chief's compactor, which purges each node's session
     /// when the node is built, left about 450 of them in two hours (2026-10-20).
+    /// A store write failed: one that found no space marks the store full, so the next
+    /// prompt or chat is refused instead of taken and lost (`storage_full.rs`).
+    pub(super) fn note_write_error(&self, error: &anyhow::Error) {
+        if crate::storage_full::is_disk_full(error)
+            && !self.storage_full.swap(true, Ordering::SeqCst)
+        {
+            tracing::error!(
+                "the store's disk is full: new prompts and chats are refused until space is freed"
+            );
+        }
+    }
+
+    /// Refuses with `storage.full` while the store's disk has less than the floor free, or
+    /// while a write found no space and a test write still finds none (a quota can refuse
+    /// writes on a disk that reports free space). A test write that passes clears the mark.
+    pub(super) fn storage_gate(&self) -> Result<(), RpcError> {
+        let free = self.store.free_bytes();
+        if let Some(bytes) = free
+            && bytes < crate::storage_full::FLOOR_BYTES
+        {
+            self.storage_full.store(true, Ordering::SeqCst);
+            return Err(RpcError::storage_full(free));
+        }
+        if self.storage_full.load(Ordering::SeqCst) {
+            match self.store.probe_write() {
+                Err(e) if crate::storage_full::is_disk_full(&e) => {
+                    return Err(RpcError::storage_full(free));
+                }
+                _ => self.storage_full.store(false, Ordering::SeqCst),
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn save_meta(&self, session: &Session) {
         if session.purged.load(Ordering::SeqCst) {
             return;
         }
         let meta = session.meta();
         if let Err(e) = self.store.save(&meta) {
+            self.note_write_error(&e);
             tracing::warn!(session = %session.id, "save meta failed: {e}");
         }
         // The purge ran between the check and the save: delete it again.

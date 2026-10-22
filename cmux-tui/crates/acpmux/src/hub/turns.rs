@@ -101,6 +101,8 @@ impl Hub {
         // A deferred start reads the queues after its ready line: a new prompt waits, so it
         // never runs ahead of a prompt queued under the previous daemon.
         self.wait_logs().await;
+        // A prompt the store cannot save is refused, never taken and lost (storage_full.rs).
+        self.storage_gate()?;
         let Some(prompt_id) = opts.prompt_id.clone() else {
             return self.prompt_unless_held(session, blocks, client, steer, opts).await;
         };

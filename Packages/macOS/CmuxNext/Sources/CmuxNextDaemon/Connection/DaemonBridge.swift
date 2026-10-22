@@ -95,7 +95,19 @@ public struct DaemonBridge: Hashable, Sendable {
         let object = (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any]
         guard let object else { throw .endpointBlocked("the link dial's answer is not JSON") }
         if object["ok"] as? Bool == true { return }
-        throw .endpointBlocked("the link refused the dial: \(object["error_code"] as? String ?? "refused")")
+        throw .endpointBlocked(refusalMessage(code: object["error_code"] as? String ?? "refused"))
+    }
+
+    private static let refusalPrefix = "the link refused the dial: "
+
+    /// The ``DaemonError/endpointBlocked(_:)`` text of a dial refused with `code` (`cmux host
+    /// dial`'s `error_code`: `tailscale_off`, `not_on_tailnet`, `not_serving`, …).
+    public static func refusalMessage(code: String) -> String { refusalPrefix + code }
+
+    /// The dial's `error_code` in `error`, when it is a refused dial; nil for any other error.
+    public static func refusalCode(_ error: DaemonError) -> String? {
+        guard case .endpointBlocked(let text) = error, text.hasPrefix(refusalPrefix) else { return nil }
+        return String(text.dropFirst(refusalPrefix.count))
     }
 }
 

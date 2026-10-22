@@ -89,6 +89,7 @@ mod session_scope;
 pub mod sha256;
 pub mod sr2_cost_labels;
 pub mod stats;
+pub mod storage_full;
 pub mod store;
 pub mod subagents;
 pub mod subrouter_session;

@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 
 use super::config::DEFAULT_PORT;
 use super::preface::{self, Op};
+use super::reach::Reach;
 use super::tailnet::{Node, Status, Tailnet};
 
 const CONNECT_BOUND: Duration = Duration::from_secs(5);
@@ -69,6 +70,30 @@ pub(crate) fn resolve(host: &str, port: u16, status: &Status) -> anyhow::Result<
     Ok(Target { name: node.short_name(), addr })
 }
 
+/// [`resolve`] as a [`Reach`]: a name that is no tailnet machine, another
+/// user's machine, or one the tailnet lists offline, each its own class.
+pub(crate) fn resolve_reach(host: &str, port: u16, status: &Status) -> Result<Target, Reach> {
+    let wanted = host.trim_end_matches('.').to_ascii_lowercase();
+    let literal =
+        host.parse::<SocketAddr>().ok().map(|a| a.ip()).or_else(|| host.parse::<IpAddr>().ok());
+    let node = status.peers.iter().find(|node| match literal {
+        Some(ip) => node.ips.contains(&ip),
+        None => {
+            node.short_name().eq_ignore_ascii_case(&wanted)
+                || node.dns_name.eq_ignore_ascii_case(&wanted)
+                || node.host_name.eq_ignore_ascii_case(&wanted)
+        }
+    });
+    let Some(node) = node else { return Err(Reach::NotOnTailnet) };
+    if !may_host_for(node, status) {
+        return Err(Reach::NotYours);
+    }
+    if !node.online {
+        return Err(Reach::HostOffline);
+    }
+    resolve(host, port, status).map_err(|e| Reach::Unreachable { detail: format!("{e:#}") })
+}
+
 /// A node this login may treat as its host: same login, or tagged; not a
 /// node shared in from another tailnet.
 fn may_host_for(node: &Node, status: &Status) -> bool {
@@ -103,21 +128,28 @@ fn open(
 /// one JSON line on stderr first; then stdin and stdout carry the daemon
 /// protocol until either side ends.
 pub(crate) fn dial(host: &str, port: u16) -> i32 {
-    let status = match Tailnet::locate().and_then(|t| t.status()) {
-        Ok(status) => status,
-        Err(e) => return dial_failed("unreachable", &format!("{e:#}")),
+    let tailnet = match Tailnet::locate() {
+        Ok(tailnet) => tailnet,
+        Err(_) => return dial_failed(host, &Reach::TailscaleMissing),
     };
-    let target = match resolve(host, port, &status) {
+    let status = tailnet.status();
+    if let Some(reach) = Reach::of_status(&status) {
+        return dial_failed(host, &reach);
+    }
+    let Ok(status) = status else {
+        return dial_failed(host, &Reach::TailscaleOff { state: String::new() });
+    };
+    let target = match resolve_reach(host, port, &status) {
         Ok(target) => target,
-        Err(e) => return dial_failed("unreachable", &format!("{e:#}")),
+        Err(reach) => return dial_failed(host, &reach),
     };
     let (stream, reply) = match open(target.addr, Op::Connect, CONNECT_BOUND, CONNECT_REPLY_BOUND) {
         Ok(pair) => pair,
-        Err(e) => return dial_failed("unreachable", &format!("{e:#}")),
+        Err(e) => return dial_failed(&target.name, &Reach::of_connect(target.addr, &e)),
     };
     if reply["ok"].as_bool() != Some(true) {
         let code = reply["error_code"].as_str().unwrap_or("refused").to_owned();
-        return dial_failed(&code, "the host refused the connection");
+        return refused(&code, "the host refused the connection");
     }
     let line = json!({"ok": true, "host": target.name, "address": target.addr.to_string(), "access": reply["access"]});
     eprintln!("{line}");
@@ -147,7 +179,18 @@ pub(crate) fn dial(host: &str, port: u16) -> i32 {
     0
 }
 
-fn dial_failed(code: &str, message: &str) -> i32 {
+/// The dial line of an unreached host: its class's code and the sentence
+/// that names the fix (the apps word the code themselves).
+fn dial_failed(host: &str, reach: &Reach) -> i32 {
+    eprintln!(
+        "{}",
+        json!({"ok": false, "error_code": reach.code(), "message": reach.message(host), "host": host})
+    );
+    1
+}
+
+/// The dial line of a host that answered with a refusal.
+fn refused(code: &str, message: &str) -> i32 {
     eprintln!("{}", json!({"ok": false, "error_code": code, "message": message}));
     1
 }
@@ -197,11 +240,13 @@ pub(crate) fn probe_all(nodes: Vec<Node>, port: u16) -> Vec<Found> {
 /// `cmux host list [--json] [--all]`: hosts that answered the probe (with
 /// `--all`, also the candidates that did not, with the reason).
 pub(crate) fn list(json_out: bool, all: bool, port: Option<u16>) -> anyhow::Result<()> {
-    let tailnet = Tailnet::locate()?;
-    let status = tailnet.status()?;
-    if status.backend_state != "Running" {
-        bail!("Tailscale is {} on this machine; sign in first", status.backend_state);
+    let tailnet =
+        Tailnet::locate().map_err(|_| anyhow!(Reach::TailscaleMissing.message("your hosts")))?;
+    let status = tailnet.status();
+    if let Some(reach) = Reach::of_status(&status) {
+        bail!(reach.message("your hosts"));
     }
+    let status = status?;
     let port = port.unwrap_or(DEFAULT_PORT);
     let found = probe_all(candidates(&status), port);
     let mut hosts = Vec::new();
@@ -223,7 +268,13 @@ pub(crate) fn list(json_out: bool, all: bool, port: Option<u16>) -> anyhow::Resu
                 "reason": reply["error_code"].as_str().unwrap_or("refused"),
             })),
             Err(e) => {
-                others.push(json!({"name": item.node.short_name(), "reason": short_error(e)}));
+                let reach = Reach::of_connect(item.addr, e);
+                others.push(json!({
+                    "name": item.node.short_name(),
+                    "reason": reach.short(),
+                    "error_code": reach.code(),
+                    "message": reach.message(&item.node.short_name()),
+                }));
             }
         }
     }
@@ -259,13 +310,4 @@ pub(crate) fn list(json_out: bool, all: bool, port: Option<u16>) -> anyhow::Resu
         }
     }
     Ok(())
-}
-
-fn short_error(error: &anyhow::Error) -> &'static str {
-    let io = error.chain().find_map(|cause| cause.downcast_ref::<io::Error>());
-    match io.map(io::Error::kind) {
-        Some(io::ErrorKind::ConnectionRefused) => "not serving",
-        Some(io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock) => "no answer",
-        _ => "unreachable",
-    }
 }

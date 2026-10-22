@@ -14,6 +14,8 @@ impl Hub {
     pub async fn new_session(self: &Arc<Self>, req: NewRequest) -> Result<Arc<Session>, RpcError> {
         // Harness discovery and launcher checks finish in the background.
         self.wait_startup().await;
+        // A chat the store cannot save is refused, never started and lost (storage_full.rs).
+        self.storage_gate()?;
         let NewRequest {
             harness,
             preset,
@@ -200,6 +202,10 @@ impl Hub {
         };
         if let Err(e) = self.store.save(&session.meta()) {
             self.sessions.lock().unwrap().remove(&id);
+            if crate::storage_full::is_disk_full(&e) {
+                self.note_write_error(&e);
+                return Err(RpcError::storage_full(self.store.free_bytes()));
+            }
             return Err(RpcError::internal(e.to_string()));
         }
         // The chat's route is bound once the session exists and before its

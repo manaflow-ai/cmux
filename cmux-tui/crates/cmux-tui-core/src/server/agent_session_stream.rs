@@ -209,7 +209,7 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
             let prompt = params.get("promptId").and_then(Value::as_str).unwrap_or_default();
             let slot = attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt);
             if let Some(slot) = slot {
-                let _ = slot.try_send(params);
+                let _ = slot.try_send(Ok(params));
             }
         }
         "_acpmux/lagged" => attachment.end(Some("lagged")),

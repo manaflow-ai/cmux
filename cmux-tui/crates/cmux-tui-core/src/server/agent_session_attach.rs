@@ -163,7 +163,9 @@ struct Attachment {
     /// Permission ids acpmux announced on this attachment, oldest first.
     permissions: Mutex<VecDeque<String>>,
     /// Prompt ids waiting for `_acpmux/prompt_accepted`, with their reply slot.
-    prompts: Mutex<HashMap<String, std::sync::mpsc::SyncSender<Value>>>,
+    /// Prompts waiting for acpmux to take them: its `prompt_accepted` (Ok), or
+    /// the request's refusal (Err), whichever comes first.
+    prompts: Mutex<HashMap<String, std::sync::mpsc::SyncSender<Result<Value, LinkError>>>>,
     /// The session's descendants this attachment follows
     /// (`agent-session-children-v1`): their changes are streamed too.
     children: Mutex<HashSet<String>>,
@@ -354,6 +356,9 @@ pub(crate) enum Refusal {
     NeedsKeyedStart,
     ReadOnly,
     ModeConflict,
+    /// acpmux on this machine refused for a full disk (`storage.full`): it
+    /// cannot save the chat, so it took nothing.
+    StorageFull,
 }
 
 impl Refusal {
@@ -379,6 +384,7 @@ impl Refusal {
             Self::NeedsKeyedStart => "agent_session.needs_keyed_start",
             Self::ReadOnly => "agent_session.read_only",
             Self::ModeConflict => "agent_session.mode_conflict",
+            Self::StorageFull => "agent_session.storage_full",
         }
     }
 
@@ -414,6 +420,9 @@ impl Refusal {
             Self::ModeConflict => {
                 "this connection already has the same surface attached in another mode"
             }
+            Self::StorageFull => {
+                "the disk on this machine is full, so acpmux cannot save the chat; free some space there"
+            }
         }
     }
 
@@ -422,6 +431,7 @@ impl Refusal {
             LinkError::Closed => Self::Unavailable,
             LinkError::Timeout => Self::Timeout,
             LinkError::Busy => Self::Limit,
+            LinkError::Rpc(_, data) if data["reason"] == "storage.full" => Self::StorageFull,
             LinkError::Rpc(..) | LinkError::MethodNotFound(_) => Self::Refused,
         }
     }
@@ -845,7 +855,7 @@ fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Va
         if prompts.len() >= MAX_CALLS || prompts.contains_key(&prompt_id) {
             return Err(Refusal::Limit);
         }
-        prompts.insert(prompt_id.clone(), sender);
+        prompts.insert(prompt_id.clone(), sender.clone());
     }
     // Only a text content block: the client sends content, never a command,
     // a path or an MCP server.
@@ -857,14 +867,19 @@ fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Va
     // The request's own reply comes at the end of the turn and is not
     // waited for, so a queued prompt holds no call slot (permission answers
     // stay possible while turns queue).
-    if let Err(error) = attachment.link.send_ignoring_reply("session/prompt", params) {
+    // A refusal (a full disk, a moving chat) comes back as the request's
+    // error before any `prompt_accepted`: it answers at once, never as a timeout.
+    if let Err(error) = attachment.link.send_routing_reply("session/prompt", params, sender.clone())
+    {
         attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
         return Err(Refusal::of(error));
     }
+    drop(sender);
     let accepted = receiver.recv_timeout(CALL_TIMEOUT);
     attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
     match accepted {
-        Ok(accepted) => Ok(json!({
+        Ok(Err(error)) => Err(Refusal::of(error)),
+        Ok(Ok(accepted)) => Ok(json!({
             "prompt_id": prompt_id,
             "turn_id": accepted.get("turnId").cloned().unwrap_or(Value::Null),
             "queued": accepted.get("queued").cloned().unwrap_or(json!(false)),

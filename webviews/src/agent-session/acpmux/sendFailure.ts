@@ -9,7 +9,7 @@ import type { AcpmuxRow } from "./model";
 import { errorMessage } from "./transportErrors";
 
 /// The causes the failure card names in its own words, with their own way out.
-export type SendCause = "trust-pending" | "trust-untrusted" | "pane" | "other";
+export type SendCause = "trust-pending" | "trust-untrusted" | "pane" | "unreached" | "storage-full" | "other";
 
 type CauseFields = { code?: unknown; reason?: unknown } | null | undefined;
 
@@ -22,7 +22,12 @@ export function sendCause(fields: CauseFields): SendCause {
   if (reason === "trust.pending") return "trust-pending";
   if (reason === "trust.untrusted") return "trust-untrusted";
   // A request the pane's host would not take is the pane's bug, not something the person did.
-  if (text(fields?.code) === "transport.intent_invalid") return "pane";
+  const code = text(fields?.code);
+  if (code === "transport.intent_invalid") return "pane";
+  // The chat's machine could not be reached (Tailscale off, asleep, cmux not serving there), or
+  // its disk is full: the app words the fix in the error's message (AgentRemoteStartRefusal).
+  if (code?.startsWith("agent_session.unreached.")) return "unreached";
+  if (code === "agent_session.storage_full" || reason === "storage.full") return "storage-full";
   return "other";
 }
 

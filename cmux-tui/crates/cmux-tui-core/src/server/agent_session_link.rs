@@ -65,6 +65,9 @@ type Pending = Mutex<HashMap<u64, SyncSender<Result<Value, LinkError>>>>;
 pub(crate) struct AcpmuxLink {
     stream: Mutex<UnixStream>,
     pending: Arc<Pending>,
+    /// Requests whose reply is not waited for, but routed to a caller that
+    /// listens for a refusal (`send_routing_reply`); they hold no in-flight slot.
+    routed: Arc<Pending>,
     next_id: AtomicU64,
     closed: Arc<AtomicBool>,
 }
@@ -82,15 +85,17 @@ impl AcpmuxLink {
         let link = Arc::new(Self {
             stream: Mutex::new(stream),
             pending: Arc::default(),
+            routed: Arc::default(),
             next_id: AtomicU64::new(1),
             closed: Arc::new(AtomicBool::new(false)),
         });
         let pending = link.pending.clone();
+        let routed = link.routed.clone();
         let closed = link.closed.clone();
         std::thread::Builder::new()
             .name("mux-acpmux-link".into())
             .stack_size(THREAD_STACK_BYTES)
-            .spawn(move || read_loop(reader, pending, closed, on_inbound))?;
+            .spawn(move || read_loop(reader, pending, routed, closed, on_inbound))?;
         Ok(link)
     }
 
@@ -123,15 +128,26 @@ impl AcpmuxLink {
         result
     }
 
-    /// Sends a request whose reply is not waited for (it is read and
-    /// dropped), so it holds no in-flight slot.
-    pub(super) fn send_ignoring_reply(&self, method: &str, params: Value) -> Result<(), LinkError> {
+    /// Sends a request whose reply is not waited for here, but goes to
+    /// `reply` when it comes (a refusal at once, a result at the end of a
+    /// turn); it holds no in-flight slot. A close sends `Closed`.
+    pub(super) fn send_routing_reply(
+        &self,
+        method: &str,
+        params: Value,
+        reply: SyncSender<Result<Value, LinkError>>,
+    ) -> Result<(), LinkError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(LinkError::Closed);
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        self.write(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}))
-            .map_err(|_| LinkError::Closed)
+        self.routed.lock().unwrap_or_else(|e| e.into_inner()).insert(id, reply);
+        let frame = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+        if self.write(&frame).is_err() {
+            self.routed.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+            return Err(LinkError::Closed);
+        }
+        Ok(())
     }
 
     /// Sends a notification (no reply).
@@ -172,6 +188,7 @@ impl Drop for AcpmuxLink {
 fn read_loop(
     stream: UnixStream,
     pending: Arc<Pending>,
+    routed: Arc<Pending>,
     closed: Arc<AtomicBool>,
     mut on_inbound: impl FnMut(Inbound),
 ) {
@@ -206,6 +223,8 @@ fn read_loop(
                 None => Ok(message.remove("result").unwrap_or(Value::Null)),
             };
             let sender = pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+            let sender =
+                sender.or_else(|| routed.lock().unwrap_or_else(|e| e.into_inner()).remove(&id));
             if let Some(sender) = sender {
                 let _ = sender.try_send(outcome);
             }
@@ -217,6 +236,9 @@ fn read_loop(
     };
     closed.store(true, Ordering::Release);
     for (_, sender) in pending.lock().unwrap_or_else(|e| e.into_inner()).drain() {
+        let _ = sender.try_send(Err(LinkError::Closed));
+    }
+    for (_, sender) in routed.lock().unwrap_or_else(|e| e.into_inner()).drain() {
         let _ = sender.try_send(Err(LinkError::Closed));
     }
     on_inbound(Inbound::Closed(reason));

@@ -29873,6 +29873,1447 @@
           }
         }
       }
+    },
+    "handlers.refusal.agentRemote.unreached.tailscaleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale is off on this Mac, so cmux cannot reach %@. Turn Tailscale on, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacでTailscaleがオフのため、cmuxは%@に接続できません。Tailscaleをオンにしてから、もう一度お試しください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale متوقف على هذا الـMac، لذا لا يستطيع cmux الوصول إلى %@. شغّل Tailscale ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale je isključen na ovom Macu, pa cmux ne može doći do %@. Uključite Tailscale, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale er slået fra på denne Mac, så cmux kan ikke nå %@. Slå Tailscale til, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale ist auf diesem Mac aus, daher erreicht cmux %@ nicht. Schalte Tailscale ein und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale está desactivado en este Mac, así que cmux no puede llegar a %@. Activa Tailscale y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale est désactivé sur ce Mac, donc cmux ne peut pas joindre %@. Activez Tailscale, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale è disattivato su questo Mac, quindi cmux non può raggiungere %@. Attiva Tailscale e riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale ត្រូវបានបិទនៅលើ Mac នេះ ដូច្នេះ cmux មិនអាចភ្ជាប់ទៅ %@ បានទេ។ សូមបើក Tailscale រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac에서 Tailscale이 꺼져 있어 cmux가 %@에 연결할 수 없습니다. Tailscale을 켠 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale er av på denne Macen, så cmux når ikke %@. Slå på Tailscale, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale jest wyłączony na tym Macu, więc cmux nie może połączyć się z %@. Włącz Tailscale i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Tailscale está desligado neste Mac, então o cmux não consegue alcançar %@. Ligue o Tailscale e tente de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale выключен на этом Mac, поэтому cmux не может связаться с %@. Включите Tailscale и попробуйте ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale ปิดอยู่บน Mac เครื่องนี้ cmux จึงเชื่อมต่อ %@ ไม่ได้ เปิด Tailscale แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac'te Tailscale kapalı, bu yüzden cmux %@ makinesine ulaşamıyor. Tailscale'i açıp yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale вимкнено на цьому Mac, тому cmux не може з’єднатися з %@. Увімкніть Tailscale і спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale đang tắt trên máy Mac này nên cmux không thể kết nối tới %@. Hãy bật Tailscale rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 Mac 上的 Tailscale 已关闭，cmux 无法连接 %@。请打开 Tailscale 后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 Mac 上的 Tailscale 已關閉，cmux 無法連線到 %@。請開啟 Tailscale 後再試一次。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemote.unreached.tailscaleMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale is not installed on this Mac, so cmux cannot reach %@. Install Tailscale and sign in."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacにTailscaleがインストールされていないため、cmuxは%@に接続できません。Tailscaleをインストールしてサインインしてください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale غير مثبت على هذا الـMac، لذا لا يستطيع cmux الوصول إلى %@. ثبّت Tailscale وسجّل الدخول."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale nije instaliran na ovom Macu, pa cmux ne može doći do %@. Instalirajte Tailscale i prijavite se."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale er ikke installeret på denne Mac, så cmux kan ikke nå %@. Installer Tailscale, og log ind."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale ist auf diesem Mac nicht installiert, daher erreicht cmux %@ nicht. Installiere Tailscale und melde dich an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale no está instalado en este Mac, así que cmux no puede llegar a %@. Instala Tailscale e inicia sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale n’est pas installé sur ce Mac, donc cmux ne peut pas joindre %@. Installez Tailscale et connectez-vous."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale non è installato su questo Mac, quindi cmux non può raggiungere %@. Installa Tailscale ed esegui l’accesso."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale មិនទាន់បានដំឡើងនៅលើ Mac នេះទេ ដូច្នេះ cmux មិនអាចភ្ជាប់ទៅ %@ បានទេ។ សូមដំឡើង Tailscale ហើយចូលគណនី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac에 Tailscale이 설치되어 있지 않아 cmux가 %@에 연결할 수 없습니다. Tailscale을 설치하고 로그인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale er ikke installert på denne Macen, så cmux når ikke %@. Installer Tailscale, og logg på."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale nie jest zainstalowany na tym Macu, więc cmux nie może połączyć się z %@. Zainstaluj Tailscale i zaloguj się."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Tailscale não está instalado neste Mac, então o cmux não consegue alcançar %@. Instale o Tailscale e entre."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale не установлен на этом Mac, поэтому cmux не может связаться с %@. Установите Tailscale и войдите."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่ได้ติดตั้ง Tailscale บน Mac เครื่องนี้ cmux จึงเชื่อมต่อ %@ ไม่ได้ ติดตั้ง Tailscale แล้วลงชื่อเข้าใช้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac'te Tailscale yüklü değil, bu yüzden cmux %@ makinesine ulaşamıyor. Tailscale'i yükleyip oturum açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tailscale не встановлено на цьому Mac, тому cmux не може з’єднатися з %@. Установіть Tailscale і ввійдіть."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy Mac này chưa cài Tailscale nên cmux không thể kết nối tới %@. Hãy cài Tailscale và đăng nhập."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 Mac 未安装 Tailscale，cmux 无法连接 %@。请安装 Tailscale 并登录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 Mac 未安裝 Tailscale，cmux 無法連線到 %@。請安裝 Tailscale 並登入。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemote.unreached.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux cannot find %1$@ on your network. Turn Tailscale on, on this Mac and on %1$@, and sign both in to the same tailnet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxはネットワーク上で%1$@を見つけられません。このMacと%1$@の両方でTailscaleをオンにし、同じtailnetにサインインしてください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يجد cmux الجهاز %1$@ على شبكتك. شغّل Tailscale على هذا الـMac وعلى %1$@، وسجّل دخول الاثنين إلى الـtailnet نفسها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ne može pronaći %1$@ na vašoj mreži. Uključite Tailscale na ovom Macu i na %1$@ i prijavite oba u isti tailnet."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kan ikke finde %1$@ på dit netværk. Slå Tailscale til på denne Mac og på %1$@, og log begge ind på samme tailnet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux findet %1$@ in deinem Netzwerk nicht. Schalte Tailscale auf diesem Mac und auf %1$@ ein und melde beide im selben Tailnet an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no encuentra %1$@ en tu red. Activa Tailscale en este Mac y en %1$@, e inicia sesión en ambos en la misma tailnet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ne trouve pas %1$@ sur votre réseau. Activez Tailscale sur ce Mac et sur %1$@, et connectez les deux au même tailnet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non trova %1$@ nella tua rete. Attiva Tailscale su questo Mac e su %1$@ e accedi con entrambi alla stessa tailnet."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux រក %1$@ មិនឃើញនៅលើបណ្ដាញរបស់អ្នកទេ។ សូមបើក Tailscale នៅលើ Mac នេះ និងនៅលើ %1$@ ហើយចូលទាំងពីរទៅ tailnet ដូចគ្នា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 네트워크에서 %1$@을(를) 찾을 수 없습니다. 이 Mac과 %1$@ 모두에서 Tailscale을 켜고 같은 tailnet에 로그인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux finner ikke %1$@ på nettverket ditt. Slå på Tailscale på denne Macen og på %1$@, og logg begge på samme tailnet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie może znaleźć %1$@ w Twojej sieci. Włącz Tailscale na tym Macu i na %1$@ i zaloguj oba do tego samego tailnetu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux não encontra %1$@ na sua rede. Ligue o Tailscale neste Mac e em %1$@, e entre com os dois na mesma tailnet."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не находит %1$@ в вашей сети. Включите Tailscale на этом Mac и на %1$@ и войдите на обоих в один tailnet."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux หา %1$@ ในเครือข่ายของคุณไม่พบ เปิด Tailscale ทั้งบน Mac เครื่องนี้และบน %1$@ แล้วลงชื่อเข้าใช้ทั้งสองเครื่องใน tailnet เดียวกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux, ağınızda %1$@ makinesini bulamıyor. Bu Mac'te ve %1$@ üzerinde Tailscale'i açın ve ikisinde de aynı tailnet'e oturum açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не знаходить %1$@ у вашій мережі. Увімкніть Tailscale на цьому Mac і на %1$@ та ввійдіть на обох в один tailnet."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux không tìm thấy %1$@ trong mạng của bạn. Hãy bật Tailscale trên máy Mac này và trên %1$@, rồi đăng nhập cả hai vào cùng một tailnet."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 在你的网络中找不到 %1$@。请在此 Mac 和 %1$@ 上都打开 Tailscale，并登录同一个 tailnet。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 在你的網路中找不到 %1$@。請在此 Mac 和 %1$@ 上都開啟 Tailscale，並登入同一個 tailnet。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemote.unreached.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is offline. Wake %1$@, and check that Tailscale is on there."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@はオフラインです。%1$@をスリープから復帰させ、Tailscaleがオンになっているか確認してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ غير متصل. أيقظ %1$@ وتحقّق من أن Tailscale يعمل عليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ nije na mreži. Probudite %1$@ i provjerite je li Tailscale uključen na njemu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ er offline. Væk %1$@, og tjek, at Tailscale er slået til der."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ist offline. Wecke %1$@ auf und prüfe, ob Tailscale dort eingeschaltet ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ está desconectado. Activa %1$@ y comprueba que Tailscale esté encendido allí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ est hors ligne. Réveillez %1$@ et vérifiez que Tailscale y est activé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ è offline. Riattiva %1$@ e verifica che Tailscale sia attivo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ គ្មានអ៊ីនធឺណិត។ សូមដាស់ %1$@ ហើយពិនិត្យថា Tailscale បានបើកនៅទីនោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@이(가) 오프라인입니다. %1$@을(를) 깨우고 Tailscale이 켜져 있는지 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ er frakoblet. Vekk %1$@, og sjekk at Tailscale er på der."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ jest offline. Wybudź %1$@ i sprawdź, czy działa na nim Tailscale."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ está offline. Acorde %1$@ e verifique se o Tailscale está ligado nele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ не в сети. Разбудите %1$@ и проверьте, что на нём включён Tailscale."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ออฟไลน์อยู่ ปลุก %1$@ และตรวจสอบว่าเปิด Tailscale ไว้ที่นั่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ çevrimdışı. %1$@ makinesini uyandırın ve orada Tailscale'in açık olduğunu kontrol edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ не в мережі. Розбудіть %1$@ і перевірте, що на ньому ввімкнено Tailscale."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ đang ngoại tuyến. Hãy đánh thức %1$@ và kiểm tra Tailscale đã bật ở đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 处于离线状态。请唤醒 %1$@，并检查其上的 Tailscale 是否已打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 目前離線。請喚醒 %1$@，並確認其上的 Tailscale 已開啟。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemote.unreached.remoteLoginOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is on, but it refuses connections. On %1$@, turn on Remote Login in System Settings > General > Sharing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@はオンですが、接続を拒否しています。%1$@の「システム設定」>「一般」>「共有」で「リモートログイン」をオンにしてください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ يعمل لكنه يرفض الاتصالات. على %1$@، شغّل «تسجيل الدخول عن بُعد» من إعدادات النظام > عام > المشاركة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ je uključen, ali odbija veze. Na %1$@ uključite Remote Login u System Settings > General > Sharing."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ er tændt, men afviser forbindelser. Slå Fjernlogin til på %1$@ under Systemindstillinger > Generelt > Deling."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ist eingeschaltet, lehnt aber Verbindungen ab. Aktiviere auf %1$@ „Entfernte Anmeldung“ unter Systemeinstellungen > Allgemein > Teilen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ está encendido, pero rechaza las conexiones. En %1$@, activa Sesión remota en Ajustes del Sistema > General > Compartir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ est allumé, mais refuse les connexions. Sur %1$@, activez Session à distance dans Réglages Système > Général > Partage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ è acceso ma rifiuta le connessioni. Su %1$@, attiva Login remoto in Impostazioni di Sistema > Generali > Condivisione."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ បានបើក ប៉ុន្តែវាបដិសេធការតភ្ជាប់។ នៅលើ %1$@ សូមបើក Remote Login ក្នុង System Settings > General > Sharing។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@이(가) 켜져 있지만 연결을 거부합니다. %1$@의 시스템 설정 > 일반 > 공유에서 원격 로그인을 켜세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ er på, men avviser tilkoblinger. Slå på Ekstern pålogging på %1$@ under Systeminnstillinger > Generelt > Deling."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ jest włączony, ale odrzuca połączenia. Na %1$@ włącz Logowanie zdalne w Ustawieniach systemowych > Ogólne > Udostępnianie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ está ligado, mas recusa conexões. Em %1$@, ative Início de Sessão Remoto em Ajustes do Sistema > Geral > Compartilhamento."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ включён, но отклоняет подключения. На %1$@ включите «Удалённый вход» в Системных настройках > Основные > Общий доступ."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ เปิดอยู่ แต่ปฏิเสธการเชื่อมต่อ บน %1$@ ให้เปิด Remote Login ใน การตั้งค่าระบบ > ทั่วไป > การแชร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ açık ama bağlantıları reddediyor. %1$@ üzerinde Sistem Ayarları > Genel > Paylaşma'da Uzaktan Giriş'i açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ увімкнено, але він відхиляє з’єднання. На %1$@ увімкніть «Віддалений вхід» у Системних параметрах > Загальні > Спільний доступ."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ đang bật nhưng từ chối kết nối. Trên %1$@, hãy bật Đăng nhập từ xa trong Cài đặt hệ thống > Cài đặt chung > Chia sẻ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 已开机，但拒绝连接。请在 %1$@ 的“系统设置”>“通用”>“共享”中打开“远程登录”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 已開機，但拒絕連線。請在 %1$@ 的「系統設定」>「一般」>「共享」中開啟「遠端登入」。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemote.unreached.notServing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is on, but cmux does not serve there. Run cmux host enable on %1$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@はオンですが、cmuxが待ち受けていません。%1$@でcmux host enableを実行してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ يعمل، لكن cmux لا يستقبل الاتصالات عليه. شغّل cmux host enable على %1$@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ je uključen, ali cmux tamo ne poslužuje. Pokrenite cmux host enable na %1$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ er tændt, men cmux kører ikke som vært der. Kør cmux host enable på %1$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ist eingeschaltet, aber cmux stellt dort nichts bereit. Führe cmux host enable auf %1$@ aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ está encendido, pero cmux no atiende allí. Ejecuta cmux host enable en %1$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ est allumé, mais cmux n’y est pas en service. Exécutez cmux host enable sur %1$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ è acceso, ma cmux non è in ascolto. Esegui cmux host enable su %1$@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ បានបើក ប៉ុន្តែ cmux មិនដំណើរការនៅទីនោះទេ។ សូមដំណើរការ cmux host enable នៅលើ %1$@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@이(가) 켜져 있지만 cmux가 그곳에서 서비스하지 않습니다. %1$@에서 cmux host enable을 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ er på, men cmux kjører ikke som vert der. Kjør cmux host enable på %1$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ jest włączony, ale cmux tam nie działa. Uruchom cmux host enable na %1$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ está ligado, mas o cmux não está atendendo lá. Execute cmux host enable em %1$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ включён, но cmux там не обслуживает подключения. Выполните cmux host enable на %1$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ เปิดอยู่ แต่ cmux ไม่ได้ให้บริการที่นั่น เรียกใช้ cmux host enable บน %1$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ açık ama cmux orada hizmet vermiyor. %1$@ üzerinde cmux host enable komutunu çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ увімкнено, але cmux там не обслуговує з’єднання. Виконайте cmux host enable на %1$@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ đang bật nhưng cmux không phục vụ ở đó. Hãy chạy cmux host enable trên %1$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 已开机，但 cmux 未在其上提供服务。请在 %1$@ 上运行 cmux host enable。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 已開機，但 cmux 未在其上提供服務。請在 %1$@ 上執行 cmux host enable。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemote.unreached.noAnswer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ does not answer. Check that %1$@ is on and awake, and that Tailscale is on, on this Mac and on %1$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@が応答しません。%1$@の電源が入りスリープしていないこと、このMacと%1$@の両方でTailscaleがオンであることを確認してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ لا يستجيب. تحقّق من أن %1$@ يعمل وغير نائم، وأن Tailscale يعمل على هذا الـMac وعلى %1$@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ne odgovara. Provjerite je li %1$@ uključen i budan te je li Tailscale uključen na ovom Macu i na %1$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ svarer ikke. Tjek, at %1$@ er tændt og vågen, og at Tailscale er slået til på denne Mac og på %1$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ antwortet nicht. Prüfe, ob %1$@ eingeschaltet und wach ist und ob Tailscale auf diesem Mac und auf %1$@ läuft."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ no responde. Comprueba que %1$@ esté encendido y activo, y que Tailscale esté activado en este Mac y en %1$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ne répond pas. Vérifiez que %1$@ est allumé et réveillé, et que Tailscale est activé sur ce Mac et sur %1$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ non risponde. Verifica che %1$@ sia acceso e non in stop, e che Tailscale sia attivo su questo Mac e su %1$@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ មិនឆ្លើយតបទេ។ សូមពិនិត្យថា %1$@ បានបើក និងមិនដេក ហើយ Tailscale បានបើកនៅលើ Mac នេះ និងនៅលើ %1$@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@이(가) 응답하지 않습니다. %1$@이(가) 켜져 있고 잠자기 상태가 아닌지, 이 Mac과 %1$@에서 Tailscale이 켜져 있는지 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ svarer ikke. Sjekk at %1$@ er på og våken, og at Tailscale er på, på denne Macen og på %1$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ nie odpowiada. Sprawdź, czy %1$@ jest włączony i wybudzony oraz czy Tailscale działa na tym Macu i na %1$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ não responde. Verifique se %1$@ está ligado e acordado, e se o Tailscale está ligado neste Mac e em %1$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ не отвечает. Проверьте, что %1$@ включён и не спит, и что Tailscale включён на этом Mac и на %1$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ไม่ตอบสนอง ตรวจสอบว่า %1$@ เปิดอยู่และไม่ได้พักเครื่อง และเปิด Tailscale ทั้งบน Mac เครื่องนี้และบน %1$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ yanıt vermiyor. %1$@ makinesinin açık ve uyanık olduğunu, Tailscale'in bu Mac'te ve %1$@ üzerinde açık olduğunu kontrol edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ не відповідає. Перевірте, що %1$@ увімкнено й не в режимі сну, і що Tailscale увімкнено на цьому Mac і на %1$@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ không phản hồi. Hãy kiểm tra %1$@ đang bật và không ngủ, và Tailscale đã bật trên máy Mac này và trên %1$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 没有响应。请检查 %1$@ 是否已开机且未睡眠，以及此 Mac 和 %1$@ 上的 Tailscale 是否都已打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 沒有回應。請確認 %1$@ 已開機且未睡眠，以及此 Mac 和 %1$@ 上的 Tailscale 都已開啟。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemote.unreached.notYours": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ belongs to another person on your tailnet, so cmux does not connect to it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@はtailnet上の別のユーザーのものなので、cmuxは接続しません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ يخص شخصًا آخر على الـtailnet الخاصة بك، لذا لا يتصل به cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ pripada drugoj osobi na vašem tailnetu, pa se cmux ne povezuje s njim."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ tilhører en anden person på dit tailnet, så cmux forbinder ikke til den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ gehört einer anderen Person in deinem Tailnet, daher verbindet sich cmux nicht damit."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ pertenece a otra persona de tu tailnet, así que cmux no se conecta a él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ appartient à une autre personne de votre tailnet, donc cmux ne s’y connecte pas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ appartiene a un’altra persona nella tua tailnet, quindi cmux non si connette."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ជារបស់មនុស្សផ្សេងទៀតនៅលើ tailnet របស់អ្នក ដូច្នេះ cmux មិនភ្ជាប់ទៅវាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@은(는) tailnet의 다른 사용자 소유이므로 cmux가 연결하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ tilhører en annen person på tailnettet ditt, så cmux kobler ikke til den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ należy do innej osoby w Twoim tailnecie, więc cmux się z nim nie łączy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ pertence a outra pessoa na sua tailnet, então o cmux não se conecta a ele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ принадлежит другому человеку в вашем tailnet, поэтому cmux к нему не подключается."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ เป็นของผู้อื่นใน tailnet ของคุณ cmux จึงไม่เชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ tailnet'inizdeki başka bir kişiye ait, bu yüzden cmux ona bağlanmıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ належить іншій особі у вашому tailnet, тому cmux до нього не під’єднується."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ thuộc về người khác trong tailnet của bạn nên cmux không kết nối tới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 属于你 tailnet 中的其他人，cmux 不会连接它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 屬於你 tailnet 中的其他人，cmux 不會連線到它。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemote.unreached.lost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The connection to %@ dropped. cmux connects again when it answers."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@への接続が切れました。応答があればcmuxが再接続します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "انقطع الاتصال بـ%@. سيتصل cmux مجددًا عندما يستجيب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veza s %@ je prekinuta. cmux se ponovo povezuje kada odgovori."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forbindelsen til %@ blev afbrudt. cmux forbinder igen, når den svarer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Verbindung zu %@ ist abgebrochen. cmux verbindet sich erneut, sobald es antwortet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se perdió la conexión con %@. cmux se vuelve a conectar cuando responda."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La connexion à %@ a été perdue. cmux se reconnecte dès qu’il répond."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La connessione a %@ si è interrotta. cmux si riconnette quando risponde."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការតភ្ជាប់ទៅ %@ បានដាច់។ cmux នឹងតភ្ជាប់ម្ដងទៀតនៅពេលវាឆ្លើយតប។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@와(과)의 연결이 끊어졌습니다. 응답하면 cmux가 다시 연결합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilkoblingen til %@ ble brutt. cmux kobler til igjen når den svarer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Połączenie z %@ zostało zerwane. cmux połączy się ponownie, gdy odpowie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A conexão com %@ caiu. O cmux se conecta de novo quando ele responder."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Соединение с %@ прервалось. cmux подключится снова, когда он ответит."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การเชื่อมต่อกับ %@ หลุด cmux จะเชื่อมต่ออีกครั้งเมื่อตอบสนอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ile bağlantı koptu. Yanıt verdiğinde cmux yeniden bağlanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "З’єднання з %@ обірвалося. cmux під’єднається знову, коли він відповість."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết nối tới %@ đã bị ngắt. cmux sẽ kết nối lại khi máy phản hồi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "与 %@ 的连接已断开。它响应后 cmux 会重新连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "與 %@ 的連線已中斷。它回應後 cmux 會重新連線。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemote.unreached.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux cannot reach %1$@: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxは%1$@に接続できません: %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يستطيع cmux الوصول إلى %1$@: %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ne može doći do %1$@: %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kan ikke nå %1$@: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux erreicht %1$@ nicht: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no puede llegar a %1$@: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ne peut pas joindre %1$@ : %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non può raggiungere %1$@: %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនអាចភ្ជាប់ទៅ %1$@ បានទេ៖ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 %1$@에 연결할 수 없습니다: %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux når ikke %1$@: %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie może połączyć się z %1$@: %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux não consegue alcançar %1$@: %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не может связаться с %1$@: %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux เชื่อมต่อ %1$@ ไม่ได้: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux %1$@ makinesine ulaşamıyor: %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не може з’єднатися з %1$@: %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux không thể kết nối tới %1$@: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 无法连接 %1$@：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 無法連線到 %1$@：%2$@"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemote.storageFull": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The disk on %@ is full, so it cannot save this chat. Free some space there, then send again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@のディスクがいっぱいのため、このチャットを保存できません。空き容量を確保してから、もう一度送信してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "القرص على %@ ممتلئ، لذا لا يمكنه حفظ هذه الدردشة. حرّر بعض المساحة عليه ثم أرسل مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disk na %@ je pun, pa ne može sačuvati ovaj razgovor. Oslobodite malo prostora tamo, pa pošaljite ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disken på %@ er fuld, så den kan ikke gemme denne chat. Frigør plads der, og send igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Speicher auf %@ ist voll, daher kann dieser Chat nicht gesichert werden. Gib dort Speicher frei und sende erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El disco de %@ está lleno, así que no puede guardar este chat. Libera espacio allí y vuelve a enviar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le disque de %@ est plein, il ne peut donc pas enregistrer cette conversation. Libérez de l’espace, puis renvoyez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il disco di %@ è pieno, quindi non può salvare questa chat. Libera spazio e invia di nuovo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថាសនៅលើ %@ ពេញហើយ ដូច្នេះវាមិនអាចរក្សាទុកការជជែកនេះបានទេ។ សូមបង្កើតទំហំទំនេរនៅទីនោះ រួចផ្ញើម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@의 디스크가 가득 차서 이 채팅을 저장할 수 없습니다. 그곳의 공간을 확보한 다음 다시 보내세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disken på %@ er full, så den kan ikke lagre denne chatten. Frigjør plass der, og send igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dysk na %@ jest pełny, więc nie można zapisać tego czatu. Zwolnij tam miejsce i wyślij ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O disco de %@ está cheio, então ele não consegue salvar este chat. Libere espaço lá e envie de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Диск на %@ заполнен, поэтому этот чат не сохранить. Освободите там место и отправьте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดิสก์บน %@ เต็ม จึงบันทึกแชทนี้ไม่ได้ เพิ่มพื้นที่ว่างที่นั่นแล้วส่งอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ üzerindeki disk dolu, bu yüzden bu sohbet kaydedilemiyor. Orada yer açıp yeniden gönderin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Диск на %@ заповнений, тому цей чат не зберегти. Звільніть там місце й надішліть знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ổ đĩa trên %@ đã đầy nên không thể lưu cuộc trò chuyện này. Hãy giải phóng dung lượng ở đó rồi gửi lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的磁盘已满，无法保存此对话。请在那里释放一些空间后再发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的磁碟已滿，無法儲存此對話。請在那裡釋出一些空間後再傳送。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

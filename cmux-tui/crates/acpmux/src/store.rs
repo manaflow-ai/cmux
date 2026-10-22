@@ -564,6 +564,16 @@ pub trait Store: Send + Sync {
     fn peer_cache_dir(&self) -> Option<PathBuf> {
         None
     }
+    /// Free bytes on the disk that holds this store, for a writer without privileges; `None`
+    /// for a store in memory or when the system cannot say (`storage_full.rs`).
+    fn free_bytes(&self) -> Option<u64> {
+        None
+    }
+    /// Writes and removes a small file where the store writes: whether a write fits now
+    /// (`storage_full.rs` asks after a write found no space).
+    fn probe_write(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
@@ -1157,6 +1167,17 @@ impl Store for LocalStore {
 
     fn peer_cache_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("peers"))
+    }
+
+    fn free_bytes(&self) -> Option<u64> {
+        crate::storage_full::free_bytes(&self.root)
+    }
+
+    fn probe_write(&self) -> Result<()> {
+        let path = self.root.join(format!(".space-probe-{}", std::process::id()));
+        let written = std::fs::write(&path, [0u8; 4096]);
+        let _ = std::fs::remove_file(&path);
+        Ok(written?)
     }
 }
 

@@ -14,6 +14,7 @@ mod client;
 mod config;
 mod grant;
 mod preface;
+mod reach;
 mod serve;
 mod service;
 #[cfg(test)]
