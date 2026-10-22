@@ -148,7 +148,8 @@ await requireBrowserLane("chat-inspector-placement.test.ts", async () => {
           const { panel } = await openInspector(page);
           const box = await rect(page);
           const foot = await page.evaluate(
-            ([x, y]) => (document.elementFromPoint(x!, y!)?.closest("aside.acpmux-chat-inspector") ? "the panel" : "the page"),
+            ([x, y]) =>
+              document.elementFromPoint(x!, y!)?.closest("aside.acpmux-chat-inspector") ? "the panel" : "the page",
             [(box.left + box.right) / 2, 700 - 24],
           );
           expect({

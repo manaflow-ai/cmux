@@ -94,9 +94,7 @@ export const pushes = (placement: InspectorPlacement, paneWidth: number, width: 
 /// A pushed panel's width: its own, narrowed so the chat keeps PUSH_MIN_CHAT beside it and its
 /// right margin, down to the panel's narrowest.
 export const pushedWidth = (paneWidth: number, width: number) =>
-  paneWidth <= 0
-    ? width
-    : Math.min(width, Math.max(INSPECTOR_WIDTH.min, paneWidth - PUSH_MIN_CHAT - FLOAT_MARGIN));
+  paneWidth <= 0 ? width : Math.min(width, Math.max(INSPECTOR_WIDTH.min, paneWidth - PUSH_MIN_CHAT - FLOAT_MARGIN));
 
 /// The pane's width, followed as it resizes; 0 before it is measured.
 function usePaneWidth(shell: HTMLElement | null | undefined, live: boolean): number {
