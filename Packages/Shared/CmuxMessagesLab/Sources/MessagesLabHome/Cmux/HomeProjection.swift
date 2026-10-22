@@ -147,8 +147,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         refresh()
         noteObservedInputs()
         observe()
-        subagentObserver = NotificationCenter.default.addObserver(forName: HomeSubagentLinks.didChange, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.subagentLinksChanged() }
+        subagentObserver = NotificationCenter.default.addObserver(forName: HomeSubagentLinks.didChange, object: nil, queue: nil) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.subagentLinksChanged() }
         }
     }
 
