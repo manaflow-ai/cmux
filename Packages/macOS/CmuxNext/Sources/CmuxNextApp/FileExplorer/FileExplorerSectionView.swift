@@ -108,6 +108,9 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         table.headerView = nil
         table.rowSizeStyle = .small
         table.style = .sourceList
+        // A source list paints the system sidebar gray; the section sits on the window's ground like
+        // the sidebar, so the header strip and the tree read as one surface.
+        table.backgroundColor = .clear
         table.dataSource = self
         table.delegate = self
         table.target = self

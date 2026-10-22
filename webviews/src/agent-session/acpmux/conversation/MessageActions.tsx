@@ -185,6 +185,16 @@ export function PromptActions({ row, text }: { row: AcpmuxRow; text: string }) {
   );
 }
 
+/// The hover row at the end of a message this agent sent another one (MessageCard.tsx): Copy,
+/// kept clear of the line's words.
+export function SentActions({ text }: { text: string }) {
+  return (
+    <span className="cv-sent-actions">
+      <MessageCopy text={text} />
+    </span>
+  );
+}
+
 /// The row at the end of another agent's message line (IncomingMessageCard.tsx IncomingMessageLine):
 /// its age, Copy, Retry and Pin. No read receipt: the message is the agent's to read.
 export function ReceivedActions({ row, text }: { row: AcpmuxRow; text: string }) {

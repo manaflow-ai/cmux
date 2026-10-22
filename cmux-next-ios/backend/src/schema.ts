@@ -1,4 +1,4 @@
-import { index, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core"
+import { boolean, index, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core"
 
 /** A phone or Mac registered by its owner (PROTOCOL.md "Devices"). The deviceId is client generated. */
 export const devices = pgTable(
@@ -26,6 +26,8 @@ export const teamPrefs = pgTable(
     teamId: text("team_id").notNull(),
     color: text("color"),
     emoji: text("emoji"),
+    /** No filled background behind the icon. Only with a one-grapheme `emoji`; `color` stays the fallback. */
+    transparent: boolean("transparent").notNull().default(false),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
   (t) => [primaryKey({ columns: [t.userId, t.teamId] })]

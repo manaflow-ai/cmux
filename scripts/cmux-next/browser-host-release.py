@@ -4,6 +4,9 @@
   browser-host-release.py version TAG CARGO_TOML
       print the version a cmux-browser-host-vX.Y.Z tag names; exit 1 when the
       tag is malformed or differs from the crate's [package] version.
+  browser-host-release.py crate-version CARGO_TOML
+      print the crate's version; `version.workspace = true` resolves to the
+      workspace's [workspace.package] version.
   browser-host-release.py package BINARY VERSION TARGET OUTDIR
       write OUTDIR/cmux-browser-host-VERSION-TARGET.tar.gz holding
       bin/cmux-browser-host, LICENSE (the repository's GPL-3.0-or-later text)
@@ -44,11 +47,33 @@ LICENSE = ROOT / "LICENSE"
 NOTICES = ROOT / "cmux-tui/build-support/notices/browser-host/THIRD_PARTY_LICENSES.linux.md"
 
 
+def crate_version(cargo_toml: Path) -> str:
+    """The crate's [package] version; `version.workspace = true` takes the workspace's.
+
+    The workspace is the nearest Cargo.toml with a [workspace] table, starting with the crate's
+    own (a crate can be its workspace root), as Cargo finds it. Anything else that is not a plain
+    version string is an error, not a mismatch.
+    """
+    version = tomllib.loads(cargo_toml.read_text())["package"]["version"]
+    if version == {"workspace": True}:
+        for directory in cargo_toml.resolve().parents:
+            manifest = directory / "Cargo.toml"
+            if not manifest.is_file():
+                continue
+            workspace = tomllib.loads(manifest.read_text()).get("workspace")
+            if workspace is not None:
+                version = (workspace.get("package") or {}).get("version")
+                break
+    if not isinstance(version, str):
+        raise SystemExit(f"{cargo_toml}: cannot read the crate version (got {version!r})")
+    return version
+
+
 def tag_version(tag: str, cargo_toml: str) -> str:
     match = re.fullmatch(rf"{NAME}-v({VERSION_RE.pattern})", tag)
     if not match:
         raise SystemExit(f"tag must be {NAME}-vX.Y.Z (got {tag!r})")
-    crate = tomllib.loads(Path(cargo_toml).read_text())["package"]["version"]
+    crate = crate_version(Path(cargo_toml))
     if crate != match.group(1):
         raise SystemExit(f"tag {tag} names {match.group(1)} but {cargo_toml} says {crate}")
     return crate
@@ -114,6 +139,8 @@ def notes(version: str, sha: str, repository: str, glibc_floor: str) -> str:
 def main(argv: list[str]) -> int:
     if len(argv) == 3 and argv[0] == "version":
         print(tag_version(argv[1], argv[2]))
+    elif len(argv) == 2 and argv[0] == "crate-version":
+        print(crate_version(Path(argv[1])))
     elif len(argv) == 5 and argv[0] == "package":
         print(package(*argv[1:]))
     elif len(argv) == 5 and argv[0] == "notes":

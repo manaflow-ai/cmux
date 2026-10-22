@@ -32,9 +32,21 @@ export function isHostRefusal(error: unknown): boolean {
   return typeof code === "string" && code.startsWith("transport.");
 }
 
+// acpmux's refusals the pane words itself (`data.reason`; the daemon's message stays English for
+// its CLI): the folder-trust gate (server/trust_gate.rs, hub/pool/mod.rs). They are not host
+// refusals: the pane's trust route asks the question.
+const DAEMON_REASON_TEXT: Record<string, StringKey> = {
+  "trust.pending": "error.trustPending",
+  "trust.untrusted": "error.trustUntrusted",
+};
+
 /// The text to show for `error`: a transport refusal's own text (a code without one reads as the
-/// generic refusal, never the host's English message), else the error's message.
+/// generic refusal, never the host's English message), acpmux's worded reasons, else the error's
+/// message.
 export function errorMessage(error: unknown): string {
+  const reason = typeof error === "object" && error !== null ? (error as { reason?: unknown }).reason : undefined;
+  const reasonKey = typeof reason === "string" ? DAEMON_REASON_TEXT[reason] : undefined;
+  if (reasonKey) return translate(reasonKey);
   const code = refusalCode(error);
   const key =
     typeof code === "string"

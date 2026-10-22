@@ -20,16 +20,22 @@ public nonisolated struct PageEnginePolicy: Sendable, Hashable {
     public var chromiumAvailable: Bool
     /// Whether Chromium's page scheme serves the page being decided (``PageChromiumHosting/serves(_:)``).
     public var chromiumServes: Bool
+    /// Whether `web-dev.json` points pages at a dev server or an overlay (``WebDevOverride/isActive``),
+    /// which only WebKit pages read.
+    public var liveWebOverride: Bool
 
     /// - Parameters:
     ///   - preference: The person's `browser.defaultEngine`.
     ///   - chromiumAvailable: Whether Chromium can host a page now.
     ///   - chromiumServes: Whether Chromium's page scheme serves the page; true by default, for a
     ///     caller that only asks about the setting and the page's own blockers.
-    public init(preference: BrowserDefaultEngine, chromiumAvailable: Bool, chromiumServes: Bool = true) {
+    ///   - liveWebOverride: Whether a live web override is in force (Debug, NIGHTLY and cmux NEXT DEV only).
+    public init(preference: BrowserDefaultEngine, chromiumAvailable: Bool, chromiumServes: Bool = true,
+                liveWebOverride: Bool = false) {
         self.preference = preference
         self.chromiumAvailable = chromiumAvailable
         self.chromiumServes = chromiumServes
+        self.liveWebOverride = liveWebOverride
     }
 
     /// The engine of `page` made with `options`.
@@ -42,6 +48,7 @@ public nonisolated struct PageEnginePolicy: Sendable, Hashable {
         guard preference == .chromium else { return .webKit(.personChoseWebKit) }
         let blocker = options.chromiumAgentChat && page.chromiumBlocker == .agentChat ? nil : page.chromiumBlocker
         if let reason = blocker ?? options.requiresWebKit { return .webKit(reason) }
+        guard !liveWebOverride else { return .webKit(.liveWebOverride) }
         guard chromiumAvailable else { return .webKit(.chromiumUnavailable) }
         guard chromiumServes else { return .webKit(.notServedByChromium) }
         return .chromium

@@ -63,6 +63,9 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     /// The event came from a terminal tab (a terminal agent's notification):
     /// opening it shows the terminal, and it takes no inline reply.
     public var opensTerminal = false
+    /// The Mac whose agent sent the event: answers, replies and opens go to
+    /// that Mac's link, never the chosen one's (nil: mock content, old archives).
+    public var macID: String?
 
     public init(
         id: String, kind: Kind, workspaceID: String, tabID: String, agentName: String, harness: String,

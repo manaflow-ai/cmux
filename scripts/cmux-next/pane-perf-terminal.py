@@ -1,0 +1,367 @@
+#!/usr/bin/env python3
+"""Pane layout motion, measured in a real window (panes-perf, Lawrence 2026-10-21: "work purely on the panes
+bonsplit + columns performance thing + animations").
+
+Launches a tagged cmux-next app (scratch config, empty Ghostty config). For each --layouts entry (COLSxROWS
+terminals, each fed --scrollback lines, optionally streaming) it times every pane action as one gesture until
+the panes rest:
+
+  split       Cmd-D on the focused pane (splitRight)
+  close       closing the pane that split made (closePane)
+  column      New Column (newColumn), then its close (column-close)
+  zoom        Cmd-Shift-Enter (toggleSplitZoom) and back (unzoom)
+  drag        the first vertical divider pressed and dragged 120 pt out and back, one event per 120 Hz frame
+
+Per action: display frame intervals p50/p95/p99/max and missed frames (`debug.frames`), the layout's main-thread
+work per frame (`debug.motion` clock), frames the springs moved, grids sent to the PTY owner
+(`debug.window_transition`) and hangs (`debug.hangs`). With --record, a second pass records each action with
+`debug.window_record` (frames/ in --out; the recording itself costs frames, so it never runs in the timed pass).
+
+Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--actions split,close,column,zoom,drag]
+       [--rounds 3] [--scrollback 5000] [--stream] [--record] [--json PATH] [--out DIR] [--gate] [--missed-budget N]
+"""
+import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--tag", required=True)
+parser.add_argument("--app", required=True)
+parser.add_argument("--layouts", default="1x2,4x2,6x5")
+parser.add_argument("--actions", default="split,close,column,zoom,drag")
+parser.add_argument("--rounds", type=int, default=3)
+parser.add_argument("--scrollback", type=int, default=5000)
+parser.add_argument("--stream", action="store_true", help="keep output streaming in the first terminal")
+parser.add_argument("--record", action="store_true", help="record each action once (a separate, untimed pass)")
+parser.add_argument("--sample", default="", help="LAYOUT:ACTION[,...]: `sample` the app while it repeats ACTION")
+parser.add_argument("--sample-repeats", type=int, default=8)
+parser.add_argument("--json")
+parser.add_argument("--out", default="/tmp")
+parser.add_argument("--gate", action="store_true", help="fail on the budget rows")
+parser.add_argument("--missed-budget", type=int, default=0)
+opts, _unknown = parser.parse_known_args()
+TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
+SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
+CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
+BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
+SCRATCH = tempfile.mkdtemp(prefix=f"pane-perf-{TAG}-")
+open(os.path.join(SCRATCH, "ghostty"), "w").close()
+CONFIG = os.path.join(SCRATCH, "cmux.json")
+open(CONFIG, "w").write("{}\n")
+WINDOW = (80, 80, 1600, 1000)
+ROWS, LAUNCHED = [], []
+app = None
+
+
+def rpc(method, params=None, timeout=30):
+    import socket
+    try:
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.settimeout(timeout)
+        conn.connect(SOCKET)
+        conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
+        buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = conn.recv(1 << 20)
+            if not chunk:
+                break
+            buf += chunk
+        conn.close()
+        reply = json.loads(buf)
+        return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
+    except (OSError, ValueError) as error:
+        return {"error": str(error)}
+
+
+def action(name, args=None, settle=0.0, timeout=60):
+    reply = rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "script"}, timeout=timeout)
+    if settle:
+        time.sleep(settle)  # test harness: the layout settles before the next step
+    return reply
+
+
+def wait(check, seconds, step=0.1):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        try:
+            value = check()
+        except Exception:  # the app may not answer yet
+            value = None
+        if value:
+            return value
+        time.sleep(step)  # test harness polling a live app
+    return None
+
+
+def row(check, expected, observed, ok):
+    ROWS.append((check, expected, observed, ok))
+    print(f"{'PASS' if ok else 'FAIL'} | {check} | {expected} | {observed}", flush=True)
+
+
+def feed(stream=False):
+    text = f"seq 1 {opts.scrollback}\r" if opts.scrollback else ""
+    if stream:
+        text += "while :; do echo \"$RANDOM $RANDOM $RANDOM streaming output line\"; sleep 0.004; done\r"
+    if text:
+        action("terminal.sendText", {"text": text})
+
+
+def layout(columns, rows):
+    """A fresh workspace of columns x rows terminals, each fed; ends focused on the top-left one."""
+    action("workspace.newAtBottom", settle=1.5)
+    feed(opts.stream)
+    for _ in range(columns - 1):
+        action("splitRight", settle=0.6)
+        feed()
+    for column in range(columns):
+        for _ in range(rows - 1):
+            action("splitDown", settle=0.6)
+            feed()
+        for _ in range(rows - 1):
+            action("focusUp", settle=0.2)
+        if column < columns - 1:
+            action("focusLeft", settle=0.2)
+    action("equalizeSplits", settle=0.8)
+    for _ in range(columns):
+        action("focusLeft", settle=0.15)
+    time.sleep(1.5 if opts.scrollback else 0.5)  # test harness: seq fills the scrollback
+
+
+def vertical_divider():
+    """The leftmost vertical divider's middle, in the window's top-left points."""
+    result = rpc("debug.layers")
+    window = ((result or {}).get("windows") or [{}])[0] if isinstance(result, dict) else {}
+    height = (window.get("frame") or [0, 0, 0, WINDOW[3]])[3]
+    areas = sorted((x + w / 2, height - (y + h / 2)) for x, y, w, h in window.get("divider_areas_in_window") or [] if h > w)
+    return areas[0] if areas else None
+
+
+def drag_divider():
+    point = vertical_divider()
+    if not point:
+        return "no vertical divider"
+    x0, y0 = point
+    rpc("debug.mouse", {"action": "down", "x": x0, "y": y0})
+    x = x0
+    path = [3.0] * 40 + [-3.0] * 40  # 120 pt out and back
+    for delta in path:
+        rpc("debug.mouse", {"action": "drag", "x": x, "y": y0, "to_x": x + delta, "to_y": y0, "steps": 1,
+                            "press": False, "release": False})
+        x += delta
+        time.sleep(1 / 120)  # test harness: one pointer event per 120 Hz frame
+    rpc("debug.mouse", {"action": "up", "x": x, "y": y0})
+    return None
+
+
+def perform(name):
+    """Runs one action; returns an error string or None."""
+    verbs = {"split": "splitRight", "close": "closePane", "column": "newColumn", "column-close": "closePane",
+             "zoom": "toggleSplitZoom", "unzoom": "toggleSplitZoom"}
+    if name == "drag":
+        return drag_divider()
+    reply = action(verbs[name])
+    return str(reply.get("error")) if isinstance(reply, dict) and reply.get("error") else None
+
+
+def measure(label, name):
+    rpc("debug.hangs", {"clear": True})
+    rpc("debug.motion", {"action": "start"})
+    rpc("debug.frames", {"action": "start"})
+    rpc("debug.window_transition", {"action": "start"})
+    error = perform(name)
+    time.sleep(1.2)  # test harness: the springs land (rest is under 0.5 s) and the PTY owner answers
+    trace = rpc("debug.window_transition", {"action": "stop"}) or {}
+    frames = rpc("debug.frames", {"action": "stop"}) or {}
+    motion = rpc("debug.motion", {"action": "stop"}) or {}
+    hangs = rpc("debug.hangs") or {}
+    work = (motion.get("work") or {}).get("clock", {}) if isinstance(motion, dict) else {}
+    moving = sum(1 for s in (motion.get("samples") or []) if s.get("name") == "layout.travel" and (s.get("v") or 0) > 0) \
+        if isinstance(motion, dict) else 0
+    hang_list = hangs.get("hangs") if isinstance(hangs, dict) else None
+    result = {
+        "label": label, "action": name, "error": error,
+        "missed": frames.get("missed"), "frames_max_ms": frames.get("max_ms"), "frames_p99_ms": frames.get("p99_ms"),
+        "frames_p50_ms": frames.get("p50_ms"), "frames_p95_ms": frames.get("p95_ms"), "frames": frames.get("frames"),
+        "refresh_ms": frames.get("refresh_ms"), "moving_frames": moving,
+        "layout_max_ms": work.get("max_ms"), "layout_p95_ms": work.get("p95_ms"), "layout_p50_ms": work.get("p50_ms"),
+        "grid_reports": trace.get("terminal_grid_reports"), "resizes_sent": trace.get("terminal_resizes_sent"),
+        "hangs": len(hang_list) if isinstance(hang_list, list) else hangs.get("count"),
+    }
+    print(f"  {label:<22} moved {moving:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
+          f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
+          f"(refresh {result['refresh_ms']})  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "
+          f"grids {result['grid_reports']}/{result['resizes_sent']}  hangs {result['hangs']}  err {error}", flush=True)
+    return result
+
+
+SEQUENCE = {"split": ["split", "close"], "close": [], "column": ["column", "column-close"], "zoom": ["zoom", "unzoom"],
+            "drag": ["drag"]}
+
+
+def steps():
+    wanted = opts.actions.split(",")
+    names = []
+    for name in wanted:
+        names += SEQUENCE.get(name, [])
+    if "close" in wanted and "split" not in wanted:
+        names += ["split", "close"]  # a close needs a pane to close: the split before it is timed too
+    return names
+
+
+def record(name, label):
+    folder = os.path.join(opts.out, "frames", label.replace(" ", "-"))
+    reply = rpc("debug.window_record", {"dir": folder, "seconds": 2.0})
+    if isinstance(reply, dict) and reply.get("error"):
+        print(f"  (no recording of {label}: {reply['error']})", flush=True)
+    time.sleep(0.2)  # test harness: the recorder takes its first frame at rest
+    perform(name)
+    time.sleep(2.2)  # test harness: the recording stops by itself
+
+
+def profile(name, label):
+    """Samples the app (`/usr/bin/sample`, 1 ms) while it repeats `name` (and its undo); prints the main
+    thread's heaviest frames (the report's "Sort by top of stack" list) and keeps the whole report."""
+    pair = {"split": ["split", "close"], "close": ["split", "close"], "column": ["column", "column-close"],
+            "column-close": ["column", "column-close"], "zoom": ["zoom", "unzoom"], "unzoom": ["zoom", "unzoom"],
+            "drag": ["drag"]}[name]
+    path = os.path.join(opts.out, f"sample-{label}.txt")
+    seconds = max(3, int(opts.sample_repeats * len(pair) * 1.0) + 1)
+    sampler = subprocess.Popen(["/usr/bin/sample", str(app.pid), str(seconds), "1", "-mayDie", "-file", path],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(0.5)  # test harness: the sampler attaches
+    for _ in range(opts.sample_repeats):
+        for step in pair:
+            perform(step)
+            time.sleep(0.45)  # test harness: each spring lands before the next press
+    sampler.wait(timeout=seconds + 60)
+    try:
+        text = open(path, errors="replace").read()
+    except OSError:
+        print(f"  (no sample for {label})", flush=True)
+        return
+    top = text.split("Sort by top of stack")
+    print(f"\n== sample {label}: heaviest frames (all threads, top of stack)", flush=True)
+    if len(top) > 1:
+        print("\n".join(top[1].splitlines()[:45]), flush=True)
+    # The main thread's call tree, the first levels deep enough to show who lays out and draws.
+    tree = text.split("Call graph:")
+    if len(tree) > 1:
+        body = tree[1].splitlines()
+        print(f"== sample {label}: main thread call graph (heavy branches)", flush=True)
+        shown = 0
+        for line in body[1:]:
+            if line.startswith("    ") and "Thread_" in line and shown > 0:
+                break  # the next thread
+            depth = len(line) - len(line.lstrip(" +!:|"))
+            count = line.strip(" +!:|").split(" ")[0]
+            if count.isdigit() and int(count) >= 20 and depth <= 80:
+                print(line[:220], flush=True)
+                shown += 1
+            if shown > 160:
+                break
+
+
+def cleanup():
+    if os.environ.get("PANE_PERF_KEEP") or not LAUNCHED:
+        return
+    rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
+    if app:
+        try:
+            app.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            os.kill(app.pid, signal.SIGKILL)
+    subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
+                   env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
+    if os.path.exists(SOCKET):
+        os.remove(SOCKET)
+
+
+def main():
+    global app
+    if os.path.exists(SOCKET):
+        os.remove(SOCKET)
+    env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+           "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": CONFIG,
+           "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"),
+           "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(str(v) for v in WINDOW)}
+    os.makedirs(opts.out, exist_ok=True)
+    log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
+    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+    LAUNCHED.append(app.pid)
+    macos = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
+    host = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip()
+    print(f"launched pid {app.pid} macOS {macos} host {host}", flush=True)
+    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
+        print(f"the tagged app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)} "
+              f"debug.windows={rpc('debug.windows')} alive={app.poll() is None}", flush=True)
+        log.flush()
+        print(open(os.path.join(opts.out, f"app-{TAG}.log"), errors="replace").read()[-6000:], flush=True)
+        sys.exit(1)
+    time.sleep(5)  # test harness: launch work settles
+    report = {"tag": TAG, "macos": macos, "host": host, "stream": opts.stream, "scrollback": opts.scrollback, "runs": []}
+    sequence = steps()
+    for name in opts.layouts.split(","):
+        columns, rows = (int(v) for v in name.split("x"))
+        layout(columns, rows)
+        panes = columns * rows
+        rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
+        for index in range(opts.rounds):
+            for step in sequence:
+                run = measure(f"{panes:>2}p {step} #{index}", step)
+                run.update(layout=name, panes=panes, round=index)
+                report["runs"].append(run)
+                row(f"{name} {step} #{index}: ran", "no error", str(run["error"]), run["error"] is None)
+                if step != "drag":
+                    row(f"{name} {step} #{index}: animated (layout springs moved)", "> 0 frames",
+                        str(run["moving_frames"]), (run["moving_frames"] or 0) > 0)
+                missed = run["missed"]
+                row(f"{name} {step} #{index}: missed frames" + ("" if opts.gate else " (info)"),
+                    f"<= {opts.missed_budget}", str(missed), missed is not None and missed <= opts.missed_budget or not opts.gate)
+                if opts.json:
+                    json.dump(report, open(opts.json, "w"), indent=1)
+                time.sleep(0.4)  # test harness: idle between runs
+        for wanted in filter(None, opts.sample.split(",")):
+            where, _, what = wanted.partition(":")
+            if where == name:
+                profile(what, f"{name}-{what}")
+        if opts.record:
+            for step in sequence:
+                record(step, f"{name}-{step}")
+    print("\n== summary (median over rounds)")
+    print(f"  {'panes':<5} {'action':<13} {'p50':>6} {'p95':>6} {'p99':>6} {'max':>6} {'missed':>6} {'moved':>5} "
+          f"{'tick95':>6} {'tickmx':>6} {'grids':>7}")
+    for name in opts.layouts.split(","):
+        for step in sequence:
+            runs = [r for r in report["runs"] if r["layout"] == name and r["action"] == step]
+
+            def med(key):
+                values = sorted(v for v in (r.get(key) for r in runs) if v is not None)
+                return values[len(values) // 2] if values else None
+            summary = {key: med(key) for key in ("frames_p50_ms", "frames_p95_ms", "frames_p99_ms", "frames_max_ms", "missed",
+                                                 "moving_frames", "layout_p95_ms", "layout_max_ms", "grid_reports", "resizes_sent")}
+            report.setdefault("summary", []).append({"layout": name, "action": step, **summary})
+
+            def f(v):
+                return "-" if v is None else (f"{v:.1f}" if isinstance(v, float) else str(v))
+            print(f"  {name:<5} {step:<13} {f(summary['frames_p50_ms']):>6} {f(summary['frames_p95_ms']):>6} "
+                  f"{f(summary['frames_p99_ms']):>6} {f(summary['frames_max_ms']):>6} {f(summary['missed']):>6} "
+                  f"{f(summary['moving_frames']):>5} {f(summary['layout_p95_ms']):>6} {f(summary['layout_max_ms']):>6} "
+                  f"{f(summary['grid_reports'])}/{f(summary['resizes_sent'])}", flush=True)
+    if opts.json:
+        json.dump(report, open(opts.json, "w"), indent=1)
+
+
+try:
+    main()
+except Exception:  # the step log is stdout only
+    import traceback
+    traceback.print_exc(file=sys.stdout)
+finally:
+    cleanup()
+    if opts.record and os.path.isdir(os.path.join(opts.out, "frames")):
+        # One artifact: the recordings and snapshots beside the report.
+        subprocess.run(["tar", "-czf", os.path.join(opts.out, "frames.tgz"), "-C", opts.out, "frames"]
+                       + [p for p in os.listdir(opts.out) if p.endswith(".png")], capture_output=True)
+    if opts.json and os.path.exists(opts.json):
+        # The step log keeps the numbers even when a row failed (no artifact comes back then).
+        print("REPORT-JSON " + json.dumps(json.load(open(opts.json)).get("summary") or []), flush=True)
+    print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
+    sys.exit(0 if ROWS and all(r[3] for r in ROWS) else 1)

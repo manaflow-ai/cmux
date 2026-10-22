@@ -1,7 +1,10 @@
 // Tooltips over Base UI Tooltip. A tooltip only repeats a control's accessible name (rule 4): the
 // control carries `aria-label`, the tooltip is the sighted hint. It opens on hover and on keyboard
 // focus, and Escape closes it. It looks like the native tooltip and the title tooltip
-// (pages/shared/desktop.css): the solid popup surface, primary ink, an optional shortcut hint.
+// (pages/shared/desktop.css): the liquid glass (`.ui-glass`, ui/glass/glass.css; Leo 2026-10-21:
+// "WHERE IS THE GLASS EVERYWHERE, all these hover tooltips and hover previews"), primary ink, an
+// optional shortcut hint. Every tooltip and hover card here is glass, never the solid popup surface
+// (webviews/scripts/check-glass-never-opaque.ts fails one that is not).
 import { useState, type PointerEventHandler, type ReactElement, type ReactNode } from "react";
 import { Tooltip as BaseTooltip } from "@base-ui/react/tooltip";
 import { usePopupHost, usePortalContainer } from "./UiProvider";
@@ -45,7 +48,7 @@ export function Tooltip({ label, children, side = "bottom", shortcut, className 
       <BaseTooltip.Trigger ref={host ? setTrigger : undefined} render={children} />
       <BaseTooltip.Portal container={container}>
         <BaseTooltip.Positioner className="ui-positioner" side={side} sideOffset={6}>
-          <BaseTooltip.Popup ref={host ? setPopup : undefined} className={cx("ui-tooltip", className)}>
+          <BaseTooltip.Popup ref={host ? setPopup : undefined} className={cx("ui-tooltip ui-glass", className)}>
             {shortcut && <span className="ui-tooltip-hint">{shortcut}</span>}
             {label}
           </BaseTooltip.Popup>
@@ -80,7 +83,8 @@ export interface AnchoredCardProps {
 
 /**
  * A hover card for content the page does not render with React (a link inside the editor): a
- * tooltip anchored to that element, opened and closed by the caller. Non-interactive cards never
+ * tooltip anchored to that element, opened and closed by the caller. It is glass (`.ui-glass`) like
+ * every hover card; a caller's class may tune the glass, never paint it solid. Non-interactive cards never
  * take focus; interactive cards may contain focusable controls.
  */
 export function AnchoredCard({
@@ -110,7 +114,7 @@ export function AnchoredCard({
         >
           <BaseTooltip.Popup
             id={id}
-            className={cx("ui-tooltip ui-card", className)}
+            className={cx("ui-tooltip ui-card ui-glass", className)}
             data-state={state}
             data-instant={instant ? "" : undefined}
             role={interactive ? "dialog" : "tooltip"}

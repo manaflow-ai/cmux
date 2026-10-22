@@ -1,0 +1,218 @@
+[
+  {
+    "title": "cmux-next: no namespace enum for the Chief's workspace names (base red)",
+    "pr": 23678
+  },
+  {
+    "title": "cmux NEXT agent pane: a malformed-request refusal says to try again, not the pane's internals",
+    "pr": 23941
+  },
+  {
+    "title": "cmux NEXT sidebar: a held drag keeps going when a page window takes the keys",
+    "pr": 24007
+  },
+  {
+    "title": "acpmux: an OpenCode chat with a narrower policy asks before every tool",
+    "pr": 23815
+  },
+  {
+    "title": "cmux NEXT New Tab: edit mode to reorder, remove and add widgets",
+    "pr": 22903
+  },
+  {
+    "title": "cmux NEXT: every popover, menu and panel is glass, never a solid card; a lint keeps it so",
+    "pr": 23801
+  },
+  {
+    "title": "fix(cmux-next): let sessions.promptSuggestions turn suggested tasks off",
+    "pr": 23284
+  },
+  {
+    "title": "fix(next): import cards fall back to the text ink, never the system blue AccentColor",
+    "pr": 23993
+  },
+  {
+    "title": "Agent pane: an unsent message says why in one plain sentence, one card per cause",
+    "pr": 23904
+  },
+  {
+    "title": "cmux NEXT sidebar: a right-click or a press on a workspace row no longer switches to it",
+    "pr": 23977
+  },
+  {
+    "title": "cmux NEXT composer: a pasted screenshot shows its chip in the paste's frame",
+    "pr": 23885
+  },
+  {
+    "title": "docs(cmux-next): hot reload for the web UI, one page for the team",
+    "pr": 24003
+  },
+  {
+    "title": "cmux NEXT: the tip card's close x sits on its heading's cap center",
+    "pr": 23884
+  },
+  {
+    "title": "acpmux pane: a policy the chat's harness can't keep is noted in the transcript",
+    "pr": 23663
+  },
+  {
+    "title": "cmux-next: Settings segmented row, content edge and Mobile icon",
+    "pr": 24014
+  },
+  {
+    "title": "cmux NEXT: while web-dev.json points at a dev server or overlay, cmux pages open in WebKit",
+    "pr": 23986
+  },
+  {
+    "title": "acpmux: answer a peer chat's trust question from the Mac pane",
+    "pr": 23873
+  },
+  {
+    "title": "nightly-next: the cmux NIGHTLY-identity feed carries Dev builds too (Channel: Dev in place)",
+    "pr": 24019
+  },
+  {
+    "title": "Agent pane: the Needs your input dot is one attention colour everywhere",
+    "pr": 23877
+  },
+  {
+    "title": "plans(cmux-next): Edge ring and peer seeding design (Leo-ask ask-086fe433a1)",
+    "pr": 23951
+  },
+  {
+    "title": "release-notes: What's New highlights take their pull request's picture (--pr-media)",
+    "pr": 23982
+  },
+  {
+    "title": "cmux-next sidebar: an idle workspace nobody named reads quiet",
+    "pr": 22840
+  },
+  {
+    "title": "cmux-tui: exit when the host terminal hangs up, never block on the input reader",
+    "pr": 23152
+  },
+  {
+    "title": "docs(cmux-next): move a stale acpmux to the app's build by hand",
+    "pr": 23973
+  },
+  {
+    "title": "acpmux and cmux-tui report their capabilities offline; bundles record them",
+    "pr": 23242
+  },
+  {
+    "title": "cmux NEXT Chief Settings: an emoji face fills the avatar disc",
+    "pr": 23947
+  },
+  {
+    "title": "cmux NEXT chat header: every item acts on a click, the Environment line included",
+    "pr": 23979
+  },
+  {
+    "title": "cmux NEXT sidebar: the chat's thin scroller, no fat bar or track",
+    "pr": 23762
+  },
+  {
+    "title": "What's New: denser Ledger, change titles link their pull requests in the accent",
+    "pr": 23964
+  },
+  {
+    "title": "cmux NEXT multi-view: a drop on a workspace shown beside goes to that workspace (Debug toggle)",
+    "pr": 23924
+  },
+  {
+    "title": "Agent chat: a prompt with no text to read never draws an empty bubble",
+    "pr": 23928
+  },
+  {
+    "title": "cmux-next agent pane: a paused queue names its error; held prompts wait for Resume",
+    "pr": 23872
+  },
+  {
+    "title": "Agent pane: a queued agent's message draws as its received line",
+    "pr": 23825
+  },
+  {
+    "title": "Agents never ask for permission: decide, say why, continue",
+    "pr": 23911
+  },
+  {
+    "title": "acpmux: wait and notifications say an agent asks, never that it needs a permission",
+    "pr": 23948
+  },
+  {
+    "title": "Agent chat: Jump to latest lands at once with cmux animations off",
+    "pr": 23867
+  },
+  {
+    "title": "acpmux: a sub-session of a full-access chat starts in full access again",
+    "pr": 23900
+  },
+  {
+    "title": "cmux NEXT: Open steers an outside chat by default; View Only stays a choice",
+    "pr": 23930
+  },
+  {
+    "title": "cmux NEXT Inspector Changes: Claude's rows, state by glyph, five then Show more",
+    "pr": 23786
+  },
+  {
+    "title": "What's New: even cards, open changes when nothing is curated, Fixed keeps its links",
+    "pr": 23922
+  },
+  {
+    "title": "cmux-next: a pane-edge drop lands where its target drew it",
+    "pr": 23814
+  },
+  {
+    "title": "cmux NEXT: terminals opened from an agent chat or Cmd-N start in the exact folder you work in",
+    "pr": 23795
+  },
+  {
+    "title": "xcstrings merge driver: merging the base in no longer moves the base's keys to the end",
+    "pr": 23927
+  },
+  {
+    "title": "cmux NEXT chat header: one even row like Claude's, no separators, one icon size",
+    "pr": 23774
+  },
+  {
+    "title": "cmux NEXT App Store: feature cards show where a feature lives",
+    "pr": 23895
+  },
+  {
+    "title": "Home composer: test that the picked emoji goes in at the caret",
+    "pr": 23798
+  },
+  {
+    "title": "Agent pane: another agent's message links hq#N and commit names",
+    "pr": 23839
+  },
+  {
+    "title": "Agent chat: never fold a finished turn's reply into Worked for",
+    "pr": 23843
+  },
+  {
+    "title": "webviews: the cut-row queue test presses the trash can and the ⋯ menu's Edit message",
+    "pr": 23914
+  },
+  {
+    "title": "Agent chat: merged and closed pull requests leave the bars above the composer",
+    "pr": 23859
+  },
+  {
+    "title": "cmux NEXT composer: a click on the model button opens its menu and it stays open",
+    "pr": 23808
+  },
+  {
+    "title": "cmux NEXT agent pane: the Dictation key starts the pane's dictation from NSApplication",
+    "pr": 23698
+  },
+  {
+    "title": "Needs you: a waiting chat's row shows its question, not its last reply",
+    "pr": 23847
+  },
+  {
+    "title": "cmux NEXT App Store: Appearance, Editor and Mac & Phone cards",
+    "pr": 23896
+  }
+]

@@ -52,9 +52,11 @@ struct ClickedLinkFocusTests {
     }
 
     /// The link's tab opens in the pane right of the source (a terminal's Cmd-click, Home's dock):
-    /// that pane takes the focus, Cmd-W closes the link's tab there, and the focus goes back to the
-    /// source pane, not to the other tab of the link's pane.
-    @Test func aLinksTabInAnotherPaneTakesTheFocusAndItsCloseGivesItBack() async throws {
+    /// that pane takes the focus and Cmd-W closes the link's tab there. The pane still has a tab, so
+    /// the focus stays in it, on that tab: a second Cmd-W must close in the same pane, never the
+    /// source (Leo 2026-10-21, ``CloseTabKeepsPaneTests``). Only a close that empties the pane gives
+    /// the focus back (``theHeadersPreviewBesideThePageTakesTheFocusAndItsCloseGivesItBack``).
+    @Test func aLinksTabInAnotherPaneTakesTheFocusAndItsCloseKeepsItInThatPane() async throws {
         try await PinnedPageTests.withApp { services, _ in
             let store = services.daemon.store
             let content = try #require(services.windows.active?.workspaceContent)
@@ -75,11 +77,13 @@ struct ClickedLinkFocusTests {
                     && content.focusedPane?.stripModel.selectedID?.rawValue == opened
             }, report: { Self.describe(content, opened) })
 
+            let left = try #require(right.pane.tabs.first { $0.id != opened }?.id, "the pane on the right has no other tab")
             #expect(services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
             try await PinnedPageTests.until({ store.tab(id: opened) == nil }, report: { "the link's tab did not close" })
             #expect(store.tab(id: source) != nil, "Cmd-W closed the page the link was clicked in")
-            try await PinnedPageTests.until({ content.focusedPane === pane },
-                                            report: { "after the close: " + Self.describe(content, source) })
+            try await PinnedPageTests.until({ content.focusedPane?.stripModel.selectedID?.rawValue == left },
+                                            report: { "after the close: " + Self.describe(content, left) })
+            #expect(content.focusedPane !== pane, "the close gave the focus back to the source while its pane still had a tab")
         }
     }
 

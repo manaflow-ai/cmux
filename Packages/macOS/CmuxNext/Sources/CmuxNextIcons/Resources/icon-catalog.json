@@ -1285,6 +1285,12 @@
    "family": "pane.split"
   },
   {
+   "name": "panel.right",
+   "meaning": "Show or hide the chat's right-side panel (the summary, the Inspector)",
+   "sf": "questionmark.square.dashed",
+   "family": "panel"
+  },
+  {
    "name": "permission.consent",
    "meaning": "Agent consent request / decision (activity rows).",
    "sf": "person.badge.shield.checkmark",

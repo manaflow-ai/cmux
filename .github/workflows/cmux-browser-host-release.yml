@@ -65,7 +65,7 @@ jobs:
               exit 1
             fi
           else
-            version="$(python3 -c 'import sys,tomllib; print(tomllib.load(open(sys.argv[1],"rb"))["package"]["version"])' "$cargo_toml")"
+            version="$(python3 scripts/cmux-next/browser-host-release.py crate-version "$cargo_toml")"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
@@ -95,7 +95,7 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            runs_on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+            runs_on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
           - target: aarch64-unknown-linux-gnu
             runs_on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || vars.LINUX_ARM64_RUNNER || 'blacksmith-4vcpu-ubuntu-2404-arm' }}
     runs-on: ${{ matrix.runs_on }}

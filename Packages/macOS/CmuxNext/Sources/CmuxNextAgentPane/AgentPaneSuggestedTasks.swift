@@ -1,9 +1,11 @@
 import CmuxNextCompat
+import CmuxNextSettings
 import Foundation
 
 /// Suggested tasks and nested child chats (cx-lo9yf) on the agent pages: whether agents suggest
-/// tasks, the cmux.json switch `sessions.promptSuggestions` (``setting``, set by the App) or the
-/// Debug Settings toggle `agent.suggestedTasks` (``AgentPaneTunables/suggestedTasks``). Each page
+/// tasks is the cmux.json switch `sessions.promptSuggestions` (``setting``, set by the App); the
+/// Debug Settings toggle `agent.suggestedTasks` (``AgentPaneTunables/suggestedTasks``, off by
+/// default) only forces them on. Each page
 /// gets it at load and handshake (``push(to:)``), and again on every change. Not an AgentPaneView
 /// extension: that type is at its size limit.
 public final class AgentPaneSuggestedTasks {
@@ -12,23 +14,25 @@ public final class AgentPaneSuggestedTasks {
     private let views = NSHashTable<AgentPaneView>.weakObjects()
     private var observation: Task<Void, Never>?
     /// `sessions.promptSuggestions`, read through Observation (the App reads its settings snapshot).
-    public var setting: @MainActor () -> Bool = { false } {
+    public var setting: @MainActor () -> Bool = { SessionSettings.promptSuggestionsDefault } {
         // Written now, not only by the observation: a daemon started before its first pass
         // (AgentTabs prewarms one at launch) still gets the tools.
         didSet { Self.forNextDaemon.set(isOn); observation?.cancel(); observation = nil; follow() }
     }
     /// The value for the next acpmux daemon this app starts (``AcpmuxHost``, off the main actor),
     /// kept current here on the main actor.
-    public nonisolated static let forNextDaemon = Flag()
+    public nonisolated static let forNextDaemon = Flag(SessionSettings.promptSuggestionsDefault)
 
     /// A Bool read from any thread.
     public nonisolated final class Flag: Sendable {
-        private let value = Mutex(false)
+        private let value: Mutex<Bool>
+        init(_ on: Bool) { value = Mutex(on) }
         public var isOn: Bool { value.withLock { $0 } }
         func set(_ on: Bool) { value.withLock { $0 = on } }
     }
 
-    /// Whether agents suggest tasks now: the setting, or the Debug Settings toggle.
+    /// Whether agents suggest tasks now: the setting decides; the Debug Settings toggle, off by
+    /// default, only forces them on.
     var isOn: Bool { setting() || AgentPaneTunables.suggestedTasks.value }
 
     /// The script that tells a loaded page whether agents suggest tasks.

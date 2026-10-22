@@ -9,6 +9,7 @@ import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextImportCards
 import CmuxNextPages
 import CmuxNextWakeups
 
@@ -118,11 +119,22 @@ final class HomeHostView: NSView {
         }
         settingsView.checkHarness = { [weak services] id in (try? await services?.agentHarnesses.doctor(id: id))?["ok"]?.boolValue == true }
         settingsView.onRename = { [weak service] name in
-            // One op; the daemon refusing it (or no daemon, or one without the op) is false, and the card says so.
-            guard let connection = service?.connection else { return false }
+            guard let service else { return .noConnection }
+            // A cloud Chief's name is its account record's (UserDO renames its conversation after):
+            // the local daemon has no such conversation, and the cloud refuses title.set on a Chief's.
+            if service.isCloudConversation(id) { return await service.directory.renameChief(conversation: conversation, to: name) }
+            // A Chief of this Mac: one set-title op; no daemon, or the daemon refusing it, says so on the card.
+            guard let connection = service.connection else { return .noConnection }
             let key = "home-chief-rename-\(UUID().uuidString.lowercased())"
-            return (try? await CmuxNextDaemon.ConversationClient(connection).op(
-                CmuxNextDaemon.ConversationOpRequest(conversation: conversation, idempotencyKey: key, transaction: nil, op: .setTitle(name)))) != nil
+            do {
+                _ = try await CmuxNextDaemon.ConversationClient(connection).op(
+                    CmuxNextDaemon.ConversationOpRequest(conversation: conversation, idempotencyKey: key, transaction: nil, op: .setTitle(name)))
+                return nil
+            } catch CmuxNextDaemon.DaemonError.command(_, let message, let code, _, _) {
+                return code == "invalid_title" ? .invalidName : .refused(message.isEmpty ? (code ?? "") : message)
+            } catch {
+                return .noConnection
+            }
         }
         // The stop button (HomeHostView+StopAll): a click, Esc and Cmd-. stop the Chief; Option-click stops all agents.
         let registry = services.registry
@@ -213,6 +225,12 @@ final class HomeHostView: NSView {
         }
         // The first-run panel's agent rows open the agent's tab like a jump (Search Tabs).
         transcript.onFirstRunAgent = { [weak services] tab in _ = services?.revealTab(tab) }
+        // What this Mac can bring over (Claude Code's sessions, a browser's history) is one row on
+        // the Chief's front page, under its action rows: never a strip over the conversation
+        // (Leo 2026-10-21, nightly 331e2e9). Not Now dismisses it; Show All opens Settings › Import.
+        let suggestion = ImportSuggestionRowView()
+        suggestion.onChange = { [weak transcript] in transcript?.firstRunAccessoryChanged() }
+        transcript.setFirstRunAccessory(suggestion)
         // task-owner: lives as long as this view; event-driven (Observation):
         // the user's agents for the first-run glance, only while it can show
         // (the Chief with no messages yet): otherwise no tab is read, so tab

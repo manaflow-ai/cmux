@@ -477,6 +477,9 @@ struct ShellView: View {
             shell.attach(live: live)
         }
         .task {
+            #if DEBUG
+            if CommandLine.arguments.contains("-cmux-mobile-team-transparent") { DemoDriver(shell: shell).seedTransparentTeams() }
+            #endif
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
             if let demo = options.demo { await DemoDriver(shell: shell).run(demo) }

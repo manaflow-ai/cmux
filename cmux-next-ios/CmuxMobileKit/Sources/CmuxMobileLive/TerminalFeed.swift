@@ -314,6 +314,7 @@ public final class TerminalFeed {
             createdAt: entry.createdAt
         )
         item.opensTerminal = true
+        item.macID = workspace.macID.isEmpty ? nil : workspace.macID
         return item
     }
 
