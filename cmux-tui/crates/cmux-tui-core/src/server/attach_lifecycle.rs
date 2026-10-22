@@ -261,14 +261,14 @@ pub(super) fn attach_response(
 ) -> Value {
     let mut response = json!({});
     if let Some(lease) = lease {
-        response.set_field("lease", json!(lease));
+        response.insert("lease", json!(lease));
     }
     if mux.control_clients.supports_capability(client, SHARED_SIZING_CAPABILITY)
         && let Some(participant) = mux.terminal_view_participant_id(surface, client)
         && let Some(state) = mux.terminal_size_state(surface)
     {
-        response.set_field("participant", json!(participant));
-        response.set_field("size_state", size_state_for_client(mux, client, &state));
+        response.insert("participant", json!(participant));
+        response.insert("size_state", size_state_for_client(mux, client, &state));
     }
     response
 }

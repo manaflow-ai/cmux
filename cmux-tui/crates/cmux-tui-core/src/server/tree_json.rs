@@ -199,7 +199,7 @@ pub(super) fn pane_json(
             if let Some(app) =
                 content_resource_id.and_then(|id| notifications.presentation.app_tabs.get(id))
             {
-                tab.set_field("app", app.wire());
+                tab.insert("app", app.wire());
             }
             let remote = content_resource_id.and_then(|id| notifications.presentation.remote_terminals.get(id));
             super::remote_terminal_tabs_wire::apply(&mut tab, remote);
@@ -382,29 +382,29 @@ pub(super) fn tree_delta_json(delta: &TreeDelta, mux: &Mux) -> Value {
         "entity": delta.entity,
     });
     if let Some(screen) = delta.screen {
-        value.set_field("screen", json!(screen));
+        value.insert("screen", json!(screen));
     }
     if let Some(pane) = delta.pane {
-        value.set_field("pane", json!(pane));
+        value.insert("pane", json!(pane));
     }
     if let Some(surface) = delta.surface {
-        value.set_field("surface", json!(surface));
+        value.insert("surface", json!(surface));
     }
     if let Some(index) = delta.index {
-        value.set_field("index", json!(index));
+        value.insert("index", json!(index));
     }
     if let Some(transaction) = &delta.transaction {
-        value.set_field("transaction", json!(transaction.as_ref()));
+        value.insert("transaction", json!(transaction.as_ref()));
     }
     if let Some(revision) = delta.workspace_revision {
-        value.set_field("workspace_revision", json!(revision));
+        value.insert("workspace_revision", json!(revision));
         if let Ok(Some(event)) = mux.workspace_registry_event(revision) {
-            value.set_field("origin", json!(event.origin));
-            value.set_field("mutation_id", json!(event.mutation_id));
+            value.insert("origin", json!(event.origin));
+            value.insert("mutation_id", json!(event.mutation_id));
         }
         let (registry_id, generation) = mux.registry_identity();
-        value.set_field("registry_id", json!(registry_id));
-        value.set_field("generation", json!(generation));
+        value.insert("registry_id", json!(registry_id));
+        value.insert("generation", json!(generation));
     }
     value
 }

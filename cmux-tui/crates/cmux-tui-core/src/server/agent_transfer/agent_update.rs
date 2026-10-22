@@ -251,7 +251,7 @@ pub(in crate::server) fn try_handle(
             }
             .map(|mut value| {
                 if expects_owner {
-                    value.set_field("machine", json!(worker_mux.machine_public_id));
+                    value.insert("machine", json!(worker_mux.machine_public_id));
                 }
                 value
             });
@@ -314,7 +314,7 @@ fn plan(socket: &Path) -> Result<Value, Failure> {
                 [("name", name), ("version", row.get("version")), ("latest", row.get("latest"))]
             {
                 if let Some(text) = value.and_then(Value::as_str) {
-                    out.set_field(key, json!(text));
+                    out.insert(key, json!(text));
                 }
             }
             Some(out)
@@ -407,7 +407,7 @@ fn apply(mux: &Arc<Mux>, socket: &Path, params: ApplyParams) -> Result<Value, Fa
                 json!({"id": result.get("id")?.as_str()?, "ok": *result.field("ok") == true});
             for key in ["version", "error"] {
                 if let Some(text) = result.get(key).and_then(Value::as_str) {
-                    out.set_field(key, json!(text));
+                    out.insert(key, json!(text));
                 }
             }
             Some(out)
@@ -428,17 +428,17 @@ fn apply(mux: &Arc<Mux>, socket: &Path, params: ApplyParams) -> Result<Value, Fa
             RESTART_TIMEOUT,
         ) {
             Ok(moved) => {
-                out.set_field(
+                out.insert(
                     "threads_restarted",
                     json!(moved.field("restarted").as_u64().unwrap_or(0)),
                 );
-                out.set_field(
+                out.insert(
                     "threads_after_turn",
                     json!(moved.field("after_turn").as_u64().unwrap_or(0)),
                 );
                 // A chat acpmux could not restart keeps its old agent: counted, with why.
                 let failed = moved.field("failed").as_u64().unwrap_or(0);
-                out.set_field("threads_failed", json!(failed));
+                out.insert("threads_failed", json!(failed));
                 if failed > 0 {
                     let why = moved
                         .field("errors")
@@ -446,10 +446,10 @@ fn apply(mux: &Arc<Mux>, socket: &Path, params: ApplyParams) -> Result<Value, Fa
                         .and_then(|error| error.get("error"))
                         .and_then(Value::as_str)
                         .unwrap_or("a chat did not restart");
-                    out.set_field("threads_error", json!(why));
+                    out.insert("threads_error", json!(why));
                 }
             }
-            Err(error) => out.set_field("threads_error", json!(Failure::of(error).message())),
+            Err(error) => out.insert("threads_error", json!(Failure::of(error).message())),
         }
     }
     Ok(out)

@@ -38,7 +38,7 @@ pub(crate) fn terminal_colors_json(colors: TerminalColors, include_overrides: bo
     // Older generated SDKs reject unknown fields. Only viewers that opted in
     // before attaching receive the additional provenance object.
     if include_overrides {
-        value.set_field(
+        value.insert(
             "overrides",
             json!({
                 "fg": color_hex(colors.fg_override),

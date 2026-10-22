@@ -314,12 +314,12 @@ fn request_reply(
         }
         SnapshotAdmission::NotAttached => anyhow::bail!("not_attached"),
     };
-    reply.set_field("surface", json!(surface));
+    reply.insert("surface", json!(surface));
     if let Some(request_id) = request_id {
-        reply.set_field("request_id", json!(request_id));
+        reply.insert("request_id", json!(request_id));
     }
     if let Some(reason) = reason {
-        reply.set_field("reason", json!(reason));
+        reply.insert("reason", json!(reason));
     }
     Ok(reply)
 }
@@ -331,9 +331,9 @@ fn base64(bytes: &[u8]) -> String {
 /// The READY of a local-history resize: no history follows it.
 fn local_snapshot_json(surface: SurfaceId, ready: &LocalReadySnapshot) -> Value {
     let mut value = snapshot_json(surface, &ready.frame);
-    value.set_field("history", json!("local"));
-    value.set_field("history_rows", json!(ready.history_rows));
-    value.set_field("history_digest", json!(hex(&ready.history_digest)));
+    value.insert("history", json!("local"));
+    value.insert("history_rows", json!(ready.history_rows));
+    value.insert("history_digest", json!(hex(&ready.history_digest)));
     value
 }
 
@@ -455,7 +455,7 @@ impl PendingImages {
             "done": done,
         });
         if done && self.skipped_images > 0 {
-            value.set_field("skipped_images", json!(self.skipped_images));
+            value.insert("skipped_images", json!(self.skipped_images));
         }
         self.sent = end;
         self.finished = done;
@@ -517,8 +517,8 @@ fn frame_json(
         })),
         AttachFrame::ColorsChanged(colors) => {
             let mut value = terminal_colors_json(**colors, true);
-            value.set_field("event", json!("colors-changed"));
-            value.set_field("surface", json!(surface));
+            value.insert("event", json!("colors-changed"));
+            value.insert("surface", json!(surface));
             Some(value)
         }
         AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. } => None,

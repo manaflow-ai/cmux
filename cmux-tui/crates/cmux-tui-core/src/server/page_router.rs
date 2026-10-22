@@ -212,7 +212,7 @@ fn apps_store(
         }
         let mut extra = json!({"code": error.code});
         if let Some(details) = error.details {
-            extra.set_field("details", details);
+            extra.insert("details", details);
         }
         ResourceError::operation_failed(operation, error.message, extra)
     })

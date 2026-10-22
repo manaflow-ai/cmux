@@ -211,7 +211,7 @@ impl HelloGate {
                 let mut reply =
                     json!({"id": id, "ok": false, "error": message, "error_code": code});
                 if let Some(details) = details {
-                    reply.set_field("error_details", details);
+                    reply.insert("error_details", details);
                 }
                 reply
             }
@@ -270,9 +270,9 @@ impl HelloGate {
             "user_origin_allowed": user_origin_allowed(mux, client),
         });
         if let Some(page) = page.as_deref() {
-            data.set_field("page", json!(page));
-            data.set_field("page_operations", page_router_table::page_operations(page));
-            data.set_field("page_events", json!(page_router_table::page_events(page)));
+            data.insert("page", json!(page));
+            data.insert("page_operations", page_router_table::page_operations(page));
+            data.insert("page_events", json!(page_router_table::page_events(page)));
         }
         // Uniform nonce rule: role main with an install id always gets one,
         // known id or not and signed build or not (no oracle).
@@ -282,7 +282,7 @@ impl HelloGate {
         let mut nonce = Zeroizing::new([0u8; NONCE_LEN]);
         // A connection whose nonce could not be made stays unverified.
         if getrandom::fill(nonce.as_mut_slice()).is_ok() {
-            data.set_field("nonce", Value::String(frontend_proof::hex(nonce.as_slice())));
+            data.insert("nonce", Value::String(frontend_proof::hex(nonce.as_slice())));
             self.window = Window::Challenged { install_id: install_id.to_string(), nonce };
         }
         Ok(data)

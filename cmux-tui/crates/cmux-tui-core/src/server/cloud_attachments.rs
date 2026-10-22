@@ -154,14 +154,14 @@ pub(super) fn put(mux: &Mux, client: u64, params: UploadParams) -> anyhow::Resul
                 ("duration_ms", declaration.duration_ms),
             ] {
                 if let Some(value) = value {
-                    intent.set_field(field, json!(value));
+                    intent.insert(field, json!(value));
                 }
             }
             for (field, image) in
                 [("poster", &declaration.poster), ("preview", &declaration.preview)]
             {
                 if let Some(image) = image {
-                    intent.set_field(
+                    intent.insert(
                         field,
                         json!({"sha256": image.sha256, "byte_count": image.byte_count,
                                            "mime_type": image.mime_type.to_lowercase()}),

@@ -242,7 +242,7 @@ fn handle(
                 Some((_, Answer::Secret(value))) => match value.take() {
                     Some(mut value) => {
                         let mut reply = json!({"state": "delivered"});
-                        reply.set_field("value", Value::String(std::mem::take(&mut *value)));
+                        reply.insert("value", Value::String(std::mem::take(&mut *value)));
                         reply
                     }
                     None => json!({"state": "delivered", "taken": true}),

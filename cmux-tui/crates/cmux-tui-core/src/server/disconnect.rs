@@ -31,10 +31,10 @@ pub(super) fn detached_event_json(
 ) -> Value {
     let mut event = json!({"event": "detached", "surface": surface, "reason": notice.reason});
     if let Some(by) = notice.by.as_ref().filter(|by| !by.is_empty()) {
-        event.set_field("by", json!(by));
+        event.insert("by", json!(by));
     }
     if let Some(view) = view {
-        event.set_field("view", json!(view));
+        event.insert("view", json!(view));
     }
     event
 }
@@ -77,7 +77,7 @@ pub(super) fn size_state_event_json(
     if let Some((client, _)) = client {
         let id = crate::mux::view_participant_id(runtime, surface, client);
         if state.participant(&id).is_some() {
-            event.set_field("self_participant", json!(id));
+            event.insert("self_participant", json!(id));
         }
     }
     event
@@ -229,7 +229,7 @@ pub(super) fn detach_own_view(
     mux.release_terminal_grid_holds(&[placement]);
     let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
     let mut event = detached_event_json(placement, &notice, None);
-    event.set_field("scope", json!("view"));
+    event.insert("scope", json!("view"));
     mux.control_clients.send_surface_event(owner, placement, None, &event);
 }
 

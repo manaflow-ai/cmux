@@ -280,18 +280,18 @@ pub(super) fn step(conversation: &str, rev: &mut u64, event: &ConversationEvent)
                 Some(kind @ ("message" | "message-updated")) => {
                     let mut item =
                         base(if kind == "message" { "message" } else { "message_updated" });
-                    item.set_field("message", change.field("message").clone());
+                    item.insert("message", change.field("message").clone());
                     Step::Item(item)
                 }
                 Some("read-cursor") => {
                     let mut item = base("read_cursor");
-                    item.set_field("participant", change.field("participant").clone());
-                    item.set_field("seq", change.field("seq").clone());
+                    item.insert("participant", change.field("participant").clone());
+                    item.insert("seq", change.field("seq").clone());
                     Step::Item(item)
                 }
                 Some("conversation") => {
                     let mut item = base("conversation");
-                    item.set_field("summary", change.field("conversation").clone());
+                    item.insert("summary", change.field("conversation").clone());
                     Step::Item(item)
                 }
                 _ => Step::Skip,

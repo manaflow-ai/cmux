@@ -43,10 +43,10 @@ pub(super) fn run(
     // The closed groups this close stored (absent on a replay of a close
     // committed before they were reported).
     if let Some(ids) = outcome.result.get("closed_ids") {
-        reply.set_field("closed_ids", ids.clone());
+        reply.insert("closed_ids", ids.clone());
     }
     if let Some(transaction) = transaction {
-        reply.set_field("transaction", json!(transaction));
+        reply.insert("transaction", json!(transaction));
     }
     Ok(reply)
 }

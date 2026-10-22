@@ -67,13 +67,13 @@ pub(super) fn send_response_with_details(
 ) -> bool {
     let Ok(mut value) = serde_json::to_value(response) else { return false };
     if let Some(reason) = reason {
-        value.set_field("reason", Value::String(reason));
+        value.insert("reason", Value::String(reason));
     }
     if let Some(retryable) = retryable {
-        value.set_field("retryable", Value::Bool(retryable));
+        value.insert("retryable", Value::Bool(retryable));
     }
     if let Some(details) = details {
-        value.set_field("error_details", details);
+        value.insert("error_details", details);
     }
     writer.send_control(&value).is_ok()
 }

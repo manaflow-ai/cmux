@@ -29,7 +29,7 @@ pub(crate) trait JsonFields {
     fn field(&self, key: &str) -> &Value;
     /// `value[key] = field` without the panic: Null becomes an object (as
     /// `IndexMut` does); any other non-object value is left unchanged.
-    fn set_field(&mut self, key: &str, field: Value);
+    fn insert(&mut self, key: &str, field: Value);
 }
 
 static JSON_NULL: Value = Value::Null;
@@ -39,7 +39,7 @@ impl JsonFields for Value {
         self.get(key).unwrap_or(&JSON_NULL)
     }
 
-    fn set_field(&mut self, key: &str, field: Value) {
+    fn insert(&mut self, key: &str, field: Value) {
         if self.is_null() {
             *self = Value::Object(serde_json::Map::new());
         }

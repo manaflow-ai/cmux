@@ -245,7 +245,7 @@ impl Watch {
         state.revision = Some(revision);
         if state.phase == Phase::Active {
             let mut event = self.value(revision);
-            event.set_field("event", json!("agent-inventory-changed"));
+            event.insert("event", json!("agent-inventory-changed"));
             self.writer.send_control(&event).map_err(|_| Failure::Unavailable)?;
         }
         Ok(())

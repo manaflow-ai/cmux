@@ -305,7 +305,7 @@ pub(super) fn create(
         "replayed": outcome.replayed,
     });
     if let Some(transaction) = transaction {
-        result.set_field("transaction", json!(transaction));
+        result.insert("transaction", json!(transaction));
     }
     Ok(result)
 }

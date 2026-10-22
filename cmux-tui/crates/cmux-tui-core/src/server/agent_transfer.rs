@@ -867,7 +867,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
         Prepared::Finish { receive_id, cwd, name } => {
             let mut params = json!({"receiveId": receive_id, "cwd": cwd});
             if let Some(name) = name {
-                params.set_field("name", json!(name));
+                params.insert("name", json!(name));
             }
             // Only once acpmux is reached: a finish that never ran leaves
             // the receive askable.

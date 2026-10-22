@@ -182,7 +182,7 @@ pub(super) fn resource_session_snapshot(
 ) -> Result<Value, ResourceError> {
     let session_id = resource_session_id(mux, selectors)?;
     let mut snapshot = crate::resource_api::public_session_snapshot(mux)?;
-    snapshot.set_field(
+    snapshot.insert(
         "clients",
         Value::Array(resource_client_snapshots(mux, requesting_client, &session_id)?),
     );

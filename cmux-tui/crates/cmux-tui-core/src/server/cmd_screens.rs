@@ -188,7 +188,7 @@ pub(super) fn save_screen_group(
 ) -> anyhow::Result<Value> {
     let saved = mux.save_screen_group_as(&actor, &group)?;
     let mut value = screen_group_outcome_json(&mux.screen_group_outcome_public(&group));
-    value.set_field("saved", json!(saved));
+    value.insert("saved", json!(saved));
     Ok(value)
 }
 

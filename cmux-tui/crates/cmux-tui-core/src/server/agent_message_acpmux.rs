@@ -77,7 +77,7 @@ impl crate::mux::Mux {
         // (`_meta.acpmux.interrupt`, or the queue's `interrupt` op, `queue_edit.rs`) does.
         let mut meta = json!({"steer": true, "promptId": id, "resend": true});
         if let Some(provenance) = provenance(message, recipient) {
-            meta.set_field("provenance", provenance);
+            meta.insert("provenance", provenance);
         }
         let text = render(std::slice::from_ref(message));
         let params = json!({

@@ -61,9 +61,9 @@ pub(super) fn new_row(mux: &Arc<Mux>, client: u64, params: NewRowParams) -> anyh
         transaction.clone(),
     )?;
     let mut result = placed_terminal_result(mux, &surface, keep)?;
-    result.set_field("pane", json!(mux.with_state(|state| state.pane_of(surface.id))));
+    result.insert("pane", json!(mux.with_state(|state| state.pane_of(surface.id))));
     if let Some(transaction) = transaction {
-        result.set_field("transaction", json!(transaction));
+        result.insert("transaction", json!(transaction));
     }
     Ok(result)
 }
@@ -98,7 +98,7 @@ pub(super) fn set_row_heights(
     let mut data =
         json!({"screen": outcome.screen, "column": outcome.column, "changed": outcome.changed});
     if let Some(transaction) = transaction {
-        data.set_field("transaction", json!(transaction));
+        data.insert("transaction", json!(transaction));
     }
     Ok(data)
 }

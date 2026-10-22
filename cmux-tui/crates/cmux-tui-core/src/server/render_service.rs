@@ -411,8 +411,8 @@ impl RenderService {
             }
             AttachFrame::ColorsChanged(colors) => {
                 let mut value = terminal_colors_json(**colors, include_color_overrides);
-                value.set_field("event", json!("colors-changed"));
-                value.set_field("surface", json!(surface));
+                value.insert("event", json!("colors-changed"));
+                value.insert("surface", json!(surface));
                 serde_json::to_writer(&mut writer, &value).map_err(json_error_to_io)?;
             }
         }

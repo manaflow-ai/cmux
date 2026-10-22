@@ -619,10 +619,10 @@ pub(super) fn op_reply(outcome: &OpOutcome, change: Value, transaction: Option<A
     let result = &outcome.result;
     let mut reply = json!({"rev": result.rev, "replayed": outcome.replayed, "change": change});
     if let Some(seq) = result.seq {
-        reply.set_field("seq", json!(seq));
+        reply.insert("seq", json!(seq));
     }
     if let Some(transaction) = transaction {
-        reply.set_field("transaction", json!(&*transaction));
+        reply.insert("transaction", json!(&*transaction));
     }
     reply
 }
@@ -656,10 +656,10 @@ pub(super) fn draft(mux: &Mux, client: u64, params: DraftParams) -> anyhow::Resu
         "kind": params.kind, "text": params.text, "fresh": params.fresh, "done": params.done,
     });
     if let Some(truncated) = params.truncated {
-        fields.set_field("truncated", json!(truncated));
+        fields.insert("truncated", json!(truncated));
     }
     if let Some(harness) = params.harness {
-        fields.set_field("harness", json!(harness));
+        fields.insert("harness", json!(harness));
     }
     let published =
         super::conversation_resource::publish_draft(mux, &params.conversation, &principal, &fields)

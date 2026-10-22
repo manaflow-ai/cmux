@@ -306,7 +306,7 @@ pub(super) fn close_workspace(
     // With `end_terminals` and `report_closed_ids`: the closed groups this
     // close stored, oldest first.
     if let Some(ids) = closed_ids {
-        reply.set_field("closed_ids", ids);
+        reply.insert("closed_ids", ids);
     }
     Ok(reply)
 }

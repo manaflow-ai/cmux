@@ -67,7 +67,7 @@ pub(super) fn scrub_bundle(
         let scrubbed = if path.eq_ignore_ascii_case(MANIFEST) || path.eq_ignore_ascii_case(SESSION)
         {
             let bytes = scrubbed_file(call, transfer_id, &path, entry.field("size").as_u64())?;
-            entry.set_field("size", json!(bytes.len()));
+            entry.insert("size", json!(bytes.len()));
             Some(Arc::new(bytes))
         } else {
             None

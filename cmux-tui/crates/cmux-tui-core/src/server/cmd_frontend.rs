@@ -77,7 +77,7 @@ pub(super) fn put_frontend_projection(
         &projection,
     )?;
     let mut value = serde_json::to_value(commit.projection)?;
-    value.set_field("replayed", json!(commit.replayed));
+    value.insert("replayed", json!(commit.replayed));
     Ok(value)
 }
 

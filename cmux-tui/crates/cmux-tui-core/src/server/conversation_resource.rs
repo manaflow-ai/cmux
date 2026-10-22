@@ -277,7 +277,7 @@ pub(super) fn publish_draft(
         });
         for optional in ["truncated", "harness"] {
             if let Some(value) = fields.get(optional) {
-                item.set_field(optional, value.clone());
+                item.insert(optional, value.clone());
             }
         }
         mux.emit(MuxEvent::Conversation(Arc::new(ConversationEvent::Draft {

@@ -74,10 +74,10 @@ pub(super) fn styled_run_json(run: &StyledRun) -> Value {
         "attrs": run.attrs,
     });
     if let Some(underline) = underline {
-        value.set_field("underline", json!(underline));
+        value.insert("underline", json!(underline));
     }
     if let Some(width_hint) = run.width_hint {
-        value.set_field("width_hint", json!(width_hint));
+        value.insert("width_hint", json!(width_hint));
     }
     value
 }

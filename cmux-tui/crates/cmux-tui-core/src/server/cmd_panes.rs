@@ -187,7 +187,7 @@ pub(super) fn set_column_dock(
     )?;
     let mut data = json!({"column": outcome.column, "dock": outcome.dock});
     if let Some(transaction) = transaction {
-        data.set_field("transaction", json!(transaction));
+        data.insert("transaction", json!(transaction));
     }
     Ok(data)
 }
@@ -346,7 +346,7 @@ fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Res
         }).collect::<Vec<_>>(),
     });
     if !screen.viewport_splits.is_empty() {
-        value.set_field(
+        value.insert(
             "viewport_splits",
             json!(
                 screen
@@ -357,7 +357,7 @@ fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Res
             ),
         );
         if let Some(width) = screen.viewport_base_width {
-            value.set_field("viewport_base_width", json!(width));
+            value.insert("viewport_base_width", json!(width));
         }
     }
     Ok(value)

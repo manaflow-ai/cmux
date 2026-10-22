@@ -314,7 +314,7 @@ pub(super) fn denied(line: &str) -> Value {
     let id = serde_json::from_str::<Value>(line).ok().and_then(|frame| frame.get("id").cloned());
     let mut response = json!({"ok": false, "error": REMOTE_DENIED, "error_code": REMOTE_DENIED});
     if let Some(id) = id {
-        response.set_field("id", id);
+        response.insert("id", id);
     }
     response
 }

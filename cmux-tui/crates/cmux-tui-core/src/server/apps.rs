@@ -162,9 +162,9 @@ fn reply(
             // unchanged (a page reads details.status, details.upstream_code).
             let Ok(mut value) = serde_json::to_value(response) else { return false };
             if let Some(details) = e.details {
-                value.set_field("error_details", details);
+                value.insert("error_details", details);
             }
-            value.set_field("retryable", Value::Bool(e.retryable));
+            value.insert("retryable", Value::Bool(e.retryable));
             return writer.send_control(&value).is_ok();
         }
     };

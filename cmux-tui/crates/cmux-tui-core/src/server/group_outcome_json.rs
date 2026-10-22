@@ -60,7 +60,7 @@ pub(super) fn pane_tab_group_json(run: &crate::mux::PaneTabGroup, pane: Option<P
         "surfaces": run.members,
     });
     if let Some(pane) = pane {
-        value.set_field("pane", json!(pane));
+        value.insert("pane", json!(pane));
     }
     value
 }

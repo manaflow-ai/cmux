@@ -289,7 +289,7 @@ pub(super) fn tool_line(
                 "compactor_model",
             ] {
                 if let Some(value) = fields.get(key) {
-                    line.set_field(key, value.clone());
+                    line.insert(key, value.clone());
                 }
             }
             line
@@ -298,7 +298,7 @@ pub(super) fn tool_line(
             let mut line = json!({"tool": "stop"});
             for key in ["name", "all", "restart"] {
                 if let Some(value) = fields.get(key) {
-                    line.set_field(key, value.clone());
+                    line.insert(key, value.clone());
                 }
             }
             line
@@ -331,7 +331,7 @@ pub(super) fn result(
             // restarted and errors (the brain's own words).
             for key in ["subagents", "note", "restarted", "errors"] {
                 if let Some(v) = answer.get(key).filter(|v| !v.is_null()) {
-                    value.set_field(key, v.clone());
+                    value.insert(key, v.clone());
                 }
             }
             value

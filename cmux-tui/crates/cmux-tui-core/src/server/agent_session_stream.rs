@@ -157,7 +157,7 @@ pub(crate) fn bound_page(mut page: Value, newest_first: bool) -> Value {
     }
     let kept: Vec<Value> = events.drain(keep_from..keep_to).collect();
     *events = kept;
-    page.set_field("hasMore", json!(true));
+    page.insert("hasMore", json!(true));
     page
 }
 

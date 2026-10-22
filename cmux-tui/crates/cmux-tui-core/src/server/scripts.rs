@@ -76,10 +76,10 @@ fn reply(writer: &MessageWriter, id: Option<Value>, result: Result<Value, Script
         Err(e) => {
             let mut value = json!({ "ok": false, "error": e.message, "error_code": e.code });
             if let Some(id) = id {
-                value.set_field("id", id);
+                value.insert("id", id);
             }
             if !e.details.is_null() {
-                value.set_field("error_details", e.details);
+                value.insert("error_details", e.details);
             }
             writer.send_control(&value).is_ok()
         }
@@ -100,7 +100,7 @@ fn log_sink(
         }
         let (name, value) = tag();
         let mut event = json!({ "event": "script-log", "level": level, "message": message });
-        event.set_field(name, value);
+        event.insert(name, value);
         let _ = writer.send_control(&event);
     })
 }
@@ -109,7 +109,7 @@ fn log_sink(
 fn answer_json(answer: Answer) -> Value {
     let mut data = json!({ "value": answer.value });
     if answer.dropped_log_lines > 0 {
-        data.set_field("dropped_log_lines", json!(answer.dropped_log_lines));
+        data.insert("dropped_log_lines", json!(answer.dropped_log_lines));
     }
     data
 }

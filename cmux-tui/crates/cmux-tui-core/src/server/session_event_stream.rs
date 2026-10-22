@@ -456,7 +456,7 @@ fn delta_item(
     {
         let all = current_placements(mux, generation)?;
         for mut change in crate::state::placement_shift::restatement(&all, shift) {
-            change.set_field("sequence", json!(array.len()));
+            change.insert("sequence", json!(array.len()));
             array.push(change);
         }
     }

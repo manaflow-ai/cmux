@@ -339,11 +339,11 @@ pub(super) fn session_status(mux: &Mux, client: u64) -> anyhow::Result<Value> {
     }
     let mut status = service.session_status();
     if person && let Some((account, project)) = service.lease_person() {
-        status.set_field("participant", json!(worker_user_id(&project, &account)));
+        status.insert("participant", json!(worker_user_id(&project, &account)));
     }
     // A self-hosted server names the person itself (`cloud-selfhost-info`).
     if person && let Some((_, Some(user))) = service.lease_selfhost() {
-        status.set_field("participant", json!(user));
+        status.insert("participant", json!(user));
     }
     Ok(status)
 }

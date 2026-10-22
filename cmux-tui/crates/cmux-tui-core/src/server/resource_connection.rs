@@ -447,14 +447,14 @@ pub(super) fn resource_stream_end(
         "reason":reason,
     });
     if let Some(cursor) = cursor {
-        end.set_field("cursor", cursor);
+        end.insert("cursor", cursor);
     }
     if let Some(recovery) = recovery {
-        end.set_field("recovery", json!(recovery));
+        end.insert("recovery", json!(recovery));
     }
     if let Some((operation, error)) = error {
         let error = crate::resource_router::validate_operation_error(operation, error);
-        end.set_field("error", json!(error));
+        end.insert("error", json!(error));
     }
     end
 }

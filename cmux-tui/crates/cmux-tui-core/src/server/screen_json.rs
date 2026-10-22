@@ -49,7 +49,7 @@ pub(crate) fn screen_layout_json(
         "layout": node_json(&screen.root, screen.active_pane, split_ids),
     });
     if !screen.viewport_splits.is_empty() {
-        value.set_field(
+        value.insert(
             "viewport_splits",
             json!(
                 screen
@@ -60,11 +60,11 @@ pub(crate) fn screen_layout_json(
             ),
         );
         if let Some(width) = screen.viewport_base_width {
-            value.set_field("viewport_base_width", json!(width));
+            value.insert("viewport_base_width", json!(width));
         }
     }
     if screen.layout_columns_active() {
-        value.set_field(
+        value.insert(
             "columns",
             json!(
                 screen
@@ -79,13 +79,13 @@ pub(crate) fn screen_layout_json(
                         // `dock-columns-v1`: every edge (top and bottom need
                         // `edge-docks-v1` too) as one optional `dock`.
                         if let Some(dock) = column.dock {
-                            value.set_field("dock", json!(dock));
+                            value.insert("dock", json!(dock));
                         }
                         // `rows-v1`: only for a column with two or more rows; its
                         // `layout` above is their compat chain.
                         let rows = column.row_trees();
                         if !rows.is_empty() {
-                            value.set_field(
+                            value.insert(
                                 "rows",
                                 json!(
                             rows.iter()

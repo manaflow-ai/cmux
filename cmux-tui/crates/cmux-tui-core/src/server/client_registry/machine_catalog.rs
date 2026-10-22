@@ -108,12 +108,12 @@ impl Publication {
             .iter()
             .filter_map(|machine| {
                 let mut value = serde_json::to_value(machine).ok()?;
-                value.set_field(
+                value.insert(
                     "connectable",
                     json!(matches!(machine.status, Status::Running | Status::Connecting)),
                 );
-                value.set_field("deleted", json!(false));
-                value.set_field("recoverable", json!(false));
+                value.insert("deleted", json!(false));
+                value.insert("recoverable", json!(false));
                 Some(value)
             })
             .collect()

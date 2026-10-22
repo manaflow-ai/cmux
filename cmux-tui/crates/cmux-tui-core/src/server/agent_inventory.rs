@@ -156,7 +156,7 @@ pub(super) fn try_handle(
         .spawn(move || {
             let result = read(&socket, mode).map(|mut value| {
                 if let Some(machine) = owner_echo {
-                    value.set_field("machine", json!(machine));
+                    value.insert("machine", json!(machine));
                 }
                 value
             });

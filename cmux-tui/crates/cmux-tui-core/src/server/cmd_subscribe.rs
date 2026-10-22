@@ -411,7 +411,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::Status(message) => json!({"event": "status", "message": message}),
         MuxEvent::MachineUsageChanged(usage) => {
             let mut payload = machine_usage_json(usage.as_ref());
-            payload.set_field("event", json!("machine-usage-changed"));
+            payload.insert("event", json!("machine-usage-changed"));
             payload
         }
         MuxEvent::ConfigReloadRequested => json!({"event": "config-reload-requested"}),
@@ -487,12 +487,12 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             let mut value = json!({"event": "layout-changed", "screen": screen});
             // `layout-delta-v1`: the screen's layout fields, flat, as in `Screen`.
             if let Some(delta) = delta {
-                value.set_field("workspace", json!(delta.workspace));
+                value.insert("workspace", json!(delta.workspace));
                 if let (Value::Object(value), Value::Object(layout)) = (&mut value, &delta.layout) {
                     value.extend(layout.iter().map(|(key, field)| (key.clone(), field.clone())));
                 }
                 if let Some(transaction) = &delta.transaction {
-                    value.set_field("transaction", json!(transaction.as_ref()));
+                    value.insert("transaction", json!(transaction.as_ref()));
                 }
             }
             value
