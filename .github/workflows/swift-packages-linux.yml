@@ -80,6 +80,9 @@ jobs:
       - name: Build and test
         env:
           PACKAGES: ${{ matrix.packages }}
+          # The manifests' Linux-only changes (CmuxSentryTelemetry, CmuxMobilePairedMac) apply only with
+          # this: the fleet reads the same manifests on Linux hosts to build for macOS.
+          CMUX_SWIFTPM_TARGET_LINUX: "1"
         run: |
           failed=""
           echo "| Package | Result |" >> "$GITHUB_STEP_SUMMARY"

@@ -70,6 +70,24 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
   return row.status === "cancelled" ? t("turn.stopped", { time }) : t("turn.worked", { time });
 }
 
+/// What a turn's footer says before its buttons, or nothing: a turn whose work folds under "Worked
+/// for" says it there, and a turn under a second says nothing, since "Worked for 0s" is no news
+/// (Leo, 2026-10-21: "IF WE 0 SECONDS THEN IT DOESNT NEED TO TAKE UP SPACE"). A stopped turn still
+/// says it stopped, and a footer without timing (history paged in mid-turn) its count.
+export function footerLabel(t: Translate, row: AcpmuxRow): string | undefined {
+  return footerSays(row) ? workedLabel(t, row) : undefined;
+}
+const footerSays = (row: AcpmuxRow) =>
+  !row.folded &&
+  (row.previous !== undefined || row.durationMs === undefined || row.durationMs >= 1000 || row.status === "cancelled");
+
+/// A footer with nothing to show at rest and only hover controls (Pin, Fork, its age): no label, no
+/// answer to copy or read aloud, and the turn did not fail. It takes no line in the transcript
+/// (conversation.css `.cv-turn-actions--empty`, model.ts fallbackRowHeight); pointed at, its controls
+/// show over the turn gap below, so nothing moves.
+export const isEmptyFooter = (row: AcpmuxRow) =>
+  row.kind === "turnSummary" && row.status !== "failed" && row.status !== "error" && !row.text && !footerSays(row);
+
 const isEditTool = (tool: { kind?: string } | undefined) => tool?.kind === "edit" || tool?.kind === "fileChange";
 const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).some((item) => isEditTool(item.tool));
 
@@ -352,13 +370,17 @@ const isWork = (row: AcpmuxRow) =>
   row.kind === "activity" &&
   (row.items ?? []).some((item) => item.tool && !isEditTool(item.tool) && !renderCall(item.tool));
 
-/// Where a finished turn's answer is in `rows`: the last text, unless the turn went on to work
-/// after it (-1: no answer, so all of it folds, as the Codex and Claude desktop apps fold it).
+/// Where a finished turn's answer is in `rows`: its last reply. A reply is never folded away, also
+/// when the turn ran a tool after it (Leo, 2026-10-21: "Those replies should never be collapsed";
+/// the work after a reply used to fold the reply with it). Only a short interim note the turn
+/// worked on after ("Checking the tests next.") is status, not a reply, and folds with the work.
+/// -1: no reply, so all of it folds, as the Codex and Claude desktop apps fold it.
 function answerAt(rows: readonly AcpmuxRow[]): number {
+  let worked = false;
   for (let at = rows.length - 1; at >= 0; at -= 1) {
     const row = rows[at]!;
-    if (isAnswer(row)) return at;
-    if (isWork(row)) return -1;
+    if (isAnswer(row) && !(worked && isShortNote(row))) return at;
+    if (isWork(row)) worked = true;
   }
   return -1;
 }
@@ -401,17 +423,20 @@ function shapeTurn(
   for (const part of turnParts(user, body)) {
     if (part.opener !== user) shaped.push(part.opener);
     const rows = part.rows;
-    // The text that ends the part, unless it went on to work after it (the turn's own answer in
-    // its last part, the reply a steer followed in an earlier one).
+    // The part's last reply, also when the agent went on to work after it (the turn's own answer
+    // in its last part, the reply a steer followed in an earlier one; answerAt).
     const reply = answerAt(rows);
     const said = reply >= 0 ? rows[reply] : undefined;
     // Work before that text folds away (all of it, when the part ended without one); edits also
     // close the turn as their card. Subagent groups and the todo list stay out, under the fold's
     // line.
     const before = (reply >= 0 ? rows.slice(0, reply) : rows).filter((row) => row.kind !== "typing");
-    const work = before.filter((row) => !staysOut(row));
     const after = reply >= 0 ? rows.slice(reply + 1) : [];
-    // Edits after the text join the card too, so its Undo covers the whole turn.
+    // Work after the text (a tool the agent ran once it had replied, and its interim notes) folds
+    // with the rest, so the reply stays the part's last words. Edits after it join the card too,
+    // so its Undo covers the whole turn.
+    const later = after.filter((row) => row.kind !== "typing" && !isEdit(row) && !staysOut(row));
+    const work = [...before.filter((row) => !staysOut(row)), ...later];
     edits.push(...work.filter(isEdit), ...after.filter(isEdit));
     if (work.length) {
       folded = true;
@@ -427,13 +452,14 @@ function shapeTurn(
         // Only the turn's last part ended as the turn did (a Stop stopped that one).
         ...(lastPart && { status: summary.status }),
         toolCount: summary.toolCount,
-        durationMs: said
-          ? Math.max(0, said.at - from)
-          : !lastPart
-            ? Math.max(0, part.until! - from)
-            : part.opener === user
-              ? (summary.durationMs ?? Math.max(0, summary.at - user.at))
-              : Math.max(0, summary.at - from),
+        durationMs:
+          said && !later.length
+            ? Math.max(0, said.at - from)
+            : !lastPart
+              ? Math.max(0, part.until! - from)
+              : part.opener === user
+                ? (summary.durationMs ?? Math.max(0, summary.at - user.at))
+                : Math.max(0, summary.at - from),
       });
       // Open, each run of its work folds into its summary line between the commentary, as in a
       // running turn (codexRuns).
@@ -450,7 +476,7 @@ function shapeTurn(
     }
     shaped.push(...before.filter(staysOut).map(endedPlan), ...renderRows(rows, version));
     if (said) shaped.push(said);
-    shaped.push(...after.filter((row) => !isEdit(row)).map(endedPlan));
+    shaped.push(...after.filter((row) => !isEdit(row) && !later.includes(row)).map(endedPlan));
   }
   shaped.push(...editsCard(edits));
   const preview = turnPreviewCardsOn() ? turnPreviewUrl(user, turn) : undefined;
@@ -549,6 +575,8 @@ const staysOut = (row: AcpmuxRow) =>
   // who answers it; folded, nobody would see it happened.
   row.kind === "compaction" ||
   row.kind === "failover" ||
+  // A policy the harness cannot keep: the agent runs without the asks the person chose.
+  row.kind === "policyUnenforced" ||
   // A paused agent pair waits for the person's Resume.
   row.kind === "agentPair" ||
   // Where the session started: what it runs on.
