@@ -1956,7 +1956,8 @@ pre.cv-math-source {
 .cv-command__stopped {
   color: var(--cv-text-dim);
 }
-/* "⌃B to run in background" on a running command (BackgroundHint.tsx), at the row's right edge.
+/* "⌃B to run in background" while a command runs (BackgroundHint.tsx), at the right of the running
+   turn's live line; never on the command's own row.
    It fades in after a moment, so a quick command never shows it; opacity only, so it runs under
    Reduce Motion too. */
 .cv-command__bg {
