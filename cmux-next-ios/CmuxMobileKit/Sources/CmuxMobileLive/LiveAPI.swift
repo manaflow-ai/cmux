@@ -173,6 +173,27 @@ public struct LiveAPI: Sendable {
         _ = try await call("PUT", "v1/devices/\(deviceID)/push", body: body)
     }
 
+    /// What the mailbox says about a reply (`GET /v1/devices/:mac/mailbox/:id`).
+    public struct MailboxState: Decodable, Equatable, Sendable {
+        /// `queued`, `applied`, `rejected` or `expired`.
+        public var state: String
+        public var reason: String?
+    }
+
+    /// `POST /v1/devices/:mac/mailbox` (PROTOCOL.md "Reply mailbox"): a reply
+    /// sealed to the Mac, held until its host connects. Returns whether the
+    /// Mac's socket was open (it got it at once).
+    public func postMailbox(macID: String, id: String, from phone: String, sealed: String) async throws -> Bool {
+        struct Reply: Decodable { var queued: Bool?; var delivered: Bool? }
+        let data = try await call("POST", "v1/devices/\(macID)/mailbox", body: ["id": id, "from": phone, "sealed": sealed])
+        return (try? JSONDecoder().decode(Reply.self, from: data))?.delivered ?? false
+    }
+
+    /// `GET /v1/devices/:mac/mailbox/:id`.
+    public func mailboxState(macID: String, id: String) async throws -> MailboxState {
+        try JSONDecoder().decode(MailboxState.self, from: try await call("GET", "v1/devices/\(macID)/mailbox/\(id)"))
+    }
+
     /// `DELETE /v1/devices/:id/push`: stop pushing to this phone.
     public func deletePush(deviceID: String) async throws {
         _ = try await call("DELETE", "v1/devices/\(deviceID)/push")

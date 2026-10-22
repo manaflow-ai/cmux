@@ -125,7 +125,8 @@ public struct PushActions: Sendable {
         case .completed, .failed, .chief:
             return [(.reply, title(.reply))]
         case .terminal:
-            return []
+            // Text into the terminal (device unlock), only when its poster takes a reply.
+            return payload.replyable && payload.notificationId != nil ? [(.terminalReply, title(.terminalReply))] : []
         }
     }
 

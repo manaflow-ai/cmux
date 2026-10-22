@@ -17,6 +17,9 @@ public enum PushReplyPlan: Equatable, Sendable {
     case prompt(sessionID: String, text: String, attachments: [String], promptID: String)
     /// A message to that Mac's Chief.
     case chief(text: String, attachments: [String])
+    /// Text into the terminal that posted a notification: daemon
+    /// `notification-reply {notification, text}` (PR B; device unlock).
+    case terminal(notification: String, text: String)
 
     public struct Refusal: Error, Equatable, Sendable {
         public var message: String
@@ -32,7 +35,12 @@ public enum PushReplyPlan: Equatable, Sendable {
         switch reply.action {
         case .text(let text, let attachments):
             if reply.kind == .chief { return .chief(text: text, attachments: attachments) }
-            guard reply.kind != .terminal else { throw Refusal(String(localized: "Replies to a terminal aren't available yet.")) }
+            if reply.kind == .terminal {
+                guard let notification = reply.notificationId else { throw Refusal(String(localized: "This notification takes no reply.")) }
+                guard attachments.isEmpty else { throw Refusal(String(localized: "A terminal takes text only.")) }
+                guard text.utf8.count <= MailboxReply.maxTextBytes else { throw Refusal(String(localized: "That reply is too long for a terminal.")) }
+                return .terminal(notification: notification, text: text)
+            }
             guard let session = reply.sessionId else { throw Refusal(String(localized: "This notification names no chat.")) }
             return .prompt(sessionID: session, text: text, attachments: attachments, promptID: reply.id.uuidString.lowercased())
         case .option, .answers, .allow, .deny:

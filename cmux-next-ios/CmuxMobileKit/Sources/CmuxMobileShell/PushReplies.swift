@@ -29,7 +29,8 @@ extension LiveCoordinator {
             relayOnly: DeveloperOptions.relayOnly,
             blockUDP: DeveloperOptions.blockUDP,
             dialer: FFIMacLinkDialer(),
-            keys: PhoneKeys(userID: user.id)
+            keys: PhoneKeys(userID: user.id),
+            push: PushKeys.current()
         )
     }
 }
@@ -218,6 +219,8 @@ public final class PushReplies {
         } catch let failure as LiveCoordinator.PushReplyFailure {
             switch failure.reason {
             case .unreachable:
+                // The link missed its budget: the service's mailbox, sealed to the Mac (PR B).
+                if await sendViaMailbox(reply, on: live) { return }
                 await postCouldNotReach(reply, reason: nil)
             case .refused(let message):
                 await postNotice(reply, title: String(localized: "Not sent to \(reply.macName ?? String(localized: "your Mac"))"), body: message)
@@ -226,6 +229,49 @@ public final class PushReplies {
             }
         } catch {
             await postCouldNotReach(reply, reason: nil)
+        }
+    }
+
+    /// How long after a mailbox delivery the phone asks once whether the Mac applied it.
+    static let mailboxCheckDelay: Duration = .seconds(3)
+    @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
+
+    /// Sends `reply` through the mailbox; true when the service took it.
+    /// A Mac that was online is asked once, a moment later, whether it
+    /// applied it; a refusal is posted with its reason.
+    private func sendViaMailbox(_ reply: PushReply, on live: LiveCoordinator) async -> Bool {
+        let outcome: LiveCoordinator.MailboxOutcome
+        do {
+            outcome = try await live.deliverViaMailbox(reply)
+        } catch let failure as LiveCoordinator.PushReplyFailure {
+            switch failure.reason {
+            case .unreachable: return false
+            case .cancelled: return true
+            case .refused(let message):
+                await postNotice(reply, title: String(localized: "Not sent to \(reply.macName ?? String(localized: "your Mac"))"), body: message)
+                return true
+            }
+        } catch {
+            return false
+        }
+        if let eventId = reply.eventId { clearDelivered(eventId: eventId) }
+        guard outcome == .delivered else { return true }
+        try? await clock.sleep(for: Self.mailboxCheckDelay)
+        if let state = await live.mailboxState(of: reply), state.state == "rejected" {
+            await postNotice(reply, title: String(localized: "Not sent to \(reply.macName ?? String(localized: "your Mac"))"),
+                             body: Self.mailboxRefusal(state.reason))
+        }
+        return true
+    }
+
+    /// What the phone says for the Mac's mailbox refusal reason (PROTOCOL.md).
+    static func mailboxRefusal(_ reason: String?) -> String {
+        switch reason {
+        case "expired": String(localized: "Your reply arrived too late.")
+        case "not_pending": String(localized: "This was already answered.")
+        case "not_paired": String(localized: "This iPhone isn't paired with that Mac any more.")
+        case "replayed": String(localized: "That reply was already sent.")
+        default: String(localized: "Your Mac didn't accept the reply.")
         }
     }
 
