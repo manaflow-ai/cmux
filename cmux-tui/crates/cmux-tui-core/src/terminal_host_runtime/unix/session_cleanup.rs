@@ -6,6 +6,7 @@
 //! and the process groups observed before hangup, then revalidate those groups
 //! against the same session before escalating.
 
+use crate::panic_free::RecoverPoison;
 use std::collections::HashSet;
 #[cfg(target_os = "linux")]
 use std::fs;
@@ -59,7 +60,7 @@ impl SessionCleanup {
         host_group: libc::pid_t,
         capture_allowed: bool,
     ) {
-        let mut captured = self.captured.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut captured = self.captured.lock().recover_poison();
         if signal == libc::SIGHUP
             && capture_allowed
             && matches!(&*captured, CaptureState::NotCaptured | CaptureState::ScanFailed)
@@ -78,7 +79,7 @@ impl SessionCleanup {
     }
 
     pub(super) fn wait_for_exit(&self, timeout: Duration) -> bool {
-        let mut captured = self.captured.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut captured = self.captured.lock().recover_poison();
         let complete = match &*captured {
             CaptureState::NotCaptured | CaptureState::Complete => true,
             CaptureState::ScanFailed => false,
@@ -221,7 +222,7 @@ impl HostShared {
         // before reaping. While we hold it, `!child_reaped` means the
         // original PID/PGID is still kernel-reserved and cannot have been
         // reused between validation and killpg.
-        let _signal = self.child_signal_lock.lock().unwrap();
+        let _signal = self.child_signal_lock.lock().recover_poison();
         let child_reserved = !self.child_reaped.load(Ordering::Acquire) && self.child_signalable();
         // SAFETY: getpgrp has no preconditions.
         let host_group = unsafe { libc::getpgrp() };
@@ -241,7 +242,7 @@ impl HostShared {
         // a foreground job or retained descendant may own a different
         // group by the time explicit Terminate escalates.
         if child_reserved
-            && let Some(foreground) = self.master.lock().unwrap().process_group_leader()
+            && let Some(foreground) = self.master.lock().recover_poison().process_group_leader()
         {
             groups.push(foreground);
         }

@@ -76,9 +76,12 @@ extension ChatController {
                 menu.addItem(MenuAction(title: playing ? CmuxStrings.pauseVideo : CmuxStrings.playVideo,
                                         symbol: playing ? "pause.fill" : "play.fill") { [weak self] in self?.intents?.toggleVideo(ref, a.id) })
             }
-            // cmux: the host's file menu (Open in Right Pane, Open With, Reveal, Copy Path, Quick
-            // Look, Share); without a host, Open in Default App.
             let resolve: @MainActor @Sendable () async -> URL? = { [weak self] in await self?.intents?.attachmentFile(ref.messageId, a.id) }
+            // cmux: Copy (the file, and an image's pixels) and Save As… (the user, 2026-10-21).
+            HomeAttachmentRows(window: host.window).items(name: a.fileName, resolve: resolve).forEach(menu.addItem)
+            menu.addItem(.separator())
+            // cmux: the host's file menu (Open in Right Pane, Open With, Quick Look, Show in
+            // Finder, Copy Path, Share); without a host, Open in Default App.
             HomeAttachmentOpen.menuItems(name: a.fileName, host: fileHost, resolve: resolve) { [weak self] in
                 self?.intents?.openAttachment(ref.messageId, a.id)
             }.forEach(menu.addItem)

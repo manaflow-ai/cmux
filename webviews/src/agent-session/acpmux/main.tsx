@@ -13,6 +13,7 @@ import { postNative } from "./native";
 import { pageHostClient } from "./pageHost";
 import { appPopupHost } from "../../pages/shared/pagePopupHost";
 import { installMessageMenuReporter } from "./conversation/messageMenu";
+import { installDragOut } from "./conversation/dragOut";
 import { installPageKey } from "./pageKey";
 import { installRevealSettle } from "../shared/pageReveal";
 
@@ -21,6 +22,8 @@ AcpmuxDirectClient.scheduleFrame = nextFrame;
 document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
 // The native context menu learns which message is under the pointer (conversation/messageMenu.ts).
 installMessageMenuReporter(document);
+// Images and file chips drag out as real files, through the host (conversation/dragOut.ts).
+installDragOut(document);
 // The composer shows its caret only while the page is the key one (pageKey.ts).
 installPageKey(document);
 // A switch away and back is a reattach: nothing started while hidden plays on return, and a change

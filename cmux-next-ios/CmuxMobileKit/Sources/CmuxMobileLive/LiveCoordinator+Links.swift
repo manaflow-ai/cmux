@@ -586,6 +586,7 @@ extension LiveCoordinator {
                 session.use(ChiefOfflineBackend(reason: reason))
             }
             chiefLive = false
+            MacHomeFeed.shared.forget(unless: owner.macID)
             log.info("chief unavailable: \(reason, privacy: .public)")
         }
         do {
@@ -597,6 +598,11 @@ extension LiveCoordinator {
                 await channel.close(code: "eof", reason: "chief unavailable")
                 offline(String(localized: "Chief on this Mac: \(object?["error"] as? String ?? "unavailable")"))
                 return
+            }
+            // Home shows this Mac's Home list (its owner's `home-inbox`), on a channel of its own.
+            if current() {
+                let macID = owner.macID
+                Task { await MacHomeFeed.shared.connect(link: link, macID: macID) }
             }
             let conversations = (object?["data"] as? [String: Any])?["conversations"] as? [[String: Any]] ?? []
             let identity = ChiefIdentity.standard

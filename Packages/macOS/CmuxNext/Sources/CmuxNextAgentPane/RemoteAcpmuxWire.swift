@@ -220,7 +220,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             (child["sessionId"] as? String).map { !names($0) } ?? false
         }
         Self.noteLinks(children)
-        return Self.json(["sessions": (summary.map { [$0] } ?? []) + children])
+        var reply: [String: Any] = ["sessions": (summary.map { [$0] } ?? []) + children]
+        // The session the tab is bound to on that machine now, by acpmux's id: the daemon attached
+        // only the session its store records for this tab. The page may hold another name for it (a
+        // tab that records a session name, or one rebound there since the page got its id), and
+        // opens this one rather than calling the tab's chat missing (direct.ts `tabSession`).
+        if let resolved = summary?["sessionId"] as? String, !resolved.isEmpty { reply["tabSessionId"] = resolved }
+        return Self.json(reply)
     }
 
     /// The parents of the children the daemon listed or changed, for the sidebar's session tree

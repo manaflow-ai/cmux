@@ -45,6 +45,8 @@ struct HomeScreen: View {
                     shell.homePath.append(chief)
                 } else if case let .agent(destination) = route {
                     shell.homePath.append(destination)
+                } else if case let .mac(conversation) = route {
+                    shell.homePath.append(conversation)
                 }
             }) {
                 SidebarToolbarItem(sidebar: shell.sidebar)

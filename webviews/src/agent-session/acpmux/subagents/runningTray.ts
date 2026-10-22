@@ -47,8 +47,11 @@ export type TrayItem =
   | { kind: "command"; id: string; command: BackgroundCommand }
   | { kind: "session"; id: string; session: StartedSession };
 
-/// What the tray lists: the running subagents, each nested one right under the one that spawned
-/// it, then the background commands still running, then the started chats that run.
+/// What the tray lists and its header counts: what runs or waits on the person, never what ended
+/// (Leo 2026-10-21 on "2 subagents running · 2 commands · 32 sessions": "THIS IS LYING"). The
+/// running subagents, each nested one right under the one that spawned it, then the background
+/// commands still running, then the started chats whose turn runs or that wait on the person.
+/// What ended sits behind one folded line (``finishedTrayItems``).
 ///
 /// Between turns only work that outlives its turn shows. A foreground subagent a cancel or a
 /// reconnect left "running" pins nothing. A command shows whenever acpmux's process registry says
@@ -69,7 +72,26 @@ export function trayItems(
     if (command.state === "running" && (working || command.processId !== undefined))
       items.push({ kind: "command", id: command.id, command });
   for (const session of sessions)
-    if (session.state === "running") items.push({ kind: "session", id: session.sessionId, session });
+    if (liveSession(session)) items.push({ kind: "session", id: session.sessionId, session });
+  return items;
+}
+
+const liveSession = (session: StartedSession) => session.state === "running" || session.state === "waiting";
+
+/// The chat's subagents and started chats that ended, for the tray's one folded "N subagents done"
+/// line: the subagents in the order they started (nested ones under their parent), then the chats.
+export function finishedTrayItems(agents: readonly Subagent[], sessions: readonly StartedSession[]): TrayItem[] {
+  const ended = agents
+    .filter((agent) => agent.state !== "running")
+    .sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id));
+  const items: TrayItem[] = nestAgents(ended).map(({ agent, depth }) => ({
+    kind: "agent",
+    id: agent.id,
+    agent,
+    depth,
+  }));
+  for (const session of sessions)
+    if (!liveSession(session)) items.push({ kind: "session", id: session.sessionId, session });
   return items;
 }
 

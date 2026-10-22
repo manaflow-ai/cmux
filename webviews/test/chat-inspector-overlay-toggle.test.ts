@@ -63,8 +63,9 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
   ];
 
   /// The chat with the Inspector on (Debug Settings `agent.inspector`, pushed with the header
-  /// state) and the tab row offered, open over the chat and done entering.
-  const openInspector = async (page: Page, tabRow: number) => {
+  /// state) and the tab row offered, open in `placement` (over the chat by default: a 1600px pane's
+  /// gutter has room for it; a 700px pane's has none, so it pushes) and done entering.
+  const openInspector = async (page: Page, tabRow: number, placement: "overlay" | "push" = "overlay") => {
     await page.evaluate((height) => {
       const bridge = (
         window as unknown as {
@@ -78,7 +79,7 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
     const toggle = page.locator("button.acpmux-chat-inspector-toggle");
     await toggle.waitFor({ timeout: 10_000 });
     if ((await panel.count()) === 0) await toggle.click({ force: true });
-    await page.locator('aside.acpmux-chat-inspector[data-placement="overlay"][data-presence="shown"]').waitFor({
+    await page.locator(`aside.acpmux-chat-inspector[data-placement="${placement}"][data-presence="shown"]`).waitFor({
       timeout: 10_000,
     });
     return { panel, toggle };
@@ -88,7 +89,8 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
     for (const { name: row, tabRow } of rows)
       test(`${name}, ${row}: the toggle is above the open overlay and a click on it closes the Inspector`, async () => {
         current = browsers.get(name)!;
-        const page = await pane!.open({ width: 900, height: 520 });
+        // Wide enough that the panel floats in the gutter beside the transcript (ChatInspector.tsx pushes).
+        const page = await pane!.open({ width: 1600, height: 520 });
         try {
           const { panel, toggle } = await openInspector(page, tabRow);
           expect(await toggle.getAttribute("aria-pressed")).toBe("true");
@@ -163,7 +165,7 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
             scrolls: body.scrollHeight > body.clientHeight + 1,
           };
         });
-      const tall = await pane!.open({ width: 900, height: 1400 });
+      const tall = await pane!.open({ width: 1600, height: 1400 });
       try {
         await openInspector(tall, 0);
         const { empty, bottom, pane: height } = await measure(tall);
@@ -172,7 +174,7 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
         await tall.close();
       }
       // The harness's sections are about 160px tall: a 160px pane leaves them about 110.
-      const short = await pane!.open({ width: 900, height: 160 });
+      const short = await pane!.open({ width: 1600, height: 160 });
       try {
         await openInspector(short, 0);
         const { bottom, pane: height, scrolls } = await measure(short);
@@ -186,31 +188,37 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
   // column". It was the same card, but a busy chat's sections (Tasks 175, Subagents +94) are taller
   // than any pane, so the card always reached the pane's foot. However tall its sections, the card
   // stops at a ceiling (at most 560px, and never more than 80% of the room under the header) and
-  // its body scrolls: it never reads as a column, over the chat or over a diff.
+  // its body scrolls: it never reads as a column, over the chat or over a diff. Pushing the chat
+  // aside (a 700px pane), it is the same card: its column below the card is the chat's page.
   for (const name of browsers.keys())
-    test(`${name}: over the chat the Inspector never runs the pane's height, however tall its sections`, async () => {
+    test(`${name}: floating or pushing, the Inspector never runs the pane's height, however tall its sections`, async () => {
       current = browsers.get(name)!;
-      for (const height of [1400, 800, 420]) {
-        const page = await pane!.open({ width: 900, height });
-        try {
-          const { panel } = await openInspector(page, 0);
-          // A busy chat: every section taller than the pane.
-          await page.addStyleTag({ content: "aside.acpmux-chat-inspector [data-section] { min-height: 1600px; }" });
-          const { top, bottom, scrolls } = await panel.evaluate((node) => {
-            const box = node.getBoundingClientRect();
-            const body = node.querySelector(".acpmux-chat-inspector__body")!;
-            return { top: box.top, bottom: box.bottom, scrolls: body.scrollHeight > body.clientHeight + 1 };
-          });
-          const room = height - top;
-          expect({ height, short: bottom - top <= Math.min(560, room * 0.8) + 0.5, scrolls }).toEqual({
-            height,
-            short: true,
-            scrolls: true,
-          });
-        } finally {
-          await page.close();
+      for (const [width, placement] of [
+        [1600, "overlay"],
+        [700, "push"],
+      ] as const)
+        for (const height of [1400, 800, 420]) {
+          const page = await pane!.open({ width, height });
+          try {
+            const { panel } = await openInspector(page, 0, placement);
+            // A busy chat: every section taller than the pane.
+            await page.addStyleTag({ content: "aside.acpmux-chat-inspector [data-section] { min-height: 1600px; }" });
+            const { top, bottom, scrolls } = await panel.evaluate((node) => {
+              const box = node.getBoundingClientRect();
+              const body = node.querySelector(".acpmux-chat-inspector__body")!;
+              return { top: box.top, bottom: box.bottom, scrolls: body.scrollHeight > body.clientHeight + 1 };
+            });
+            const room = height - top;
+            expect({ width, height, short: bottom - top <= Math.min(560, room * 0.8) + 0.5, scrolls }).toEqual({
+              width,
+              height,
+              short: true,
+              scrolls: true,
+            });
+          } finally {
+            await page.close();
+          }
         }
-      }
     });
 
   // Leo, 2026-10-22: "WHY DOES IT STAY ON IN THESE RANDOM SITUATIONS WITHOUT BEING CLOSABLE!?" Over a
@@ -222,7 +230,7 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
   for (const name of browsers.keys())
     test(`${name}: the Inspector's own close button and Esc close it; Esc in the composer or on a popover leaves it open`, async () => {
       current = browsers.get(name)!;
-      const page = await pane!.open({ width: 900, height: 620 });
+      const page = await pane!.open({ width: 1600, height: 620 });
       try {
         const { panel, toggle } = await openInspector(page, 0);
         // As over a diff in place: the header, and the toggle with it, out of reach.

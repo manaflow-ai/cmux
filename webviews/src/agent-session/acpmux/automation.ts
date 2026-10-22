@@ -41,8 +41,10 @@ export function automationState(host: AutomationHost) {
     /// Whether older history remains to page in, and the oldest event seq the pane holds.
     canLoadOlder: snapshot.canLoadOlder,
     historyFrom: snapshot.historyFrom ?? null,
-    /// The session the tab recorded that the daemon lacks (the pane says "This chat isn't available").
+    /// The session the tab recorded that the daemon lacks (the pane says why: ChatUnavailableState.tsx).
     missingSession: snapshot.missingSession ?? null,
+    /// Why it is not here: `deleted`, `offline` or `connecting`, and the machine when known.
+    unavailable: snapshot.unavailable ?? null,
     /// The chat as the pane shows it: the last TRANSCRIPT_ROWS user and assistant rows, each cut
     /// at TRANSCRIPT_CHARS, so a live proof checks the real text, not only a row count.
     transcript: snapshot.rows

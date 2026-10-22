@@ -2,6 +2,7 @@
 //! notification ledger. A live frontend explicitly subscribes to its terminal
 //! projections, claims each request, then acknowledges actual browser delivery.
 
+use crate::panic_free::RecoverPoison;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
@@ -46,7 +47,7 @@ impl URLRequests {
         for terminal in &terminals {
             TerminalPublicId::parse(terminal.clone())?;
         }
-        let mut state = self.0.lock().unwrap();
+        let mut state = self.0.lock().recover_poison();
         anyhow::ensure!(
             state.subscribers.len() < CAPACITY || state.subscribers.contains_key(&client),
             "too many URL opener clients"
@@ -59,7 +60,7 @@ impl URLRequests {
 
     fn prepare(&self, terminal: &str, url: &str) -> Option<(String, mpsc::Receiver<bool>)> {
         let (id, writer, receiver) = {
-            let mut state = self.0.lock().unwrap();
+            let mut state = self.0.lock().recover_poison();
             if state.pending.len() >= CAPACITY {
                 return None;
             }
@@ -97,7 +98,7 @@ impl URLRequests {
 
     /// A buffered event cannot open a stale auth URL after its caller timed out.
     pub(super) fn claim(&self, id: &str) -> bool {
-        let mut state = self.0.lock().unwrap();
+        let mut state = self.0.lock().recover_poison();
         let Some(pending) = state.pending.get_mut(id) else {
             return false;
         };
@@ -109,23 +110,22 @@ impl URLRequests {
     }
 
     pub(super) fn complete(&self, id: &str, opened: bool) -> bool {
-        let mut state = self.0.lock().unwrap();
+        let mut state = self.0.lock().recover_poison();
         let Some(pending) = state.pending.get(id) else {
             return false;
         };
         if !pending.claimed || Instant::now() >= pending.deadline {
             return false;
         }
-        let pending = state.pending.remove(id).unwrap();
-        pending.reply.try_send(opened).is_ok()
+        state.pending.remove(id).is_some_and(|pending| pending.reply.try_send(opened).is_ok())
     }
 
     fn cancel(&self, id: &str) {
-        self.0.lock().unwrap().pending.remove(id);
+        self.0.lock().recover_poison().pending.remove(id);
     }
 
     pub(super) fn disconnect(&self, client: u64) {
-        let mut state = self.0.lock().unwrap();
+        let mut state = self.0.lock().recover_poison();
         state.subscribers.remove(&client);
         state.pending.retain(|_, pending| pending.client != client);
     }
@@ -268,13 +268,14 @@ mod tests {
             requests.push(broker.prepare(TERMINAL, "https://example.com").unwrap());
         }
         assert!(broker.prepare(TERMINAL, "https://example.com").is_none());
-        broker.0.lock().unwrap().pending.get_mut(&requests[0].0).unwrap().deadline = Instant::now();
+        broker.0.lock().recover_poison().pending.get_mut(&requests[0].0).unwrap().deadline =
+            Instant::now();
         assert!(!broker.claim(&requests[0].0));
         broker.disconnect(1);
         for (_, receiver) in requests {
             assert!(receiver.recv().is_err());
         }
-        assert!(broker.0.lock().unwrap().pending.is_empty());
+        assert!(broker.0.lock().recover_poison().pending.is_empty());
     }
 
     #[test]

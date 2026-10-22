@@ -494,9 +494,14 @@ public struct WorkspacesList: View {
             withAnimation(theme.motion.smooth.animation) { creator.setGroupCollapsed(group, on: section.macID, !group.isCollapsed) }
         } label: {
             GroupHeaderLabel(group: group, count: section.workspaces.count)
+                // The row's spacing is part of the target (it was the text's
+                // line only, about 17 pt): same layout, a 32 pt tap target.
+                .padding(.top, 10)
+                .padding(.bottom, 4)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .listRowInsets(EdgeInsets(top: 14, leading: 20, bottom: 4, trailing: 20))
+        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 0, trailing: 20))
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
         .contextMenu {

@@ -20,6 +20,12 @@ public import Foundation
 ///   (``AgentPaneImageCopies``). Spends one user gesture.
 /// - `image.openInPane {src, name}`: open a copy of a `data:` image in a cmux browser pane. Spends
 ///   a user gesture.
+/// - `image.copy {src, name}`, `image.save {src, name}`, `image.quickLook {src, name}`: the context
+///   menu's Copy Image (the copy and its bytes on the pasteboard), Save Image As… (the save panel,
+///   named for the image) and Quick Look, each on a copy of a `data:` image. Spend a user gesture.
+/// - `image.drag {src, name}`, `file.drag {path}`: a drag the person started on an image or a file
+///   chip, as the host's own drag of a real file (the image's named copy; the file only inside the
+///   roots of a local chat). Need the press still held (``AgentPaneReplyLinks/mouseHeld``).
 /// - `pr.inspect {url}`: what the user's GitHub CLI says about a GitHub pull request a reply or
 ///   the pull request bars link to (its hover card). Only a plain
 ///   `https://github.com/<owner>/<repo>/pull/<n>` is taken (``pullRequestURL(_:)``). Passive.
@@ -32,12 +38,17 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case openIn(url: URL, browserId: String)
     case revealImage(src: String, name: String, path: String?)
     case openImageInPane(src: String, name: String)
+    case copyImage(src: String, name: String)
+    case saveImage(src: String, name: String)
+    case quickLookImage(src: String, name: String)
+    case dragImage(src: String, name: String)
+    case dragFile(String)
     case inspectPullRequest(URL)
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
     public static let methods: Set<String> = [
         "link.inspect", "link.openPath", "image.load", "media.load", "browser.list", "browser.openIn", "image.reveal",
-        "image.openInPane", "pr.inspect",
+        "image.openInPane", "image.copy", "image.save", "image.quickLook", "image.drag", "file.drag", "pr.inspect",
     ]
 
     /// Each method's exact param keys (all required; `link.inspect` takes either list).
@@ -50,6 +61,11 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         "browser.openIn": ["url", "browserId"],
         "image.reveal": ["src", "name", "path"],
         "image.openInPane": ["src", "name"],
+        "image.copy": ["src", "name"],
+        "image.save": ["src", "name"],
+        "image.quickLook": ["src", "name"],
+        "image.drag": ["src", "name"],
+        "file.drag": ["path"],
         "pr.inspect": ["url"],
     ]
 
@@ -83,7 +99,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     var isPassive: Bool {
         switch self {
         case .inspect, .listBrowsers, .loadImage, .loadMedia, .inspectPullRequest: true
-        case .openPath, .openIn, .revealImage, .openImageInPane: false
+        case .openPath, .openIn, .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile: false
         }
     }
 
@@ -125,14 +141,21 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
             guard let raw = text("url", Self.maximumURL), let url = Self.webURL(raw),
                   let id = text("browserId", 64) else { return nil }
             self = .openIn(url: url, browserId: id)
-        case "image.reveal", "image.openInPane":
+        case "file.drag":
+            guard let path = text("path", AgentPaneReplyPaths.maximumLength) else { return nil }
+            self = .dragFile(path)
+        case "image.reveal", "image.openInPane", "image.copy", "image.save", "image.quickLook", "image.drag":
             // `src` is the image itself; the name may be empty (an image without alt text).
             guard let src = text("src", Self.maximumImageSource), src.hasPrefix("data:"),
                   let raw = params["name"] as? String, !raw.utf8.contains(0) else { return nil }
             let name = Self.imageName(raw)
-            guard method == "image.reveal" else {
-                self = .openImageInPane(src: src, name: name)
-                return
+            switch method {
+            case "image.openInPane": self = .openImageInPane(src: src, name: name); return
+            case "image.copy": self = .copyImage(src: src, name: name); return
+            case "image.save": self = .saveImage(src: src, name: name); return
+            case "image.quickLook": self = .quickLookImage(src: src, name: name); return
+            case "image.drag": self = .dragImage(src: src, name: name); return
+            default: break
             }
             if params["path"] != nil {
                 guard let path = text("path", AgentPaneReplyPaths.maximumLength) else { return nil }

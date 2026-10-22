@@ -6,9 +6,9 @@
 // the call is a command; not while the call's own tool row is on screen, which names it already.
 // No mark blinks before it; the ticking time says the turn is alive. After
 // that it counts the work still going in the background, as Claude's phone app does ("Working… · 5
-// running tasks"): "· 2 agents · 1 command · 3 sessions", only subagents still running, background
-// commands that have not ended (the process registry's and the transcript's,
-// inspector/processes.ts `backgroundCommands`) and chats the agent started that are running. Each count opens what it
+// running tasks"): "· 3 subagents · 1 command", only subagents and chats the agent started still
+// running (one word, subagents, as the tray says), and background commands that have not ended
+// (the process registry's and the transcript's, inspector/processes.ts `backgroundCommands`). Each count opens what it
 // counts. The counts follow on the same fixed-height line, so one that comes or goes moves neither
 // the label nor the rows below. With the running tray on (the default, subagents/runningTray.ts)
 // the tray above the composer is the count, and App.tsx counts nothing here. Before them, as Claude
@@ -45,6 +45,26 @@ export type WorkingCounts = {
   tokens?: number;
 };
 
+/// The running line's counts, each opening what it counts: the subagents and the chats the agent
+/// started are one count, "3 subagents" (the tray's word, subagents/SubagentTray.tsx), then the
+/// commands.
+export function workingParts(t: Translate, counts: WorkingCounts): { key: string; label: string; open: () => void }[] {
+  const subagents = counts.agents + counts.sessions;
+  const parts = [
+    subagents > 0 && {
+      key: "agents",
+      label: t("subagents.count", { n: subagents }),
+      open: counts.agents > 0 ? counts.openAgents : counts.openSessions,
+    },
+    counts.commands > 0 && {
+      key: "commands",
+      label: t("turn.working.commands", { n: counts.commands }),
+      open: counts.openCommands,
+    },
+  ];
+  return parts.filter((part) => part !== false);
+}
+
 /// "2.1M tokens": the running turn's tokens, compact in the pane's language.
 export const workingTokens = (t: Translate, language: PaneLanguage, tokens: number) =>
   t("turn.working.tokens", {
@@ -78,25 +98,7 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   // While the call's group is open, its own row under the line names it (turns.ts `ownRow`).
   const [groupOpen] = useTranscriptDisclosure(row.doingGroup ?? "", row.doingGroupOpen === true);
   const doing = row.doingGroup && groupOpen ? undefined : row.doing;
-  const parts = counts
-    ? [
-        counts.agents > 0 && {
-          key: "agents",
-          label: t("turn.working.agents", { n: counts.agents }),
-          open: counts.openAgents,
-        },
-        counts.commands > 0 && {
-          key: "commands",
-          label: t("turn.working.commands", { n: counts.commands }),
-          open: counts.openCommands,
-        },
-        counts.sessions > 0 && {
-          key: "sessions",
-          label: t("turn.working.sessions", { n: counts.sessions }),
-          open: counts.openSessions,
-        },
-      ].filter((part) => part !== false)
-    : [];
+  const parts = counts ? workingParts(t, counts) : [];
   return (
     // Find counts and visits transcript rows only (chatFind.ts findMatches skips this row), so the
     // line is not painted either: the call it names is matched on its own tool row.

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod lock;
-use lock::{acquire_lock, wait_for_lock_release};
+use lock::{LockHeld, acquire_lock, wait_for_lock_release};
 mod router_owner;
 #[cfg(unix)]
 pub(crate) use router_owner::open_router_owner;
@@ -146,7 +146,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // walk the user's folders (LAUNCH-NO-TCC-PROMPTS).
     let _ = std::env::set_current_dir(home());
     let lock = home().join("daemon.lock");
-    let _lock_file = acquire_lock(&lock)?;
+    let _lock_file = match acquire_lock(&lock) {
+        Ok(lock) => lock,
+        Err(e) => {
+            // The command that started this daemon waits for the holder (`connect`).
+            if let Some(fd) = opts.ready_fd.filter(|_| e.downcast_ref::<LockHeld>().is_some()) {
+                write_ready(fd, &serde_json::json!({"ready": false, "lockHeld": true}));
+            }
+            return Err(e);
+        }
+    };
     // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and
     // `local-coderouter` routes read its port and mint keys from it. Opt-in
     // (the cmux app sets ACPMUX_LOCAL_ROUTER=1). Its owner ties the router's
@@ -634,7 +643,35 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
             "--person-key-fd {fd}: not a person key (64 lowercase hex characters)"
         ));
     }
-    start_daemon_with(Some(key)).await
+    // Another daemon is stopping or starting: start again until this key's daemon has the lock,
+    // never leaving the caller to start an unkeyed one.
+    let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
+    loop {
+        let ready = start_daemon_with(Some(key.clone())).await?;
+        if !lock_held(&ready) {
+            // A keyed daemon that exited before it was ready fails this start: the caller must
+            // not go on to start an unkeyed daemon in its place.
+            anyhow::ensure!(
+                !ready.trim().is_empty(),
+                "the keyed daemon exited before it was ready; see {}",
+                home().join("daemon.log").display()
+            );
+            return Ok(ready);
+        }
+        if tokio::time::Instant::now() + HANDOVER_RETRY >= deadline {
+            return Err(anyhow!(
+                "another acpmux daemon still holds {} after {HANDOVER_BUDGET:?}; the keyed daemon did not start",
+                home().join("daemon.lock").display()
+            ));
+        }
+        tokio::time::sleep(HANDOVER_RETRY).await;
+        if Client::connect(&path).await.is_ok() {
+            return Err(anyhow!(
+                "a daemon started at {} meanwhile: it holds another person key or none; stop it with `acpmux daemon shutdown --keep-agents`, then start it again with the key",
+                path.display()
+            ));
+        }
+    }
 }
 
 /// Makes this process not dumpable before it holds a person key (cx-0q7o):
@@ -801,8 +838,7 @@ pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
     if !autostart {
         return Err(anyhow!("no acpmux daemon at {} (run `acpmux daemon`)", path.display()));
     }
-    let ready = start_daemon().await?;
-    Client::connect(&path).await.map_err(|e| not_ready(&path, &ready, &e))
+    start_and_connect(&path, || Client::connect(&path)).await
 }
 
 /// A connected socket to the daemon, starting one if needed, for a client
@@ -812,8 +848,59 @@ pub async fn connect_stream() -> Result<crate::local_stream::Stream> {
     if let Ok(stream) = crate::local_stream::connect(&path).await {
         return Ok(stream);
     }
-    let ready = start_daemon().await?;
-    crate::local_stream::connect(&path).await.map_err(|e| not_ready(&path, &ready, &e.into()))
+    start_and_connect(&path, || async { Ok(crate::local_stream::connect(&path).await?) }).await
+}
+
+/// How long a command waits for a daemon that holds the lock: a stopping one settles its agents
+/// first (`SHUTDOWN_BUDGET`, the router's stop and kill waits; 12.3 s on cosmic-gray on
+/// 2026-10-22), a starting one binds within `START_BUDGET`. The last start then has its own
+/// `START_BUDGET`.
+const HANDOVER_BUDGET: Duration = Duration::from_secs(20);
+
+/// How often a command tries again while another daemon holds the lock.
+const HANDOVER_RETRY: Duration = Duration::from_millis(250);
+
+/// Starts a daemon and connects. When the started daemon found the lock taken (its readiness
+/// line says `lockHeld`), another daemon is stopping (the app's handover to its bundled build,
+/// `host update`, `daemon shutdown`) or starting: the command connects once that one serves, or
+/// starts the next daemon once it has exited, instead of failing. Each try is a daemon start, so
+/// the command never takes the lock itself and never makes a starting daemon lose it.
+async fn start_and_connect<T, F, Fut>(path: &std::path::Path, connect: F) -> Result<T>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
+    loop {
+        let ready = start_daemon().await?;
+        let error = match connect().await {
+            Ok(c) => return Ok(c),
+            Err(e) => e,
+        };
+        if !lock_held(&ready) {
+            return Err(not_ready(path, &ready, &error));
+        }
+        if tokio::time::Instant::now() + HANDOVER_RETRY >= deadline {
+            return Err(anyhow!(
+                "another acpmux daemon still holds {} after {HANDOVER_BUDGET:?} and serves no socket at {}; see {}",
+                home().join("daemon.lock").display(),
+                path.display(),
+                home().join("daemon.log").display()
+            ));
+        }
+        tokio::time::sleep(HANDOVER_RETRY).await;
+        if let Ok(c) = connect().await {
+            return Ok(c);
+        }
+    }
+}
+
+/// Whether a started daemon's readiness line says another daemon holds the lock.
+fn lock_held(ready: &str) -> bool {
+    serde_json::from_str::<Value>(ready.trim())
+        .ok()
+        .and_then(|v| v.get("lockHeld").and_then(Value::as_bool))
+        == Some(true)
 }
 
 /// Start a daemon and wait until it reports readiness or exits. Returns its

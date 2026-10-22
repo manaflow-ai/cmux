@@ -20,7 +20,7 @@ import Testing
         let scope = ThemeScope(level: .room)
         scope.setOverride(try #require(ThemeSpec("Plain Dark")), input: input, animated: false)
         scope.root(root)
-        let link = HomeChiefLinkButton(title: HomeEngineStrings.showMemory, target: root, action: #selector(NSView.display))
+        let link = HomeChiefLinkButton(title: HomeEngineStrings.showMemory, target: root, action: #selector(NSView.display as (NSView) -> () -> Void))
         root.addSubview(link)
         let drawn = try #require(link.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)
         let (lit, raw) = scope.perform { (Palette.litGlyph, Palette.accent) }

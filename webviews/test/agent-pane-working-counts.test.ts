@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts, replies, commands and subagent names, not shipped UI.
 // The running turn's line counts the work still going in the background, after Claude's phone
-// app ("Working… · 5 running tasks"): "Read app.ts 3s · 2 agents · 1 command", on the turn's one
+// app ("Working… · 5 running tasks"): "Read app.ts 3s · 2 subagents · 1 command", on the turn's one
 // live line at its bottom. It counts only
 // subagents still running and background shells that have not ended, each count opens what it
 // counts, and a count never moves the line or the rows under it. That is the presentation with the
@@ -224,7 +224,9 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
   test("the line counts the subagents and background shells still running", async () => {
     const page = await open(BUSY);
     // The Linter finished and the watcher stopped: neither counts.
-    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+ · 2 agents · 1 command$/);
+    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(
+      /^Read [^·]+ · 2 subagents · 1 command$/,
+    );
     await page.close();
     const plain = await open(QUIET);
     expect((await line(plain).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Read [^·]+$/);
@@ -291,7 +293,7 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
 
   test("the agent count opens the list of the chat's agents", async () => {
     const page = await open(BUSY);
-    await line(page).getByRole("button", { name: "2 agents" }).click();
+    await line(page).getByRole("button", { name: "2 subagents" }).click();
     const list = page.getByRole("region", { name: "Subagents" });
     await list.waitFor({ timeout: 5_000 });
     expect(await list.getByText("Reviewer").isVisible()).toBe(true);

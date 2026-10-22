@@ -21,13 +21,30 @@ impl Drop for DaemonLock {
     }
 }
 
+/// Another daemon holds the lock: one that is stopping or starting. Any other failure to take
+/// the lock (permissions, a symlink, an I/O error) is a plain error.
+#[derive(Debug)]
+pub(super) struct LockHeld(PathBuf);
+
+impl std::fmt::Display for LockHeld {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "another acpmux daemon holds {}", self.0.display())
+    }
+}
+
+impl std::error::Error for LockHeld {}
+
 #[cfg(unix)]
 pub(super) fn acquire_lock(path: &Path) -> Result<DaemonLock> {
     use std::os::unix::io::AsRawFd;
     let file = crate::config::private_state_rw(path)?;
     let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
     if rc != 0 {
-        return Err(anyhow!("another acpmux daemon holds {}", path.display()));
+        let e = std::io::Error::last_os_error();
+        if e.kind() == std::io::ErrorKind::WouldBlock {
+            return Err(LockHeld(path.to_owned()).into());
+        }
+        return Err(anyhow!("lock {}: {e}", path.display()));
     }
     Ok(DaemonLock(file))
 }
@@ -36,13 +53,11 @@ pub(super) fn acquire_lock(path: &Path) -> Result<DaemonLock> {
 /// (a child gets no copy: the daemon starts children with a handle list).
 #[cfg(windows)]
 pub(super) fn acquire_lock(path: &Path) -> Result<DaemonLock> {
-    use anyhow::{Context, anyhow};
+    use anyhow::Context;
     let file = crate::config::private_state_rw(path)?;
     match file.try_lock() {
         Ok(()) => Ok(DaemonLock(file)),
-        Err(std::fs::TryLockError::WouldBlock) => {
-            Err(anyhow!("another acpmux daemon holds {}", path.display()))
-        }
+        Err(std::fs::TryLockError::WouldBlock) => Err(LockHeld(path.to_owned()).into()),
         Err(std::fs::TryLockError::Error(e)) => {
             Err(anyhow::Error::new(e).context(format!("lock {}", path.display())))
         }

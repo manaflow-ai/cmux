@@ -6,8 +6,8 @@ same dev account. The phone chooses the first Mac (Workspaces filter); the
 second Mac's agent then asks a permission. The phone answers Deny from the Feed,
 and the answer must reach the second Mac (its `acpmux pending` empties, read on
 that Mac, never through the phone), with no "Not connected" on the card. Then
-Home: each Chief pin says where it runs, and the Filter menu's Mac filter
-scopes Home to the second Mac (its Mac Chief moves there).
+Home: each Chief says where it runs, and the Mac menu
+shows the second Mac's Home (its Mac Chief moves there).
 
     python3 multimac_feed.py --app PATH --udid UDID --rig HOST --rig HOST [--out DIR] [--keep-install]
 
@@ -137,24 +137,18 @@ def main():
         log(f"home pins: {pins}")
         results["checks"]["home_pins_all"] = pins
 
-        # 4. Home's Mac filter: the second Mac.
-        sim.tap_q(ident="home.filter", timeout=20)
+        # 4. Home's Mac menu (whose Home shows): the second Mac.
+        sim.tap_q(ident="home.mac", timeout=20)
         time.sleep(1.2)
-        sim.shot("05-home-filter-menu")
+        sim.shot("05-home-mac-menu")
         sim.tap_q(contains=asker.mac_name, timeout=20)
         time.sleep(6.0)
         sim.shot("06-home-second-mac")
         pins2 = {e.ident: e.label for e in sim.find(ident="home.chief*")}
-        filt = sim.wait(ident="home.filter", timeout=10)
-        log(f"home pins, second Mac: {pins2}; filter {filt.value if filt else None}")
+        filt = sim.wait(ident="home.mac", timeout=10)
+        log(f"home pins, second Mac: {pins2}; Mac menu {filt.value if filt else None}")
         results["checks"]["home_pins_second_mac"] = pins2
         results["checks"]["home_filter_value"] = filt.value if filt else None
-        # Back to All Macs.
-        sim.tap_q(ident="home.filter", timeout=20)
-        time.sleep(1.0)
-        sim.tap_q(label="All Macs", timeout=20)
-        time.sleep(2.0)
-        sim.shot("07-home-all-macs")
     finally:
         sim.record_stop()
     c = results["checks"]

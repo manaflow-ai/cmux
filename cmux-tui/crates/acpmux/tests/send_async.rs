@@ -302,3 +302,59 @@ async fn a_paused_agent_pair_holds_the_delivery_and_says_so() {
     assert_eq!(last["attempts"], 1, "a held message is not sent again: {last}");
     assert!(last["error"].as_str().is_some_and(|e| !e.is_empty()), "{last}");
 }
+
+/// A session whose folder was removed (its worktree deleted while it was idle): on 2026-10-21
+/// sends to cmux16's `chief-team` failed with `spawn harness process: No such file or directory`,
+/// which named neither the folder nor what was missing. The message stays queued, tried again,
+/// says which folder is gone, and is delivered once the folder is back.
+#[tokio::test]
+async fn a_session_whose_folder_is_gone_keeps_the_message_and_names_the_folder() {
+    let h = hub();
+    let folder = std::env::temp_dir().join(format!("send-async-gone-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    let mut c = C::new(h.clone()).await;
+    let s = c
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": folder, "mcpServers": [], "_meta": {"acpmux": {"name": "gone-lane"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.call(method::SESSION_PROMPT, prompt(&id, "first", "p-gone-0")).await.unwrap();
+    let session = h.resolve("gone-lane").unwrap();
+    h.detach_child(&session).await;
+    std::fs::remove_dir_all(&folder).unwrap();
+
+    let started = Instant::now();
+    let queued = c.call(SEND_QUEUE, json!({"request": prompt(&id, "hi", "p-gone")})).await.unwrap();
+    assert!(started.elapsed() < ACK, "send_queue took {:?}", started.elapsed());
+    let delivery = queued["deliveryId"].as_str().unwrap().to_owned();
+    // The first attempt's refusal, once it has run (its error is set).
+    let mut status = Value::Null;
+    for _ in 0..20 {
+        status = c.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 500})).await.unwrap();
+        if status["error"].is_string() {
+            break;
+        }
+    }
+    assert!(matches!(status["status"].as_str(), Some("queued" | "delivering")), "{status}");
+    let error = status["error"].as_str().unwrap_or_default();
+    assert!(
+        error.contains(&*folder.to_string_lossy()) && error.contains("no longer exists"),
+        "the error names the missing folder: {status}"
+    );
+
+    std::fs::create_dir_all(&folder).unwrap();
+    let mut status = Value::Null;
+    for _ in 0..3 {
+        status =
+            c.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 10_000})).await.unwrap();
+        if status["status"] == "delivered" {
+            break;
+        }
+    }
+    assert_eq!(status["status"], "delivered", "{status}");
+    let _ = std::fs::remove_dir_all(&folder);
+}

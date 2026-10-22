@@ -196,11 +196,35 @@ import Testing
         #expect(run(["\u{1B}[5G\u{1B}[2A\u{1B}[K"]) == "\u{1B}[5G\u{1B}[2A\u{1B}[K")
     }
 
+    /// Entering the alternate screen limits the scroll margins to the Mac's
+    /// rows (the alternate screen is drawn from the mirror's top).
+    private let altEnter = "\u{1B}[?1049h\u{1B}7\u{1B}[1;42r\u{1B}8"
+
     @Test func alternateScreenIsNotShifted() {
         let out = run(["\u{1B}[?1049h\u{1B}[1;1Hvim\u{1B}[42;1H", "\u{1B}[?1049l\u{1B}[42;1H"])
-        #expect(out == "\u{1B}[?1049h\u{1B}[1;1Hvim\u{1B}[42;1H\u{1B}[?1049l\u{1B}7\u{1B}[r\u{1B}8\u{1B}[151;1H")
+        #expect(out == altEnter + "\u{1B}[1;1Hvim\u{1B}[42;1H\u{1B}[?1049l\u{1B}7\u{1B}[r\u{1B}8\u{1B}[151;1H")
         // vim's region for its 42 rows stays as is on the alternate screen; leaving resets it.
-        #expect(run(["\u{1B}[?1049h\u{1B}[1;42r", "\u{1B}[?1049l"]) == "\u{1B}[?1049h\u{1B}[1;42r\u{1B}[?1049l\u{1B}7\u{1B}[r\u{1B}8")
+        #expect(run(["\u{1B}[?1049h\u{1B}[1;42r", "\u{1B}[?1049l"]) == altEnter + "\u{1B}[1;42r\u{1B}[?1049l\u{1B}7\u{1B}[r\u{1B}8")
+    }
+
+    /// Live check (2026-10-21): `less` scrolls with a line feed on its last
+    /// row and sets no margins. On the 151-row mirror that line feed moved
+    /// the cursor below the Mac's 42 rows instead of scrolling, so the phone
+    /// kept showing the first page while the Mac's less moved on. The
+    /// alternate screen's margins are the Mac's rows, and a reset of the
+    /// margins there goes back to them.
+    @Test func theAlternateScreenScrollsAtTheMacsLastRow() {
+        #expect(run(["\u{1B}[?1049h"]) == altEnter)
+        #expect(run(["\u{1B}[?1049h", "\u{1B}[r", "\u{1B}[1;42r", "\u{1B}[3;10r"])
+            == altEnter + "\u{1B}[1;42r\u{1B}[1;42r\u{1B}[3;10r")
+        // Every reset form is the Mac's screen; a bottom past it is clamped.
+        #expect(run(["\u{1B}[?1049h", "\u{1B}[;r\u{1B}[0;0r\u{1B}[1;0r\u{1B}[5r\u{1B}[2;99r"])
+            == altEnter + "\u{1B}[1;42r\u{1B}[1;42r\u{1B}[1;42r\u{1B}[5;42r\u{1B}[2;42r")
+        // Mode 47 and 1047 too; no mirror offset, nothing to add.
+        #expect(run(["\u{1B}[?47h"]) == "\u{1B}[?47h\u{1B}7\u{1B}[1;42r\u{1B}8")
+        #expect(run(["\u{1B}[?1049h\u{1B}[r"], offset: 0) == "\u{1B}[?1049h\u{1B}[r")
+        // Already on the alternate screen (a repeated switch): set again, harmless.
+        #expect(run(["\u{1B}[?1049h", "\u{1B}[?1049h"]) == altEnter + altEnter)
     }
 
     @Test func fullScreenRegionKeepsTheScrollback() {

@@ -546,7 +546,7 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   per-launch secret. The phone sends only datagrams (input, feedback, clock
   probes), `stop`, and rd `service` messages for `rb/1` whose body `t` is a
   viewer message (`rb.open`, `rb.close`, `rb.visibility`, `rb.screen`,
-  `rb.vsync`, `rb.history`, `rb.navigate` to http, https or `about:blank`,
+  `rb.vsync`, `rb.history`, `rb.navigate` to an allowed address (below),
   `rb.menu.result`, `rb.dialog.result`, `rb.open_tab.result`, `rb.find`,
   `rb.find.stop`); hostd drops anything else. One host per `tab` outlives
   its channel; a new channel for the same tab closes the older with
@@ -556,8 +556,61 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   (2026-10-20; before, `replaced`). The phone opens an evicted tab again when
   it is shown (at its current address), and on a new link it opens only the
   tab on screen, never every tab it holds (transport-verify-20261019.md
-  defect 7). `url` must be http, https or `about:blank` (`forbidden`), and
-  a Mac with no browser host refuses with `unavailable`. Under
+  defect 7). `url` must be an allowed address (below; otherwise the channel
+  closes `forbidden`, `not_found` or `bad_request` with the sentence the phone
+  shows as its reason), and a Mac with no browser host refuses with `unavailable`.
+  **Addresses** (2026-10-21, `browser_policy.rs`):
+  - A page one of the Mac's own browser tabs shows (the daemon's
+    `list-workspaces`), and the address a tab was opened at after that check,
+    always loads, whatever its scheme (`file:` anywhere, `chrome:` pages): the
+    phone views what is already on the Mac's screen. `javascript:` and app
+    schemes never load, even then.
+  - Any other address, typed or followed inside the page: `http(s)`,
+    `about:blank`, `data:`, `blob:`, `view-source:` of `http(s)`, and `file:`
+    (`file:///p`, `file://localhost/p`, percent-decoded) inside the folders the
+    Mac shares with the phone, which are the `file` service's roots (Chat
+    Folders and the shareable workspace folders: never home, its parents or
+    `~/.ssh`, `~/Library` and the other credential trees; symlinks resolved).
+    `javascript:`, `chrome:`, `chrome-extension:`, `devtools:`, other `about:`
+    pages, `file:` elsewhere and every other scheme are refused.
+  - A shared file is loaded at its resolved path (hostd forwards
+    `file://<canonical path>`), so a symlink swapped in after the check cannot
+    redirect the load. A page the Mac shows is remembered for the tab; a
+    shared file is checked again each time; its `?query` and `#fragment` are
+    kept. Checks read the daemon once per 2 s at most, and only for `file:`
+    and browser pages, so a page the Mac opened within the last 2 s can be
+    refused once (it loads when asked again).
+  - A refused `rb.navigate` never reaches the host: hostd answers the phone
+    with the rb message `rb.navigate.refused {url, code, reason}`
+    (`code`: `file_not_shared`, `file_missing`, `script`, `browser_page`,
+    `app_scheme`, `malformed`; `reason` an English sentence such as "This file
+    isn't in a folder this Mac shares with your iPhone."). The phone shows the
+    reason over the page, in its own words for a known `code`, and the address
+    bar goes back to the page.
+  - hostd checks the host's `rb.page` too: a page the host went to by itself
+    (a link, a redirect, script) that the rules refuse is not forwarded; hostd
+    sends the host `rb.history back` (or `rb.navigate` to the last shown page
+    when there is no history) and the phone gets `rb.navigate.refused`. After
+    three take-backs with no phone navigation between (and no page that stayed
+    1 s), hostd sends the host to `about:blank` instead (a page that bounces on
+    load, or redirects on to one that does). The frames painted
+    before the host goes back can still reach the phone.
+  - An older hostd refuses every address but http, https and `about:blank`
+    ("only http, https and about:blank load") and drops other `rb.navigate`
+    without an answer. The phone's address bar sends `file:` URLs, Mac paths
+    (`/Users/...` becomes a `file:` URL) and the other schemes as typed.
+  **Keyboard** (2026-10-21): the phone types into the page with rb input events on
+  the input lane: text as `ime_commit`, Return, Tab, Backspace, Escape and arrows
+  as `key` down/up, and shortcuts as `key` with `modifiers` (Command = 8) and the
+  Mac's `edit_commands` (`SelectAll`, `Copy`, `Cut`, `Undo`). Copy and Cut run
+  on the Mac, so they put the text on the Mac's clipboard (the owner's own).
+  Paste sends the phone's clipboard text as `ime_commit`. While the keyboard shows, the phone sends
+  `rb.screen` with the page's visible height, so the page lays out above the
+  keyboard. Hiding the keyboard sends nothing (the page keeps its focus). The host
+  does not report the focused field yet (`rb.text_input`), so the phone cannot
+  raise the keyboard by itself when the page focuses a field. Keys of a
+  hardware keyboard attached to the phone reach the page only as text (and
+  Return, Tab, Backspace); arrows, Escape and shortcuts go through the key bar. Under
   `CMUX_MOBILE_CONTROL=stdio` the app starts the hosts: hostd writes
   `{"type":"need_browser","request","tab","url"}` and the app answers
   `{"type":"browser","request","addr":"127.0.0.1:PORT","secret"}` or

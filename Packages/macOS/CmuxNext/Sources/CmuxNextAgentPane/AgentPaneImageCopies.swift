@@ -79,6 +79,28 @@ extension AgentPaneImageCopies {
         switch request {
         case .revealImage(let src, let name, let path): return await reveal(src, name: name, path: path, in: model)
         case .openImageInPane(let src, let name): return await openInPane(src, name: name, in: model)
+        case .copyImage(let src, let name):
+            return await withCopy(src, name: name, in: model) { file in
+                _ = model.replyLinks.copyItem(AgentPaneImageCopies.pasteboardItem(file, data: await AgentPaneImageCopies.imageBytes(file)))
+            }
+        case .saveImage(let src, let name):
+            return await withCopy(src, name: name, in: model) { file in
+                model.replyLinks.saveFile(file, AgentPaneImageCopies.savedName(name, file: file))
+            }
+        case .dragImage(let src, let name):
+            guard model.replyLinks.mouseHeld() else { return AgentPaneModel.replyFailure(.gestureRequired) }
+            switch await copy(src, name: name, in: model.replyLinks.imageFolder) {
+            case .success(let file):
+                return model.replyLinks.startDrag(file) ? AgentPaneReply.success() : AgentPaneModel.replyFailure(.openFailed)
+            case .failure(let error):
+                return AgentPaneModel.replyFailure(error)
+            }
+        case .dragFile(let path):
+            guard model.replyLinks.mouseHeld() else { return AgentPaneModel.replyFailure(.gestureRequired) }
+            guard let file = draggedFile(path, in: model) else { return AgentPaneModel.replyFailure(.pathInvalid) }
+            return model.replyLinks.startDrag(file) ? AgentPaneReply.success() : AgentPaneModel.replyFailure(.openFailed)
+        case .quickLookImage(let src, let name):
+            return await withCopy(src, name: name, in: model) { model.replyLinks.quickLookFile($0) }
         default: return AgentPaneModel.replyFailure(.openFailed)
         }
     }
@@ -107,6 +129,15 @@ extension AgentPaneImageCopies {
               !resolved.isFolder, let canonical = AcpmuxPathPolicy.canonical(resolved.path),
               !model.replyPaths().isDenied(canonical) else { return nil }
         return URL(fileURLWithPath: canonical, isDirectory: false)
+    }
+
+    /// The file `path` names when it may be dragged out: a file or folder inside the roots, not on
+    /// the deny list, in a chat on this machine.
+    @MainActor static func draggedFile(_ path: String, in model: AgentPaneModel) -> URL? {
+        guard !model.remoteChat, let resolved = model.replyPaths().resolve(path), resolved.place == .root,
+              let canonical = AcpmuxPathPolicy.canonical(resolved.path),
+              !model.replyPaths().isDenied(canonical) else { return nil }
+        return URL(fileURLWithPath: canonical, isDirectory: resolved.isFolder)
     }
 
     /// `image.openInPane`: a copy of the `data:` image in a cmux browser pane.

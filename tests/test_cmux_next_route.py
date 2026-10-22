@@ -37,13 +37,19 @@ PR_17470 = [
 
 
 def manifest_target_paths() -> set[str]:
-    """The default path of each target Package.swift declares: Tests/<name> for a test
-    target, Sources/<name> otherwise. No target in the manifest sets its own path."""
+    """The path of each target Package.swift declares: its own `path:` when it sets one
+    (CmuxNextTestExitTrace lives in Tests/Support), else Tests/<name> for a test target and
+    Sources/<name> otherwise."""
     manifest = (ROOT / PACKAGE / "Package.swift").read_text(encoding="utf-8")
-    return {
-        f"{PACKAGE}/{'Tests' if kind == 'testTarget' else 'Sources'}/{name}"
-        for kind, name in re.findall(r'\.(target|testTarget|executableTarget)\(\s*name:\s*"([^"]+)"', manifest)
-    }
+    starts = list(re.finditer(r'\.(target|testTarget|executableTarget)\(\s*name:\s*"([^"]+)"', manifest))
+    paths = set()
+    for index, start in enumerate(starts):
+        end = starts[index + 1].start() if index + 1 < len(starts) else len(manifest)
+        own = re.search(r'\bpath:\s*"([^"]+)"', manifest[start.end():end])
+        kind, name = start.groups()
+        default = f"{'Tests' if kind == 'testTarget' else 'Sources'}/{name}"
+        paths.add(f"{PACKAGE}/{own.group(1) if own else default}")
+    return paths
 
 
 def tiers(changed: list[str], event: str = "pull_request", labels: frozenset[str] = frozenset()) -> dict[str, str]:

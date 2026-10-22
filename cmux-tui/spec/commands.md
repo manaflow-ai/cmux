@@ -6487,7 +6487,9 @@ the participant's last pin. `position` is at most 2^53-2. Clients that merge
 local and Cloud pins send the pin time in milliseconds as `position`, so one
 list orders both owners' pins by when they were pinned. Unpinning drops the
 position; marking read does not move the read cursor (a client sends
-`read_cursor.set` too). Trusted local connections only.
+`read_cursor.set` too). Trusted local connections only; cmux-mobile-host's
+`chief` channel relays `inbox.pin` and `inbox.mark_unread` (never `inbox.mute`)
+for the owner's paired iPhone, for a conversation in that channel's scope only.
 
 Params: `conversation`, `op` (both required).
 
@@ -6533,6 +6535,10 @@ derives each row once, so every view (the Messages view, the Channels page,
 the CLI) shows the same list. A read model: it adds facts to the
 `conversation-list` summaries and changes nothing. Trusted local connections
 only, never a relayed remote device; the caller is the connection's principal.
+The one relay is cmux-mobile-host's `chief` channel for the Mac owner's paired
+iPhone: it forwards only `owners: ["local"]` and drops every row outside that
+channel's scope (conversations between the owner and agents;
+`cmux-next-ios/rust/crates/cmux-mobile-host/src/chief_policy.rs`).
 
 Rules. `kind`: a conversation with one other participant is `chief` (that
 participant is an agent of class `mux` or one the Chief registry knows) or `direct`, except a titled later

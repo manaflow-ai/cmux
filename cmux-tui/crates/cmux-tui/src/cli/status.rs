@@ -33,6 +33,7 @@ use super::{GlobalArgs, OutputMode, Surface, UsageError};
 
 mod status_wait;
 mod terminal_wait;
+pub(super) use terminal_wait::duration;
 
 const DEFAULT_BADGE_TTL: &str = "8s";
 /// Flags `set` passes through to `workspace status set` unchanged.
@@ -85,7 +86,8 @@ pub(super) fn drop_caller_terminal_when_routed(
 fn run(global: &GlobalArgs, command: &[String]) -> Option<i32> {
     let (first, rest) = command.split_first()?;
     if super::canonical_scope(first) == "terminal" {
-        return terminal_wait::run(global, rest);
+        return super::terminal_talk::run(global, rest)
+            .or_else(|| terminal_wait::run(global, rest));
     }
     if first != "status" {
         return None;

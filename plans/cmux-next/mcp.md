@@ -211,7 +211,7 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
 | `session.*` (list, get, open, snapshot, ping, creation, journal, defaults, window title, shutdown, reload), `client.get/list`, `frontend_projection.*`, `pairing_request.*`, `sidebar_view.*` | cmux-tui-only scopes the curated `cmux` CLI also refuses; pairing needs a person |
 | app actions the app exempts from MCP (`surfaces.mcp` in `action.list`, its `ActionSurfacePlan`: `credentials` such as account connect/remove and sign in/out, `endsApp` such as quit, `systemChange` such as toggle setting or install CLI) | the app owns the decision; the server words the reason and refuses an action whose app reports no `surfaces.mcp` |
 | GUI-only actions, `action.run` by id | only `cli: true` actions |
-| `settings.*`, `history.list`, `bookmark.list`, `accounts.list`, `browser.page.*`, `events.stream`, `system.*` | not catalog operations or CLI actions; private data, credentials or page access; later phases decide |
+| `settings.*`, `history.list`, `bookmark.list`, `bookmark.importSources`, `accounts.list`, `browser.page.*`, `events.stream`, `system.*` | not catalog operations or CLI actions; private data, credentials or page access; later phases decide |
 
 The parity test (`cli/mcp/tests.rs`) fails when a catalog operation is neither a tool
 nor excluded, when a tool's operation has no `cmux` command, or when `cmux` offers an

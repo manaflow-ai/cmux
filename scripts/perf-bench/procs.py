@@ -5,6 +5,10 @@
   ri_user/system     CPU time in mach ticks (words 2, 3): CPU %
   pkg idle + interrupt wakeups (words 4, 5): wakeups/s (what Activity Monitor shows)
   ri_phys_footprint  (word 9): what Activity Monitor calls Memory
+  ri_diskio_byteswritten (word 19): bytes the process wrote to disk (the disk-write rows)
+
+`proc_pidinfo(PROC_PIDTASKINFO)` adds the overhead counters of speed-of-sound-DESIGN.md:
+threads, Mach messages sent + received (IPC), Unix + Mach syscalls and context switches.
 
 An instance is every process of one browser run: the main pid's descendants,
 every process whose executable lies inside the bundle (helpers, crashpad,
@@ -46,6 +50,40 @@ def counters(pid: int):
         return None
     cpu_ns = (buf[2] + buf[3]) * _timebase.numer // _timebase.denom
     return buf[42], cpu_ns, buf[4] + buf[5], buf[9]
+
+
+class _TaskInfo(ctypes.Structure):
+    _fields_ = [("virtual_size", ctypes.c_uint64), ("resident_size", ctypes.c_uint64),
+                ("total_user", ctypes.c_uint64), ("total_system", ctypes.c_uint64),
+                ("threads_user", ctypes.c_uint64), ("threads_system", ctypes.c_uint64),
+                ("policy", ctypes.c_int32), ("faults", ctypes.c_int32), ("pageins", ctypes.c_int32),
+                ("cow_faults", ctypes.c_int32), ("messages_sent", ctypes.c_int32),
+                ("messages_received", ctypes.c_int32), ("syscalls_mach", ctypes.c_int32),
+                ("syscalls_unix", ctypes.c_int32), ("csw", ctypes.c_int32), ("threadnum", ctypes.c_int32),
+                ("numrunning", ctypes.c_int32), ("priority", ctypes.c_int32)]
+
+
+_PROC_PIDTASKINFO = 4
+
+
+def overhead(pid: int):
+    """(disk bytes written, threads, Mach messages, syscalls, context switches), or None once gone.
+
+    The message, syscall and switch counters are cumulative 32-bit counts: diff two reads."""
+    buf = (ctypes.c_uint64 * 64)()
+    if _libproc.proc_pid_rusage(ctypes.c_int(pid), ctypes.c_int(6), ctypes.byref(buf)) != 0:
+        return None
+    info = _TaskInfo()
+    size = ctypes.sizeof(info)
+    if _libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(_PROC_PIDTASKINFO), ctypes.c_uint64(0),
+                             ctypes.byref(info), ctypes.c_int(size)) != size:
+        return buf[19], 0, 0, 0, 0
+    return (buf[19], info.threadnum, (info.messages_sent + info.messages_received) & 0xFFFFFFFF,
+            (info.syscalls_mach + info.syscalls_unix) & 0xFFFFFFFF, info.csw & 0xFFFFFFFF)
+
+
+def _delta32(last: int, first: int) -> int:
+    return (last - first) & 0xFFFFFFFF
 
 
 def process_table():
@@ -174,6 +212,7 @@ class Instance:
         A process that starts inside the window counts from its start; one that
         ends inside it is lost (its last counters cannot be read)."""
         start = {pid: (counters(pid), cmd) for pid, cmd in self.pids().items()}
+        start_overhead = {pid: overhead(pid) for pid in start}
         began = time.monotonic()
         if during:
             during(seconds)
@@ -181,24 +220,39 @@ class Instance:
             time.sleep(seconds)  # bench: the measured window
         elapsed = time.monotonic() - began
         kinds: dict[str, dict] = {}
-        totals = {"mw": 0.0, "cpu_pct": 0.0, "wakeups_per_s": 0.0}
+        totals = {"mw": 0.0, "cpu_pct": 0.0, "wakeups_per_s": 0.0, "disk_kb_per_s": 0.0,
+                  "mach_msgs_per_s": 0.0, "syscalls_per_s": 0.0, "csw_per_s": 0.0}
+        threads = 0
+        processes = 0
         rows = []
         for pid, cmd in self.pids().items():
             last = counters(pid)
-            if last is None:
+            last_overhead = overhead(pid)
+            if last is None or last_overhead is None:
                 continue
             first = start.get(pid, (None, cmd))[0] or (0, 0, 0, 0)
+            first_overhead = start_overhead.get(pid) or (0, 0, 0, 0, 0)
             values = {"mw": (last[0] - first[0]) / 1e6 / elapsed,
                       "cpu_pct": 100 * (last[1] - first[1]) / 1e9 / elapsed,
-                      "wakeups_per_s": (last[2] - first[2]) / elapsed}
-            entry = kinds.setdefault(kind_of(cmd), {"n": 0, "mw": 0.0, "cpu_pct": 0.0, "wakeups_per_s": 0.0})
+                      "wakeups_per_s": (last[2] - first[2]) / elapsed,
+                      "disk_kb_per_s": (last_overhead[0] - first_overhead[0]) / 1024 / elapsed,
+                      "mach_msgs_per_s": _delta32(last_overhead[2], first_overhead[2]) / elapsed,
+                      "syscalls_per_s": _delta32(last_overhead[3], first_overhead[3]) / elapsed,
+                      "csw_per_s": _delta32(last_overhead[4], first_overhead[4]) / elapsed}
+            threads += last_overhead[1]
+            processes += 1
+            entry = kinds.setdefault(kind_of(cmd), {"n": 0, "threads": 0, **{k: 0.0 for k in totals}})
             entry["n"] += 1
+            entry["threads"] += last_overhead[1]
             for key, value in values.items():
                 entry[key] += value
                 totals[key] += value
             if per_pid:
-                rows.append({"pid": pid, "kind": kind_of(cmd), **{k: round(v, 3) for k, v in values.items()}})
+                rows.append({"pid": pid, "kind": kind_of(cmd), "threads": last_overhead[1],
+                             **{k: round(v, 3) for k, v in values.items()}})
         rounded = {k: round(v, 3) for k, v in totals.items()}
+        rounded["threads"] = threads
+        rounded["processes"] = processes
         rounded["seconds"] = round(elapsed, 1)
         rounded["kinds"] = {k: {kk: round(vv, 3) for kk, vv in e.items()}
                             for k, e in sorted(kinds.items(), key=lambda kv: -kv[1]["mw"])}

@@ -13,7 +13,7 @@ import { usePaneLanguage, useT } from "../i18n";
 import { BackgroundHint } from "./BackgroundHint";
 import { formatDuration } from "./turns";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
-import { useTicking, WorkingCountsContext, workingTokens } from "./WorkingFor";
+import { useTicking, WorkingCountsContext, workingParts, workingTokens } from "./WorkingFor";
 
 /// How long streaming text must hold still before the live line comes back under it.
 export const QUIET_MS = 1200;
@@ -94,26 +94,7 @@ export function Thinking({
   const counts = useContext(WorkingCountsContext);
   const tokens = counts?.tokens;
   const showTokens = Boolean(tokens) && timed && doing === undefined;
-  const parts =
-    counts && !status && !waiting
-      ? [
-          counts.agents > 0 && {
-            key: "agents",
-            label: t("turn.working.agents", { n: counts.agents }),
-            open: counts.openAgents,
-          },
-          counts.commands > 0 && {
-            key: "commands",
-            label: t("turn.working.commands", { n: counts.commands }),
-            open: counts.openCommands,
-          },
-          counts.sessions > 0 && {
-            key: "sessions",
-            label: t("turn.working.sessions", { n: counts.sessions }),
-            open: counts.openSessions,
-          },
-        ].filter((part) => part !== false)
-      : [];
+  const parts = counts && !status && !waiting ? workingParts(t, counts) : [];
   return (
     <div className={`cv-worked${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
       {waiting ? (

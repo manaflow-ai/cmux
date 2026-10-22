@@ -234,7 +234,9 @@ pub(super) fn handle_command_with_cancellation(
         Command::ReportAgent { surface, state, source, session } => {
             cmd_frontend::report_agent(mux, surface, state, source, session)
         }
-        Command::VtState { .. } => unreachable!("vt-state uses its streaming response path"),
+        Command::VtState { .. } => {
+            anyhow::bail!("vt-state is served by its streaming response path")
+        }
         Command::MintTerminalRenderer { surface, ttl_ms } => {
             cmd_terminals::mint_terminal_renderer(mux, client, surface, ttl_ms)
         }

@@ -3543,7 +3543,8 @@ button.cv-received__name:focus-visible {
   padding-bottom: var(--cv-message-gap);
 }
 
-/* A steer the agent has not read yet (PendingSteer.tsx): a faint clock, then Send now. */
+/* A steer the agent has not read yet (PendingSteer.tsx): a faint clock, then Send now. Under a
+   Chief's bubble it is a line of its own; under the person's it sits beside the bubble (below). */
 .cv-user__pending {
   display: flex;
   align-items: center;
@@ -3555,6 +3556,19 @@ button.cv-received__name:focus-visible {
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   color: var(--cv-text-muted);
+}
+/* Beside the bubble's left edge, centred on its first line and out of the layout, as Claude draws a
+   queued prompt's controls: a waiting steer is as tall as any prompt (Leo, 2026-10-21). The bubble
+   is at most 70% of its row, so the 30% left of it holds the clock and Send now. */
+.cv-user__pending--beside {
+  position: absolute;
+  top: 0;
+  right: calc(100% + 8px);
+  height: calc(16px + var(--cv-line-height));
+  margin: 0;
+  padding: 0;
+  white-space: nowrap;
+  user-select: none;
 }
 .cv-user__pending-clock {
   display: inline-flex;

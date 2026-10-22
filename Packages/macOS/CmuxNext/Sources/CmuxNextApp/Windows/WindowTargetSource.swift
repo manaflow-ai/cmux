@@ -36,7 +36,7 @@ final class WindowTargetSource: PaletteTargetSource {
         let listed = Set(order)
         let rest = services.machines.allWorkspaces.map(\.0.id).filter { !listed.contains($0) }
         let options = (order + rest).compactMap { id in
-            services.workspace(id: id).map { PaletteTargetOption(id: id, title: $0.displayName, symbol: "rectangle.stack") }
+            services.workspace(id: id).map { PaletteTargetOption(id: id, title: services.shownWorkspaceName($0), symbol: "rectangle.stack") }
         }
         return options.filter { $0.id != shown } + options.filter { $0.id == shown }
     }
@@ -64,7 +64,7 @@ final class WindowTargetSource: PaletteTargetSource {
         let windows = services.windows
         let active = windows.active?.state.id
         let options = windows.controllers.enumerated().map { index, controller in
-            let name = controller.state.workspaceID.flatMap { services.workspace(id: $0)?.displayName }
+            let name = controller.state.workspaceID.flatMap { services.workspace(id: $0).map(services.shownWorkspaceName) }
             let label = WindowStrings.windowNumber(index + 1)
             return PaletteTargetOption(id: controller.state.id, title: name ?? label, subtitle: name == nil ? nil : label,
                                        symbol: "macwindow")

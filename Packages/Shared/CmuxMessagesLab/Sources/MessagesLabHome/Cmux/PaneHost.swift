@@ -371,6 +371,21 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private var linkPress: (url: URL, at: CGPoint)?
     /// cmux: the host took this press as a link drag; its later moves and release are not ours.
     private var linkDragTaken = false
+    /// cmux: a press on an attachment: a move past the slop drags it out (``beginAttachmentDrag``).
+    /// Cleared on the move that starts the drag and on every press.
+    var attachmentPress: (request: HomeAttachmentDragRequest, at: CGPoint)?
+    /// cmux: the pressed attachment's local copy, fetched from the press on, so a drag usually
+    /// carries the file itself rather than a promise of it.
+    var attachmentPressFile: (attachment: ID, file: URL)?
+    var attachmentPrefetch: Task<Void, Never>?
+    /// cmux: this press became an attachment drag; its later moves and release are AppKit's.
+    private var attachmentDragTaken = false
+    /// cmux: the running attachment drag's source and promise delegate (both held weakly by AppKit).
+    var attachmentDragSource: HomeAttachmentDrag?
+    /// cmux: starts an attachment's drag out of Home (a dragging session on the host); tests record it.
+    lazy var beginAttachmentDrag: (HomeAttachmentDragRequest, NSEvent) -> Void = { [weak self] request, event in
+        self?.startAttachmentDrag(request, event)
+    }
     private(set) lazy var selection = TranscriptSelection(controller: self)
     /// cmux: Reply to Selection's quote while the reply is written (ChatController+ReplyQuote.swift);
     /// nil: a reply answers the whole message.
@@ -684,8 +699,13 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if let tv = demo?.compose.textView.view, demo?.compose.fieldRect.contains(p) == true { window?.makeFirstResponder(tv); return }
         linkPress = nil
         linkDragTaken = false
+        attachmentPress = nil
+        attachmentDragTaken = false
         if e.clickCount == 1 {
             if onDragLink != nil, let url = linkURL(at: p) { linkPress = (url, p) }
+            if linkPress == nil, let hit = demo?.hit(p), case let .attachment(a) = hit.row.part {
+                pressAttachment(a, message: hit.row.ref.messageId, frame: hit.body, at: p)
+            }
             selection.mouseDown(p)
             // MessagesLab 7f1a811: press and hold on a message opens the tapback picker.
             if picker == nil, intents?.canReact == true, let hit = demo?.hit(p) {
@@ -710,6 +730,18 @@ final class ChatController: NSObject, NSTextViewDelegate {
                 return
             }
         }
+        // cmux: a press on an attachment moved past the slop drags the file out (Finder, other apps).
+        if attachmentDragTaken { return }
+        if let press = attachmentPress, hypot(p.x - press.at.x, p.y - press.at.y) > 3 {
+            attachmentPress = nil
+            attachmentDragTaken = true
+            hold.cancel()
+            selection.clear()
+            var request = press.request
+            if let fetched = attachmentPressFile, fetched.attachment == request.attachment { request.file = fetched.file }
+            beginAttachmentDrag(request, e)
+            return
+        }
         hold.moved(to: p)
         let doc = host.scrollView.document
         if selection.mouseDragged(p) {
@@ -724,6 +756,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
             _ = selection.mouseUp()
             return
         }
+        if attachmentDragTaken {
+            attachmentDragTaken = false
+            _ = selection.mouseUp()
+            return
+        }
+        attachmentPress = nil
         let held = hold.fired
         hold.cancel()
         if held || thread.swallowed(e) { return }
