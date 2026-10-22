@@ -176,9 +176,16 @@ export function useChatInspector({
     const escape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
       const focus = document.activeElement;
-      if (focus instanceof HTMLElement && focus.closest("input, textarea, select, [contenteditable]:not([contenteditable=false])"))
+      if (
+        focus instanceof HTMLElement &&
+        focus.closest("input, textarea, select, [contenteditable]:not([contenteditable=false])")
+      )
         return;
-      if (document.querySelector('dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], .ui-popup'))
+      if (
+        document.querySelector(
+          'dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], .ui-popup',
+        )
+      )
         return;
       event.preventDefault();
       setInspectorOpen(false);

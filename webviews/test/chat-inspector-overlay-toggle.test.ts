@@ -198,7 +198,10 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
         await page.addStyleTag({ content: "header.acpmux-header { visibility: hidden; }" });
         const close = page.locator("aside.acpmux-chat-inspector button.acpmux-chat-inspector__close");
         await close.click({ timeout: 5_000 });
-        const byButton = await panel.waitFor({ state: "detached", timeout: 5_000 }).then(() => true, () => false);
+        const byButton = await panel.waitFor({ state: "detached", timeout: 5_000 }).then(
+          () => true,
+          () => false,
+        );
         // The header is hidden: the toggle opens it again through the DOM.
         await toggle.evaluate((button: HTMLElement) => button.click());
         await panel.waitFor({ timeout: 5_000 });
@@ -223,7 +226,10 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
         const keptUnderPopover = (await toggle.getAttribute("aria-pressed")) === "true";
         await page.evaluate(() => document.querySelector("dialog.ui-popup")!.remove());
         await page.keyboard.press("Escape");
-        const byEscape = await panel.waitFor({ state: "detached", timeout: 5_000 }).then(() => true, () => false);
+        const byEscape = await panel.waitFor({ state: "detached", timeout: 5_000 }).then(
+          () => true,
+          () => false,
+        );
         expect({ byButton, keptInComposer, keptUnderPopover, byEscape }).toEqual({
           byButton: true,
           keptInComposer: true,
