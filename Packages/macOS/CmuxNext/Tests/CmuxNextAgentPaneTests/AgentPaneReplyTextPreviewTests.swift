@@ -212,16 +212,45 @@ struct AgentPaneReplyTextPreviewTests {
         await model.respond(to: AgentPaneRequest(body: ["method": method, "params": params]))
     }
 
-    /// Every path request of a chat on another machine: an image's thumbnail, Open of a file or a
-    /// folder, and the text preview. Each is refused before any lookup of the path here (a file of
-    /// the same spelling on this Mac is not the agent's), for a secret name and a missing one too.
-    private static func expectNothingLooksHere(_ rig: Rig, _ label: String) async throws {
+    /// Counts this Mac's folder lookups on `rig` from now on.
+    private static func countLookups(_ rig: Rig) -> Lookups {
         let lookups = Lookups()
         let project = rig.project.path
         rig.model.workspaceRoots = {
             lookups.count += 1
             return [project]
         }
+        return lookups
+    }
+
+    /// The control for the counter: a chat on this Mac looks its paths up, and gets their places.
+    @Test func aLocalChatsInspectLooksItsPathsUp() async throws {
+        let rig = try Self.rig()
+        defer { try? FileManager.default.removeItem(at: rig.folder) }
+        let lookups = Self.countLookups(rig)
+        let notes = rig.project.appendingPathComponent("notes.md")
+        try "hi\n".write(to: notes, atomically: true, encoding: .utf8)
+        let reply = await Self.ask(rig.model, "link.inspect", ["paths": [notes.path], "urls": [String]()])
+        let value = try #require(reply["value"] as? [String: Any], "\(reply)")
+        #expect(((value["paths"] as? [String: Any])?[notes.path] as? [String: Any])?["place"] as? String == "root")
+        #expect(value["remote"] == nil)
+        #expect(lookups.count > 0)
+    }
+
+    /// Every path request of a chat on another machine: where its paths are (`link.inspect`), an
+    /// image's thumbnail, a video, Open of a file or a folder, the text preview, a file chip's drag
+    /// and an image's Reveal. Each is refused before any lookup of the path here (a file of the
+    /// same spelling on this Mac is not the agent's), for a secret name and a missing one too.
+    private static func expectNothingLooksHere(_ rig: Rig, _ label: String) async throws {
+        let lookups = countLookups(rig)
+        var dragged: [URL] = []
+        var revealed: [URL] = []
+        rig.model.replyLinks.mouseHeld = { true }
+        rig.model.replyLinks.startDrag = { dragged.append($0); return true }
+        rig.model.replyLinks.revealFile = { revealed.append($0) }
+        rig.model.replyLinks.imageFolder = rig.folder.appendingPathComponent("copies", isDirectory: true)
+        let clip = rig.project.appendingPathComponent("demo.mp4")
+        try Data("movie".utf8).write(to: clip)
         let shot = rig.project.appendingPathComponent("shot.png")
         try Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]).write(to: shot)
         let sshConfig = rig.home.appendingPathComponent(".ssh/config")
@@ -242,6 +271,28 @@ struct AgentPaneReplyTextPreviewTests {
             let reply = await ask(rig.model, "link.preview", ["path": path])
             #expect((reply["value"] as? [String: Any])?["remote"] as? Bool == true, "\(label) link.preview \(path): \(reply)")
         }
+        // The chip stays a chip (no place, so never plain text), and the page learns the chat is remote.
+        let inspect = await ask(rig.model, "link.inspect", ["paths": [shot.path, reports.path + "/", sshConfig.path, "/nowhere/gone.txt"], "urls": [String]()])
+        let value = try #require(inspect["value"] as? [String: Any], "\(label) link.inspect: \(inspect)")
+        #expect((value["paths"] as? [String: Any])?.isEmpty == true, "\(label) link.inspect: \(inspect)")
+        #expect(value["remote"] as? Bool == true, "\(label) link.inspect: \(inspect)")
+        #expect(value["policy"] != nil, "\(label) link.inspect: \(inspect)")
+        for path in [clip.path, sshConfig.path] {
+            let reply = await ask(rig.model, "media.load", ["src": path])
+            #expect(errorCode(reply) == AgentPaneReplyError.pathOutsideRoots.rawValue, "\(label) media.load \(path): \(reply)")
+            #expect((reply["value"] as? [String: Any])?["src"] == nil, "\(label) media.load \(path)")
+        }
+        for path in [clip.path, reports.path + "/", rig.project.path] {
+            let reply = await ask(rig.model, "file.drag", ["path": path])
+            #expect(errorCode(reply) != nil, "\(label) file.drag \(path): \(reply)")
+        }
+        #expect(dragged.isEmpty, "\(label): dragged \(dragged)")
+        // Reveal of a remote image shows its copy, never the same-named file here.
+        rig.model.transport.gestures.record(click: true)
+        let png = "data:image/png;base64," + Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1]).base64EncodedString()
+        _ = await ask(rig.model, "image.reveal", ["src": png, "name": "shot", "path": shot.path])
+        let shotHere = shot.resolvingSymlinksInPath().path
+        #expect(!revealed.contains { $0.resolvingSymlinksInPath().path == shotHere }, "\(label): revealed \(revealed)")
         #expect(lookups.count == 0, "\(label): the host looked up a remote chat's path here")
     }
 

@@ -153,7 +153,7 @@ test("a folder's card has its name and Open, and only asks whether the chat is o
   const path = "/Users/you/src/atlas-web/src/";
   const view = await renderChip(path, { paths: { [path]: { place: "root", folder: true } } }, () => undefined);
   await view.act(async () => view.chip.focus());
-  await view.until(() => view.calls.length > 0);
+  await view.until(() => view.card()?.querySelector(".cv-link-preview__open"));
   expect(view.card()?.textContent).toContain("src");
   expect(view.card()?.querySelector("pre, img")).toBeNull();
   expect(view.card()?.querySelector(".cv-link-preview__open")).not.toBeNull();
@@ -170,7 +170,7 @@ test("an image the host refuses keeps the plain file card: name, path and Open, 
     () => undefined,
   );
   await view.act(async () => view.chip.focus());
-  await view.until(() => view.calls.some((call) => call.method === "image.load"));
+  await view.until(() => view.card()?.querySelector(".cv-link-preview__open"));
   const card = view.card()!;
   expect(card.textContent).toContain("before.png");
   expect(card.textContent).toContain(path);
@@ -240,5 +240,45 @@ test("a folder in a chat on another machine offers no Open of a same-named folde
   expect(card.textContent).toContain("reports");
   expect(card.querySelector(".cv-link-preview__open")).toBeNull();
   expect(view.calls).toEqual([{ method: "link.preview", params: { path } }]);
+  await view.done();
+});
+
+test("an unseeded chip in a chat on another machine stays a chip with the remote card", async () => {
+  const path = "/home/agent/out/report.txt";
+  // The host answers `link.inspect` itself here: no place for a remote chat's path, and remote.
+  const view = await renderChip(path, {}, ({ method }) =>
+    method === "link.inspect"
+      ? { paths: {}, remote: true, policy: { outsideRoots: "open", remoteImages: "click" } }
+      : method === "link.preview"
+        ? { remote: true }
+        : undefined,
+  );
+  await view.until(() => view.calls.some((call) => call.method === "link.inspect"));
+  expect(view.calls.find((call) => call.method === "link.inspect")?.params).toEqual({ paths: [path], urls: [] });
+  const chip = view.rootElement.querySelector<HTMLButtonElement>("button.cv-chip.is-path");
+  expect(chip).not.toBeNull();
+  expect(view.rootElement.querySelector(".cv-chip-plain")).toBeNull();
+  await view.act(async () => chip!.focus());
+  await view.until(() => view.card()?.querySelector(".cv-path-preview__note"));
+  const card = view.card()!;
+  expect(card.textContent).toContain("report.txt");
+  expect(card.querySelector(".cv-link-preview__open")).toBeNull();
+  expect(view.calls.some((call) => call.method === "image.load")).toBe(false);
+  await view.done();
+});
+
+test("Open waits for the host's answer, so a remote card never flashes it", async () => {
+  const path = "/tmp/reports/";
+  let answer: (value: unknown) => void = () => {};
+  const view = await renderChip(path, { paths: { [path]: { place: "outside", folder: true } } }, ({ method }) =>
+    method === "link.preview" ? new Promise((resolve) => (answer = resolve)) : undefined,
+  );
+  await view.act(async () => view.chip.focus());
+  await view.until(() => view.calls.some((call) => call.method === "link.preview"));
+  expect(view.card()).not.toBeNull();
+  expect(view.card()!.querySelector(".cv-link-preview__open")).toBeNull();
+  await view.act(async () => answer(null));
+  await view.until(() => view.card()?.querySelector(".cv-link-preview__open"));
+  expect(view.card()!.querySelector(".cv-link-preview__open")).not.toBeNull();
   await view.done();
 });
