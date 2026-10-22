@@ -183,7 +183,10 @@ final class RemoteTerminalService {
             let service = services.ssh
             return { service.reconnect(ssh) }
         }
-        if let cloud = machines.session(daemon.machineID) { return { cloud.connect(origin: .user) } }
+        // A paused Cloud machine (idle auto-pause) resumes on Connect.
+        if let cloud = machines.session(daemon.machineID) {
+            return { cloud.machine.status == .paused ? cloud.attach(origin: .user) : cloud.connect(origin: .user) }
+        }
         if let server = machines.server(daemon.machineID) { return { server.connect() } }
         return nil
     }
