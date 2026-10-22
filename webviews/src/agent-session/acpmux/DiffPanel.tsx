@@ -57,16 +57,35 @@ function store(key: string, value: string) {
 
 type Tool = "collapse" | "wrap" | "split" | "tree";
 
+/// `path` with its `.` and `..` steps applied; undefined when a relative path steps above its start.
+function resolved(path: string): string | undefined {
+  const parts: string[] = [];
+  for (const part of path.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part !== "..") parts.push(part);
+    else if (parts.length > 0) parts.pop();
+    else if (!path.startsWith("/")) return undefined;
+  }
+  return (path.startsWith("/") ? "/" : "") + parts.join("/");
+}
+
 /// The path a file's kind (fileKinds.ts) is read from, so a folder above the project never names it
 /// (a repository under `~/tests/` is not all tests): a git scope's from the repository's top; a
 /// turn's from the chat's folder `root`, as its display path drops the folder its files share (one
-/// file under `tests/` shows as `helpers.py`). A turn's file outside that folder, or with no folder
-/// known, is read by its name alone.
+/// file under `tests/` shows as `helpers.py`). A turn's path is matched under either spelling
+/// acpmux recorded (its canonical path: /tmp is /private/tmp). A turn's file outside that folder,
+/// or with no folder known, is read by its name alone.
 export function kindPath(scope: ChangeScope, file: TurnFile, root: string | undefined): string {
   if (scope !== "lastTurn") return file.displayPath;
-  if (!file.path.startsWith("/")) return file.path;
-  const top = root?.replace(/\/+$/, "");
-  if (top && file.path.startsWith(`${top}/`)) return file.path.slice(top.length + 1);
+  const top = root && resolved(root);
+  for (const spelling of [file.canonical, file.path]) {
+    if (!spelling) continue;
+    // A relative path is the agent's, under its folder.
+    const path = spelling.startsWith("/") ? resolved(spelling) : resolved(top ? `${top}/${spelling}` : spelling);
+    if (!path) continue;
+    if (!path.startsWith("/")) return path;
+    if (top && path.startsWith(top === "/" ? "/" : `${top}/`)) return path.slice(top === "/" ? 1 : top.length + 1);
+  }
   return file.path.slice(file.path.lastIndexOf("/") + 1);
 }
 

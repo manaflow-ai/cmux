@@ -74,10 +74,11 @@ const turn = (paths: string[]) =>
 
 const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
 
-async function render(files: ReturnType<typeof turn>) {
+/// `folder`: the chat's folder, which App.tsx passes as `root`.
+async function render(files: ReturnType<typeof turn>, folder: string | undefined = "/repo") {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
-  await act(async () => root.render(<DiffPanel files={files} onClose={() => {}} />));
+  await act(async () => root.render(<DiffPanel files={files} root={folder} onClose={() => {}} />));
   await settle();
   const blocks = () => [...container.querySelectorAll<HTMLElement>(".acpmux-diff-file")];
   return {
@@ -210,4 +211,42 @@ test("a Last turn file's kind ignores the folders above the chat's folder", asyn
   expect(kind("/home/me/generated/repo/src/app.ts")).toBe("code");
   expect(kind("/tmp/tests/scratch.ts", "/home/me/repo")).toBe("code");
   expect(kind("/home/me/repo/package-lock.json", "/home/me/repo")).toBe("generated");
+  // A path that leaves the chat's folder is read by its name.
+  expect(kind("../generated/scratch.ts", "/home/me/repo")).toBe("code");
+  expect(kind("tests/helpers.py", "/home/me/repo")).toBe("tests");
+  // Either spelling acpmux recorded: /tmp is /private/tmp.
+  const aliased = { ...file("/tmp/repo/tests/helpers.py"), canonical: "/private/tmp/repo/tests/helpers.py" };
+  expect(fileKind(kindPath("lastTurn", aliased, "/private/tmp/repo"))).toBe("tests");
+});
+
+test("with no folder known, a Last turn file is read by its name", async () => {
+  const view = await render(turn(["/repo/tests/helpers.py", "/repo/src/a.ts"]), undefined);
+  try {
+    expect(view.kinds()).toEqual(["", ""]);
+    expect(view.noTests()).toBe("Code changed with no test.");
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("opening the view on a folded generated file unfolds it", async () => {
+  const files = turn(["/repo/src/a.ts", "/repo/bun.lock"]);
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const folded = () =>
+    [...container.querySelectorAll<HTMLElement>(".acpmux-diff-file")]
+      .filter((block) => block.dataset.collapsed !== undefined)
+      .map((block) => block.dataset.path);
+  try {
+    await act(async () => root.render(<DiffPanel files={files} root="/repo" onClose={() => {}} />));
+    await settle();
+    expect(folded()).toEqual(["/repo/bun.lock"]);
+    await act(async () =>
+      root.render(<DiffPanel files={files} root="/repo" initialPath="/repo/bun.lock" onClose={() => {}} />),
+    );
+    await settle();
+    expect(folded()).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+  }
 });
