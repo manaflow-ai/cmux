@@ -35,7 +35,7 @@ final class AgentPanePageSettings {
         for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, reasoningSliderObservation, sidebarPreviewVariantObservation, diffColorsObservation, displayObservation] { task?.cancel() }  // a new controller replaces, never adds
         self.settings = settings
         // `sessions.promptSuggestions`: the pages, and the next acpmux daemon this app starts.
-        AgentPaneSuggestedTasks.shared.setting = { [weak settings] in settings?.snapshot.sessions.promptSuggestions ?? false }
+        AgentPaneSuggestedTasks.shared.setting = { [weak settings] in settings?.snapshot.sessions.promptSuggestions ?? SessionSettings.promptSuggestionsDefault }
         // `agentPane.needsYou.enabled` (App Store): read as each new agent page is made.
         AgentPaneTunables.needsYouInstalled = { [weak settings] in settings?.snapshot.agentPaneNeedsYouEnabled ?? false }
         previewObservation = observe({ settings.snapshot.previewFeatures }, push: push) { $0.previewFeatures = $1 }

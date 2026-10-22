@@ -154,6 +154,7 @@ on:
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/check-single-omnibar.py
       - scripts/cmux-next/check-perf-source-guard.py
+      - scripts/cmux-next/check-overlay-glass.py
       - tests/test_cmux_next_perf_source_guard.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
@@ -375,6 +376,7 @@ on:
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/check-single-omnibar.py
       - scripts/cmux-next/check-perf-source-guard.py
+      - scripts/cmux-next/check-overlay-glass.py
       - tests/test_cmux_next_perf_source_guard.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
@@ -1287,6 +1289,14 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-motion.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      # Glass, never solid (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS."):
+      # popovers, tooltips, hover cards, menus and sidebar cards paint no solid fill unless
+      # check-overlay-glass.py lists why (ccde782cb51 turned them solid unnoticed).
+      - name: Overlays are glass, never solid
+        id: overlay-glass
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-overlay-glass.py "$GITHUB_WORKSPACE"
+
       # The one type scale (schemas/type-scale/type-scale.json): its CSS and Swift copies, and no new raw
       # font sizes or off-scale weights in the app's Swift (fails the checks; the webviews ratchet runs in react-apps-check).
       - name: Type scale
@@ -1427,6 +1437,7 @@ jobs:
             bash scripts/cmux-next/tests/check-motion.test.sh
             bash scripts/cmux-next/tests/fast-tier.test.sh
             bash scripts/cmux-next/tests/check-scrollbars.test.sh
+            bash scripts/cmux-next/tests/check-overlay-glass.test.sh
             bash scripts/cmux-next/tests/check-no-process-scan.test.sh
           bash scripts/cmux-next/tests/check-single-omnibar.test.sh
             bash scripts/cmux-next/tests/check-state-roots.test.sh
@@ -1702,6 +1713,7 @@ jobs:
             No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
             Scrollbars thin, one style
             Motion tokens
+            Overlays are glass, never solid
             Type scale
             Protected-folder copies
             Settings source copies
@@ -1729,6 +1741,7 @@ jobs:
             ${{ steps.module-resources.outcome }}|Module resource bundles
             ${{ steps.scrollbars.outcome }}|Scrollbars thin, one style
             ${{ steps.motion.outcome }}|Motion tokens
+            ${{ steps.overlay-glass.outcome }}|Overlays are glass, never solid
             ${{ steps.type-scale.outcome }}|Type scale
             ${{ steps.motion-scale.outcome }}|Motion scale
             ${{ steps.protected-folders.outcome }}|Protected-folder copies

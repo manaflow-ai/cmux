@@ -130,7 +130,7 @@ nonisolated func ghosttyWriteClipboard(
     _ clipboard: ghostty_clipboard_e,
     _ contents: UnsafePointer<ghostty_clipboard_content_s>?,
     _ count: Int,
-    _: Bool
+    _ confirm: Bool
 ) {
     guard let contents, count > 0 else { return }
     var items: [TerminalClipboardItem] = []
@@ -144,7 +144,7 @@ nonisolated func ghosttyWriteClipboard(
     let location: TerminalPasteboardLocation = clipboard == GHOSTTY_CLIPBOARD_SELECTION ? .selection : .standard
     let bridge = SurfaceBridge.from(userdata)
     let run: @MainActor @Sendable () -> Void = {
-        bridge?.view?.clipboardRequests.write(items: items, location: location)
+        bridge?.view?.clipboardRequests.write(items: items, location: location, requiresConfirmation: confirm)
     }
     if Thread.isMainThread {
         // main-proof: guarded by Thread.isMainThread above

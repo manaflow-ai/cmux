@@ -42,7 +42,8 @@ extension HoverCardPanel {
         switch restingPlacement {
         case .above: CGPoint(x: isLeading ? 1 : 0, y: 0)
         case .below, .beside: CGPoint(x: isLeading ? 1 : 0, y: 1)
-        // Its edge on the row's middle: the top below the escape slot, the bottom when flipped above it.
+        // The top stays fixed (on the row's top, or below the escape slot in the Debug middle layout);
+        // the bottom when the middle layout flipped the card above the row's middle.
         case .besideRow: CGPoint(x: isLeading ? 1 : 0, y: escapeGeometry.map { $0.card.minY >= $0.anchor.minY } == true ? 0 : 1)
         }
     }
