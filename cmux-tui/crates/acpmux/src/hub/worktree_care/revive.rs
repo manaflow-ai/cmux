@@ -6,10 +6,16 @@
 //! linked worktree the folder is in (`SessionMeta::worktree`: its top folder, the repository's
 //! common git directory, the branch checked out and its commit). Before the agent starts, and
 //! before each turn, a folder that is gone and that cleanup's archive did not bring back
-//! (`worktree_care.rs`) is added back with `git --git-dir <common> worktree prune`, then
-//! `worktree add`: on its branch; else `-B <branch>` from `origin/<branch>`; else, the branch
-//! gone, `--detach` at its last recorded commit, or at `origin/HEAD`. Nothing is forced or
-//! overwritten (a branch checked out elsewhere fails it). Logged as `worktree_recreated`.
+//! (`worktree_care.rs`) is added back with `git worktree prune`, then `worktree add`: on its
+//! branch; else `-b <branch>` at `origin/<branch>`; else, the branch gone, `--detach` at its last
+//! recorded commit, or at `origin/HEAD`. Nothing is forced or overwritten (a branch checked out
+//! elsewhere, or made meanwhile, fails it). Logged as `worktree_recreated`. Git runs as a
+//! sub-session's worktree is made (`subsession_worktree.rs`): the files are written with none
+//! of the repository's config, so no filter, hook or helper of the repository's runs in the
+//! daemon, and every git call ends within `GIT_BUDGET`.
+//!
+//! A live agent whose folder went still runs in the deleted one, even once it is back: it
+//! starts again, on its conversation, with the turn kept (`ready_folder`).
 //!
 //! When there is no record (the folder was not a linked worktree) or the worktree cannot be
 //! added back (`worktree_recreate_failed`), the session moves to the nearest folder above it
@@ -17,16 +23,21 @@
 //! makes a folder git did not. A remote chain (`remote_origin`) is left as it was: its sandbox
 //! allows writes in its own folder only. Either way the agent's next prompt starts with a line that says
 //! what happened (`[acpmux] your cwd ... was missing; ...`). The session never moves to `/`, to
-//! `/Volumes` or to a volume's top folder: the turn fails, saying why, and its queue is held.
+//! `/Volumes` or to a mount's top folder (`bare_root`): the turn fails, saying why, and its queue
+//! is held.
 
 use crate::git_state::{GitState, WorktreeOrigin, linked_worktree};
 use crate::hub::{Hub, Session, SessionStatus};
 use crate::rpc::RpcError;
+use crate::subsession_worktree::{add_without_config, git_by};
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::{Arc, LazyLock, Mutex};
+use std::time::{Duration, Instant};
+
+/// The longest bringing a worktree back may take, all its git calls together.
+const GIT_BUDGET: Duration = Duration::from_secs(60);
 
 /// What acpmux did about a missing folder, for each session's next prompt. Per process: a
 /// daemon restart forgets it.
@@ -127,11 +138,6 @@ impl Hub {
                     "cwd_fallback",
                     json!({"from": cwd, "to": to, "reason": why}),
                 );
-                // At a turn's start, a live agent still runs in the folder that is gone: it
-                // starts again here. A cold start replaces the agent anyway.
-                if !starting {
-                    self.stop_agent_keeping_turn(session).await;
-                }
                 format!("{why}; running in {} instead", to.display())
             }
         };
@@ -143,7 +149,7 @@ impl Hub {
     /// `detach_child` but for the turn: the turn starting stays, so a prompt sent meanwhile
     /// still queues behind it. Idle before the child lock is let go, so the agent's exit reads
     /// as a stop (`permissions.rs`), not a death to resume.
-    async fn stop_agent_keeping_turn(&self, session: &Arc<Session>) {
+    pub(super) async fn stop_agent_keeping_turn(&self, session: &Arc<Session>) {
         let mut slot = session.child.lock().await;
         let Some(child) = slot.take() else {
             return;
@@ -158,10 +164,26 @@ impl Hub {
     }
 }
 
-/// A folder no session moves to: the root, `/Volumes`, or a volume's top folder.
+/// A folder no session moves to: the root, `/Volumes`, a volume's top folder there, or any
+/// mount's top folder (another device than the folder above it: `/mnt/data`).
 fn bare_root(dir: &Path) -> bool {
+    #[cfg(unix)]
+    let device = |p: &Path| std::os::unix::fs::MetadataExt::dev(&std::fs::metadata(p).ok()?).into();
+    #[cfg(not(unix))]
+    let device = |_: &Path| None;
+    bare_root_by(dir, device)
+}
+
+/// [`bare_root`], `device` naming a folder's device.
+fn bare_root_by(dir: &Path, device: impl Fn(&Path) -> Option<u64>) -> bool {
     let volumes = Path::new("/Volumes");
-    dir.parent().is_none() || dir == volumes || dir.parent() == Some(volumes)
+    let Some(parent) = dir.parent() else {
+        return true;
+    };
+    if dir == volumes || parent == volumes {
+        return true;
+    }
+    matches!((device(dir), device(parent)), (Some(a), Some(b)) if a != b)
 }
 
 /// Brings `cwd` back from its worktree record, else names the folder above it (blocking).
@@ -197,24 +219,26 @@ fn recreate(w: &WorktreeOrigin) -> Result<(&'static str, String), String> {
     if w.branch.starts_with('-') {
         return Err(format!("{:?} is not a branch acpmux checks out", w.branch));
     }
-    let git = |args: &[&str]| git(&w.common_dir, args);
+    let by = Instant::now() + GIT_BUDGET;
+    let git = |args: &[&str]| git_by(&w.common_dir, args, by);
     git(&["worktree", "prune"])?;
     let root = w.root.to_string_lossy();
     let commit = |r: &str| git(&["rev-parse", "--verify", "--quiet", &format!("{r}^{{commit}}")]);
+    let add = |args: &[&str], at: &str| add_without_config(&w.common_dir, args, &w.root, at, by);
     let (local, remote) = (format!("refs/heads/{}", w.branch), format!("origin/{}", w.branch));
     let (from, at) = if let Ok(at) = commit(&local) {
-        git(&["worktree", "add", &root, &w.branch])?;
+        add(&[&root, &w.branch], &at)?;
         ("branch", at)
     } else if let Ok(at) = commit(&format!("refs/remotes/{remote}")) {
-        git(&["worktree", "add", "-B", &w.branch, &root, &remote])?;
+        // `-b`, never `-B`: a branch of that name made meanwhile is not reset; git refuses.
+        add(&["-b", &w.branch, &root, &at], &at)?;
+        let _ = git(&["branch", &format!("--set-upstream-to={remote}"), &w.branch]);
         ("origin", at)
-    } else if let Some((head, at)) =
-        w.head.as_deref().and_then(|h| commit(h).ok().map(|at| (h, at)))
-    {
-        git(&["worktree", "add", "--detach", &root, head])?;
+    } else if let Some(at) = w.head.as_deref().and_then(|h| commit(h).ok()) {
+        add(&["--detach", &root, &at], &at)?;
         ("its last commit", at)
     } else if let Ok(at) = commit("refs/remotes/origin/HEAD") {
-        git(&["worktree", "add", "--detach", &root, "origin/HEAD"])?;
+        add(&["--detach", &root, &at], &at)?;
         ("origin/HEAD", at)
     } else {
         return Err(format!("neither branch {0} nor origin/{0} nor origin/HEAD exists", w.branch));
@@ -222,41 +246,27 @@ fn recreate(w: &WorktreeOrigin) -> Result<(&'static str, String), String> {
     Ok((from, at.chars().take(12).collect()))
 }
 
-/// Runs git on the repository at `common` (its common git directory), never asking for input
-/// and running none of the repository's hooks.
-fn git(common: &Path, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git")
-        .arg("--git-dir")
-        .arg(common)
-        .args(["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"])
-        .args(args)
-        .current_dir(std::env::temp_dir())
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_COMMON_DIR")
-        .env_remove("GIT_INDEX_FILE")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| format!("git did not run: {e}"))?;
-    if out.status.success() {
-        return Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned());
-    }
-    let err = String::from_utf8_lossy(&out.stderr);
-    Err(format!("git {}: {}", args.join(" "), err.trim()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
+    fn a_mount_top_is_a_bare_root_by_its_device() {
+        let device = |p: &Path| Some(if p.starts_with("/mnt/data") { 2 } else { 1 });
+        assert!(bare_root_by(Path::new("/mnt/data"), device));
+        assert!(!bare_root_by(Path::new("/mnt/data/project"), device));
+        assert!(!bare_root_by(Path::new("/mnt"), device));
+        assert!(!bare_root_by(Path::new("/mnt/data"), |_: &Path| None));
+    }
+
+    #[test]
     fn a_session_never_moves_to_the_root_or_a_volume_top() {
+        let one_device = |_: &Path| Some(1);
         for dir in ["/", "/Volumes", "/Volumes/Work"] {
-            assert!(bare_root(Path::new(dir)), "{dir}");
+            assert!(bare_root_by(Path::new(dir), one_device), "{dir}");
         }
         for dir in ["/Users", "/tmp/x", "/Volumes/Work/repo", "/home/me"] {
-            assert!(!bare_root(Path::new(dir)), "{dir}");
+            assert!(!bare_root_by(Path::new(dir), one_device), "{dir}");
         }
         let Revived::Moved(to, _) = fallback(Path::new("/acpmux-never-made/deeper"), "x".into())
         else {

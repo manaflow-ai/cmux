@@ -243,17 +243,23 @@ async fn a_deleted_worktree_is_added_back_before_the_agent_starts_and_the_agent_
     let told = format!("[acpmux] your cwd {shown} was missing; recreated it from branch lane.");
     assert!(reply(&hub, &id).contains(&told), "{}", reply(&hub, &id));
 
-    // A live agent whose folder went: the turn brings it back before the prompt.
+    // A live agent whose folder went: the turn brings it back before the prompt, and the agent
+    // starts again in it (the one that ran is still in the deleted folder).
     std::fs::remove_dir_all(&wt).unwrap();
     git(&repo, &["worktree", "prune"]);
+    git(&repo, &["remote", "add", "origin", repo.to_str().unwrap()]);
     git(&repo, &["update-ref", "refs/remotes/origin/lane", "lane"]);
     git(&repo, &["branch", "-q", "-D", "lane"]);
-    c.request(method::SESSION_PROMPT, prompt(&id, "and again", None)).await.unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&id, "cwd-probe", None)).await.unwrap();
     let made = records(&hub, &id, "worktree_recreated");
     assert_eq!(made.len(), 2, "{:?}", kinds(&hub, &id));
     assert_eq!(made[1]["from"], "origin");
     assert_eq!(git(&wt, &["rev-parse", "--abbrev-ref", "HEAD"]), "lane");
-    assert!(reply(&hub, &id).contains("recreated it from origin/lane as branch lane."));
+    assert_eq!(git(&wt, &["rev-parse", "--abbrev-ref", "lane@{upstream}"]), "origin/lane");
+    let said = reply(&hub, &id);
+    assert!(said.starts_with(&format!("echo: cwd: {shown} |")), "{said}");
+    assert!(said.contains("recreated it from origin/lane as branch lane."), "{said}");
+    assert_eq!(git(&wt, &["status", "--porcelain"]), "");
 
     // The branch is gone everywhere (merged and deleted): back at its last commit, detached.
     reclaim(&hub, &id, &wt).await;
@@ -356,5 +362,36 @@ async fn a_prompt_sent_while_a_turn_moves_from_a_missing_folder_queues_behind_it
     assert!(records(&hub, &id, "auto_resume_scheduled").is_empty(), "{:?}", kinds(&hub, &id));
     assert_eq!(hub.resolve(&id).unwrap().meta().cwd, dir);
     assert_eq!(agent_sid(&hub, &id), sid);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A worktree comes back with none of its repository's config: a smudge filter the repository
+/// names does not run in the daemon (one that hangs would hold the turn for good).
+#[tokio::test]
+async fn a_worktree_comes_back_without_running_the_repositorys_filters() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let dir = scratch("filter");
+    let (repo, wt, marker) = (dir.join("repo"), dir.join("lane"), dir.join("smudged"));
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join(".gitattributes"), "*.txt filter=mark\n").unwrap();
+    std::fs::write(repo.join("a.txt"), "words\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "init"]);
+    git(&repo, &["worktree", "add", "-q", "-b", "lane", wt.to_str().unwrap()]);
+    git(&repo, &["config", "filter.mark.smudge", &format!("touch '{}'; cat", marker.display())]);
+    git(&repo, &["config", "filter.mark.required", "true"]);
+    let s = c.request(method::SESSION_NEW, json!({"cwd": wt, "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(method::SESSION_PROMPT, prompt(&id, "hello", None)).await.unwrap();
+    assert!(hub.resolve(&id).unwrap().meta().worktree.is_some());
+    reclaim(&hub, &id, &wt).await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "cwd-probe", None)).await.unwrap();
+    assert_eq!(records(&hub, &id, "worktree_recreated").len(), 1, "{:?}", kinds(&hub, &id));
+    assert!(!marker.exists(), "the repository's smudge filter ran in the daemon");
+    assert_eq!(std::fs::read_to_string(wt.join("a.txt")).unwrap(), "words\n");
+    assert_eq!(git(&wt, &["rev-parse", "--abbrev-ref", "HEAD"]), "lane");
+    let said = reply(&hub, &id);
+    assert!(said.starts_with(&format!("echo: cwd: {} |", wt.display())), "{said}");
     let _ = std::fs::remove_dir_all(&dir);
 }

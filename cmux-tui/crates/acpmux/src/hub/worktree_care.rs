@@ -284,8 +284,17 @@ impl Hub {
         session: &Arc<Session>,
         starting: bool,
     ) -> Result<(), RpcError> {
+        let cwd = session.meta().cwd.clone();
+        let gone = !tokio::fs::try_exists(&cwd).await.unwrap_or(true);
         self.care_restore_for(session).await;
-        self.revive_folder(session, &CARE.restoring, starting).await
+        self.revive_folder(session, &CARE.restoring, starting).await?;
+        // At a turn's start, a live agent still runs in the folder that went, even once it is
+        // back (restored, added back, or by another start meanwhile): it starts again where
+        // the session is now, the turn kept. A cold start replaces the agent anyway.
+        if gone && !starting {
+            self.stop_agent_keeping_turn(session).await;
+        }
+        Ok(())
     }
 
     async fn care_restore_for(&self, session: &Arc<Session>) {
