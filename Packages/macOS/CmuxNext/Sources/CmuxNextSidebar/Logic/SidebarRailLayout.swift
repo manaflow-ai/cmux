@@ -1,3 +1,4 @@
+import CmuxNextDesign
 public import CoreGraphics
 
 /// One mark on the sidebar rail (`sidebar.style` = rail,
@@ -31,8 +32,8 @@ public nonisolated struct SidebarRailMark: Hashable, Sendable {
 
     /// A workspace's mark: unread first, then a working agent or activity.
     public init(workspace: SidebarWorkspace, isSelected: Bool) {
-        let state: State = workspace.unread.isUnread ? .unread
-            : (workspace.agentWorking || workspace.activity != .idle) ? .working : .idle
+        let busy: Bool = if case .busy = workspace.activity { true } else { false }
+        let state: State = workspace.unread.isUnread ? .unread : workspace.agentWorking || busy ? .working : .idle
         self.init(target: .workspace(workspace.id), isSelected: isSelected, state: state)
     }
 }

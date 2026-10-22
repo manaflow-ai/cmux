@@ -18,7 +18,7 @@ public final class SidebarRailView: NSView {
     private var observation: Task<Void, Never>?
     private var trackingArea: NSTrackingArea?
     /// The ticks drawn now, in this view's (flipped) coordinates.
-    private(set) var layout = SidebarRailLayout(groups: [], top: 0, available: 0)
+    private(set) var railLayout = SidebarRailLayout(groups: [], top: 0, available: 0)
     private var marks: [[SidebarRailMark]] = []
 
     override public var isFlipped: Bool { true }
@@ -101,14 +101,14 @@ public final class SidebarRailView: NSView {
 
     private func relayout() {
         let next = SidebarRailLayout(groups: marks, top: topInset, available: max(0, bounds.height - topInset - Metrics.space4))
-        guard next != layout else { return }
-        layout = next
+        guard next != railLayout else { return }
+        railLayout = next
         needsDisplay = true
     }
 
     override public func draw(_ dirtyRect: NSRect) {
         performWithTheme {
-            for tick in layout.ticks {
+            for tick in railLayout.ticks {
                 var rect = tick.rect
                 if hugsTrailingEdge { rect.origin.x = bounds.width - rect.maxX }
                 guard rect.intersects(dirtyRect) else { continue }
@@ -144,7 +144,7 @@ public final class SidebarRailView: NSView {
 
     override public func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        guard let model, let tick = layout.tick(near: point.y), case let .workspace(id) = tick.mark.target else {
+        guard let model, let tick = railLayout.tick(near: point.y), case let .workspace(id) = tick.mark.target else {
             onOpenRequest?()
             return
         }
@@ -159,7 +159,7 @@ public final class SidebarRailView: NSView {
     public var shortcutHintItemFrames: [SidebarItem: CGRect] {
         guard !isHiddenOrHasHiddenAncestor, bounds.width > 0 else { return [:] }
         var result: [SidebarItem: CGRect] = [:]
-        for tick in layout.ticks {
+        for tick in railLayout.ticks {
             let item: SidebarItem = switch tick.mark.target {
             case let .workspace(id): .workspace(id)
             case let .group(id): .group(id)
