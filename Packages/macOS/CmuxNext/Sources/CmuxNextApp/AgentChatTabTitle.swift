@@ -19,4 +19,11 @@ enum AgentChatTabTitle {
     static func taskName(_ workspaceName: String) -> String? {
         workspaceName.chiefTaskTitle
     }
+
+    /// The name of `workspace` that an untitled chat in it may read as: nil for Home, which names
+    /// no task (every untitled chat there, and a Changes tab beside it, read "Home").
+    static func workspaceName(_ workspace: WorkspaceModel?) -> String? {
+        guard let workspace, !HomeRules.isHome(workspace) else { return nil }
+        return workspace.displayName
+    }
 }

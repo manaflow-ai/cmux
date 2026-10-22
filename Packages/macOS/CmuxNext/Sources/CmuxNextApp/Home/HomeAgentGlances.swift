@@ -24,7 +24,8 @@ struct HomeAgentGlances {
             for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) {
                 let isChat = tab.agentSession != nil
                 guard isChat ? !RestoredNewTabPages.shows(tab, in: agentTabs) : tab.agent != nil && !tab.dead else { continue }
-                let item = TabItemMapping.shared.item(tab, fallbackTitle: isChat ? AgentChatTabTitle.untitled(tab.agentSession, workspaceName: workspace.displayName) : Strings.untitledTerminal)
+                let untitled = isChat ? AgentChatTabTitle.untitled(tab.agentSession, workspaceName: AgentChatTabTitle.workspaceName(workspace)) : Strings.untitledTerminal
+                let item = TabItemMapping.shared.item(tab, fallbackTitle: untitled)
                 glances.append(HomeAgentGlance(id: tab.id, title: item.title, icon: isChat ? .agentChat : .terminal,
                                                status: glanceStatus(item.status, working: StatusMapping.shared.isWorking(tabs: [tab])),
                                                indicator: item.indicator, indicatorStyle: item.busyStyle))
