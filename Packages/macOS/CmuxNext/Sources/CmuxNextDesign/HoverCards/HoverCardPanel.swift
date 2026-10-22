@@ -400,8 +400,11 @@ extension HoverCardPanel {
             // Right of the row; left of it when the screen ends first. Top-aligned, and kept inside
             // the parent window as well as the screen: the What's New popover beside the Update Ready
             // card at the sidebar's foot ran off the window's bottom and covered the composer's "+"
-            // (live-qa, nightly 3a63d6d, a 1100x720 window). A card taller than the window keeps its
-            // top in it.
+            // (live-qa, nightly 3a63d6d, a 1100x720 window). A card taller than the window's part of
+            // the screen keeps its top in that part and runs out of the window's bottom. The screen
+            // wins over the window: when that would push the card off the screen's bottom (a window
+            // mostly below the screen), it sits on the screen's bottom and its top rises past the
+            // window's only as far as it must.
             if origin.x + size.width > room.maxX {
                 origin.x = ((anchor.minX - HoverCardEscapeGeometry.edgeGap(scale: scale)) * scale).rounded(.up) / scale - size.width
                 isLeading = true
