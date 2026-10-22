@@ -1821,12 +1821,17 @@ export function VirtualTranscript({
   dockRef.current = dock;
   /// Notes the stack's queued prompts; called first by each size observer (the stack's, and the
   /// view's, for a stack laid out under the transcript), so the render a size change makes knows.
+  /// A prompt the queue's fold hides (ComposerQueue `data-folded-ids`) is still queued: closing the
+  /// fold is not its card leaving, and no room is kept under the last row for a prompt that stays
+  /// queued (Leo 2026-10-21: the queue closed left a hole over the stack, then the rows dropped).
   const noteQueue = useCallback(() => {
-    const now = new Set(
-      [...(dockRef.current?.querySelectorAll<HTMLElement>(".acpmux-queued") ?? [])].map(
-        (card) => card.dataset.promptId ?? "",
+    const dock = dockRef.current;
+    const now = new Set([
+      ...[...(dock?.querySelectorAll<HTMLElement>(".acpmux-queued") ?? [])].map((card) => card.dataset.promptId ?? ""),
+      ...[...(dock?.querySelectorAll<HTMLElement>("[data-folded-ids]") ?? [])].flatMap((list) =>
+        (list.dataset.foldedIds ?? "").split(" "),
       ),
-    );
+    ]);
     const left = [...queuedIds.current].filter((id) => !now.has(id));
     queuedIds.current = now;
     if (!left.length) return;
