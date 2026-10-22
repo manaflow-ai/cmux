@@ -128,5 +128,24 @@ Note: the host's inbox reader acks its own box. Another reader of the same box
 with the same token subject moves the same cursor, so give it its own subject
 and box.
 
+## The hosted Cloud Chief (Durable Object brain)
+
+The Cloud Chief the person uses today is the hosted brain (ChiefBrainDO, Claude Code turns on
+Freestyle turn VMs, `backend/apps/api/src/chief-brain-cc`). It cannot read the hub, so the hub host
+runs a bridge with this VM's paired install (`cloud/install.json`, the install key never leaves it):
+
+```
+optchat-chief peer-chiefs bridge --install ~/.cmux/brains/chief/cloud/install.json \
+  --chief agent_RM8QH88NN4K4WD09NVJCDRPXSZ --config ~/.config/agent-hub/bridge.json
+optchat-chief peer-chiefs bridge --install FILE --list      # the account's chiefs
+```
+
+Each peer message in `agent:cloud-chief` goes to `POST /v1/chiefs/<agent>/peer`
+`{from, text, key: "hub-<seq>-<id>"}` as the owner's install. The hosted brain queues it as a
+woken, effect-authorized note `[chief:<from>] ...` in the chief's main conversation; the turn
+answers with `hub post agent:<from> "..."` (and its reply posts in that conversation too).
+Only 400, 413 and 422 drop a message; anything else holds it and retries (in order).
+Unit (root): `cloud-chief-peer-bridge.service`, User chief, `Restart=always`.
+
 Shell: `optchat-chief peer-chiefs list | tell chief:NAME TEXT [--key K] | read [--after N] [--wait S] [--config FILE]`
 (`read` never moves the cursor).
