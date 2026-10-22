@@ -81,6 +81,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// Prepared attachments in the field by content hash (the chips are
     /// MessagesLab's draft; a removed chip's entry is ignored).
     private var drafts: [String: LocalAttachment] = [:]
+    /// The last launch's attachments are going back in the field: each one
+    /// is not written back on its own, the whole field is once they are in.
+    private var restoringDraftAttachments = false
 
     /// What the projection shows, as HomeStore said it (shared with the harness).
     private(set) var core: ProjectionCore
@@ -185,6 +188,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         guard let store = controller.store else {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)
             restoreDraft()
+            restoreDraftAttachments()
             // Replies already running when the view opens show as their streams at once.
             if let store = controller.store { for a in core.streams(streams, state: store.state) { controller.dispatch(a) } }
             return
@@ -421,6 +425,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
             controller.dispatch(.setDraft(""))
         }
         homeStore.setDraft("", for: conversation)
+        homeStore.setDraftAttachments([], for: conversation)
         for a in attachments {
             media.useLocal(a.files, for: a.ref.hash)
             drafts[a.ref.hash] = nil
@@ -510,6 +515,28 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // In the field's text at the caret (Draft+InlineMarks.swift); at the end when the field
         // does not show this draft's text yet.
         controller.dispatch(.attachAt(HomeMapping.attachment(attachment.ref, picture: media.asset(hash), progress: nil), controller.composeCaret()))
+        saveDraftAttachments()
+    }
+
+    /// The field's attachments into HomeStore's cache, beside its text: they come back after a relaunch.
+    private func saveDraftAttachments() {
+        guard !stopped, !restoringDraftAttachments else { return }
+        homeStore.setDraftAttachments(draftAttachments, for: conversation)
+    }
+
+    /// The field's attachments from the last launch (HomeStore's cache), once, into a field
+    /// without any, after its text.
+    private func restoreDraftAttachments() {
+        guard let store = controller.store, store.state.ui.draft.attachments.isEmpty else { return }
+        let kept = homeStore.draftAttachments(for: conversation)
+        guard !kept.isEmpty else { return }
+        restoringDraftAttachments = true
+        // task-owner: one restore; ends when the last chip is in the field (addDraft returns once stopped)
+        Task { [weak self] in
+            for attachment in kept { await self?.addDraft(attachment) }
+            self?.restoringDraftAttachments = false
+            self?.saveDraftAttachments()
+        }
     }
 
     /// The field's attachments, in order.
@@ -520,6 +547,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func removeDraft(_ hash: String) {
         drafts[hash] = nil
         controller.dispatch(.removeDraftAttachment(hash))
+        saveDraftAttachments()
     }
 
     /// Each shown attachment part gets its picture and upload state:
@@ -633,6 +661,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if sendNotice == CmuxStrings.threadRootNotReady { sendNotice = nil }  // the user moved on
         let text = controller.store?.state.ui.draft.plainText ?? ""  // without the attachment marks
         homeStore.setDraft(text, for: conversation)
+        saveDraftAttachments()  // Delete or a cut can take a chip with the text
         // My typing dots for the other members (HomeStore+Typing); off once the field is empty.
         homeStore.composing(text, in: conversation)
         onDraftTextChange()
