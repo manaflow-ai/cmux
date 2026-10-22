@@ -28,7 +28,7 @@ import Testing
         return card
     }
 
-    /// Light mode: a 0.5 pt hairline of the text color at 12-18% on every side (a border over the
+    /// Light mode: a one-pixel hairline of the text color at 12-18% on every side (a border over the
     /// whole card), drawn above the rim, whose white top otherwise covers it; the card is still the
     /// shared card veil with its rim.
     @Test func aLightCardKeepsAHairlineOnEverySide() throws {
@@ -43,7 +43,9 @@ import Testing
         card.layoutSubtreeIfNeeded()
         #expect(edgeView.frame == card.bounds, "the hairline does not cover the card: \(edgeView.frame)")
         let edge = try #require(edgeView.layer)
+        // One device pixel: 0.5 pt at 2x (the test's card has no window, so 2x), 1 pt at 1x.
         #expect(edge.borderWidth == Metrics.lineWidth(0.5), "the light card's edge is \(edge.borderWidth) pt")
+        #expect(CardSurfaceView.hairline(scale: 1) == 1 && CardSurfaceView.hairline(scale: 3) == 1.0 / 3)
         #expect(edge.cornerRadius == card.cornerRadius)
         #expect((edge.backgroundColor?.alpha ?? 0) == 0, "the hairline view paints a fill")
         let color = try #require(edge.borderColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) })
