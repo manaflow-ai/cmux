@@ -265,6 +265,14 @@ enum AgentPaneMenuStrings {
         String(localized: "agentPane.menu.openImage", defaultValue: "Open Image", bundle: .module)
     }
 
+    static var copyFile: String {
+        String(localized: "agentPane.menu.copyFile", defaultValue: "Copy", bundle: .module)
+    }
+
+    static var saveAs: String {
+        String(localized: "agentPane.menu.saveAs", defaultValue: "Save As…", bundle: .module)
+    }
+
     static var copyImage: String {
         String(localized: "agentPane.menu.copyImage", defaultValue: "Copy Image", bundle: .module)
     }

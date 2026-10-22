@@ -25,6 +25,13 @@ extension AgentPaneImageCopies {
     /// `data` is the file's bytes (``imageBytes(_:)``), nil for a file that is not an image.
     @MainActor @discardableResult
     static func write(_ file: URL, data: Data?, to pasteboard: NSPasteboard) -> Bool {
+        pasteboard.clearContents()
+        return pasteboard.writeObjects([pasteboardItem(file, data: data)])
+    }
+
+    /// The pasteboard item for `file` (Copy, a drag out): its file URL, its name, and an image's
+    /// `data` under its type and as TIFF.
+    @MainActor static func pasteboardItem(_ file: URL, data: Data?) -> NSPasteboardItem {
         let item = NSPasteboardItem()
         item.setString(file.absoluteString, forType: .fileURL)
         item.setString(file.lastPathComponent, forType: .string)
@@ -32,8 +39,7 @@ extension AgentPaneImageCopies {
             item.setData(data, forType: NSPasteboard.PasteboardType(type.identifier))
             if type != .tiff, let tiff = NSImage(data: data)?.tiffRepresentation { item.setData(tiff, forType: .tiff) }
         }
-        pasteboard.clearContents()
-        return pasteboard.writeObjects([item])
+        return item
     }
 
     /// An image file's bytes, read off the main actor; nil for another type or a failed read.
