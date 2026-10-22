@@ -6,9 +6,9 @@
 # the daemon-tests.json marker is not pointed at.
 #
 # The pointer only moves forward, and fails closed: it moves when GitHub's
-# compare says this commit is ahead of the one it names (or it names none: no
-# file, or no commit in it); behind, identical, diverged, or a compare or read
-# that fails leaves it, exit 0. Every feat-cmux-next push runs this, several at
+# compare says this commit is ahead of the one it names, or there is no file
+# yet; behind, identical, diverged, a compare or read that fails, or a file that
+# names no commit (not JSON, no or a malformed "commit") leaves it, exit 0. Every feat-cmux-next push runs this, several at
 # once, so the write is a compare-and-swap on the bytes that were compared
 # (upload-r2-object.py --replace-sha256, or --write-once for the first file):
 # when another run wrote first, the pointer is read and compared again. No
@@ -88,16 +88,18 @@ for attempt in 1 2 3 4 5; do
     absent) mode=(--write-once) ;;
     ok)
       current="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit", ""))' "$tmp/current.json" 2>/dev/null || true)"
-      if [[ "$current" =~ ^[0-9a-f]{40}$ ]]; then
-        if [[ "$current" == "$GITHUB_SHA" ]]; then
-          echo "The $channel channel already names $GITHUB_SHA."
-          exit 0
-        fi
-        status="$(compare_status "$current")"
-        if [[ "$status" != ahead ]]; then
-          echo "The $channel channel names $current, and $GITHUB_SHA is not ahead of it (compare: ${status:-unavailable}); left as it is."
-          exit 0
-        fi
+      if [[ ! "$current" =~ ^[0-9a-f]{40}$ ]]; then
+        echo "The $channel channel names no commit this run can compare with; left as it is."
+        exit 0
+      fi
+      if [[ "$current" == "$GITHUB_SHA" ]]; then
+        echo "The $channel channel already names $GITHUB_SHA."
+        exit 0
+      fi
+      status="$(compare_status "$current")"
+      if [[ "$status" != ahead ]]; then
+        echo "The $channel channel names $current, and $GITHUB_SHA is not ahead of it (compare: ${status:-unavailable}); left as it is."
+        exit 0
       fi
       mode=(--replace-sha256 "$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$tmp/current.json")")
       ;;
