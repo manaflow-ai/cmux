@@ -41,10 +41,12 @@ mod send;
 mod side;
 mod spawns;
 mod steer;
+mod transcript;
 mod turns;
 mod wakes;
 pub use replies::{REACTIONS, reaction, tapback};
 pub use steer::STEER_DEADLINE;
+pub use transcript::{TRANSCRIPT_DEFAULT, TRANSCRIPT_MAX};
 pub use turns::stuck_notice;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -225,6 +227,13 @@ pub enum Input {
         reaction: String,
         reply: Sender<Result<String, String>>,
     },
+    /// `transcript(n, before)` (transcript.rs): the conversation as the
+    /// daemon stores it; the answer goes to `reply`.
+    Transcript {
+        n: u32,
+        before: Option<u64>,
+        reply: Sender<Result<String, String>>,
+    },
     /// `reply(id, text)` (replies.rs): the answer goes to `reply`.
     Reply {
         id: u64,
@@ -252,6 +261,11 @@ pub enum Input {
     Sleep {
         call: crate::tools::SleepCall,
         reply: Sender<Result<String, String>>,
+    },
+    /// A message from a Chief on another machine (peer_chiefs.rs), already
+    /// framed as `[chief:<name>] ...`: queued as a note that wakes the Chief.
+    PeerChiefNote {
+        text: String,
     },
     /// `escalate_auth` from subagent `agent` (control.rs): an urgent note.
     EscalateAuth {
@@ -1264,6 +1278,9 @@ impl Brain {
             Input::Reply { id, text, reply } => {
                 let _ = reply.send(self.reply_now(id, &text));
             }
+            Input::Transcript { n, before, reply } => {
+                let _ = reply.send(self.transcript(n, before));
+            }
             Input::TellUnsteered {
                 id,
                 session,
@@ -1278,6 +1295,7 @@ impl Brain {
             Input::Sleep { call, reply } => {
                 let _ = reply.send(self.sleep(call));
             }
+            Input::PeerChiefNote { text } => self.queue(text, Source::Note),
             Input::EscalateAuth {
                 agent,
                 request,
