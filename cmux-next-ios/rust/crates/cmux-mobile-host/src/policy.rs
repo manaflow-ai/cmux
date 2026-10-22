@@ -1003,17 +1003,53 @@ mod tests {
         ] {
             assert_eq!(policy().evaluate(line), Verdict::Forward, "{}", String::from_utf8_lossy(line));
         }
-        // Nothing beyond the ledger: replies into a terminal, the activity
-        // stream and the session journal stay refused.
+        // Nothing beyond the ledger: the activity stream and the session
+        // journal stay refused (a reply to a terminal notification is its own
+        // narrow command, `notification_reply_takes_only_its_notification_and_text`).
         for line in [
-            br#"{"cmd":"notification-reply","id":"m5","notification":1,"text":"y"}"#.as_slice(),
-            br#"{"cmd":"subscribe-activity","id":"m6"}"#,
+            br#"{"cmd":"subscribe-activity","id":"m6"}"#.as_slice(),
             br#"{"cmd":"session.journal.subscribe","id":"m7"}"#,
         ] {
             assert!(
                 matches!(policy().evaluate(line), Verdict::Refuse(_)),
                 "{}",
                 String::from_utf8_lossy(line)
+            );
+        }
+    }
+
+    /// A reply to a terminal notification (PROTOCOL.md "Terminal replies"):
+    /// the notification's id and the person's text, nothing else. hostd
+    /// answers it itself (`mailbox_apply::reply_to_notification`): the text
+    /// goes only to the terminal that posted that notification.
+    #[test]
+    fn notification_reply_takes_only_its_notification_and_text() {
+        assert_eq!(
+            policy().evaluate(br#"{"cmd":"notification-reply","id":"m5","notification":1,"text":"y"}"#),
+            Verdict::Forward
+        );
+        let long = format!(r#"{{"cmd":"notification-reply","id":"m6","notification":1,"text":"{}"}}"#, "x".repeat(4097));
+        let exact = format!(r#"{{"cmd":"notification-reply","id":"m6","notification":1,"text":"{}"}}"#, "x".repeat(4096));
+        assert_eq!(policy().evaluate(exact.as_bytes()), Verdict::Forward);
+        for line in [
+            // Another field: a surface, a command, raw bytes, a paste flag.
+            br#"{"cmd":"notification-reply","id":"m7","notification":1,"text":"y","surface":3}"#.as_slice(),
+            br#"{"cmd":"notification-reply","id":"m7","notification":1,"text":"y","command":"ls"}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":1,"bytes":"bHMK"}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":1,"text":"y","paste":false}"#,
+            // Missing or ill-typed fields; empty text.
+            br#"{"cmd":"notification-reply","id":"m7","text":"y"}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":"1","text":"y"}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":-1,"text":"y"}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":1}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":1,"text":7}"#,
+            br#"{"cmd":"notification-reply","id":"m7","notification":1,"text":""}"#,
+            long.as_bytes(),
+        ] {
+            assert!(
+                matches!(policy().evaluate(line), Verdict::Refuse(_)),
+                "{}",
+                String::from_utf8_lossy(&line[..line.len().min(120)])
             );
         }
     }
