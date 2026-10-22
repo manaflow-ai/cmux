@@ -28,7 +28,7 @@ mod host_update;
 use host_lock::lock_to_install;
 pub(crate) use host_lock::lock_updates;
 use host_migrate::{MIGRATING, REFUSED, migrate, migrate_back};
-pub(crate) use host_update::{UpdateOptions, self_update, update};
+pub(crate) use host_update::{Caller, UpdateOptions, self_update, update};
 
 /// Where `host setup` installs acpmux and what its daemon runs.
 pub(crate) const DAEMON_BIN: &str = "~/.local/bin/acpmux";

@@ -300,7 +300,11 @@ async fn a_host_update_and_a_self_update_of_one_host_never_run_at_once() {
     let peer = FakePeer::new("self-host-lock");
     let old = fake_acpmux(OLD, Some(OLD));
     peer.offer(NEW, Some(NEW));
-    let opts = UpdateOptions { binary_dir: Some(peer.home.join("binaries")), if_idle: false };
+    let opts = UpdateOptions {
+        binary_dir: Some(peer.home.join("binaries")),
+        if_idle: false,
+        caller: None,
+    };
 
     // The timer holds it: an update from another machine changes nothing.
     let files = serving(&fake_acpmux(NEW, Some(NEW)));
@@ -330,15 +334,6 @@ async fn a_host_update_and_a_self_update_of_one_host_never_run_at_once() {
     assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
     assert_eq!(peer.read(".local/bin/acpmux.prev"), old, "the backup is the known-good binary");
     drop(ready(&peer, &files).await);
-}
-
-/// `binary` (a fake acpmux) whose daemon answers only at `socket`: a daemon
-/// whose home or socket a drop-in of `acpmux.service` moved.
-fn listening_at(socket: &str, binary: &str) -> String {
-    let check = format!(
-        "#!/bin/sh\nif [ \"$*\" = \"--json daemon status\" ] && [ \"$ACPMUX_SOCKET\" != '{socket}' ]; then printf '{{\"running\": false}}\\n'; exit 0; fi\n"
-    );
-    binary.replacen("#!/bin/sh\n", &check, 1)
 }
 
 #[tokio::test]

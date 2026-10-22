@@ -328,7 +328,8 @@ pub(super) fn apply(remote: &dyn Remote, plan: &Plan, target: &'static str) -> P
             up
         }
         Step::Install(dir) => {
-            let opts = UpdateOptions { binary_dir: Some(dir.clone()), if_idle: false };
+            let opts =
+                UpdateOptions { binary_dir: Some(dir.clone()), if_idle: false, caller: None };
             let up = update_peer(remote, &opts);
             if up.outcome == Outcome::RolledBack {
                 let _ = std::fs::write(dir.join(ROLLED_BACK), up.error.as_deref().unwrap_or(""));

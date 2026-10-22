@@ -410,3 +410,28 @@ def test_a_tree_published_with_acpmux_republishes_the_same_completion(tmp_path: 
         assert ACPMUX_TREE_NAMES[0] in str(error)
     else:
         raise AssertionError("a completion.json acpmux without a manifest entry was accepted")
+
+
+def main() -> int:
+    """Run every test_* function in file order; a `tmp_path` parameter gets its own temporary directory.
+
+    The tests are pytest-style, but the CI runners have no pytest: `python3 tests/test_publish_cmux_tui_tree.py`
+    (cmux-next guards / tooling-tests) runs them here and fails on the first error.
+    """
+    import inspect
+    import tempfile
+
+    tests = [(name, value) for name, value in globals().items() if name.startswith("test_") and callable(value)]
+    for name, test in tests:
+        if "tmp_path" in inspect.signature(test).parameters:
+            with tempfile.TemporaryDirectory(prefix="publish-cmux-tui-tree-") as directory:
+                test(Path(directory))
+        else:
+            test()
+        print(f"ok {name}")
+    print(f"PASS: {len(tests)} publish-cmux-tui-tree tests")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -102,6 +102,9 @@ pub enum Command {
     /// Print the agent guide: how a script or another agent drives acpmux. Also `guide`, `--guide`, `--skill`.
     #[command(alias = "guide")]
     Skill,
+    /// Print the protocol capability ids this build serves, one per line (`--json`: an object).
+    /// Needs no daemon: the app bundle records them for the web agent pane.
+    Capabilities,
     /// Show or set session defaults per model family or alias: `defaults`, `defaults claude`,
     /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-cr,claude`,
     /// `defaults deepseek prefer=opencode,pi models.opencode=opencode-go/deepseek-v4-pro models.pi=openrouter/deepseek/deepseek-v4`.
@@ -344,6 +347,8 @@ pub enum Command {
     TagCmd { session: String, assignments: Vec<String>, remove: Vec<String>, ttl: Option<u64> },
     #[command(hide = true)]
     RulesCmd { session: String, rules: Option<String>, clear: bool },
+    #[command(hide = true)]
+    LimitsCmd { session: String, max: Option<u32>, clear: bool },
     #[command(hide = true)]
     Schema,
     #[command(hide = true)]
@@ -710,6 +715,18 @@ pub enum SessionCmd {
         #[arg(long)]
         clear: bool,
     },
+    /// How many of its sub-sessions run at once (more wait their turn), how many run and wait
+    /// now, and its other sub-session limits. `--max N` sets it, `--clear` falls back to the
+    /// workspace's, the settings' or the default (16); setting takes the app or a parent session.
+    Limits {
+        session: String,
+        /// Most sub-sessions running at once (1 to 1000).
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=1000), conflicts_with = "clear")]
+        max: Option<u32>,
+        /// Drop the session's own value.
+        #[arg(long)]
+        clear: bool,
+    },
     /// One line per turn.
     History {
         session: String,
@@ -897,6 +914,9 @@ pub fn flatten(c: Command) -> Command {
             }
             SessionCmd::Tag { session, assignments, remove, ttl } => {
                 Command::TagCmd { session, assignments, remove, ttl }
+            }
+            SessionCmd::Limits { session, max, clear } => {
+                Command::LimitsCmd { session, max, clear }
             }
             SessionCmd::Rules { session, rules, clear } => {
                 Command::RulesCmd { session, rules, clear }
