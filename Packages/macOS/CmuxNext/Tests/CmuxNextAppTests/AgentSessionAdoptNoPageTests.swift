@@ -14,6 +14,8 @@ struct AgentSessionAdoptNoPageTests {
     /// Every workspace id the other machine's store listed while the open ran.
     @MainActor final class Seen {
         var ids: Set<String> = []
+        /// When the watch stops: set once the open's work has finished.
+        var until: ContinuousClock.Instant?
     }
 
     @Test func anotherMachinesChatIsRefusedWithoutTheAgentPageAndMakesNoWorkspace() async throws {
@@ -51,7 +53,7 @@ struct AgentSessionAdoptNoPageTests {
             let seen = Seen()
             let store = machine.daemon.store
             let watch = Task { @MainActor in
-                while !Task.isCancelled {
+                while seen.until.map({ ContinuousClock.now < $0 }) ?? true {
                     seen.ids.formUnion(store.workspaces.map(\.id))
                     try? await Task.sleep(for: .milliseconds(10))
                 }
@@ -66,8 +68,9 @@ struct AgentSessionAdoptNoPageTests {
             }
             var failures: [String] = []
             for task in work { if let failure = await task.value { failures.append(failure.message) } }
-            try? await Task.sleep(for: .milliseconds(500)) // test-only: a late tree event would land here
-            watch.cancel()
+            // The watch runs 500 ms more: a late tree event would land in that window.
+            seen.until = ContinuousClock.now + .milliseconds(500)
+            await watch.value
             seen.ids.formUnion(store.workspaces.map(\.id))
 
             #expect(refusal?.contains(MiscHandlerStrings.quickChatUnavailable) == true,
