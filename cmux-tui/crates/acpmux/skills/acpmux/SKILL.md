@@ -187,14 +187,35 @@ name, case-insensitively. File writes a harness delegates to acpmux (ACP
 
 ## 6. Other machines
 
-Sessions on peers show as `host/name` and every command takes that form.
+A session on a peer is named `HOST/NAME` (`big-red/review-42`), and every command takes that
+form. Say and pass that name: never ask the person for a session id, and never use a bare id
+from another machine (an id names a session only on the machine that runs it).
 
 ```bash
-acpmux host ls                                   # peers, connected or offline, remote build
+acpmux peer status                               # each peer: reachable, round trip, disk, load, build
 acpmux run -m claude --host HOST "…"             # start there; --cwd is a remote path
 acpmux ensure NAME -m codex --host HOST
+acpmux send HOST/NAME "…"                        # wait, tail, history, cancel work the same
 acpmux wait                                      # covers remote sessions too
 ```
+
+- **Check first.** Run `acpmux peer status` before remote work and after any peer request
+  fails. Don't guess from a timeout. It names the next command for a peer it cannot reach
+  (`acpmux host doctor HOST`) and for one on another build (`acpmux host update HOST`).
+- **Unreachable peer.** acpmux reconnects by itself. A request refused as unreachable was not
+  sent, so send it again once `peer status` shows the peer reachable. Its sessions show
+  `unreachable` meanwhile; don't start a replacement elsewhere unless the task can't wait.
+- **Where files live.** A remote session reads and writes the peer's disk. `--cwd` and
+  `--worktree` are paths there, and its worktrees go to `~/.cmux/worktrees/<project>/<name>`
+  on that machine. Nothing it writes appears here unless it pushes it (git) or you fetch it.
+- **Moving a session.** `acpmux session export HOST/NAME` fetches the bundle to
+  `~/.acpmux/bundles/`, and `acpmux session import DIR` restores it on this machine. No command
+  moves a session from one peer to another yet. To continue the work on another machine, start
+  a session there with `--host` and a `--prompt-file` that says where the work stands (branch,
+  PR, next step).
+- **What the host allows.** Some machines are not for builds or long jobs. When the task or the
+  session's first message names what a host must not run, honour it, and pick another host
+  from `peer status`.
 
 `host setup HOST` installs a daemon over ssh; `host update --all` pushes the
 current binary (`--if-idle` leaves a peer mid-turn alone; a daemon that does not
