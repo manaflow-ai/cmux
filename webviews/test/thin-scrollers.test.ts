@@ -1,10 +1,12 @@
-// Scrollbars are thin and show only while scrolling, app-wide (Leo 2026-10-12: "a page-level thick
-// gray bar at the window edge", "never a permanent gray track"). With macOS "Show scroll bars" set
-// to Always, WebKit draws a legacy bar on every scroller that overflows; the shared scroller rules
-// (scrollers.ts, installed on every page) draw a thin themed one instead, with no track, hidden at
-// rest and shown while the element scrolls, however it scrolls (wheel, keys, find, code), the
-// page's own scroller included. This installs the real module in a page with legacy bars and reads
-// the scroller's strip.
+// SCROLLBARS-VISIBLE (supersedes: SCROLLBARS-THIN; scrollers.ts). Leo 2026-10-21: "WHY DOES THE
+// SCROLLBAR IN THE CHAT AREA KEEP HIDING ITSELF ... THERE IS NO AGENT APP THAT DOES THIS". A scrollbar
+// is thin, has no track ("never a permanent gray track", 2026-10-12) and is visible at rest whenever
+// its content overflows. With macOS "Show scroll bars" set to Always, WebKit draws a legacy bar on
+// every scroller that overflows; the shared scroller rules (scrollers.ts, installed on every page)
+// draw a thin themed one instead, on no track: shown at rest, still shown while the element scrolls,
+// the page's own scroller included, and nothing at all when the content fits. This installs the real
+// module in a page with legacy bars and reads the scroller's strip. The retired SCROLLBARS-THIN
+// version of this test asserted "nothing at rest"; never restore that to make it pass.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -39,15 +41,16 @@ await requireBrowserLane("thin-scrollers.test.ts", async () => {
     bundle = await built.outputs[0]!.text();
   });
 
-  async function open(root: boolean): Promise<Page> {
+  async function open(root: boolean, fits = false): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 400, height: 300 } });
+    const content = fits ? 100 : root ? 3000 : 2000;
     await page.setContent(`<!doctype html>
       <html data-scrollers="legacy" style="color:#fff;background:#202020">
       <body style="margin:0;background:#202020">
         ${
           root
-            ? `<div style="height:3000px"></div>`
-            : `<div id="list" style="width:200px;height:200px;overflow:auto"><div style="height:2000px"></div></div>`
+            ? `<div style="height:${content}px"></div>`
+            : `<div id="list" style="width:200px;height:200px;overflow:auto"><div style="height:${content}px"></div></div>`
         }
       </body></html>`);
     await page.addScriptTag({ content: bundle });
@@ -81,15 +84,17 @@ await requireBrowserLane("thin-scrollers.test.ts", async () => {
   }
 
   for (const root of [false, true]) {
-    test(`Always, ${root ? "the page's own scroller" : "a scrolling box"}: thin, nothing at rest, shown while it scrolls without a wheel`, async () => {
+    const which = root ? "the page's own scroller" : "a scrolling box";
+    test(`Always, ${which}: thin, shown at rest while it overflows, and still shown while it scrolls`, async () => {
       const page = await open(root);
+      // At rest: nothing has scrolled, no wheel, no pointer.
+      await page.evaluate(() => window.cmuxPaintFrame());
       const rest = await strip(page, root);
       // A key, find or code scroll: no wheel event.
       await page.evaluate((root) => {
         const target = root ? document.scrollingElement! : document.getElementById("list")!;
         target.scrollTop = 300;
       }, root);
-      // The scroll marks the scroller as scrolling, and a frame paints the bar.
       await page.waitForFunction(
         (root) =>
           (root ? document.documentElement : document.getElementById("list")!).hasAttribute("data-cmux-scrolling"),
@@ -98,12 +103,30 @@ await requireBrowserLane("thin-scrollers.test.ts", async () => {
       );
       await page.evaluate(() => window.cmuxPaintFrame());
       const scrolling = await strip(page, root);
+      // The scroll mark clears (SCROLLING_HIDE_MS); the bar stays.
+      await page.waitForFunction(
+        (root) =>
+          !(root ? document.documentElement : document.getElementById("list")!).hasAttribute("data-cmux-scrolling"),
+        root,
+        { timeout: 5_000 },
+      );
+      await page.evaluate(() => window.cmuxPaintFrame());
+      const settled = await strip(page, root);
       await page.close();
-      expect({ thin: rest.thin, rest: rest.drawn, scrolling: scrolling.drawn }).toEqual({
+      expect({ thin: rest.thin, rest: rest.drawn, scrolling: scrolling.drawn, settled: settled.drawn }).toEqual({
         thin: true,
-        rest: false,
+        rest: true,
         scrolling: true,
+        settled: true,
       });
+    });
+
+    test(`Always, ${which}: content that fits draws no bar and no track`, async () => {
+      const page = await open(root, true);
+      await page.evaluate(() => window.cmuxPaintFrame());
+      const rest = await strip(page, root);
+      await page.close();
+      expect(rest.drawn).toBe(false);
     });
   }
 });
