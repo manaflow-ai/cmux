@@ -49,7 +49,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::LimitsCmd { session, max, clear } => {
             let client = connect(true).await?;
-            crate::cli::session_limits::run(client, &session, max, clear, json_out).await
+            crate::cli::session_limits::run(&client, &session, max, clear, json_out).await
         }
         Command::Rename { session, new_name } => {
             let client = connect(true).await?;

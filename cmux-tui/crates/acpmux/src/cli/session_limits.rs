@@ -12,13 +12,13 @@ use anyhow::Result;
 use serde_json::{Value, json};
 
 pub async fn run(
-    client: Client,
+    client: &Client,
     session: &str,
     max: Option<u32>,
     clear: bool,
     json_out: bool,
 ) -> Result<()> {
-    let id = resolve_id(&client, session).await?;
+    let id = resolve_id(client, session).await?;
     let reply = if max.is_some() || clear {
         let value = if clear { Value::Null } else { json!(max) };
         let params = json!({"sessionId": id, "maxRunning": value});

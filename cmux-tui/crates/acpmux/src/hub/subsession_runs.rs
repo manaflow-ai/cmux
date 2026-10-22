@@ -191,13 +191,15 @@ impl Drop for WaitMark {
 /// The turn lock, with the run slot a family turn of a sub-session holds (`queue.rs`): both are
 /// released together.
 pub(super) struct TurnGuard<'a> {
-    _lock: tokio::sync::MutexGuard<'a, ()>,
+    // Fields drop in order: the slot frees while the turn lock is still held, so the same
+    // child's next turn (which takes the lock first) never finds its old slot still counted.
     _slot: Option<RunSlot>,
+    _lock: tokio::sync::MutexGuard<'a, ()>,
 }
 
 impl<'a> TurnGuard<'a> {
     pub(super) fn new(lock: tokio::sync::MutexGuard<'a, ()>, slot: Option<RunSlot>) -> Self {
-        Self { _lock: lock, _slot: slot }
+        Self { _slot: slot, _lock: lock }
     }
 }
 
