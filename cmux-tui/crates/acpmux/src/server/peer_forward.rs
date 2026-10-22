@@ -155,7 +155,14 @@ async fn forward_inner(
             }
             if peer.mark_attached(&id) && m != method::MUX_ATTACH {
                 // The link is not a person: only a client's own attach or view shows the chat.
-                let _ = peer.request(method::MUX_ATTACH, crate::peer::hidden_attach(&id)).await;
+                // Not past a client that left (as the request below).
+                let attach = peer.request(method::MUX_ATTACH, crate::peer::hidden_attach(&id));
+                tokio::select! {
+                    _ = attach => {}
+                    () = conn.closed() => {
+                        return Err(RpcError::internal("the client closed the connection"));
+                    }
+                }
             }
         }
         // The peer answers a prompt when its turn (or a steer's step) ends; the client hears
