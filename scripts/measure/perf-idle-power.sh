@@ -8,8 +8,8 @@
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/perf-idle-power.sh --ref SHA [--arg=measure=60] [--arg=config=Release]
 #     [--arg=scenarios=terminal,tab1] [--arg=settings={"browser":{...}}]
-#     [--arg=freeze=SECONDS] [--arg=neighbors=0..3]  (browser.freezeHiddenTabs and
-#     browser.keepNeighborTabsAwake without JSON, which the fleet's argument check refuses)
+#     [--arg=freeze=SECONDS] [--arg=neighbors=0..3] [--arg=adblock=on|off]  (browser.freezeHiddenTabs,
+#     browser.keepNeighborTabsAwake and browser.builtInAdBlocker without JSON, which the fleet's argument check refuses)
 # Each idle scenario settles 120 s first (Chromium's post-load work), so a
 # full run takes about 25 minutes.
 # Output: PERF-POWER lines; JSON at artifacts/perf-idle-power.json.
@@ -20,6 +20,7 @@ scenarios=""
 settings="{}"
 freeze=""
 neighbors=""
+adblock=""
 for arg in "$@"; do
   case "$arg" in
     measure=*) measure="${arg#measure=}" ;;
@@ -28,14 +29,16 @@ for arg in "$@"; do
     settings=*) settings="${arg#settings=}" ;;
     freeze=*) freeze="${arg#freeze=}"; [[ "$freeze" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: freeze=SECONDS" >&2; exit 2; } ;;
     neighbors=*) neighbors="${arg#neighbors=}"; [[ "$neighbors" =~ ^[0-3]$ ]] || { echo "perf-idle-power.sh: neighbors=0..3" >&2; exit 2; } ;;
+    adblock=*) adblock="${arg#adblock=}"; [[ "$adblock" =~ ^(on|off)$ ]] || { echo "perf-idle-power.sh: adblock=on|off" >&2; exit 2; } ;;
     *) echo "perf-idle-power.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
-if [ -n "$freeze$neighbors" ]; then
+if [ -n "$freeze$neighbors$adblock" ]; then
   settings="$(python3 -c 'import json,sys; s=json.loads(sys.argv[1]); b=s.setdefault("browser", {})
 if sys.argv[2]: b["freezeHiddenTabs"]=int(sys.argv[2])
 if sys.argv[3]: b["keepNeighborTabsAwake"]=int(sys.argv[3])
-print(json.dumps(s))' "$settings" "$freeze" "$neighbors")"
+if sys.argv[4]: b["builtInAdBlocker"]=sys.argv[4]=="on"
+print(json.dumps(s))' "$settings" "$freeze" "$neighbors" "$adblock")"
 fi
 cd "$(git rev-parse --show-toplevel)"
 work=".build/perf-idle-power"
