@@ -7,7 +7,7 @@
 //   no outline. A page that is not the key one keeps the resting edge.
 // - The queued prompt's editor: no outline, the same focused hairline.
 // - A button reached from the keyboard: no outline (neither the shared accent ring nor WebKit's
-//   system-blue `outline: auto`); the soft pill marks it, and a solid-fill one (a ready Send, Stop)
+//   system-blue `outline: auto`); the soft pill marks it, and a solid-fill one (a ready Send, Stop, the prompt editor's Send)
 //   takes its hover step, so keyboard focus always changes what it paints. Increase Contrast keeps the
 //   shared ring.
 //
@@ -140,6 +140,19 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
     await page.close();
   });
 
+  test("under Increase Contrast a focused edge keeps the resting edge, never a dimmer one", async () => {
+    const page = await open(2);
+    await page.emulateMedia({ contrast: "more" });
+    // The chat composer at rest draws the resting edge; the focused queued editor must match it.
+    const rest = await rims(page, "composer");
+    expect(rest.length, "the composer draws one rim").toBe(1);
+    await page.focus("#queue-edit");
+    const focused = await rims(page, "queue-edit");
+    expect(focused.length, "one hairline").toBe(1);
+    expect(focused[0].alpha, "the resting edge's strength").toBeCloseTo(rest[0].alpha, 2);
+    await page.close();
+  });
+
   test("the queued prompt's editor draws the focused hairline, never a ring", async () => {
     const page = await open(2);
     await page.focus("#queue-edit");
@@ -214,11 +227,11 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
     await page.close();
   });
 
-  test("keyboard focus changes what a solid Send, Stop and a plain button paint; solid ones take the hover step", async () => {
+  test("keyboard focus changes what a solid Send, Stop, the prompt editor's Send and a plain button paint; solid ones take the hover step", async () => {
     const page = await open(2);
     // Read end states, never a hover or focus transition's first frame.
     await page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; }" });
-    const ids = ["send-ready", "stop", "plain"];
+    const ids = ["send-ready", "stop", "edit-send", "plain"];
     const rest: Record<string, number[]> = {};
     for (const id of ids) rest[id] = await paint(page, id);
     await page.hover("#stop");
