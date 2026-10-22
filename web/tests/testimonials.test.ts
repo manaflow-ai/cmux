@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { type Testimonial } from "../app/[locale]/testimonials-data";
 import {
   getTestimonialSubtitle,
   getTestimonialTranslation,
-  type Testimonial,
-} from "../app/[locale]/testimonials";
+} from "../app/[locale]/testimonials-utils";
 
 describe("testimonial translations", () => {
   const simplifiedChineseTestimonial = {
