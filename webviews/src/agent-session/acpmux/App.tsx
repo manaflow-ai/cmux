@@ -113,7 +113,7 @@ import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { parseProjectRepos } from "./projectRepos";
 import { HomeLists } from "./HomeLists";
-import { endsTurn, turnFiles, turnPathsOnly, turnRows, type TurnFile } from "./diff";
+import { endsTurn, lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk, trustedLabel } from "./TrustAsk";
@@ -192,6 +192,7 @@ import { transcriptRepositories, type RepositoryCache } from "./conversation/tra
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
+import { AgentNamesContext, agentNames } from "./conversation/agentNames";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
@@ -767,9 +768,8 @@ const MessageRow = memo(
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
-    // Another agent's message as one line at the left (its sender's chip and a preview); a task
-    // notification as one quiet line
-    // (conversation/incomingMessage.ts).
+    // Another agent's message as one line at the left (its sender's chip), its text as a card under
+    // it cut to six lines; a task notification as one quiet line (conversation/incomingMessage.ts).
     // Its images show with it, and its action row (age, Copy, Retry, Pin) at the line's end on hover;
     // a steer's read state does not: the message is the agent's to read.
     if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
@@ -4289,17 +4289,12 @@ function AcpmuxPane() {
       if (!opened) inPlace();
     }, inPlace);
   }, []);
-  // An output in the summary opens the changes of the last turn that wrote it, at that file.
+  // An output in the summary opens the changes of the last turn that wrote it, under any of its
+  // spellings, at that file.
   const openOutput = useCallback(
     (path: string) => {
-      const row = [...snapshot.rows]
-        .reverse()
-        .find(
-          (candidate) =>
-            candidate.kind === "activity" &&
-            candidate.items?.some((item) => item.tool?.diffs?.some((change) => change.path === path)),
-        );
-      if (row) openDiff(row.id, path);
+      const change = lastChange(snapshot.rows, path);
+      if (change) openDiff(change.rowId, change.path);
     },
     [snapshot.rows, openDiff],
   );
@@ -4579,7 +4574,7 @@ function AcpmuxPane() {
     ],
   );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
-  const diffActivity = useRef<{ key: string; files: TurnFile[]; pathsOnly: string[] }>(undefined);
+  const diffActivity = useRef<{ key: string; files: TurnFile[]; pathsOnly: PathRef[] }>(undefined);
   const diffTurnFiles = useMemo(() => {
     if (!diffView || !diffOpen) return undefined;
     const activity = turnRows(snapshot.rows, diffView.rowId).filter((row) => row.kind === "activity");
@@ -4641,7 +4636,7 @@ function AcpmuxPane() {
     [turnCheckpoint, turnKey],
   );
   // The header's Changes: the last turn that edited files, with its checkpoint's counts once loaded.
-  const lastEdit = useRef<{ key: string; rowId: string; files: TurnFile[]; pathsOnly: string[] }>(undefined);
+  const lastEdit = useRef<{ key: string; rowId: string; files: TurnFile[]; pathsOnly: PathRef[] }>(undefined);
   const lastEditTurn = useMemo(() => {
     const rows = snapshot.rows;
     let at = rows.length - 1;
@@ -4807,7 +4802,9 @@ function AcpmuxPane() {
     [snapshot.rows, snapshot.subagentViews],
   );
   const agentsKey = freshAgents
-    .map((agent) => [agent.id, agent.name, agent.state, agent.action ?? "", agent.endedAt ?? ""].join("\u0000"))
+    .map((agent) =>
+      [agent.id, agent.name, agent.state, agent.action ?? "", agent.endedAt ?? "", agent.agentId ?? ""].join("\u0000"),
+    )
     .join("\u0001");
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a new list only when an agent changes
   const chatAgents = useMemo(() => freshAgents, [agentsKey]);
@@ -4817,6 +4814,8 @@ function AcpmuxPane() {
     canBackground && snapshot.isWorking && freshAgents.some((agent) => running(agent) && !agent.background);
   useBackgroundKey(!quick && (foreground.length > 0 || foregroundAgent), runInBackground);
   const chatTones = useMemo(() => (chatAgents.length > 0 ? agentTones(chatAgents) : undefined), [chatAgents]);
+  // A message to a subagent names it by its description, never its agentId (MessageCard.tsx).
+  const chatAgentNames = useMemo(() => agentNames(chatAgents), [chatAgents]);
   const freshWaiting = useMemo(
     () => (chatAgents.some(running) ? waitingSubagents(askedToolCalls, snapshot.subagentViews) : new Set<string>()),
     [chatAgents, askedToolCalls, snapshot.subagentViews],
@@ -7966,9 +7965,11 @@ function AcpmuxPane() {
                   <EmptyState project={projectName(composerSnapshot.summary?.cwd)} picker={heroPicker} />
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>
-                    <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-                      {transcript}
-                    </BackgroundTaskOutputContext.Provider>
+                    <AgentNamesContext.Provider value={chatAgentNames}>
+                      <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
+                        {transcript}
+                      </BackgroundTaskOutputContext.Provider>
+                    </AgentNamesContext.Provider>
                   </AgentTonesContext.Provider>
                 )}
                 {displayAnchor && (
