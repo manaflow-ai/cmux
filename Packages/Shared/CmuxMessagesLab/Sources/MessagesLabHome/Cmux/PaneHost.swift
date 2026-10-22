@@ -371,6 +371,21 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private var linkPress: (url: URL, at: CGPoint)?
     /// cmux: the host took this press as a link drag; its later moves and release are not ours.
     private var linkDragTaken = false
+    /// cmux: a press on an attachment: a move past the slop drags it out (``beginAttachmentDrag``).
+    /// Cleared on the move that starts the drag and on every press.
+    var attachmentPress: (request: HomeAttachmentDragRequest, at: CGPoint)?
+    /// cmux: the pressed attachment's local copy, fetched from the press on, so a drag usually
+    /// carries the file itself rather than a promise of it.
+    var attachmentPressFile: (attachment: ID, file: URL)?
+    var attachmentPrefetch: Task<Void, Never>?
+    /// cmux: this press became an attachment drag; its later moves and release are AppKit's.
+    private var attachmentDragTaken = false
+    /// cmux: the running attachment drag's source and promise delegate (both held weakly by AppKit).
+    var attachmentDragSource: HomeAttachmentDrag?
+    /// cmux: starts an attachment's drag out of Home (a dragging session on the host); tests record it.
+    lazy var beginAttachmentDrag: (HomeAttachmentDragRequest, NSEvent) -> Void = { [weak self] request, event in
+        self?.startAttachmentDrag(request, event)
+    }
     private(set) lazy var selection = TranscriptSelection(controller: self)
     /// cmux: Reply to Selection's quote while the reply is written (ChatController+ReplyQuote.swift);
     /// nil: a reply answers the whole message.
@@ -670,12 +685,13 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if picker != nil { closePicker(); return }
         // cmux: Esc while dictating drops the words and leaves the draft as it was.
         if voice.cancel() { return }
-        // In the field a working agent stops first (one Esc), as before threads; then the
-        // thread view. The pane's Esc monitor (focus on the transcript) only closes the view.
-        if isWorking { onStop?(); return }
-        // cmux: Reply to Selection: an empty field's Esc takes the quote off first, the next one closes the thread.
+        // Innermost first. cmux: Reply to Selection: an empty field's Esc takes the quote off
+        // first, the next one closes the thread.
         if replyQuote != nil, store?.state.ui.draft.text.isEmpty != false { replyQuote = nil; return }
-        _ = thread.escape()
+        // cmux: an open reply or thread view closes before a working Chief stops (Lawrence 2026-10-21).
+        if thread.escape() { return }
+        // In the main chat a working agent stops (one Esc).
+        if isWorking { onStop?() }
     }
 
     // MARK: Clicks
@@ -684,8 +700,13 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if let tv = demo?.compose.textView.view, demo?.compose.fieldRect.contains(p) == true { window?.makeFirstResponder(tv); return }
         linkPress = nil
         linkDragTaken = false
+        attachmentPress = nil
+        attachmentDragTaken = false
         if e.clickCount == 1 {
             if onDragLink != nil, let url = linkURL(at: p) { linkPress = (url, p) }
+            if linkPress == nil, let hit = demo?.hit(p), case let .attachment(a) = hit.row.part {
+                pressAttachment(a, message: hit.row.ref.messageId, frame: hit.body, at: p)
+            }
             selection.mouseDown(p)
             // MessagesLab 7f1a811: press and hold on a message opens the tapback picker.
             if picker == nil, intents?.canReact == true, let hit = demo?.hit(p) {
@@ -710,6 +731,18 @@ final class ChatController: NSObject, NSTextViewDelegate {
                 return
             }
         }
+        // cmux: a press on an attachment moved past the slop drags the file out (Finder, other apps).
+        if attachmentDragTaken { return }
+        if let press = attachmentPress, hypot(p.x - press.at.x, p.y - press.at.y) > 3 {
+            attachmentPress = nil
+            attachmentDragTaken = true
+            hold.cancel()
+            selection.clear()
+            var request = press.request
+            if let fetched = attachmentPressFile, fetched.attachment == request.attachment { request.file = fetched.file }
+            beginAttachmentDrag(request, e)
+            return
+        }
         hold.moved(to: p)
         let doc = host.scrollView.document
         if selection.mouseDragged(p) {
@@ -724,6 +757,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
             _ = selection.mouseUp()
             return
         }
+        if attachmentDragTaken {
+            attachmentDragTaken = false
+            _ = selection.mouseUp()
+            return
+        }
+        attachmentPress = nil
         let held = hold.fired
         hold.cancel()
         if held || thread.swallowed(e) { return }
@@ -740,6 +779,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
         guard p.y > host.titlebarHeight, !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p) else { focusCompose(); return }
         // cmux: the Chief's status line opens its turn's details.
         if let line = demo.statusLineFrame(), line.contains(p) { intents?.statusLineClicked(line, in: host); return }
+        // cmux: a long message's "Show all N lines" band expands it, "Show less" folds it again
+        // (the vendored handler had no caller here: the band took no click, Lawrence 2026-10-21).
+        if demo.longTextBandHit(p) { return }
         if let hit = demo.hit(p) {
             // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
             if openLink(hit, at: p) { return }

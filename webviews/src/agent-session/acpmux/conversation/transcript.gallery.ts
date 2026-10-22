@@ -533,6 +533,19 @@ const envShell = (command: string) =>
     endedAt: minutesAgo(1.88),
   });
 
+/// A quiet turn under a second with no answer, a sub-second answer, then a 5s one (sub-second-turns).
+const subSecondTurns = () =>
+  chat([
+    user("Note for later: the deploy key rotates Friday.", 9),
+    summary(9, { status: "completed", durationMs: 300 }),
+    user("Is CI green?", 6),
+    assistant("Yes, all checks passed.", 6),
+    summary(6, { status: "completed", durationMs: 800 }),
+    user("Summarize the failing test", 3),
+    assistant("The retry test times out: the mock server never answers the second request.", 2.9),
+    summary(2.9, { status: "completed", durationMs: 5_000 }),
+  ]);
+
 /// Opens the turn's Worked for, then its one run's folded line.
 const openGroupedRun = async (ctx: PlayContext) => {
   await openWorked(ctx);
@@ -587,6 +600,43 @@ const MCP_READ = mcpTool(
   }),
 );
 
+// A Claude Bash call's permission as claude-agent-acp sends it: its title is the command line (so
+// its first line reads "bash -c '"), its description says what it does, and the script runs long.
+const BASH_SCRIPT = [
+  "bash -c '",
+  "# Rebuild the pane bundle and check it before the push",
+  "set -euo pipefail",
+  "cd webviews",
+  "bun install --frozen-lockfile",
+  "bun run check",
+  "bun run build:agent-pane",
+  "git status --short",
+  "'",
+].join("\n");
+const BASH_PERMISSION = chat(
+  [
+    user("Rebuild the pane and check it", 1),
+    activity([tool("bash -c '", "execute", "pending", { command: BASH_SCRIPT })], 0.9),
+  ],
+  {
+    isWorking: true,
+    permission: {
+      permissionId: "gallery-permission",
+      title: "`bash -c '",
+      kind: "execute",
+      command: BASH_SCRIPT,
+      description: "Rebuild the pane bundle and run its checks",
+      rule: "Allow bun run check:* for this session",
+      pending: true,
+      options: [
+        { id: "allow_once", name: "Allow", kind: "allow_once", allow: true },
+        { id: "allow_always", name: "Always Allow", kind: "allow_always", allow: true },
+        { id: "reject_once", name: "Reject", kind: "reject_once", allow: false },
+      ],
+    },
+  },
+);
+
 export default agentPaneEntry({
   id: "agent-pane.transcript",
   title: "Transcript rows",
@@ -618,6 +668,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/StreamingCode.tsx",
     "agent-session/acpmux/conversation/Math.tsx",
     "agent-session/acpmux/conversation/ToolRow.tsx",
+    "agent-session/acpmux/conversation/BlockParts.tsx",
     "agent-session/acpmux/chips/ReplyMedia.tsx",
     "agent-session/acpmux/conversation/icons.tsx#Expand",
     "agent-session/acpmux/conversation/ToolRun.tsx",
@@ -638,6 +689,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/DateLine.tsx",
     "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryFailure",
     "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryMark",
+    "agent-session/acpmux/conversation/PromptDelivery.tsx#FailedSendsContext",
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
     "agent-session/acpmux/PermissionCard.tsx",
@@ -1316,7 +1368,7 @@ export default agentPaneEntry({
           activity(
             [
               envShell("acpmux ls 2>&1 | head -40"),
-              envShell("acpmux history huge-blue/activity-indicators | tail -c 4000"),
+              envShell("acpmux history linux-box/activity-indicators | tail -c 4000"),
               envShell("acpmux history transcript-density | tail -c 4000"),
               tool("grep -l -i chief /tmp/l*.txt /tmp/r*.txt", "execute", "completed", {
                 command:
@@ -1345,6 +1397,40 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
       play: liveLineClear,
+    },
+    "codex-turn-drafts-replace": {
+      note: "Leo's status-task-notification-replacement.png: a task notification's work after the turn ended, three calls Claude has not written yet. They draw no rows of their own (it was four bare command rows stacked under Worked for 1s); the newest is the one live line at the bottom (Writing a command), under the finished call, and each next call replaces it there, as Thinking does. Play: one live line, no running rows.",
+      snapshot: chat(
+        [
+          user("Start the release build in the background and tell me when it's done.", 3),
+          activity([describedShell("make release &", "Start the release build")], 2.9),
+          assistant("The release build is running in the background.", 2.8),
+          summary(2.8, { status: "completed", durationMs: 1_000, toolCount: 1 }),
+          activity(
+            [
+              describedShell("tail -n 40 build/release.log", "Read the end of the build log", {
+                startedAt: minutesAgo(0.4),
+                endedAt: minutesAgo(0.39),
+              }),
+              ...[0.3, 0.2, 0.1].map((minutes) =>
+                tool("Bash", "execute", "pending", { inputSummary: "{}", startedAt: minutesAgo(minutes) }),
+              ),
+            ],
+            0.4,
+          ),
+        ],
+        { isWorking: true },
+      ),
+      play: async (ctx: PlayContext) => {
+        const doc = ctx.document;
+        await ctx.waitFor(() =>
+          (doc.querySelector(".cv-worked.is-below")?.textContent ?? "").startsWith("Writing a command"),
+        );
+        const lines = doc.querySelectorAll(".cv-worked.is-below").length;
+        if (lines !== 1) throw new Error(`${lines} live lines, not one`);
+        const live = doc.querySelectorAll(".cv-tool.is-live").length;
+        if (live) throw new Error(`${live} running rows stack over the live line`);
+      },
     },
     "codex-turn-run-open": {
       note: "The same turn ended: opened, Worked for shows the commentary between the runs' summary lines; a click opens Ran 3 commands to its calls. Play: open the turn, then the second run.",
@@ -1529,7 +1615,7 @@ export default agentPaneEntry({
           summary(5.5, {
             status: "failed",
             error:
-              'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"unauthorized"}} from http://cmux-lawrences-mac-mini:31415/v1/messages',
+              'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"unauthorized"}} from http://studio-mac:31415/v1/messages',
           }),
         ],
         { harness: "claude-sr" },
@@ -1580,6 +1666,26 @@ export default agentPaneEntry({
         await ctx.waitFor(() => {
           const note = ctx.document.querySelector('[data-failure-kind="rate-limited"]');
           return note && !/Your sign-in expired\. Sign in again to continue/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
+    "turn-error-no-team-account": {
+      note: "Codex on a team Cloud machine whose team has no Codex account: say so and name the command that adds one, not a rate limit or a refused route.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error:
+              "unexpected status 403 Forbidden: Codex needs a team account on this machine. To add one for the team, run `cr add codex` in this machine's terminal. If someone added one as private, they can choose Share with team at coderouter.dev., url: https://coderouter.cmux.dev/v1/responses, request id: req-1",
+          }),
+        ],
+        { harness: "codex", model: "gpt-5.5" },
+      ),
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="no-team-account"]');
+          return note && /needs a team account on this machine/.test(note.textContent ?? "") ? note : null;
         });
       },
     },
@@ -1646,6 +1752,17 @@ export default agentPaneEntry({
         ...workedTurnRows(minutesAgo(15)),
         summary(14, { status: "completed", toolCount: 3 }),
       ]),
+    },
+    "sub-second-turns": {
+      note: "Turns under a second: no Worked for 0s, and a turn with nothing to copy takes no footer line, only the turn gap (Leo, 2026-10-21).",
+      snapshot: subSecondTurns(),
+    },
+    "sub-second-turns-pointed": {
+      note: "The same turns, the pointer on the quiet turn's footer: its age (and Pin, where the chat pins) shows over the turn gap, and nothing below moves.",
+      snapshot: subSecondTurns(),
+      play: async (ctx) => {
+        await ctx.hover({ selector: ".acpmux-turnSummary" });
+      },
     },
     "prompt-delivery": {
       note: "Each sent prompt's way to the agent: the read check once it started, unread once acpmux took it, a clock and Still sending while it waits, and one that failed with Retry, Edit, Remove and Details.",
@@ -1886,34 +2003,24 @@ export default agentPaneEntry({
       ]),
     },
     permission: {
-      note: "A tool call waiting for the user's permission.",
-      snapshot: chat(
-        [
-          user("Install the tree package", 1),
-          activity(
-            [
-              tool("bun add @pierre/trees", "execute", "pending", {
-                command: "bun add @pierre/trees",
-              }),
-            ],
-            0.9,
-          ),
-        ],
-        {
-          isWorking: true,
-          permission: {
-            permissionId: "gallery-permission",
-            title: "bun add @pierre/trees",
-            kind: "execute",
-            pending: true,
-            options: [
-              { id: "allow_once", name: "Allow", allow: true },
-              { id: "allow_always", name: "Always allow", allow: true },
-              { id: "reject_once", name: "Deny", allow: false },
-            ],
-          },
-        },
-      ),
+      note: "A Claude Bash call waiting for permission (Claude Code desktop's prompt): a glass card titled with the call's description, the script's first line clamped in mono, and Allow once, Always allow and Deny.",
+      snapshot: BASH_PERMISSION,
+    },
+    "permission-expanded": {
+      note: "Play: Show full command opens the whole script, wrapper included, in a scrolling mono block.",
+      snapshot: BASH_PERMISSION,
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Show full command" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-command-full"));
+      },
+    },
+    "permission-deny-feedback": {
+      note: "Play: Deny opens the field for what Claude should do instead; its send denies the call with that text.",
+      snapshot: BASH_PERMISSION,
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Deny" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-feedback textarea"));
+      },
     },
     "secret-card": {
       note: "Play: an agent asks for a secret (cx-ncc.42). The value is typed in the private field and Provide sends it to acpmux only; the card closes and the chat never shows the value.",
