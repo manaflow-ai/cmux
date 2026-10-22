@@ -580,6 +580,7 @@ async fn dispatch_request(
                 provenance,
                 agent,
                 after_turn: None,
+                supersede: crate::hub::supersede_key(&params)?,
             };
             let agent_message = opts.provenance.is_some();
             super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;
@@ -1074,6 +1075,9 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
             let removed = hub.withdraw_queued(&s, prompt_id)?;
             Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
+        }
+        method::MUX_SEND_QUEUE | method::MUX_SEND_STATUS => {
+            super::outbox::handle(hub, conn, m, &params).await
         }
         method::MUX_PROMPT_WITHDRAW | method::MUX_AGENT_PAIR_RESUME => {
             super::agent_messages::handle(hub, conn, m, &params).await

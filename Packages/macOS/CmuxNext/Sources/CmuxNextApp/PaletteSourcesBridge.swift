@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextSettings
+import CmuxNextSidebar
 
 /// Feeds the palette's workspace and tab pages from the daemon store.
 enum PaletteSourcesBridge {
@@ -102,11 +103,13 @@ enum PaletteSourcesBridge {
             for group in AppPaletteNavigationSource.groups(services) {
                 for id in group.workspaceIDs where groupNames[id] == nil { groupNames[id] = group.name }
             }
-            return services.machines.allWorkspaces.map(\.0).map { workspace in
+            return services.machines.allWorkspaces.map { workspace, daemon in // another machine's rows name it
                 let cwd = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first { $0.cwd != nil }?.cwd
+                // The local Chief runs on this Mac, as the sidebar's machine marks say.
+                let onThisMac = daemon.isLocal || MachineID(daemon.machineID).isLocalChief
                 return PaletteWorkspace(id: workspace.id, title: workspace.displayName, directory: cwd,
                                         isSelected: workspace.id == shown, unreadCount: workspace.unreadCount,
-                                        groupName: groupNames[workspace.id])
+                                        groupName: groupNames[workspace.id], machineName: onThisMac ? nil : services.machines.machineName(daemon.machineID))
             }
         }
 
