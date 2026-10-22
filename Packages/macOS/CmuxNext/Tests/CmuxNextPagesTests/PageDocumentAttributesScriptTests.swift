@@ -9,7 +9,7 @@ import Testing
 struct PageDocumentAttributesScriptTests {
     /// A document whose `<html>` the test inserts (`insertHTML()`), with a MutationObserver that
     /// the insertion notifies, as the HTML parser does.
-    private func context(withHTML: Bool) throws -> JSContext {
+    private func makeContext(withHTML: Bool) throws -> JSContext {
         let context = try #require(JSContext())
         context.evaluateScript("""
         var observers = [];
@@ -28,7 +28,7 @@ struct PageDocumentAttributesScriptTests {
 
     @Test func attributesWaitForTheHTMLElementWhenTheScriptRunsBeforeIt() throws {
         let script = try #require(PageWebView.attributesScript(["needs-you": "off", "scrollers": "overlay"]))
-        let context = try context(withHTML: false)
+        let context = try makeContext(withHTML: false)
         context.evaluateScript(script)
         #expect(context.exception == nil)
         #expect(context.evaluateScript("Object.keys(html.attrs).length").toInt32() == 0)
@@ -40,7 +40,7 @@ struct PageDocumentAttributesScriptTests {
 
     @Test func attributesAreSetAtOnceWhenTheHTMLElementExists() throws {
         let script = try #require(PageWebView.attributesScript(["needs-you": "off"]))
-        let context = try context(withHTML: true)
+        let context = try makeContext(withHTML: true)
         context.evaluateScript(script)
         #expect(context.exception == nil)
         #expect(context.evaluateScript("html.attrs['data-needs-you']").toString() == "off")
