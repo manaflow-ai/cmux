@@ -543,7 +543,8 @@ test("the turn's own diff beside the chat is its tool calls' patch, one block pe
   const { besideRequest, TURN_PATCH_LIMIT } = await import("../src/agent-session/acpmux/turnChanges/viewChanges");
   const row = activity("turn-14", [await editInFolder()]);
   expect(besideRequest([row], "turn-14", FOLDER, undefined, "uploader")).toEqual({
-    patch: "diff --git a/upload.sh b/upload.sh\n--- a/upload.sh\n+++ b/upload.sh\n@@ -1,1 +1,1 @@\n-attempt=0\n+attempt=1\n",
+    patch:
+      "diff --git a/upload.sh b/upload.sh\n--- a/upload.sh\n+++ b/upload.sh\n@@ -1,1 +1,1 @@\n-attempt=0\n+attempt=1\n",
     title: "uploader",
   });
   // The folder's diff when the repository holds the turn: no patch is sent.
@@ -551,7 +552,11 @@ test("the turn's own diff beside the chat is its tool calls' patch, one block pe
   // A new file outside the repository: all its lines added to nothing.
   const created = activity("turn-15", [await translatorWrite("write-9", SETUP, true)]);
   const patch = (besideRequest([created], "turn-15", FOLDER, FOLDER, "uploader") as { patch: string }).patch;
-  expect(patch.startsWith("diff --git a/l-setup.txt b/l-setup.txt\n--- /dev/null\n+++ b/l-setup.txt\n@@ -0,0 +1,9 @@\n+step 1\n")).toBe(true);
+  expect(
+    patch.startsWith(
+      "diff --git a/l-setup.txt b/l-setup.txt\n--- /dev/null\n+++ b/l-setup.txt\n@@ -0,0 +1,9 @@\n+step 1\n",
+    ),
+  ).toBe(true);
   expect(patch.length).toBeLessThan(TURN_PATCH_LIMIT);
 });
 
