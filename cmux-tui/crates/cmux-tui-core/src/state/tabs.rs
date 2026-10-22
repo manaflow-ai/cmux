@@ -132,6 +132,52 @@ impl Mux {
         Ok(commit)
     }
 
+    /// `tab-attention-v1`: a browser tab whose page went to another URL
+    /// drops its attention mark, since the page the agent asked the person to
+    /// act on is gone (the person confirmed, logged in, or left). One read
+    /// when the tab holds no mark; a commit restating the tab when it does.
+    pub(crate) fn clear_attention_after_navigation(&self, actor: &Actor, surface: SurfaceId) {
+        let Some(tab) = self.with_state(|state| {
+            state.resource_indexes.tab_ids.get(&surface).map(|id| id.as_str().to_string())
+        }) else {
+            return;
+        };
+        let marked = self.personal_state_read(|connection| {
+            crate::state::tab_state_store::tab_has_attention(connection, &tab)
+        });
+        if !matches!(marked, Ok(true)) {
+            return;
+        }
+        let fingerprint = serde_json::json!({
+            "operation": "tab.attention.navigated",
+            "tab": tab,
+            "nonce": crate::workspace_registry::new_uuid_v4(),
+        });
+        let result = self.commit_state(
+            &WorkspaceMutation::local("cmux-tui-tab-attention", actor.clone()),
+            "tab.attention.navigated",
+            &fingerprint,
+            None,
+            StateEffects::PRESENTATION,
+            |transaction, _| {
+                let update = TabStateUpdate { attention: Some(None), ..Default::default() };
+                crate::state::tab_state_store::update_tab_state(transaction, &tab, &update)?;
+                let changes = crate::state::values::fresh_upserts(
+                    transaction,
+                    &[],
+                    &[],
+                    std::slice::from_ref(&tab),
+                )?;
+                Ok(StateChanges::new(serde_json::json!({"tab": tab}), changes))
+            },
+        );
+        if let Err(error) = result {
+            eprintln!(
+                "cmux-tui: clearing the attention mark of {tab} after navigation failed: {error:#}"
+            );
+        }
+    }
+
     /// Store the owner (hosting app's install id) of a frontend-rendered
     /// browser tab on its record, restating the tab on `session.events`.
     /// The raw `update-frontend-browser-tab {owner}` path; `tab.update`

@@ -5,8 +5,9 @@ use super::{
     AUTHORITY_CAPTURE_ATTEMPTS, BROWSER_COMMAND_QUEUE_CAPACITY, BrowserCaptureOptions,
     BrowserCommand, BrowserFrame, BrowserSession, BrowserSource, BrowserStatus,
     MAX_RECONFIGURE_WAITERS_PER_RESERVATION, SequencedBrowserCommand, capture_scale_for,
-    handle_frame_navigated, handle_same_document_navigated, new_surface, normalize_url,
-    runtime_endpoint, scaled_pixels, start_surface_thread, take_latest_worker_commands,
+    clear_attention_if_page_changed, handle_frame_navigated, handle_same_document_navigated,
+    new_surface, normalize_url, runtime_endpoint, scaled_pixels, start_surface_thread,
+    take_latest_worker_commands,
 };
 use crate::{Mux, MuxEvent, Surface, SurfaceOptions};
 use serde_json::{Value, json};
