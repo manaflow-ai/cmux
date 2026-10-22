@@ -29,17 +29,45 @@ test("a subagent's view shows no raw tool call id, and not the call that spawned
     fold,
     update(
       { sessionUpdate: "subagent_spawned" },
-      { subagents: [{ id: "acp-1/toolu_spawn", parent: null, name: "Fix merge hook", state: "running", toolCallId: "toolu_spawn" }] },
+      {
+        subagents: [
+          {
+            id: "acp-1/toolu_spawn",
+            parent: null,
+            name: "Fix merge hook",
+            state: "running",
+            toolCallId: "toolu_spawn",
+          },
+        ],
+      },
     ),
   );
   // An update to a call whose start this view never saw, with no title.
-  feed(fold, update({ sessionUpdate: "tool_call_update", toolCallId: "toolu_01RqigDE1xKq7LfoCN2m0Wop", status: "completed" }, sub));
-  // The spawning Agent call's own progress, tagged with the subagent.
-  feed(fold, update({ sessionUpdate: "tool_call_update", toolCallId: "toolu_spawn", status: "in_progress" }, sub));
-  feed(fold, update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Checking the hook." } }, sub));
   feed(
     fold,
-    update({ sessionUpdate: "tool_call", toolCallId: "toolu_read", title: "Read hook.sh", kind: "read", status: "completed" }, sub),
+    update(
+      { sessionUpdate: "tool_call_update", toolCallId: "toolu_01RqigDE1xKq7LfoCN2m0Wop", status: "completed" },
+      sub,
+    ),
+  );
+  // The spawning Agent call's own progress, tagged with the subagent.
+  feed(fold, update({ sessionUpdate: "tool_call_update", toolCallId: "toolu_spawn", status: "in_progress" }, sub));
+  feed(
+    fold,
+    update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Checking the hook." } }, sub),
+  );
+  feed(
+    fold,
+    update(
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "toolu_read",
+        title: "Read hook.sh",
+        kind: "read",
+        status: "completed",
+      },
+      sub,
+    ),
   );
   const texts = shown(fold, "acp-1/toolu_spawn").filter(Boolean);
   expect(texts.filter((text) => text.startsWith("toolu_"))).toEqual([]);
