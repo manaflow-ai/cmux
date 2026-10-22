@@ -297,7 +297,7 @@ private struct BrowserDownloadPopupRow: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Text(BrowserDownloadsMenu.status(download))
-                        .font(Font(Typography.caption))
+                        .font(Font(Typography.captionDigits))
                         .foregroundStyle(failed ? model.colors.danger : model.colors.secondary)
                         .lineLimit(1)
                 }
