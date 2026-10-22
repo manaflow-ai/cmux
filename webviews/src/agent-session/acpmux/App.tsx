@@ -48,8 +48,6 @@ import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from ".
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
-import { setImportCards } from "./importCards";
-import { NewTabImportCards } from "./NewTabImportCards";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
@@ -475,8 +473,6 @@ declare global {
       applyRecentlyClosed?(items: unknown): void;
       /// What plays, for the New Tab page's player (newtab/nowPlaying.ts); null while nothing does.
       applyNowPlaying?(track: unknown): void;
-      /// The New Tab page's import suggestion cards (importCards.ts); null while there are none.
-      applyImportCards?(cards: unknown): void;
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
@@ -5535,9 +5531,6 @@ function AcpmuxPane() {
       applyNowPlaying(track) {
         setNowPlaying(track);
       },
-      applyImportCards(cards) {
-        setImportCards(cards);
-      },
       revealTurn(turnId) {
         revealRef.current(turnId);
       },
@@ -7868,14 +7861,7 @@ function AcpmuxPane() {
               accessory={<DictationMic dictation={dictation} />}
               dictating={isWaitingForWords(dictation.state)}
               dictationField={newTabDictationField}
-              notice={
-                <>
-                  <DictationNotice dictation={dictation} />
-                  <NewTabImportCards
-                    onAction={(id, action) => void callNative("importCards.act", { id, action }).catch(() => undefined)}
-                  />
-                </>
-              }
+              notice={<DictationNotice dictation={dictation} />}
               // The host answers only for a page on this Mac; another machine's keeps the refusal.
               {...(!quick ? { localPaths } : {})}
               template={screenTemplate(shownTemplate(newTab))}

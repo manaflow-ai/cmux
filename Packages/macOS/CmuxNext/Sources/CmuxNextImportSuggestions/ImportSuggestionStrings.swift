@@ -5,7 +5,6 @@ import Foundation
 public nonisolated struct ImportSuggestionStrings: Sendable {
     public init() {}
 
-    public static var listTitle: String { String(localized: "importSuggestions.list.title", defaultValue: "Bring your stuff to cmux", table: "ImportSuggestions", bundle: .module) }
     public static var settingsTitle: String { String(localized: "importSuggestions.settings.title", defaultValue: "Found on This Mac", table: "ImportSuggestions", bundle: .module) }
 
     // MARK: Facts
