@@ -30,14 +30,21 @@ import AppKit
     /// line and rows stay where they were in the list when the group lifts.
     static func blockFrame(_ list: SidebarListView, _ rows: [SidebarRow]) -> NSRect? {
         guard let first = rows.first, let last = rows.last else { return nil }
-        let block = list.frame(for: first).union(list.frame(for: last))
+        return withLines(list, rows, list.frame(for: first).union(list.frame(for: last)))
+    }
+
+    /// `block` grown over the members' lines of the open groups among `rows`, each row placed by `frame`
+    /// (default: its layout frame). The lift, the landing and a settled drop all use it, so a group's card
+    /// keeps one frame from lift to landing (#23975).
+    static func withLines(_ list: SidebarListView, _ rows: [SidebarRow], _ block: NSRect,
+                          frame: ((SidebarRow) -> CGRect)? = nil) -> NSRect {
         guard rows.count > 1 else { return block }
-        return lines(list, rows).reduce(block) { $0.union($1.frame) }
+        return lines(list, rows, frame: frame).reduce(block) { $0.union($1.frame) }
     }
 
     /// The members' lines of the open groups among `rows` (list coordinates).
-    static func lines(_ list: SidebarListView, _ rows: [SidebarRow]) -> [SidebarGroupLine] {
-        SidebarGroupLine.lines(rows, colors: list.groups) { list.frame(for: $0) }
+    static func lines(_ list: SidebarListView, _ rows: [SidebarRow], frame: ((SidebarRow) -> CGRect)? = nil) -> [SidebarGroupLine] {
+        SidebarGroupLine.lines(rows, colors: list.groups) { frame?($0) ?? list.frame(for: $0) }
     }
 
     /// The lifted card's content: one live row view, or for several rows (a

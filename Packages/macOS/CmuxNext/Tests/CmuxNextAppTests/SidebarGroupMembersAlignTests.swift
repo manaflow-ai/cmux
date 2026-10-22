@@ -114,6 +114,23 @@ import Testing
         }
     }
 
+    /// Letting go (a cancel lands the card back in its slot) puts the card where it lifted from, line included:
+    /// no sideways jump when the real rows and line take its place.
+    @Test func aCancelledGroupDragLandsWhereItLifted() throws {
+        let (sidebar, window) = Self.sidebar(selected: Self.leadID)
+        defer { window.close() }
+        let list = sidebar.list
+        let header = try #require(list.displayed.row(for: .group(Self.group)))
+        list.press = SidebarPress(key: header.key, point: NSPoint(x: 80, y: header.y + header.height / 2))
+        list.beginDrag(try #require(list.press))
+        let lift = try #require(list.subviews.first { $0 is DragLiftView })
+        let lifted = lift.frame
+        list.cancelDrag()
+        #expect(abs(lift.frame.minX - lifted.minX) < 0.5 && abs(lift.frame.width - lifted.width) < 0.5,
+                "the card lands at \(lift.frame), it lifted at \(lifted)")
+        if let landing = list.landing { list.finishLand(landing, then: nil) }
+    }
+
     static func descendant(of view: NSView, where match: (NSView) -> Bool) -> NSView? {
         for child in view.subviews {
             if match(child) { return child }

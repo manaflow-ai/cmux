@@ -277,8 +277,12 @@ extension SidebarListViewComponents {
         let tile = drag.tileSource.flatMap { source in drag.tileRegion?.itemView(source.item).map { convert($0.bounds, from: $0) } }
         // The dragged rows where the layout just applied puts them (their views' model frames), not the
         // `displayed` geometry: on the document path that can lag the views a held drag moved (ptr5: 36 pt pops).
-        let destination = slot ?? tile ?? settledFrame(drag.hiddenKeys.compactMap { rowViews[$0] })
-            ?? SidebarListLift.blockFrame(self, SidebarListLift.rows(self, for: drag.grabbedKey, hidden: drag.hiddenKeys)) ?? drag.lift.frame
+        // A group's card also covers its members' line, as it did when it lifted (SidebarListLift.blockFrame).
+        let lifted = SidebarListLift.rows(self, for: drag.grabbedKey, hidden: drag.hiddenKeys)
+        let settled = settledFrame(drag.hiddenKeys.compactMap { rowViews[$0] }).map { rows in
+            SidebarListLift.withLines(self, lifted, rows) { row in self.rowViews[row.key].map { self.convert($0.bounds, from: $0) } ?? self.frame(for: row) }
+        }
+        let destination = slot ?? tile ?? settled ?? SidebarListLift.blockFrame(self, lifted) ?? drag.lift.frame
         landing = drag
         drag.landingThen = then
         SidebarReorderLift.land(drag.lift, at: destination) { [weak self] in
@@ -402,7 +406,9 @@ extension SidebarListViewComponents {
         if !rows.isEmpty {
             let frames = rows.map { frame(for: $0) }
             let views = rows.compactMap { rowViews[$0.key] }.filter { !($0 is SidebarBlockRowView) }
-            return (views, Set(rows.map(\.key).filter { rowViews[$0] != nil }), frames.dropFirst().reduce(frames[0]) { $0.union($1) })
+            // A group's block covers its members' line, as its lifted card does (SidebarListLift.blockFrame).
+            let block = SidebarListLift.withLines(self, rows, frames.dropFirst().reduce(frames[0]) { $0.union($1) })
+            return (views, Set(rows.map(\.key).filter { rowViews[$0] != nil }), block)
         }
         var views: [NSView] = []
         for id in drag.docItems ?? [] {
