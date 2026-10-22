@@ -5,12 +5,14 @@
 // prompts below it, the chat's last ones among them, sat under the bottom fade or past the rail's
 // end. The whole band now shows, clear of the fades, and at the bottom of the chat the list reaches
 // its own end with the last ticks lit.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
+// Each test renders the whole transcript once per scroll step; jsdom takes about 5 s for that.
+setDefaultTimeout(60_000);
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -164,14 +166,17 @@ test("the band shows whole while the reader scrolls down, and reaches the rail's
 });
 
 /// The transcript mask's fades (conversation.css), in px: each edge's band, and the bottom's while
-/// Jump to latest shows.
+/// Jump to latest shows. The 0px rules (find open, Reduce Transparency, Increase Contrast) turn a
+/// fade off and draw nothing, so they don't count.
 function maskFades() {
   const css = readFileSync(
     new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
     "utf8",
   ).replace(/\/\*[\s\S]*?\*\//g, "");
   const values = (name: string) =>
-    [...css.matchAll(new RegExp(`${name}:\\s*(\\d+(?:\\.\\d+)?)px`, "g"))].map((match) => Number(match[1]));
+    [...css.matchAll(new RegExp(`${name}:\\s*(\\d+(?:\\.\\d+)?)px`, "g"))]
+      .map((match) => Number(match[1]))
+      .filter((px) => px > 0);
   const top = values("--acpmux-fade-top");
   const bottom = values("--acpmux-fade-bottom");
   return { top: Math.max(...top), bottom: Math.min(...bottom), jump: Math.max(...bottom) };
