@@ -5,6 +5,11 @@
 // the status badge (summary.css `.acpmux-lineage__icon`) and is in the theme's accent while it runs,
 // never a brand color; then its name, a dim detail (what it does now, or its kind), its time and
 // its state. A click opens it.
+//
+// In the tray a line also says what kind of thing it is before its name, "Command" or "Subagent"
+// (Leo 2026-10-21 on a tray line that showed a raw shell line: "is that a command or a
+// subagent?"), and a line that opens something ends in a chevron. A line with nothing to open is
+// a disabled button with no hover at all (subagents.css).
 import type { ReactNode } from "react";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -24,6 +29,8 @@ export function AgentLine({
   current = false,
   title,
   label,
+  kind,
+  chevron = false,
   onOpen,
   after,
 }: {
@@ -46,6 +53,10 @@ export function AgentLine({
   title?: string;
   /// The accessible name, when the visible text is not enough ("Open Reviewer").
   label?: string;
+  /// What kind of thing it is, before its name ("Command", "Subagent"); the tray's lines say it.
+  kind?: string;
+  /// A trailing chevron when a click opens it (the tray's lines).
+  chevron?: boolean;
   onOpen?: () => void;
   /// Drawn after the line, outside its button (a running subagent's stop button).
   after?: ReactNode;
@@ -68,11 +79,17 @@ export function AgentLine({
           <Icon name={icon} size={iconSize} row />
         </span>
         <span className="acpmux-summary-text">
+          {kind && <span className="acpmux-agent-line__kind">{kind}</span>}
           <span className="acpmux-summary-agent__name">{name}</span>
           {detail && detail !== name && <span className="acpmux-summary-agent__kind">{detail}</span>}
         </span>
         {time !== undefined && <span className="acpmux-summary-meta acpmux-agent-line__time">{time}</span>}
         <span className="acpmux-summary-meta acpmux-summary-agent__state">{state}</span>
+        {chevron && onOpen && (
+          <span className="acpmux-agent-line__chevron" aria-hidden="true">
+            <Icon name="disclosure.collapsed" size={12} />
+          </span>
+        )}
       </button>
       {after}
     </div>
