@@ -137,4 +137,46 @@ import Testing
             #expect(list.model.activeWorkspaceID == WorkspaceID("x"))
         }
     }
+
+    /// The row's more button opens the same menu as a right-click, and like it switches to nothing.
+    @Test func theMoreButtonOnAnotherRowOpensItsMenuAndSwitchesToNothing() throws {
+        try Self.withToggleOff {
+            let (list, window, selects) = Self.list()
+            defer { window.close() }
+            var targets: [SidebarContextTarget] = []
+            list.contextMenuProvider = { target in
+                targets.append(target)
+                return NSMenu()
+            }
+            var shown = 0
+            list.menuPresenter = { _, _, _ in shown += 1 }
+            SidebarRowMenu(list: list).show(for: WorkspaceID("y"))
+            #expect(shown == 1, "the more button opened no menu")
+            guard case let .workspaces(ids)? = targets.last else { Issue.record("menu target: \(targets)"); return }
+            #expect(ids == [WorkspaceID("y")], "the menu is not for the row: \(ids)")
+            #expect(selects().isEmpty, "the more button switched: \(selects())")
+            #expect(list.model.activeWorkspaceID == WorkspaceID("x"))
+            #expect(list.model.selection == [WorkspaceID("x")], "the more button selected: \(list.model.selection)")
+            #expect(G.filledRows(list) == ["x"])
+        }
+    }
+
+    @Test func theMoreButtonOnARowOfTheSelectionIsForTheWholeSelection() throws {
+        try Self.withToggleOff {
+            let (list, window, selects) = Self.list()
+            defer { window.close() }
+            list.model.toggleSelection(WorkspaceID("y"))
+            var targets: [SidebarContextTarget] = []
+            list.contextMenuProvider = { target in
+                targets.append(target)
+                return NSMenu()
+            }
+            list.menuPresenter = { _, _, _ in }
+            SidebarRowMenu(list: list).show(for: WorkspaceID("y"))
+            guard case let .workspaces(ids)? = targets.last else { Issue.record("menu target: \(targets)"); return }
+            #expect(Set(ids) == [WorkspaceID("x"), WorkspaceID("y")])
+            #expect(selects().isEmpty)
+            #expect(list.model.activeWorkspaceID == WorkspaceID("x"))
+        }
+    }
 }

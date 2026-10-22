@@ -9,11 +9,7 @@ extension SidebarListViewComponents {
         let target: SidebarContextTarget
         switch hit?.key {
         case let .workspace(id)?:
-            // Leo 2026-10-21: "RIGHT CLICKING ... ON A WORKSPACE SHOULDN'T BE IMMEDIATELY FOCUSING". The menu is
-            // for the clicked row, or for the whole selection when the row is part of it; the selection and the
-            // shown workspace stay as they are.
-            let selection = model.orderedSelection
-            target = .workspaces(selection.contains(id) ? selection : [id])
+            target = workspaceMenuTarget(id)
         case let .group(id)?:
             // A right-click on a group shows its one flat menu at once, as Finder and Safari
             // do (Lawrence 2026-10-20: no second step through the editor's More row). A
@@ -33,5 +29,13 @@ extension SidebarListViewComponents {
             target = .background
         }
         return contextMenuProvider(target)
+    }
+
+    /// A workspace row's menu (a right-click, or the row's more button, `SidebarRowMenu`). Leo 2026-10-21:
+    /// "RIGHT CLICKING ... ON A WORKSPACE SHOULDN'T BE IMMEDIATELY FOCUSING". The menu is for the row, or for
+    /// the whole selection when the row is part of it; the selection and the shown workspace stay as they are.
+    func workspaceMenuTarget(_ id: WorkspaceID) -> SidebarContextTarget {
+        let selection = model.orderedSelection
+        return .workspaces(selection.contains(id) ? selection : [id])
     }
 }
