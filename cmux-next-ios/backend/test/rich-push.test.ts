@@ -187,31 +187,29 @@ describe("v2 APNs payload", () => {
   })
 
   it("fits 4096 bytes: tail first, then the title, then the questions", () => {
+    const question = (text: string, label: string) => ({ question: text, header: "H".repeat(30), multiSelect: false, allowsOther: true, options: Array.from({ length: 6 }, () => ({ label })) })
     const big: NotifyEvent = {
       ...base,
       workspace: "w".repeat(60),
       title: "T".repeat(200),
-      body: "B".repeat(400),
-      questions: Array.from({ length: 4 }, () => ({
-        question: "Q".repeat(200),
-        header: "H".repeat(30),
-        multiSelect: false,
-        allowsOther: true,
-        options: Array.from({ length: 6 }, () => ({ label: "😀".repeat(60) }))
-      })),
+      body: "B".repeat(100),
+      questions: Array.from({ length: 4 }, () => question("Q".repeat(100), "o".repeat(40))),
       tail: Array.from({ length: 6 }, () => "😀".repeat(160))
     }
     const p = apnsPayload(big)
     expect(bytes(p)).toBeLessThanOrEqual(4096)
-    // Questions alone fit, so the tail went first.
+    // The questions fit once the tail is gone, so only the tail was cut.
     expect((p.cmuxMobile.tail ?? []).length).toBeLessThan(6)
-    expect(p.cmuxMobile.questions).toHaveLength(4)
-    // A payload too large even without a tail drops its questions and becomes a form.
-    const huge = { ...big, questions: Array.from({ length: 4 }, () => ({ ...big.questions![0]!, options: Array.from({ length: 6 }, () => ({ label: "😀".repeat(60) })) })) }
-    huge.questions = [...huge.questions, ...huge.questions].slice(0, 4).map((q) => ({ ...q, question: "😀".repeat(200) }))
+    expect(p.cmuxMobile.questions).toEqual(big.questions)
+    expect(p.aps.category).toBe("CMUX_MOBILE_QUESTION_FORM")
+    // Too large even without a tail and with a short title: the questions go and it stays a form.
+    const huge: NotifyEvent = { ...big, questions: Array.from({ length: 4 }, () => question("😀".repeat(200), "😀".repeat(60))) }
     const h = apnsPayload(huge)
     expect(bytes(h)).toBeLessThanOrEqual(4096)
-    if (!h.cmuxMobile.questions) expect(h.aps.category).toBe("CMUX_MOBILE_QUESTION_FORM")
+    expect(h.cmuxMobile.questions).toBeUndefined()
+    expect(h.cmuxMobile.tail).toBeUndefined()
+    expect(Array.from(h.cmuxMobile.title!).length).toBeLessThan(200)
+    expect(h.aps.category).toBe("CMUX_MOBILE_QUESTION_FORM")
     // Small payloads keep everything.
     expect(apnsPayload({ ...base, tail: ["a", "b"] }).cmuxMobile.tail).toEqual(["a", "b"])
   })

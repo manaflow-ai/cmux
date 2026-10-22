@@ -2,7 +2,7 @@
 
 Branches: `feat-cmux-next-ios-rich-push` (PR A) and
 `feat-cmux-next-ios-push-fallback` (PR B, stacked on A). The wire contract is
-PROTOCOL.md "Push notifications (API 0.12.0)". The trust analysis for PR B is
+PROTOCOL.md "Push notifications (API 0.13.0)". The trust analysis for PR B is
 `verify/notifications-trust.md`.
 
 ## What a person gets
