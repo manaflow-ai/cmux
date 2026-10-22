@@ -19,8 +19,9 @@ fn timed_out() -> Value {
 /// `bookmark.importFromBrowser`, `bookmark remove --target bookmark:ID` (the
 /// node and its children), and `browser.importCookies`, whose consent panel
 /// the person allows while `allow` is set. The import puts one "Imported
-/// from" folder per browser on the bar, replacing that browser's folder,
-/// and answers as the app does: `chrome` at once; `arc` lands but the app
+/// from" folder per browser on the bar, or refreshes the folder of that
+/// source in place (same id, the new title and children) as the app's
+/// `importDrafts` does, and answers as the app does: `chrome` at once; `arc` lands but the app
 /// stops waiting first (`timeout`); `zen` times out with nothing landed
 /// yet; `brave` lands one profile and could not read another
 /// (`daemon_error`); anything else is the app's unknown-browser
@@ -47,9 +48,18 @@ impl FakeBrowserApp {
             let ran = json!({"action": params["action"], "ran": true, "waited": true});
             let land = |id: &str, key: &str, title: &str| {
                 let mut nodes = bookmarks.lock().unwrap();
-                nodes.retain(|node| node["source_key"] != key);
-                nodes.push(json!({"id": id, "kind": "folder", "parent": "bar", "title": title,
-                    "source_key": key}));
+                let id = match nodes.iter_mut().find(|node| node["source_key"] == key) {
+                    Some(folder) => {
+                        folder["title"] = json!(title);
+                        folder["id"].as_str().unwrap().to_owned()
+                    }
+                    None => {
+                        nodes.push(json!({"id": id, "kind": "folder", "parent": "bar",
+                            "title": title, "source_key": key}));
+                        id.to_owned()
+                    }
+                };
+                nodes.retain(|node| node["parent"] != id);
                 nodes.push(json!({"id": format!("{id}_1"), "kind": "bookmark", "parent": id,
                     "title": "cmux", "url": "https://cmux.com/"}));
             };
@@ -147,6 +157,7 @@ fn cmux_setup_browser_import_brings_bookmarks_in_and_its_undo_takes_them_out() {
 
     let planned = world.json(&["setup", "browser-import", "--browser", "chrome", "--dry-run"]);
     assert_eq!(planned["state"], "planned", "{planned}");
+    assert_eq!(planned["undo"], "cmux bookmark remove --target bookmark:FOLDER_ID", "{planned}");
     assert!(app.runs().is_empty(), "a dry run imported: {:?}", app.runs());
 
     let changed = world.json(&["setup", "browser-import", "--browser", "chrome"]);
@@ -182,15 +193,26 @@ fn cmux_setup_browser_import_brings_bookmarks_in_and_its_undo_takes_them_out() {
     assert_eq!(unknown["user_action"]["kind"], "browser", "{unknown}");
     assert_eq!(unknown["undo"], Value::Null);
 
+    // Refused before the app is asked: a flag taken as a value, a browser
+    // with no name (the app would open its picker), a flag given twice.
+    let runs = app.runs().len();
     for args in [
         &["setup", "browser-import", "now"][..],
         &["setup", "browser-import", "--browser"],
         &["setup", "browser-import", "--browser", "--dry-run"],
         &["setup", "browser-import", "--browser", "chrome", "--domain", "github.com"],
+        &["setup", "browser-import", "--browser", "chrome", "--cookies", "--domain", "--dry-run"],
+        &["setup", "browser-import", "--browser", "chrome", "--cookies", "--reason", "--dry-run"],
+        &["setup", "browser-import", "--browser", ":Work"],
+        &["setup", "browser-import", "--browser", " "],
+        &["setup", "browser-import", "--browser", ":"],
+        &["setup", "browser-import", "--browser", "chrome", "--browser", "arc"],
+        &["setup", "browser-import", "--browser", "chrome", "--dry-run", "--dry-run"],
     ] {
         let output = world.run(args);
         assert_eq!(output.status.code(), Some(2), "{args:?}");
     }
+    assert_eq!(app.runs().len(), runs, "a refused run asked the app: {:?}", app.runs());
 }
 
 /// Cookies are the person's: the app's consent panel asks them, a denial
@@ -201,6 +223,11 @@ fn cmux_setup_browser_import_asks_the_person_before_cookies() {
     let mut world = World::new("bicookie");
     let app = FakeBrowserApp::start(&mut world, Vec::new());
     let cookies = ["setup", "browser-import", "--browser", "chrome", "--cookies"];
+
+    // No browser: the agent asks the person; the picker would import bookmarks.
+    let choose = world.json(&["setup", "browser-import", "--cookies"]);
+    assert_eq!(choose["user_action"]["kind"], "choose", "{choose}");
+    assert_eq!(choose["user_action"]["command"], Value::Null, "{choose}");
 
     let planned = world.json(&[&cookies[..], &["--dry-run"][..]].concat());
     assert_eq!(planned["state"], "planned", "{planned}");
@@ -239,7 +266,7 @@ fn cmux_setup_browser_import_asks_the_person_before_cookies() {
 /// and another browser's import stay out of it. A profile named with
 /// `BROWSER:PROFILE` goes to the app and decides `ok`; an import the app
 /// stops waiting for is read back (or `wait`), and a profile it could not
-/// read is named in `failed`.
+/// read is named in `unread`.
 #[test]
 fn cmux_setup_browser_import_undoes_only_what_it_imported() {
     let mut world = World::new("biown");
@@ -266,12 +293,17 @@ fn cmux_setup_browser_import_undoes_only_what_it_imported() {
     assert_eq!(run(&["--browser", "chrome:default"])["state"], "ok");
     assert_eq!(run(&["--browser", "chrome:Person 1"])["state"], "ok");
     assert_eq!(run(&["--browser", "chrome:Work", "--dry-run"])["state"], "planned");
+    let bare = run(&["--browser", "chrome:"]);
+    assert_eq!((&bare["state"], &bare["browser"]), (&json!("ok"), &json!("chrome")), "{bare}");
     assert_eq!(app.runs().len(), 1, "an ok run imported again");
 
     // The app stops waiting, the folder lands anyway: the run still owns it.
     let late = run(&["--browser", "arc"]);
     assert_eq!(late["state"], "changed", "{late}");
     assert_eq!(late["undo"], "cmux bookmark remove --target bookmark:bm_arc", "{late}");
+    // It may still be adding other profiles: the note says how to see them.
+    let note = late["note"].as_str().expect("a late import has a note");
+    assert!(note.contains(r#"--browser "arc" --dry-run"#), "{note}");
     let pending = run(&["--browser", "zen"]);
     assert_eq!(pending["state"], "needs_user", "{pending}");
     assert_eq!(pending["user_action"]["kind"], "wait", "{pending}");
@@ -279,7 +311,7 @@ fn cmux_setup_browser_import_undoes_only_what_it_imported() {
     let partial = run(&["--browser", "brave"]);
     assert_eq!(partial["state"], "changed", "{partial}");
     assert_eq!(partial["undo"], "cmux bookmark remove --target bookmark:bm_brave");
-    assert_eq!(partial["failed"], "Could not read: Brave (Work).", "{partial}");
+    assert_eq!(partial["unread"], "Could not read: Brave (Work).", "{partial}");
 
     for undo in [&changed["undo"], &late["undo"], &partial["undo"]] {
         let words = shell_words(undo.as_str().unwrap());
@@ -287,4 +319,29 @@ fn cmux_setup_browser_import_undoes_only_what_it_imported() {
         assert!(output.status.success(), "{undo}: {}", String::from_utf8_lossy(&output.stderr));
     }
     assert_eq!(*app.bookmarks.lock().unwrap(), vec![own, firefox]);
+}
+
+/// A profile named in a way the folder no longer shows (the person renamed
+/// it) imports again, and the app refreshes that folder in place: `changed`
+/// with the folder in `after.refreshed`, no undo (setup's remove would take
+/// the person's folder), and a note naming the app's toast Undo.
+#[test]
+fn cmux_setup_browser_import_reports_a_folder_refreshed_in_place() {
+    let mut world = World::new("bifresh");
+    let renamed = json!({"id": "mine", "kind": "folder", "parent": "bar", "title": "Chrome",
+        "source_key": "chrome/Default"});
+    let app = FakeBrowserApp::start(&mut world, vec![renamed]);
+
+    let refreshed = world.json(&["setup", "browser-import", "--browser", "chrome:Person 1"]);
+    assert_eq!(refreshed["state"], "changed", "{refreshed}");
+    assert_eq!(refreshed["undo"], Value::Null, "{refreshed}");
+    assert_eq!(refreshed["after"]["folders"], json!([]), "{refreshed}");
+    let folder = &refreshed["after"]["refreshed"][0];
+    assert_eq!((&folder["id"], &folder["source_key"]), (&json!("mine"), &json!("chrome/Default")));
+    let note = refreshed["note"].as_str().expect("a refresh in place has a note");
+    assert!(note.contains("in place") && note.contains("toast"), "{note}");
+    assert_eq!(app.runs().len(), 1, "{:?}", app.runs());
+    // The folder kept its id: it is the person's, with the new bookmarks in it.
+    let ids = app.bookmarks.lock().unwrap().iter().map(|n| n["id"].clone()).collect::<Vec<_>>();
+    assert_eq!(ids, [json!("mine"), json!("mine_1")]);
 }

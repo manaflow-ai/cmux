@@ -11,8 +11,11 @@
 //! `bookmark.list`: a folder of that browser there (of that profile, when
 //! one is named) is `ok` and nothing runs; otherwise setup imports, reads
 //! the list again, and the undo removes each folder the run added
-//! (`cmux bookmark remove --target bookmark:<id>`). The app may stop waiting
-//! for the import while it still runs; setup then reads the list anyway.
+//! (`cmux bookmark remove --target bookmark:<id>`). A folder of the same
+//! source the app refreshes in place instead is named in `after.refreshed`
+//! with no undo (the app's toast Undo is its only one). The app may stop
+//! waiting for the import while it still runs; setup then reads the list
+//! anyway.
 //!
 //! Cookies are the person's: `browser.importCookies` shows them a consent
 //! panel that names the reason, then macOS asks for the browser's Keychain
@@ -80,14 +83,22 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
         return Ok(Outcome { report, failed: false });
     }
     let Some(browser) = args.browser.clone() else {
+        // The picker imports bookmarks, so it is no answer for `--cookies`.
+        let (text, command) = if args.cookies {
+            (
+                "Ask the person which browser to import sign-ins from and pass it as `--browser`",
+                None,
+            )
+        } else {
+            (
+                "Ask the person which browser to import from and pass it as `--browser`, or run \
+                 the command to show them cmux's list of the browsers on this Mac",
+                Some(PICKER),
+            )
+        };
         report["state"] = json!("needs_user");
-        report["user_action"] = json!({
-            "kind": "choose",
-            "text": "Ask the person which browser to import from and pass it as `--browser`, or \
-                     run the command to show them cmux's list of the browsers on this Mac",
-            "command": PICKER,
-            "url": Value::Null,
-        });
+        report["user_action"] =
+            json!({"kind": "choose", "text": text, "command": command, "url": Value::Null});
         return Ok(Outcome { report, failed: false });
     };
     if args.cookies {
@@ -118,18 +129,28 @@ pub(super) fn status(global: &GlobalArgs) -> Value {
 }
 
 fn parse(args: &[String]) -> Result<Args, Refusal> {
+    let usage = |text: String| Refusal::Usage(format!("cmux: setup browser-import: {text}"));
     let mut parsed =
         Args { browser: None, cookies: false, domain: None, reason: None, dry_run: false };
+    let mut seen = Vec::new();
     let mut words = args.iter();
     while let Some(arg) = words.next() {
         let (flag, inline) = match arg.split_once('=') {
             Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_owned())),
             _ => (arg.as_str(), None),
         };
+        if seen.contains(&flag) {
+            return Err(usage(format!("{flag} is given twice")));
+        }
+        seen.push(flag);
+        // The next word is the value unless it is a flag: `--domain --dry-run`
+        // is a missing domain, not the domain "--dry-run" (`--domain=--x` is meant).
         let mut value = |name: &str| {
-            inline.clone().or_else(|| words.next().cloned()).filter(|v| !v.is_empty()).ok_or_else(
-                || Refusal::Usage(format!("cmux: setup browser-import: {name} needs a value")),
-            )
+            inline
+                .clone()
+                .or_else(|| words.next().cloned())
+                .filter(|v| !v.is_empty() && (inline.is_some() || !v.starts_with("--")))
+                .ok_or_else(|| usage(format!("{name} needs a value")))
         };
         match flag {
             "--browser" => parsed.browser = Some(value("--browser")?),
@@ -137,20 +158,21 @@ fn parse(args: &[String]) -> Result<Args, Refusal> {
             "--reason" => parsed.reason = Some(value("--reason")?),
             "--cookies" if inline.is_none() => parsed.cookies = true,
             "--dry-run" if inline.is_none() => parsed.dry_run = true,
-            _ => {
-                return Err(Refusal::Usage(format!(
-                    "cmux: setup browser-import: unexpected argument {arg:?}"
-                )));
-            }
+            _ => return Err(usage(format!("unexpected argument {arg:?}"))),
         }
     }
     if !parsed.cookies && (parsed.domain.is_some() || parsed.reason.is_some()) {
-        return Err(Refusal::Usage(
-            "cmux: setup browser-import: --domain and --reason go with --cookies".into(),
-        ));
+        return Err(usage("--domain and --reason go with --cookies".into()));
     }
-    if parsed.browser.as_deref().is_some_and(|browser| browser.starts_with('-')) {
-        return Err(Refusal::Usage("cmux: setup browser-import: --browser needs a value".into()));
+    if let Some(browser) = parsed.browser.take() {
+        // `:Work` or a blank name would leave the app to open its picker.
+        let (name, profile) = split(&browser);
+        if name.is_empty() {
+            return Err(usage("--browser needs a browser name".into()));
+        }
+        // `chrome:` is `chrome`, without the spaces around either part.
+        parsed.browser =
+            Some(profile.map_or_else(|| name.to_owned(), |profile| format!("{name}:{profile}")));
     }
     Ok(parsed)
 }
@@ -191,6 +213,7 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
     }
     if args.dry_run {
         report["state"] = json!("planned");
+        report["undo"] = json!(remove("FOLDER_ID"));
         return report;
     }
     // Every folder of this browser already there: the undo names only the
@@ -214,18 +237,23 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
         }
         Err(error) => return needs_user(report, app_problem(&error)),
     };
-    let listed = match list(global, Some(&profile)) {
-        Ok(listed) => listed,
+    let after = match list(global, Some(&profile)) {
+        Ok(after) => after,
         Err(action) => return needs_user(report, action),
     };
-    let added = imported(&listed, Some(&id), None)
+    let (added, refreshed): (Vec<_>, Vec<_>) = imported(&after, Some(&id), None)
         .into_iter()
-        .filter(|folder| !known.contains(&folder["id"]))
-        .collect::<Vec<_>>();
-    report["after"] = json!({"profile": profile, "folders": added});
-    if added.is_empty() && running {
-        return needs_user(
-            report,
+        .filter(|folder| {
+            !known.contains(&folder["id"])
+                || contents(&listed, &folder["id"]) != contents(&after, &folder["id"])
+        })
+        .partition(|folder| !known.contains(&folder["id"]));
+    report["after"] = json!({"profile": profile, "folders": added, "refreshed": refreshed});
+    // The app answered that the import ran: with no new folder it refreshed
+    // one already there (the app replaces a folder of the same source in place).
+    let ran = failure.is_none() && !running;
+    if added.is_empty() && refreshed.is_empty() && !ran {
+        let action = if running {
             json!({
                 "kind": "wait",
                 "text": format!(
@@ -234,13 +262,9 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
                 ),
                 "command": Value::Null,
                 "url": Value::Null,
-            }),
-        );
-    }
-    if added.is_empty() {
-        let why = failure.unwrap_or_else(|| "no bookmarks came in.".into());
-        return needs_user(
-            report,
+            })
+        } else {
+            let why = failure.as_deref().unwrap_or("no bookmarks came in.");
             json!({
                 "kind": "browser",
                 "text": format!(
@@ -249,22 +273,61 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
                 ),
                 "command": PICKER,
                 "url": Value::Null,
-            }),
+            })
+        };
+        return needs_user(report, action);
+    }
+    if !added.is_empty() {
+        let undo = added
+            .iter()
+            .filter_map(|folder| folder["id"].as_str())
+            .map(remove)
+            .collect::<Vec<_>>()
+            .join(" && ");
+        report["undo"] = json!(undo);
+    }
+    let mut notes = Vec::new();
+    if added.is_empty() || !refreshed.is_empty() {
+        notes.push(
+            "cmux refreshed the existing \"Imported from\" folder in place (`after.refreshed`); \
+             the undo does not cover it, and the Undo on cmux's toast is its only undo"
+                .to_owned(),
         );
     }
-    let undo = added
-        .iter()
-        .filter_map(|folder| folder["id"].as_str())
-        .map(|id| format!("cmux bookmark remove --target bookmark:{id}"))
-        .collect::<Vec<_>>()
-        .join(" && ");
-    report["undo"] = json!(undo);
+    if running && !added.is_empty() {
+        notes.push(format!(
+            "The import may still be adding profiles; run `cmux setup browser-import --browser \
+             {browser:?} --dry-run` again to see them"
+        ));
+    }
+    if !notes.is_empty() {
+        report["note"] = json!(notes.join(". "));
+    }
     if let Some(why) = failure {
         // Some profiles came in and some could not be read.
-        report["failed"] = json!(why);
+        report["unread"] = json!(why);
     }
     report["state"] = json!("changed");
     report
+}
+
+/// The undo of one imported folder.
+fn remove(folder: &str) -> String {
+    format!("cmux bookmark remove --target bookmark:{folder}")
+}
+
+/// A folder's title and its children in `bookmark.list`: a refresh in place
+/// keeps the folder's id but gives it new children, and the title the
+/// browser shows now.
+fn contents(listed: &Value, folder: &Value) -> (Option<Value>, Vec<Value>) {
+    let nodes = listed["bookmarks"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let title = nodes.iter().find(|node| node["id"] == *folder).map(|node| node["title"].clone());
+    let children = nodes
+        .iter()
+        .filter(|node| node["parent"] == *folder)
+        .map(|node| node["id"].clone())
+        .collect();
+    (title, children)
 }
 
 fn cookies(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value) -> Value {

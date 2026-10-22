@@ -297,10 +297,15 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    `--from`: a browser (registry id or product name, ignoring case, spaces
    and punctuation; the registry is the app's `browser-sources.json`,
    compiled in), then optionally `:` and one profile (its folder or the
-   name the browser shows), for bookmarks and cookies alike. Without
-   `--browser` it is `needs_user` (`kind` `choose`): the agent asks which
-   browser, or runs `cmux action run bookmark.importFromBrowser` to show
-   the person the app's picker of the browsers it found.
+   name the browser shows), for bookmarks and cookies alike; `chrome:` is
+   `chrome`. A browser with no name (`:Work`, a blank) is a usage error
+   (exit 2), since the app would open its picker, and so is a flag given
+   twice or a flag-like next word taken as a value (`--domain --dry-run`;
+   `--domain=--x` is meant). Without `--browser` it is `needs_user`
+   (`kind` `choose`): the agent asks which browser, or for bookmarks runs
+   `cmux action run bookmark.importFromBrowser` to show the person the
+   app's picker of the browsers it found (with `--cookies` its `command`
+   is null: the picker imports bookmarks).
 
    Bookmarks are not secrets, so setup does them. The state is
    `bookmark.list`, where each imported profile is one Bookmarks Bar folder
@@ -309,18 +314,28 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    browser any profile of which was imported counts as done (`ok`, nothing
    runs); import another profile with `--browser ID:PROFILE`, which is
    `ok` only when that profile's folder is there (matched by folder or by
-   the name in the title). Otherwise setup runs `bookmark.importFromBrowser
-   {browser, source?, profile}` (`profile` is the cmux browser profile
-   `bookmark.list` answered for) and reads the list again: `changed`, with
-   `after.folders` the folders of that browser that were not there before
-   and the `undo` `cmux bookmark remove --target bookmark:<id>` for each;
-   the person's own folders and other imports never enter it. The app may
-   stop waiting before the import ends (`timeout`, or a lost answer): setup
-   reads the list anyway, and the folders that came in are `changed` as
-   above; none yet is `needs_user` (`kind` `wait`: run it again in a few
-   seconds). A browser the app does not find, or with no readable profile,
-   is `needs_user` (`kind` `browser`); profiles that could not be read next
-   to ones that came in are named in `failed`.
+   the name in the title). A dry run is `planned` with the `undo`
+   `cmux bookmark remove --target bookmark:FOLDER_ID`. Otherwise setup runs
+   `bookmark.importFromBrowser {browser, source?, profile}` (`profile` is
+   the cmux browser profile `bookmark.list` answered for) and reads the
+   list again: `changed`, with `after.folders` the folders of that browser
+   that were not there before and the `undo` `cmux bookmark remove --target
+   bookmark:<id>` for each; the person's own folders and other imports
+   never enter it. The app replaces a folder of the same `source_key` in
+   place (same id, new title and children), as when the named profile no
+   longer matches a folder the person renamed: such folders, whose title or
+   children changed, are in `after.refreshed`, and an answer that the
+   import ran with no new folder is `changed` with `undo` null and a `note`
+   that the folder was refreshed in place and the Undo on the app's toast
+   is its only undo. The app may stop waiting before the import ends
+   (`timeout`, or a lost answer): setup reads the list anyway, and the
+   folders that came in are `changed` as above, with their `undo` and a
+   `note` that the import may still be adding profiles (run `cmux setup
+   browser-import --browser B --dry-run` again to see them); none yet is
+   `needs_user` (`kind` `wait`: run it again in a few seconds). A browser
+   the app does not find, or with no readable profile, is `needs_user`
+   (`kind` `browser`); profiles that could not be read next to ones that
+   came in are named in `unread`.
 
    Cookies are the person's: `--cookies` runs `browser.importCookies
    {from, domain?, reason}` (from an agent or script, never origin `user`),
