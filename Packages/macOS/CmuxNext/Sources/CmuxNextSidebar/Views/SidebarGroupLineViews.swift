@@ -26,6 +26,8 @@ final class SidebarGroupLineViews {
     /// moves to its new frame, a new one starts at `start` (the line over
     /// its rows' start frames) so both its ends move with the rows, and a
     /// line whose group closed or left shrinks back up into its header.
+    /// `animated`: the frames start moving here, on the rows' spring, and the
+    /// changes carry the fades only.
     func update(_ new: [SidebarGroupLine], from start: [SidebarGroupLine], in list: NSView, above decorations: NSView, animated: Bool) -> (changes: () -> Void, leaving: [NSView]) {
         lines = new
         var gone = views
@@ -55,14 +57,19 @@ final class SidebarGroupLineViews {
         }
         leavingViews.removeAll { $0.superview == nil }
         leavingViews += leaving.map(\.0)
-        let changes = {
-            if animated {
-                // Frames on the render server with the rows (`SidebarDragSpring`); only fades run on AppKit's spring.
-                SidebarDragSpring.move(moves + leaving, in: list)
+        if animated {
+            // The frames move now on the render server's spring, as the rows' do (`SidebarDragSpring`), outside the
+            // caller's AppKit block; only the fades run in it.
+            SidebarDragSpring.move(moves + leaving, in: list)
+            let changes = {
                 for (view, _) in moves where view.alphaValue != 1 { view.animator().alphaValue = 1 }
                 for (view, _) in leaving { view.animator().alphaValue = 0 }
-                return
             }
+            return (changes, leaving.map(\.0))
+        }
+        // Without motion the lines take their frames in one step: a spring an earlier move left on one comes off.
+        SidebarDragSpring.stop(moves.map(\.0) + leaving.map(\.0))
+        let changes = {
             for (view, frame) in moves {
                 view.animator().frame = frame
                 view.animator().alphaValue = 1
@@ -103,6 +110,12 @@ final class SidebarGroupLineViews {
     }
 
     /// Puts each shown line exactly on its frame (`RowMotion.land`: the spring stops near it, not on it).
+    /// Takes the rows' springs (`SidebarDragSpring.move(_:in:)`) off every line, the leaving ones too: the
+    /// display went to sleep mid-move, so each line shows its frame now.
+    func stopSprings() {
+        SidebarDragSpring.stop(Array(views.values) + leavingViews.compactMap { $0 as? GroupLineView })
+    }
+
     func land() {
         for line in lines { views[line.group]?.frame = line.frame }
     }

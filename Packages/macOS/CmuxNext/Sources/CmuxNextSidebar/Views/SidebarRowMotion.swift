@@ -21,11 +21,15 @@ struct RowMotion {
                 view.animator().alphaValue = 1
             }
         }
+        // A change without motion also ends a move still running from an earlier one: its springs come off,
+        // so every row shows its slot now (`SidebarDragSpring.stop`).
+        let views = targets.map(\.0) + appearing.map(\.0) + leaving.map(\.0)
         guard animated else {
             Motion.withoutAnimation {
                 moves()
                 lines.changes()
             }
+            SidebarDragSpring.stop(views)
             leaving.forEach { Self.closed($0.0, in: list) }
             lines.leaving.forEach { $0.removeFromSuperview() }
             return
@@ -42,6 +46,7 @@ struct RowMotion {
                     view.clipsToBounds = false
                 }
             }
+            SidebarDragSpring.stop(views)
             leaving.forEach { Self.closed($0.0, in: list) }
             lines.leaving.forEach { $0.removeFromSuperview() }
             return
@@ -80,23 +85,32 @@ struct RowMotion {
     /// the rows below an insert move as one with the row opening above them, and no row's frame is written on the
     /// main thread per display frame (AppKit's SwiftUI spring wrote each moving row's frame every frame). Only the
     /// opacity of the few rows that open, close or still fade runs on AppKit's `.move` spring, with the group lines'
-    /// fades (`lines`). `ended` runs once both have ended, or at once when the display sleeps (`settle`).
+    /// fades (`lines`). `ended` runs once both have ended, or at once when the display sleeps (`settleAtSleep`).
     private static func animate(frames: [(SidebarRowView, NSRect)], fades: [(NSView, CGFloat)], lines: () -> Void,
                                 in list: SidebarListView, ended: RowMotionEnd) {
         let settle = Self.settle(list)
+        // Nothing draws while the display sleeps: the rows, group lines and history blocks show their places now, the
+        // springs gone with the move. Both legs carry it, and it runs once: the opacity leg alone ends at once when
+        // nothing fades (a reorder of opaque rows), while the springs still run.
+        let settleAtSleep: @MainActor () -> Void = { [weak list] in
+            guard !ended.isDone else { return }
+            SidebarDragSpring.stop(frames.map(\.0))
+            if let list {
+                list.groupLineViews.stopSprings()
+                SidebarDragSpring.stop(list.chatHistory.all)
+            }
+            settle()
+            ended.finish()
+        }
+        let springsEnded = Motion.sidebar.trackMove(.move, settleAtSleep: settleAtSleep, completion: { ended.arrive() })
         CATransaction.begin()
-        // Runs once every spring added in this transaction has ended or was removed (a reused view).
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { ended.arrive() } } // main-proof: CATransaction.h: the completion block is called on the main thread
+        // Runs once every spring added in this transaction has ended or was removed (a reused view, a snap).
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { springsEnded() } } // main-proof: CATransaction.h: the completion block is called on the main thread
         SidebarDragSpring.move(frames, in: list)
         Motion.sidebar.animate(.move, in: list, {
             for (view, alpha) in fades { view.animator().alphaValue = alpha }
             lines()
-        }, settleAtSleep: {
-            // Nothing draws: the rows show their places now, the springs gone with the move.
-            SidebarDragSpring.stop(frames.map(\.0))
-            settle()
-            ended.finish()
-        }, completion: { ended.arrive() })
+        }, settleAtSleep: settleAtSleep, completion: { ended.arrive() })
         CATransaction.commit()
     }
 
@@ -237,7 +251,8 @@ struct RowMotion {
 }
 
 /// A row move's end (`RowMotion.animate`), run once: when both its legs have ended (the render server's
-/// frame springs and AppKit's opacity spring), or at once when the display sleeps (`finish`). One per move,
+/// frame springs and AppKit's opacity spring), or at once when the display sleeps (`finish`), which
+/// either leg's sleep settle runs (the first one; `isDone` skips the other). One per move,
 /// with nothing to cancel: a later move makes its own, and the end lands rows only for the newest move.
 @MainActor
 final class RowMotionEnd {
@@ -251,6 +266,9 @@ final class RowMotionEnd {
         waiting -= 1
         if waiting <= 0 { finish() }
     }
+
+    /// The end ran (both legs arrived, or the display slept).
+    var isDone: Bool { body == nil }
 
     /// Runs the end now, once (a later arrival does nothing).
     func finish() {

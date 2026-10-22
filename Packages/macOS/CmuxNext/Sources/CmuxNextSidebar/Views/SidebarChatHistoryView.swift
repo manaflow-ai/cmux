@@ -34,6 +34,8 @@ final class SidebarChatHistoryViews {
             }
             view.show(state, metrics: metrics)
             if view.isHidden || !animated {
+                // In one step: a spring an earlier move left on the block comes off with it.
+                SidebarDragSpring.stop([view])
                 Motion.withoutAnimation { view.frame = frame }
                 view.isHidden = false
             } else if view.frame != frame {
