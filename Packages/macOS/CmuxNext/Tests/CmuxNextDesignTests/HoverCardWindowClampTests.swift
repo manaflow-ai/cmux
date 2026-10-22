@@ -7,7 +7,8 @@ import Testing
 /// `.beside` card (that popover, a group header's card, a PR badge's card) is top-aligned with its
 /// target, so a target low in the window pushed it out of the window's bottom; the clamp kept it only
 /// on the screen. It now stays inside the parent window too, and a card taller than the window's part
-/// of the screen keeps its top in that part, unless that would push it off the screen: the screen wins.
+/// of the screen keeps its top in that part, unless that would push it off the screen's bottom: the
+/// screen wins.
 @MainActor struct HoverCardWindowClampTests {
     private static let margin: CGFloat = 8
     /// A 14-inch notch display: the menu bar band is 37 pt.
@@ -92,5 +93,14 @@ import Testing
         #expect(card.maxY == Self.screen.maxY - Self.margin,
                 "the tall card's top \(card.maxY) left the window's part of the screen")
         #expect(card.minY >= Self.visible.minY + Self.margin, "the tall card runs off the screen")
+    }
+
+    /// A card taller than the screen itself (950 pt, over the window mostly below the screen) sits on
+    /// the screen's bottom and runs out of its top, never off its bottom.
+    @Test func aCardTallerThanTheScreenSitsOnItsBottom() {
+        let low = CGRect(x: 100, y: -400, width: 1100, height: 720)
+        let anchor = CGRect(x: 110, y: 20, width: 216, height: 120)
+        let card = Self.card(anchor, size: CGSize(width: 340, height: 950), window: low)
+        #expect(card.minY == Self.visible.minY + Self.margin, "the card's bottom \(card.minY) is off the screen")
     }
 }
