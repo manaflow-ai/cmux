@@ -17,7 +17,7 @@ afterEach(() => {
 
 function fixture() {
   dom = new JSDOM(
-    '<!doctype html><html><body><main><div class="acpmux-composer"><button aria-haspopup="menu" aria-expanded="true">Model</button></div><button id="action">Dictate</button></main></body></html>',
+    '<!doctype html><html><body><main><div class="acpmux-composer"><button aria-haspopup="menu" aria-expanded="true">Model</button></div><button id="action">Dictate</button></main><div class="ui-positioner"><div class="ui-popup" role="menu"></div></div></body></html>',
   );
   const view = dom.window;
   const doc = view.document;
