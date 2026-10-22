@@ -158,10 +158,12 @@ export function IncomingMessageLine({
   };
   const editing = reply === "open" || reply === "failed";
   // Reply opens the message too, so the editor sits under what it answers.
+  // It opens without holding the line: the reader asked to type, so the view follows the editor as
+  // before rather than keeping the line, which left a long message's editor below the view.
   const startReply = () => {
     byReader();
     setFocusEditor(true);
-    card.setOpen(true);
+    show(true);
     setReply("open");
   };
   // Closing the message closes its reply too, draft kept; the focus goes to the chevron, so it
