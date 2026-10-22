@@ -184,6 +184,9 @@ public actor DaemonUpdatePolicy {
             }
             guard deps.enabled() else {
                 Self.logger.info("daemon update stopped: agent.updatePeers turned off")
+                for retried in queue where retried.firstBusy != nil {
+                    await deps.report(DaemonUpdateEvent(retried.target, .cleared))
+                }
                 queue.removeAll()
                 break
             }
@@ -222,12 +225,12 @@ public actor DaemonUpdatePolicy {
     private func attempt(_ pending: Pending, local: DaemonBuildCommit, ledger: inout DaemonUpdateLedger) async -> Pending? {
         let deps = dependencies
         let target = pending.target
-        guard ledger.targets[target.id] == nil, settled[target.id] != local.hash else { return nil }
+        guard ledger.targets[target.id] == nil, settled[target.id] != local.hash else { return await dropped(pending) }
         // Read at its turn: the machine may have gone, or reached this build meanwhile.
         let urgent = await target.urgent
         let current = DaemonBuildCommit(await target.currentBuild())
-        if let current, local.sameCommit(current.hash) { return nil }
-        guard current != nil || urgent else { return nil }
+        if let current, local.sameCommit(current.hash) { return await dropped(pending) }
+        guard current != nil || urgent else { return await dropped(pending) }
         // Busy for ``Dependencies/updateBusyAfter`` or longer (at once when it is zero): this update
         // does not wait for an idle moment.
         let asked = elapsed()
@@ -263,6 +266,13 @@ public actor DaemonUpdatePolicy {
             settled[target.id] = local.hash
         }
         await deps.report(Self.event(target, outcome, local: local))
+        return nil
+    }
+
+    /// Drops `pending`, which no longer needs an update; one asked again before leaves the board,
+    /// since no retry comes.
+    private func dropped(_ pending: Pending) async -> Pending? {
+        if pending.firstBusy != nil { await dependencies.report(DaemonUpdateEvent(pending.target, .cleared)) }
         return nil
     }
 

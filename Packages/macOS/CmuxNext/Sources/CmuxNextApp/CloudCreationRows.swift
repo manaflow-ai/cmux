@@ -64,6 +64,7 @@ enum CloudCreationRows {
         case .updating, .retrying: return line
         case .failed where compatibility?.level == .current: return detail
         case .updated, .failed: return [detail, line].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
+        case .cleared: return detail
         }
     }
 

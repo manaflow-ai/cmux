@@ -85,6 +85,21 @@ import Testing
         #expect(fixture.notices.isEmpty)
     }
 
+    /// A target asked again that reached the build meanwhile (someone ran `host update` by hand)
+    /// is not updated, and leaves the board instead of keeping "Update will try again soon".
+    @Test func aRetriedTargetThatReachedTheBuildLeavesTheBoard() async throws {
+        let fixture = try PolicyFixture()
+        defer { fixture.remove() }
+        let target = fixture.target("peer", build: Self.older, outcomes: [.busy])
+        await fixture.policy([target], board: { event in
+            if event.state == .retrying { target.reach(DaemonUpdatePolicyTests.bundled) }
+        }).run()
+
+        #expect(fixture.calls == ["peer"])
+        #expect(fixture.states("peer") == [.updating, .retrying, .cleared])
+        #expect(fixture.ledger.targets.isEmpty)
+    }
+
     /// With a non-zero cap: a busy machine is asked again after the backoff; the next one goes
     /// meanwhile. One at a time.
     @Test func withABusyCapTargetsRunOneAtATimeAndABusyOneWaits() async throws {
@@ -399,6 +414,9 @@ nonisolated final class FakeUpdateTarget: DaemonUpdateTarget {
     }
 
     func currentBuild() async -> String? { state.withLock { $0.build } }
+
+    /// Moves the target to `build` outside the policy, as a hand-run update would.
+    func reach(_ build: String) { state.withLock { $0.build = build } }
 
     func update(to build: DaemonBuildCommit, whileBusy: Bool) async -> DaemonUpdateOutcome {
         fixture.began(id, whileBusy: whileBusy)
