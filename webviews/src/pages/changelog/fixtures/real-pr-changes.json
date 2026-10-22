@@ -104,10 +104,6 @@
     "pr": 23947
   },
   {
-    "title": "cmux-next iOS tests: disable choosingAnotherOnlineMacMovesTheLink",
-    "pr": 24010
-  },
-  {
     "title": "cmux NEXT chat header: every item acts on a click, the Environment line included",
     "pr": 23979
   },
@@ -214,5 +210,9 @@
   {
     "title": "Needs you: a waiting chat's row shows its question, not its last reply",
     "pr": 23847
+  },
+  {
+    "title": "cmux NEXT App Store: Appearance, Editor and Mac & Phone cards",
+    "pr": 23896
   }
 ]

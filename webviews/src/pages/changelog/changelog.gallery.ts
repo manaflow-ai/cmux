@@ -7,6 +7,9 @@ import realChanges from "./fixtures/real-pr-changes.json";
 import type { ReleaseNotes } from "./types";
 import { journalNotes } from "./whatsNewFixtures";
 
+/** Where build `index` of the 18 starts in realChanges: each takes (index % 5) + 1, none shared. */
+const start = (index: number) => Array.from({ length: index }, (_, i) => (i % 5) + 1).reduce((a, b) => a + b, 0);
+
 const manyNotes = Array.from({ length: 18 }, (_, index) => ({
   build: `37203579${String(6000 + index)}`,
   shortVersion: `1.0.${index + 1}-nightly`,
@@ -22,8 +25,8 @@ const manyNotes = Array.from({ length: 18 }, (_, index) => ({
         ]
       : [],
   // Real landed pull requests, so each change shows its linked title and number.
-  items: realChanges.slice(index * 3, index * 3 + (index % 5) + 1),
-  changes: realChanges.slice(index * 3, index * 3 + (index % 5) + 1).map((c) => `${c.title} (#${c.pr})`),
+  items: realChanges.slice(start(index), start(index) + (index % 5) + 1),
+  changes: realChanges.slice(start(index), start(index) + (index % 5) + 1).map((c) => `${c.title} (#${c.pr})`),
 }));
 
 export default changelogPageEntry({
