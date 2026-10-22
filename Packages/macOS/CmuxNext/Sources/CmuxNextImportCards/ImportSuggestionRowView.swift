@@ -260,6 +260,9 @@ public final class ImportSuggestionRowView: NSView {
         setAccessibilityLabel(first.title)
         icon.image = first.app.flatMap(ImportAppIcons.image) ?? NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: nil)
         titleLabel.stringValue = first.title
+        // A long name (a Chief's cookie request, "Import Google Chrome cookies for github.com") can
+        // still truncate beside the buttons: the whole name is its tooltip.
+        titleLabel.toolTip = first.title
         // A running, paused, finished or failed import says where it is instead of what was found.
         factsLabel.stringValue = first.status ?? first.facts
         factsLabel.toolTip = first.benefit
