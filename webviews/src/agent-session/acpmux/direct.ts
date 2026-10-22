@@ -3348,7 +3348,9 @@ export class AcpmuxDirectClient {
   /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it.
   /// `steer`: into the running turn, read when the agent's current step ends; an agent that
   /// cannot steer queues it behind the turn. Nothing sent stops the turn: only Stop does (Leo
-  /// 2026-10-20), so no send carries `_meta.acpmux.interrupt`.
+  /// 2026-10-20), so no send carries `_meta.acpmux.interrupt`. No send carries
+  /// `_meta.acpmux.resend` either: only the host marks a prompt a resend (#22881), and it refuses
+  /// a page frame that does.
   async send(
     input: string,
     attachments: ComposerAttachment[] = [],
@@ -3356,7 +3358,6 @@ export class AcpmuxDirectClient {
     accepted?: () => void,
     ticket?: string,
     steer = false,
-    resend = false,
   ): Promise<string | undefined> {
     // A `data:` image written into the prompt goes as an image, never as text: the bubble, the
     // agent and the chat's compaction never see base64 (inlineImages.ts, Leo 2026-10-20).
@@ -3510,7 +3511,6 @@ export class AcpmuxDirectClient {
           acpmux: {
             promptId,
             ...(steer ? { steer: true } : {}),
-            ...(resend ? { resend: true } : {}),
             ...(context ? { context } : {}),
             ...promptSurfaceMeta(),
           },
@@ -3689,7 +3689,9 @@ export class AcpmuxDirectClient {
   }
 
   /// Retry on a prompt that was not sent: its bubble goes and the same prompt goes again, under the
-  /// same prompt id with `resend`, so a copy acpmux did take answers as that one and runs no second turn.
+  /// same prompt id, so a copy acpmux did take answers as that one and runs no second turn (acpmux runs
+  /// a prompt id once). It carries no `resend`: the host refuses that from the page (#22881), and a
+  /// failed row never outlives its connection, so the daemon that may hold the first copy is the same.
   /// `ticket`: the gesture a trust refusal kept for this prompt (heldPrompt.ts).
   async retryPrompt(rowId: string, ticket?: string): Promise<string | undefined> {
     const failed = this.failedPrompts.get(rowId);
@@ -3704,15 +3706,7 @@ export class AcpmuxDirectClient {
     const promptId = failed.promptId ?? crypto.randomUUID();
     this.retriedPrompts.add(promptId);
     try {
-      return await this.send(
-        failed.input,
-        failed.attachments,
-        promptId,
-        undefined,
-        ticket,
-        false,
-        failed.promptId !== undefined,
-      );
+      return await this.send(failed.input, failed.attachments, promptId, undefined, ticket);
     } finally {
       this.retriedPrompts.delete(promptId);
     }
