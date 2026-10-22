@@ -52,7 +52,7 @@ public struct HostSampler: Sendable {
             }
         }
         guard result == KERN_SUCCESS else { return nil }
-        return stats.swapouts &* UInt64(vm_kernel_page_size)
+        return stats.swapouts &* UInt64(getpagesize())
     }
 
     /// One send right for the process's life: each `mach_host_self()` adds a
