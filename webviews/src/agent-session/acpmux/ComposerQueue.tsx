@@ -141,7 +141,10 @@ export function ComposerQueue({
   // The paused note's whole error, opened with Show more.
   const [errorOpen, setErrorOpen] = useState(false);
   const pausedLine = pausedError?.trim().replace(/\s+/g, " ");
-  const longError = pausedLine !== undefined && pausedLine.length > PAUSED_ERROR_CHARS;
+  // A new pause starts folded.
+  useEffect(() => setErrorOpen(false), [pausedLine]);
+  // Counted in characters, not UTF-16 units, as the cut is: an emoji is never split.
+  const longError = pausedLine !== undefined && Array.from(pausedLine).length > PAUSED_ERROR_CHARS;
   // The images the open edit drops from its prompt.
   const [dropped, setDropped] = useState<ReadonlySet<string>>(new Set());
   const setEditing = (id: string | undefined) => {
@@ -515,7 +518,12 @@ export function ComposerQueue({
             <span>
               {pausedLine
                 ? t("composer.queuePausedError", {
-                    error: longError && !errorOpen ? `${pausedLine.slice(0, PAUSED_ERROR_CHARS - 1)}…` : pausedLine,
+                    error:
+                      longError && !errorOpen
+                        ? `${Array.from(pausedLine)
+                            .slice(0, PAUSED_ERROR_CHARS - 1)
+                            .join("")}…`
+                        : pausedLine,
                   })
                 : t("composer.queuePaused")}
               {longError && (
