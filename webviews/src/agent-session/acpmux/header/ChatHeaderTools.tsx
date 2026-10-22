@@ -586,7 +586,7 @@ function ChatMenu({
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
       <MenuButton className="acpmux-header-tool" label={label} disabled={disabled}>
-        <Icon name="action.more" size={15} />
+        <Icon name="action.more.vertical" size={15} />
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover" align="end">
         {children
