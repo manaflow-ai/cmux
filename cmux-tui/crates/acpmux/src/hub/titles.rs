@@ -228,7 +228,11 @@ impl Hub {
     fn title_after_turn(self: &Arc<Self>, session: &Arc<Session>) {
         let (harness, request) = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            if !wants_title(m.title_source.as_deref(), m.title_asking, m.title_failures) {
+            // A restricted chat's titler would start its harness profile unrestricted
+            // (`hub/restricted.rs`): it keeps its first prompt's line.
+            if m.restricted
+                || !wants_title(m.title_source.as_deref(), m.title_asking, m.title_failures)
+            {
                 return;
             }
             // The first ask reads the first prompt; a retry reads the latest one, since a
