@@ -90,3 +90,60 @@ notify answer's `wants` lets the Mac skip kinds no phone wants (terminal).
 
 App Group `group.<app bundle id>` holds the outbox and chat snapshots. PR B
 adds a shared keychain group for the push key.
+
+### What is registered (App Store Connect, shared key RUML2V4CW7, 2026-10-21)
+
+| Object | Id | Notes |
+| --- | --- | --- |
+| App ID `dev.cmux.app.internal.notification-content` | `95D6H7C27F` | App Groups capability on |
+| App ID `dev.cmux.app.internal.notification-service` | `437CM874CF` | App Groups on; for PR B |
+| App ID `dev.cmux.mobile.prod.notification-content` | `HZ5P6QYS87` | App Groups on |
+| App ID `dev.cmux.mobile.prod.notification-service` | `8Y56F2B472` | App Groups on; for PR B |
+| Profile "cmux Internal Distribution Notification Content" | `TCVW3L4742` | App Store; the same 5 certificates as "cmux Internal Distribution" (local signing) |
+| Profile "cmux Internal Distribution Notification Service" | `3GT3TN7853` | App Store; same certificates; PR B |
+| Profile "cmux Internal Distribution CI Notification Content" | `D23DRMH6ZH` | App Store; CI's certificate (as "cmux Internal Distribution CI") |
+| Profile "cmux Internal Distribution CI Notification Service" | `Y6PCSLK3AC` | App Store; CI's certificate; PR B |
+
+An older `dev.cmux.app.internal.NotificationService` App ID (`2V7RGMF6C2`, the
+earlier iOS app's) exists and is not used. No certificate or key was created.
+
+Not registered yet, on purpose: the App Groups `group.dev.cmux.app.internal`
+and `group.dev.cmux.mobile.prod`. The asc CLI (and the App Store Connect API)
+cannot create an App Group, and adding the App Groups capability to
+`dev.cmux.app.internal` invalidates the two active "cmux Internal
+Distribution" profiles (local and CI, the CI one also a release secret). So
+device builds sign without the App Group (`CMUX_MOBILE_APP_GROUP=NO`, the
+default for device SDKs; simulator builds always have it): the extension shows
+the notification and its buttons, and its option rows and composer open the
+app on the chat instead of handing over the answer. To turn the handover on:
+
+1. In the developer portal, create the App Groups above and assign them to
+   the app and extension App IDs (needs an Account Holder or Admin in the
+   browser; the API key cannot).
+2. Regenerate "cmux Internal Distribution", "cmux Internal Distribution CI"
+   and the four extension profiles, update the release secret
+   `IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64`.
+3. Build with `CMUX_MOBILE_APP_GROUP=YES`, and add
+   `com.apple.security.application-groups` to the entitlement sets
+   `testflight-build.sh` checks and signs.
+
+### Signing
+
+- `project.yml`: the app's id is `CMUX_MOBILE_APP_BUNDLE_ID`; the extension is
+  `$(CMUX_MOBILE_APP_BUNDLE_ID).notification-content`. TestFlight
+  configurations name each target's profile (`CMUX_MOBILE_APP_PROFILE`,
+  `CMUX_MOBILE_CONTENT_EXTENSION_PROFILE`), so no build passes one global
+  `PROVISIONING_PROFILE_SPECIFIER` (that gave the extension the app's profile).
+- `testflight-build.sh` fetches both profiles (or
+  `CMUX_MOBILE_CONTENT_EXTENSION_PROFILE_PATH` / `_NAME` in CI), checks the
+  one identity is in both, exports with both in `provisioningProfiles`, signs
+  the extension first when signing an unsigned archive (`--from-archive`), and
+  checks the embedded extension (id, version, entitlements) in the archive and
+  in the IPA.
+- `ios-internal-nightly.yml` names the CI extension profile. Its signing job
+  runs the script from `rc/cnx-ios-builder`, so that branch must be
+  fast-forwarded to a commit with this change before the first INTERNAL build
+  that has the extension, or the old script stops at "the app has an
+  extension".
+- `demo-build.sh` needs no change: automatic signing and the team wildcard
+  development profile cover the extension.
