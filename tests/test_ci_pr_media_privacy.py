@@ -1068,22 +1068,74 @@ class FeatWorkflowTests(unittest.TestCase):
             return {on}
         return set(on or ())
 
+    # Events whose runs take the default or base branch's ref (which the environment admits) while someone
+    # outside the repo chooses when they fire: a PR (pull_request_target), a fork's finished run (workflow_run),
+    # any commenter (issue_comment, issues).
+    UNTRUSTED_EVENTS = {"pull_request_target", "workflow_run", "issue_comment", "issues"}
+
     @staticmethod
-    def environment(job: dict) -> str | None:
+    def environment(job: dict) -> str:
         env = job.get("environment")
-        return env.get("name") if isinstance(env, dict) else env
+        return str((env.get("name") if isinstance(env, dict) else env) or "")
+
+    @staticmethod
+    def split_top(text: str, op: str) -> list[str]:
+        """text split on op outside quotes and parentheses."""
+        parts, depth, quoted, last, i = [], 0, False, 0, 0
+        while i < len(text):
+            c = text[i]
+            if c == "'":
+                quoted = not quoted
+            elif not quoted and c in "([":
+                depth += 1
+            elif not quoted and c in ")]" and depth:
+                depth -= 1
+            elif not quoted and depth == 0 and text.startswith(op, i):
+                parts.append(text[last:i])
+                last = i + len(op)
+                i = last
+                continue
+            i += 1
+        return parts + [text[last:]]
+
+    def outcomes(self, expression: str) -> list[str] | None:
+        """The strings an expression can yield, or None when one comes from outside it: `a || b` yields a or b,
+        `a && b` yields b (or a falsy a, which names no environment)."""
+        expression = expression.strip()
+        if expression.startswith("(") and self.split_top(expression[1:], ")") == [expression[1:-1], ""]:
+            return self.outcomes(expression[1:-1])
+        branches = self.split_top(expression, "||")
+        if len(branches) > 1:
+            found = [self.outcomes(branch) for branch in branches]
+            return None if None in found else [value for values in found for value in values]
+        operands = self.split_top(expression, "&&")
+        if len(operands) > 1:
+            return self.outcomes(operands[-1])
+        return [expression[1:-1]] if re.fullmatch(r"'[^']*'", expression) else None
+
+    def may_name_pr_media(self, name: str) -> bool:
+        """The environment can be pr-media: GitHub matches names without case, and an expression whose value
+        comes from outside it could be anything."""
+        names = [""]
+        for i, piece in enumerate(re.split(r"\$\{\{(.*?)\}\}", name, flags=re.S)):
+            values = self.outcomes(piece) if i % 2 else [piece]
+            if values is None:
+                return True
+            names = [n + v for n in names for v in values]
+        return any("pr-media" in n.lower() for n in names)
 
     def holds_pr_media(self, job: dict) -> bool:
-        """The job enters the pr-media environment, reads its terms secret or publishes through the action."""
-        return (self.environment(job) == "pr-media" or "secrets.PR_MEDIA_PRIVATE_TERMS" in yaml.dump(job)
+        """The job may enter the pr-media environment, reads its terms secret or publishes through the action."""
+        return (self.may_name_pr_media(self.environment(job))
+                or "pr_media_private_terms" in yaml.dump(job).lower()
                 or any(str(step.get("uses", "")).startswith(self.ACTION_USE) for step in job.get("steps") or []))
 
-    def pull_request_target_jobs(self, workflows) -> list[tuple[str, str, dict]]:
-        """(workflow, job, job) for every job a pull_request_target event runs, including the jobs of the local
-        reusable workflows it calls: those run in the caller's event, on the base branch's ref."""
+    def untrusted_event_jobs(self, workflows) -> list[tuple[str, str, dict]]:
+        """(workflow, job, job) for every job an untrusted event runs, including the jobs of the local reusable
+        workflows it calls: those run in the caller's event, on the caller's ref."""
         loaded = dict(workflows)
         out, seen = [], set()
-        todo = [w for w, doc in loaded.items() if "pull_request_target" in self.triggers(doc)]
+        todo = [w for w, doc in loaded.items() if self.UNTRUSTED_EVENTS & self.triggers(doc)]
         while todo:
             workflow = todo.pop()
             if workflow in seen:
@@ -1096,24 +1148,36 @@ class FeatWorkflowTests(unittest.TestCase):
                 out.append((workflow, job_id, job))
         return out
 
-    def test_the_pull_request_target_scan_finds_called_workflows(self) -> None:
+    def test_the_untrusted_event_scan_finds_called_workflows_and_expression_environments(self) -> None:
         workflows = [
             (".github/workflows/a.yml", {True: {"pull_request_target": {"types": ["opened"]}},
                                          "jobs": {"call": {"uses": "./.github/workflows/b.yml"}}}),
             (".github/workflows/b.yml", {"on": "workflow_call",
                                          "jobs": {"post": {"environment": {"name": "pr-media"}, "steps": []}}}),
             (".github/workflows/c.yml", {True: ["push"], "jobs": {"post": {"environment": "pr-media"}}}),
+            (".github/workflows/d.yml", {True: {"issue_comment": None}, "jobs": {
+                "case": {"environment": "PR-Media"},
+                "cond": {"environment": "${{ github.event_name == 'issue_comment' && 'pr-media' || '' }}"},
+                "named": {"environment": {"name": "${{ 'pr-' }}media"}},
+                "output": {"environment": "${{ needs.decide.outputs.environment }}"},
+                "fallback": {"environment": "${{ inputs.x == 'y' && 'ci-bot' || vars.ENV }}"},
+                "secret": {"steps": [{"run": "echo ${{ secrets['pr_media_private_terms'] }}"}]},
+                "other": {"environment": "${{ (needs.plan.outputs.go == 'true' && ('ci-bot')) || '' }}"},
+                "pairs": {"environment": "${{ (inputs.x) && ('ci-bot') }}"},
+                "plain": {"environment": "ci-bot"},
+            }}),
         ]
-        found = [(w, j) for w, j, job in self.pull_request_target_jobs(workflows) if self.holds_pr_media(job)]
-        self.assertEqual(found, [(".github/workflows/b.yml", "post")])
+        found = sorted((w, j) for w, j, job in self.untrusted_event_jobs(workflows) if self.holds_pr_media(job))
+        self.assertEqual(found, [(".github/workflows/b.yml", "post")] + [
+            (".github/workflows/d.yml", j) for j in ("case", "cond", "fallback", "named", "output", "secret")])
 
-    def test_no_pull_request_target_job_holds_the_pr_media_environment_or_its_secret(self) -> None:
-        # A deployment branch policy matches GITHUB_REF, and a pull_request_target run's ref is the base branch,
-        # which the environment admits: the environment alone would hand the terms list to a run a PR triggered.
-        for workflow, job_id, job in self.pull_request_target_jobs(self.workflows()):
+    def test_no_untrusted_event_job_holds_the_pr_media_environment_or_its_secret(self) -> None:
+        # A deployment branch policy matches GITHUB_REF, and these events run on the base or default branch's ref,
+        # which the environment admits: the environment alone would hand the terms list to a run an outsider fired.
+        for workflow, job_id, job in self.untrusted_event_jobs(self.workflows()):
             with self.subTest(workflow=workflow, job=job_id):
                 self.assertFalse(self.holds_pr_media(job),
-                                 "a pull_request_target job runs in the pr-media environment or reads its terms")
+                                 "a job an untrusted event runs may be in the pr-media environment or read its terms")
 
     def test_only_the_action_in_the_pr_media_environment_reads_the_terms_secret(self) -> None:
         for workflow, loaded in self.workflows():
