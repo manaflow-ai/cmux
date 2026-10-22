@@ -16,7 +16,7 @@ import Testing
     // MARK: - Chunk plan
 
     @Test func historyIsReadOldestFirstInChunksThatEndAtTheNewestRow() {
-        let plan = RemoteTmuxPaneHistoryPlan(historySize: 5_000, paneWidth: 200)
+        let plan = RemoteTmuxPaneHistoryPlan(historySize: 5_000, paneWidth: 200, maximumChunkCells: 400_000)
         #expect(plan.chunks == [
             .init(start: "-", end: "-3001"),
             .init(start: "-3000", end: "-1001"),
@@ -27,9 +27,9 @@ import Testing
     }
 
     @Test func aWidePaneGetsShorterChunks() {
-        let plan = RemoteTmuxPaneHistoryPlan(historySize: 1_000, paneWidth: 1_000)
-        // 400,000 cells per chunk at 1,000 columns is 400 rows.
-        #expect(plan.chunks.map(\.end) == ["-601", "-201", "-1"])
+        let plan = RemoteTmuxPaneHistoryPlan(historySize: 300, paneWidth: 1_000)
+        // 131,072 cells per chunk at 1,000 columns is 131 rows.
+        #expect(plan.chunks.map(\.end) == ["-170", "-39", "-1"])
         #expect(plan.chunks.first?.start == "-")
     }
 
@@ -87,7 +87,7 @@ import Testing
         let query = String(decoding: fixture.pipe.fileHandleForReading.availableData, as: UTF8.self)
         #expect(query.contains("display-message -p -t %7"))
         #expect(query.contains("#{history_size}"))
-        fixture.reply(number: 40, lines: ["2500 200 0"])
+        fixture.reply(number: 40, lines: ["1000 200 0"])
 
         try await waitForPendingCommands(on: fixture.connection) { kinds in
             kinds.contains { if case .paneState = $0 { return true } else { return false } }
@@ -96,8 +96,8 @@ import Testing
         // One tmux command queue: pane output stays paused across every capture.
         #expect(queue.components(separatedBy: "\n").filter { !$0.isEmpty }.count == 1)
         let pause = try #require(queue.range(of: "refresh-client -A \"%7:pause\""))
-        let oldest = try #require(queue.range(of: "capture-pane -p -e -S - -E -501 -t %7"))
-        let newest = try #require(queue.range(of: "capture-pane -p -e -S -500 -E -1 -t %7"))
+        let oldest = try #require(queue.range(of: "capture-pane -p -e -S - -E -346 -t %7"))
+        let newest = try #require(queue.range(of: "capture-pane -p -e -S -345 -E -1 -t %7"))
         let screen = try #require(queue.range(of: "capture-pane -p -e -t %7"))
         let resume = try #require(queue.range(of: "refresh-client -A \"%7:continue\""))
         #expect(pause.lowerBound < oldest.lowerBound)
@@ -127,7 +127,8 @@ import Testing
         }
 
         let outcome = await reseed.value
-        #expect(outcome == .loaded(historyRows: 2_500, truncated: false))
+        // The outcome counts the rows painted, here the two the stub sent per chunk.
+        #expect(outcome == .loaded(historyRows: 4, truncated: false))
         #expect(historyChunk == 2)
         let seed = try #require(seeds.last)
         #expect(seed.kind == .fullHistory)
