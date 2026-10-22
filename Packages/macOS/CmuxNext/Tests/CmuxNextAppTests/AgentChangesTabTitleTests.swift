@@ -28,8 +28,8 @@ struct AgentChangesTabTitleTests {
         let titles = TabTitleResolver(agentTabs: tabs)
         #expect(titles.title(changesTab) == "Home")
 
-        let changes = AgentChangesPane.session(session)
-        _ = changes.made(changesTab.id, opening: try #require(changes.begin("reveal")))
+        let tracker = AgentChangesPane.session(session)
+        _ = tracker.made(changesTab.id, opening: try #require(tracker.begin("reveal")))
         #expect(titles.title(changesTab) == AgentPaneModel.changesTabTitle)
         #expect(titles.title(chatTab) == "Home")
 
