@@ -648,7 +648,7 @@ test("with only started chats Subagents is still drawn, and the running line's c
   });
   expect(sectionIds(container)).toEqual(["environment", "context", "subagents", "outputs"]);
   expect(meta(section(container, "subagents"))).toBe("1 running · 1 done");
-  // Closed, with Subagents folded: the running line's "2 sessions" opens it at Subagents.
+  // Closed, with Subagents folded: the running line's "2 subagents" opens it at Subagents.
   await click(head(section(container, "subagents")!));
   await click(toggle(container)!);
   expect(panel(container)).toBeNull();
