@@ -5,7 +5,7 @@
 // choice is kept by the row's id (transcriptDisclosure.tsx), so a prompt scrolled out and back, or
 // drawn again from history, stays as the reader left it. Find opens a collapsed prompt, or a closed
 // chip, that holds its current match. The bubble keeps the whole text; Copy copies all of it.
-import { useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT, usePaneLanguage } from "../i18n";
 import { FindReveal } from "./chatFind";
 import {
@@ -73,14 +73,24 @@ export function PromptText({
   }, [parts, long, open]);
   const collapsed = long && !open;
   // Show more and Show less (Leo 2026-10-21: "these all need animations for expand and collpase"):
-  // the bubble keeps its top where it is drawn and grows or shrinks from there, over the fold's token.
+  // the bubble keeps its top where it is drawn and grows or shrinks below it, over the fold's token,
+  // so the reader stays where they were reading ("just expand the area at the bottom and you're in
+  // the same place"). The button rides the bubble's moving bottom edge instead of jumping to where
+  // it ends up. A toggle midway starts from the drawn height.
   const resized = useRef<number | undefined>(undefined);
+  const resizing = useRef<Animation[]>([]);
+  const stopResize = () => {
+    for (const animation of resizing.current) animation.cancel();
+    resizing.current = [];
+  };
+  useEffect(() => stopResize, []);
   const showMore = (next: boolean) => {
     const bubble = body.current?.parentElement;
     if (bubble) {
       holdHeader(bubble);
       resized.current = bubble.getBoundingClientRect().height;
     }
+    stopResize();
     setOpen(next);
   };
   useLayoutEffect(() => {
@@ -91,16 +101,19 @@ export function PromptText({
     if (from === undefined || !bubble || ms <= 0) return;
     const to = bubble.getBoundingClientRect().height;
     if (Math.abs(to - from) < 1) return;
-    bubble.animate(
-      [
-        { height: `${from}px`, overflow: "hidden" },
-        { height: `${to}px`, overflow: "hidden" },
-      ],
-      {
-        duration: ms,
-        easing: foldMotion.easing(bubble),
-      },
+    const timing = { duration: ms, easing: foldMotion.easing(bubble) };
+    resizing.current.push(
+      bubble.animate(
+        [
+          { height: `${from}px`, overflow: "hidden" },
+          { height: `${to}px`, overflow: "hidden" },
+        ],
+        timing,
+      ),
     );
+    const button = bubble.querySelector<HTMLElement>(":scope > .cv-user__more");
+    if (button)
+      resizing.current.push(button.animate([{ translate: `0 ${from - to}px` }, { translate: "0 0" }], timing));
   }, [collapsed]);
   // Find's current match in this prompt opens it; one in a typed part past the fold, or in a paste,
   // needs it open to draw.

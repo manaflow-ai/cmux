@@ -71,15 +71,30 @@ dom.window.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLEle
 };
 
 // JSDOM has no Web Animations: record each one, ended by the test.
-type Played = { node: HTMLElement; keyframes: Keyframe[]; options: KeyframeAnimationOptions; end: () => void };
+type Played = {
+  node: HTMLElement;
+  keyframes: Keyframe[];
+  options: KeyframeAnimationOptions;
+  end: () => void;
+  finished: boolean;
+};
 let played: Played[] = [];
 (dom.window.HTMLElement.prototype as unknown as { animate: unknown }).animate = function (
   this: HTMLElement,
   keyframes: Keyframe[],
   options: KeyframeAnimationOptions,
 ) {
-  const animation = { onfinish: null as null | (() => void), oncancel: null as null | (() => void), cancel() {} };
-  played.push({ node: this, keyframes, options, end: () => animation.onfinish?.() });
+  const one: Played = { node: this, keyframes, options, end: () => animation.onfinish?.(), finished: false };
+  const animation = {
+    onfinish: null as null | (() => void),
+    oncancel: null as null | (() => void),
+    cancel() {},
+    finish() {
+      one.finished = true;
+      animation.onfinish?.();
+    },
+  };
+  played.push(one);
   return animation;
 };
 beforeEach(() => {
@@ -262,6 +277,41 @@ test("with the pane's animations off, Worked for opens and closes at once", asyn
     expect(thread().hasAttribute("data-turn-fold")).toBe(false);
     expect(spacerHeight()).toBe(closed);
     expect(played).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a second toggle while a close plays lands that close first, then holds its own line", async () => {
+  const { root, render } = mount(new Set([workedId(10)]));
+  try {
+    await act(async () => render());
+    await act(async () => line(10).click());
+    expect(ghosts().length).toBeGreaterThan(0);
+    const first = [...played];
+    expect(first.length).toBeGreaterThan(0);
+    // Turn 11's line, clicked while the rows below turn 10's still slide: nothing of the first fold
+    // keeps moving or stays drawn, so the line the second hold measures stays where it was clicked.
+    await act(async () => line(11).click());
+    for (const one of first) expect(one.finished).toBe(true);
+    expect(ghosts()).toEqual([]);
+    expect(line(11).getAttribute("aria-expanded")).toBe("true");
+    expect(thread().getAttribute("data-turn-fold")).toBe("open");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a reader who scrolls while a fold plays moves every row alike: no row slides against the scroll", async () => {
+  const { root, render } = mount(new Set());
+  try {
+    await act(async () => render());
+    await act(async () => line(11).click());
+    played = [];
+    // A scroll mid-fold places the rows again; none of them changed place relative to the line.
+    scroller().scrollTop = Math.max(0, scroller().scrollTop - 120);
+    await act(async () => render());
+    expect(slides()).toEqual([]);
   } finally {
     await act(async () => root.unmount());
   }

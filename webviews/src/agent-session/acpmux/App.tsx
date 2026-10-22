@@ -197,7 +197,7 @@ import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
 import { AgentNamesContext, agentNames } from "./conversation/agentNames";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { ANCHORED_COLLAPSE_EVENT, foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
-import { endTurnFold, playTurnFold, startTurnFold, type TurnFold } from "./conversation/turnFold";
+import { playTurnFold, settleTurnFold, startTurnFold, type TurnFold } from "./conversation/turnFold";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
@@ -2743,9 +2743,10 @@ export function VirtualTranscript({
     const node = ref.current;
     const host = thread.current;
     if (!fold || !node || !host) return;
-    const placed = { ids: rows.map((row) => row.id), tops: layout.tops, shift: liftRef.current - node.scrollTop };
+    const placed = { ids: rows.map((row) => row.id), tops: layout.tops };
     if (playTurnFold(fold, host, placed, sessionId, foldGhosts.current)) return;
-    endTurnFold(host, fold);
+    // Over, or another chat shows: nothing of it is left drawn over the new rows.
+    settleTurnFold(host, fold, foldGhosts.current);
     turnFold.current = undefined;
   });
   useEffect(
@@ -2763,7 +2764,7 @@ export function VirtualTranscript({
   const toggleRow = useCallback(
     (id: string) => {
       const node = ref.current;
-      endTurnFold(thread.current, turnFold.current);
+      settleTurnFold(thread.current, turnFold.current, foldGhosts.current);
       turnFold.current = node
         ? startTurnFold(
             thread.current,
@@ -2772,7 +2773,6 @@ export function VirtualTranscript({
             {
               ids: rowsRef.current.map((row) => row.id),
               tops: foldInputs.current.layout.tops,
-              shift: liftRef.current - node.scrollTop,
             },
             foldInputs.current.sessionId,
           )
@@ -3164,9 +3164,15 @@ export function VirtualTranscript({
     for (const name of inputs) node?.addEventListener(name, reader, { passive: true });
     // A click on a disclosure line holds it where it is (foldAnchor.ts), before the row's own handler
     // opens it.
+    // A turn fold still sliding rows lands first: the hold reads the line where it stays.
+    const settleFold = () => {
+      settleTurnFold(thread.current, turnFold.current, foldGhosts.current);
+      turnFold.current = undefined;
+    };
     const holdClicked = (event: MouseEvent) => {
       const toggle = node ? foldToggleAt(event.target, node) : undefined;
       if (!toggle) return;
+      settleFold();
       foldAnchor.current = holdFold(toggle);
     };
     // A collapsible's header that asks to be held (useAnchoredCollapse.ts): a toggle from the keyboard
@@ -3176,7 +3182,7 @@ export function VirtualTranscript({
       if (!node || typeof header?.closest !== "function" || !node.contains(header) || !header.closest(".acpmux-row"))
         return;
       event.preventDefault();
-      for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
+      settleFold();
       foldAnchor.current = holdFold(header);
     };
     // The reader scrolling lets go of it.
