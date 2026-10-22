@@ -49,6 +49,18 @@ for path in cmux-tui/bindings/java/src/com/cmux/raw/Client.java cmux-tui/binding
 done
 drift cmux-tui/bindings/java/src/com/cmux/raw/Client.java cmux-tui/spec/sdk-schema.json || fail "the SDK schema causes the Java sources"
 drift scripts/lint-namespace-types-ratchet.txt Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift || fail "a Swift fix causes its ratchet row"
+# The cmuxd-remote license review is written by the autofix: a Go dependency change owns it,
+# and a pull request that carries it alone carries drift.
+review=daemon/remote/third-party/review.json
+for path in "$review" daemon/remote/third-party/go/LICENSE; do
+  python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import generated_outputs as g; sys.exit(g.output_of(sys.argv[2]) is None)' \
+    "$ROOT_DIR/scripts/cmux-next" "$path" || fail "$path is an autofix output missing from the table"
+done
+drift "$review" daemon/remote/go.mod daemon/remote/go.sum || fail "a go.mod change causes the license review"
+drift "$review" daemon/remote/go.sum || fail "a go.sum change causes the license review"
+drift "$review" scripts/remote_daemon_notices.py || fail "a change to the notices script causes the license review"
+drift "$review" && fail "the license review alone must be drift"
+grep -q "remote_daemon_notices.py check --update-review" "$tmp/out" || fail "the drift message must say how the review is written"
 # Hand-written files are never drift.
 drift webviews/src/main.tsx scripts/cmux-next/base-autofix.sh || fail "a hand-written file is not drift"
 

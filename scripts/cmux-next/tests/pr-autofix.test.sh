@@ -43,6 +43,17 @@ for path in Packages/macOS/CmuxNext/Sources/CmuxNextSettings/CmuxConfigSnapshot.
   [[ "$(settings "$path")" == true ]] || fail "a change to $path must regenerate the settings exports"
 done
 [[ "$(settings webviews/src/main.tsx)" == false ]] || fail "a webviews change must not regenerate the settings exports"
+# The cmuxd-remote license review (daemon/remote/third-party/review.json) is written by the
+# autofix when a Go dependency changes, never by hand: a go.mod or go.sum change turns it on.
+licenses() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^licenses=//p'; }
+for path in daemon/remote/go.mod daemon/remote/go.sum daemon/remote/third-party/review.json \
+  scripts/remote_daemon_notices.py cmux-tui/build-support/notices/license_match.py \
+  scripts/cmux-next/check_app_crate_licenses.py; do
+  [[ "$(licenses "$path")" == true ]] || fail "a change to $path must record the cmuxd-remote license review"
+done
+[[ "$(licenses daemon/remote/cmd/cmuxd-remote/main.go)" == false ]] || fail "a Go source change alone must not run the license review"
+[[ "$(licenses webviews/src/main.tsx)" == false ]] || fail "a webviews change must not run the license review"
+[[ "$(bash "$AREAS" --all | sed -n 's/^licenses=//p')" == true ]] || fail "--all must include the license review"
 
 repo="$tmp/repo"
 mkdir -p "$repo/plans/cmux-next" "$repo/web/data" "$repo/.github/workflows"
@@ -125,4 +136,17 @@ bash "$APPLY" "$tmp/bot-only.patch" "$fixture" > "$tmp/out" 2>&1 || fail "a patc
 grep -q '"old"' "$fixture/schemas/defaults/cmux-next.json" || fail "the defaults snapshot is bot-only and must not be applied"
 grep -q 'a = 2' "$fixture/webviews/App.tsx" || fail "the other repairs still apply"
 grep -q 'dropped: schemas/defaults/cmux-next.json' "$tmp/out" || fail "the dropped snapshot is reported"
+# The license review and Go's license texts are autofix outputs the push applies.
+fixture="$tmp/licenses"
+mkdir -p "$fixture/daemon/remote/third-party/go"
+echo old > "$fixture/daemon/remote/third-party/review.json"
+echo old > "$fixture/daemon/remote/third-party/go/LICENSE"
+git -C "$fixture" init -q && git -C "$fixture" add -A && git -C "$fixture" -c user.name=t -c user.email=t@t commit -qm base
+echo new > "$fixture/daemon/remote/third-party/review.json"
+echo new > "$fixture/daemon/remote/third-party/go/LICENSE"
+git -C "$fixture" diff --binary > "$tmp/licenses.patch"
+git -C "$fixture" checkout -q -- .
+bash "$APPLY" "$tmp/licenses.patch" "$fixture" > "$tmp/out" 2>&1 || fail "the license review must apply"
+[[ "$(cat "$fixture/daemon/remote/third-party/review.json")" == new ]] || fail "review.json must be applied"
+[[ "$(cat "$fixture/daemon/remote/third-party/go/LICENSE")" == new ]] || fail "Go's license text must be applied"
 echo "pr autofix: ok"

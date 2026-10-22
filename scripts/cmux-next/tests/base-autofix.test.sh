@@ -88,4 +88,76 @@ git -C "$repo" diff --binary > "$tmp/fmt.patch"; git -C "$repo" checkout -q -- .
 bash "$FIX" --no-fmt --webviews-fmt-patch "$tmp/fmt.patch" "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on a patch it refuses"
 [[ "$(cat "$repo/Native/OptChat/other/x.txt")" == keep && "$(cat "$repo/$page")" == stale ]] || fail "a patch reaching another path outside webviews/ must apply nothing"
 grep -q '^left: the webviews formatting patch reaches Native/OptChat/other/x.txt' "$tmp/out" || fail "the refused path must be reported"
+# The cmuxd-remote license review (--license-review): remote_daemon_notices.py check
+# --update-review approves every allowed license and records it in review.json, so a Go
+# dependency change never waits for a person. A refused license is left to one; the rest of
+# the autofix still runs and the run stays green. The notices script and go are stubs here.
+lic="$tmp/licenses"
+mkdir -p "$lic/scripts" "$lic/daemon/remote/third-party/go" "$lic/scripts/cmux-next" "$tmp/go-bin"
+echo '{"go": "old"}' > "$lic/daemon/remote/third-party/review.json"
+echo old > "$lic/daemon/remote/third-party/go/LICENSE"
+printf 'tree cmux-tui\n' > "$lic/scripts/cmux-next/cmux-tui-tree-inputs.txt"
+cat > "$lic/scripts/remote_daemon_notices.py" <<'PY'
+import os, pathlib, sys
+root = pathlib.Path(__file__).resolve().parents[1]
+pathlib.Path(os.environ["NOTICES_ARGS"]).write_text("\n".join(sys.argv[1:]) + "\n")
+mode = os.environ.get("NOTICES_MODE", "approve")
+if mode == "refuse":
+    print("remote_daemon_notices: note: example.com/ok@v1.0.0: approved automatically (MIT)", file=sys.stderr)
+    print("remote_daemon_notices: error: example.com/bad@v1.0.0: LICENSE is GPL-2.0-only, which is not allowed", file=sys.stderr)
+    sys.exit(1)
+if mode == "approve":
+    (root / "daemon/remote/third-party/review.json").write_text('{"go": "new"}\n')
+    (root / "daemon/remote/third-party/go/LICENSE").write_text("new\n")
+print("remote_daemon_notices: every license cmuxd-remote links is allowed (3 modules, go1.26.0)")
+PY
+printf '#!/bin/sh\necho "go version go1.26.0"\n' > "$tmp/go-bin/go"; chmod +x "$tmp/go-bin/go"
+git -C "$lic" init -q && git -C "$lic" add -A && git -C "$lic" -c user.name=t -c user.email=t@t commit -qm fixture
+export NOTICES_ARGS="$tmp/notices-args"
+
+PATH="$tmp/go-bin:$PATH" NOTICES_MODE=approve bash "$FIX" --no-fmt --license-review "$lic" > "$tmp/out" 2>&1 || fail "the license review must succeed"
+grep -qx 'fixed: recorded the cmuxd-remote license review (daemon/remote/third-party/review.json)' "$tmp/out" || fail "a recorded review must be reported"
+[[ "$(cat "$lic/daemon/remote/third-party/review.json")" == '{"go": "new"}' ]] || fail "review.json must be rewritten"
+[[ "$(cat "$lic/daemon/remote/third-party/go/LICENSE")" == new ]] || fail "Go's license texts must be rewritten"
+[[ "$(tr '\n' ' ' < "$NOTICES_ARGS")" == "check --daemon-root $lic/daemon/remote --update-review " ]] || fail "the review runs check --update-review on the checkout's daemon"
+git -C "$lic" add -A && git -C "$lic" -c user.name=t -c user.email=t@t commit -qm recorded
+
+# Every license already recorded: nothing changes, nothing is reported fixed.
+PATH="$tmp/go-bin:$PATH" NOTICES_MODE=current bash "$FIX" --no-fmt --license-review "$lic" > "$tmp/out" 2>&1 || fail "a current review must succeed"
+grep -q 'license review' "$tmp/out" && fail "a current review reports nothing"
+[[ -z "$(git -C "$lic" status --porcelain)" ]] || fail "a current review changes nothing"
+
+# A refused license: left to a person, with the script's own error line; exit 0.
+PATH="$tmp/go-bin:$PATH" NOTICES_MODE=refuse bash "$FIX" --no-fmt --license-review "$lic" > "$tmp/out" 2>&1 || fail "a refused license must not fail the autofix"
+grep -qx 'left: example.com/bad@v1.0.0: LICENSE is GPL-2.0-only, which is not allowed; a person decides' "$tmp/out" || fail "a refused license must be left with its error line"
+grep -q '^fixed: recorded' "$tmp/out" && fail "a refused license records nothing"
+[[ -z "$(git -C "$lic" status --porcelain)" ]] || fail "a refused license changes nothing"
+
+# Without --license-review the script never runs.
+rm -f "$NOTICES_ARGS"
+PATH="$tmp/go-bin:$PATH" NOTICES_MODE=approve bash "$FIX" --no-fmt "$lic" > "$tmp/out" 2>&1 || fail "the fixer must succeed"
+[[ ! -e "$NOTICES_ARGS" ]] || fail "the license review runs only with --license-review"
+git -C "$lic" checkout -q -- .
+
+# Without go on PATH the review is left, never failed.
+nogo=""
+IFS=: read -ra entries <<<"$PATH"
+for entry in "${entries[@]}"; do [[ -x "$entry/go" ]] || nogo+="${nogo:+:}$entry"; done
+if PATH="$nogo" command -v python3 >/dev/null && PATH="$nogo" command -v git >/dev/null; then
+  PATH="$nogo" NOTICES_MODE=approve bash "$FIX" --no-fmt --license-review "$lic" > "$tmp/out" 2>&1 || fail "a missing go must not fail the autofix"
+  grep -q '^left: the cmuxd-remote license review needs go' "$tmp/out" || fail "a missing go must be left"
+  [[ -z "$(git -C "$lic" status --porcelain)" ]] || fail "a missing go changes nothing"
+fi
+
+# A frozen review is put back as it was and reported.
+echo '{"go": "old"}' > "$lic/daemon/remote/third-party/review.json"
+git -C "$lic" add -A && git -C "$lic" -c user.name=t -c user.email=t@t commit -qm stale
+frozen_copy="$tmp/frozen/scripts"
+mkdir -p "$frozen_copy/cmux-next" "$frozen_copy/ci"
+cp "$FIX" "$ROOT_DIR/scripts/cmux-next/base-autofix-frozen.txt" "$frozen_copy/cmux-next/"
+cp "$ROOT_DIR/scripts/ci/check_cmux_tui_tree_inputs.py" "$frozen_copy/ci/"
+echo 'daemon/remote/third-party/*' >> "$frozen_copy/cmux-next/base-autofix-frozen.txt"
+PATH="$tmp/go-bin:$PATH" NOTICES_MODE=approve bash "$frozen_copy/cmux-next/base-autofix.sh" --no-fmt --license-review "$lic" > "$tmp/out" 2>&1 || fail "a frozen review must not fail the autofix"
+grep -q '^skipped (frozen): daemon/remote/third-party/review.json' "$tmp/out" || fail "a frozen review must be reported"
+[[ -z "$(git -C "$lic" status --porcelain)" ]] || fail "a frozen review must be put back"
 echo "base autofix: ok"
