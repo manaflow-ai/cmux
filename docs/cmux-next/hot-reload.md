@@ -106,7 +106,7 @@ Only NIGHTLY bundles take web updates; Debug builds keep the developer's own pag
 | A page loads, then stops updating | The dev server stopped. The page falls back to the overlay, then the bundle. Run `server --local` again. |
 | `the dev server did not start` | Another process holds the port (the server won't move to another one). Use `--port N`; the app follows `web-dev.json`. |
 | You see another tree's edits | A dev server that `web-overlay.sh` didn't start already answers on the port, and `server --local` reuses it. Stop it where it was started, or use `--port N` for a free port. |
-| You want the shipped pages without deleting anything | Debug Settings > Pages > **Live web reload (web-dev.json)** off ignores the file. |
+| You want the shipped pages without deleting anything | Set `"enabled": false` in `web-dev.json`. In Debug and NIGHTLY builds, Debug Settings > Pages > **Live web reload (web-dev.json)** off also ignores the file; cmux NEXT DEV has no Debug Settings. |
 | Unstyled pages with no override running | Not the live loop. With no `web-dev.json`, the app serves its bundled files unchanged. Report it with the app's commit. |
 
 The design and its edge cases are in [web-live-reload.md](../../plans/cmux-next/web-live-reload.md).
