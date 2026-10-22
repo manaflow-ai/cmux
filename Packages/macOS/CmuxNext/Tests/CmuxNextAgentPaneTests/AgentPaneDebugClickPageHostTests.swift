@@ -85,6 +85,7 @@ private final class LocatingPage: PageChromiumPage {
     let contentView = NSView()
     var onEvent: ((PageChromiumEvent) -> Void)?
     var resources: (@MainActor (URL) async -> PageChromiumResponse)?
+    var occlusionRects: [CGRect] = []
     private(set) var calls: [(method: String, params: [String: any Sendable])] = []
 
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {

@@ -843,7 +843,7 @@ extension LiveCoordinator {
     /// first `reconnectingAttempts` attempts. A Mac never reached, or still
     /// unreachable after those, says so; without TURN neither transport gets
     /// through from another network (WireGuard's backend relay is retired).
-    nonisolated static func waitingBanner(macName: String, transport: TransportKind, reason: String,
+    nonisolated static func waitingBanner(macName: String, transport: CmuxMobileTransport.TransportKind, reason: String,
                                           attempt: Int, wasConnected: Bool,
                                           relayAvailable: Bool?) -> ConnectionBannerState {
         if reason == LinkController.reason(LinkError(code: "offline", message: "")) { return .macOffline(macName) }

@@ -246,7 +246,11 @@ public final class MessagesLabHomeView: NSView {
     /// `intrinsicContentSize`; hidden in a pane too narrow to keep it clear of the avatar. Nil: none.
     public var headerTrailingAccessory: NSView? {
         get { controller.host.paneHeader.trailingAccessory }
-        set { controller.host.paneHeader.trailingAccessory = newValue }
+        set {
+            controller.host.paneHeader.trailingAccessory = newValue
+            // With no header the rows' top follows the accessory (`HostView.bareRowsTop`).
+            controller.host.needsLayout = true
+        }
     }
 
     /// The header avatar's text (one or two characters, an emoji); nil
@@ -689,8 +693,9 @@ public final class MessagesLabHomeView: NSView {
     /// Returns when every bubble picture asked for so far is ready (tests).
     public func mediaSettled() async { await projection.media.settled() }
 
-    /// The top of the area under the header (the first-run panel's top).
-    public var headerHeight: CGFloat { Fixture.headerHeight }
+    /// The top of the area under the header (the first-run panel's top); with no header
+    /// (``setBareTop()``), the rows' top.
+    public var headerHeight: CGFloat { controller.host.bareTop ? controller.host.bareRowsTop : Fixture.headerHeight }
     /// The field's top in this view (the first-run panel's bottom).
     public var fieldTop: CGFloat { controller.demo?.fieldTop ?? bounds.height }
 
