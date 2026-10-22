@@ -43,9 +43,13 @@ Local images: inside the roots, 10 MB, decoded by ImageIO; SVG rebuilt without s
 content or links out. Outside the roots (unless `outsideRoots` is `text`): only a file with a raster image
 extension (png, jpg, jpeg, gif, webp, heic, tif, tiff, bmp) that decodes as one, 10 MB, the deny list checked
 again on the canonical path; no SVG or PDF; every refusal answers `link.path_outside_roots`, so the page
-learns no more than whether an image showed.
+learns no more than whether an image showed. The file is opened once (`O_NOFOLLOW`), and the path of the open
+file (`F_GETPATH`, made canonical) must be the checked path and pass the deny list and roots check again before
+anything is read, so a parent folder swapped for a link after the check reads nothing. A chat on another
+machine reads no local image at all (inside the roots or outside), whatever `outsideRoots` says.
 
 ## Known residuals
-1. A folder swap between the check and a read is possible (read-only display). Any future write path must
-   use openat with a directory descriptor.
+1. A folder swap between the check and a read is possible for an image inside the roots (read-only display);
+   an outside image checks the open file's path (above). Any future write path must use openat with a
+   directory descriptor.
 2. `browserId: "cmux"` opens any validated http(s) URL in a cmux browser tab after a gesture.

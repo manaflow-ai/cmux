@@ -78,11 +78,15 @@ nonisolated struct AgentPaneReplyImages {
     /// File extensions of the raster images a reply may show from outside the session's folders.
     static let outsideExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "heic", "tif", "tiff", "bmp"]
 
-    /// The image file at `path`, outside every root (already checked against the deny list and
-    /// `agentPane.links.outsideRoots`), as a data URL: read-only, for display. Only a raster image
-    /// named as one is read, and it must decode as one of ``nativeTypes`` or ``decodedTypes``;
-    /// an SVG or a PDF outside the folders stays a card, and no other bytes ever reach the page.
-    @concurrent static func outside(_ path: String) async -> Result<String, AgentPaneReplyError> {
+    /// The image file at `path` (canonical), outside every root (already checked against the deny
+    /// list and `agentPane.links.outsideRoots`), as a data URL: read-only, for display. Only a
+    /// raster image named as one is read, and it must decode as one of ``nativeTypes`` or
+    /// ``decodedTypes``; an SVG or a PDF outside the folders stays a card, and no other bytes ever
+    /// reach the page. The file actually opened must be at `path` and pass `allowed` (the caller's
+    /// deny list and roots check), or nothing is read.
+    @concurrent static func outside(
+        _ path: String, allowed: @escaping @Sendable (String) -> Bool = { _ in true }
+    ) async -> Result<String, AgentPaneReplyError> {
         guard outsideExtensions.contains(URL(fileURLWithPath: path).pathExtension.lowercased()) else {
             return .failure(.pathInvalid)
         }
@@ -91,6 +95,9 @@ nonisolated struct AgentPaneReplyImages {
         let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard fd >= 0 else { return .failure(.pathInvalid) }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        // O_NOFOLLOW guards only the last component: a parent folder swapped for a link after the
+        // caller's checks opens another file. Check the path of the file this handle has.
+        guard let opened = openedPath(fd), opened == path, allowed(opened) else { return .failure(.pathInvalid) }
         var info = stat()
         guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { return .failure(.pathInvalid) }
         guard info.st_size <= off_t(maximumBytes) else { return .failure(.imageTooLarge) }
@@ -99,6 +106,13 @@ nonisolated struct AgentPaneReplyImages {
             return .failure(.imageFailed)
         }
         return raster(data, reencode: false)
+    }
+
+    /// The canonical path of the file open on `fd` (`F_GETPATH`), nil when the system has none.
+    static func openedPath(_ fd: Int32) -> String? {
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard fcntl(fd, F_GETPATH, &buffer) != -1 else { return nil }
+        return AcpmuxPathPolicy.canonical(String(cString: buffer))
     }
 
     /// The first page of the PDF at `url` on white, at most ``thumbnailSide`` on its longest side,
