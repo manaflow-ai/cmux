@@ -251,6 +251,17 @@ import Testing
         #expect(h.sparkle.cancels == 0, "a Dev build replaced the staged one after Nightly was picked")
     }
 
+    /// The person's check while an update waits ends with its probe when nothing newer is out: the
+    /// next check nobody asked for (a scheduled one, or a later swap's) shows nothing.
+    @Test func aCheckThatFindsNothingNewerLeavesNoAskBehind() async throws {
+        let h = Self.make(ring: "nightly")
+        h.updater.checkForUpdates()
+        try await settle(h, fetches: 1)
+        #expect(h.sparkle.cancels == 0)
+        h.updater.debugIndicatorPhase = .checking
+        #expect(h.updater.card == nil, "a check nobody asked for showed its progress")
+    }
+
     /// Turning automatic checks off ends the pending probe; a new interval counts from the change.
     @Test func aScheduleChangeReplacesThePendingProbe() async throws {
         let h = Self.make(ring: "dev")
