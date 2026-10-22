@@ -1639,6 +1639,12 @@
       "title" : "Expand Unchanged Lines",
       "type" : "boolean"
     },
+    "diff.groupByKind" : {
+      "default" : false,
+      "description" : "diff.groupByKind",
+      "title" : "Group Files by Kind",
+      "type" : "boolean"
+    },
     "diff.layout" : {
       "default" : "unified",
       "description" : "diff.layout",
@@ -3085,7 +3091,7 @@
       "type" : "string"
     },
     "sessions.promptSuggestions" : {
-      "default" : false,
+      "default" : true,
       "description" : "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it.",
       "title" : "Suggest Follow-Up Tasks",
       "type" : "boolean"
@@ -3393,6 +3399,12 @@
       "default" : true,
       "description" : "On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only.",
       "title" : "Show All Chats on New Tab",
+      "type" : "boolean"
+    },
+    "sidebar.showLocalMachine" : {
+      "default" : false,
+      "description" : "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too.",
+      "title" : "Mark This Mac's Workspaces",
       "type" : "boolean"
     },
     "sidebar.showProfileControl" : {

@@ -44,6 +44,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public internal(set) var engineDecision: PageEngineDecision
     /// The Chromium page while one shows the document (PageWebView+Chromium.swift).
     var chromiumSession: PageChromiumSession?
+    /// Rects in this view's coordinates where native UI of the window shows over the page
+    /// (PageWebView+NativeRects.swift): a Chromium page leaves them uncovered. WebKit draws in the
+    /// window's own view tree, under that UI, and needs none.
+    public var nativeRects: [CGRect] = [] {
+        didSet { if nativeRects != oldValue { applyNativeRects() } }
+    }
     /// The file of the last drag from outside that entered the Chromium page and that ``fileDrop``
     /// takes, with when it entered; the page's drop opens it once.
     var chromiumDragFile: (url: URL, at: Date)?
@@ -388,6 +394,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func layout() {
         super.layout()
         webView.frame = bounds
+        if !nativeRects.isEmpty { applyNativeRects() } // the unflipped Chromium view's rects move with the height
         // Not while the claim is pending: a refused document reloads, and its paint would end the
         // pane's hold before the reloaded one drew (finishClaim runs the probe on acknowledgement).
         if repaintsAtNextLayout, !claimState.pending, window != nil, !bounds.isEmpty, !(superview is PageHostParking) {

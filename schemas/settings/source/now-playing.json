@@ -8,7 +8,7 @@
         "key": "settings.group.sidebar",
         "text": "Sidebar"
       },
-      "note": "The Now Playing player (Austin's idea, Leo 2026-10-18): off by default since 2026-10-19 (Lawrence did not want the card in the sidebar); the user can turn it on.",
+      "note": "The Now Playing player (Austin's idea, Leo 2026-10-18): off by default since 2026-10-19 (Lawrence did not want the card in the sidebar); the user can turn it on. Only cmux's own tabs and player feed it unless sidebar.nowPlaying.otherApps is on (Lawrence 2026-10-21: it showed his other browser's audio).",
       "rows": [
         {
           "key": "sidebar.nowPlaying.enabled",
@@ -32,6 +32,31 @@
             "song",
             "sidebar"
           ]
+        },
+        {
+          "key": "sidebar.nowPlaying.otherApps",
+          "note": "Off by default (Lawrence 2026-10-21). Off: the sidebar card and the New Tab player show only what plays in cmux (its browser tabs and its player), and macOS Now Playing is not read. On: another app that plays (Spotify, Music, another browser) shows too.",
+          "title": {
+            "key": "settings.sidebar.nowPlaying.otherApps",
+            "text": "Include Other Apps in Now Playing"
+          },
+          "help": {
+            "key": "settings.sidebar.nowPlaying.otherApps.help",
+            "text": "Also show what plays in other apps, such as Spotify, Music or another browser. Off: only what plays in cmux."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "music",
+            "now playing",
+            "player",
+            "media",
+            "spotify",
+            "other apps",
+            "browser",
+            "chrome",
+            "safari"
+          ]
         }
       ]
     },
@@ -42,12 +67,12 @@
         "key": "settings.group.tabs",
         "text": "Tabs"
       },
-      "note": "The New Tab page's Now Playing player (Leo 2026-10-19: \"disableable\"): on by default; its right-click menu's Hide Now Playing turns it off.",
+      "note": "The New Tab page's Now Playing player (Leo 2026-10-19: \"disableable\"): off by default since 2026-10-21 (Lawrence: \"get rid of music player thing by default\"); its right-click menu's Hide Now Playing turns it off.",
       "rows": [
         {
           "key": "tabs.newTabNowPlaying",
           "name": "newTab",
-          "note": "On by default (Leo 2026-10-19), apart from the sidebar card (sidebar.nowPlaying.enabled, off by default). Off: no player on the New Tab page and no space kept for it.",
+          "note": "Off by default since 2026-10-21 (Lawrence), as the sidebar card (sidebar.nowPlaying.enabled) is. Off: no player on the New Tab page and no space kept for it. A cmux.json without the key gets the new default; a true written by the user stays.",
           "title": {
             "key": "settings.tabs.newTabNowPlaying",
             "text": "Show Now Playing on New Tab"
@@ -57,7 +82,7 @@
             "text": "A player for what is playing, on the New Tab page."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "music",
             "now playing",
