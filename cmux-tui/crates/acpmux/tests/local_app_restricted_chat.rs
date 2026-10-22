@@ -52,6 +52,10 @@ fn hub(d: &Path) -> Arc<Hub> {
         "harnesses": {
             "fclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
             "fcodex": {"argv": ["python3", FAKE], "family": "codex"},
+            // Its HOME is the chat's folder: Claude Code would read the folder's
+            // `.claude/settings.json` as the person's own.
+            "fhome": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
+                      "env": {"HOME": d.join("work")}},
         },
         "defaultHarness": "fclaude",
         // A restricted chat asks whatever the default says.
@@ -243,6 +247,18 @@ async fn not_now_opens_a_restricted_claude_chat_only_with_the_setting_on() {
 
     // Other harnesses keep the refusal.
     assert_eq!(reason(&app.new_session(&work, "fcodex").await), "trust.untrusted");
+
+    // A Claude Code whose user settings would be the folder's own does not start.
+    let r = app.new_session(&work, "fhome").await;
+    let refused = match r["result"]["sessionId"].as_str() {
+        Some(id) => {
+            let p = json!({"sessionId": id, "prompt": [{"type": "text", "text": "x"}]});
+            app.call("session/prompt", p).await
+        }
+        None => r,
+    };
+    assert_eq!(reason(&refused), "restricted.refused", "{refused}");
+    assert!(refused.to_string().contains("is inside the chat's folder"), "{refused}");
 
     // A chat that existed unrestricted becomes restricted at the pane's next prompt.
     restricted_flags(&argv(&app.ask(&kept, "argv").await));
