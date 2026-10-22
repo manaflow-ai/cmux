@@ -275,10 +275,12 @@ export const memoryStore = (): Store => ({
   async putPrefs(u, t, patch) {
     const k = `${u}\u0000${t}`
     const cur = mem.prefs.get(k) ?? NO_PREFS
+    const emoji = patch.emoji !== undefined ? patch.emoji : cur.emoji
     const next: Prefs = {
       color: patch.color !== undefined ? patch.color : cur.color,
-      emoji: patch.emoji !== undefined ? patch.emoji : cur.emoji,
-      transparent: patch.transparent !== undefined ? patch.transparent : cur.transparent
+      emoji,
+      // As Postgres's read: never transparent without an icon.
+      transparent: (patch.transparent !== undefined ? patch.transparent : cur.transparent) && hasIcon(emoji)
     }
     mem.prefs.set(k, next)
     return { ...next }

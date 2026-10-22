@@ -571,7 +571,8 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
         const next = mergePrefs(await s.getPrefs(owner, teamId), patch)
         // Transparent only with an icon: the team must keep an icon or a color.
         if (patch.transparent && !next.transparent) throw new HttpError(400, "bad_request", "transparent needs an icon (a one-grapheme emoji)")
-        return s.putPrefs(owner, teamId, next)
+        // Writes only the requested fields and the derived flag, so concurrent PUTs of other fields keep theirs.
+        return s.putPrefs(owner, teamId, { ...patch, transparent: next.transparent })
       })
     )
   }

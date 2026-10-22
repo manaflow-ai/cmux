@@ -60,6 +60,8 @@ public struct TeamAvatar: View {
 
     public var body: some View {
         let radius = size * (theme.metrics.teamAvatarRadius / theme.metrics.teamAvatar)
+        // Transparent only over a typed character: never an empty badge.
+        let transparent = transparent && emoji?.isEmpty == false
         ZStack {
             if transparent {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
@@ -87,7 +89,7 @@ public struct TeamAvatar: View {
     private func letter(_ text: String) -> some View {
         Text(verbatim: text)
             .font(.system(size: size * 0.47, weight: .semibold))
-            .foregroundStyle(transparent ? AnyShapeStyle(theme.colors.label) : AnyShapeStyle(.white))
+            .foregroundStyle(transparent && emoji?.isEmpty == false ? AnyShapeStyle(theme.colors.label) : AnyShapeStyle(.white))
             .minimumScaleFactor(0.5)
     }
 

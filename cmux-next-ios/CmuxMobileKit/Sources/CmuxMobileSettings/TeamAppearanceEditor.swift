@@ -21,6 +21,9 @@ public struct TeamAppearanceEditor: View {
     @State private var mode: GlyphMode
     @State private var customText: String
     @State private var customFocused = false
+    /// Transparent as last chosen here: replacing the icon (which passes
+    /// through no icon) keeps it, while Done without an icon saves the color.
+    @State private var wantsTransparent: Bool
     @State private var detent: PresentationDetent
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -47,6 +50,7 @@ public struct TeamAppearanceEditor: View {
         self.team = team
         self.onSave = onSave
         _appearance = State(initialValue: team.appearance)
+        _wantsTransparent = State(initialValue: team.appearance.isTransparent)
         _detent = State(initialValue: Self.compactDetent)
         switch team.appearance.glyph {
         case .automatic:
@@ -125,7 +129,9 @@ public struct TeamAppearanceEditor: View {
         #if DEBUG
         .onChange(of: DemoDirector.shared.serial) {
             switch DemoDirector.shared.command {
-            case .editorColor(let hex): appearance.choose(colorHex: hex)
+            case .editorColor(let hex):
+                appearance.choose(colorHex: hex)
+                wantsTransparent = false
             case .editorEmoji(let emoji): appearance.emoji = emoji
             case .editorDone:
                 onSave(appearance)
@@ -156,6 +162,7 @@ public struct TeamAppearanceEditor: View {
                 let selected = !appearance.isTransparent && color.dark.caseInsensitiveCompare(appearance.colorHex) == .orderedSame
                 Button {
                     appearance.choose(colorHex: color.dark)
+                    wantsTransparent = false
                 } label: {
                     Circle()
                         .fill(color.token)
@@ -182,6 +189,7 @@ public struct TeamAppearanceEditor: View {
         let selected = appearance.isTransparent
         return Button {
             appearance.isTransparent = true
+            wantsTransparent = true
         } label: {
             ZStack {
                 Circle().strokeBorder(theme.colors.label2, lineWidth: 1.5)
@@ -328,6 +336,8 @@ public struct TeamAppearanceEditor: View {
         // An empty custom field previews (and saves) as automatic.
         case .custom: appearance.glyph = customText.isEmpty ? .automatic : .custom(customText)
         }
+        // A no-op without an icon (the color shows); back on with a new one.
+        if wantsTransparent { appearance.isTransparent = true }
     }
 
     /// The one character the field keeps after an edit: the grapheme just
