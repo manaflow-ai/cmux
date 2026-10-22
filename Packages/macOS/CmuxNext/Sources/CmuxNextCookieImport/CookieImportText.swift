@@ -6,7 +6,7 @@ import Foundation
 /// space collapse to one space, and the text is cut to a length the card shows whole. Sites show
 /// in their ASCII (punycode) form, so a look-alike domain in another script cannot pass for a
 /// familiar one.
-struct CookieImportText {
+nonisolated struct CookieImportText {
     /// The longest reason shown, in characters; a longer one ends with "…".
     static let reasonLimit = 400
     /// The most sites listed by name; the rest are counted ("and 12 more").

@@ -5,9 +5,9 @@ public import Foundation
 /// which browser into which cmux profile, the person's answer and what was written. It holds the
 /// written cookies' names, domains and paths (``ImportedCookieIdentity``) so Remove can take them
 /// back out, and never a cookie value.
-public struct CookieImportRecord: Sendable, Equatable, Codable, Identifiable {
+public nonisolated struct CookieImportRecord: Sendable, Equatable, Codable, Identifiable {
     /// How the request ended.
-    public enum Outcome: String, Sendable, Codable {
+    public nonisolated enum Outcome: String, Sendable, Codable {
         /// Cookies were written into the target profile.
         case imported
         /// The person pressed Deny (or closed the card).
@@ -21,7 +21,7 @@ public struct CookieImportRecord: Sendable, Equatable, Codable, Identifiable {
     }
 
     /// Who asked, as the card named them.
-    public struct Requester: Sendable, Equatable, Codable {
+    public nonisolated struct Requester: Sendable, Equatable, Codable {
         /// `agentChat`, `homeChief`, `terminal`, `unknown`, or `person` (a person's own run).
         public var kind: String
         /// The chat's, Chief's or terminal's name; empty for a person or an unknown program.
@@ -80,7 +80,7 @@ public struct CookieImportRecord: Sendable, Equatable, Codable, Identifiable {
     }
 
     /// One site of an import and how many of its cookies came in.
-    public struct Site: Sendable, Equatable {
+    public nonisolated struct Site: Sendable, Equatable {
         /// The host without a leading dot (`github.com`).
         public var host: String
         /// How many cookies of that host were written.

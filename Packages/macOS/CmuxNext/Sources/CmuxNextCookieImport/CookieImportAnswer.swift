@@ -1,5 +1,5 @@
 /// The person's answer on the permission card.
-public enum CookieImportAnswer: Sendable, Equatable {
+public nonisolated enum CookieImportAnswer: Sendable, Equatable {
     /// Allow once: this import only, never remembered.
     case allow
     /// Deny (also closing the card, Escape, or the window closing).

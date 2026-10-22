@@ -5,9 +5,9 @@ import Foundation
 /// cookies from, whether it is open now, its profiles (the `--from <browser>:<profile>` names), and
 /// what the person will be asked after Allow. Built from folder names and lock files only: no
 /// cookie file is opened and no process is listed, so it needs no consent.
-public struct CookieSourceListing: Sendable, Equatable {
+public nonisolated struct CookieSourceListing: Sendable, Equatable {
     /// One browser.
-    public struct Entry: Sendable, Equatable {
+    public nonisolated struct Entry: Sendable, Equatable {
         /// The `--from` name (`chrome`, `arc`, `safari`).
         public var id: String
         /// The app's name (`Google Chrome`).

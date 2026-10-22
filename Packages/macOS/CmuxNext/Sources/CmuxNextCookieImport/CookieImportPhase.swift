@@ -1,5 +1,5 @@
 /// Where one cookie import ask is (``CookieImportAsk/phase``); the card draws each one.
-public enum CookieImportPhase: Sendable, Equatable {
+public nonisolated enum CookieImportPhase: Sendable, Equatable {
     /// Waiting for the person's Allow or Deny.
     case asking
     /// Allowed: macOS's prompt is up or the cookies are being read and written.

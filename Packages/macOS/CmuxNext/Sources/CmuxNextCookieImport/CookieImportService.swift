@@ -67,7 +67,7 @@ public final class CookieImportService {
 
     /// The `--domain` list as the card shows it and the import keeps it: each site in ASCII. A
     /// value that is not a host name refuses the run, so the card never shows less than is read.
-    nonisolated static func filter(_ list: String) throws -> CookieDomainFilter {
+    static func filter(_ list: String) throws -> CookieDomainFilter {
         let text = CookieImportText()
         let raw = CookieDomainFilter(list).domains
         var sites: [String] = []
@@ -100,7 +100,7 @@ public final class CookieImportService {
                                               domains: filter.domains, target: target.name)
             let shown = CookieImportAsk(request: request, armDelay: host.armDelay)
             let reveal = host.reveal
-            shown.onShowRequester = requester.tabID.map { tab in { reveal(tab) } }
+            if let tab = requester.tabID { shown.onShowRequester = { reveal(tab) } }
             shown.onShowAll = host.showAll
             if !host.presentInline(shown) {
                 guard let window = host.window() else {
@@ -201,7 +201,7 @@ public final class CookieImportService {
         return record
     }
 
-    nonisolated static func kindName(_ kind: CookieImportRequester.Kind) -> String {
+    static func kindName(_ kind: CookieImportRequester.Kind) -> String {
         switch kind {
         case .agentChat: "agentChat"
         case .homeChief: "homeChief"
@@ -211,7 +211,7 @@ public final class CookieImportService {
     }
 
     /// What macOS asks after Allow for `browser`.
-    nonisolated static func prompt(_ browser: ImportBrowser) -> CookieImportRequest.Prompt {
+    static func prompt(_ browser: ImportBrowser) -> CookieImportRequest.Prompt {
         switch browser.family {
         case .chromium: browser.safeStorageService.map { .keychain(service: $0) } ?? .none
         case .safari: .fullDiskAccess
