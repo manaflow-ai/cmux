@@ -163,7 +163,7 @@ import { AgentTonesContext, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatHasSummaryContent } from "./summary/summaryContent";
 import {
-  openSubagentPane,
+  showSubagent as showSubagentIn,
   revealedSubagent,
   useAutoOpenSubagents,
   useOpenNewSubagents,
@@ -4743,15 +4743,18 @@ function AcpmuxPane() {
     [canBackground, snapshot.isWorking, snapshot.rows],
   );
   const backgroundHint = !quick && canBackground && snapshot.isWorking ? runInBackground : undefined;
-  /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`), or in
-  /// this pane when this is a subagent's pane or the host opens none.
-  const showSubagent = useCallback((id: string, focus = true) => {
-    if (subagentPane.current) return setSubagentView(id);
-    void openSubagentPane(callNative, id, focus).then((opened) => {
-      if (!opened && focus) setSubagentView(id);
-    });
-  }, []);
   const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
+  /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`) once the
+  /// summary card's switch is on, else in this pane (subagents/subagentPanes.ts).
+  const showSubagent = useCallback(
+    (id: string, focus = true) =>
+      showSubagentIn(callNative, id, focus, {
+        panes: autoOpenSubagents,
+        inSubagentPane: subagentPane.current,
+        here: setSubagentView,
+      }),
+    [autoOpenSubagents],
+  );
   useOpenNewSubagents(
     quick || subagentPane.current ? undefined : shownSessionId,
     snapshot.rows,
