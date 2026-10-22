@@ -57,6 +57,15 @@ extension DockSplitStore {
                 inPane: pane,
                 confirmationPolicy: .tabsRequiringConfirmation
             )
+        case .closeBrowserTabs:
+            guard controller.configuration.allowCloseTabs else { return }
+            _ = closeDockTabs(
+                controller.tabs(inPane: pane).lazy
+                    .filter { $0.kind == SurfaceKind.browser.rawValue }
+                    .map(\.id),
+                inPane: pane,
+                confirmationPolicy: .tabsRequiringConfirmation
+            )
         case .move:
             if let destination = dockTabMoveDestinations(
                 for: tab.id
