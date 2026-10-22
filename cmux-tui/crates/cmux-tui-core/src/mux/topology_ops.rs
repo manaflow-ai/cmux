@@ -95,14 +95,14 @@ impl Mux {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = {
             let state = self.state.lock().unwrap();
-            // `browser-open-caller-v1`: a caller's tab goes to the rightmost
-            // pane of its own workspace; with no caller and no focused
-            // workspace, to the home workspace, never to a new one.
-            let caller = pane
-                .is_none()
-                .then(|| extra_fields.get(super::BROWSER_CALLER_FIELD))
-                .flatten()
-                .and_then(|caller| self.caller_workspace_in_state(&state, caller));
+            // `browser-open-caller-v1`: with no focused workspace, a caller's
+            // tab goes to the rightmost pane of its own workspace, else to
+            // the home workspace, never to a new one. A focused workspace
+            // keeps the focused pane, caller or not.
+            let focused = state.workspaces.get(state.active_workspace).map(|w| w.id);
+            let caller = (pane.is_none() && focused.is_none())
+                .then(|| self.caller_workspace_field(&state, &extra_fields))
+                .flatten();
             let target = match (pane, caller) {
                 (Some(id), _) => {
                     if !state.panes.contains_key(&id) {
@@ -110,12 +110,10 @@ impl Mux {
                     }
                     Some(id)
                 }
-                (None, Some(workspace)) => super::rightmost_pane(&state, workspace),
+                (None, Some(workspace)) => rightmost_pane(&state, workspace),
                 (None, None) => state.active_pane(),
             };
-            let workspace = caller
-                .or_else(|| state.workspaces.get(state.active_workspace).map(|w| w.id))
-                .or_else(|| self.home_workspace_in_state(&state));
+            let workspace = caller.or(focused).or_else(|| self.home_workspace_in_state(&state));
             if let Some(target) = target {
                 drop(state);
                 self.ordinary_pane_selectors(target)

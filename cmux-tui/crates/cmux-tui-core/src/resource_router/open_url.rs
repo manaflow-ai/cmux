@@ -5,11 +5,8 @@
 //! 1. Only an `http` or `https` URL with a host and no user name or
 //!    password, at most 8192 bytes, with no control, space, or invisible
 //!    format character (bidi overrides, zero-width marks); anything else is
-//!    `validation.invalid` (field `url`). An omitted workspace is the
-//!    caller's (`caller`, `browser-open-caller-v1`: the workspace of its
-//!    agent session's chat, else the one it names), else the home workspace.
-//!    For a caller, its workspace's rightmost pane (`mux::rightmost_pane`)
-//!    ranks first in steps 3 and 4.
+//!    `validation.invalid` (field `url`). An omitted workspace is the home
+//!    workspace.
 //! 2. The target screen is the workspace's focused screen. Its right side is
 //!    every pane outside a docked column that is the agent chat dock (role
 //!    `agent_chat`) or pinned to the left edge.
@@ -94,7 +91,7 @@ pub(super) fn dispatch(
             "the URL must be an http or https URL with a host, at most 8192 bytes",
         ));
     }
-    let (workspace, from_caller) = target_workspace(mux, &request.selectors, &request.fields)?;
+    let workspace = target_workspace(mux, &request.selectors)?;
     let key = request
         .envelope
         .idempotency_key
@@ -111,7 +108,7 @@ pub(super) fn dispatch(
     if ledger::seen(mux, &key, OPERATION)? {
         return ledger::commit(mux, &key, OPERATION, &fingerprint, &Value::Null, &request.actor);
     }
-    let value = open(mux, &request, &workspace, &url, &key, from_caller)?;
+    let value = open(mux, &request, &workspace, &url, &key)?;
     ledger::commit(mux, &key, OPERATION, &fingerprint, &value, &request.actor)
 }
 
@@ -122,7 +119,6 @@ fn open(
     workspace: &WorkspacePublicId,
     url: &str,
     key: &str,
-    from_caller: bool,
 ) -> Result<Value, ResourceError> {
     let steps = StepKeys::new(key, workspace, url);
     // A request whose create step committed before its ledger entry.
@@ -133,13 +129,7 @@ fn open(
         return Ok(created);
     }
     let frontend = mux.control_clients.any_client_supports(FRONTEND_BROWSER_TABS_CAPABILITY);
-    let candidates = mux.with_state(|state| {
-        let mut side = right_side(state, workspace)?;
-        if from_caller {
-            rightmost_first(state, workspace, &mut side);
-        }
-        Some(side)
-    });
+    let candidates = mux.with_state(|state| right_side(state, workspace));
     let Some(candidates) = candidates else {
         return Err(ResourceError::not_found("workspace", workspace.as_str()));
     };
@@ -187,29 +177,16 @@ fn is_invisible_format(c: char) -> bool {
     )
 }
 
-/// The selected workspace, else the caller's (`browser-open-caller-v1`),
-/// else the home workspace (`workspace-kind-v1`); and whether it is the
-/// caller's.
+/// The selected workspace, else the home workspace (`workspace-kind-v1`).
 fn target_workspace(
     mux: &Mux,
     selectors: &ResourceSelectors,
-    fields: &Map<String, Value>,
-) -> Result<(WorkspacePublicId, bool), ResourceError> {
+) -> Result<WorkspacePublicId, ResourceError> {
     if selectors.workspace.is_some() {
         let path = mux.resolve_resource_path(ResourceTarget::Workspace, selectors)?;
-        let selected = || ResourceError::not_found("workspace", "selected");
-        return Ok((path.workspace.ok_or_else(selected)?, false));
+        return path.workspace.ok_or_else(|| ResourceError::not_found("workspace", "selected"));
     }
     mux.resolve_resource_path(ResourceTarget::Session, selectors)?;
-    let caller = fields.get(crate::mux::BROWSER_CALLER_FIELD).and_then(|caller| {
-        mux.with_state(|state| {
-            let workspace = mux.caller_workspace_in_state(state, caller)?;
-            state.resource_indexes.workspace_ids.get(&workspace).cloned()
-        })
-    });
-    if let Some(workspace) = caller {
-        return Ok((workspace, true));
-    }
     let home = mux
         .read_registry_state(crate::state::home_store::live_home)
         .map_err(resource_operation_error)?;
@@ -221,19 +198,7 @@ fn target_workspace(
             false,
         ));
     };
-    let home = WorkspacePublicId::parse(id);
-    Ok((home.map_err(|_| ResourceError::not_found("workspace", "home"))?, false))
-}
-
-/// `side` with the workspace's rightmost pane ranked first (a caller's
-/// link: reuse and creation look there first).
-fn rightmost_first(state: &crate::State, workspace: &WorkspacePublicId, side: &mut RightSide) {
-    let Some(id) = state.resource_indexes.workspaces.get(workspace) else { return };
-    let Some(pane) = crate::mux::rightmost_pane(state, *id) else { return };
-    if let Some(at) = side.ranked.iter().position(|candidate| candidate.pane == pane) {
-        let rightmost = side.ranked.remove(at);
-        side.ranked.insert(0, rightmost);
-    }
+    WorkspacePublicId::parse(id).map_err(|_| ResourceError::not_found("workspace", "home"))
 }
 
 /// The keys of the steps, derived from the request's key, workspace and URL

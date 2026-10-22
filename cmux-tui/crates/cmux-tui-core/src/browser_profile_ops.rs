@@ -324,9 +324,9 @@ fn registry_error(error: anyhow::Error, operation: &str, key: &str) -> ResourceE
     ResourceError::operation_failed(operation, message, json!({}))
 }
 
-/// The pane the selectors name, else the rightmost pane of the caller's
-/// workspace, else none (the daemon's focused pane, else the home
-/// workspace). Workspace and screen only qualify a pane.
+/// The pane the selectors name; else, with no focused workspace, the
+/// rightmost pane of the caller's workspace; else none (the daemon's focused
+/// pane, else the home workspace). Workspace and screen only qualify a pane.
 fn target_pane(
     mux: &Arc<Mux>,
     request: &ParsedResourceRequest,
@@ -340,14 +340,14 @@ fn target_pane(
             ));
         }
         mux.resolve_resource_path(ResourceTarget::Session, selectors)?;
-        // `browser-open-caller-v1`: a caller's page opens in the rightmost
-        // pane of its own workspace, not the focused one.
-        let caller = request.fields.get(crate::mux::BROWSER_CALLER_FIELD);
-        return Ok(caller.and_then(|caller| {
-            mux.with_state(|state| {
-                let workspace = mux.caller_workspace_in_state(state, caller)?;
-                crate::mux::rightmost_pane(state, workspace)
-            })
+        // `browser-open-caller-v1`: with no focused workspace, a caller's
+        // page opens in the rightmost pane of its own workspace.
+        return Ok(mux.with_state(|state| {
+            if state.workspaces.get(state.active_workspace).is_some() {
+                return None;
+            }
+            let workspace = mux.caller_workspace_field(state, &request.fields)?;
+            crate::mux::rightmost_pane(state, workspace)
         }));
     }
     let path = mux.resolve_resource_path(ResourceTarget::Pane, selectors)?;

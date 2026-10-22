@@ -1,27 +1,27 @@
 //! `browser-open-caller-v1`: a browser open names its caller, and it never
 //! makes a workspace.
 //!
-//! `tab.create_browser`, `browser.profile.open` and `workspace.open_url` take
-//! an optional `caller {workspace?, agent_session?}`: the workspace the
-//! caller runs in (`CMUX_WORKSPACE_ID`, a workspace key in UUID form, or a
-//! `ws_…` id) and its acpmux session (`CMUX_AGENT_SESSION`). The CLI and the
-//! MCP server send it for a caller inside cmux, so an agent's page opens
-//! where the agent is, not where the person happens to look:
+//! `tab.create_browser` and `browser.profile.open` take an optional
+//! `caller {workspace?, agent_session?}`: the workspace the caller runs in
+//! (`CMUX_WORKSPACE_ID`, a workspace key in UUID form, or a `ws_…` id) and
+//! its acpmux session (`CMUX_AGENT_SESSION`). The CLI and the MCP server send
+//! it for a caller inside cmux. It only changes the no-focused-workspace
+//! fallback, which used to make a blank `workspace-N` for every link an
+//! agent opened while the person looked at no workspace:
 //!
-//! 1. The caller's workspace is the one that shows the agent session's chat
-//!    tab, else the one `workspace` names. A caller this session does not
-//!    know changes nothing.
-//! 2. With no workspace, screen or pane named, the tab opens in the
-//!    rightmost pane of that workspace's focused screen ([`rightmost_pane`]):
-//!    the pane at the right end of the layout, the row focused last in a
-//!    column, never an agent chat dock or a pinned column that takes no
-//!    tabs. `workspace.open_url` reuses a browser tab by its right-side rule,
-//!    the rightmost pane first.
-//! 3. No browser open ever makes a workspace as a fallback. With no caller
-//!    and no focused workspace the tab opens in the home workspace
-//!    (`workspace-kind-v1`), as `workspace.open_url` does; only a session
-//!    with no workspace at all keeps the old new workspace, and never for a
-//!    caller. `workspace.ensure_app` still makes its app's workspace.
+//! 1. While a workspace has the focus, an open goes where it always did (the
+//!    focused pane), caller or not. A person's own opens are unchanged.
+//! 2. With no workspace focused and no workspace, screen or pane named, the
+//!    caller's workspace is the one that shows the agent session's chat tab,
+//!    else the one `workspace` names, and the tab opens in the rightmost
+//!    pane of its focused screen ([`rightmost_pane`]): the pane at the right
+//!    end of the layout, the row focused last in a column, never an agent
+//!    chat dock or a pinned column that takes no tabs.
+//! 3. With no caller, or a caller this session does not know (its workspace
+//!    is gone), the tab opens in the home workspace (`workspace-kind-v1`),
+//!    as `workspace.open_url` does. Only a session with no workspace at all
+//!    keeps the old new workspace, and never for a caller.
+//!    `workspace.ensure_app` still makes its app's workspace.
 
 use super::*;
 use crate::model::DockRole;
@@ -29,8 +29,7 @@ use crate::state::conversation_tabs_store::ConversationTabRecord;
 
 /// Advertised by `identify`: the `caller` field of the browser opens.
 pub(crate) const BROWSER_OPEN_CALLER_CAPABILITY: &str = "browser-open-caller-v1";
-/// The `caller` field of `tab.create_browser`, `browser.profile.open` and
-/// `workspace.open_url`.
+/// The `caller` field of `tab.create_browser` and `browser.profile.open`.
 pub(crate) const CALLER_FIELD: &str = "caller";
 
 impl Mux {
@@ -50,23 +49,26 @@ impl Mux {
         named("workspace").and_then(|raw| workspace_named(state, raw))
     }
 
-    /// Where a session-target `tab.create_browser` opens: the rightmost pane
-    /// of the caller's workspace (the workspace itself while it has no
-    /// screen), else, with no focused workspace, the home workspace. `path`
-    /// stays as resolved when neither applies, and for `workspace.ensure_app`.
+    /// Where a session-target `tab.create_browser` opens when no workspace
+    /// has the focus: the rightmost pane of the caller's workspace (the
+    /// workspace itself while it has no screen), else the home workspace.
+    /// `path` stays as resolved while a workspace has the focus, when
+    /// neither applies, and for `workspace.ensure_app`.
     pub(crate) fn browser_open_path(
         &self,
         state: &State,
         fields: &Map<String, Value>,
         path: &mut crate::resource_selector::ResolvedResourcePath,
     ) {
-        let caller = fields
-            .get(CALLER_FIELD)
-            .and_then(|caller| self.caller_workspace_in_state(state, caller));
-        let unfocused = state.workspaces.get(state.active_workspace).is_none()
-            && !fields.contains_key(crate::state::app_workspaces::APP_WORKSPACE_FIELD);
-        let home = || unfocused.then(|| self.home_workspace_in_state(state)).flatten();
-        let Some(workspace) = caller.or_else(home) else { return };
+        if state.workspaces.get(state.active_workspace).is_some()
+            || fields.contains_key(crate::state::app_workspaces::APP_WORKSPACE_FIELD)
+        {
+            return;
+        }
+        let caller = self.caller_workspace_field(state, fields);
+        let Some(workspace) = caller.or_else(|| self.home_workspace_in_state(state)) else {
+            return;
+        };
         let indexes = &state.resource_indexes;
         path.workspace = indexes.workspace_ids.get(&workspace).cloned();
         let Some(pane) = caller.and_then(|workspace| rightmost_pane(state, workspace)) else {
@@ -77,9 +79,15 @@ impl Mux {
         path.pane = indexes.pane_ids.get(&pane).cloned();
     }
 
-    /// [`Self::caller_workspace_in_state`] under the state lock.
-    pub(crate) fn caller_workspace(&self, caller: &Value) -> Option<WorkspaceId> {
-        self.with_state(|state| self.caller_workspace_in_state(state, caller))
+    /// The workspace of the [`CALLER_FIELD`] in `fields`, if it names one
+    /// this session knows.
+    pub(crate) fn caller_workspace_field(
+        &self,
+        state: &State,
+        fields: &Map<String, Value>,
+    ) -> Option<WorkspaceId> {
+        let caller = fields.get(CALLER_FIELD)?;
+        self.caller_workspace_in_state(state, caller)
     }
 
     /// The live home workspace (`workspace-kind-v1`). The presentation lock

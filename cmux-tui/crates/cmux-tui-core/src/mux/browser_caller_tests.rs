@@ -1,9 +1,10 @@
-//! `browser-open-caller-v1`: an agent's browser open lands in the rightmost
-//! pane of its own workspace, and no browser open makes a workspace; with
-//! no caller and no focused workspace it lands in the home workspace.
-//! Driven through `cmux.protocol/2` requests (`tab.create_browser`,
-//! `browser.profile.open`, `workspace.open_url`) and through
-//! `new_browser_tab_with_fields_as`.
+//! `browser-open-caller-v1`: with no focused workspace, an agent's browser
+//! open lands in the rightmost pane of its own workspace, and no browser
+//! open makes a workspace; with no caller (or a caller whose workspace is
+//! gone) it lands in the home workspace. While a workspace has the focus,
+//! an open goes where it always did, caller or not. Driven through
+//! `cmux.protocol/2` requests (`tab.create_browser`, `browser.profile.open`)
+//! and through `new_browser_tab_with_fields_as`.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -121,8 +122,14 @@ fn tab_create_browser_from_an_agent_lands_in_its_rightmost_pane() {
     let mux = session.open();
     mux.attach_test_browser_provider(1);
     let (workspace, key, right) = caller_workspace(&mux);
-    // The person looks at another workspace, then at none.
-    mux.new_workspace(Some("elsewhere".into()), None).unwrap();
+    // The person looks at another workspace: the open goes where it always
+    // did, the focused pane. Then at none: the caller's rightmost pane.
+    let elsewhere = mux.new_workspace(Some("elsewhere".into()), None).unwrap().id;
+    let focused_pane = mux.with_state(|state| state.pane_of(elsewhere)).unwrap();
+    let focused_workspace = mux.with_state(|state| {
+        let (index, _) = state.screen_of(focused_pane).unwrap();
+        state.workspaces[index].id
+    });
     for (attempt, focused) in [(1, true), (2, false)] {
         if !focused {
             unfocus(&mux);
@@ -131,7 +138,8 @@ fn tab_create_browser_from_an_agent_lands_in_its_rightmost_pane() {
         let params = json!({"url": "https://example.com", "caller": {"workspace": key}});
         let created = send(&mux, "tab.create_browser", params, &format!("create-{attempt}"));
         assert!(created["browser_id"].is_string(), "{created}");
-        assert_eq!(opened(&mux, &before), (right, workspace), "focused elsewhere: {focused}");
+        let expected = if focused { (focused_pane, focused_workspace) } else { (right, workspace) };
+        assert_eq!(opened(&mux, &before), expected, "focused elsewhere: {focused}");
         assert_eq!(workspace_count(&mux), count, "no workspace was made");
     }
     kill_surfaces(&mux);
@@ -157,7 +165,8 @@ fn browser_profile_open_from_an_agent_lands_in_its_rightmost_pane() {
     let session = Session::new("profile-caller");
     let mux = session.open();
     let (workspace, key, right) = caller_workspace(&mux);
-    mux.new_workspace(Some("elsewhere".into()), None).unwrap();
+    let elsewhere = mux.new_workspace(Some("elsewhere".into()), None).unwrap().id;
+    let focused_pane = mux.with_state(|state| state.pane_of(elsewhere)).unwrap();
     for (attempt, focused) in [(1, true), (2, false)] {
         if !focused {
             unfocus(&mux);
@@ -169,9 +178,15 @@ fn browser_profile_open_from_an_agent_lands_in_its_rightmost_pane() {
             "caller": {"workspace": key},
         });
         let opened_tab = send(&mux, "browser.profile.open", params, &format!("open-{attempt}"));
-        let pane = mux.with_state(|state| state.resource_indexes.pane_ids[&right].to_string());
+        // Focused elsewhere: the focused pane, as before. Unfocused: the
+        // caller's rightmost pane.
+        let want = if focused { focused_pane } else { right };
+        let pane = mux.with_state(|state| state.resource_indexes.pane_ids[&want].to_string());
         assert_eq!(opened_tab["pane_id"], pane, "focused elsewhere: {focused}");
-        assert_eq!(opened(&mux, &before), (right, workspace));
+        assert_eq!(opened(&mux, &before).0, want, "focused elsewhere: {focused}");
+        if !focused {
+            assert_eq!(opened(&mux, &before), (right, workspace));
+        }
         assert_eq!(workspace_count(&mux), count, "no workspace was made");
     }
     kill_surfaces(&mux);
@@ -212,11 +227,33 @@ fn new_browser_tab_with_a_caller_lands_in_its_rightmost_pane_and_else_in_home() 
         assert_eq!(workspace_count(&mux), count, "no workspace was made");
     }
 
-    // No caller and no focus: home, not a new workspace.
-    unfocus(&mux);
+    // A caller whose workspace is gone (or that this session never knew),
+    // or no caller at all, with no focus: home, not a new workspace.
+    let gone = WorkspacePublicId::random().unwrap().to_string();
+    let gone_key = "00000000-0000-4000-8000-000000000000".to_string();
+    for fields in [
+        Map::from_iter([("caller".to_string(), json!({"workspace": gone}))]),
+        Map::from_iter([("caller".to_string(), json!({"workspace": gone_key}))]),
+        Map::from_iter([("caller".to_string(), json!({"agent_session": "acp_gone"}))]),
+        Map::new(),
+    ] {
+        unfocus(&mux);
+        let (before, count) = (surfaces(&mux), workspace_count(&mux));
+        mux.new_browser_tab_with_fields(url(), None, None, fields.clone()).unwrap();
+        assert_eq!(opened(&mux, &before).1, home, "{fields:?}");
+        assert_eq!(workspace_count(&mux), count, "no workspace was made: {fields:?}");
+    }
+
+    // A focused workspace (home here) keeps today's rule, caller or not:
+    // the focused pane, never the caller's.
+    let index = mux.with_state(|state| state.workspaces.iter().position(|w| w.id == home));
+    mux.state.lock().unwrap().active_workspace = index.unwrap();
     let (before, count) = (surfaces(&mux), workspace_count(&mux));
-    mux.new_browser_tab_with_fields(url(), None, None, Map::new()).unwrap();
-    assert_eq!(opened(&mux, &before).1, home);
+    let fields = Map::from_iter([("caller".to_string(), json!({"workspace": key}))]);
+    mux.new_browser_tab_with_fields(url(), None, None, fields).unwrap();
+    let (pane, landed) = opened(&mux, &before);
+    assert_eq!(landed, home, "the focused workspace, not the caller's");
+    assert_ne!(pane, right);
     assert_eq!(workspace_count(&mux), count, "no workspace was made");
     kill_surfaces(&mux);
 }

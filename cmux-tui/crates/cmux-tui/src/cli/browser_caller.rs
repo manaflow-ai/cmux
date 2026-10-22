@@ -1,10 +1,10 @@
 //! The CLI and `cmux mcp` name the caller of a browser open
-//! (`browser-open-caller-v1`): `tab.create_browser`, `browser.profile.open`
-//! and `workspace.open_url` sent from inside cmux carry `caller {workspace?,
+//! (`browser-open-caller-v1`): `tab.create_browser` and
+//! `browser.profile.open` sent from inside cmux carry `caller {workspace?,
 //! agent_session?}` from the caller's environment (`CMUX_WORKSPACE_ID`,
-//! `CMUX_AGENT_SESSION`). The daemon then opens the page in the rightmost
-//! pane of the caller's own workspace instead of wherever the person looks,
-//! and never in a new workspace (cmux-tui-core `mux/browser_caller.rs`).
+//! `CMUX_AGENT_SESSION`). When no workspace has the focus, the daemon then
+//! opens the page in the rightmost pane of the caller's own workspace, never
+//! in a new one (cmux-tui-core `mux/browser_caller.rs`).
 //!
 //! The caller goes only with a request for the caller's own session on this
 //! machine (no `--socket`, `--session` or `--machine`, as the app's `caller`
@@ -24,7 +24,7 @@ use serde_json::{Map, Value, json};
 const CAPABILITY: &str = "browser-open-caller-v1";
 
 /// The operations that take `caller`.
-const OPERATIONS: [&str; 3] = ["tab.create_browser", "browser.profile.open", "workspace.open_url"];
+const OPERATIONS: [&str; 2] = ["tab.create_browser", "browser.profile.open"];
 
 /// Adds `caller` to `request` by the rules above; true when it did (the
 /// caller re-encodes the request then). `own_session` says no `--socket`
@@ -123,6 +123,12 @@ mod tests {
             assert_eq!(caller_for(&open(json!({key: "x"})), true, &agent), None, "{key}");
         }
         // Other operations take no caller.
-        assert_eq!(caller_for(&request("tab.create_terminal", json!({})), true, &agent), None);
+        for operation in ["tab.create_terminal", "workspace.open_url"] {
+            assert_eq!(
+                caller_for(&request(operation, json!({})), true, &agent),
+                None,
+                "{operation}"
+            );
+        }
     }
 }
