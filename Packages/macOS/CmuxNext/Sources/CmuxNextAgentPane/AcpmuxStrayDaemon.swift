@@ -9,9 +9,10 @@ import CmuxNextWakeups
 /// by the CLI's autostart. The server peer check refuses it (its executable is not this app's),
 /// so the app takes it over instead, the way it hands off another build
 /// (``AcpmuxVersionHandoff``): its agents detach and the bundled daemon adopts them. A launchd
-/// job that would start it again is booted out first. Only a daemon that runs its
-/// agents under agent hosts is taken over; an older one would end its agents, so it keeps
-/// running and stays refused.
+/// job that would start it again is booted out first. One without agent hosts is taken over
+/// too, busy or not, like a stale build: its agents end, and each chat's next prompt resumes it
+/// from disk. Only a memory store without agent hosts keeps running and stays refused, since
+/// nothing on disk could resume its chats.
 nonisolated enum AcpmuxStrayDaemon {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
     /// Daemons (by pid) this process already took over: never twice.
@@ -65,8 +66,8 @@ nonisolated enum AcpmuxStrayDaemon {
               let pid = status.pid, peer.pid == pid,
               isStray(runningPath: peer.executablePath, executable: environment.executable) else { return false }
         let path = peer.executablePath
-        guard status.agentHosts else {
-            logger.error("acpmux \(pid) at \(path, privacy: .public) is not this app's and has no agent hosts; its agents would end, so it keeps running")
+        guard status.agentHosts || !status.memoryStore else {
+            logger.error("acpmux \(pid) at \(path, privacy: .public) is not this app's and keeps its chats in memory without agent hosts; they would end, so it keeps running")
             return false
         }
         guard handedOff.withLock({ $0.insert(pid).inserted }) else { return false }

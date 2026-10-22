@@ -115,7 +115,24 @@ struct AcpmuxQuietHandoffTests {
             #expect(await fixture.eventually { !agentPaneProcessIsRunning(fixture.oldPid) })
             // Settings > Updates says it restarts until the lookup that starts the bundled one settles.
             #expect(await AcpmuxDaemonSummary.current(fixture.environment).state == .restarting)
+            // This build's handoff is used up: were the old daemon still there, no lookup would
+            // stop it again, so Settings would not say it restarts.
+            #expect(!AcpmuxVersionHandoff.handsOff(status, environment: fixture.environment,
+                                                   bundled: fixture.newBuild).handsOff)
         }
+    }
+
+    /// Settings > Updates says a stale daemon restarts only when a lookup would hand it off: never
+    /// a memory store without agent hosts, whose chats nothing on disk could resume.
+    @Test func aMemoryStoreWithoutAgentHostsIsNeverHandedOff() throws {
+        let fixture = try QuietFixture(agentHosts: false)
+        defer { fixture.remove() }
+        let memory = AcpmuxStatus(build: "old", pid: fixture.oldPid, memoryStore: true)
+        #expect(!AcpmuxVersionHandoff.handsOff(memory, environment: fixture.environment, bundled: fixture.newBuild).handsOff)
+        let hosted = AcpmuxStatus(build: "old", pid: fixture.oldPid, agentHosts: true, memoryStore: true)
+        #expect(AcpmuxVersionHandoff.handsOff(hosted, environment: fixture.environment, bundled: fixture.newBuild).handsOff)
+        let disk = AcpmuxStatus(build: "old", pid: fixture.oldPid)
+        #expect(AcpmuxVersionHandoff.handsOff(disk, environment: fixture.environment, bundled: fixture.newBuild).handsOff)
     }
 
     /// The app's launch with the toggle off: the old daemon runs a turn, the bundled acpmux is

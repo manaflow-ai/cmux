@@ -2,11 +2,15 @@ import CmuxNextCompat
 import Foundation
 
 /// The app's local acpmux daemon as Settings > Updates shows it: its build, and whether it is
-/// the bundled build or restarting on it (``AcpmuxVersionHandoff``). Read when the card shows.
+/// the bundled build, restarting on it (``AcpmuxVersionHandoff``), or another build the app
+/// keeps. Read when the card shows.
 public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
     public enum State: Sendable, Equatable {
         case upToDate
         case restarting
+        /// Another build than the bundle's that no lookup hands off: a memory store without agent
+        /// hosts, or one this launch's handoff could not stop.
+        case otherBuild
         case notRunning
     }
 
@@ -27,15 +31,21 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
     ///   - running: its build; nil when it does not say.
     ///   - bundled: the bundled acpmux's build; nil when unknown.
     ///   - restarting: a handoff stopped it and the bundled daemon is starting.
-    /// A daemon of another build than the bundle's is restarted at the next lookup, so it is
-    /// restarting too; a build either side does not know is taken as up to date.
-    public init(answered: Bool, running: String?, bundled: String?, restarting: Bool) {
+    ///   - replaced: it runs the executable of a bundle an update replaced.
+    ///   - handsOff: a lookup would hand it off when it is stale
+    ///     (``AcpmuxVersionHandoff/handsOff(_:environment:bundled:)``).
+    /// A daemon of another build than the bundle's, or a replaced bundle's, is restarted at the
+    /// next lookup, so it is restarting too unless no lookup hands it off; a build either side
+    /// does not know is taken as up to date.
+    public init(answered: Bool, running: String?, bundled: String?, restarting: Bool,
+                replaced: Bool = false, handsOff: Bool = true) {
+        let stale = if let running, let bundled { running != bundled } else { false }
         if restarting {
             self.init(build: running ?? bundled, state: .restarting)
         } else if !answered {
             self.init(build: nil, state: .notRunning)
-        } else if let running, let bundled, running != bundled {
-            self.init(build: running, state: .restarting)
+        } else if stale || replaced {
+            self.init(build: running ?? bundled, state: handsOff ? .restarting : .otherBuild)
         } else {
             self.init(build: running ?? bundled, state: .upToDate)
         }
@@ -46,7 +56,8 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
         String(localized: "agentPane.acpmuxDaemon.title", defaultValue: "acpmux daemon", bundle: .module)
     }
 
-    /// The row's value: "<build> (up to date)", "<build> (restarting…)" or "Not running".
+    /// The row's value: "<build> (up to date)", "<build> (restarting…)", "<build> (not the app's
+    /// build)" or "Not running".
     public var text: String {
         let build = build ?? "?"
         switch state {
@@ -55,6 +66,9 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
                                          bundle: .module), build)
         case .restarting:
             return String(format: String(localized: "agentPane.acpmuxDaemon.restarting", defaultValue: "%@ (restarting…)",
+                                         bundle: .module), build)
+        case .otherBuild:
+            return String(format: String(localized: "agentPane.acpmuxDaemon.otherBuild", defaultValue: "%@ (not the app's build)",
                                          bundle: .module), build)
         case .notRunning:
             return String(localized: "agentPane.acpmuxDaemon.notRunning", defaultValue: "Not running", bundle: .module)
@@ -79,7 +93,11 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
         let restarting = restartingHomes.withLock { $0.contains(environment.home.standardizedFileURL.path) }
         let bundled = await AcpmuxVersionHandoff.bundledBuild(environment)
         let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath)
-        let answered = status?.serves(home: environment.home) ?? false
-        return Self(answered: answered, running: answered ? status?.build : nil, bundled: bundled, restarting: restarting)
+        guard let status, status.serves(home: environment.home) else {
+            return Self(answered: false, running: nil, bundled: bundled, restarting: restarting)
+        }
+        let handoff = AcpmuxVersionHandoff.handsOff(status, environment: environment, bundled: bundled)
+        return Self(answered: true, running: status.build, bundled: bundled, restarting: restarting,
+                    replaced: handoff.replaced, handsOff: handoff.handsOff)
     }
 }

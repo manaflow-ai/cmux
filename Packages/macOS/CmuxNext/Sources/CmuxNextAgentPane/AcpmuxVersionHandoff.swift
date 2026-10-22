@@ -135,6 +135,38 @@ nonisolated enum AcpmuxVersionHandoff {
         return "\(path)|\(inode)|\(size)|\(modified)"
     }
 
+    /// Whether the daemon described by `status` runs a replaced bundle's executable
+    /// (``replaced(pid:)``), or in a debug build another binary than the override
+    /// (``swapsOverride(runningPath:override:executable:)``).
+    static func runsReplacedExecutable(_ status: AcpmuxStatus, environment: AcpmuxEnvironment,
+                                       logs: Bool = false) -> Bool {
+        guard let pid = status.pid else { return false }
+        #if DEBUG
+        let swapped = swapsOverride(runningPath: executablePath(pid: pid),
+                                    override: AcpmuxEnvironment.debugExecutableOverride,
+                                    executable: environment.executable)
+        if swapped && logs {
+            logger.info("acpmux \(pid) runs another binary than \(AcpmuxEnvironment.executableOverrideKey, privacy: .public) \(environment.executable.path, privacy: .public)")
+        }
+        if swapped { return true }
+        #endif
+        return replaced(pid: pid)
+    }
+
+    /// For Settings > Updates (``AcpmuxDaemonSummary``): whether the daemon described by `status`
+    /// runs a replaced bundle's executable, and whether a lookup would still hand it off, which
+    /// it does not for a memory store without agent hosts, nor for a build whose handoff this
+    /// launch already used up (its shutdown failed or the old daemon did not exit).
+    static func handsOff(_ status: AcpmuxStatus, environment: AcpmuxEnvironment,
+                         bundled: String?) -> (replaced: Bool, handsOff: Bool) {
+        let isReplaced = runsReplacedExecutable(status, environment: environment)
+        guard let pid = status.pid,
+              decide(status.build, bundled, status.agentHosts, replaced: isReplaced,
+                     memoryStore: status.memoryStore) == .restart else { return (isReplaced, false) }
+        let key = bundled ?? "pid \(pid)"
+        return (isReplaced, !handedOff.withLock { $0.contains(key) })
+    }
+
     /// Hands the daemon described by `status` off at once, busy or not, when it runs another
     /// build or a replaced bundle's executable; its agent hosts keep its agents across the
     /// restart. With `quietWait` (the toggle on) it waits for a quiet moment as the type says: a
@@ -143,17 +175,7 @@ nonisolated enum AcpmuxVersionHandoff {
     @concurrent static func handOffIfStale(_ status: AcpmuxStatus, environment: AcpmuxEnvironment,
                                            quietWait: AcpmuxQuietHandoff? = nil) async -> Outcome {
         let bundled = await bundledBuild(environment)
-        #if DEBUG
-        let swapped = status.pid.map { swapsOverride(runningPath: executablePath(pid: $0),
-                                                     override: AcpmuxEnvironment.debugExecutableOverride,
-                                                     executable: environment.executable) } ?? false
-        if swapped, let pid = status.pid {
-            logger.info("acpmux \(pid) runs another binary than \(AcpmuxEnvironment.executableOverrideKey, privacy: .public) \(environment.executable.path, privacy: .public)")
-        }
-        let isReplaced = swapped || (status.pid.map(Self.replaced(pid:)) ?? false)
-        #else
-        let isReplaced = status.pid.map(Self.replaced(pid:)) ?? false
-        #endif
+        let isReplaced = runsReplacedExecutable(status, environment: environment, logs: true)
         guard let pid = status.pid else { return .kept }
         let key = bundled ?? "pid \(pid)"
         let home = environment.home.standardizedFileURL.path
