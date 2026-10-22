@@ -36,6 +36,7 @@ use std::io::Read as _;
 use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::{Path, PathBuf};
 
+use crate::json_field::JsonFieldExt;
 use anyhow::Context as _;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -107,7 +108,7 @@ pub(super) fn run(args: &[String]) -> i32 {
     match push(&socket, &local, &remote) {
         Ok(summary) => {
             let mut line = summary.json();
-            line["ok"] = json!(true);
+            line.set_field("ok", json!(true));
             println!("{line}");
             0
         }
@@ -423,8 +424,10 @@ impl Listings {
             let listing = remote.list(parent)?;
             self.0.insert(parent.to_string(), listing);
         }
-        Ok(self.0[parent]
-            .as_ref()
+        Ok(self
+            .0
+            .get(parent)
+            .and_then(Option::as_ref)
             .and_then(|entries| entries.get(name))
             .filter(|entry| entry.kind == "file")
             .and_then(|entry| entry.revision.clone()))
@@ -470,7 +473,7 @@ fn hash(file: &LocalFile) -> anyhow::Result<String> {
         if read == 0 {
             break;
         }
-        hasher.update(&buffer[..read]);
+        hasher.update(buffer.get(..read).context("read returned more bytes than its buffer")?);
     }
     Ok(hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
 }

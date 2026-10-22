@@ -376,7 +376,9 @@ impl DaemonRuntimeHandle {
 
     pub fn shutdown(mut self) -> anyhow::Result<()> {
         let _ = self.shutdown.send(true);
-        match self.thread.take().expect("daemon runtime thread is present").join() {
+        // Only this consuming call takes the thread.
+        let Some(thread) = self.thread.take() else { return Ok(()) };
+        match thread.join() {
             Ok(result) => result,
             Err(_) => Err(anyhow!("remote daemon runtime thread panicked")),
         }
@@ -618,7 +620,9 @@ impl ClientRuntimeHandle {
 
     pub fn shutdown(mut self) -> anyhow::Result<()> {
         let _ = self.shutdown.send(true);
-        match self.thread.take().expect("client runtime thread is present").join() {
+        // Only this consuming call takes the thread.
+        let Some(thread) = self.thread.take() else { return Ok(()) };
+        match thread.join() {
             Ok(result) => result,
             Err(_) => Err(anyhow!("remote client runtime thread panicked")),
         }
@@ -948,12 +952,12 @@ async fn select_initial_route<T: Send>(
     upgrade: bool,
     attempt: &mut impl InitialRouteAttempt<T>,
 ) -> Result<T, InitialRouteSelectionError> {
-    if routes.is_empty() {
+    let Some(first_route) = routes.first() else {
         return Err(InitialRouteSelectionError::terminal(anyhow!(
             "remote connection has no route candidates"
         )));
-    }
-    if upgrade && routes[0].endpoint.scheme() != "ssh" {
+    };
+    if upgrade && first_route.endpoint.scheme() != "ssh" {
         return Err(InitialRouteSelectionError::terminal(anyhow!(
             "--upgrade requires SSH to be the initial route"
         )));
@@ -1286,18 +1290,19 @@ async fn select_reconnect_route<T: Send>(
     let mut failures = Vec::new();
     for offset in 0..routes.len() {
         let index = (start + offset) % routes.len();
-        if !routes[index].supports_client_auth(auth) {
+        let Some(route) = routes.get(index) else { continue };
+        if !route.supports_client_auth(auth) {
             failures.push(format!(
                 "{}: {}",
-                sanitized_route(&routes[index].endpoint),
+                sanitized_route(&route.endpoint),
                 ProviderError::UnsupportedClientAuth {
-                    scheme: routes[index].endpoint.scheme().into(),
-                    auth,
+                    scheme: route.endpoint.scheme().into(),
+                    auth
                 }
             ));
             continue;
         }
-        let request = connect_request(&routes[index], session, lane_policy)
+        let request = connect_request(route, session, lane_policy)
             .map_err(|error| ProviderError::Configuration(error.to_string()))?;
         let endpoint = request.endpoint.clone();
         let display_endpoint = sanitized_route(&endpoint);
@@ -1368,7 +1373,10 @@ impl RuntimeReconnectGroups {
             .filter(|(index, candidate)| {
                 candidate.endpoint.scheme() == "ssh"
                     && candidate.supports_client_auth(auth)
-                    && !self.prepared_ssh[*index].load(Ordering::Acquire)
+                    && !self
+                        .prepared_ssh
+                        .get(*index)
+                        .is_some_and(|prepared| prepared.load(Ordering::Acquire))
             })
             .count()
     }
@@ -1821,7 +1829,8 @@ fn private_socket_directory(
             .with_context(|| format!("could not prepare {}", parent.display()))?;
         let suffix = uuid::Uuid::new_v4().simple().to_string();
         // Keep the name short: socket paths must fit in sun_path.
-        let candidate = base.join(format!("{prefix}-{}", &suffix[..8]));
+        let short_suffix: String = suffix.chars().take(8).collect();
+        let candidate = base.join(format!("{prefix}-{short_suffix}"));
         match fs::DirBuilder::new().mode(0o700).create(&candidate) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -2251,7 +2260,8 @@ async fn run_daemon(
                         return Err(anyhow!("remote daemon startup was cancelled"));
                     }
                 };
-                let result = result.expect("a non-empty relay task set has a result");
+                // A non-empty task set always has a next result.
+                let Some(result) = result else { break };
                 relays.push(result.context("relay registration task failed")??);
             }
 
@@ -2576,7 +2586,7 @@ fn verify_previous_shutdown_outcome(
 fn combine_shutdown_failures(mut failures: Vec<anyhow::Error>) -> anyhow::Result<()> {
     match failures.len() {
         0 => Ok(()),
-        1 => Err(failures.pop().expect("one shutdown failure is present")),
+        1 => failures.pop().map_or(Ok(()), Err),
         _ => Err(anyhow!(
             "remote daemon shutdown encountered multiple failures: {}",
             failures.into_iter().map(|error| format!("{error:#}")).collect::<Vec<_>>().join("; ")

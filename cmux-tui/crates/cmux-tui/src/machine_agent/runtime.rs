@@ -544,9 +544,8 @@ fn random_connection_nonce() -> anyhow::Result<OpaqueId> {
     }
     let mut encoded = String::with_capacity(bytes.len() * 2 + "connection-".len());
     encoded.push_str("connection-");
-    use std::fmt::Write as _;
     for byte in &bytes {
-        write!(&mut encoded, "{byte:02x}").expect("writing to String cannot fail");
+        encoded.push_str(&format!("{byte:02x}"));
     }
     bytes.zeroize();
     OpaqueId::new(encoded).map_err(Into::into)
@@ -1075,8 +1074,8 @@ impl GenerationState {
 
     fn write_local(&mut self, data: StreamData) -> anyhow::Result<()> {
         let stream_id = data.stream_id;
-        let length =
-            u32::try_from(data.payload.as_bytes().len()).expect("protocol payload length fits u32");
+        // A payload too long for u32 is far above every receive window.
+        let length = u32::try_from(data.payload.as_bytes().len()).unwrap_or(u32::MAX);
         if length == 0 {
             return self.close_stream(stream_id, Some("flow_control"));
         }
@@ -1148,7 +1147,7 @@ impl GenerationState {
         Ok(())
     }
 
-    fn close_stream(&mut self, stream_id: u32, notify: Option<&str>) -> anyhow::Result<()> {
+    fn close_stream(&mut self, stream_id: u32, notify: Option<&'static str>) -> anyhow::Result<()> {
         self.pending_opens.remove(&stream_id);
         if let Some(stream) = self.streams.remove(&stream_id) {
             stream.close();
@@ -1174,7 +1173,7 @@ impl GenerationState {
         Ok(())
     }
 
-    fn reject_pending_opens(&mut self, code: &str) -> anyhow::Result<()> {
+    fn reject_pending_opens(&mut self, code: &'static str) -> anyhow::Result<()> {
         let stream_ids = self.pending_opens.keys().copied().collect::<Vec<_>>();
         self.pending_opens.clear();
         for stream_id in stream_ids {
@@ -1197,7 +1196,7 @@ impl GenerationState {
         Ok(())
     }
 
-    fn reject(&mut self, stream_id: u32, code: &str) -> anyhow::Result<()> {
+    fn reject(&mut self, stream_id: u32, code: &'static str) -> anyhow::Result<()> {
         self.send(Message::Reject(StreamRejected { stream_id, code: error_code(code) }))
     }
 
@@ -1407,7 +1406,11 @@ impl RecentOpenIds {
     }
 }
 
-fn error_code(value: &str) -> ErrorCode {
+#[allow(
+    clippy::expect_used,
+    reason = "every caller passes a short lowercase literal, which ErrorCode::new accepts"
+)]
+fn error_code(value: &'static str) -> ErrorCode {
     ErrorCode::new(value).expect("static machine-agent error code is valid")
 }
 

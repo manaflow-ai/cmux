@@ -76,6 +76,7 @@ fn is_test_thread(thread: &str) -> bool {
 
 /// Debug builds only: panic a worker thread when the test asks for it.
 #[cfg(debug_assertions)]
+#[allow(clippy::panic, reason = "debug-only, env-gated trigger that tests the owner panic log")]
 fn panic_for_test() {
     if std::env::var(TEST_PANIC_ENV).as_deref() != Ok("thread") {
         return;

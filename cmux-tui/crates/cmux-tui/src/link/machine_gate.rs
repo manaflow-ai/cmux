@@ -19,6 +19,7 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use crate::json_field::JsonFieldExt;
 use serde_json::{Value, json};
 
 /// The error code of a machine whose cmux-tui is too old for a verb.
@@ -107,7 +108,7 @@ fn call_within(socket: &Path, mut request: Value, budget: Duration) -> Result<Va
     let stream = UnixStream::connect(socket).map_err(|e| format!("cannot connect: {e}"))?;
     stream.set_write_timeout(Some(budget)).map_err(|e| e.to_string())?;
     let mut reader = BufReader::new(stream);
-    request["id"] = json!(1);
+    request.set_field("id", json!(1));
     let mut line = request.to_string();
     line.push('\n');
     reader.get_mut().write_all(line.as_bytes()).map_err(|e| e.to_string())?;
@@ -115,14 +116,14 @@ fn call_within(socket: &Path, mut request: Value, budget: Duration) -> Result<Va
         let line = read_line(&mut reader, deadline)
             .ok_or("the daemon did not answer in time, closed, or answered too much")?;
         let answer: Value = serde_json::from_slice(&line).map_err(|e| e.to_string())?;
-        if answer["id"] != json!(1) {
+        if *answer.field("id") != json!(1) {
             continue;
         }
-        if answer["ok"] == json!(true) {
-            return Ok(answer["data"].clone());
+        if *answer.field("ok") == json!(true) {
+            return Ok(answer.field("data").clone());
         }
-        let code = answer["error_code"].as_str().unwrap_or("refused");
-        return Err(format!("{code}: {}", answer["error"].as_str().unwrap_or_default()));
+        let code = answer.field("error_code").as_str().unwrap_or("refused");
+        return Err(format!("{code}: {}", answer.field("error").as_str().unwrap_or_default()));
     }
     Err("the daemon kept answering other requests".into())
 }
@@ -143,7 +144,7 @@ fn read_line(reader: &mut BufReader<UnixStream>, deadline: Instant) -> Option<Ve
             Some(end) => (end + 1, true),
             None => (available.len(), false),
         };
-        line.extend_from_slice(&available[..taken]);
+        line.extend_from_slice(available.get(..taken).unwrap_or(available));
         reader.consume(taken);
         if line.len() as u64 > MAX_ANSWER_BYTES + 1 {
             return None;

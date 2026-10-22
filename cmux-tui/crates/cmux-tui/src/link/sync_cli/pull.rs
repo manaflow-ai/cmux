@@ -43,6 +43,7 @@ use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use crate::json_field::JsonFieldExt;
 use anyhow::{Context as _, bail};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -469,7 +470,7 @@ fn pushed_folders(manifest: &Manifest) -> BTreeSet<String> {
         .filter(|path| is_tree_path(path))
         .flat_map(|path| {
             let parts: Vec<&str> = path.split('/').collect();
-            (1..parts.len()).map(move |end| parts[..end].join("/"))
+            (1..parts.len()).filter_map(move |end| parts.get(..end).map(|folder| folder.join("/")))
         })
         .collect()
 }
@@ -519,8 +520,11 @@ fn hook_folders(local: &Path) -> anyhow::Result<Vec<String>> {
         return Ok(Vec::new());
     }
     let mut folders = vec![parts.join("/")];
-    if parts.len() > 1 && parts.last().is_some_and(|last| last == "_") {
-        folders.push(parts[..parts.len() - 1].join("/"));
+    if let Some((last, folder)) = parts.split_last()
+        && !folder.is_empty()
+        && last == "_"
+    {
+        folders.push(folder.join("/"));
     }
     Ok(folders)
 }
@@ -638,11 +642,11 @@ impl Staging {
     fn stage(&self, remote: &mut Remote, target: &str) -> anyhow::Result<Staged> {
         for _ in 0..3 {
             let stat = remote.stat(target)?.with_context(|| format!("{target} went away"))?;
-            if stat["kind"] != "file" {
+            if *stat.field("kind") != "file" {
                 bail!("{target} is no longer a file");
             }
-            let revision = stat["revision"].as_str().unwrap_or_default().to_string();
-            let mode = stat["mode_display"].as_str().map_or(0o644, mode_bits);
+            let revision = stat.field("revision").as_str().unwrap_or_default().to_string();
+            let mode = stat.field("mode_display").as_str().map_or(0o644, mode_bits);
             let permissions = local::permissions_of(mode);
             let number = self.1.get() + 1;
             self.1.set(number);
@@ -683,7 +687,10 @@ struct Hashing {
 impl Write for Hashing {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         let written = self.file.write(bytes)?;
-        self.hasher.update(&bytes[..written]);
+        let written_bytes = bytes.get(..written).ok_or_else(|| {
+            std::io::Error::other("the file reported more bytes written than it was given")
+        })?;
+        self.hasher.update(written_bytes);
         Ok(written)
     }
 

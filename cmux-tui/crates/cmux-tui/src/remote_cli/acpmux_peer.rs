@@ -39,6 +39,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::json_field::JsonFieldExt;
 use cmux_remote::bridge::LocalPortForward;
 use cmux_remote::client::WorkspaceClient;
 use cmux_remote::service::ServiceMultiplexer;
@@ -208,12 +209,13 @@ impl Live {
                 .ok_or_else(|| {
                     Failure::Retry("the machine daemon did not answer identify".into())
                 })?;
-        let home = identity["cli_path"]
+        let home = identity
+            .field("cli_path")
             .as_str()
             .and_then(home_from_cli_path)
             .ok_or_else(|| Failure::Stop("the machine daemon runs from an unknown place".into()))?
             .to_owned();
-        let name = peer_name(identity["machine_name"].as_str().unwrap_or_default());
+        let name = peer_name(identity.field("machine_name").as_str().unwrap_or_default());
         let workspace_client = WorkspaceClient::connect(multiplexer.clone())
             .await
             .map_err(|e| Failure::Retry(format!("workspace rpc: {}", e.message)))?;
@@ -302,7 +304,8 @@ impl Live {
                 .await
                 .map_err(|_| format!("_acpmux/peers: no answer in {}s", CALL_BUDGET.as_secs()))?
                 .map_err(|e| format!("_acpmux/peers: {e:#}"))?;
-        let ours = peers["peers"]
+        let ours = peers
+            .field("peers")
             .as_array()
             .and_then(|all| all.iter().find(|p| p["name"] == self.name.as_str()));
         let Some(ours) = ours else {
@@ -498,13 +501,18 @@ async fn probe_status(url: &str, tokens: &Tokens) -> Result<Value, String> {
         while let Some(frame) = ws.next().await {
             let Frame::Text(text) = frame.map_err(|e| e.to_string())? else { continue };
             let Ok(reply) = serde_json::from_str::<Value>(&text) else { continue };
-            if reply["id"] != 2 {
+            if *reply.field("id") != 2 {
                 continue;
             }
             let _ = ws.close(None).await;
             return match reply.get("result") {
                 Some(result) => Ok(result.clone()),
-                None => Err(reply["error"]["message"].as_str().unwrap_or("refused").to_owned()),
+                None => Err(reply
+                    .field("error")
+                    .field("message")
+                    .as_str()
+                    .unwrap_or("refused")
+                    .to_owned()),
             };
         }
         Err("the connection closed".to_owned())

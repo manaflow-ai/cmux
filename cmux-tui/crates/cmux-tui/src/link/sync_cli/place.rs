@@ -357,7 +357,7 @@ impl Transaction {
         for relative in &self.deleted {
             let parts: Vec<&str> = relative.split('/').collect();
             for end in (1..parts.len()).rev() {
-                let folder = parts[..end].join("/");
+                let Some(folder) = parts.get(..end).map(|folder| folder.join("/")) else { break };
                 let Ok(Some((parent, name))) = parent_of(&self.root, &folder) else { break };
                 if parent.unlink(&name, true).is_err() {
                     break;
@@ -384,7 +384,8 @@ impl Transaction {
                     parent
                         .mkdir(part)
                         .with_context(|| format!("cannot make a folder for {relative}"))?;
-                    self.undo.push(Undo::MadeDir { folder: parts[..=index].join("/") });
+                    let folder = parts.get(..=index).unwrap_or(parts.as_slice()).join("/");
+                    self.undo.push(Undo::MadeDir { folder });
                     let parent = at.as_ref().unwrap_or(&self.root);
                     parent.child(part)?.with_context(|| format!("{part} went away"))?
                 }

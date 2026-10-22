@@ -8,6 +8,7 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::Duration;
 
+use crate::json_field::JsonFieldExt;
 use serde_json::{Value, json};
 
 /// Most calls; the daemon gives acpmux 15 s.
@@ -66,8 +67,8 @@ impl Daemon {
         let lost = |e: std::io::Error| CallError::Lost(format!("{cmd}: {e}"));
         let id = self.next_id;
         self.next_id += 1;
-        params["id"] = json!(id);
-        params["cmd"] = json!(cmd);
+        params.set_field("id", json!(id));
+        params.set_field("cmd", json!(cmd));
         let mut line = params.to_string();
         line.push('\n');
         let stream = self.reader.get_mut();
@@ -83,16 +84,20 @@ impl Daemon {
                 return Err(CallError::Lost(format!("{cmd}: the answer is not JSON")));
             };
             // Events and other answers on the same connection are not ours.
-            if answer["id"] != json!(id) {
+            if *answer.field("id") != json!(id) {
                 continue;
             }
-            if answer["ok"] == json!(true) {
-                return Ok(answer["data"].clone());
+            if *answer.field("ok") == json!(true) {
+                return Ok(answer.field("data").clone());
             }
             return Err(CallError::Refused {
-                code: answer["error_code"].as_str().unwrap_or("agent_transfer.unknown").to_owned(),
-                message: answer["error"].as_str().unwrap_or_default().to_owned(),
-                details: answer["error_details"].clone(),
+                code: answer
+                    .field("error_code")
+                    .as_str()
+                    .unwrap_or("agent_transfer.unknown")
+                    .to_owned(),
+                message: answer.field("error").as_str().unwrap_or_default().to_owned(),
+                details: answer.field("error_details").clone(),
             });
         }
     }

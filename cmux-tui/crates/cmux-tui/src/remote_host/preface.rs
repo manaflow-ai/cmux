@@ -4,6 +4,7 @@ use std::io::{self, Read, Write};
 use std::net::TcpStream;
 use std::time::Instant;
 
+use crate::json_field::JsonFieldExt;
 use serde_json::{Value, json};
 
 pub(crate) const PREFACE_VERSION: u64 = 1;
@@ -26,10 +27,10 @@ pub(crate) fn request(op: Op) -> String {
 
 pub(crate) fn parse_request(line: &str) -> Option<Op> {
     let value: Value = serde_json::from_str(line).ok()?;
-    if value["cmux_host"].as_u64() != Some(PREFACE_VERSION) {
+    if value.field("cmux_host").as_u64() != Some(PREFACE_VERSION) {
         return None;
     }
-    match value["op"].as_str()? {
+    match value.field("op").as_str()? {
         "probe" => Some(Op::Probe),
         "connect" => Some(Op::Connect),
         _ => None,

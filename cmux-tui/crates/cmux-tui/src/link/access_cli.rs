@@ -44,6 +44,7 @@ mod uploads;
 
 use std::path::{Path, PathBuf};
 
+use crate::json_field::JsonFieldExt;
 use serde_json::{Value, json};
 
 use self::grants::{Grant, Mode, Store};
@@ -140,7 +141,9 @@ fn shared_file(folder: &Path, relative: &str, git: bool) -> bool {
         return true;
     }
     let mut at = folder.to_path_buf();
-    names[..names.len().saturating_sub(1)].iter().all(|name| {
+    // Every folder above the last name.
+    let parents = names.split_last().map_or(Default::default(), |(_, parents)| parents);
+    parents.iter().all(|name| {
         at.push(name);
         std::fs::symlink_metadata(&at).is_ok_and(|meta| meta.file_type().is_dir())
     })
@@ -274,7 +277,11 @@ pub(super) fn run(args: &[String]) -> i32 {
                 eprintln!("{USAGE}");
                 return 64;
             };
-            grant(socket, machine, session, &root, mode, Path::new(&positional[0]))
+            let Some(path) = positional.first() else {
+                eprintln!("{USAGE}");
+                return 64;
+            };
+            grant(socket, machine, session, &root, mode, Path::new(path))
         }
         ("sync", Args { socket: Some(socket), machine: Some(machine), positional, .. })
             if positional.is_empty() =>
@@ -295,7 +302,13 @@ pub(super) fn run(args: &[String]) -> i32 {
         {
             let what = match secret {
                 Some(name) => requests::Asked::Secret(name),
-                None => requests::Asked::File(&positional[0]),
+                None => match positional.first() {
+                    Some(path) => requests::Asked::File(path),
+                    None => {
+                        eprintln!("{USAGE}");
+                        return 64;
+                    }
+                },
             };
             requests::request(
                 args.socket.as_deref(),
@@ -375,7 +388,7 @@ pub(super) fn run(args: &[String]) -> i32 {
     };
     match answer {
         Ok(mut line) => {
-            line["ok"] = json!(true);
+            line.set_field("ok", json!(true));
             println!("{line}");
             0
         }
@@ -451,7 +464,7 @@ fn grant(
         && mode == Mode::Read
     {
         let back = sync_copy(socket, &folder, &remote, Mode::Write, false);
-        if back["ok"] != json!(true) {
+        if *back.field("ok") != json!(true) {
             return Err(failure_of(&back));
         }
     }
@@ -459,7 +472,7 @@ fn grant(
     // grant holds may have machine work that has not come back.
     let first = !store.grants.iter().any(|kept| kept.machine == machine && kept.remote == remote);
     let mut synced = sync_copy(socket, &folder, &remote, mode, first);
-    if synced["ok"] != json!(true) {
+    if *synced.field("ok") != json!(true) {
         return Err(failure_of(&synced));
     }
     let grant = Grant {
@@ -478,9 +491,9 @@ fn grant(
         && before.remote != grant.remote
     {
         let (removed, _) = forget_copies(&store, Some(socket), &[before]);
-        synced["removed"] = json!(removed);
+        synced.set_field("removed", json!(removed));
     }
-    synced["grant"] = grant_json(&grant);
+    synced.set_field("grant", grant_json(&grant));
     Ok(synced)
 }
 
@@ -517,9 +530,9 @@ fn sync(socket: &Path, machine: &str, session: Option<&str>) -> Result<Value, Fa
                         "error": format!("{folder} is no longer the shared folder")}),
         };
         drop(store);
-        entry["folder"] = json!(folder);
-        entry["remote"] = json!(remote);
-        entry["mode"] = json!(mode);
+        entry.set_field("folder", json!(folder));
+        entry.set_field("remote", json!(remote));
+        entry.set_field("mode", json!(mode));
         synced.push(entry);
     }
     Ok(json!({ "synced": synced }))
@@ -559,9 +572,9 @@ fn sync_copy(socket: &Path, folder: &Path, remote: &str, mode: Mode, first: bool
     match sync_cli::push_kept(socket, folder, remote, &keep) {
         Ok(summary) => {
             let mut answer = summary.json();
-            answer["ok"] = json!(true);
+            answer.set_field("ok", json!(true));
             if !pulled.is_null() {
-                answer["pulled"] = pulled;
+                answer.set_field("pulled", pulled);
             }
             answer
         }

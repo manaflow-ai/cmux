@@ -227,14 +227,18 @@ impl ProviderEventQueue {
         }
 
         if let Some(delivery) = event.delivery.as_ref()
-            && let Some(index) = state.events.iter().position(|queued| {
-                queued
-                    .delivery
-                    .as_ref()
-                    .is_some_and(|queued| queued.notice_id == delivery.notice_id)
-            })
+            && let Some(same_event) = state
+                .events
+                .iter()
+                .find(|queued| {
+                    queued
+                        .delivery
+                        .as_ref()
+                        .is_some_and(|queued| queued.notice_id == delivery.notice_id)
+                })
+                .map(|queued| *queued == event)
         {
-            if state.events[index] != event {
+            if !same_event {
                 state.events.clear();
                 state.disconnected = true;
                 drop(state);
@@ -247,7 +251,7 @@ impl ProviderEventQueue {
         }
 
         if let ProviderEvent::ConnectionClosed(closed) = &event.event
-            && let Some(index) = state.events.iter().position(|queued| {
+            && let Some(queued) = state.events.iter_mut().find(|queued| {
                 matches!(
                     &queued.event,
                     ProviderEvent::ConnectionClosed(queued)
@@ -258,7 +262,7 @@ impl ProviderEventQueue {
         {
             // One connection can only be closed once. Retain its latest
             // provider reason without growing the priority queue.
-            state.events[index] = event;
+            *queued = event;
             drop(state);
             self.ready.notify_one();
             return Ok(());
@@ -551,7 +555,7 @@ impl ProviderClientInner {
         events.acknowledged_sequence = sequence;
         events.durable_subscription = DurableSubscriptionState::Active;
         for index in 0..events.retained_durable.len() {
-            let event = events.retained_durable[index].clone();
+            let Some(event) = events.retained_durable.get(index).cloned() else { break };
             Self::publish_to_event_subscribers(&mut events, event)?;
         }
         Ok(())
@@ -1391,7 +1395,7 @@ fn read_bounded_frame_with_progress<R: BufRead>(
             if frame.len().saturating_add(newline) > limit {
                 return Err(FrameReadFailure::TooLarge { limit });
             }
-            frame.extend_from_slice(&available[..newline]);
+            frame.extend_from_slice(available.get(..newline).unwrap_or(available));
             reader.consume(newline + 1);
             on_progress(&frame);
             if frame.last() == Some(&b'\r') {

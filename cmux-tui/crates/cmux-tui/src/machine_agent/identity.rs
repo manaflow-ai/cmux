@@ -310,9 +310,8 @@ fn random_hex(length: usize) -> anyhow::Result<String> {
     getrandom::fill(&mut bytes)
         .map_err(|_| anyhow::anyhow!("could not generate machine-agent identity"))?;
     let mut encoded = String::with_capacity(length * 2);
-    use std::fmt::Write as _;
     for byte in &bytes {
-        write!(&mut encoded, "{byte:02x}").expect("writing to String cannot fail");
+        encoded.push_str(&format!("{byte:02x}"));
     }
     bytes.zeroize();
     Ok(encoded)

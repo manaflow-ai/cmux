@@ -108,21 +108,21 @@ fn link_entry_gate() -> Arc<dyn cmux_tui_core::server::RemoteGate> {
 pub(crate) fn run(args: &[String]) -> i32 {
     // `dial` has its own exit codes and always one JSON line on stderr.
     if args.first().map(String::as_str) == Some("dial") {
-        return dial_cli::run(&args[1..]);
+        return dial_cli::run(args.get(1..).unwrap_or_default());
     }
     // `sync` answers one JSON line on stdout and has its own exit codes too.
     if args.first().map(String::as_str) == Some("sync") {
-        return sync_cli::run(&args[1..]);
+        return sync_cli::run(args.get(1..).unwrap_or_default());
     }
     // So do `agent` and `access`.
     if args.first().map(String::as_str) == Some("agent") {
-        return agent_cli::run(&args[1..]);
+        return agent_cli::run(args.get(1..).unwrap_or_default());
     }
     if args.first().map(String::as_str) == Some("access") {
-        return access_cli::run(&args[1..]);
+        return access_cli::run(args.get(1..).unwrap_or_default());
     }
     if args.first().map(String::as_str) == Some("machine") {
-        return machine_update::run(&args[1..]);
+        return machine_update::run(args.get(1..).unwrap_or_default());
     }
     // Asked-for help is a success on stdout, like every other scope.
     if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
@@ -150,7 +150,7 @@ fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
 fn run_link(args: &[String]) -> anyhow::Result<()> {
     let help = || anyhow!(help_text());
     let Some(action) = args.first().map(String::as_str) else { return Err(help()) };
-    let rest = &args[1..];
+    let rest = args.get(1..).unwrap_or_default();
     match action {
         "init" => {
             run_init(&flags(rest, &["--state-dir", "--install", "--port", "--server-identity"])?)
@@ -197,8 +197,7 @@ type Flags = HashMap<&'static str, String>;
 fn flags(args: &[String], allowed: &[&'static str]) -> anyhow::Result<Flags> {
     let mut values = Flags::new();
     let mut index = 0;
-    while index < args.len() {
-        let argument = args[index].as_str();
+    while let Some(argument) = args.get(index).map(String::as_str) {
         let Some(name) = allowed.iter().copied().find(|name| *name == argument) else {
             return Err(anyhow!(catalog().remote_client.unknown_option(argument)));
         };
@@ -297,7 +296,7 @@ fn run_peer(args: &[String]) -> anyhow::Result<()> {
     let Some(action) = args.first().map(String::as_str) else {
         return Err(anyhow!(help_text()));
     };
-    let rest = &args[1..];
+    let rest = args.get(1..).unwrap_or_default();
     match action {
         "add" => {
             let flags = flags(

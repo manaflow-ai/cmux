@@ -61,7 +61,7 @@ pub(super) fn read_frame<R: BufRead>(reader: &mut R) -> Result<Envelope, FrameRe
                 frame.zeroize();
                 return Err(FrameReadError::TooLarge);
             }
-            frame.extend_from_slice(&available[..newline]);
+            frame.extend_from_slice(available.get(..newline).unwrap_or(available));
             reader.consume(newline + 1);
             if frame.last() == Some(&b'\r') {
                 frame.pop();

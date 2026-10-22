@@ -145,7 +145,10 @@ impl ProviderNoticeIdentity {
                         })?;
                     *lease = Some(acquired);
                 }
-                Ok(lease.as_ref().expect("notice identity lease was initialized").consumer_id())
+                let lease = lease
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("the notice identity lease is missing"))?;
+                Ok(lease.consumer_id())
             }
         }
     }
@@ -698,7 +701,8 @@ impl ProviderMachineRuntime {
                 anyhow::bail!(localization::catalog().sidebar.machine_creation_source_unavailable)
             }
             MachineRequest::Connect { .. } => {
-                unreachable!("external connect requests are routed by ProviderMachineController")
+                // ProviderMachineController routes external connects before here.
+                anyhow::bail!("external connect requests are routed by the machine controller")
             }
             MachineRequest::SelectProviderScope(scope_id) => {
                 let selected =
@@ -993,7 +997,10 @@ impl ProviderMachineRuntime {
                     Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
                 }))
             }
-            MachineRequest::ReconnectProvider => unreachable!("handled before refresh"),
+            // Handled before refresh; a stray one is refused, not a crash.
+            MachineRequest::ReconnectProvider => {
+                anyhow::bail!("provider reconnect is handled before this request")
+            }
         }
     }
 

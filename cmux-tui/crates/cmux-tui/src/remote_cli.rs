@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::json_field::JsonFieldExt;
 use anyhow::{Context, anyhow};
 use base64::Engine;
 use cmux_build_identity::BUILD_IDENTITY;
@@ -91,25 +92,25 @@ fn run_inner(
     usage: &str,
     load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
-    if remote_help_requested(&args[1..]) {
+    if remote_help_requested(args.get(1..).unwrap_or_default()) {
         print!("{}", remote_help(args.first().map(String::as_str)));
         return Ok(());
     }
     match args.first().map(String::as_str) {
-        Some("connect") => run_connect(&args[1..], None, load_config),
-        Some("ssh") => run_ssh(&args[1..], load_config),
-        Some("forward") => run_forward(&args[1..]),
-        Some("browser-proxy") => run_browser_proxy(&args[1..]),
-        Some("rpc") => run_rpc(&args[1..]),
-        Some("enroll") => run_enroll(&args[1..], load_config),
-        Some("known-daemons") => run_known_daemons(&args[1..]),
-        Some("remote-probe") => run_probe(&args[1..]),
-        Some("remote-link") => run_remote_link(&args[1..]),
-        Some("remote-sidecar") => run_remote_sidecar(&args[1..]),
-        Some("remote-stop") => run_remote_stop(&args[1..]),
-        Some("remote-update-need") => run_update_need(&args[1..]),
-        Some("install-self") => run_install_self(&args[1..]),
-        Some("wg") => run_wg(&args[1..]),
+        Some("connect") => run_connect(args.get(1..).unwrap_or_default(), None, load_config),
+        Some("ssh") => run_ssh(args.get(1..).unwrap_or_default(), load_config),
+        Some("forward") => run_forward(args.get(1..).unwrap_or_default()),
+        Some("browser-proxy") => run_browser_proxy(args.get(1..).unwrap_or_default()),
+        Some("rpc") => run_rpc(args.get(1..).unwrap_or_default()),
+        Some("enroll") => run_enroll(args.get(1..).unwrap_or_default(), load_config),
+        Some("known-daemons") => run_known_daemons(args.get(1..).unwrap_or_default()),
+        Some("remote-probe") => run_probe(args.get(1..).unwrap_or_default()),
+        Some("remote-link") => run_remote_link(args.get(1..).unwrap_or_default()),
+        Some("remote-sidecar") => run_remote_sidecar(args.get(1..).unwrap_or_default()),
+        Some("remote-stop") => run_remote_stop(args.get(1..).unwrap_or_default()),
+        Some("remote-update-need") => run_update_need(args.get(1..).unwrap_or_default()),
+        Some("install-self") => run_install_self(args.get(1..).unwrap_or_default()),
+        Some("wg") => run_wg(args.get(1..).unwrap_or_default()),
         Some("remote") => Err(anyhow!(catalog().remote_client.remote_lifecycle_help)),
         _ => Err(anyhow!("unknown remote command\n\n{usage}")),
     }
@@ -164,8 +165,8 @@ fn remote_help_requested(args: &[String]) -> bool {
 
     let mut index = 0;
     let mut requested = false;
-    while index < args.len() {
-        match args[index].as_str() {
+    while let Some(argument) = args.get(index) {
+        match argument.as_str() {
             "-h" | "--help" => {
                 requested = true;
                 index += 1;
@@ -274,8 +275,7 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
         ..ConnectFlags::default()
     };
     let mut index = 0;
-    while index < args.len() {
-        let argument = &args[index];
+    while let Some(argument) = args.get(index) {
         index += 1;
         let mut value = |name: &str| -> anyhow::Result<String> {
             let value = args
@@ -816,7 +816,9 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
             route_strings,
         ))?;
     } else if carrier_auth {
-        let name = credential_free_route_hint(&route_strings[0])?;
+        let first_route =
+            route_strings.first().ok_or_else(|| anyhow!("no route to pin the daemon to"))?;
+        let name = credential_free_route_hint(first_route)?;
         async_runtime.block_on(store.pin_carrier_daemon(
             name,
             runtime.info().daemon_public_key,
@@ -913,6 +915,12 @@ fn client_relay_options(
         return match slots.len() {
             0 => Ok(BTreeMap::new()),
             1 => {
+                // One slot and (checked above) one credential.
+                let (Some(slot), Some(credential)) =
+                    (slots.into_iter().next(), credentials.into_iter().next())
+                else {
+                    return Err(anyhow!(messages.relay_credential_pair_required));
+                };
                 let endpoint = explicit_route
                     .ok_or_else(|| anyhow!(messages.relay_credentials_require_explicit_route))
                     .and_then(|route| parse_route(route, "relay connection route"))?;
@@ -922,12 +930,7 @@ fn client_relay_options(
                 }
                 Ok(BTreeMap::from([(
                     endpoint.to_string(),
-                    RelayClientOptions {
-                        slot: slots.into_iter().next().unwrap(),
-                        credentials: client_relay_credential(
-                            credentials.into_iter().next().unwrap(),
-                        )?,
-                    },
+                    RelayClientOptions { slot, credentials: client_relay_credential(credential)? },
                 )]))
             }
             _ => Err(anyhow!(messages.multiple_relay_credentials_require_routes)),
@@ -1025,9 +1028,8 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
     let host = flags.forward_host.clone().unwrap_or_else(|| "127.0.0.1".into());
     let port =
         flags.forward_port.ok_or_else(|| anyhow!(catalog().remote_client.forward_port_required))?;
-    let listen = flags
-        .forward_listen
-        .unwrap_or_else(|| "127.0.0.1:0".parse().expect("loopback address is valid"));
+    let listen =
+        flags.forward_listen.unwrap_or_else(|| std::net::SocketAddr::from(([127, 0, 0, 1], 0)));
     let scheme = flags.forward_scheme.clone();
     let connected = start_connected(flags)?;
     let runtime = tokio_runtime()?;
@@ -1431,8 +1433,7 @@ fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollAdminArgs> {
     };
     let mut seen = BTreeSet::new();
     let mut options_ended = false;
-    while index < args.len() {
-        let argument = &args[index];
+    while let Some(argument) = args.get(index) {
         index += 1;
         if !options_ended && argument == "--" {
             options_ended = true;
@@ -1544,7 +1545,7 @@ fn run_enroll(
     load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
     if args.first().is_some_and(|action| action == "connect") {
-        return run_connect(&args[1..], None, load_config);
+        return run_connect(args.get(1..).unwrap_or_default(), None, load_config);
     }
     let parsed = parse_enroll_admin_args(args)?;
     let admin_socket = parsed.admin_socket.clone().unwrap_or_else(|| {
@@ -1556,6 +1557,13 @@ fn run_enroll(
             })
             .unwrap_or_else(|_| PathBuf::from("/nonexistent"))
     });
+    // The parser checks each action's positional count; a missing one is a
+    // usage error, not a crash.
+    let positional = |index: usize| {
+        parsed.positionals.get(index).cloned().ok_or_else(|| {
+            anyhow!("{} needs {} positional argument(s)", parsed.action.name(), index + 1)
+        })
+    };
     let request = match parsed.action {
         EnrollAdminAction::Status => AdminRequest::Status,
         EnrollAdminAction::Create => AdminRequest::CreateInvitation {
@@ -1564,21 +1572,14 @@ fn run_enroll(
             relay_access: invitation_relay_access(&parsed)?,
         },
         EnrollAdminAction::Pending => AdminRequest::Pending,
-        EnrollAdminAction::Approve => {
-            AdminRequest::Approve { invitation_id: parsed.positionals[0].clone() }
-        }
-        EnrollAdminAction::Deny => {
-            AdminRequest::Deny { invitation_id: parsed.positionals[0].clone() }
-        }
+        EnrollAdminAction::Approve => AdminRequest::Approve { invitation_id: positional(0)? },
+        EnrollAdminAction::Deny => AdminRequest::Deny { invitation_id: positional(0)? },
         EnrollAdminAction::Devices => AdminRequest::Devices,
         EnrollAdminAction::Connections => AdminRequest::Connections,
-        EnrollAdminAction::Revoke => {
-            AdminRequest::Revoke { device_id: parsed.positionals[0].clone() }
+        EnrollAdminAction::Revoke => AdminRequest::Revoke { device_id: positional(0)? },
+        EnrollAdminAction::Disconnect => {
+            AdminRequest::Disconnect { device_id: positional(0)?, session_id: positional(1)? }
         }
-        EnrollAdminAction::Disconnect => AdminRequest::Disconnect {
-            device_id: parsed.positionals[0].clone(),
-            session_id: parsed.positionals[1].clone(),
-        },
     };
     let response = tokio_runtime()?.block_on(call_admin(&admin_socket, &request))?;
     print_admin_response(parsed.action.name(), response, parsed.json)
@@ -1604,8 +1605,7 @@ fn parse_known_daemons_args(args: &[String]) -> anyhow::Result<KnownDaemonsArgs>
     let mut positionals = Vec::new();
     let mut options_ended = false;
     let mut index = 0;
-    while index < args.len() {
-        let argument = &args[index];
+    while let Some(argument) = args.get(index) {
         index += 1;
         if !options_ended && argument == "--" {
             options_ended = true;
@@ -1965,7 +1965,10 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
     if json {
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else if action == "create" {
-        println!("{}", result["uri"].as_str().ok_or_else(|| anyhow!("missing invitation URI"))?);
+        println!(
+            "{}",
+            result.field("uri").as_str().ok_or_else(|| anyhow!("missing invitation URI"))?
+        );
     } else {
         println!("{}", serde_json::to_string_pretty(&result)?);
     }
@@ -2004,10 +2007,11 @@ pub const PROBE_CAPABILITIES: &[&str] = &[
 fn run_update_need(args: &[String]) -> anyhow::Result<()> {
     use cmux_remote::update_need::{BuildFacts, update_need};
     let source = match args {
-        [flag, source] if flag == "--probe-json" => source.as_str(),
-        [single] if single.starts_with("--probe-json=") => &single["--probe-json=".len()..],
-        _ => return Err(anyhow!(catalog().remote.remote_update_need_help)),
-    };
+        [flag, source] if flag == "--probe-json" => Some(source.as_str()),
+        [single] => single.strip_prefix("--probe-json="),
+        _ => None,
+    }
+    .ok_or_else(|| anyhow!(catalog().remote.remote_update_need_help))?;
     let text = if source == "-" {
         let mut text = String::new();
         io::stdin().read_to_string(&mut text).context("read the probe JSON from stdin")?;
@@ -2044,8 +2048,11 @@ fn run_update_need(args: &[String]) -> anyhow::Result<()> {
         "need": need, "reason": reason, "remote": side(&remote), "local": side(&local),
     });
     if reason == cmux_remote::update_need::Reason::Incomparable {
-        answer["warning"] = serde_json::json!(
-            "each build serves a capability the other lacks; neither replaces the other"
+        answer.set_field(
+            "warning",
+            serde_json::json!(
+                "each build serves a capability the other lacks; neither replaces the other"
+            ),
         );
     }
     println!("{answer}");
@@ -2071,8 +2078,10 @@ fn run_probe(args: &[String]) -> anyhow::Result<()> {
     // 4096 bytes of this output, and the list alone is larger (cx-3r9mt).
     let mut value = value;
     if args.iter().any(|argument| argument == "--build-facts") {
-        value["daemon_capabilities"] =
-            serde_json::json!(cmux_tui_core::server::build_capabilities());
+        value.set_field(
+            "daemon_capabilities",
+            serde_json::json!(cmux_tui_core::server::build_capabilities()),
+        );
     }
     if args.iter().any(|argument| argument == "--json") {
         println!("{}", serde_json::to_string(&value)?);
@@ -2165,7 +2174,7 @@ fn run_install_self(args: &[String]) -> anyhow::Result<()> {
     let parent = open_install_parent(parent)?;
     let temporary_name =
         std::ffi::CString::new(format!(".cmux-tui-install-{}", uuid::Uuid::new_v4()))
-            .expect("UUID staging name has no NUL bytes");
+            .map_err(|_| anyhow!("install staging name has a NUL byte"))?;
     let temporary_descriptor = unsafe {
         libc::openat(
             parent.as_raw_fd(),
@@ -2234,8 +2243,7 @@ fn parse_remote_link_args(args: &[String]) -> anyhow::Result<RemoteLinkArgs> {
     let mut stdio = false;
     let mut seen = BTreeSet::new();
     let mut index = 0;
-    while index < args.len() {
-        let argument = args[index].as_str();
+    while let Some(argument) = args.get(index).map(String::as_str) {
         index += 1;
         match argument {
             "--stdio" => {
@@ -2326,7 +2334,7 @@ fn install_agent_hooks(providers: Vec<String>) {
         crate::client_log::stderr_log!(
             "remote",
             "{BIN}: agent hook install failed: {}",
-            result.value["errors"]
+            result.value.field("errors")
         );
     }
 }
@@ -2345,8 +2353,7 @@ fn parse_remote_stop_args(args: &[String]) -> anyhow::Result<RemoteStopArgs> {
     let mut acknowledge_legacy_finalization = false;
     let mut seen = BTreeSet::new();
     let mut index = 0;
-    while index < args.len() {
-        let argument = &args[index];
+    while let Some(argument) = args.get(index) {
         index += 1;
         match argument.as_str() {
             "--session" => {
@@ -2989,7 +2996,9 @@ async fn select_known_daemon(
         .collect::<Vec<_>>();
     match matching.as_slice() {
         [daemon] => Ok(daemon.clone()),
-        [] if daemons.len() == 1 => Ok(daemons[0].clone()),
+        [] if daemons.len() == 1 => {
+            daemons.first().cloned().ok_or_else(|| anyhow!("no known daemon"))
+        }
         [] if route.is_some() => {
             Err(anyhow!("no known daemon matches this route; connect with an invitation"))
         }
@@ -3076,7 +3085,10 @@ fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
 }
 
 fn flag_value(args: &[String], flag: &str) -> Option<String> {
-    args.windows(2).find(|pair| pair[0] == flag).map(|pair| pair[1].clone())
+    args.windows(2).find_map(|pair| match pair {
+        [name, value] if name == flag => Some(value.clone()),
+        _ => None,
+    })
 }
 
 fn expand_home(path: String) -> anyhow::Result<PathBuf> {

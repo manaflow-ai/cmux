@@ -9,6 +9,7 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::json_field::JsonFieldExt;
 use anyhow::{Context as _, anyhow, bail};
 use serde_json::{Value, json};
 
@@ -276,9 +277,14 @@ fn serve_one(
         Op::Probe => {
             record("probe", "ok", None);
             let mut reply = probe_reply(host, &config, access);
-            if let Some(scopes) = &scopes {
-                reply["host"]["scopes"] =
-                    json!(scopes.iter().map(|s| s.name()).collect::<Vec<_>>());
+            // `probe_reply` always has a `host` object.
+            if let Some(scopes) = &scopes
+                && let Some(host_reply) = reply.get_mut("host")
+            {
+                host_reply.set_field(
+                    "scopes",
+                    json!(scopes.iter().map(|s| s.name()).collect::<Vec<_>>()),
+                );
             }
             preface::write_value(&mut stream, &reply)?;
             Ok(())
@@ -394,7 +400,8 @@ pub(crate) fn ensure_session(exe: &Path, session: &str) -> anyhow::Result<PathBu
         bail!("`daemon ensure` failed: {}", String::from_utf8_lossy(&out).trim());
     }
     let value: Value = serde_json::from_slice(&out).context("`daemon ensure` printed no JSON")?;
-    let socket = value["socket"].as_str().or_else(|| value["result"]["socket"].as_str());
+    let socket =
+        value.field("socket").as_str().or_else(|| value.field("result").field("socket").as_str());
     socket.map(PathBuf::from).ok_or_else(|| anyhow!("`daemon ensure` named no socket"))
 }
 
@@ -460,7 +467,10 @@ fn copy_flush(from: &mut impl Read, to: &mut impl Write) -> io::Result<u64> {
             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
             Err(e) => return Err(e),
         };
-        to.write_all(&buf[..n])?;
+        let chunk = buf
+            .get(..n)
+            .ok_or_else(|| io::Error::other("read reported more bytes than its buffer"))?;
+        to.write_all(chunk)?;
         to.flush()?;
         total += n as u64;
     }
