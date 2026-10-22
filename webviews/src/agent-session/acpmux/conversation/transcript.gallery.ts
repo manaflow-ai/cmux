@@ -1669,6 +1669,26 @@ export default agentPaneEntry({
         });
       },
     },
+    "turn-error-no-team-account": {
+      note: "Codex on a team Cloud machine whose team has no Codex account: say so and name the command that adds one, not a rate limit or a refused route.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.5, {
+            status: "failed",
+            error:
+              "unexpected status 403 Forbidden: Codex needs a team account on this machine. To add one for the team, run `cr add codex` in this machine's terminal. If someone added one as private, they can choose Share with team at coderouter.dev., url: https://coderouter.cmux.dev/v1/responses, request id: req-1",
+          }),
+        ],
+        { harness: "codex", model: "gpt-5.5" },
+      ),
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const note = ctx.document.querySelector('[data-failure-kind="no-team-account"]');
+          return note && /needs a team account on this machine/.test(note.textContent ?? "") ? note : null;
+        });
+      },
+    },
     "turn-error-unreachable": {
       note: "The route's server is down or unreachable.",
       snapshot: chat(

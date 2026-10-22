@@ -41,6 +41,8 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
       type="button"
       className={`cv-chip is-path${outside ? " is-outside" : ""}`}
       data-path={path}
+      /* It drags out as the file itself (conversation/dragOut.ts). */
+      draggable
       onClick={() => void callChipHost("link.openPath", { path })}
     >
       {folder ? <Folder size={15} className="cv-chip__icon" /> : <FileDoc size={15} className="cv-chip__icon" />}

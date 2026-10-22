@@ -152,6 +152,118 @@ extension SidebarArrangement {
     }
 }
 
+/// Group edits this phone made that the Mac's list has not shown back yet.
+///
+/// The phone shows a group change at once and sends it to the Mac. Until the
+/// Mac's list carries it, a tree refresh (a terminal title, an agent event, a
+/// notification) can publish the group as it was: the list's arrangement is
+/// cached and only re-read after the Mac answers. Without this a collapsed
+/// group opened again by itself, and a second tap seemed to be needed
+/// ("disclosure groups not being properly closable"). An edit holds its
+/// members' group over refreshes while it is in flight, and after the Mac's
+/// yes until a refresh shows it or `confirmWindow` passes; then the Mac's
+/// state wins again (another device may change it). Only the latest edit of
+/// a workspace counts: a refused earlier tap does not undo a later one.
+struct PendingGroupEdits: Sendable {
+    /// How long an answered edit outlasts refreshes that do not show it.
+    static let confirmWindow: TimeInterval = 10
+    /// An edit the Mac never answered gives way after this long.
+    static let unansweredWindow: TimeInterval = 30
+
+    private struct Edit: Sendable {
+        var group: MacWorkspaceGroup?
+        var generation: Int
+        /// When its request left for the Mac (nil: queued behind earlier ones).
+        var sentAt: Date?
+        var answeredAt: Date?
+        /// False: the edit only marks the latest one (a new group, which
+        /// the Mac names with its own id); refreshes show the Mac's group.
+        var holds: Bool
+    }
+
+    private var edits: [String: Edit] = [:]
+    private var generation = 0
+
+    var isEmpty: Bool { edits.isEmpty }
+
+    /// The workspaces now show `group` (nil: no group); returns the edit's
+    /// generation. It replaces any earlier edit of those workspaces.
+    mutating func begin(_ workspaceIDs: [String], group: MacWorkspaceGroup?, holds: Bool = true) -> Int {
+        generation += 1
+        for id in workspaceIDs { edits[id] = Edit(group: group, generation: generation, holds: holds) }
+        return generation
+    }
+
+    /// The edit's request left for the Mac (after the Mac's earlier group
+    /// requests): the unanswered window counts from here.
+    mutating func sent(_ workspaceIDs: [String], generation: Int, at date: Date) {
+        for id in workspaceIDs where edits[id]?.generation == generation { edits[id]?.sentAt = date }
+    }
+
+    /// The Mac accepted the edit: refreshes keep it until one shows it (a
+    /// non-holding edit is done).
+    mutating func answered(_ workspaceIDs: [String], generation: Int, at date: Date) {
+        for id in workspaceIDs where edits[id]?.generation == generation {
+            if edits[id]?.holds == false { edits[id] = nil } else { edits[id]?.answeredAt = date }
+        }
+    }
+
+    /// Forgets every edit (sign-in); generations keep counting, so a request
+    /// from before never matches a later edit.
+    mutating func removeAll() {
+        edits.removeAll()
+    }
+
+    /// The Mac refused the edit: the workspaces it was still the latest edit
+    /// of (those to roll back).
+    mutating func refused(_ workspaceIDs: [String], generation: Int) -> Set<String> {
+        var latest: Set<String> = []
+        for id in workspaceIDs where edits[id]?.generation == generation {
+            edits[id] = nil
+            latest.insert(id)
+        }
+        return latest
+    }
+
+    /// One Mac's refreshed rows, with the edits they do not show yet.
+    mutating func apply(to rows: inout [Workspace], now: Date) {
+        guard !edits.isEmpty else { return }
+        for index in rows.indices {
+            let id = rows[index].id
+            guard let edit = edits[id] else { continue }
+            let incoming = rows[index].group
+            guard edit.holds else { continue }
+            let expired = edit.answeredAt.map { now.timeIntervalSince($0) > Self.confirmWindow }
+                ?? edit.sentAt.map { now.timeIntervalSince($0) > Self.unansweredWindow } ?? false
+            if expired || (edit.answeredAt != nil && Self.shows(incoming, edit.group)) {
+                edits[id] = nil
+                continue
+            }
+            rows[index].group = Self.merged(incoming, edit.group)
+        }
+    }
+
+    /// The Mac's group carries the edit (its place among groups may differ).
+    static func shows(_ incoming: MacWorkspaceGroup?, _ expected: MacWorkspaceGroup?) -> Bool {
+        guard let incoming, let expected else { return incoming == nil && expected == nil }
+        return incoming.id == expected.id && incoming.name == expected.name && incoming.color == expected.color
+            && incoming.isCollapsed == expected.isCollapsed
+    }
+
+    /// The edit over the Mac's group: the Mac's place, the edit's fields.
+    static func merged(_ incoming: MacWorkspaceGroup?, _ expected: MacWorkspaceGroup?) -> MacWorkspaceGroup? {
+        guard var expected else { return nil }
+        guard var incoming, incoming.id == expected.id else {
+            expected.index = incoming?.index ?? expected.index
+            return expected
+        }
+        incoming.name = expected.name
+        incoming.color = expected.color
+        incoming.isCollapsed = expected.isCollapsed
+        return incoming
+    }
+}
+
 /// The Mac's workspace group actions, for a backend that can send them
 /// (cmux-next-ios/SECURITY.md "Workspace groups").
 @MainActor
@@ -187,8 +299,9 @@ extension WorkspaceCreator {
     public func place(_ workspace: Workspace, in group: MacWorkspaceGroup?) {
         guard canGroup(workspace), workspace.group?.id != group?.id, let grouper else { return }
         let old = store.updateWorkspace(workspace.id) { $0.group = group }
+        let generation = store.groupEdits.begin([workspace.id], group: group)
         let failure = group == nil ? "Couldn't remove \(workspace.title) from its group" : "Couldn't move \(workspace.title) to \(group?.displayName ?? "")"
-        regroup([old].compactMap { $0 }, workspace: workspace, failure: failure) {
+        regroup([old].compactMap { $0 }, generation: generation, workspace: workspace, failure: failure) {
             try await grouper.place(workspace, in: group)
         }
     }
@@ -203,7 +316,10 @@ extension WorkspaceCreator {
         let color = MacWorkspaceGroup.nextColor(used: used)
         let pending = MacWorkspaceGroup(id: "pending-\(UUID().uuidString)", name: name, color: color.rawValue)
         let old = store.updateWorkspace(workspace.id) { $0.group = pending }
-        regroup([old].compactMap { $0 }, workspace: workspace, failure: "Couldn't make a group for \(workspace.title)") {
+        // Not held over refreshes (the Mac names the new group with its own
+        // id), but it is the workspace's latest edit: earlier ones stop.
+        let generation = store.groupEdits.begin([workspace.id], group: pending, holds: false)
+        regroup([old].compactMap { $0 }, generation: generation, workspace: workspace, failure: "Couldn't make a group for \(workspace.title)") {
             try await grouper.moveToNewGroup(workspace, name: name, color: color)
         }
     }
@@ -250,18 +366,33 @@ extension WorkspaceCreator {
         var changed = group
         change(&changed)
         let old = members.compactMap { ws in store.updateWorkspace(ws.id) { $0.group = removes ? nil : changed } }
-        regroup(old, workspace: first, failure: failure) { try await work(grouper) }
+        let generation = store.groupEdits.begin(old.map(\.id), group: removes ? nil : changed)
+        regroup(old, generation: generation, workspace: first, failure: failure) { try await work(grouper) }
     }
 
-    private func regroup(_ old: [Workspace], workspace: Workspace, failure: String, _ work: @escaping @MainActor () async throws -> Void) {
-        track(workspace.id) { [weak self] in
+    /// Sends a group edit already shown, after the Mac's earlier group
+    /// requests. `generation` (`PendingGroupEdits`) holds it over refreshes;
+    /// a refusal rolls back only the workspaces whose latest edit it still is.
+    private func regroup(_ old: [Workspace], generation: Int, workspace: Workspace, failure: String,
+                         _ work: @escaping @MainActor () async throws -> Void) {
+        let ids = old.map(\.id)
+        let macID = workspace.macID
+        let previous = groupRequestTail[macID]
+        let task = track(workspace.id) { [weak self] in
+            await previous?.value
+            self?.store.groupEdits.sent(ids, generation: generation, at: self?.store.now() ?? Date())
             do {
                 try await work()
+                guard let self else { return }
+                store.groupEdits.answered(ids, generation: generation, at: store.now())
             } catch {
-                for ws in old { self?.store.updateWorkspace(ws.id) { $0.group = ws.group } }
-                self?.onManageFailure?(workspace, failure, Self.message(error))
+                guard let self else { return }
+                let latest = store.groupEdits.refused(ids, generation: generation)
+                for ws in old where latest.contains(ws.id) { store.updateWorkspace(ws.id) { $0.group = ws.group } }
+                onManageFailure?(workspace, failure, Self.message(error))
             }
         }
+        groupRequestTail[macID] = task
     }
 }
 
