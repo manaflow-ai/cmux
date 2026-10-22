@@ -398,6 +398,26 @@ mod tests {
         }
     }
 
+    /// `cmux docs search setup` and an agent asking in its own words for
+    /// setup prompts or a remote machine find the Chief prompts guide, and it
+    /// sends them to `cmux setup list`, where the prompts live.
+    #[test]
+    fn chief_prompt_guide_is_found_by_setup_words() {
+        let topic = "Set up cmux with Chief: copyable setup prompts";
+        for query in
+            ["setup", "chief setup prompts", "set up a remote machine", "pair a tailnet mac"]
+        {
+            assert!(guides(query).iter().any(|guide| guide.topic == topic), "{query}");
+        }
+        let guide = GUIDES.iter().find(|guide| guide.topic == topic).unwrap();
+        for words in
+            ["`cmux setup list`", "`prompt`", "docs/chief-setup-prompts.md", "--prompts-md"]
+        {
+            assert!(guide.text.contains(words), "{words}");
+        }
+        assert_eq!(guides("status").len(), 1);
+    }
+
     #[test]
     fn docs_search_preserves_json_output_mode() {
         let plan = parse(

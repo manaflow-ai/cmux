@@ -112,6 +112,10 @@ struct Task {
     apply: &'static [&'static str],
     /// What only the person can do, or None when an agent can do all of it.
     person: Option<&'static str>,
+    /// What the person pastes into Chief (or any agent chat in cmux) to have
+    /// the task done: the exact command to run, what to hand the person and
+    /// what to reply. Capitals (HOST, FOLDER) are the person's to fill in.
+    prompt: &'static str,
 }
 
 /// Every setup task a person meets in cmux NEXT, with the command that does
@@ -124,6 +128,7 @@ const TASKS: &[Task] = &[
         check: &["cmux setup trust FOLDER --dry-run"],
         apply: &["cmux setup trust FOLDER"],
         person: None,
+        prompt: "",
     },
     Task {
         id: "harness",
@@ -132,6 +137,7 @@ const TASKS: &[Task] = &[
         check: &["cmux setup harness [ID ...]", "cmux harness doctor ID --json"],
         apply: &["cmux harness add ...", "cmux harness login ID"],
         person: Some("the harness's own sign-in (OAuth in a browser) and installing its CLI"),
+        prompt: "",
     },
     Task {
         id: "machine",
@@ -140,6 +146,7 @@ const TASKS: &[Task] = &[
         check: &["cmux setup machine SSH_TARGET --dry-run", "cmux setup status"],
         apply: &["cmux setup machine SSH_TARGET [--name NAME]"],
         person: Some("key-only ssh to the machine: adding a key there or fixing ssh config"),
+        prompt: "",
     },
     Task {
         id: "host_update",
@@ -148,6 +155,7 @@ const TASKS: &[Task] = &[
         check: &["cmux setup status", "cmux acp host ls --json"],
         apply: &["cmux setup machine SSH_TARGET --name NAME", "cmux acp host update --all --json"],
         person: None,
+        prompt: "",
     },
     Task {
         id: "accounts",
@@ -156,6 +164,7 @@ const TASKS: &[Task] = &[
         check: &["cmux accounts list --json"],
         apply: &["cmux cloud sign-in"],
         person: Some("the cmux sign-in in the browser"),
+        prompt: "",
     },
     Task {
         id: "cloud_machine",
@@ -164,6 +173,7 @@ const TASKS: &[Task] = &[
         check: &["cmux setup cloud-machine --dry-run", "cmux cloud diagnostics"],
         apply: &["cmux setup cloud-machine"],
         person: Some("signing in to cmux, and allowing the new machine on the card cmux shows"),
+        prompt: "",
     },
     Task {
         id: "tailnet",
@@ -172,6 +182,7 @@ const TASKS: &[Task] = &[
         check: &["cmux host status --json"],
         apply: &["cmux host enable --json"],
         person: Some("signing in to Tailscale (`tailscale up`) when it is not signed in"),
+        prompt: "",
     },
     Task {
         id: "mcp",
@@ -180,6 +191,7 @@ const TASKS: &[Task] = &[
         check: &["cmux setup mcp --dry-run", "cmux agents doctor --json", "cmux mcp tools --json"],
         apply: &["cmux setup mcp"],
         person: Some("turning on \"mcp\": {\"enabled\": true} in the cmux settings file"),
+        prompt: "",
     },
     Task {
         id: "computer_use",
@@ -190,6 +202,7 @@ const TASKS: &[Task] = &[
         person: Some(
             "allowing Computer Use on the sheet cmux shows, and the Accessibility and Screen Recording switches in System Settings",
         ),
+        prompt: "",
     },
     Task {
         id: "browser_import",
@@ -205,6 +218,7 @@ const TASKS: &[Task] = &[
         person: Some(
             "allowing the cookie import on the panel cmux shows and the Keychain prompt; history and password import (Import from Browser...)",
         ),
+        prompt: "",
     },
     Task {
         id: "keyboard_shortcuts",
@@ -213,6 +227,7 @@ const TASKS: &[Task] = &[
         check: &["cmux keybinding list --json", "cmux keybinding resolve KEYS --json"],
         apply: &["cmux settings keyboard-shortcuts"],
         person: None,
+        prompt: "",
     },
     Task {
         id: "notifications",
@@ -223,6 +238,7 @@ const TASKS: &[Task] = &[
         person: Some(
             "allowing notifications on the macOS prompt, or turning them on in System Settings > Notifications once denied",
         ),
+        prompt: "",
     },
     Task {
         id: "team_invites",
@@ -231,6 +247,7 @@ const TASKS: &[Task] = &[
         check: &[],
         apply: &["cmux home invite --email EMAIL"],
         person: Some("team invites from the web dashboard (Teams > Members)"),
+        prompt: "",
     },
 ];
 
@@ -245,10 +262,21 @@ fn list() -> Value {
                 "check": task.check,
                 "apply": task.apply,
                 "person": task.person,
+                "prompt": task.prompt,
             })
         })
         .collect::<Vec<_>>();
-    json!({"schema_version": 1, "tasks": tasks})
+    json!({"schema_version": 1, "status_prompt": STATUS_PROMPT, "tasks": tasks})
+}
+
+/// The prompt that sets up this Mac: `cmux setup status` and the fix of
+/// each check it names.
+const STATUS_PROMPT: &str = "";
+
+/// docs/chief-setup-prompts.md: every prompt as a copyable block, made from
+/// [`TASKS`] (`cmux setup list --prompts-md`).
+fn prompts_markdown() -> String {
+    String::new()
 }
 
 /// The read-only check of every task `setup` runs: this folder's trust,
@@ -270,4 +298,56 @@ fn status(global: &GlobalArgs) -> Result<Outcome, Refusal> {
         browser_import::status(global),
     ];
     Ok(Outcome { report: json!({"schema_version": 1, "checks": checks}), failed: false })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The words of a command before its first argument: `cmux setup
+    /// machine` of `cmux setup machine SSH_TARGET [--name NAME]`.
+    fn command_words(command: &str) -> String {
+        command
+            .split_whitespace()
+            .take_while(|word| word.chars().all(|c| c.is_ascii_lowercase() || c == '-'))
+            .take_while(|word| !word.starts_with('-'))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// Every task has a Chief prompt, and the prompt names, in backticks,
+    /// the command that does the task: its `cmux setup` command when setup
+    /// runs it, else one of its check or apply commands.
+    #[test]
+    fn chief_prompt_on_every_task_names_its_command() {
+        assert!(STATUS_PROMPT.contains("`cmux setup status`"), "{STATUS_PROMPT:?}");
+        for task in TASKS {
+            assert!(!task.prompt.trim().is_empty(), "{} has no prompt", task.id);
+            assert!(!task.prompt.contains('\n'), "{}: one paragraph", task.id);
+            let commands = match task.setup {
+                Some(setup) => vec![setup],
+                None => task.check.iter().chain(task.apply).copied().collect(),
+            };
+            assert!(
+                commands.iter().any(|command| {
+                    let words = command_words(command);
+                    words.split(' ').count() >= 3 && task.prompt.contains(&format!("`{words}"))
+                }),
+                "{}: prompt {:?} names none of {commands:?}",
+                task.id,
+                task.prompt
+            );
+        }
+    }
+
+    /// The generated page has one block per task, each with its prompt.
+    #[test]
+    fn chief_prompt_markdown_has_a_block_per_task() {
+        let page = prompts_markdown();
+        assert!(page.starts_with("# "), "{page}");
+        assert!(page.contains(STATUS_PROMPT) && !STATUS_PROMPT.is_empty());
+        for task in TASKS {
+            assert!(page.contains(&format!("```text\n{}\n```", task.prompt)), "{}", task.id);
+        }
+    }
 }
