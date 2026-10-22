@@ -454,6 +454,9 @@ fn stop_takes_a_subagent_and_engine_takes_speeds() {
         "--compactor-harness",
         "claude-sr",
         "--compactor-model=claude-haiku-5-5",
+        "--reactions-can-wake=false",
+        "--classifier-model",
+        "claude-haiku-5-5",
     ]))
     .unwrap();
     assert_eq!(
@@ -462,7 +465,9 @@ fn stop_takes_a_subagent_and_engine_takes_speeds() {
             ("speed".into(), "fast".into()),
             ("compactor_speed".into(), "default".into()),
             ("compactor_harness".into(), "claude-sr".into()),
-            ("compactor_model".into(), "claude-haiku-5-5".into())
+            ("compactor_model".into(), "claude-haiku-5-5".into()),
+            ("reactions_can_wake".into(), "false".into()),
+            ("classifier_model".into(), "claude-haiku-5-5".into())
         ]))
     );
     let report = json!({"engine": {"harness": "codex", "model": "gpt-6-sol", "effort": "high", "speed": "fast"}});

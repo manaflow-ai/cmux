@@ -8,6 +8,12 @@ extension FilesPaneView {
         let menu = NSMenu()
         if entry != nil {
             menu.addItem(item(FilesStrings.open, "doc", #selector(menuOpen)))
+            // Open as Text: a page cmux renders (HTML, SVG, Markdown) as its source in the code editor.
+            if let entry, let fileMenu {
+                let url = entry.url
+                let folder = entry.kind == .folder || entry.kind == .package
+                if let text = fileMenu.openAsTextItem(forFileNamed: entry.name, isDirectory: folder, resolve: { url }) { menu.addItem(text) }
+            }
             // Open With ▸ (every app the system reports, the default first, Other…), Finder's
             // second row; the clicked item's type picks the apps.
             if let entry, let fileMenu {

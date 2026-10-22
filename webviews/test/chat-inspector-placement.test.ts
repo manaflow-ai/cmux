@@ -163,6 +163,51 @@ await requireBrowserLane("chat-inspector-placement.test.ts", async () => {
       });
     }
 
+    // A pane that narrows or widens past the gutter's room (a split opening beside it, a window drag)
+    // draws the panel in its new place in the frame that draws the new width (Leo 2026-10-21: "WHY
+    // DOES IT FLICKER"). The pane's width was read in a ResizeObserver and set as state that React
+    // drew a frame or more later: the panel floated over the transcript at the narrower width, then
+    // the chat jumped aside under it.
+    for (const [from, to] of [
+      [1600, 1200],
+      [1200, 1600],
+    ] as const)
+      test(`${name}: from ${from}px to ${to}px the first frame at the new width has the panel in its new place`, async () => {
+        current = browsers.get(name)!;
+        const page = await pane!.open({ width: from, height: 700 });
+        try {
+          await openInspector(page);
+          await page.evaluate((to) => {
+            const w = window as unknown as { __placed?: { width: number; placement?: string; covers: number } };
+            window.cmuxAfterPaint(() => {
+              if (window.innerWidth !== to) return true;
+              const panel = document.querySelector("aside.acpmux-chat-inspector")!.getBoundingClientRect();
+              const covers = [...document.querySelectorAll(".acpmux-row, .acpmux-composer-box")].filter((element) => {
+                const row = element.getBoundingClientRect();
+                return (
+                  panel.left < row.right && row.left < panel.right && panel.top < row.bottom && row.top < panel.bottom
+                );
+              }).length;
+              w.__placed = {
+                width: window.innerWidth,
+                placement: document.querySelector<HTMLElement>("aside.acpmux-chat-inspector")?.dataset.placement,
+                covers,
+              };
+              return false;
+            });
+          }, to);
+          await page.setViewportSize({ width: to, height: 700 });
+          await page.waitForFunction(() => (window as unknown as { __placed?: unknown }).__placed !== undefined);
+          expect(await page.evaluate(() => (window as unknown as { __placed: unknown }).__placed)).toEqual({
+            width: to,
+            placement: to === 1600 ? "overlay" : "push",
+            covers: 0,
+          });
+        } finally {
+          await page.close();
+        }
+      });
+
     test(`${name}: a click elsewhere in the chat leaves it open; its toggle closes it`, async () => {
       current = browsers.get(name)!;
       const page = await pane!.open({ width: 1600, height: 700 });

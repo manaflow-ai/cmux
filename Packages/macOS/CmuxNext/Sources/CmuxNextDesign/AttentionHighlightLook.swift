@@ -67,7 +67,8 @@ public nonisolated enum AttentionHighlightLook: String, Sendable, CaseIterable, 
 /// "the model response does a double blue ring pulse", agreed not to be the default): a turn
 /// that ends in a shown chat is read at once, as before. On, the ring is a hairline in the pane
 /// border color (`AttentionMark.hairline`), never the notification blue.
-public nonisolated enum AgentTurnRing {
+public nonisolated struct AgentTurnRing {
+    public nonisolated init() {}
     public static let tunable = Tunable<Bool>.toggle(
         "notifications.attention.agentTurnRing", .status, "Ring a chat when its turn ends",
         help: "Ring an agent chat's pane with a hairline when a turn ends there, until you click or type in it. Off by default: a turn you watched end is read at once.",

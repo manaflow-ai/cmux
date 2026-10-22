@@ -431,6 +431,7 @@ pub(super) fn handle_command_with_cancellation(
         }
         Command::ZoomPane { pane, mode } => cmd_panes::zoom_pane(mux, actor, pane, mode),
         Command::ProcessInfo { surface } => cmd_terminals::process_info(mux, surface),
+        Command::TerminalPorts { surface } => terminal_ports::terminal_ports(mux, surface),
         Command::TerminalResources { surfaces } => cmd_terminals::terminal_resources(mux, surfaces),
         Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {
             cmd_terminals::move_terminal(

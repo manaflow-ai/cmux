@@ -21,6 +21,8 @@ mod browser_import;
 mod cloud_machine;
 #[path = "setup/notifications.rs"]
 mod notifications;
+#[path = "setup/tailnet.rs"]
+mod tailnet;
 
 struct World {
     home: PathBuf,

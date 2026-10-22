@@ -109,12 +109,8 @@ extension SidebarListViewComponents {
         if case .block = row.key { return NSRect(x: 0, y: row.y, width: bounds.width, height: row.height) }
         // A top-level group's rows keep the ungrouped rows' left edge; its line sits in the inset
         // beside them (`SidebarStyle.groupLineX`). A nested group's header and members step in one
-        // gutter per level below the top (remote-groups-DESIGN.md slice 2).
-        let gutter: CGFloat = switch row.key {
-        case .workspace, .tab, .item, .doneFold, .showMore: row.group == nil ? 0 : SidebarStyle.groupOffset(depth: row.depth)
-        case .group: SidebarStyle.groupOffset(depth: row.depth)
-        default: 0
-        }
+        // gutter per level below the top (`SidebarRow.groupGutter`, remote-groups-DESIGN.md slice 2).
+        let gutter = row.groupGutter
         // Rows end `rowTrailingTrim` short of the list's right inset, so a row's pill never runs to
         // the sidebar's edge (Leo 2026-10-20, Chrome's vertical tabs).
         return NSRect(x: inset + gutter, y: row.y, width: max(0, bounds.width - inset * 2 - gutter - SidebarStyle.rowTrailingTrim),

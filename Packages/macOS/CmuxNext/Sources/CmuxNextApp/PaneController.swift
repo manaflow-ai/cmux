@@ -155,8 +155,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // This pane's own workspace record: reading its fields observes them
         // only, never the workspace list (a lookup by pane would).
         let ownWorkspace = workspace?.workspace ?? store.workspace(containing: pane.handle)
-        // A dock-bound chat (`dockBound`) or a tab on its way to the side (`OutboundTab`) stays hidden.
-        let hidden = dockBound.union(OutboundTab.hidden(in: self))
+        // A dock-bound chat stays hidden under the id the store gave it (`dockBound`).
+        let hidden = dockBound
         var local: [StripTabItem] = []
         for tab in state?.localBrowserTabs[paneKey] ?? [] where !hidden.contains(tab.id) {
             let page = services.cache.existingBrowser(tab.id)?.tab.state
@@ -215,7 +215,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         item.isDormant = services.cache.dormantTabs.contains(tab.id)
         if tab.kind == .remoteTerminal {
             // Its terminal runs on another machine: that machine's name.
-            item.machineBadge = services.remoteTerminals.badge(for: tab)
+            (item.machineBadge, item.machineName) = services.remoteTerminals.badge(for: tab)
             item.icon = .icon(.terminal)
         } else if tab.kind != .browser {
             (item.machineBadge, item.machineName) = (machine, machine.flatMap { _ in services.machines.machineName(daemon.machineID) })
@@ -224,7 +224,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             // A browser tab names the machine whose localhost it sees.
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
             let badge = services.remoteLocalhost.badge(for: tab, url: tab.url.flatMap(URL.init(string:)), engine: engine)
-            (item.machineBadge, item.machineBadgeHelp) = (badge?.text, badge?.help)
+            (item.machineBadge, item.machineBadgeHelp, item.machineName) = (badge?.text, badge?.help, services.machines.tabColorName(daemon.machineID, badge: badge?.text))
             // Incognito tabs have only a placeholder record in the daemon.
             let incognito = services.cache.browserTabs.isIncognitoTab(tab.id)
             if incognito {
@@ -266,7 +266,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if stripModel.showsNewTabButton != snapshot.takesNewTabs { stripModel.showsNewTabButton = snapshot.takesNewTabs }
         if !snapshot.items.isEmpty { LaunchReveal.shared.markReady(.tabs) }
         var selectNew = false
-        if let pending = pendingSelectSurface, let tab = snapshot.tabs.first(where: { $0.surface == pending }) { // once listed (OutboundTab)
+        if let pending = pendingSelectSurface, let tab = pane.tabs.first(where: { $0.surface == pending }) {
             state?.selection.select(tab.id, in: paneKey)
             pendingSelectSurface = nil
             selectNew = true
