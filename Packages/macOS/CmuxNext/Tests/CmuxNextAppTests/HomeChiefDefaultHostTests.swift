@@ -16,7 +16,8 @@ struct HomeChiefDefaultHostTests {
 
     @Test func showingTheHostedChiefNeverStartsThisMacsHost() {
         let home = HomeChiefDefaultTests.services().home
-        home.noteCloudChiefsChecked()
+        home.cloudAccount = { "user_a" }
+        home.noteCloudChiefsChecked(for: "user_a")
         home.setCloudChiefs(HomeCloudChiefs(hosted: HomeChiefDefaultTests.hosted))
         home.localChiefRunning = false
         #expect(!home.startsLocalBrain(for: "conv_hosted"), "the Hosted Chief's conversation")
@@ -37,7 +38,7 @@ struct HomeChiefDefaultHostTests {
     @Test func beforeTheCloudChiefsAreReadHomeStartsNoHost() {
         let home = HomeChiefDefaultTests.services().home
         let starts = Self.recordStarts(home)
-        home.signedInToCloud = { true }
+        home.cloudAccount = { "user_a" }
         home.localChiefRunning = false
         #expect(!home.startsLocalBrain(for: nil))
         #expect(!home.startsLocalBrain(for: HomeChiefDefaultTests.local), "Home's first conversation, the Hosted Chief not known yet")
@@ -46,7 +47,7 @@ struct HomeChiefDefaultHostTests {
         #expect(starts.value.isEmpty)
         // The check finds the Hosted Chief: the waited ask starts nothing, and Home keeps showing the Hosted Chief.
         home.setCloudChiefs(HomeCloudChiefs(hosted: HomeChiefDefaultTests.hosted))
-        home.noteCloudChiefsChecked()
+        home.noteCloudChiefsChecked(for: "user_a")
         #expect(home.waitingHomeAsk == nil)
         #expect(starts.value.isEmpty, "no host starts under the Hosted Chief")
         #expect(home.cloudChief == HomeChiefDefaultTests.hosted)
@@ -61,10 +62,10 @@ struct HomeChiefDefaultHostTests {
     @Test func aCheckThatFindsNoHostedChiefStartsTheWaitedHost() {
         let home = HomeChiefDefaultTests.services().home
         let starts = Self.recordStarts(home)
-        home.signedInToCloud = { true }
+        home.cloudAccount = { "user_a" }
         home.ensureLocalBrain(asked: true, for: nil)
         #expect(starts.value.isEmpty)
-        home.noteCloudChiefsChecked()
+        home.noteCloudChiefsChecked(for: "user_a")
         #expect(starts.value == [true], "the waited ask starts the host, still asked")
         #expect(home.waitingHomeAsk == nil)
     }
@@ -78,17 +79,61 @@ struct HomeChiefDefaultHostTests {
         let home = HomeChiefDefaultTests.services().home
         let starts = Self.recordStarts(home)
         Self.wire(home.hostedChief, home: ChiefHome(root: root, isolated: true))
-        home.signedInToCloud = { true }
+        home.cloudAccount = { "user_a" }
         home.localChiefRunning = false
         home.ensureLocalBrain(asked: false, for: nil)
         home.setCloudChiefs(HomeCloudChiefs(hosted: HomeChiefDefaultTests.hosted))
         home.hostedChief.start(HomeChiefDefaultTests.hosted)
         try #require(home.hostedChief.pending, "the one copy is due")
         #expect(home.cloudChief == nil, "this Mac's Chief keeps the tab while the copy runs")
-        home.noteCloudChiefsChecked()
+        home.noteCloudChiefsChecked(for: "user_a")
         #expect(starts.value.isEmpty, "the waited ask starts no host under the Hosted Chief")
         #expect(!home.startsLocalBrain(for: nil), "Home itself (a reconnect) starts none either")
         #expect(!home.startsLocalBrain(for: HomeChiefDefaultTests.local), "nor the Chief tab, which shows this Mac's Chief meanwhile")
+    }
+
+    /// A sign-in or account change makes the cloud Chiefs unknown again: an earlier account's empty read
+    /// never lets Home start this Mac's host before the new account's read (review of #23813).
+    @Test func anAccountChangeWaitsForTheNewAccountsRead() {
+        let home = HomeChiefDefaultTests.services().home
+        let starts = Self.recordStarts(home)
+        var account = "user_a"
+        home.cloudAccount = { account }
+        home.localChiefRunning = false
+        home.setCloudChiefs(HomeCloudChiefs())
+        home.noteCloudChiefsChecked(for: "user_a")
+        #expect(home.startsLocalBrain(for: nil), "user_a has no cloud Chief")
+        account = "user_b"
+        #expect(home.cloudChiefsUnknown)
+        #expect(!home.startsLocalBrain(for: nil), "user_b's cloud Chiefs are not read yet")
+        home.ensureLocalBrain(asked: false, for: nil)
+        #expect(home.waitingHomeAsk == false)
+        home.noteCloudChiefsChecked(for: "user_a")
+        #expect(home.waitingHomeAsk == false, "a read for the earlier account settles nothing")
+        home.setCloudChiefs(HomeCloudChiefs(hosted: HomeChiefDefaultTests.hosted))
+        home.noteCloudChiefsChecked(for: "user_b")
+        #expect(home.waitingHomeAsk == nil)
+        #expect(starts.value.isEmpty, "user_b has the Hosted Chief: no host starts")
+    }
+
+    /// With no Chief tab check (`ensure_home` failed, or the daemon has no conversation tabs), Home still
+    /// reads the cloud Chiefs before a waiting ask settles: it never marks them known without a read.
+    @Test func withoutAChiefTabTheCloudChiefsAreReadBeforeTheAskSettles() async {
+        let home = HomeChiefDefaultTests.services().home
+        let starts = Self.recordStarts(home)
+        home.cloudAccount = { "user_a" }
+        home.localChiefRunning = false
+        home.ensureLocalBrain(asked: true, for: nil)
+        home.cloudChiefsRead = { nil }
+        await home.settleCloudChiefsWithoutTab()
+        #expect(home.cloudChiefsUnknown, "a failed read keeps them unknown")
+        #expect(home.waitingHomeAsk == true)
+        home.cloudChiefsRead = { HomeCloudChiefs(hosted: HomeChiefDefaultTests.hosted) }
+        await home.settleCloudChiefsWithoutTab()
+        #expect(!home.cloudChiefsUnknown)
+        #expect(home.waitingHomeAsk == nil)
+        #expect(starts.value.isEmpty, "the read found the Hosted Chief: no host starts")
+        #expect(home.cloudChief == HomeChiefDefaultTests.hosted)
     }
 
     // MARK: The running state follows the brain keeper
