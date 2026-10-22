@@ -824,3 +824,29 @@ async fn a_guarded_move_drops_the_bundles_prompt_provenance() {
         assert!(!recs.iter().any(carried), "a moved {kind} record kept its provenance: {recs:?}");
     }
 }
+
+/// A chat that moves away and back is kept on disk under its id (perf100, 2026-10-21): the
+/// move back purges the moved-away copy, and a purged id refuses every later write, so the
+/// returning chat must be let through or a restart loses it.
+#[tokio::test]
+async fn a_chat_moved_away_and_back_survives_a_restart_of_its_first_daemon() {
+    let root = Scratch::home("roundtrip");
+    let store = Scratch::temp("roundtrip-store");
+    let (a_hub, mut a) = daemon(config("ask", json!({})), Some(store.path())).await;
+    let (_b, mut b) = daemon(config("ask", json!({})), None).await;
+    let m = meta(root.path(), json!({}));
+    let id = m["id"].as_str().unwrap().to_owned();
+    receive_unguarded(&mut a, &m).await;
+    move_chat(&mut a, &mut b, &id, None, json!({})).await.unwrap();
+    move_chat(&mut b, &mut a, &id, None, json!({})).await.unwrap();
+    let back = a.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_ne!(back["status"], "closed", "{back}");
+    a_hub.shutdown_all().await;
+    drop(a_hub);
+
+    let mut cfg = config("ask", json!({}));
+    cfg.store.mode = StoreMode::Local;
+    let again = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, store.path()).unwrap());
+    let s = again.resolve(&id).expect("the chat that moved back is gone after a restart");
+    assert_ne!(s.meta().status, acpmux::store::SessionStatus::Closed);
+}
