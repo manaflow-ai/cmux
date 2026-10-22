@@ -302,3 +302,35 @@ async fn a_paused_agent_pair_holds_the_delivery_and_says_so() {
     assert_eq!(last["attempts"], 1, "a held message is not sent again: {last}");
     assert!(last["error"].as_str().is_some_and(|e| !e.is_empty()), "{last}");
 }
+
+/// Coordinators name every lane `HOST/NAME`, the form other machines list it under. On the
+/// lane's own machine that name was `no_session` (on cosmic-gray, `acpmux info
+/// cosmic-gray/deputy-2` while `deputy-2` ran there), so a send from a coordinator on the same
+/// machine failed. This machine's own name in front of a local session's name finds it.
+#[tokio::test]
+async fn this_machines_own_name_in_front_of_a_session_name_finds_the_session() {
+    let h = hub();
+    let mut c = C::new(h.clone()).await;
+    let s = c
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "own-lane"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let qualified = format!("{}/own-lane", acpmux::pairing::machine_name());
+    let info = c.call(method::MUX_INFO, json!({"sessionId": qualified})).await.unwrap();
+    assert_eq!(info["sessionId"], id, "{info}");
+    let queued =
+        c.call(SEND_QUEUE, json!({"request": prompt(&qualified, "hi", "p-own")})).await.unwrap();
+    let delivery = queued["deliveryId"].as_str().unwrap().to_owned();
+    let status =
+        c.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 5000})).await.unwrap();
+    assert_eq!(status["status"], "delivered", "{status}");
+    assert_eq!(status["accepted"]["sessionId"], id, "{status}");
+    // Another machine's name is not this one's: still no session here.
+    let other = format!("not-{}/own-lane", acpmux::pairing::machine_name());
+    let e = c.call(method::MUX_INFO, json!({"sessionId": other})).await.unwrap_err();
+    assert!(e.contains("no session"), "{e}");
+}
