@@ -40,7 +40,6 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 560,
   covers: [
-    "agent-session/acpmux/conversation/inlineMedia.ts",
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/chips/ReplyImage.tsx#OpenableImage",
     "agent-session/acpmux/chips/ReplyMedia.tsx#VideoThumbnail",

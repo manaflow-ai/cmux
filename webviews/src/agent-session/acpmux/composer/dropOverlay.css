@@ -1,0 +1,270 @@
+/* The drop overlay (composer/DropOverlay.tsx). A file drag over the agent pane lays a Liquid Glass
+   sheet over the chat column: a dashed accent frame inset from the edges, a large mark, "Drop to
+   attach" and what the drag holds. Phases (data-phase): armed (the drag is over the pane, not the
+   chat: quieter), over (lifted and brighter), refused (the danger color, a plain refusal), landing
+   (the sheet shrinks into the composer and fades, then hides on animationend). Only opacity and
+   transform animate, on a layer of its own, so a drag never relayouts the transcript. Reduce Motion
+   keeps the fades and drops every move; no backdrop filter (an old engine) or Reduce Transparency
+   (glass.css) is an opaque material. The overlay is a size container: its type and mark follow the
+   chat's width, narrow or wide. */
+.acpmux-drop-overlay {
+  --acpmux-drop-accent: var(--cmux-accent, var(--agent-accent));
+  --acpmux-drop-tone: var(--acpmux-drop-accent);
+  --acpmux-drop-in: calc(var(--cmux-motion-micro, 120ms) * 1.25);
+  --acpmux-drop-spring: cubic-bezier(0.2, 0.9, 0.3, 1.18);
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-overlay);
+  container-type: size;
+  display: flex;
+  padding: 8px;
+  box-sizing: border-box;
+  pointer-events: none;
+  /* No opacity, transform, filter, will-change or paint containment here: any of them makes this
+     box the sheet's backdrop root, and the glass would blur nothing (the chat would read through). */
+}
+.acpmux-drop-overlay[data-phase="refused"] {
+  --acpmux-drop-tone: var(--agent-danger, #ff453a);
+}
+
+.acpmux-drop-sheet {
+  --glass-elevation: var(--elevation-2);
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 18px;
+  /* The glass tint with a soft wash of the accent from the middle. */
+  background:
+    radial-gradient(
+      ellipse 70% 60% at 50% 50%,
+      color-mix(in srgb, var(--acpmux-drop-tone) var(--acpmux-drop-wash, 10%), transparent),
+      transparent 72%
+    ),
+    color-mix(in srgb, var(--glass-surface, var(--agent-page-bg, Canvas)) 62%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  backdrop-filter: blur(18px) saturate(1.6);
+  will-change: opacity, transform;
+  animation: acpmux-drop-in var(--acpmux-drop-in) var(--acpmux-drop-spring) backwards;
+  box-shadow:
+    inset 0 1px 0 var(--glass-specular, color-mix(in srgb, #fff 40%, transparent)),
+    var(--elevation-2);
+  opacity: 0.82;
+  transform: scale(0.985);
+  transition:
+    transform var(--cmux-motion-standard, 180ms) var(--acpmux-drop-spring),
+    opacity var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, ease-out),
+    --acpmux-drop-wash var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out);
+}
+@property --acpmux-drop-wash {
+  syntax: "<percentage>";
+  inherits: true;
+  initial-value: 10%;
+}
+.acpmux-drop-overlay[data-phase="over"] .acpmux-drop-sheet,
+.acpmux-drop-overlay[data-phase="refused"] .acpmux-drop-sheet,
+.acpmux-drop-overlay[data-phase="landing"] .acpmux-drop-sheet {
+  --acpmux-drop-wash: 22%;
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* The dashed frame, drawn as an SVG stroke so the dashes stay even around the rounded corners. */
+.acpmux-drop-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.acpmux-drop-frame-line {
+  x: 6px;
+  y: 6px;
+  width: calc(100% - 12px);
+  height: calc(100% - 12px);
+  rx: 13px;
+  ry: 13px;
+  fill: none;
+  stroke: color-mix(in srgb, var(--acpmux-drop-tone) 55%, transparent);
+  stroke-width: 1.5px;
+  stroke-dasharray: 7 6;
+  stroke-linecap: round;
+  transition: stroke var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, ease-out);
+}
+.acpmux-drop-overlay[data-phase="over"] .acpmux-drop-frame-line,
+.acpmux-drop-overlay[data-phase="refused"] .acpmux-drop-frame-line {
+  stroke: var(--acpmux-drop-tone);
+  stroke-width: 2px;
+}
+
+.acpmux-drop-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 48px);
+  text-align: center;
+}
+.acpmux-drop-mark {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin-bottom: 6px;
+  border-radius: 20px;
+  color: var(--acpmux-drop-tone);
+  background: color-mix(in srgb, var(--acpmux-drop-tone) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acpmux-drop-tone) 26%, transparent);
+  transition:
+    transform var(--cmux-motion-standard, 180ms) var(--acpmux-drop-spring),
+    background-color var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, ease-out);
+}
+.acpmux-drop-overlay[data-phase="over"] .acpmux-drop-mark {
+  transform: translateY(-3px) scale(1.06);
+  background: color-mix(in srgb, var(--acpmux-drop-tone) 20%, transparent);
+}
+.acpmux-drop-mark svg {
+  width: 32px;
+  height: 32px;
+}
+.acpmux-drop-title {
+  color: var(--agent-text);
+  font-size: var(--text-title);
+  font-weight: var(--weight-emphasis, 600);
+  line-height: 20px;
+}
+.acpmux-drop-hint {
+  color: var(--agent-muted, color-mix(in srgb, var(--agent-text) 62%, transparent));
+  font-size: var(--text-detail);
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-drop-overlay[data-phase="refused"] .acpmux-drop-hint {
+  color: color-mix(in srgb, var(--acpmux-drop-tone) 80%, var(--agent-text));
+}
+
+/* The chat's width: a narrow chat (a split, a floating chat) gets a smaller mark; a wide one more air. */
+@container (max-width: 340px) {
+  .acpmux-drop-mark {
+    width: 48px;
+    height: 48px;
+    border-radius: 15px;
+    margin-bottom: 2px;
+  }
+  .acpmux-drop-mark svg {
+    width: 26px;
+    height: 26px;
+  }
+  .acpmux-drop-title {
+    font-size: var(--text-body);
+  }
+}
+@container (max-height: 220px) {
+  .acpmux-drop-mark {
+    display: none;
+  }
+}
+@container (min-width: 900px) {
+  .acpmux-drop-mark {
+    width: 76px;
+    height: 76px;
+    border-radius: 24px;
+  }
+  .acpmux-drop-mark svg {
+    width: 38px;
+    height: 38px;
+  }
+  .acpmux-drop-hint {
+    font-size: var(--text-body);
+  }
+}
+
+/* The drop: the sheet flies into the composer (--acpmux-drop-fly-x/y, set from the composer's box
+   when it lands) and fades as the chips appear there. */
+.acpmux-drop-overlay[data-phase="landing"] .acpmux-drop-sheet {
+  animation: acpmux-drop-land var(--cmux-motion-large, 240ms) cubic-bezier(0.4, 0, 0.6, 1) both;
+}
+@keyframes acpmux-drop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes acpmux-drop-land {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translate(var(--acpmux-drop-fly-x, 0px), var(--acpmux-drop-fly-y, 40%)) scale(0.14);
+  }
+}
+@keyframes acpmux-drop-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes acpmux-drop-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* A refusal nudges once, side to side. */
+.acpmux-drop-overlay[data-phase="refused"] .acpmux-drop-mark {
+  animation: acpmux-drop-refuse var(--cmux-motion-large, 240ms) var(--cmux-ease-out, ease-out);
+}
+@keyframes acpmux-drop-refuse {
+  25% {
+    transform: translateX(-4px);
+  }
+  60% {
+    transform: translateX(3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-drop-overlay[data-phase] .acpmux-drop-sheet {
+    transform: none;
+    animation: acpmux-drop-fade-in var(--acpmux-drop-in) linear backwards;
+  }
+  .acpmux-drop-overlay[data-phase="landing"] .acpmux-drop-sheet {
+    animation: acpmux-drop-fade-out var(--cmux-motion-standard, 180ms) linear both;
+  }
+  .acpmux-drop-overlay[data-phase] .acpmux-drop-mark {
+    transform: none;
+    animation: none;
+  }
+}
+
+/* No backdrop filter: an opaque material instead of glass. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .acpmux-drop-sheet {
+    background:
+      radial-gradient(
+        ellipse 70% 60% at 50% 50%,
+        color-mix(in srgb, var(--acpmux-drop-tone) var(--acpmux-drop-wash, 10%), transparent),
+        transparent 72%
+      ),
+      var(--surface-popup, var(--agent-page-bg, Canvas));
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-drop-sheet {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--surface-popup, var(--agent-page-bg, Canvas));
+  }
+}
+:root[data-reduce-transparency] .acpmux-drop-sheet {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--surface-popup, var(--agent-page-bg, Canvas));
+}
