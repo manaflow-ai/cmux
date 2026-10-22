@@ -30,6 +30,10 @@ struct SidebarMultiViewHomeTests {
         return tree
     }
 
+    /// The daemon's edge docks (`edge-docks-v1`): the layout has its edge dock bands, as in the app, where a drop
+    /// near Home's bottom edge is offered a new bottom dock of Home.
+    static let capabilities = [DaemonCapabilities.shared.edgeDocks]
+
     /// Drags `k1`'s row to `edge` of Home (`inset` of the layout, or `points`, in from it), checks what the hover
     /// resolves to, and releases it there.
     static func drop(_ f: Fixture, on edge: TabDropEdge, inset: CGFloat = 0.15, points: CGFloat? = nil) throws {
@@ -57,7 +61,7 @@ struct SidebarMultiViewHomeTests {
 
     @Test func aRowDroppedOnHomesRightEdgeShowsItsWorkspaceBesideHome() async throws {
         try await SidebarMultiViewWindowTests.withMultiView {
-            let f = try await Fixture(keys: ["home", "k1", "k2"], tree: Self.tree())
+            let f = try await Fixture(keys: ["home", "k1", "k2"], tree: Self.tree(), capabilities: Self.capabilities)
             defer { f.close() }
             try #require(f.shown == ["home"], "the window shows \(f.shown)")
             let k1Tabs = f.tabs("k1")
@@ -78,9 +82,10 @@ struct SidebarMultiViewHomeTests {
     @Test(arguments: [nil, 8.0] as [Double?])
     func aRowDroppedOnHomesBottomEdgeStacksItUnderHome(points: Double?) async throws {
         try await SidebarMultiViewWindowTests.withMultiView {
-            let f = try await Fixture(keys: ["home", "k1", "k2"], tree: Self.tree())
+            let f = try await Fixture(keys: ["home", "k1", "k2"], tree: Self.tree(), capabilities: Self.capabilities)
             defer { f.close() }
             try #require(f.shown == ["home"], "the window shows \(f.shown)")
+            try #require(f.controller.content?.layoutModel.acceptsEdgeDockDrops == true, "the layout has no edge dock bands")
             let k1Tabs = f.tabs("k1")
 
             try Self.drop(f, on: .bottom, points: points.map { CGFloat($0) })

@@ -23,12 +23,13 @@ struct SidebarMultiViewWindowTests {
         let controller: WindowController
         let keys: [String]
 
-        init(keys: [String] = ["k0", "k1", "k2", "k3"], record: String? = nil, tree: DaemonTree? = nil) async throws {
+        init(keys: [String] = ["k0", "k1", "k2", "k3"], record: String? = nil, tree: DaemonTree? = nil, capabilities: [String] = []) async throws {
             _ = NSApplication.shared
             self.keys = keys
             services = AppServices(environment: AppEnvironment.current([:]))
             let store = services.machines.local.store
-            let json = #"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#
+            let caps = capabilities.map { "\"\($0)\"" }.joined(separator: ",")
+            let json = #"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1","capabilities":["# + caps + "]}"
             let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
             store.noteHandshake(identity)
             store.connectionState = .connected(identity)
