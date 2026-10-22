@@ -165,7 +165,6 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
         String(localized: "importSuggestions.settings.empty", defaultValue: "Nothing to bring over right now. cmux looks again when you come back to it.",
                table: "ImportSuggestions", bundle: .module)
     }
-    public static var showAll: String { String(localized: "importSuggestions.button.showAll", defaultValue: "Show All", table: "ImportSuggestions", bundle: .module) }
     /// `import.card` start, resume or try again from an agent, a script or another client.
     public static var personOnly: String {
         String(localized: "importSuggestions.refusal.personOnly", defaultValue: "Only you can start an import: press its button in cmux.",
