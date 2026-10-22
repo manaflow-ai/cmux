@@ -9,10 +9,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoPageService.s
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoPageView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ChiefMemoryPageService.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultColors.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultHostView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultListView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultRowView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/UI/AppPermissionsColors.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/UI/AppPermissionsHostView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/UI/PermissionBadges.swift

@@ -1,7 +1,6 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
-import SwiftUI
 
 /// Hosts the vault list (the vault page's content and the right sidebar's
 /// Vault section). Resolves the list colors in this view's theme scope, again
@@ -9,26 +8,26 @@ import SwiftUI
 /// registry with the row's session.
 final class VaultHostView: NSView {
     let vault: SessionVault
-    private let appearanceState = VaultAppearance()
+    private let list: VaultListView
 
     init(vault: SessionVault, registry: ActionRegistry) {
         self.vault = vault
-        super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 480))
-        wantsLayer = true
         let actions = VaultRowActions(
             perform: { [weak vault, weak registry] id, session in
                 vault?.selection = session
                 registry?.perform(id, invocation: ActionInvocation(arguments: ["session": .string(session)]))
             },
             select: { [weak vault] id in vault?.selection = id })
-        let hosting = NSHostingView(rootView: VaultListView(vault: vault, appearance: appearanceState, actions: actions))
-        hosting.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(hosting)
+        list = VaultListView(vault: vault, actions: actions)
+        super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 480))
+        wantsLayer = true
+        list.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(list)
         NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
+            list.leadingAnchor.constraint(equalTo: leadingAnchor),
+            list.trailingAnchor.constraint(equalTo: trailingAnchor),
+            list.topAnchor.constraint(equalTo: topAnchor),
+            list.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         setAccessibilityIdentifier("cmux.vault")
     }
@@ -58,11 +57,11 @@ final class VaultHostView: NSView {
                         tertiary: Self.color(Palette.textTertiary), selection: Self.color(Palette.selectionFill),
                         live: Self.color(Palette.success))
         }
-        if appearanceState.colors != colors { appearanceState.colors = colors }
+        list.colors = colors
     }
 
-    /// A static color: a dynamic one would re-resolve in SwiftUI's appearance, outside this theme scope.
-    private static func color(_ color: NSColor) -> Color {
-        Color(nsColor: color.usingColorSpace(.sRGB) ?? color)
+    /// A static color: a dynamic one would re-resolve in the view's appearance, outside this theme scope.
+    private static func color(_ color: NSColor) -> NSColor {
+        color.usingColorSpace(.sRGB) ?? color
     }
 }
