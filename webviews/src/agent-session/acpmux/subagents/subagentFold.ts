@@ -213,16 +213,19 @@ export class SubagentFold {
 
 /// Which running subagents nothing will end any more, and how they read: `turn` only the
 /// current turn's foreground ones, else every one.
-export type SubagentsLeft = { state: "cancelled" | "disconnected"; turn: boolean };
+export type SubagentsLeft = { state: "completed" | "cancelled" | "disconnected"; turn: boolean };
 
 /// Whom acpmux's record `kind` leaves running with no one to end them: a stopped turn's
-/// foreground subagents (`cancelled`; the harness keeps background ones running), a turn the
+/// foreground subagents (`cancelled`; the harness keeps background ones running), a completed
+/// turn's foreground ones whose end the harness never sent (`completed`: the turn waited on them;
+/// they read running for good, Leo's Inspector counted 5 running with about 3 live), a turn the
 /// daemon lost (`outcome_unknown`), or, when the agent process behind the chat went away or
 /// started again (an exit or stop, a reopen or resume, a new or ended host), every one, as
 /// acpmux's own process table reads those records (hub/processes.rs).
 export function subagentsLeft(kind: string, msg: any): SubagentsLeft | undefined {
   if (kind === "turn_result" && msg?.detail === "outcome_unknown") return { state: "disconnected", turn: true };
   if (kind === "turn_result" && msg?.status === "cancelled") return { state: "cancelled", turn: true };
+  if (kind === "turn_result" && msg?.status === "completed") return { state: "completed", turn: true };
   return HARNESS_GONE.has(kind) ? { state: "disconnected", turn: false } : undefined;
 }
 const HARNESS_GONE = new Set(["exited", "stopped", "reopened", "resumed", "host_started", "host_ended"]);

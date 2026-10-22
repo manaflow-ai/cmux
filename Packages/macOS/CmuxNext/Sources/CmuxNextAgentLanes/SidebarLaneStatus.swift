@@ -45,28 +45,48 @@ enum SidebarLaneStatus {
         }
     }
 
-    /// `row` with the strongest of its own activity and `lanes`' states.
+    /// `row` with the strongest of its own activity and `lanes`' states. A chat that asks for the
+    /// user comes first, as in the Priority view (needs you, then failed): a failure beside it never
+    /// turns the row's one yellow dot into the blue one (Leo 2026-10-21, "why ISN'T THIS JUST A
+    /// YELLOW DOT!?"; the row draws no "Needs you" word to fall back on).
     static func merge(_ lanes: [AgentActivityLane], into row: inout SidebarWorkspace) {
         for lane in lanes {
             let state = indicator(lane.state)
             if state.isWorking { row.agentWorking = true }
             let current = StatusReport(id: "row", source: .explicit, state: row.activity)
-            guard StatusStack.precedes(StatusReport(id: "lane:\(lane.id)", source: .agent, state: state), current) else { continue }
+            let precedes = switch (asks(state), asks(row.activity)) {
+            case (true, false): true
+            case (false, true): false
+            default: StatusStack.precedes(StatusReport(id: "lane:\(lane.id)", source: .agent, state: state), current)
+            }
+            guard precedes else { continue }
             row.activity = state
             row.activityStyle = nil
             row.detail.activitySince = lane.since
         }
     }
 
+    /// Whether `state` waits on the user (a question, a permission, a sign-in).
+    private static func asks(_ state: StatusIndicatorState) -> Bool {
+        if case .waiting = state { true } else { false }
+    }
+
     /// The Priority view's chip for the most urgent of `lanes` (`AgentPriorityRanking`, with the
-    /// same read marks and Red CI), nil when each one works or is idle: the working mark already says working.
-    /// `failingChecks` is the Red CI answer, by default the session tree feed's.
+    /// same read marks and Red CI), nil when each one works, is idle or finished: the working mark
+    /// already says working, and a row never says Done (Leo 2026-10-21; its unread dot does). A
+    /// finished chat drops out before the ranking, so it never hides a failed one, and its failing
+    /// checks still read as Red CI. `failingChecks` is the Red CI answer, by default the session tree feed's.
     static func chip(_ lanes: [AgentActivityLane], marks: AgentPriorityMarks.State,
                      failingChecks: ((AgentActivityLane) -> Bool)? = nil) -> SidebarPriorityEntry.State? {
-        lanes.map { AgentPriorityRanking.state($0, read: marks.read[$0.id] == AgentPriorityMarks.stamp($0),
-                                               failingChecks: failingChecks?($0) ?? SidebarSessionTreeFeed.shared.checksFailing($0)) }
-            .filter { if case .working = $0 { false } else { $0 != .idle } }
-            .min { AgentPriorityRanking.tier($0) < AgentPriorityRanking.tier($1) }
+        lanes.compactMap { lane -> SidebarPriorityEntry.State? in
+            let failing = failingChecks?(lane) ?? SidebarSessionTreeFeed.shared.checksFailing(lane)
+            switch AgentPriorityRanking.state(lane, read: marks.read[lane.id] == AgentPriorityMarks.stamp(lane), failingChecks: failing) {
+            case .done: return failing ? .ciFailing : nil
+            case .working, .idle: return nil
+            case let state: return state
+            }
+        }
+        .min { AgentPriorityRanking.tier($0) < AgentPriorityRanking.tier($1) }
     }
 
     /// The first line of the step of the working lane that started last, nil when none works or

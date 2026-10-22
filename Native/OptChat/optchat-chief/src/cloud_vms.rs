@@ -12,6 +12,18 @@ pub trait CloudVms: Send + Sync {
     /// Pauses peer `peer`'s VM: it keeps its memory (the acpmux sessions
     /// live on) and bills storage only.
     fn pause(&self, peer: &str) -> Result<(), String>;
+    /// Writes subagent `agent`'s agent key file (agent_keys.rs) on peer
+    /// `peer`'s VM, mode 0600 for the VM user. `file` holds a secret: it
+    /// travels on stdin, never in an argument or a log.
+    fn put_agent_key(&self, peer: &str, agent: &str, file: &str) -> Result<(), String> {
+        let _ = (peer, agent, file);
+        Err("this pool tool cannot place agent keys".into())
+    }
+    /// Removes subagent `agent`'s agent key file from peer `peer`'s VM.
+    fn drop_agent_key(&self, peer: &str, agent: &str) -> Result<(), String> {
+        let _ = (peer, agent);
+        Ok(())
+    }
 }
 
 /// The VM command the pool tool names: `~/.config/cloud-subagents/vm-cmd`
@@ -31,6 +43,12 @@ impl CommandVms {
     }
 
     fn run(&self, verb: &str, peer: &str) -> Result<(), String> {
+        self.run_with(&[verb, peer], None)
+    }
+
+    /// Runs the pool tool with `args`, `input` on stdin; no tool named: Ok.
+    fn run_with(&self, args: &[&str], input: Option<&str>) -> Result<(), String> {
+        use std::io::Write;
         let Ok(cmd) = std::fs::read_to_string(&self.file) else {
             return Ok(());
         };
@@ -38,11 +56,30 @@ impl CommandVms {
         if cmd.is_empty() {
             return Ok(());
         }
-        let out = std::process::Command::new(cmd)
-            .args([verb, peer])
-            .stdin(std::process::Stdio::null())
-            .output()
-            .map_err(|e| format!("{cmd} {verb} {peer}: {e}"))?;
+        let shown = format!("{cmd} {}", args.join(" "));
+        let mut child = std::process::Command::new(cmd)
+            .args(args)
+            .stdin(if input.is_some() {
+                std::process::Stdio::piped()
+            } else {
+                std::process::Stdio::null()
+            })
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("{shown}: {e}"))?;
+        if let (Some(text), Some(mut stdin)) = (input, child.stdin.take()) {
+            stdin
+                .write_all(text.as_bytes())
+                .map_err(|e| format!("{shown}: stdin: {e}"))?;
+        }
+        let out = child
+            .wait_with_output()
+            .map_err(|e| format!("{shown}: {e}"))?;
+        let (verb, peer) = (
+            args.first().copied().unwrap_or_default(),
+            args.get(1).copied().unwrap_or_default(),
+        );
         if out.status.success() {
             Ok(())
         } else {
@@ -61,5 +98,71 @@ impl CloudVms for CommandVms {
 
     fn pause(&self, peer: &str) -> Result<(), String> {
         self.run("pause", peer)
+    }
+
+    fn put_agent_key(&self, peer: &str, agent: &str, file: &str) -> Result<(), String> {
+        if std::fs::read_to_string(&self.file)
+            .map(|c| c.trim().is_empty())
+            .unwrap_or(true)
+        {
+            return Err("no pool tool (~/.config/cloud-subagents/vm-cmd)".into());
+        }
+        self.run_with(&["agent-key", peer, agent], Some(file))
+    }
+
+    fn drop_agent_key(&self, peer: &str, agent: &str) -> Result<(), String> {
+        self.run_with(&["agent-key-rm", peer, agent], None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn the_agent_key_travels_on_stdin_to_the_pool_tool() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = std::env::temp_dir().join(format!("cloud-vms-key-{}", std::process::id()));
+        std::fs::create_dir_all(home.join(".config/cloud-subagents")).unwrap();
+        let tool = home.join("tool.sh");
+        let seen = home.join("seen");
+        std::fs::write(
+            &tool,
+            format!(
+                "#!/bin/sh\nprintf '%s ' \"$@\" > {s}\ncat >> {s}\n",
+                s = seen.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(
+            home.join(".config/cloud-subagents/vm-cmd"),
+            format!("{}\n", tool.display()),
+        )
+        .unwrap();
+        let vms = CommandVms::in_home(&home);
+        vms.put_agent_key("chief-subagents-1", "a7", "{\"key\":\"secret\"}")
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&seen).unwrap(),
+            "agent-key chief-subagents-1 a7 {\"key\":\"secret\"}"
+        );
+        vms.drop_agent_key("chief-subagents-1", "a7").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&seen).unwrap(),
+            "agent-key-rm chief-subagents-1 a7 "
+        );
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn without_a_pool_tool_no_key_is_placed() {
+        let home = std::env::temp_dir().join(format!("cloud-vms-none-{}", std::process::id()));
+        assert!(
+            CommandVms::in_home(&home)
+                .put_agent_key("p", "a1", "{}")
+                .is_err()
+        );
     }
 }

@@ -1566,6 +1566,10 @@ path = "tests/test_cmux_next_release_notes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_release_notes_pr_media.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_idea_ledger.py"
 lane = "linux-guard"
 
@@ -1587,6 +1591,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_ring.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_edge_feed.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1713,12 +1721,76 @@ lane = "linux-guard"
 path = "tests/test_pr_lane_coverage.py"
 lane = "linux-guard"
 
+# Tests with no entry until the feat-cmux-next pull request lanes check (tests/pr-lane-exemptions.json):
+# cmux-next guards / tooling-tests, cmux-skill-contract.yml, cmux-tui-sdks.yml (code-mode) and
+# cmux-next-shell-integration.yml run them.
+
+[[test]]
+path = "tests/test_app_crate_licenses.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_package_lane_prebuild.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_bug_triage.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_code_mode_mcp.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_dev_daily_notify_cli.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_media_publish_windows.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_compile_string_catalogs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_list_macho_candidates.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_publish_cmux_tui_tree.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_shell_claude_rereports_pwd.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_socket_control_schema.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swiftpm_test_product.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_zsh_git_head_watch_no_fork.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_cua_dev_helper_identity.py"
+lane = "linux-guard"
+
 [[test]]
 path = "tests/test_ci_pr_media_privacy.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_owned_pool_sources.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_linux_compile_runners.py"
 lane = "linux-guard"
 
 [[test]]

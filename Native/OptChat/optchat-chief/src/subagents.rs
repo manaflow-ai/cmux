@@ -355,6 +355,8 @@ pub struct Spawner {
     cloud_text: Option<String>,
     /// The VMs behind cloud peers (B4): resumed before a subagent starts.
     cloud_vms: Option<Arc<dyn crate::cloud_vms::CloudVms>>,
+    /// Issues each cloud subagent its own sandbox key (agent_keys.rs); None: off.
+    agent_keys: Option<Arc<dyn crate::agent_keys::AgentKeys>>,
 }
 
 impl Spawner {
@@ -381,7 +383,45 @@ impl Spawner {
             cloud: None,
             cloud_text: None,
             cloud_vms: None,
+            agent_keys: None,
         }
+    }
+
+    /// Cloud subagents get their own sandbox key from `keys` (None: off).
+    pub fn with_agent_keys(
+        mut self,
+        keys: Option<Arc<dyn crate::agent_keys::AgentKeys>>,
+    ) -> Spawner {
+        self.agent_keys = keys;
+        self
+    }
+
+    /// A cloud subagent's own sandbox key: issued, placed on its VM, and the
+    /// task note that names its file; None (logged) when keys are off or a
+    /// step failed, and then the subagent starts without one. A key placed
+    /// nowhere is revoked at once.
+    fn agent_key(&self, peer: &str, id: &str) -> Option<(String, String)> {
+        let keys = self.agent_keys.as_ref()?;
+        let Some(vms) = &self.cloud_vms else {
+            (self.log)(&format!("agent key for {id}: no pool tool to place it"));
+            return None;
+        };
+        let key = match keys.issue(id) {
+            Ok(key) => key,
+            Err(e) => {
+                (self.log)(&format!("agent key for {id}: {e}"));
+                return None;
+            }
+        };
+        if let Err(e) = vms.put_agent_key(peer, id, &key.file) {
+            (self.log)(&format!("agent key for {id} on {peer}: {e}"));
+            if let Err(e) = keys.revoke(&key.id) {
+                (self.log)(&format!("agent key {} (unplaced): revoke: {e}", key.id));
+            }
+            return None;
+        }
+        (self.log)(&format!("agent key {} for {id} on {peer}", key.id));
+        Some((key.id, crate::agent_keys::task_note(id)))
     }
 
     /// New subagents start on this peer (None: on this machine).
@@ -1258,6 +1298,21 @@ impl Orchestrator for Spawner {
                     r
                 }
                 _ => Ok(()),
+            };
+            // On a VM that is up: its own sandbox key, named in its task.
+            let key = match (&resumed, &sub_peer) {
+                (Ok(()), Some(p)) => self.agent_key(p, id),
+                _ => None,
+            };
+            let task = match &key {
+                Some((key_id, note)) => {
+                    let _ = self.to_brain(Input::SubagentAgentKey {
+                        id: id.clone(),
+                        key_id: key_id.clone(),
+                    });
+                    format!("{task}\n\n{note}")
+                }
+                None => task,
             };
             let started_one = resumed.and_then(|()| {
                 self.start_one(

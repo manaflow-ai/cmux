@@ -59,9 +59,9 @@ extension WorkspaceRowView {
 
     override func updateLayer() {
         performWithTheme {
-            title.textColor = Palette.textPrimary
+            // An idle workspace nobody named reads quiet until it is selected, hovered or busy.
+            title.textColor = isQuiet && !isSelected && !isSecondarySelected && !isHovered ? Palette.textSecondary : Palette.textPrimary
             subtitle.setColor(Palette.textSecondary); [timeLabel, metaLabel, elapsedLabel].forEach { $0.setColor(Palette.textTertiary) }
-            if let chip { timeLabel.setColor(SidebarPriorityRowView.chipColor(chip)) }
             tabCount.setColor(Palette.textTertiary)
             mutedMark.setTint(Palette.textTertiary)
             if let machine { machineMark.setTint(machine.color) }
