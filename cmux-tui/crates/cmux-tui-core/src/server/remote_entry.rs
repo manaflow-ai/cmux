@@ -25,6 +25,7 @@
 //! for a trusted local connection (`is_unix`) refuse it, and its
 //! conversation principal is `remote_<install>`, never `user_local`.
 
+use crate::panic_free::JsonFields;
 use std::io::{Read, Write};
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -313,7 +314,7 @@ pub(super) fn denied(line: &str) -> Value {
     let id = serde_json::from_str::<Value>(line).ok().and_then(|frame| frame.get("id").cloned());
     let mut response = json!({"ok": false, "error": REMOTE_DENIED, "error_code": REMOTE_DENIED});
     if let Some(id) = id {
-        response["id"] = id;
+        response.insert("id", id);
     }
     response
 }

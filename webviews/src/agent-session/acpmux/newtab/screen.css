@@ -1,5 +1,5 @@
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat; the theme accent only marks focus and the selected row. */
-.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(40px,14vh,140px) max(var(--cv-edge,18px),calc((100% - 720px)/2)) 24px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
+.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(40px,14vh,140px) max(var(--cv-edge,18px),calc((100% - var(--cv-column,720px))/2)) 24px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
 /* A short pane gives the location strip over the card (26px) back from the space above the card, so the
    All chats list keeps its room and stays the page's only scroller (new-tab-scroll): 12px at 360px tall
    and under, rising with the height to the 14vh above 480px. One continuous curve, so a window resized
@@ -524,6 +524,8 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-widget-tip-title{color:var(--agent-text)}
 .nt-widget-tip-detail{color:var(--acpmux-composer-dim);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 @media (prefers-reduced-motion:no-preference){.nt-widget-row,.nt-widget-chat,.nt-widget-dismiss{transition:background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out)}.nt-widget-row:hover,.nt-widget-chat:hover,.nt-widget-dismiss:hover{transition-duration:var(--agent-motion-hover,.08s)}}
+/* The page's column is the chat's (conversation.css --cv-column: 720 px, widening to 800 px on a wide
+   pane), so the New Tab composer is as wide as the chat composer in the same pane (Leo 2026-10-21). */
 /* The quiet row sits 4 px under the box (the column gap is 6). */
 .nt-foot .acpmux-composer-foot { margin-top: -2px; }
 /* The stage layout (templates.ts stage; Leo 2026-10-19, Claude Code desktop's new-session screen):
@@ -714,11 +716,12 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
    rim. Under it, outside the pill, one quiet row: the project strip on the left, the agent's chips
    and the mic on the right, no Send disc (Return sends).
    Then "Chats" as a segmented tab with "All Chats >" across from it, and three tall cards in a
-   grid that show more of each chat's last reply. Wider than the other templates' 720px column. */
+   grid that show more of each chat's last reply. Its column is every template's, the chat's
+   (--cv-column, Leo 2026-10-21: no extra left and right padding), so its composer is as wide as the
+   chat composer in the same pane. */
 .nt-screen[data-template="cards"] {
   gap: 10px;
   padding-top: clamp(24px, 8vh, 96px);
-  padding-inline: max(var(--cv-edge, 18px), calc((100% - 880px) / 2));
 }
 .nt-screen[data-template="cards"][data-pill] .nt-box {
   border-radius: 999px;
