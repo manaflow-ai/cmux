@@ -69,20 +69,8 @@ public final class AgentPaneRelaunchWake {
         var budget = maximumAttachmentBytes
         return saved.compactMapValues { saved in
             var state = saved.state
-            if let files = saved.files, let folder {
-                state.attachments = state.attachments?.compactMap { attachment in
-                    guard let name = files[attachment.id] else { return attachment }
-                    let url = folder.appending(path: name)
-                    // Only a file this store named: a bare name in the folder, never a path out of it.
-                    guard !name.contains("/"), !name.hasPrefix("."),
-                          let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= budget,
-                          // concurrency-allow: the capped attachment files the last quit wrote, read once at launch
-                          let bytes = try? Data(contentsOf: url) else { return nil }
-                    budget -= size
-                    var attachment = attachment
-                    attachment.data = bytes.base64EncodedString()
-                    return attachment
-                }
+            if let files = saved.files, let folder, let attachments = state.attachments {
+                state.attachments = AgentPaneAttachmentFiles.readBack(attachments, files: files, in: folder, budget: &budget)
             }
             return state.isEmpty ? nil : state
         }
@@ -129,12 +117,14 @@ public final class AgentPaneRelaunchWake {
         // Smallest first, so one tab's large attachments never cost every other tab its composer.
         let sized = states.map { key, state in (key, state, (state.attachments ?? []).reduce(0) { $0 + ($1.data?.utf8.count ?? 0) }) }
         for (key, state, _) in sized.sorted(by: { $0.2 < $1.2 }) {
-            guard let saved = moveOut(state, to: folder, within: limit - attachmentTotal),
-                  let size = (try? encoder.encode(saved.saved))?.count,
-                  size <= maximumTabBytes, total + size <= maximumBytes else { continue }
-            kept[key] = saved.saved
+            guard let moved = AgentPaneAttachmentFiles.moveOut(state.attachments ?? [], to: folder, within: limit - attachmentTotal) else { continue }
+            var held = state
+            if state.attachments != nil { held.attachments = moved.attachments }
+            let saved = Saved(state: held, files: moved.files.isEmpty ? nil : moved.files)
+            guard let size = (try? encoder.encode(saved))?.count, size <= maximumTabBytes, total + size <= maximumBytes else { continue }
+            kept[key] = saved
             total += size
-            attachmentTotal += saved.bytes
+            attachmentTotal += moved.bytes
         }
         guard !kept.isEmpty, let data = try? encoder.encode(kept) else {
             try? manager.removeItem(at: file)
@@ -147,48 +137,6 @@ public final class AgentPaneRelaunchWake {
         // A tab that did not fit wrote files nothing names: they go.
         for name in (try? manager.contentsOfDirectory(atPath: folder.path)) ?? [] where !referenced.contains(name) {
             try? manager.removeItem(at: folder.appending(path: name))
-        }
-    }
-
-    /// `state` with each attachment's contents written to its own file in `folder`, and how many
-    /// bytes those files hold; nil when they hold more than `budget` or a file can't be written.
-    private nonisolated static func moveOut(_ state: AgentPaneWakeState, to folder: URL, within budget: Int) -> (saved: Saved, bytes: Int)? {
-        var files: [String: String] = [:]
-        var bytes = 0
-        var written: [URL] = []
-        var moved: [AgentPaneWakeState.Attachment] = []
-        for var attachment in state.attachments ?? [] {
-            if let data = attachment.data, let contents = Data(base64Encoded: data) {
-                bytes += contents.count
-                let url = folder.appending(path: "\(UUID().uuidString).\(fileExtension(attachment.mimeType))")
-                do {
-                    guard bytes <= budget else { throw CocoaError(.fileWriteOutOfSpace) }
-                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                    try contents.write(to: url, options: .atomic)
-                } catch {
-                    for url in written { try? FileManager.default.removeItem(at: url) }
-                    return nil
-                }
-                written.append(url)
-                files[attachment.id] = url.lastPathComponent
-                attachment.data = nil
-            }
-            moved.append(attachment)
-        }
-        var saved = state
-        if state.attachments != nil { saved.attachments = moved }
-        return (Saved(state: saved, files: files.isEmpty ? nil : files), bytes)
-    }
-
-    /// The file's extension for a chip's MIME type, so the copy opens as what it is.
-    private nonisolated static func fileExtension(_ mimeType: String) -> String {
-        switch mimeType {
-        case "image/png": "png"
-        case "image/jpeg": "jpg"
-        case "image/gif": "gif"
-        case "image/webp": "webp"
-        case "application/pdf": "pdf"
-        default: "bin"
         }
     }
 }

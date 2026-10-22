@@ -25,6 +25,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
     internal(set) var lastConfiguration: (SidebarWorkspace, SidebarRow, SidebarRowBadgeStyle?)?
     var activityState = StatusIndicatorState.idle
+    /// The Priority chip on the name's line, which colors that line's trailing text.
+    var chip: SidebarPriorityEntry.State? { didSet { if chip != oldValue { needsDisplay = true } } }
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
     var rowBadgeStyle = SidebarRowBadgeStyle.corner
     /// The agents acting in the workspace (`sidebar.presenceDots`, cx-gg84).
@@ -79,6 +81,8 @@ final class WorkspaceRowView: SidebarRowView {
             needsDisplay = true
         }
     }
+    /// On screen in this window but not the focused one (`SidebarModel.onScreen`): the soft fill.
+    var isOnScreen = false { didSet { if isOnScreen != oldValue { needsDisplay = true } } }
     override var showsSelection: Bool { isSelected || isSecondarySelected }
     /// A tab dragged from a pane would move into this workspace.
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
@@ -173,6 +177,7 @@ final class WorkspaceRowView: SidebarRowView {
     override func prepareForReuse(key: SidebarRowKey) {
         super.prepareForReuse(key: key)
         isSecondarySelected = false
+        isOnScreen = false
         isDropTarget = false
         onClose = nil
         onMore = nil
@@ -254,10 +259,11 @@ final class WorkspaceRowView: SidebarRowView {
         }
         title.font = ws.titleWeight.map { NSFont.systemFont(ofSize: SidebarStyle.titleFont.pointSize, weight: $0.font) } ?? SidebarStyle.titleFont
         subtitle.setFont(SidebarStyle.subtitleFont)
-        subtitle.setString(row.detail ?? "")
+        subtitle.setString(shown.now.map(Strings.rowNow) ?? row.detail ?? "")
         hasSubtitle = row.detail != nil
         // While the agent works, its running time takes the age's place (WorkspaceRowView+Elapsed).
-        let trailingText = shown.workingSince != nil ? shown.trailingStatus : shown.trailingText
+        let trailingText = shown.chip.map { SidebarPriorityRowView.chipText($0, now: Date()) }
+            ?? (shown.workingSince != nil ? shown.trailingStatus : shown.trailingText)
         (isExpanded, timeText) = (shown.expanded, trailingText)
         timeLabel.setString(trailingText ?? "")
         if workingSince != shown.workingSince { elapsedTicker.cancel() }
@@ -265,6 +271,7 @@ final class WorkspaceRowView: SidebarRowView {
         metaLabel.setString(shown.meta ?? "")
         activity.configure(badgesLead ? .idle : shown.activity, style: badgesLead ? nil : ws.activityStyle)
         activityState = shown.activity
+        chip = shown.chip
         agentMarkVariant = content.agentMark
         let markImage = agentMarkVariant == .off || isShowingPlaceholder ? nil
             : ws.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: agentMarkSize) }
@@ -275,6 +282,9 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.image = ws.muted && !isShowingPlaceholder
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
         mutedMark.isHidden = mutedMark.image == nil
+        // The bell-slash alone does not say what is muted: notifications, not the tabs' sound
+        // (the row's accessibility label says it too).
+        mutedMark.themedToolTip = mutedMark.isHidden ? nil : Strings.notificationsMuted
         audio = isShowingPlaceholder ? nil : ws.audio
         audioButton.isHidden = audio == nil
         audioButton.icon = audio == .muted ? .browserTabMuted : .browserTabAudio

@@ -398,12 +398,20 @@ impl Translator {
 }
 
 /// An ACP `resource` or `resource_link` block as prompt text, so embedded
-/// context reaches Claude instead of an empty string.
+/// context reaches Claude instead of an empty string. A `file://` URI also
+/// names its decoded path: the URI is percent-encoded (`Application%20Support`),
+/// and Claude's tools open paths.
 fn resource_text(b: &Value) -> String {
     let r = b.get("resource").unwrap_or(b);
     let uri = r.get("uri").and_then(Value::as_str).unwrap_or("");
+    let path = reqwest::Url::parse(uri)
+        .ok()
+        .filter(|url| url.scheme() == "file")
+        .and_then(|url| url.to_file_path().ok())
+        .map(|path| format!(" path=\"{}\"", path.display().to_string().replace('"', "&quot;")))
+        .unwrap_or_default();
     match r.get("text").and_then(Value::as_str) {
-        Some(text) => format!("<resource uri=\"{uri}\">\n{text}\n</resource>"),
-        None => format!("<resource uri=\"{uri}\" />"),
+        Some(text) => format!("<resource uri=\"{uri}\"{path}>\n{text}\n</resource>"),
+        None => format!("<resource uri=\"{uri}\"{path} />"),
     }
 }

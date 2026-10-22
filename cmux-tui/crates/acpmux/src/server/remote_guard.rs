@@ -41,9 +41,19 @@
 //! - Web and Peer: no `_acpmux/btw` (`btw.remote`). A side session is a new
 //!   session on this machine, in the chat's harness and folder, with a policy
 //!   that approves reads: the app and the unix socket only.
-//! - Web and LocalApp: no `_acpmux/peer_add` or `_acpmux/peer_remove` (they
-//!   change which machines this daemon reaches with the user's ssh keys and
-//!   tokens); `peer_reconnect` only retries a configured peer.
+//! - Web and LocalApp: no `_acpmux/peer_add`, `_acpmux/peer_remove` or
+//!   `_acpmux/peer_lease` (they change which machines this daemon reaches
+//!   with the user's ssh keys and tokens); `peer_reconnect` only retries a
+//!   configured peer.
+//! - Web only: no `_acpmux/file_put` (`filePut.remote`). It writes a file
+//!   of the caller's bytes on this machine (under acpmux's own `uploads`
+//!   folder, never a path of the caller's), for a file the person dropped
+//!   into a chat in the app: the unix socket, the app (LocalApp) and a peer
+//!   forwarding for either take it; a peer forwarding for its own Web client
+//!   does not. The app sends it over the unix socket after the person's
+//!   gesture, but a LocalApp page could send it itself with no gesture: that
+//!   is accepted, since the page can already prompt the agent, and it writes
+//!   at most `MAX_BYTES` owner-only into a fresh folder under `uploads`.
 //!
 //! The unix socket keeps today's behavior.
 
@@ -127,6 +137,12 @@ pub(super) async fn check(
         return Err(super::conn_auth::refused());
     }
     let web = origin.web_class();
+    // Taking over a watched conversation starts its harness on this machine (`hub/watch.rs`):
+    // only a local client does that.
+    if web && m == method::MUX_WATCH_TAKE_OVER {
+        return Err(RpcError::new(-32602, "a watched chat is taken over only on this machine")
+            .with_data(serde_json::json!({"reason": "watch.origin_refused"})));
+    }
     if m == method::SESSION_CANCEL && web {
         check_cancel_ownership(hub, params)?;
     }
@@ -169,7 +185,7 @@ pub(super) async fn check(
     }
     // Which machines this daemon reaches with the user's ssh keys and
     // tokens changes over the unix socket only (LocalApp included).
-    if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove") {
+    if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove" | "_acpmux/peer_lease") {
         return Err(refused("changing peers"));
     }
     // The native relay reads the guard's own table and lists over the unix
@@ -283,6 +299,13 @@ pub(super) async fn check(
             "tools.remote: a chat's tools are turned on or off only in the app or over the local unix socket",
         )
         .with_data(serde_json::json!({"reason": "tools.remote"})));
+    }
+    // A dropped file is saved from the app or the unix socket only (`hub/file_uploads.rs`).
+    if m == method::MUX_FILE_PUT && control_of(origin, auth, params) == crate::hub::Control::Web {
+        return Err(RpcError::invalid_params(
+            "filePut.remote: a file is saved for a chat only from the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "filePut.remote"})));
     }
     // After the folder checks: what the request starts from, and its mode.
     if web {

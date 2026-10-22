@@ -121,6 +121,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var minimal = false
     /// Expanded rows (`sidebar.density`), unless minimal: `WorkspaceRowContent(expanded:)`.
     public var expanded = false
+    /// Workspaces as tabs (`SidebarTunables.workspacesAsTabs`): every workspace row is one line.
+    public var workspacesAsTabs = false
     /// Row badges draw each state apart (`sidebar.detailedStatusIcons`), not Working or Ready only.
     public var detailedStatus = false
     /// Rows show when they last changed (`sidebar.showTimestamps`): an expanded row's age and a
@@ -138,8 +140,17 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// `sidebar.sessionTree`: a workspace started by another's agent lists under it, and rows
     /// carry their pull requests and keycaps. Nil (off) draws the list as before.
     public var sessionTree: SidebarSessionTreeState?
+    /// Each row's pull request badge (`sidebar.pullRequestBadges`), drawn with the tree off too.
+    public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
     /// The session tree's keycaps: each workspace's Command-number (`SidebarItemOrder`).
     public var keycaps: [WorkspaceID: Int] = [:]
+    /// The session tree's chat history (`SidebarChatHistoryState`): Pinned above the workspaces,
+    /// Earlier under them. Nil (the tree off, or a filter) draws neither.
+    public var chatHistory: SidebarChatHistoryState?
+    /// `sidebar.doneFold`: workspaces marked Done fold into a "Done (N)" row at the end of their list.
+    public var foldsDone = false
+    /// The "Done (N)" rows the person opened: their workspaces list below them.
+    public var openDoneFolds: Set<SidebarDoneFoldID> = []
 
     public init() {}
 }
@@ -148,6 +159,9 @@ nonisolated extension SidebarLayoutOptions {
     /// Icon, the working spinner and progress (spinner and OSC 9;4 bar, Lawrence via cx-htbe5): the name
     /// and the unread mark always draw (minimal mode).
     static let minimalRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: [.icon, .working, .progress]))
+    /// Workspaces as tabs: the icon, the working spinner and the pull request badge, on the name's
+    /// line with the status glyph and the unread mark (Claude desktop's chat list).
+    static let tabRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: [.icon, .working, .pullRequest]))
 
     /// What `ws`'s row draws under these options. Minimal mode drops the
     /// second line (including another computer's name and a machine's
@@ -156,15 +170,25 @@ nonisolated extension SidebarLayoutOptions {
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
-        if let sessionTree {
-            content.keycap = keycaps[ws.id]
-            content.pullRequests = sessionTree.pullRequests[ws.id]
-        }
+        if let sessionTree { content.keycap = keycaps[ws.id] }
+        content.pullRequests = sessionTree?.pullRequests[ws.id] ?? pullRequests[ws.id]
         if !showsTimestamps { (content.time, content.badgeTime) = (nil, nil) }
+        // What the agent needs outranks the row's age and one-line status on the name's line; the
+        // row view words it (localized on the main actor, so the layout stays nonisolated).
+        if !minimal, let chip = ws.agentChip { (content.chip, content.time) = (chip, nil) }
+        // A row that already has a second line says there what its agent does now; a one-line row
+        // keeps its height, so rows do not grow and shrink as agents start and stop.
+        if !minimal, content.detail != nil, let step = ws.agentStep { (content.now, content.detail) = (step, step) }
         return content
     }
 
     private func baseRowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
+        // Workspaces as tabs: one line at any density; attention states (the needs-you mark) still show.
+        if workspacesAsTabs {
+            var content = WorkspaceRowContent(ws, preferences: Self.tabRow, now: now)
+            (content.detail, content.status, content.trailingStatus, content.badgeTime) = (nil, nil, nil, nil)
+            return content
+        }
         if expanded && !minimal {
             return WorkspaceRowContent(expanded: ws, now: now, machine: machine,
                                        showsNotification: workspaceRow.resolved(for: ws.rowKind).shows(.notification))
@@ -175,5 +199,24 @@ nonisolated extension SidebarLayoutOptions {
         content.badgeTime = nil
         content.status = nil
         return content
+    }
+}
+
+nonisolated extension SidebarLayoutOptions {
+    /// Whether the list draws workspace `ws`: not dragged out, and a match while filtering.
+    func visible(_ ws: SidebarWorkspace) -> Bool {
+        !excludedWorkspaces.contains(ws.id) && (filterMatches?.contains(ws.id) ?? true)
+    }
+
+    /// `showWorkspaceTabs` lists every workspace's tabs, except those the user collapsed with the row's disclosure.
+    func listsTabs(_ ws: SidebarWorkspace) -> Bool {
+        showWorkspaceTabs && !collapsedWorkspaces.contains(ws.id)
+    }
+
+    /// A workspace row's tab disclosure; nil when the list shows no tabs.
+    func disclosure(_ ws: SidebarWorkspace) -> SidebarTabDisclosure? {
+        guard showWorkspaceTabs else { return nil }
+        if ws.tabs.isEmpty { return .empty }
+        return collapsedWorkspaces.contains(ws.id) ? .collapsed : .expanded
     }
 }

@@ -1,0 +1,633 @@
+/* The Inspector (ChatInspector.tsx): the chat's right-hand panel. Push (a setting): a column in the shell's
+   flex row beside the chat, which reflows narrower, on the chat's own page surface. Overlay (the default): the
+   same column over the chat's right side as liquid glass (.ui-glass, ui/glass/glass.css), never an opaque fill
+   (Leo: "I don't like the non-glassness"), from under the chat header (--acpmux-inspector-top, the header's
+   height) to the pane's foot: the header's tools, its own toggle among them, stay above it, and like the
+   pushed column it lies beside the composer's right side. Its width comes from the viewer's drag (inline
+   style); it slides in from the right and back out, and the width never animates. Sections are hairline
+   cards a step lighter than the page; rows are 28px;
+   a long list scrolls inside its section. */
+.acpmux-chat-inspector {
+  position: relative;
+  flex: none;
+  min-width: 0;
+  max-width: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  color: var(--agent-text);
+  font-size: var(--text-control);
+  line-height: 18px;
+}
+.acpmux-chat-inspector[data-placement="push"] {
+  border-left: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  background: var(--agent-page-bg);
+}
+.acpmux-chat-inspector[data-placement="overlay"] {
+  position: absolute;
+  z-index: var(--layer-overlay);
+  top: var(--acpmux-inspector-top, 0px);
+  right: 0;
+  bottom: 0;
+  --glass-elevation: var(--elevation-2);
+}
+/* It slides in from the pane's right edge and back out (ui/presence.ts, data-presence): pushing, it
+   travels its own width inside the pane (the shell clips it), so the chat lays out once, not on
+   every frame; over the chat, the panel's few points. */
+.acpmux-chat-inspector[data-placement="push"] {
+  --ui-enter-distance: 100%;
+}
+.acpmux-chat-inspector[data-placement="overlay"] {
+  --ui-enter-distance: 24px;
+}
+.acpmux-chat-inspector[data-resizing] {
+  user-select: none;
+}
+.acpmux-chat-inspector__resize {
+  position: absolute;
+  z-index: var(--layer-raised);
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 6px;
+  cursor: col-resize;
+}
+.acpmux-chat-inspector__resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: transparent;
+  transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.acpmux-chat-inspector__resize:hover::after,
+.acpmux-chat-inspector[data-resizing] .acpmux-chat-inspector__resize::after {
+  background: var(--agent-border);
+}
+.acpmux-chat-inspector__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.acpmux-chat-inspector-section {
+  flex: none;
+  min-width: 0;
+  padding: var(--acpmux-inspector-card-pad);
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  border-radius: var(--acpmux-inspector-card-radius);
+  /* A translucent step over whatever is behind (the glass panel or the page), never a solid card. */
+  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+}
+/* Every row that takes a click (a section's head, a file or link, a pull request, a task, the
+   avatars, a subagent or a started chat) hovers one way: a faint tint of the text over whatever the
+   card shows, never a solid fill (--acpmux-menu-hover is opaque, which drew a light slab over the
+   card), and inside the card's padding with the card's radius less that padding, so a hover never
+   reaches past the card's edge. */
+.acpmux-chat-inspector {
+  --acpmux-inspector-card-radius: 10px;
+  --acpmux-inspector-card-pad: 4px;
+  --acpmux-inspector-row-radius: max(4px, calc(var(--acpmux-inspector-card-radius) - var(--acpmux-inspector-card-pad)));
+  --acpmux-inspector-row-hover: color-mix(in srgb, var(--agent-text) 7%, transparent);
+}
+.acpmux-chat-inspector-section .ui-disclosure-trigger:hover,
+.acpmux-chat-inspector-row--button:hover:not(:disabled),
+.acpmux-chat-inspector-pr:hover,
+.acpmux-chat-inspector-task__open:hover:not(:disabled),
+.acpmux-chat-inspector-avatars:hover,
+.acpmux-chat-inspector-icon-button:hover,
+button.acpmux-chat-inspector-port:hover,
+.acpmux-chat-inspector .acpmux-summary-link:hover:not(:disabled),
+.acpmux-chat-inspector .acpmux-summary-link:active:not(:disabled),
+.acpmux-chat-inspector .acpmux-summary-more:hover,
+.acpmux-chat-inspector .acpmux-summary-agent[aria-current="true"],
+.acpmux-chat-inspector .acpmux-summary-subagent-rows button.cv-subagent:hover {
+  background: var(--acpmux-inspector-row-hover);
+}
+.acpmux-chat-inspector .acpmux-summary-row,
+.acpmux-chat-inspector .acpmux-summary-subagent-rows .cv-subagent {
+  border-radius: var(--acpmux-inspector-row-radius);
+}
+.acpmux-chat-inspector-section .ui-disclosure-trigger,
+.acpmux-chat-inspector-section__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: var(--acpmux-inspector-row-radius);
+  text-align: left;
+  cursor: default;
+}
+.acpmux-chat-inspector-section .ui-disclosure-trigger {
+  margin: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  appearance: none;
+  transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.acpmux-chat-inspector-section .ui-disclosure-trigger:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-chat-inspector-section__title {
+  flex: none;
+  font-weight: 500;
+}
+.acpmux-chat-inspector-section__fold {
+  flex: none;
+  color: var(--agent-muted);
+}
+.acpmux-chat-inspector-section__meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-chat-inspector-section__value {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-chat-inspector-section__disclosure,
+.acpmux-chat-inspector-section .ui-disclosure-panel {
+  min-width: 0;
+}
+.acpmux-chat-inspector-meter {
+  flex: none;
+  display: block;
+  width: 36px;
+  height: 6px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+}
+.acpmux-chat-inspector-meter > span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: 2px;
+  background: var(--agent-accent);
+}
+/* A section's list scrolls past about eight rows instead of growing the panel without end. */
+.acpmux-chat-inspector-scroll {
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.acpmux-chat-inspector-list {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.acpmux-chat-inspector-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--acpmux-inspector-row-radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: default;
+}
+.acpmux-chat-inspector-row > svg {
+  flex: none;
+  color: var(--agent-muted);
+}
+.acpmux-chat-inspector-row--button {
+  transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.acpmux-chat-inspector-row--button:focus-visible,
+.acpmux-chat-inspector-row__link:focus-visible,
+.acpmux-chat-inspector-link:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-chat-inspector-row__name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acpmux-chat-inspector-row__link {
+  color: inherit;
+  text-decoration: none;
+}
+.acpmux-chat-inspector-row__link:hover {
+  text-decoration: underline;
+}
+.acpmux-chat-inspector-row__detail {
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--agent-muted);
+}
+.acpmux-chat-inspector-row__end {
+  flex: none;
+  margin-left: auto;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-chat-inspector-row__end[data-state="failed"] {
+  color: var(--agent-danger, var(--agent-muted));
+}
+.acpmux-chat-inspector-row .acpmux-diff-counts {
+  opacity: 0.8;
+}
+.acpmux-chat-inspector-note {
+  margin: 0;
+  padding: 4px 8px 6px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-chat-inspector-link {
+  padding: 0 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  cursor: default;
+}
+.acpmux-chat-inspector-link:hover {
+  color: var(--agent-text);
+  text-decoration: underline;
+}
+.acpmux-chat-inspector-switch {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.acpmux-chat-inspector-switch__input {
+  flex: none;
+  margin: 0 0 0 auto;
+  accent-color: var(--agent-accent);
+}
+.acpmux-chat-inspector-icon-button {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--agent-muted);
+  cursor: default;
+}
+.acpmux-chat-inspector-icon-button:hover {
+  color: var(--agent-text);
+}
+.acpmux-chat-inspector-icon-button:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-chat-inspector-icon-button:disabled {
+  opacity: 0.4;
+}
+.acpmux-chat-inspector-stop[data-state="failed"] {
+  color: var(--agent-danger);
+}
+.acpmux-chat-inspector-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+/* Changes: a pull request per row, its menu at the end. */
+.acpmux-chat-inspector-pr {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding-right: 4px;
+  border-radius: var(--acpmux-inspector-row-radius);
+  transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.acpmux-chat-inspector-pr__link {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 4px 5px 8px;
+  border-radius: var(--acpmux-inspector-row-radius);
+  color: inherit;
+  text-decoration: none;
+  cursor: default;
+}
+.acpmux-chat-inspector-pr__link:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-chat-inspector-pr__icon {
+  flex: none;
+  display: inline-flex;
+  margin-top: 3px;
+  color: var(--agent-muted);
+}
+.acpmux-chat-inspector-pr[data-state="open"] .acpmux-chat-inspector-pr__icon {
+  color: var(--agent-success, var(--acpmux-add));
+}
+.acpmux-chat-inspector-pr[data-state="merged"] .acpmux-chat-inspector-pr__icon {
+  color: var(--agent-ansi-5, var(--agent-accent));
+}
+.acpmux-chat-inspector-pr[data-state="closed"] .acpmux-chat-inspector-pr__icon {
+  color: var(--agent-danger);
+}
+.acpmux-chat-inspector-pr__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.acpmux-chat-inspector-pr__title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-chat-inspector-pr__line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-chat-inspector-pr__ref {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acpmux-chat-inspector-pr__counts,
+.acpmux-chat-inspector-pr__line .acpmux-diff-counts {
+  flex: none;
+}
+.acpmux-chat-inspector-pr__state,
+.acpmux-chat-inspector-pr__checks {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: auto;
+}
+.acpmux-chat-inspector-pr__checks[data-checks="failing"] {
+  color: var(--agent-danger);
+}
+.acpmux-chat-inspector-pr__base {
+  color: var(--agent-muted);
+  opacity: 0.75;
+}
+.acpmux-chat-inspector-pr__checks[data-checks="passing"],
+.acpmux-chat-inspector-pr__checks[data-checks="pending"] {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-right: 2px;
+  border-radius: 50%;
+  background: var(--agent-success, var(--acpmux-add));
+}
+.acpmux-chat-inspector-pr__checks[data-checks="pending"] {
+  background: var(--agent-warning, var(--agent-muted));
+}
+.acpmux-chat-inspector-pr__owner {
+  flex: none;
+  max-width: 40%;
+  margin-top: 6px;
+  padding: 0 6px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-chat-inspector-pr__more {
+  margin-top: 4px;
+}
+.acpmux-chat-inspector-breakdown__rows {
+  display: grid;
+  gap: 2px;
+}
+.acpmux-chat-inspector-breakdown__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+/* Servers and Background tasks. */
+.acpmux-chat-inspector-task,
+.acpmux-chat-inspector-server {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  padding: 2px 4px 2px 8px;
+}
+.acpmux-chat-inspector-task > svg,
+.acpmux-chat-inspector-task__open > svg {
+  flex: none;
+  color: var(--agent-muted);
+}
+/* A command's row is a button that opens its terminal; Stop sits beside it. */
+.acpmux-chat-inspector-task--command {
+  gap: 2px;
+  padding: 0 4px 0 0;
+}
+.acpmux-chat-inspector-task__open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  padding: 2px 4px 2px 8px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--acpmux-inspector-row-radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+  transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.acpmux-chat-inspector-task__open:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-chat-inspector-server {
+  align-items: flex-start;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.acpmux-chat-inspector-server__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin: 6px 2px 0;
+  border-radius: 50%;
+  background: var(--agent-success, var(--acpmux-add));
+}
+.acpmux-chat-inspector-server__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.acpmux-chat-inspector-server__line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-chat-inspector-port {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+button.acpmux-chat-inspector-port:hover {
+  color: var(--agent-text);
+}
+button.acpmux-chat-inspector-port:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-chat-inspector-task__command {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-chat-inspector-task__time,
+.acpmux-chat-inspector-task__state {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-chat-inspector-task[data-state="failed"] .acpmux-chat-inspector-task__state,
+.acpmux-chat-inspector-task[data-state="lost"] .acpmux-chat-inspector-task__state {
+  color: var(--agent-danger, var(--agent-muted));
+}
+.acpmux-chat-inspector-fold {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--acpmux-inspector-row-radius);
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  cursor: default;
+}
+.acpmux-chat-inspector-fold:hover {
+  color: var(--agent-text);
+}
+.acpmux-chat-inspector-fold:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+/* Subagents: one row of avatars; running ones breathe. */
+.acpmux-chat-inspector-avatars {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 34px;
+  padding: 2px 8px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--acpmux-inspector-row-radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: default;
+}
+.acpmux-chat-inspector-avatars:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-chat-inspector-avatars__stack {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.acpmux-chat-inspector-avatars__stack > .cv-subagent-avatar + .cv-subagent-avatar {
+  margin-left: -6px;
+}
+.acpmux-chat-inspector-avatars__more {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-chat-inspector-avatars .cv-subagent-avatar[data-state="running"] {
+    animation: acpmux-chat-inspector-breathe 2.4s ease-in-out infinite;
+  }
+}
+@keyframes acpmux-chat-inspector-breathe {
+  50% {
+    opacity: 0.62;
+  }
+}
+.acpmux-chat-inspector-subagents__list {
+  margin-top: 4px;
+}
+.acpmux-chat-inspector-menu {
+  min-width: 180px;
+}

@@ -1,17 +1,23 @@
 /// Files the composer attaches to a prompt. Images, PDFs and dictation's voice recordings go to
-/// the agent as ACP content blocks. A text file is written into the prompt's text because
-/// the web view never learns a dropped file's path; any other file (a binary, a large text file)
-/// goes to the chat's host (`chat.upload`), which saves it; its chip sends the saved path as a link.
+/// the agent as ACP content blocks. A text file is written into the prompt's text. Any other file (a
+/// binary, a large text file) or folder goes as a link: in a chat on this Mac to where it is (the
+/// host knows a dropped or pasted file's path, `chat.attach.dropped`; the page does not), else to
+/// the copy the chat's host saves (`chat.upload`).
+import { liftInlineImages } from "./inlineImages";
+import { pastedTextBlocks } from "./pastedText";
+
+import type { StringKey } from "./i18n";
 
 export type ComposerAttachment = {
   id: string;
-  kind: "image" | "text" | "document" | "link" | "audio";
+  /** `pasted`: a large paste kept as a chip (pastedText.ts), its `text` sent as a text block of its own. */
+  kind: "image" | "text" | "document" | "link" | "audio" | "pasted";
   name: string;
   mimeType: string;
   size: number;
   /** Base64 image, PDF or audio bytes, without the data: prefix. */
   data?: string;
-  /** A text file's contents. */
+  /** A text file's contents, or a pasted chip's text. */
   text?: string;
   /** The PDF page count when its catalog can be counted cheaply. */
   pageCount?: number;
@@ -28,7 +34,7 @@ export type AttachmentError = { name: string; reason: "tooLarge" | "unsupported"
 export type RefusedFile = AttachmentError & { file: File; unreadable?: boolean };
 
 export type PromptBlock =
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; _meta?: { cmux: { pasted: true } } }
   | { type: "image"; mimeType: string; data: string; name?: string }
   | { type: "document"; mimeType: "application/pdf"; data: string; name?: string }
   | { type: "resource_link"; uri: string; name: string }
@@ -42,8 +48,11 @@ export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_IMAGE_SIDE = 2000;
 /** The bytes one attached image may have: past this it is re-encoded (as JPEG) or scaled down. */
 export const IMAGE_BUDGET_BYTES = 1536 * 1024;
-/** Keep PDF prompts bounded while leaving room for the rest of the request. */
-export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024;
+/** The bytes a PDF may have to go as a document block: its base64 (13.4 MiB) stays under acpmux's
+ * 15 MiB bound on one message (#23247), below the WebSocket's 16 MiB frame, with room for the rest
+ * of the prompt; the same cap as a file sent to an ssh peer (`_acpmux/file_put`). A larger PDF goes
+ * as a link to its copy (intakeFiles.ts). */
+export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 /** A text file this large is already a lot of prompt. */
 export const MAX_TEXT_BYTES = 256 * 1024;
 export const MAX_ATTACHMENTS = 10;
@@ -282,11 +291,15 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
   return [text, ...files].filter(Boolean).join("\n\n");
 }
 
-/// ACP prompt blocks: the text (with text files) first, then each image, PDF, recording and file or folder link.
-export function promptBlocks(text: string, attachments: ComposerAttachment[]): PromptBlock[] {
+/// ACP prompt blocks: the text (with text files) first, then each pasted text (pastedText.ts), then
+/// each image, PDF, recording and file or folder link.
+/// A `data:` image written into the text goes as an image block, never as text (inlineImages.ts).
+export function promptBlocks(input: string, chips: ComposerAttachment[]): PromptBlock[] {
+  const { text, attachments } = liftInlineImages(input, chips);
   const blocks: PromptBlock[] = [];
   const body = promptText(text, attachments);
   if (body) blocks.push({ type: "text", text: body });
+  blocks.push(...pastedTextBlocks(attachments));
   for (const attachment of attachments)
     if (attachment.kind === "image" && attachment.data)
       blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
@@ -299,8 +312,27 @@ export function promptBlocks(text: string, attachments: ComposerAttachment[]): P
   return blocks;
 }
 
-/// A link chip for a file or folder the host's panel chose (`chat.attach.choose`): named by its
-/// last component, a folder's with a trailing slash.
+/// A file or folder on this computer that a link chip names (``linkAttachment``).
+export type LinkItem = { path: string; folder: boolean };
+
+/// How files came in from the person's own gesture, for the host's record of where they are
+/// (`chat.attach.dropped`): a drop on the page, or a paste.
+export type DroppedKind = "drop" | "paste";
+
+/// The files and folders of the host's `{items: [{path, folder}]}` answer (`chat.attach.choose`,
+/// `chat.attach.dropped`), in order: absolute paths only, a folder only when the host says so.
+export function linkItems(value: unknown): LinkItem[] {
+  const items = (value as { items?: unknown } | null | undefined)?.items;
+  if (!Array.isArray(items)) return [];
+  return items.flatMap((item: unknown) => {
+    const { path, folder } = (item ?? {}) as { path?: unknown; folder?: unknown };
+    return typeof path === "string" && path.startsWith("/") ? [{ path, folder: folder === true }] : [];
+  });
+}
+
+/// A link chip for a file or folder on this computer (the host's panel chose it,
+/// `chat.attach.choose`, or the person dropped or pasted it): named by its last component, a
+/// folder's with a trailing slash.
 export function linkAttachment(path: string, folder: boolean): ComposerAttachment {
   const trimmed = path.replace(/\/+$/, "") || "/";
   const name = trimmed.slice(trimmed.lastIndexOf("/") + 1) || trimmed;
@@ -372,6 +404,13 @@ export function audioAttachment(
   };
 }
 
+/// The notice for a recording that goes no further than its transcript: the host left it out
+/// (`DictationUpdate.audioOmitted`), or `audioAttachment` refused it past `MAX_AUDIO_BYTES`
+/// (`tooLarge`). The byte cap only backs up the host's two-minute stop, so both read the same.
+export function recordingLeftOutNotice(reason: "tooLong" | "tooLarge" | "narrowband"): StringKey {
+  return reason === "narrowband" ? "dictation.recordingNarrowband" : "dictation.recordingTooLong";
+}
+
 /** Counts PDF page objects without parsing or rendering the document. */
 function pdfPageCount(bytes: Uint8Array): number | undefined {
   try {
@@ -398,6 +437,71 @@ function fenceLanguage(name: string): string {
 /// The files in a drop or paste.
 export function filesFrom(transfer: DataTransfer | null): File[] {
   return transfer ? [...transfer.files] : [];
+}
+
+/// Whether a paste of files carries no text but their own names: files copied in a file manager
+/// also put each one's name (or path, or a file: URL list) on the clipboard as text, which the
+/// field must not take as a prompt. As the Home channel's composer decides (home-channels/Composer.tsx).
+export function pasteIsOnlyFileNames(transfer: DataTransfer): boolean {
+  if (transfer.files.length === 0) return false;
+  const text = transfer.getData("text/plain");
+  const names = [...transfer.files].map((file) => file.name);
+  return !text || [...transfer.types].includes("text/uri-list") || names.some((name) => text.includes(name));
+}
+
+/// Smaller than this is a page's spacer or icon, not an image someone copied.
+const MIN_HTML_IMAGE_BYTES = 256;
+
+/// The `data:` images of pasted HTML (an image copied from a page or a transcript with no file on
+/// the clipboard), as files the composer attaches: never markup in the prompt. Only the types an
+/// agent takes, and nothing as small as a spacer GIF.
+export function htmlImageFiles(html: string): File[] {
+  if (!html || !/<img[\s>]/i.test(html)) return [];
+  const files: File[] = [];
+  for (const tag of html.match(/<img\b[^<>]*>/gi) ?? []) {
+    const source = /\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i.exec(tag);
+    const uri = /^data:(image\/[a-z0-9.+-]+)(?:;[^,;]+)*;base64,([a-z0-9+/=\s]+)$/i.exec(
+      (source?.[1] ?? source?.[2] ?? source?.[3] ?? "").trim(),
+    );
+    const file = uri && imageFile(uri[1]!.toLowerCase(), uri[2]!);
+    if (file) files.push(file);
+  }
+  return files;
+}
+
+/// The markdown `data:` images of pasted text (a prompt copied from a bubble that went out with
+/// them), as files the composer attaches; `text` is what the field gets in their place.
+export function textImageFiles(plain: string): { text: string; files: File[] } {
+  const lifted = liftInlineImages(plain);
+  if (!lifted.attachments.length) return { text: plain, files: [] };
+  // An image written into a prompt was meant: no size floor.
+  const files = lifted.attachments.flatMap((chip) => imageFile(chip.mimeType, chip.data ?? "", 1) ?? []);
+  return { text: lifted.text, files };
+}
+
+/// The images a paste carries other than as files (an HTML `<img>`'s, else the plain text's), and
+/// the plain text without its markdown images when it had any.
+export function pastedImageFiles(transfer: DataTransfer | null): { text?: string; files: File[] } {
+  const plain = transfer?.getData("text/plain") ?? "";
+  const fromText = textImageFiles(plain);
+  const text = fromText.text === plain ? undefined : fromText.text;
+  const html = htmlImageFiles(transfer?.getData("text/html") ?? "");
+  return { text, files: html.length ? html : fromText.files };
+}
+
+/// A file of base64 `data` of an image type an agent takes; none for another type, data that is not
+/// base64, or an image smaller than `minimum` bytes (a spacer).
+function imageFile(mimeType: string, data: string, minimum = MIN_HTML_IMAGE_BYTES): File | undefined {
+  if (!IMAGE_TYPES.has(mimeType)) return undefined;
+  try {
+    const binary = atob(data.replace(/\s+/g, ""));
+    if (binary.length < minimum) return undefined;
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new File([bytes], `image.${mimeType === "image/jpeg" ? "jpg" : mimeType.slice(6)}`, { type: mimeType });
+  } catch {
+    // Not base64 after all: nothing to attach.
+    return undefined;
+  }
 }
 
 /// Whether a drag carries files, so the page takes the drop instead of navigating to it.

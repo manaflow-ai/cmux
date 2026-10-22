@@ -4,7 +4,8 @@
 // span with no curated lines even when it had user-visible commits, and kept internal work as a
 // bare count ("2 internal changes"). Now the span's changes are open, grouped by area ("Sidebar",
 // "Composer", then "Other"), each with its pull request, and internal work is listed, with its pull
-// requests, under a collapsed "Under the hood".
+// requests, under a collapsed "Under the hood". The fold itself is closed in the update section since
+// the update reads as happy news (whats-new-happy-news.test.tsx).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -73,16 +74,33 @@ test("What's New lists the update's changes by area with their pull requests, in
   const { mountChangelogPage } = await import("../src/pages/changelog/main");
   const root = dom.window.document.createElement("div");
   dom.window.document.body.append(root);
+  // The span's notes load after the list: yield until the section is drawn and every call is answered.
+  let open = 0;
+  class Counted extends MockChangelogProvider {
+    override async call<R>(op: string, params: unknown): Promise<R> {
+      open += 1;
+      try {
+        return await super.call<R>(op, params);
+      } finally {
+        open -= 1;
+      }
+    }
+  }
   await act(async () => {
-    mountChangelogPage(root, new MockChangelogProvider(span, "3940000000003") as never);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    mountChangelogPage(root, new Counted(span, "3940000000003") as never);
   });
+  const deadline = performance.now() + 2_000;
+  do {
+    if (performance.now() > deadline) throw new Error("timed out waiting for the update's notes");
+    await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  } while (open > 0 || !root.querySelector('[data-testid="changelog.sinceLastUpdate"] .cl-area'));
   const section = root.querySelector('[data-testid="changelog.sinceLastUpdate"]');
   expect(section).not.toBeNull();
   // The span has user-visible changes: never "Maintenance and fixes" over them.
   expect(section?.querySelector(".cl-maintenance")).toBeNull();
+  // Every change stays one click away, folded: the update reads as its lead changes and cards.
   const fold = section?.querySelector<HTMLDetailsElement>("details.cl-changes");
-  expect(fold?.open).toBe(true);
+  expect(fold?.open).toBe(false);
   const areas = [...(fold?.querySelectorAll(".cl-area") ?? [])];
   expect(areas.map((a) => a.querySelector("h4")?.textContent)).toEqual(["Sidebar", "Composer", "Other"]);
   expect(rows(areas[0]?.querySelector("ul"))).toEqual([

@@ -42,12 +42,30 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     crate::catalog::RPC_GET,
     crate::catalog::RPC_REFRESH,
     "_acpmux/peer_add",
+    "_acpmux/peer_lease",
     "_acpmux/peer_remove",
     "_acpmux/peer_reconnect",
 ];
 
 /// The reply when `m` is for a peer's session (forwarded there), else None
 /// (this daemon handles it).
+/// `_meta.acpmux.fromAgent` for a forwarded `session/prompt` with a supersede key and no sender of
+/// its own, from the session this connection proved it runs in.
+fn name_keyed_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
+    let Some(mux) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let keyed = mux.get("supersede").is_some_and(|k| !k.is_null());
+    let named = mux.get("fromAgent").is_some_and(|f| !f.is_null());
+    if keyed
+        && !named
+        && !conn.is_person()
+        && let Some(caller) = conn.caller()
+    {
+        mux.insert("fromAgent".into(), Value::String(hub.session_name(caller)));
+    }
+}
+
 pub(super) async fn forward(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -92,6 +110,14 @@ async fn forward_inner(
         if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
             return Err(super::trust_gate::peer_unsupported(&peer.name));
         }
+        // A dropped file crosses the link as one frame: checked here, and only to a peer that
+        // takes it (`hub/file_uploads.rs`).
+        if m == method::MUX_FILE_PUT {
+            crate::hub::file_uploads::check(params)?;
+            if !peer.supports_file_put() {
+                return Err(crate::hub::file_uploads::peer_unsupported(&peer));
+            }
+        }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
         if let Some(obj) = p.as_object_mut() {
             obj.remove("session");
@@ -99,6 +125,11 @@ async fn forward_inner(
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        // A keyed prompt replaces only its sender's (`hub/supersede.rs`): the peer cannot see the
+        // session this connection runs in, so it gets that session's name.
+        if m == method::SESSION_PROMPT {
+            name_keyed_sender(hub, conn, &mut p);
+        }
         if m == method::MUX_PERMISSION_RESPOND {
             count_hop(&mut p)?;
         }
@@ -131,6 +162,7 @@ async fn forward_inner(
                             e
                         }
                     })?;
+        strip_asks(hub, &peer.name, &id, m, &mut result);
         if m == method::SESSION_FORK
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
         {
@@ -155,6 +187,37 @@ async fn forward_inner(
         return Err(e);
     }
     Ok(None)
+}
+
+/// Drop from a peer's reply for its session `id` every ask the peer may
+/// not put before this daemon's clients: the `pending` entries of an
+/// `_acpmux/info` detail or an `_acpmux/attach` `session` that fail
+/// `Hub::peer_ask_counts`, and the ask records in `events`
+/// (`_acpmux/attach`, `_acpmux/events`), which the app reads a nonce and run
+/// from too, that `Hub::peer_history_ask_counts` drops (its own asks from an
+/// older run stay there without their nonce). The rest of the reply, and the
+/// session, stay.
+fn strip_asks(hub: &Hub, peer: &str, id: &str, m: &str, result: &mut Value) {
+    let pending = match m {
+        method::MUX_INFO => Some("/pending"),
+        method::MUX_ATTACH => Some("/session/pending"),
+        _ => None,
+    };
+    if let Some(Value::Array(asks)) = pending.and_then(|p| result.pointer_mut(p)) {
+        asks.retain(|ask| hub.peer_ask_counts(peer, id, ask));
+    }
+    if let Some(Value::Array(records)) = result.get_mut("events") {
+        records.retain_mut(|r| {
+            let kind = r.get("kind").and_then(Value::as_str).unwrap_or("");
+            if !crate::hub::is_permission_ask(kind) {
+                return true;
+            }
+            match r.get_mut("msg") {
+                Some(msg) => hub.peer_history_ask_counts(peer, id, msg),
+                None => false,
+            }
+        });
+    }
 }
 
 /// `_meta.acpmux` field of a forwarded `permission_respond`: how many
