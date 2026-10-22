@@ -19,9 +19,13 @@
 //! finds it. With no registry, or no `lanes` entry for this machine, a create
 //! is admitted (a log line says why): acpmux outside the fleet is unchanged.
 //! `_meta.acpmux.forceAdmit` (`acpmux new --force-admit`) admits past both,
-//! and the daemon logs who asked and what it overrode. Only creates are
-//! checked: a send, a resume, a restart, an adopted conversation, a side
-//! chat (`btw.rs`) and a handoff target never are.
+//! and the daemon logs who asked and what it overrode; the person's own new
+//! chat on this host (its app pane, or the person key) is admitted and logged
+//! too. `session/new` (with an adopt that may fork), `session/fork`, the
+//! composer's aside (`_acpmux/ask`) and sub-session starts are checked; a
+//! send, a resume, a restart, an adopted conversation, a side chat
+//! (`btw.rs`) and a handoff target never are. An admitted create counts as
+//! live until it ends, so concurrent creates at the cap cannot all pass.
 
 use super::*;
 
@@ -154,6 +158,23 @@ fn registry_path() -> Option<PathBuf> {
         .find(|p| p.exists())
 }
 
+/// Creates admitted and not yet done (`Admitted`), counted with the live
+/// sessions: concurrent creates at the cap cannot all pass the count.
+#[derive(Default)]
+pub(crate) struct Admitting(StdMutex<usize>);
+
+/// One admitted create, counted until it is dropped (its create ended, made or not).
+pub(crate) struct Admitted<'a>(Option<&'a Admitting>);
+
+impl Drop for Admitted<'_> {
+    fn drop(&mut self) {
+        if let Some(a) = self.0 {
+            let mut n = a.0.lock().unwrap_or_else(|e| e.into_inner());
+            *n = n.saturating_sub(1);
+        }
+    }
+}
+
 impl Hub {
     /// This host's sessions whose harness runs.
     fn live_sessions(&self) -> usize {
@@ -170,11 +191,11 @@ impl Hub {
             .count()
     }
 
-    /// Whether a new session may start here (module docs).
-    pub(crate) async fn admit_new(&self, ask: Ask<'_>) -> Result<(), RpcError> {
+    /// Whether a new session may start here (module docs). Hold the returned
+    /// guard until the create ends: until then it counts as a live session.
+    pub(crate) async fn admit_new(&self, ask: Ask<'_>) -> Result<Admitted<'_>, RpcError> {
         let flag = user_home().map(|h| h.join(".cache/worktree-reclaim/under-floor"));
-        let live = self.live_sessions();
-        let (refusal, uncapped) = tokio::task::spawn_blocking(move || {
+        let read = tokio::task::spawn_blocking(move || {
             let source = registry_path().unwrap_or_default();
             let registry = match std::fs::read(&source) {
                 Ok(bytes) => serde_json::from_slice::<Value>(&bytes)
@@ -188,16 +209,24 @@ impl Hub {
             let machine = registry
                 .as_ref()
                 .and_then(|r| machine_of(r, origin.as_deref(), super::start_gate::host_label()));
-            check(&Inputs {
-                flag: flag.as_deref(),
-                registry: registry.as_ref(),
-                source: &source,
-                machine: machine.as_deref(),
-                live,
-            })
-        })
-        .await
-        .map_err(|e| RpcError::internal(e.to_string()))?;
+            (flag, registry, source, machine)
+        });
+        let (flag, registry, source, machine) =
+            read.await.map_err(|e| RpcError::internal(e.to_string()))?;
+        // Counted and reserved under one lock: no file I/O while it is held.
+        let admitting = self.admitting.0.lock().unwrap_or_else(|e| e.into_inner());
+        let live = self.live_sessions() + *admitting;
+        let (refusal, uncapped) = check(&Inputs {
+            flag: flag.as_deref(),
+            registry: registry.as_ref(),
+            source: &source,
+            machine: machine.as_deref(),
+            live,
+        });
+        let admitted = |mut n: std::sync::MutexGuard<'_, usize>| {
+            *n += 1;
+            Admitted(Some(&self.admitting))
+        };
         // Outside the fleet (no registry) that is every create: only a fleet host's gap is logged.
         match uncapped {
             Some(why) if why == NO_REGISTRY => {
@@ -206,7 +235,7 @@ impl Hub {
             Some(why) => tracing::info!("session admitted with no lane cap: {why}"),
             None => {}
         }
-        let Some(refusal) = refusal else { return Ok(()) };
+        let Some(refusal) = refusal else { return Ok(admitted(admitting)) };
         let (who, why) = (ask.who, refusal.why());
         if ask.force {
             tracing::warn!(
@@ -215,7 +244,7 @@ impl Hub {
                 live,
                 "session/new admitted by force-admit past {refusal:?}"
             );
-            return Ok(());
+            return Ok(admitted(admitting));
         }
         // The person's own new chat (cmux NEXT, or the person's key): the cap
         // is for agents, and the app has no override to pass.
@@ -226,8 +255,9 @@ impl Hub {
                 live,
                 "session/new admitted for the person past {refusal:?}"
             );
-            return Ok(());
+            return Ok(admitted(admitting));
         }
+        drop(admitting);
         tracing::info!(caller = who, why, live, "session/new refused: {refusal:?}");
         Err(refusal.error(ask.local))
     }
@@ -237,11 +267,13 @@ impl Hub {
 pub(crate) struct Ask<'a> {
     /// `_meta.acpmux.forceAdmit`: admitted past a refusal, logged.
     pub force: bool,
-    /// The person asks (their app's pane, here or through a peer, or the person key).
+    /// The person asks here (this host's app pane, or the person key). A peer's
+    /// app pane is not: a forwarded `via: app` is the forwarding client's word.
     pub person: bool,
     /// The caller session or the connection, for the log.
     pub who: &'a str,
-    /// The refusal may name this host (not a Web client).
+    /// The refusal may name this host and its paths (not a Web client, here or
+    /// through a peer).
     pub local: bool,
 }
 

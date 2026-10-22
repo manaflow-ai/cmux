@@ -32,23 +32,23 @@ fn disallowed_tools(meta: Option<&Value>) -> Result<Vec<String>, RpcError> {
 }
 
 /// A create's admission ask (`hub/admission.rs`): `_meta.acpmux.forceAdmit`
-/// (`acpmux new --force-admit`), and whether the person asks: proven here,
-/// the app's own pane, or a peer forwarding for its app's pane (`via: app`).
-fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::admission::Ask<'a> {
+/// (`acpmux new --force-admit`), and whether the person asks here (proven, or
+/// this host's app pane; a peer's `via: app` is its client's word, not proof).
+pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::admission::Ask<'a> {
     let meta = mux_meta(params);
     let force =
         meta.and_then(|m| m.get(crate::hub::admission::FORCE_FIELD)).and_then(Value::as_bool)
             == Some(true);
-    let via_app = meta.and_then(|m| m.get("via")).and_then(Value::as_str) == Some("app");
-    let person = conn.is_person()
-        || conn.origin == Origin::LocalApp
-        || (conn.origin == Origin::Peer && via_app);
-    crate::hub::admission::Ask { force, person, who, local: conn.origin != Origin::Web }
+    let person = conn.is_person() || conn.origin == Origin::LocalApp;
+    // A Web client, here or through a peer, learns no host name or path.
+    let web =
+        super::remote_guard::control_of(conn.origin, conn.auth, params) == crate::hub::Control::Web;
+    crate::hub::admission::Ask { force, person, who, local: !web }
 }
 
 /// Who asks, for the admission log: the proven caller session, else the
 /// connection's origin and id.
-fn who(conn: &Conn) -> String {
+pub(super) fn who(conn: &Conn) -> String {
     match conn.caller() {
         Some(session) => format!("session {session}"),
         None => format!("{:?} connection {}", conn.origin, conn.id),
@@ -428,11 +428,13 @@ async fn dispatch_request(
             let disallowed_tools = disallowed_tools(meta)?;
             let asked_policy = policy.is_some();
             // A new session needs room on this host (`hub/admission.rs`); an adopted
-            // conversation is a resume. Before the worktree, so a refusal makes none.
+            // conversation is a resume, unless it may fork into a new chat. Before
+            // the worktree, so a refusal makes none; counted until the create ends.
             let who = who(conn);
-            if !adopting {
-                hub.admit_new(ask(conn, &params, &who)).await?;
-            }
+            let _admitted = match &adopt {
+                Some(a) if a.if_live != crate::adopt::IfLive::Fork => None,
+                _ => Some(hub.admit_new(ask(conn, &params, &who)).await?),
+            };
             // After the request checks above, so a request they refuse makes no worktree.
             let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
             let req = crate::hub::NewRequest {
@@ -627,7 +629,7 @@ async fn dispatch_request(
             let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
             let who = who(conn);
-            hub.admit_new(ask(conn, &params, &who)).await?;
+            let _admitted = hub.admit_new(ask(conn, &params, &who)).await?;
             let new = hub.fork(&s, name, cwd, env, workspace_id, through).await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
