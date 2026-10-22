@@ -157,14 +157,19 @@ test("a sender listed after its addressed prompt was read makes that prompt its 
   });
 });
 
-test("a queued addressed prompt reads as its sender's once the sender is listed", async () => {
-  const text = "summary-panel -> coord-deputy: Also #24020.";
+const QUEUED = "summary-panel -> coord-deputy: Also #24020.";
+
+/// The queue a chat shows after the list names summary-panel, its prompt `p-2` queued as `QUEUED`
+/// by a peer and then changed by `edits` (`queue_updated` texts).
+async function queueAfterListing(edits: string[]) {
+  const text = QUEUED;
   const history = record([
     ["mux", "user_message", { text: "Check the overlay", client: "cmux-next#0001", promptId: "p-1", turnId: "t-1" }],
     ["mux", "turn_started", { promptId: "p-1", turnId: "t-1" }],
     ["mux", "queued", { text, promptId: "p-2", client: "acpmux-peer#01a1", position: 1 }],
+    ...edits.map((edit): Step => ["mux", "queue_updated", { text: edit, promptId: "p-2" }]),
   ]);
-  const queue = [{ promptId: "p-2", prompt: text, turnId: "t-2", queuedAt: START, held: false }];
+  const queue = [{ promptId: "p-2", prompt: edits.at(-1) ?? text, turnId: "t-2", queuedAt: START, held: false }];
   const daemon = fakeDaemon(history, [], { status: "running", steering: true, queue });
   let shown: any[] = [];
   await AcpmuxDirectClient.connect(
@@ -183,7 +188,15 @@ test("a queued addressed prompt reads as its sender's once the sender is listed"
     }),
   });
   for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(shown.map((entry) => [entry.id, entry.prompt, entry.message?.name, entry.message?.text])).toEqual([
-    ["p-2", text, "summary-panel", "Also #24020."],
-  ]);
+  return shown.map((entry) => [entry.id, entry.prompt, entry.message?.name, entry.message?.text]);
+}
+
+test("a queued addressed prompt reads as its sender's once the sender is listed", async () => {
+  expect(await queueAfterListing([])).toEqual([["p-2", QUEUED, "summary-panel", "Also #24020."]]);
+});
+
+test("a queued addressed prompt the person edited stays theirs, even edited back", async () => {
+  expect(await queueAfterListing(["Also #24021."])).toEqual([["p-2", "Also #24021.", undefined, undefined]]);
+  expect(await queueAfterListing(["Also #24021.", QUEUED])).toEqual([["p-2", QUEUED, undefined, undefined]]);
+  expect(await queueAfterListing([QUEUED])).toEqual([["p-2", QUEUED, undefined, undefined]]);
 });

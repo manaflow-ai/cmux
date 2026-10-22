@@ -2365,14 +2365,17 @@ export class AcpmuxDirectClient {
   /// The list gained chats (a later page, a new chat): when one is a sender an addressed prompt
   /// named before it was listed, the rows are read again, so that prompt draws as its message. The
   /// queue keeps its live order and text; a prompt waiting in it whose `queued` record still holds
-  /// that text is read again too.
+  /// that text is read again too, unless the person edited it since (an edit makes it theirs).
   private recheckSenders(added: readonly Session[]): void {
     if (this.unknownSenders.size === 0 || !this.selectedSessionId || this.events.length === 0) return;
     if (![...this.unknownSenders].some((name) => added.some((session) => namesChat(session, name)))) return;
     this.rebuildKeepingLiveState();
     const queued = new Map<string, any>();
-    for (const event of this.events)
-      if (event.kind === "queued" && event.msg?.promptId) queued.set(String(event.msg.promptId), event.msg);
+    for (const event of [...this.events].sort((a, b) => a.seq - b.seq)) {
+      const id = event.msg?.promptId ? String(event.msg.promptId) : "";
+      if (event.kind === "queued" && id) queued.set(id, event.msg);
+      else if (event.kind === "queue_updated" && id) queued.delete(id);
+    }
     this.queue = this.queue.map((entry) => {
       const msg = queued.get(entry.id);
       if (entry.message || !msg || String(msg.text ?? "") !== entry.prompt) return entry;
