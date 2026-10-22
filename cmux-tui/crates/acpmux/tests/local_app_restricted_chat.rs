@@ -39,6 +39,12 @@ fn dir(tag: &str) -> PathBuf {
     std::fs::canonicalize(&d).unwrap()
 }
 
+/// The chat's `bin` folder, then this process's PATH.
+fn planted_path(d: &Path) -> String {
+    let rest = std::env::var("PATH").unwrap_or_default();
+    format!("{}:{rest}", d.join("work").join("bin").display())
+}
+
 fn paths(d: &Path) -> Paths {
     Paths {
         claude_json: d.join("home").join(".claude.json"),
@@ -52,9 +58,13 @@ fn paths(d: &Path) -> Paths {
 fn hub(d: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
-            // A plugin folder from the env loads that plugin's hooks, like `--plugin-dir`.
+            // A plugin folder from the env loads that plugin's hooks, like `--plugin-dir`; a
+            // preload loads the folder's library before Claude Code starts; a PATH folder in it
+            // would give the git Claude Code runs at startup, and the `systemd-run` acpmux probes.
             "fclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
-                        "env": {"CLAUDE_CODE_PLUGIN_DIRS": d.join("work").join("plugin")}},
+                        "env": {"CLAUDE_CODE_PLUGIN_DIRS": d.join("work").join("plugin"),
+                                "LD_PRELOAD": d.join("work").join("preload.so"),
+                                "PATH": planted_path(d)}},
             "fcodex": {"argv": ["python3", FAKE], "family": "codex"},
             // Its HOME is the chat's folder: Claude Code would read the folder's
             // `.claude/settings.json` as the person's own.
@@ -220,6 +230,21 @@ async fn not_now_opens_a_restricted_claude_chat_only_with_the_setting_on() {
     let plugins: Value =
         serde_json::from_str(&app.ask(&s, "envs: CLAUDE_CODE_PLUGIN_DIRS").await).unwrap();
     assert_eq!(plugins, json!({"CLAUDE_CODE_PLUGIN_DIRS": ""}), "no plugin from the env");
+    let preload: Value = serde_json::from_str(&app.ask(&s, "envs: LD_PRELOAD").await).unwrap();
+    assert_eq!(preload, json!({"LD_PRELOAD": ""}), "no library from the folder");
+    let path: Value = serde_json::from_str(&app.ask(&s, "envs: PATH").await).unwrap();
+    let path = path["PATH"].as_str().unwrap_or_else(|| panic!("{path}"));
+    assert!(!path.is_empty() && !path.contains(work.to_str().unwrap()), "{path}");
+
+    // A chat that turned a tool off keeps it off, restricted: acpmux's own `--disallowedTools`
+    // is not the profile shaping the command line.
+    let p = json!({"cwd": work, "mcpServers": [],
+                   "_meta": {"acpmux": {"harness": "fclaude", "disallowedTools": ["WebFetch"]}}});
+    let r = app.call("session/new", p).await;
+    let off = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    let args = argv(&app.ask(&off, "argv").await);
+    restricted_flags(&args);
+    assert_eq!(after(&args, "--disallowedTools"), Some("WebFetch"), "{args:?}");
 
     // Nothing widens it, from the pane or the unix socket. (A connection that is not the
     // person may be refused by the person rule first, `hub/person.rs`; the restricted rule holds
