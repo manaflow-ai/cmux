@@ -74,7 +74,7 @@
   justify-content: flex-end;
   padding: 6px 8px 0;
 }
-.acpmux-chat-inspector__head + .acpmux-chat-inspector__body {
+.acpmux-chat-inspector__head ~ .acpmux-chat-inspector__body {
   padding-top: 2px;
 }
 .acpmux-chat-inspector__body {
