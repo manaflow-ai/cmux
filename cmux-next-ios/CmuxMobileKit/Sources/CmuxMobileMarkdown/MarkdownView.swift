@@ -11,11 +11,14 @@ public struct MarkdownView: View {
     /// Horizontal margin of the column; tables bleed past it to the screen edge.
     var margin: CGFloat
     var isStreaming: Bool
+    /// false: blocks appear in place (a transcript's replayed history), with no fade in.
+    var animatesBlocks: Bool
 
-    public init(_ document: MarkdownDocument, margin: CGFloat = 20, isStreaming: Bool = false) {
+    public init(_ document: MarkdownDocument, margin: CGFloat = 20, isStreaming: Bool = false, animatesBlocks: Bool = true) {
         self.document = document
         self.margin = margin
         self.isStreaming = isStreaming
+        self.animatesBlocks = animatesBlocks
     }
 
     public init(markdown: String, margin: CGFloat = 20) {
@@ -26,7 +29,7 @@ public struct MarkdownView: View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(document.blocks) { block in
                 MarkdownBlockView(block: block, margin: margin)
-                    .transition(.opacity.animation(.easeOut(duration: 0.15)))
+                    .transition(animatesBlocks ? .opacity.animation(.easeOut(duration: 0.15)) : .identity)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
