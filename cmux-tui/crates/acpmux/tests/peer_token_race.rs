@@ -6,8 +6,9 @@
 //! Web (`servedAs: remote`). That link held every prompt to the Web's rules
 //! until the next disconnect: a coordinator's `acpmux send air-blue/LANE`
 //! to a Claude chat the Mac started was refused with "This chat runs with
-//! your Mac's Claude permissions" (2026-10-22). Served as Web while the
-//! remote now has a token, the peer reconnects with it.
+//! your Mac's Claude permissions" (2026-10-22). The peer reads again while
+//! the remote has no token, and a connection served as Web reconnects once
+//! the remote has a token it did not present (it restarted in between).
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -92,11 +93,23 @@ fn unix(home: &Path, method: &str, params: Value) -> Value {
     }
 }
 
+/// What the stand-in `ssh`'s token reads find on the remote.
+#[derive(Clone, Copy)]
+enum Reads {
+    /// No token on the first read, the real one after: the remote starting.
+    Late,
+    /// The previous run's token on the first read, the real one after: the
+    /// remote restarted between the read and the handshake.
+    Stale,
+    /// Never a token: a remote too old to make one.
+    Never,
+}
+
 /// A stand-in `ssh` for one remote daemon at `remote`: `-W 127.0.0.1:PORT`
 /// carries stdio to that port; any other call is the token read, answered
-/// with the remote's config and, from the second read on, its peer token.
-/// The first read finds no token: the window while the remote starts.
-fn fake_ssh(dir: &Path, remote: &Path) {
+/// with the remote's config and a token as `reads` says. Each read is
+/// counted in `dir/reads`.
+fn fake_ssh(dir: &Path, remote: &Path, reads: Reads) {
     let script = format!(
         r#"#!/usr/bin/env python3
 import os, socket, sys, threading
@@ -122,14 +135,24 @@ home = {home}
 count = os.path.join({dir}, "reads")
 n = int(open(count).read()) if os.path.exists(count) else 0
 open(count, "w").write(str(n + 1))
+mode = {mode}
 out = open(os.path.join(home, "config.json"), "rb").read() + b"\0"
-if n >= 1:
+if mode == "never" or (mode == "late" and n == 0):
+    os.write(1, out)
+    sys.exit(1)
+if mode == "stale" and n == 0:
+    out += b"0" * 64
+else:
     out += open(os.path.join(home, "run", "peer.token"), "rb").read()
 os.write(1, out)
-sys.exit(0 if n >= 1 else 1)
 "#,
         home = daemon_env::sh_quote(remote.display()).replace('\'', "\""),
         dir = daemon_env::sh_quote(dir.display()).replace('\'', "\""),
+        mode = match reads {
+            Reads::Late => "\"late\"",
+            Reads::Stale => "\"stale\"",
+            Reads::Never => "\"never\"",
+        },
     );
     let path = dir.join("ssh");
     std::fs::write(&path, script).unwrap();
@@ -137,33 +160,85 @@ sys.exit(0 if n >= 1 else 1)
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
-#[test]
-fn a_peer_that_read_no_token_reconnects_as_a_peer_once_the_remote_has_one() {
-    let remote = start("remote", json!({}), true, None);
-    let port = remote.listen.as_deref().unwrap().rsplit(':').next().unwrap().to_owned();
-    let dir = std::env::temp_dir().join(format!("ptr-ssh-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    fake_ssh(&dir, &remote.home);
-    let local = start(
-        "local",
-        json!({"peers": {"box": {"url": format!("ssh://box.invalid:{port}")}}}),
-        false,
-        Some(&dir),
-    );
-    // The first connect reads no token and is served as Web; the peer must
-    // not stay that way while the remote has a token to read.
-    let deadline = Instant::now() + Duration::from_secs(30);
-    let mut last = Value::Null;
-    while Instant::now() < deadline {
-        last = unix(&local.home, "_acpmux/peers", json!({}));
-        let peer = &last["result"]["peers"][0];
-        if peer["connected"] == json!(true) && peer["servedAs"] == json!("peer") {
-            let _ = std::fs::remove_dir_all(&dir);
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(200));
+/// A remote daemon, a peer of it through the stand-in `ssh`, and the
+/// stand-in's directory (its `reads` count).
+struct Pair {
+    local: Daemon,
+    _remote: Daemon,
+    dir: PathBuf,
+}
+
+impl Drop for Pair {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
     }
-    let _ = std::fs::remove_dir_all(&dir);
-    panic!("the peer is still not served as a peer: {last}");
+}
+
+impl Pair {
+    fn start(tag: &str, reads: Reads) -> Self {
+        let remote = start(&format!("{tag}-remote"), json!({}), true, None);
+        let port = remote.listen.as_deref().unwrap().rsplit(':').next().unwrap().to_owned();
+        let dir = std::env::temp_dir().join(format!("ptr-{tag}-ssh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        fake_ssh(&dir, &remote.home, reads);
+        let local = start(
+            &format!("{tag}-local"),
+            json!({"peers": {"box": {"url": format!("ssh://box.invalid:{port}")}}}),
+            false,
+            Some(&dir),
+        );
+        Self { local, _remote: remote, dir }
+    }
+
+    fn peer(&self) -> Value {
+        unix(&self.local.home, "_acpmux/peers", json!({}))["result"]["peers"][0].clone()
+    }
+
+    fn reads(&self) -> u32 {
+        std::fs::read_to_string(self.dir.join("reads"))
+            .ok()
+            .and_then(|n| n.trim().parse().ok())
+            .unwrap_or(0)
+    }
+
+    /// The peer's summary once it is connected and its sessions arrived,
+    /// served as `served_as`; panics after 60 s with the last one.
+    fn wait_served_as(&self, served_as: &str) -> Value {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let mut last = Value::Null;
+        while Instant::now() < deadline {
+            last = self.peer();
+            if last["state"] == json!("connected") && last["servedAs"] == json!(served_as) {
+                return last;
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        panic!("the peer is not served as {served_as}: {last}");
+    }
+}
+
+#[test]
+fn a_peer_that_read_no_token_connects_as_a_peer_once_the_remote_has_one() {
+    let pair = Pair::start("late", Reads::Late);
+    pair.wait_served_as("peer");
+}
+
+#[test]
+fn a_peer_that_presented_a_stale_token_reconnects_as_a_peer() {
+    let pair = Pair::start("stale", Reads::Stale);
+    pair.wait_served_as("peer");
+}
+
+#[test]
+fn a_remote_with_no_token_stays_remote_after_a_bounded_number_of_reads() {
+    let pair = Pair::start("never", Reads::Never);
+    let first = pair.wait_served_as("remote");
+    // The first read, three rereads before the connect, one after the
+    // handshake; then the link stays up with no more reads.
+    std::thread::sleep(Duration::from_secs(5));
+    let later = pair.peer();
+    assert_eq!(later["state"], json!("connected"), "{later}");
+    assert_eq!(later["attempts"], first["attempts"], "the link did not reconnect: {later}");
+    assert_eq!(pair.reads(), 5, "reads of a remote with no token");
 }

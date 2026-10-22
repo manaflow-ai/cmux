@@ -77,8 +77,8 @@ pub struct Peer {
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
-    /// This `ssh://` connection read no peer token (`token_recheck`).
-    read_no_token: AtomicBool,
+    /// The peer token this connection presented (`stale_token`).
+    presented: StdMutex<Option<String>>,
     attached: StdMutex<HashSet<String>>,
     notices: mpsc::Sender<(String, u64, PeerNotice)>,
     stop: AtomicBool,
@@ -122,7 +122,7 @@ impl Peer {
             trust_gate: AtomicBool::new(false),
             file_put: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
-            read_no_token: AtomicBool::new(false),
+            presented: StdMutex::new(None),
             attached: StdMutex::new(HashSet::new()),
             notices,
             stop: AtomicBool::new(false),
@@ -258,26 +258,44 @@ impl Peer {
         Ok((remote.token, peer))
     }
 
-    /// An `ssh://` peer that read no peer token is served as Web. A remote
-    /// daemon that is starting listens before it writes `run/peer.token`, and
-    /// the one that stopped removed its own, so a reconnect inside that
-    /// window reads none and would keep the Web's rules on every prompt
-    /// until the link next drops. Served as Web after such a read, the token
-    /// is read again a few times (a remote too old to make one has none);
-    /// once there is one, `relink` drops the link to connect with it.
-    async fn token_recheck(&self, relink: &Notify) {
+    /// `remote_tokens`, read again (`TOKEN_REREADS`) while the remote has
+    /// no peer token: a daemon that is starting listens a few seconds before
+    /// it writes `run/peer.token`, and the one that stopped removed its own.
+    /// A connect inside that window would be served as Web, holding every
+    /// prompt to the Web's rules until the link next drops. A remote too old
+    /// to make a token has none after the rereads and is served as Web.
+    async fn remote_tokens_settled(&self) -> Result<(String, Option<String>), String> {
+        let mut tokens = self.remote_tokens().await?;
+        for wait in TOKEN_REREADS {
+            if tokens.1.is_some() || self.stop.load(Ordering::SeqCst) {
+                break;
+            }
+            tokio::time::sleep(wait).await;
+            tokens = self.remote_tokens().await?;
+        }
+        Ok(tokens)
+    }
+
+    /// Why an `ssh://` connection the remote served as Web should connect
+    /// again: the remote has a peer token now that this connection did not
+    /// present (it restarted between the token read and the handshake, or
+    /// had not written its token yet). One read per such connection; None
+    /// when it was served as a peer, when the read fails, or when the remote
+    /// still has no token or the same one (it serves this daemon as Web for
+    /// another reason, and reconnecting would not change that).
+    async fn stale_token(&self) -> Option<String> {
+        self.ssh_parts()?;
         let served_as_web =
             self.served_as.lock().unwrap_or_else(|e| e.into_inner()).as_deref() == Some("remote");
-        if !served_as_web || !self.read_no_token.load(Ordering::SeqCst) {
-            return;
+        if !served_as_web {
+            return None;
         }
-        for wait in TOKEN_RECHECKS {
-            tokio::time::sleep(wait).await;
-            if matches!(self.remote_tokens().await, Ok((_, Some(_)))) {
-                relink.notify_one();
-                return;
-            }
-        }
+        let presented = self.presented.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let (_, now) = self.remote_tokens().await.ok()?;
+        (now.is_some() && now != presented).then(|| {
+            "the peer served this daemon as remote, and it has a new peer token; reconnecting"
+                .to_owned()
+        })
     }
 
     pub fn remote_build(&self) -> Option<String> {
@@ -397,8 +415,8 @@ impl Peer {
         out_rx: &mut mpsc::Receiver<String>,
     ) -> Result<(), String> {
         if self.ssh_parts().is_some() {
-            let (token, peer_token) = self.remote_tokens().await?;
-            self.read_no_token.store(peer_token.is_none(), Ordering::SeqCst);
+            let (token, peer_token) = self.remote_tokens_settled().await?;
+            *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = peer_token.clone();
             let (stream, remote_port) = self.open_tunnel().await?;
             let req = self.ws_request(
                 &format!("ws://127.0.0.1:{remote_port}"),
@@ -414,7 +432,7 @@ impl Peer {
             .map_err(|e| e.to_string())?;
             return self.serve(ws, out_rx).await;
         }
-        self.read_no_token.store(false, Ordering::SeqCst);
+        *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = None;
         // The peer token never crosses a network in clear.
         let peer_token = match self.peer_token.as_deref() {
             Some(_) if !carries_peer_token(&self.url) => {
@@ -474,8 +492,7 @@ impl Peer {
 
         // Handshake in a task so the read loop below can serve the responses.
         let me = self.clone();
-        let relink = Arc::new(Notify::new());
-        let relink_on_token = relink.clone();
+        let (stale_tx, mut stale_rx) = oneshot::channel::<String>();
         let handshake = tokio::spawn(async move {
             let init = me
                 .request(
@@ -496,6 +513,11 @@ impl Peer {
             *me.remote_version.lock().unwrap() = Some((v, b));
             *me.served_as.lock().unwrap_or_else(|e| e.into_inner()) =
                 init.pointer("/_meta/acpmux/origin").and_then(Value::as_str).map(str::to_owned);
+            // Before any session is watched or attached on this link.
+            if let Some(why) = me.stale_token().await {
+                let _ = stale_tx.send(why);
+                return Ok(());
+            }
             *me.person_instance.lock().unwrap_or_else(|e| e.into_inner()) = init
                 .pointer("/_meta/acpmux/personInstance")
                 .and_then(Value::as_str)
@@ -532,7 +554,6 @@ impl Peer {
                 let attach = json!({"sessionId": sid, "limit": 0, "visible": false});
                 let _ = me.request(method::MUX_ATTACH, attach).await;
             }
-            me.token_recheck(&relink_on_token).await;
             Ok::<(), RpcError>(())
         });
 
@@ -548,6 +569,7 @@ impl Peer {
         );
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut last_frame = tokio::time::Instant::now();
+        let mut stale_settled = false;
         let handshake_deadline = tokio::time::sleep(timings.handshake);
         tokio::pin!(handshake_deadline);
         let result = loop {
@@ -556,9 +578,12 @@ impl Peer {
             }
             tokio::select! {
                 _ = self.stop_signal.notified() => break Ok(()),
-                _ = relink.notified() => {
-                    tracing::info!(peer = %self.name, "the peer has a peer token now; reconnecting to present it");
-                    break Ok(());
+                // Once only: a finished oneshot is not polled again.
+                stale = &mut stale_rx, if !stale_settled => {
+                    stale_settled = true;
+                    if let Ok(why) = stale {
+                        break Err(why);
+                    }
                 }
                 _ = &mut handshake_deadline, if !self.link().is_ready() => {
                     break Err(format!("handshake timed out after {}s", timings.handshake.as_secs()));
@@ -642,10 +667,10 @@ impl Peer {
     }
 }
 
-/// When an `ssh://` peer served as Web reads the peer token again
-/// (`Peer::token_recheck`), each wait after the last.
-const TOKEN_RECHECKS: [Duration; 3] =
-    [Duration::from_secs(2), Duration::from_secs(6), Duration::from_secs(18)];
+/// The waits before each reread of a remote that has no peer token yet
+/// (`Peer::remote_tokens_settled`).
+const TOKEN_REREADS: [Duration; 3] =
+    [Duration::from_secs(1), Duration::from_secs(2), Duration::from_secs(4)];
 
 fn connect_timed_out(after: Duration) -> String {
     format!("connect timed out after {}s", after.as_secs())
