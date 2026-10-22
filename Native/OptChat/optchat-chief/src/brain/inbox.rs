@@ -166,7 +166,8 @@ impl Brain {
             .chars()
             .take(120)
             .collect::<String>();
-        let entries: Vec<optchat_host::NewMessage> = message
+        // (key, text): a note borrows its text, so the texts outlive the entries.
+        let notes: Vec<(String, String)> = message
             .reactions
             .iter()
             .filter(|r| &r.author != me)
@@ -179,14 +180,20 @@ impl Brain {
                     .map(|p| p.display_name.trim().to_owned())
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| r.author.clone());
-                let text = format!("reaction {label} from {who} on your message: {first_line}");
-                optchat_host::NewMessage {
-                    key: Some(format!(
+                (
+                    format!(
                         "{main}#{}:reaction:{}:{}:{tag}",
                         message.seq, r.author, r.part_index
-                    )),
-                    ..optchat_host::NewMessage::new(optchat_core::Kind::Note, &text)
-                }
+                    ),
+                    format!("reaction {label} from {who} on your message: {first_line}"),
+                )
+            })
+            .collect();
+        let entries: Vec<optchat_host::NewMessage> = notes
+            .iter()
+            .map(|(key, text)| optchat_host::NewMessage {
+                key: Some(key.clone()),
+                ..optchat_host::NewMessage::new(optchat_core::Kind::Note, text)
             })
             .collect();
         if entries.is_empty() {
