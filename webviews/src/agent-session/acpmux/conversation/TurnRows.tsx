@@ -103,7 +103,12 @@ function groupNode(
       return group.item.tool ? (
         <ToolRow key={group.item.tool.id || index} item={group.item} />
       ) : (
-        <ThoughtRow key={index} id={`${rowId}:thought:${thoughts}`} item={group.item} streaming={live} />
+        <ThoughtRow
+          key={`${rowId}:thought:${thoughts}`}
+          id={`${rowId}:thought:${thoughts}`}
+          item={group.item}
+          streaming={live}
+        />
       );
   }
 }

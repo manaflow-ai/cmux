@@ -137,3 +137,17 @@ test("one activity shown twice in a group keeps two thoughts' states apart", asy
   await draw(list, "twice");
   expect(toggles().map((node) => node.getAttribute("aria-expanded"))).toEqual(["true", "false"]);
 });
+
+test("a thought that takes another's place on its own row starts closed", async () => {
+  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  resetTranscriptDisclosure();
+  // The live run leaves out each read still running: thought 0 draws on its own after the group.
+  await draw([command, read(0), read(1), thought(0)], "replaced");
+  await click(toggles()[0]!);
+  expect(opened()).toHaveLength(1);
+  // read 2 finishes and joins thought 0 to the group; thought 1 now draws on its own where thought 0 was.
+  await draw([command, read(0), read(1), thought(0), read(2), thought(1)], "replaced");
+  expect(toggles()).toHaveLength(2);
+  expect(opened()).toHaveLength(1);
+  expect(opened()[0]).toContain("Thought number 0:");
+});
