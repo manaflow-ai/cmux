@@ -151,4 +151,19 @@ import Testing
         // The loose list's end: before its Done row too.
         #expect(try gapAbove(layout(DropPosition(section: Self.section, index: 6)), .doneFold(loose)))
     }
+
+    /// The older resolver's rows leave the Done row out; the group's last drawn member is then its last row, so a
+    /// drop past it leaves the group, as with no fold.
+    @Test func theLastDrawnMemberBeforeAGroupsDoneRowEndsTheGroupForTheResolver() throws {
+        var o = SidebarLayoutOptions()
+        o.foldsDone = true
+        let layout = SidebarLayout.make(sections: Self.sections(), metrics: .standard, options: o)
+        let fold = try #require(layout.row(for: .doneFold(SidebarDoneFoldID(section: Self.section, group: Self.group))))
+        #expect(fold.isLastInGroup)
+        #expect(layout.row(for: .workspace(WorkspaceID("g4")))?.isLastInGroup == false, "the drawn rows changed")
+        let rows = RustRow.resolvable(layout.rows)
+        let last = rows.filter { $0.group == Self.group.rawValue && $0.key.kind == "workspace" }.map { ($0.key.id ?? "", $0.isLastInGroup) }
+        #expect(last.map(\.0) == ["g2", "g4"])
+        #expect(last.map(\.1) == [false, true], "the resolver's last member: \(last)")
+    }
 }
