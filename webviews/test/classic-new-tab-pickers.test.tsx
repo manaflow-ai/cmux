@@ -100,6 +100,7 @@ async function mount(
     catalog,
     ...(!options.noSummary
       ? {
+          switching: { harness: "claude", name: "Claude Code", phase: "deferred" },
           summary: {
             sessionId: "",
             harness: "claude",
@@ -139,9 +140,15 @@ async function mount(
                 ? {
                     protocolVersion: 1,
                     transport: "preview",
+                    newSession: true,
                     machineName: "Mac",
                     cwd: "/tmp/classic-project",
-                    newTab: { template: "classic", cwd: "/tmp/classic-project", lastAgent: "claude" },
+                    newTab: {
+                      template: "classic",
+                      cwd: "/tmp/classic-project",
+                      lastAgent: "claude",
+                      projects: ["/tmp/classic-project", "/tmp/other-project"],
+                    },
                   }
                 : undefined,
           });
@@ -170,6 +177,7 @@ async function mount(
         paneWindow().cmuxAcpmuxBridge!.receive({
           ...snapshot,
           summary: { ...snapshot.summary, harness, model },
+          switching: { harness, name: harness, phase: "deferred" },
         }),
       ),
   };
@@ -272,4 +280,27 @@ test("classic Return keeps the selected harness and model when opening its defer
 test("classic composer plugins receive the page's selected folder", async () => {
   await mount({ plugin: ({ cwd }) => <span data-plugin-folder>{cwd}</span> });
   expect(host.querySelector("[data-plugin-folder]")?.textContent).toBe("/tmp/classic-project");
+  await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-project-button")!.click());
+  const other = dom.window.document.querySelector<HTMLElement>(
+    '.acpmux-project-menu [role="option"][aria-label$="/tmp/other-project"]',
+  );
+  expect(other).not.toBeNull();
+  await act(async () => other!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
+  expect(host.querySelector("[data-plugin-folder]")?.textContent).toBe("/tmp/other-project");
+});
+
+test("a classic model pick starts in the project selected on the page", async () => {
+  const { chatCalls } = await mount();
+  await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-project-button")!.click());
+  const other = dom.window.document.querySelector<HTMLElement>(
+    '.acpmux-project-menu [role="option"][aria-label$="/tmp/other-project"]',
+  );
+  expect(other).not.toBeNull();
+  await act(async () => other!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
+  await open();
+  await pick("Sonnet 5.5");
+  expect(chatCalls()).toEqual([
+    { method: "chat.new", params: { ...deferred, cwd: "/tmp/other-project" } },
+    { method: "chat.model", params: { modelId: "claude-sonnet-5-5" } },
+  ]);
 });

@@ -3,7 +3,7 @@ import { useEscapingList } from "../../ui/popupHost";
 import { AgentMark as BrandMark } from "../shared/AgentMark";
 import { agentBrand } from "../shared/agentBrand";
 import { agentDisplayName } from "./agents";
-import { seedLastPicks } from "./lastPick";
+import { seedLastPicks, useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
 import { useComposerLook } from "./composerLook";
 import type { AcpmuxSnapshot } from "./model";
@@ -32,6 +32,7 @@ import { parsePageWidgets, type PageWidget } from "./newtab/pageWidgets";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
+import { newTabStart, useNewTabChipModel } from "./newtab/chipDefaults";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -227,6 +228,8 @@ export function ageLabel(updatedAt: number | undefined, now = Date.now(), t: Tra
   return hours < 24 ? t("age.hours", { n: hours }) : t("age.days", { n: Math.round(hours / 24) });
 }
 
+export type NewTabChat = { harness: string; model?: string };
+
 type Props = {
   snapshot: AcpmuxSnapshot;
   /// Each kind's shortcut as the host shows it ("⌃⇧⌘T"); a kind without one shows none.
@@ -240,7 +243,8 @@ type Props = {
   inputToken?: string;
   onInputReady?(token: string): void;
   /// The agent's composer chips (model, mode), shown under the field for Agent.
-  chips?: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
+  chips?: React.ComponentType<{ snapshot: AcpmuxSnapshot; cwd?: string }>;
+  lastAgent?: string;
   /// Open tabs, workspaces, folders, commands and history the bar suggests.
   omnibar?: OmnibarContext;
   /// The current tab's URL or folder: in the field and selected when the page opens,
@@ -250,7 +254,7 @@ type Props = {
   projects?: Project[];
   /// Make the tab `kind`: run `text` (in `cwd`), open it, or ask it. A promise that rejects is a
   /// refused open: the page says so under the field and keeps what was typed.
-  onSubmit(kind: TabKind, text: string, cwd?: string): void | Promise<unknown>;
+  onSubmit(kind: TabKind, text: string, cwd?: string, chat?: NewTabChat): void | Promise<unknown>;
   /// Go to an open tab or workspace instead of opening a duplicate.
   onJump?(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
@@ -271,6 +275,7 @@ export function NewTabPage({
   cwd,
   host,
   chips: Chips,
+  lastAgent,
   omnibar = EMPTY_OMNIBAR,
   location,
   projects = [],
@@ -290,12 +295,19 @@ export function NewTabPage({
   const [kindSwitch, setKindSwitch] = useState<KindSwitchDirection>();
   const kindSwitchTimer = useRef<number | undefined>(undefined);
   const [projectCwd, setProjectCwd] = useState(cwd);
+  const remembered = useLastPick(projectCwd);
+  const { harness, snapshot: chipSnapshot } = useMemo(
+    () => newTabStart(snapshot, snapshot.catalog, lastAgent, projectCwd, remembered),
+    [snapshot, lastAgent, projectCwd, remembered],
+  );
+  const chipModel = useNewTabChipModel(chipSnapshot);
   const [text, setText] = useState(location ?? "");
   /// The last open was refused (the host made no tab): a note under the field until the next edit.
   const [openFailed, setOpenFailed] = useState(false);
   const make = (next: TabKind, value: string, folder?: string) => {
     setOpenFailed(false);
-    const result = onSubmit(next, value, folder);
+    const chat = next === "agent" && harness ? { harness, ...(chipModel ? { model: chipModel } : {}) } : undefined;
+    const result = onSubmit(next, value, folder, chat);
     // The suggestions float over the note: they close until the next edit, so it shows.
     if (result)
       void result.catch(() => {
@@ -365,7 +377,7 @@ export function NewTabPage({
   // A pane without a known folder names none rather than showing "No folder".
   const selectedProject = projectCwd ? projectLabel(projectCwd) : undefined;
   const folder = projectCwd ? projectLabel(projectCwd) : "";
-  const agent = agentDisplayName(snapshot.summary?.harness ?? snapshot.catalog[0]?.id ?? "agent");
+  const agent = agentDisplayName(harness ?? "agent");
   const placeholder = NEW_TAB_LABELS.placeholder[kind](t, kind === "agent" ? agent : folder);
 
   const changeKind = (next: TabKind) => {
@@ -587,7 +599,7 @@ export function NewTabPage({
                   {agent}
                 </span>
               )}
-              {kind === "agent" && Chips && <Chips snapshot={snapshot} />}
+              {kind === "agent" && Chips && <Chips snapshot={chipSnapshot} cwd={projectCwd} />}
             </span>
             <button
               type="submit"
