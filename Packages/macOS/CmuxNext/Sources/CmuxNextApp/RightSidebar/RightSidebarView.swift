@@ -54,6 +54,8 @@ final class RightSidebarView: NSView {
                                   target: self, action: #selector(pick(_:)))
             button.bezelStyle = .accessoryBarAction
             button.isBordered = false
+            button.title = ""
+            button.imagePosition = .imageOnly
             // Icons only: the shown section is the icon in full ink, no pressed-in bezel.
             button.setButtonType(.momentaryChange)
             button.alphaValue = Self.idleButtonAlpha
