@@ -60,16 +60,36 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
     running: true,
     session: { steering: true, queuePaused: false, queued: queue.length, queue },
   });
-  const answer = (method: string): unknown => {
+  /// A second chat, idle, with one queued prompt of its own: switched to from the first (#24182).
+  const OTHER_CHAT = "0190a000-0000-7000-8000-00000000fc02";
+  const other = papercutEvents({
+    turns: 40,
+    running: false,
+    session: {
+      sessionId: OTHER_CHAT,
+      title: "Other papercuts",
+      steering: true,
+      queuePaused: false,
+      queued: 1,
+      queue: [{ promptId: "b-1", prompt: "The other chat's queued prompt, about the docs" }],
+    },
+  });
+  other.events.forEach((event) => (event.sessionId = OTHER_CHAT));
+  const chats = new Map([
+    [PAPERCUT_CHAT, { events, session }],
+    [OTHER_CHAT, { events: other.events, session: other.session }],
+  ]);
+  const answer = (method: string, params: { sessionId?: string }): unknown => {
+    const chat = chats.get(params.sessionId ?? PAPERCUT_CHAT) ?? chats.get(PAPERCUT_CHAT)!;
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: [session] };
+        return { sessions: [...chats.values()].map((each) => each.session) };
       case "_acpmux/attach":
-        return { session, lastSeq: events.length, events, hasMore: false };
+        return { session: chat.session, lastSeq: chat.events.length, events: chat.events, hasMore: false };
       case "_acpmux/events":
-        return { events: [], hasMore: false, lastSeq: events.length };
+        return { events: [], hasMore: false, lastSeq: chat.events.length };
       default:
         return null;
     }
@@ -77,15 +97,18 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
   /// The page's socket (the last one to call), and a record every client hears on it, as acpmux
   /// sends one (another client running a queued prompt: `dequeued`).
   let socket: { send(data: string): void } | undefined;
-  let seq = events.length;
-  const hear = (kind: string, msg: Record<string, unknown>) =>
+  const seqs = new Map([...chats].map(([id, chat]) => [id, chat.events.length]));
+  const hear = (kind: string, msg: Record<string, unknown>, sessionId = PAPERCUT_CHAT) => {
+    const seq = seqs.get(sessionId)! + 1;
+    seqs.set(sessionId, seq);
     socket!.send(
       JSON.stringify({
         jsonrpc: "2.0",
         method: "_acpmux/event",
-        params: { sessionId: PAPERCUT_CHAT, seq: ++seq, at: Date.now(), dir: "mux", kind, msg },
+        params: { sessionId, seq, at: Date.now(), dir: "mux", kind, msg },
       }),
     );
+  };
   const browsers = new Map<string, Browser>();
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -98,10 +121,12 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
       },
       websocket: {
         message(ws, raw) {
-          const message = JSON.parse(String(raw)) as { id?: number; method: string };
+          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: { sessionId?: string } };
           socket = ws;
           if (message.id !== undefined)
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+            ws.send(
+              JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params ?? {}) }),
+            );
         },
       },
     });
@@ -322,6 +347,31 @@ await requireBrowserLane("agent-pane-queue-scroll-bottom.test.ts", async () => {
         expect({ height: await stack(page) }).toEqual({ height: before });
         expectAtRest(`${name}: closed`, (await paintedFor(page, 1500, () => fold(page))).slice(2), rest);
         expect(await expanded(page)).toBe("false");
+        await page.close();
+      });
+
+      // Codex review of #24182 at 71d0781: the queue noted in one chat is not another chat's. Switched
+      // to a chat with its own queue, the first chat's prompts read as cards that left, and stayed held
+      // for: a prompt withdrawn from the second chat later kept room above its stack, as for a sent one.
+      test("in a chat switched to, a queued prompt withdrawn leaves no room held for the last chat's queue", async () => {
+        const { page } = await open(name);
+        await page.evaluate((id) => {
+          const actions = (window as { cmuxAcpmuxActions?: Record<string, (params: object) => Promise<unknown>> })
+            .cmuxAcpmuxActions;
+          void actions?.["chat.select"]?.({ sessionId: id });
+        }, OTHER_CHAT);
+        await page.locator('.acpmux-queued[data-prompt-id="b-1"]').waitFor({ timeout: 60_000 });
+        await page.waitForFunction(() => !document.querySelector('.acpmux-queued[data-prompt-id="q-1"]'));
+        await settle(page);
+        const rest = await placement(page);
+        expect({ rest: rest.fromEnd <= 1 && rest.gap >= 0 }).toEqual({ rest: true });
+        const before = await stack(page);
+        const frames = await paintedFor(page, 1500, async () => hear("queue_removed", { promptId: "b-1" }, OTHER_CHAT));
+        await page.waitForFunction(() => !document.querySelector('.acpmux-queued[data-prompt-id="b-1"]'));
+        expect(await stack(page)).toBeLessThan(before - 20);
+        // From the frame the card left on: the last row ends where the chat's latest row rests.
+        const left = frames.findIndex((frame, index) => index > 0 && frame.gap !== frames[0].gap);
+        expectAtRest(`${name}: withdrawn after a switch`, frames.slice(Math.max(0, left) + 2), rest.gap);
         await page.close();
       });
 
