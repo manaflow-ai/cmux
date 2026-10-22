@@ -122,8 +122,9 @@ struct NewTabSuccession {
         let made = [handed, succession.surface, pane.pendingSelectSurface].lazy.compactMap { $0 }.first { surface in tabs.contains { $0.surface == surface } }
         guard let made, let tab = tabs.first(where: { $0.surface == made }), let item = snapshot.items.first(where: { $0.id.rawValue == tab.id }) else {
             // Not answered yet: a new daemon tab of this pane waits for the answer naming this one
-            // (a reopened tab being selected never does).
-            let fresh = Set(tabs.map(\.id)).subtracting(pane.pendingSelectTab.map { [$0] } ?? [])
+            // (a reopened tab being selected never does). One the strip already shows stays: hidden,
+            // the selection would take it for closed and move to a neighbor (census #7).
+            let fresh = Set(tabs.map(\.id)).subtracting(shown.map(\.rawValue)).subtracting(pane.pendingSelectTab.map { [$0] } ?? [])
             snapshot.items.removeAll { fresh.contains($0.id.rawValue) }
             return snapshot
         }
