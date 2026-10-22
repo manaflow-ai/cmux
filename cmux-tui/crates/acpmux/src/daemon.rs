@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod lock;
-use lock::{acquire_lock, wait_for_lock_release};
+use lock::{LockHeld, acquire_lock, wait_for_lock_release};
 mod router_owner;
 #[cfg(unix)]
 pub(crate) use router_owner::open_router_owner;
@@ -150,7 +150,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         Ok(lock) => lock,
         Err(e) => {
             // The command that started this daemon waits for the holder (`connect`).
-            if let Some(fd) = opts.ready_fd {
+            if let Some(fd) = opts.ready_fd.filter(|_| e.downcast_ref::<LockHeld>().is_some()) {
                 write_ready(fd, &serde_json::json!({"ready": false, "lockHeld": true}));
             }
             return Err(e);
@@ -643,7 +643,28 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
             "--person-key-fd {fd}: not a person key (64 lowercase hex characters)"
         ));
     }
-    start_daemon_with(Some(key)).await
+    // Another daemon is stopping or starting: start again until this key's daemon has the lock,
+    // never leaving the caller to start an unkeyed one.
+    let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
+    loop {
+        let ready = start_daemon_with(Some(key.clone())).await?;
+        if !lock_held(&ready) {
+            return Ok(ready);
+        }
+        if tokio::time::Instant::now() + HANDOVER_RETRY >= deadline {
+            return Err(anyhow!(
+                "another acpmux daemon still holds {} after {HANDOVER_BUDGET:?}; the keyed daemon did not start",
+                home().join("daemon.lock").display()
+            ));
+        }
+        tokio::time::sleep(HANDOVER_RETRY).await;
+        if Client::connect(&path).await.is_ok() {
+            return Err(anyhow!(
+                "a daemon started at {} meanwhile: it holds another person key or none; stop it with `acpmux daemon shutdown --keep-agents`, then start it again with the key",
+                path.display()
+            ));
+        }
+    }
 }
 
 /// Makes this process not dumpable before it holds a person key (cx-0q7o):
