@@ -5,7 +5,7 @@ import Foundation
 /// A tab's hover card facts (`TabHoverFacts`, Leo 2026-10-14): what kind of tab it is, what
 /// it is doing and since when, from the records the strip already reads. An agent chat's
 /// come from its acpmux session (`lane`, model, folder); a terminal's from its agent
-/// detector or how long its command has run, with its branch.
+/// detector, how long its command has run or, at its prompt, when it last printed, with its branch.
 extension TabItemMapping {
     func hoverFacts(_ tab: TabModel, turns: AgentTurnStateStore) -> (facts: TabHoverFacts, folder: String?) {
         var facts = TabHoverFacts()
@@ -40,6 +40,10 @@ extension TabItemMapping {
             } else if let since = SidebarMapping.commandStart(tab) {
                 facts.activity = .running
                 facts.since = SidebarMapping.date(ms: since)
+            } else if tab.promptSinceMs != nil, var at = tab.lastOutputMs {
+                // Counted from when this client saw it when the daemon's clock runs ahead, as `commandStart` does.
+                if let seen = tab.lastOutputSeenAt { at = min(at, UInt64(seen.timeIntervalSince1970 * 1000)) }
+                facts.lastOutput = SidebarMapping.date(ms: at)
             }
         case .remoteTerminal, .other:
             break
