@@ -15,7 +15,17 @@ public import AppKit
 /// Times are milliseconds after `action` (after arming when no action ran: a launch trace).
 @MainActor
 public final class ChatOpenTrace {
-    public static let shared = ChatOpenTrace()
+    /// Armed from its first use when the app was asked to trace its launch
+    /// (`CMUX_CHAT_OPEN_TRACE_LAUNCH=1` or `--chat-open-trace-launch`): the first pane a relaunch
+    /// restores binds it, and its times run from the process start.
+    public static let shared: ChatOpenTrace = {
+        let trace = ChatOpenTrace()
+        let process = ProcessInfo.processInfo
+        if process.environment["CMUX_CHAT_OPEN_TRACE_LAUNCH"] == "1" || process.arguments.contains("--chat-open-trace-launch") {
+            _ = trace.begin(launch: true)
+        }
+        return trace
+    }()
     /// Finished traces kept for `get`.
     public static let capacity = 16
     /// The frame sampler stops by itself after this, whether or not the trace finished.
@@ -130,7 +140,7 @@ public final class ChatOpenTrace {
     /// Arms a trace; false while one runs. A launch trace has no action: its origin is the arming.
     public func begin(launch: Bool = false) -> Bool {
         guard current == nil else { return false }
-        current = Record(id: nextID, launch: launch, armedAt: Self.now())
+        current = Record(id: nextID, launch: launch, armedAt: launch ? Self.processStart() : Self.now())
         nextID += 1
         surface = nil
         engine = nil
@@ -236,6 +246,17 @@ public final class ChatOpenTrace {
     }
 
     static func now() -> TimeInterval { ProcessInfo.processInfo.systemUptime }
+
+    /// The process's start on the ``now()`` clock (now when the kernel does not say).
+    static func processStart() -> TimeInterval {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+        guard sysctl(&name, 4, &info, &size, nil, 0) == 0 else { return now() }
+        let started = info.kp_proc.p_starttime
+        let startWall = TimeInterval(started.tv_sec) + TimeInterval(started.tv_usec) / 1_000_000
+        return now() - max(Date().timeIntervalSince1970 - startWall, 0)
+    }
 }
 
 #endif

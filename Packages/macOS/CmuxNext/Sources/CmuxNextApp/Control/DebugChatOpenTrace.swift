@@ -17,8 +17,9 @@ import Foundation
 /// - `arm`: arms a trace with no action, for an open driven another way; `finish` ends it.
 /// - `get` (default): the last `count` traces (default 10), oldest first, the running one last.
 ///
-/// `CMUX_CHAT_OPEN_TRACE_LAUNCH=1` arms a trace when the control methods are made at launch, so
-/// the first pane a relaunch restores is traced; `finish` ends it.
+/// `CMUX_CHAT_OPEN_TRACE_LAUNCH=1` or `--chat-open-trace-launch` arms a trace at launch
+/// (``ChatOpenTrace/shared``), timed from the process start, so the first pane a relaunch restores
+/// is traced; `finish` ends it.
 ///
 /// A trace is `id`, `launch`, `engine`, `timed_out`, `armed_wall`, `marks_ms` (each mark's
 /// milliseconds after the action, or after arming with none; null: it never ran), `order`,
@@ -31,10 +32,7 @@ enum DebugChatOpenTrace {
     static let methodName = "debug.chat_open_trace"
 
     static func method(_ services: AppServices) -> ControlMethod {
-        if ProcessInfo.processInfo.environment["CMUX_CHAT_OPEN_TRACE_LAUNCH"] == "1" {
-            _ = ChatOpenTrace.shared.begin(launch: true)
-        }
-        return ControlMethod.async(methodName) { [weak services] call in
+        ControlMethod.async(methodName) { [weak services] call in
             await DebugChatOpenTrace.handle(call.params, services)
         }.withDeadline(.fixed(.seconds(20)))
     }
