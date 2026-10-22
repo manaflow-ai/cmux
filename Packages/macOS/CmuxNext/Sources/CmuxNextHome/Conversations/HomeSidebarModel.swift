@@ -182,12 +182,23 @@ extension InboxRow {
 
 extension HomeSidebarModel {
     /// The conversation `offset` places after `current` in the list's visual
-    /// order (the pinned grid, then the rows); nil past either end (Messages
-    /// stops there). With nothing shown, or one no longer listed, the first.
-    public func neighbor(of current: ConversationID?, offset: Int) -> ConversationID? {
+    /// order (the pinned grid, then the rows). Past either end: nil (Messages
+    /// stops there), or with `wrapping` the other end, as a pane's tabs cycle
+    /// (Ctrl-Tab on Home). With nothing shown, or one no longer listed, the first.
+    public func neighbor(of current: ConversationID?, offset: Int, wrapping: Bool = false) -> ConversationID? {
         let order = (pinned + rows).map(\.id)
         guard let current, let index = order.firstIndex(of: current) else { return order.first }
         let next = index + offset
+        if wrapping { return order[(next % order.count + order.count) % order.count] }
         return order.indices.contains(next) ? order[next] : nil
+    }
+
+    /// The `number`th conversation in the list's visual order (1-based), as
+    /// Select Tab 1…9 picks a tab: 9, or a number past the end, is the last.
+    /// Nil when the list is empty.
+    public func conversation(number: Int) -> ConversationID? {
+        let order = (pinned + rows).map(\.id)
+        guard !order.isEmpty else { return nil }
+        return number >= 9 ? order[order.count - 1] : order[min(max(number, 1) - 1, order.count - 1)]
     }
 }

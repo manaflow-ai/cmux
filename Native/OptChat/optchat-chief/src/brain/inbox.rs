@@ -306,6 +306,10 @@ impl Brain {
         }
         self.handled = message.seq;
         self.note_main_message(&message);
+        if message.author == self.settings.membership.participant {
+            // a455: the Chief learns of a bubble posted in its name that it did not write.
+            self.note_host_post(&message);
+        }
         let Some(summary) = self.summary.as_ref() else {
             return;
         };

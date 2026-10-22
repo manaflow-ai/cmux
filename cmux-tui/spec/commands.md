@@ -3281,6 +3281,47 @@ Errors: `unknown surface <id>`, `browser surface does not support PTY/VT socket 
 
 CLI mapping: verb `process-info`; flags `--surface <id>`; plain stdout prints `pid=<v> command=<v> cwd=<v> foreground_cwd=<v>`; JSON stdout prints the exact result object.
 
+### terminal-ports
+
+| Field | Value |
+| --- | --- |
+| name | `terminal-ports` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `terminal-ports-v1` |
+
+Returns the dev-server ports a terminal shows that accept a connect on this
+machine's loopback, read when the request arrives (no poller, no cache). The
+daemon never scans processes (plans/cmux-next/pty-holder.md section 4): it
+reads the PTY it holds (the active screen with its scrollback, the last
+1 MiB) for addresses on `localhost`, `127.x.y.z`, `0.0.0.0`, `[::1]`, `[::]`
+or `*` with a port, newest mention first, at most 32 ports, and connects to
+127.0.0.1, then ::1, for at most 150 ms each. Text a server prints in a tmux
+pane reaches the terminal too, because tmux draws its panes into the client's
+PTY. A program that prints nothing is not found. Clients use it to offer
+"open in browser" (plans/cmux-next/workspace-proxy-DESIGN.md section 6); the
+page then reaches the port through `loopback-forward-v1`.
+
+Params: `object{surface:Id}`.
+
+Result:
+
+```text
+object{
+  surface:Id,
+  listeners:array<object{port:uint16,host:string,url:string,bound:string}>,
+  closed:array<uint16>
+}
+```
+
+Example:
+
+```json
+{"id":9,"cmd":"terminal-ports","surface":3}
+{"id":9,"ok":true,"data":{"surface":3,"listeners":[{"port":5173,"host":"localhost","url":"http://localhost:5173/","bound":"127.0.0.1"}],"closed":[3000]}}
+```
+
+Errors: `unknown surface <id>`, `browser surface does not support PTY/VT socket commands`, `bad request: ...`.
+
 ### terminal-resources
 
 Requires the `terminal-resources-v1` capability. Clients must not send this command to a server that omits the capability.

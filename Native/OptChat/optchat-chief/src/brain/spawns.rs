@@ -374,16 +374,8 @@ impl Brain {
         }
     }
 
-    /// Gives a spawn its id and its subagents theirs (`a<N>`, unique per home).
-    pub(super) fn register_spawn(
-        &mut self,
-        tasks: &[String],
-        peers: &[String],
-    ) -> Result<SpawnPlan, String> {
-        self.register_spawn_sized(tasks, peers, None, None)
-    }
-
-    /// [`register_spawn`](Self::register_spawn) with the call's `place`
+    /// Gives a spawn its id and its subagents theirs (`a<N>`, unique per home),
+    /// with the call's `place`
     /// (`cloud`, `local` or None) and VM `size`. With the peer list
     /// [`PER_AGENT`](crate::subagents::PER_AGENT) each subagent gets its
     /// own VM, `chief-sub-<id>`, at `size` or the size its task needs; a

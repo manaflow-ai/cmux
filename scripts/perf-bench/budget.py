@@ -48,6 +48,7 @@ ROWS = [
     ("budget-memory-per-webkit-tab", "Memory per further hidden WebKit tab", "MB"),
     # Overhead rows (plans/cmux-next/speed-of-sound-DESIGN.md): the floor for each is 0 at idle.
     ("budget-memory-per-workspace", "Memory per further workspace (one terminal, not shown)", "MB"),
+    ("budget-idle-disk-writes-home", "Disk writes, idle on Home after launch", "KB/s"),
     ("budget-idle-disk-writes", "Disk writes, idle, every tab hidden, window in view", "KB/s"),
     ("budget-idle-disk-writes-app-hidden", "Disk writes, idle, app hidden", "KB/s"),
     ("budget-idle-mach-msgs", "Mach messages (IPC), idle, every tab hidden", "/s"),
@@ -93,8 +94,13 @@ def session(run, browser, round_no: int, log, budgets_path: str | None = None):
         log(f"{name} r{round_no}: budget session (load {load_avg}), {terminals} terminals, "
                 + ", ".join(f"{count} {kind}" for kind, _action, count in kinds))
         _sleep(home_settle)
+        files_before = _file_states(profile)
         got = browser.instance.window(idle)
+        writers = _file_writes(files_before, _file_states(profile))
         home_mem = browser.instance.memory()
+        run.record(name, round_no, "budget-idle-disk-writes-home", got["disk_kb_per_s"], files=writers)
+        for path, grew in writers[:15]:
+            log(f"  home idle wrote: {grew:>10,} B  {path}")
         run.record(name, round_no, "budget-idle-cpu-home", got["cpu_pct"], kinds=got["kinds"])
         run.record(name, round_no, "budget-idle-wakeups-home", got["wakeups_per_s"], kinds=got["kinds"])
         run.record(name, round_no, "budget-memory-home", home_mem["mb"], kinds=home_mem["kinds"],
@@ -148,7 +154,11 @@ def session(run, browser, round_no: int, log, budgets_path: str | None = None):
                        before_mb=before, after_mb=after, count=workspaces)
 
         _sleep(phase_settle)
+        files_before = _file_states(profile)
         got = browser.instance.window(idle, per_pid=True)
+        writers = _file_writes(files_before, _file_states(profile))
+        for path, grew in writers[:15]:
+            log(f"  tabs-hidden idle wrote: {grew:>10,} B  {path}")
         mem = browser.instance.memory(per_pid=True)
         cpu = {row["pid"]: row for row in got.pop("pids")}
         table = []
@@ -161,7 +171,7 @@ def session(run, browser, round_no: int, log, budgets_path: str | None = None):
         run.record(name, round_no, "budget-idle-wakeups", got["wakeups_per_s"], kinds=got["kinds"])
         run.record(name, round_no, "budget-memory-total", mem["mb"], kinds=mem["kinds"],
                    processes=mem["processes"], pids=table)
-        run.record(name, round_no, "budget-idle-disk-writes", got["disk_kb_per_s"], kinds=got["kinds"])
+        run.record(name, round_no, "budget-idle-disk-writes", got["disk_kb_per_s"], kinds=got["kinds"], files=writers)
         run.record(name, round_no, "budget-idle-mach-msgs", got["mach_msgs_per_s"])
         run.record(name, round_no, "budget-idle-syscalls", got["syscalls_per_s"])
         run.record(name, round_no, "budget-processes", got["processes"])
@@ -171,6 +181,17 @@ def session(run, browser, round_no: int, log, budgets_path: str | None = None):
                     f"{row['rss_mb'] or 0:>8.1f} MB rss {row['cpu_pct'] or 0:>6.2f}% "
                     f"{row['wakeups_per_s'] or 0:>7.1f} wk/s {row.get('threads') or 0:>4} thr "
                     f"{row.get('disk_kb_per_s') or 0:>7.1f} KB/s {row.get('mach_msgs_per_s') or 0:>7.1f} msg/s")
+        # Who wakes the idle tree: call trees of the app's main thread and of the process with the
+        # most wakeups, taken after the measured window so `sample` does not perturb it.
+        busiest = max((row for row in table if row["pid"] != browser.instance.pid),
+                      key=lambda row: row.get("wakeups_per_s") or 0, default=None)
+        stacks = {"main": _sample_main(browser.instance.pid, 5)}
+        if busiest and (busiest.get("wakeups_per_s") or 0) > 1:
+            stacks[f"{busiest['kind']} {busiest['pid']}"] = _sample_main(busiest["pid"], 5, any_thread=True)
+        run.record(name, round_no, "budget-idle-samples", None, note="call trees", stacks=stacks)
+        for label, lines in stacks.items():
+            for line in lines[:60]:
+                log(f"  in-view {label}: {line}")
         if browser.hide():
             _sleep(10)
             stacks = _sample_main(browser.instance.pid, min(10.0, idle))
@@ -194,7 +215,34 @@ def session(run, browser, round_no: int, log, budgets_path: str | None = None):
         shutil.rmtree(profile, ignore_errors=True)
 
 
-def _sample_main(pid: int, seconds: float) -> list[str]:
+def _file_states(root: str) -> dict[str, tuple[float, int]]:
+    """(mtime, size) of every file under the run's isolated HOME and TMPDIR."""
+    states = {}
+    for folder, _dirs, files in os.walk(root):
+        for file in files:
+            path = os.path.join(folder, file)
+            try:
+                info = os.lstat(path)
+            except OSError:
+                continue
+            states[path] = (info.st_mtime, info.st_size)
+    return states
+
+
+def _file_writes(before: dict, after: dict) -> list[tuple[str, int]]:
+    """Files written during an idle window, largest growth first (a rewrite of the same size counts
+    its size): names who writes to disk when nothing changes."""
+    root = os.path.commonpath(list(after) or ["/"])
+    found = []
+    for path, (mtime, size) in after.items():
+        old = before.get(path)
+        if old is None or old[0] != mtime:
+            grew = size - old[1] if old and size > old[1] else size
+            found.append((os.path.relpath(path, root), grew))
+    return sorted(found, key=lambda item: -item[1])[:40]
+
+
+def _sample_main(pid: int, seconds: float, any_thread: bool = False) -> list[str]:
     """The main thread's call tree from `/usr/bin/sample` over `seconds` (the hidden app's idle):
     names who wakes an idle app in a Release build, where debug.wakeups does not exist."""
     import subprocess
@@ -209,9 +257,11 @@ def _sample_main(pid: int, seconds: float) -> list[str]:
     lines = []
     in_main = False
     for line in text.splitlines():
-        if "Thread_" in line and ("main-thread" in line or "DispatchQueue_1:" in line):
+        if "Thread_" in line and (any_thread or "main-thread" in line or "DispatchQueue_1:" in line):
             in_main = True
-        elif in_main and ("Thread_" in line or not line.strip()):
+        elif in_main and not line.strip():
+            break
+        elif in_main and "Thread_" in line and not any_thread:
             break
         if in_main:
             stripped = line.rstrip()

@@ -778,6 +778,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
         guard p.y > host.titlebarHeight, !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p) else { focusCompose(); return }
         // cmux: the Chief's status line opens its turn's details.
         if let line = demo.statusLineFrame(), line.contains(p) { intents?.statusLineClicked(line, in: host); return }
+        // cmux: a long message's "Show all N lines" band expands it, "Show less" folds it again
+        // (the vendored handler had no caller here: the band took no click, Lawrence 2026-10-21).
+        if demo.longTextBandHit(p) { return }
         if let hit = demo.hit(p) {
             // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
             if openLink(hit, at: p) { return }

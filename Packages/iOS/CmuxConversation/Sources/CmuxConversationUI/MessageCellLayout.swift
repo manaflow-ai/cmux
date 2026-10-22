@@ -331,6 +331,13 @@ extension MessageCellLayout {
         return (value * scale).rounded() / scale
     }
 
+    /// How far the quote's tail drops below it: the quote draws the bubble
+    /// outline with its corner radius capped to half its body.
+    static func quoteTailDrop(quoteHeight: CGFloat, quoteBodyWidth: CGFloat) -> CGFloat {
+        let radius = min(ConversationTheme.bubbleCornerRadius, quoteHeight / 2, quoteBodyWidth / 2)
+        return ConversationBubbleGeometry.iOSTailDrop(radius: radius)
+    }
+
     static func measure(_ text: NSAttributedString, maxWidth: CGFloat) -> CGSize {
         let rect = text.boundingRect(
             with: CGSize(width: maxWidth, height: .greatestFiniteMagnitude),
@@ -389,7 +396,12 @@ extension MessageCellLayout {
             quoteFrame = frame
             let bodyMinX = quote.isOutgoing ? frame.minX : frame.minX + t.tailWidth
             quoteTextFrame = CGRect(x: bodyMinX + 12, y: y + 7, width: bodyWidth - 24, height: textHeight)
-            y += h + t.transcriptSpace(ConversationTranscriptMetrics.smallSpace)
+            // The quote's tail hangs below it, and the thread line leaves from under the tail.
+            // A reply on the quote's own side (outside a group's avatar column) also needs
+            // room for the line that drops between them.
+            let straightLine = quote.isOutgoing == model.isOutgoing && !(model.isGroup && !quote.isOutgoing)
+            y += h + Self.quoteTailDrop(quoteHeight: h, quoteBodyWidth: bodyWidth) + t.transcriptSpace(ConversationTranscriptMetrics.smallSpace)
+                + (straightLine ? ConversationReplyThread.minimumStraightRun : 0)
         }
 
         var senderNameFrame: CGRect?
@@ -585,20 +597,23 @@ extension MessageCellLayout {
 
         var threadPath: CGPath?
         if let quoteFrame, let quote = model.replyQuote {
-            // A thread line on the leading side joins the quote to the reply.
-            let x = margin + t.avatarSize / 2
-            let path = UIBezierPath()
-            let quoteBodyLeading = quote.isOutgoing ? quoteFrame.minX : quoteFrame.minX + t.tailWidth
-            path.move(to: CGPoint(x: min(quoteBodyLeading - 4, x + 14), y: quoteFrame.midY))
-            path.addQuadCurve(to: CGPoint(x: x, y: quoteFrame.midY + 14), controlPoint: CGPoint(x: x, y: quoteFrame.midY))
-            if model.isOutgoing || !model.reservesAvatarColumn {
-                let endY = max(quoteFrame.midY + 28, primary.midY)
-                path.addLine(to: CGPoint(x: x, y: endY - 14))
-                path.addQuadCurve(to: CGPoint(x: x + 14, y: endY), controlPoint: CGPoint(x: x, y: endY))
-            } else {
-                path.addLine(to: CGPoint(x: x, y: max(quoteFrame.midY + 16, (avatarFrame?.minY ?? primary.maxY) - 6)))
-            }
-            threadPath = path.cgPath
+            let pieces = imageFrames + fileFrames + [bubbleFrame, emojiFrame, audioFrame, linkCardFrame].compactMap { $0 }
+            let replyTop = pieces.min { $0.minY < $1.minY } ?? primary
+            // The thread line drops from under the quote and joins the reply.
+            var quoteBody = quoteFrame
+            quoteBody.size.width -= t.tailWidth
+            if !quote.isOutgoing { quoteBody.origin.x += t.tailWidth }
+            threadPath = ConversationReplyThread.row(
+                quoteBody: quoteBody,
+                quoteSide: quote.isOutgoing ? .trailing : .leading,
+                quoteTailDrop: Self.quoteTailDrop(quoteHeight: quoteFrame.height, quoteBodyWidth: quoteBody.width),
+                // The reply's first piece of content: the line meets it, never crosses it.
+                reply: replyTop,
+                replySide: model.isOutgoing ? .trailing : .leading,
+                isGroup: model.isGroup,
+                avatarColumnCenter: margin + t.avatarSize / 2,
+                replyAvatarTop: !model.isOutgoing && model.reservesAvatarColumn ? (avatarFrame?.minY ?? primary.maxY) : nil
+            ).path
         }
 
         var content = imageFrames.reduce(bubbleFrame ?? emojiFrame ?? .null) { $0.union($1) }

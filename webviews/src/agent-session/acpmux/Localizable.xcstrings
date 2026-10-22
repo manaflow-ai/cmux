@@ -203009,6 +203009,270 @@
         }
       }
     },
+    "chatInspector.tasks.noTerminal.remote": {
+      "comment": "Agent pane Inspector, Background tasks: tooltip on a command row that cannot open, in a chat on another machine (SSH or Cloud) whose transcript does not hold the call that started the command",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طرفيته على جهاز آخر، والاستدعاء الذي بدأه غير محمّل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Njegov terminal je na drugoj mašini, a poziv koji ga je pokrenuo nije učitan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dens terminal er på en anden maskine, og kaldet, der startede den, er ikke indlæst"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sein Terminal ist auf einem anderen Rechner, und der Aufruf, der ihn gestartet hat, ist nicht geladen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its terminal is on another machine, and the call that started it is not loaded"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Su terminal está en otra máquina y la llamada que la inició no está cargada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son terminal est sur une autre machine, et l'appel qui l'a lancée n'est pas chargé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il suo terminale è su un'altra macchina e la chiamata che l'ha avviato non è caricata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルは別のマシン上にあり、開始した呼び出しは読み込まれていません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់របស់វានៅលើម៉ាស៊ីនផ្សេង ហើយការហៅដែលចាប់ផ្ដើមវាមិនទាន់បានផ្ទុកទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 다른 컴퓨터에 있고, 이를 시작한 호출이 로드되지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen er på en annen maskin, og kallet som startet den er ikke lastet inn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jego terminal jest na innej maszynie, a wywołanie, które go uruchomiło, nie jest wczytane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal está em outra máquina, e a chamada que o iniciou não está carregada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Его терминал на другой машине, а вызов, который его запустил, не загружен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลอยู่บนเครื่องอื่น และการเรียกที่เริ่มคำสั่งนี้ยังไม่ได้โหลด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminali başka bir makinede ve onu başlatan çağrı yüklenmedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Його термінал на іншій машині, а виклик, який його запустив, не завантажено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal của lệnh này ở máy khác và lệnh gọi đã khởi chạy nó chưa được tải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其终端在另一台机器上，且启动它的调用尚未加载"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其終端機在另一台機器上，且啟動它的呼叫尚未載入"
+          }
+        }
+      }
+    },
+    "chatInspector.tasks.noTerminal.noCall": {
+      "comment": "Agent pane Inspector, Background tasks: tooltip on a command row that cannot open because no tool call in the chat is linked to the command",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد طرفية لفتحها: لا يرتبط به أي استدعاء في هذه المحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema terminala za otvaranje: nijedan poziv u ovom razgovoru nije povezan s njim"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen terminal at åbne: intet kald i denne chat er knyttet til den"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Terminal zum Öffnen: Kein Aufruf in diesem Chat ist damit verknüpft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No terminal to open: no call in this chat is linked to it"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay terminal que abrir: ninguna llamada de este chat está vinculada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun terminal à ouvrir : aucun appel de ce chat n'y est lié"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun terminale da aprire: nessuna chiamata in questa chat è collegata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開くターミナルがありません: このチャットにはこれに紐づく呼び出しがありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានទែមីណាល់ត្រូវបើកទេ៖ គ្មានការហៅណាមួយក្នុងការជជែកនេះភ្ជាប់ជាមួយវាទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열 터미널이 없습니다: 이 채팅에 연결된 호출이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen terminal å åpne: ingen kall i denne chatten er knyttet til den"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak terminala do otwarcia: żadne wywołanie w tym czacie nie jest z nim powiązane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum terminal para abrir: nenhuma chamada deste chat está vinculada a ele"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нечего открыть: ни один вызов в этом чате не связан с ним"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีเทอร์มินัลให้เปิด: ไม่มีการเรียกในแชตนี้ที่เชื่อมโยงกับคำสั่งนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açılacak terminal yok: bu sohbette ona bağlı bir çağrı yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає термінала для відкриття: жоден виклик у цьому чаті не пов'язаний із ним"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có terminal để mở: không lệnh gọi nào trong cuộc trò chuyện này liên kết với nó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可打开的终端：此对话中没有与之关联的调用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有可開啟的終端機：此對話中沒有與之關聯的呼叫"
+          }
+        }
+      }
+    },
     "picker.fastMode": {
       "comment": "Agent pane: the model button's menu, a checkbox row after Account that turns the chat's fast mode (Claude Code's Fast Mode, Codex's Fast service tier) on or off",
       "extractionState": "manual",

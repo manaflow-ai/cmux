@@ -1397,6 +1397,28 @@ fn start(
             "off".to_owned()
         }
     ));
+    // Chiefs on other machines (peer_chiefs.rs): their messages reach the
+    // brain as notes, and `tell("chief:<name>")` reaches them.
+    let peers_path = crate::peer_chiefs::Config::path(&paths.root);
+    let peers = match crate::peer_chiefs::PeerChiefs::from_file(&peers_path) {
+        Ok(peers) => peers,
+        Err(e) => {
+            log(format!("peer chiefs off: {e}"));
+            None
+        }
+    };
+    if let Some(peers) = &peers {
+        let tx = Mutex::new(tx.clone());
+        peers.spawn_inbox(
+            Box::new(move |text| {
+                tx.lock()
+                    .expect("peer chiefs tx")
+                    .send(Input::PeerChiefNote { text })
+                    .is_ok()
+            }),
+            Arc::new(|line: &str| log(line)),
+        );
+    }
     crate::tools::serve_all(
         &paths.tools_socket,
         crate::tools::Served {
@@ -1411,6 +1433,7 @@ fn start(
                 &turn_prefix(home),
                 &crate::paths::home_id(home),
             )),
+            peers,
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;
