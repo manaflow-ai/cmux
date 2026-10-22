@@ -139,6 +139,19 @@
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
+/* In a see-through Chromium page the strip lays its fill over the theme surface too, as the card
+   does (glass.css, "CHROMIUM OVER THE WINDOW GLASS"): the transcript scrolls under both. */
+@media not (prefers-reduced-transparency: reduce) {
+  @supports not (-webkit-backdrop-filter: none) {
+    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]):not([data-top-strip="plain"])
+      .acpmux-composer
+      > .acpmux-composer-strip {
+      background:
+        linear-gradient(var(--glass-tint), var(--glass-tint)),
+        color-mix(in srgb, var(--glass-surface) var(--glass-underlay), transparent);
+    }
+  }
+}
 /* The lens draws the stack as one glass: a seam between the queue, its fold, the strip and the card
    bends nothing (--glass-join, ui/glass/lens.ts). By default the queue stands on the strip or the
    card; under the tray it tucks under the card, which draws its whole rim over it. */

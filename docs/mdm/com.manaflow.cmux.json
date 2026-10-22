@@ -4171,6 +4171,23 @@
       "title" : "Font Size",
       "type" : "number"
     },
+    "terminal.linkOpener.default" : {
+      "default" : "cmux",
+      "description" : "Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins.",
+      "title" : "Open Program Links In",
+      "type" : "string"
+    },
+    "terminal.linkOpener.rules" : {
+      "default" : [
+
+      ],
+      "description" : "Checked in order before the default; the first match wins. Write <match> -> <target>: caller:aws matches the program that opened the URL, and text, * wildcards or re: match the URL. Example: caller:gh github.com -> safari",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Program Link Rules",
+      "type" : "array"
+    },
     "ui.animations.bounce" : {
       "default" : "none",
       "description" : "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce.",
