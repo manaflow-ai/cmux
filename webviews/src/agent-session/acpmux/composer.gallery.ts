@@ -345,6 +345,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerPickers.tsx#Picker",
+    "agent-session/acpmux/FastToggle.tsx",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/composer/PromptEditor.tsx",
     "agent-session/acpmux/MarkdownField.tsx",
@@ -837,6 +838,15 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Stop" });
         await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-cancel"));
+      },
+    },
+    "working-escape-armed": {
+      note: "Play: the first Esc of the double press. Stop keeps its plain square glyph and footprint and takes the theme's accent; its name and the placeholder say Esc again stops (Leo 2026-10-21: no discs).",
+      snapshot: chat(working, { isWorking: true }),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-box .acpmux-md" });
+        await ctx.press("Escape");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cancel[data-escape-armed] svg"));
       },
     },
     "working-steer": {

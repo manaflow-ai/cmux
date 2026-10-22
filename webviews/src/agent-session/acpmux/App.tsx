@@ -13,7 +13,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { flushSync } from "react-dom";
-import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind } from "./environments";
+import { CONNECT_ACTIONS, savedEnvironmentHost, type ConnectKind, type OffloadKind } from "./environments";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
@@ -66,7 +66,7 @@ import { StyleSwitch } from "./newtab/StyleSwitch";
 import { editedPageWidgets, editNewTabWidgets, shownPageWidgets } from "./newtab/pageWidgets";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
-import { isAgentHome, projectLabel, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
+import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
@@ -111,7 +111,7 @@ import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
-import { parseProjectRepos } from "./projectRepos";
+import { byRecentUse, parseProjectRepos, projectRows } from "./projectRepos";
 import { HomeLists } from "./HomeLists";
 import { endsTurn, lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
@@ -140,6 +140,7 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { runningBackgroundTasks } from "./summary/sessionSummary";
 import { useChatInspector } from "./inspector/ChatInspector";
+import { environmentToSave } from "./inspector/EnvironmentSection";
 import {
   type BackgroundCommand,
   backgroundCommands,
@@ -259,6 +260,7 @@ import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
   canFork,
   forkRefusal,
+  forkToTarget,
   earlierForkPrompts,
   forksAnyTurn,
   latestForkSeq,
@@ -1253,6 +1255,28 @@ function glide(node: HTMLElement | null, step: number): Animation | undefined {
   });
 }
 const GLIDE_MS = MOTION_MS.standard;
+
+/// The longest a chat opened cold takes to fade in (Leo 2026-10-21: "a fast fade in").
+const CHAT_OPEN_FADE_MS = 150;
+
+/// Fades the transcript of a chat this page opened cold in over the host's fade-in token (the
+/// motion scale's micro step without the host), at most CHAT_OPEN_FADE_MS: opacity only, so no row
+/// moves, starting on the frame its rows first draw. None when the host turned motion off or its
+/// token is 0 (Reduce Motion, ui.animationSpeed off), or while the page is away (entranceAllowed).
+function fadeInOpenedChat(node: HTMLElement | null): Animation | undefined {
+  if (!node || typeof node.animate !== "function" || !entranceAllowed()) return undefined;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return undefined;
+  const style = getComputedStyle(document.documentElement);
+  const token = style.getPropertyValue("--agent-motion-in").trim();
+  const value = Number.parseFloat(token);
+  const asked = !token || !Number.isFinite(value) ? MOTION_MS.micro : token.endsWith("ms") ? value : value * 1000;
+  const duration = Math.min(asked, CHAT_OPEN_FADE_MS);
+  if (!(duration > 0)) return undefined;
+  return node.animate([{ opacity: 0 }, { opacity: 1 }], {
+    duration,
+    easing: style.getPropertyValue("--agent-ease-out").trim() || "ease-out",
+  });
+}
 /// How many rows from the end a glide looks for the row it holds.
 const FOLLOWED_ROW_SEARCH = 64;
 
@@ -1590,6 +1614,8 @@ const WITHDRAWN_HOLD_MS = 250;
 /// else the chat opens at its latest message.
 const OPEN_AT_PAGE_MS = 1500;
 const OPEN_AT_SEEK_MS = 8000;
+/// How soon the transcript asks again for an older page after an ask that brought nothing.
+const OLDER_RECHECK_MS = 500;
 /// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view
 /// above the `inset` px at its foot that the bottom stack covers.
 function scrollRangeIn(scroller: HTMLElement, range: Range, inset = 0) {
@@ -1737,6 +1763,8 @@ export function VirtualTranscript({
   onAnchor,
   anchorNow,
   onLoadOlder,
+  coldOpen,
+  onColdOpenShown,
 }: {
   rows: AcpmuxRow[];
   sessionId?: string;
@@ -1780,6 +1808,15 @@ export function VirtualTranscript({
   /// A row to bring into view (a count on the running line, WorkingFor.tsx); a new `key` asks again.
   /// The run that holds call `toolId` opens, as for a Find match.
   reveal?: { rowId: string; key: number; toolId: string };
+  /// A chat the page switched to and read cold, by its open (a new number per open), whose rows
+  /// have not shown yet: they fade in once, on the frame they first draw (fadeInOpenedChat).
+  /// Undefined for a chat drawn from a kept tail, which shows whole on the frame the switch lands
+  /// ("instant if cached"), for the first chat a page shows, which the host reveals
+  /// (pane.painted), and once the open's rows have shown.
+  coldOpen?: number;
+  /// The rows of open `coldOpen` have shown. The pane keeps that, not this transcript, so a
+  /// transcript mounted again (back from New Tab or a replay) does not fade the same open twice.
+  onColdOpenShown?: (open: number) => void;
 }) {
   const t = useT();
   // Debug measurement (acpmuxPerf): off until the first debug call.
@@ -2092,6 +2129,26 @@ export function VirtualTranscript({
   // Read aloud speaks one of this chat's answers: moving to another session (or closing the
   // transcript) stops it, so it neither talks over the next chat nor says Stop reading on return.
   useEffect(() => () => stopReadingAloud(), [sessionId]);
+  // A cold open's rows fade in on the first frame that draws them, before that frame paints.
+  const fadedOpen = useRef<number | undefined>(undefined);
+  /// The fade running on this transcript. The transcript stays mounted across a switch, so a fade
+  /// ends with the chat it was for: a cached chat opened mid-fade shows whole on its first frame,
+  /// not under the last chat's fade, and a transcript that unmounts leaves none running.
+  const openFade = useRef<Animation | undefined>(undefined);
+  useLayoutEffect(
+    () => () => {
+      openFade.current?.cancel();
+      openFade.current = undefined;
+    },
+    [sessionId],
+  );
+  useLayoutEffect(() => {
+    if (coldOpen === undefined || rows.length === 0 || fadedOpen.current === coldOpen) return;
+    fadedOpen.current = coldOpen;
+    openFade.current?.cancel();
+    openFade.current = fadeInOpenedChat(ref.current);
+    onColdOpenShown?.(coldOpen);
+  }, [coldOpen, rows.length, onColdOpenShown]);
   const previousSession = useRef(sessionId);
   // A layout effect: the first measure lands before the first paint, so a mounted transcript (a page
   // load, a new chat's first send, back from Harnesses) never draws a frame at a guessed size.
@@ -3145,6 +3202,12 @@ export function VirtualTranscript({
   // A read that drew no row above the first (records that draw nothing) moves historyFrom: ask again.
   const olderLoadKey = `${sessionKey}\u0000${rows[0]?.id ?? ""}\u0000${historyFrom ?? ""}`;
   const olderLoadRequested = useRef<string | undefined>(undefined);
+  /// An older page asked for has not settled yet; and the check that follows one that brought nothing.
+  const olderAsking = useRef(false);
+  const olderRecheck = useRef<ReturnType<typeof setTimeout>>(undefined);
+  /// The latest ask: only its settling re-arms the check, so a late answer to an earlier one (a
+  /// chat switched away from) cannot cancel the recheck of the ask that followed it.
+  const olderAsk = useRef(0);
   // The check reads the scroller's live offset, and runs on every scroll event as well as after
   // each commit: a page that lands moves the view down (the anchoring above) and the reader's
   // scroll back to the top could land in the same frame, so the rendered offset never changed
@@ -3163,11 +3226,26 @@ export function VirtualTranscript({
       return;
     }
     if (olderLoadRequested.current === olderLoadKey) return;
-    olderLoadRequested.current = olderLoadKey;
-    onLoadOlder().catch(() => {
-      // Keep transient transport failures retryable without turning every render into a request.
-      if (olderLoadRequested.current === olderLoadKey) olderLoadRequested.current = undefined;
-    });
+    const asked = olderLoadKey;
+    olderLoadRequested.current = asked;
+    olderAsking.current = true;
+    const ask = ++olderAsk.current;
+    // A page that lands changes the key in the commit it brings, and the check after it asks for
+    // the next. An ask that brought nothing (a read that failed, or one the client dropped) leaves
+    // the key as it was: ask once more a moment later, as long as the view is still near the top.
+    // At the very top no scroll event comes to ask for it, and a check on every render would ask
+    // on every streamed chunk (Leo 2026-10-21: a 720-turn chat stopped paging for good).
+    const settled = () => {
+      if (ask !== olderAsk.current) return;
+      olderAsking.current = false;
+      clearTimeout(olderRecheck.current);
+      olderRecheck.current = setTimeout(() => {
+        if (olderLoadRequested.current !== asked) return;
+        olderLoadRequested.current = undefined;
+        checkOlderNow.current();
+      }, OLDER_RECHECK_MS);
+    };
+    onLoadOlder().then(settled, settled);
   };
   useLayoutEffect(() => {
     checkOlderNow.current = checkOlder;
@@ -3175,6 +3253,14 @@ export function VirtualTranscript({
   useEffect(() => {
     checkOlderNow.current();
   }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
+  useEffect(() => () => clearTimeout(olderRecheck.current), []);
+  // A wheel up with the view already at the top moves nothing, so no scroll event says the reader
+  // wants more: it asks itself, unless an ask is still out.
+  const onWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (event.deltaY >= 0 || event.currentTarget.scrollTop > 0 || olderAsking.current) return;
+    olderLoadRequested.current = undefined;
+    checkOlderNow.current();
+  };
   const pointAt = (target: EventTarget | null) => {
     const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
     const rowId = row?.dataset.rowId;
@@ -3198,6 +3284,7 @@ export function VirtualTranscript({
         role="feed"
         aria-label={t("transcript.label")}
         onScroll={onScroll}
+        onWheel={onWheel}
         // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
         // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
         data-seeking={seeking || undefined}
@@ -4210,6 +4297,38 @@ function AcpmuxPane() {
   // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
   // popover under the header button so it never covers the composer controls.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  // Leo, 2026-10-21: "no layout shift then a fast fade in, instant if cached". A switch in place
+  // (chat.select: the page's list, a branch, a fork) to a chat read cold fades its transcript in;
+  // one drawn from a kept tail (direct.ts drawKeptTail) shows on the frame it lands. The first chat
+  // the page shows has no chat before it: the host reveals that one (pane.painted).
+  const [opened, setOpened] = useState<{ shown?: string; open: number; cold: boolean }>({
+    shown: shownSessionId,
+    open: 0,
+    cold: false,
+  });
+  if (opened.shown !== shownSessionId)
+    setOpened({
+      shown: shownSessionId,
+      open: opened.open + 1,
+      cold: opened.shown !== undefined && shownSessionId !== undefined && snapshot.drewKeptTail !== true,
+    });
+  // A chat read with nothing in it (a new chat: its first prompt enters as a live row) has nothing
+  // to fade in, and a chat whose kept tail drew after the switch's hold gave up (a slow host read
+  // under load, a reconnect) is cached all the same: it shows at once. Rows that show before the
+  // chat is read (a live event, or a prompt sent, while a slow attach is out) are on screen
+  // already: the fade never takes them back to nothing, and what the read adds under them shows
+  // as it lands.
+  else if (
+    opened.cold &&
+    ((snapshot.chatRead === true && (freshView || transcriptRows.length === 0)) ||
+      snapshot.drewKeptTail === true ||
+      (snapshot.chatRead !== true && transcriptRows.length > 0))
+  )
+    setOpened({ ...opened, cold: false });
+  const coldOpenShown = useCallback(
+    (open: number) => setOpened((current) => (current.open === open ? { ...current, cold: false } : current)),
+    [],
+  );
   /// The chat shown now, for a permission card's deny with instructions (PermissionAsk), which
   /// reads it after the deny goes, never a render's stale copy.
   const shownChat = useRef(shownSessionId);
@@ -4904,8 +5023,15 @@ function AcpmuxPane() {
       setAutoOpenSubagents,
     ],
   );
-  // The Inspector (Debug Settings `agent.inspector`): its toggle at the header's end, the panel
-  // beside or over the chat. On, it takes the summary card's place.
+  // The Inspector (Debug Settings `agent.inspector`): its toggle the first of the header's
+  // top-right icons, the panel beside or over the chat. On, it takes the summary card's place.
+  const inspectorSummary = snapshot.summary;
+  const inspectorLocal =
+    inspectorSummary !== undefined &&
+    !inspectorSummary.peer &&
+    !(inspectorSummary.host && inspectorSummary.hostKind !== "local");
+  // Save in its Environment keeps the machine and folder as a New Tab environment.
+  const environmentDraft = quick ? undefined : environmentToSave(inspectorSummary, snapshot.peerKinds);
   const inspector = useChatInspector({
     snapshot,
     machineName,
@@ -4920,6 +5046,13 @@ function AcpmuxPane() {
     onStopProcess: stopProcess,
     subagents: cardSubagents,
     sessions: cardSessions,
+    // A folder opens in the Files tree beside the chat; a remote or cloud chat's folders are not on
+    // this Mac.
+    onOpenFolder:
+      quick || !inspectorLocal
+        ? undefined
+        : (path) => ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.files, cwd: path, mode: "open" })),
+    onSaveEnvironment: environmentDraft ? () => savedEnvironmentHost(callNative).save(environmentDraft) : undefined,
   });
   // The running line's counts (conversation/WorkingFor.tsx), with the tray off (Debug Settings):
   // the subagents still running, the background commands that have not ended and the started chats
@@ -6063,25 +6196,23 @@ function AcpmuxPane() {
             return persistSession(await client.select(forked));
           },
           // Fork Conversation from the app (the palette's step, the chat's right-click menu, its
-          // shortcut): a fork through the chat's latest finished turn, opened where the app names
-          // (`placement`). A chat that cannot fork now says why in its transcript.
+          // shortcut): a fork through the chat's latest finished turn, or of a working chat as it is
+          // now, opened where the app names (`placement`). A chat that cannot fork says why in its
+          // transcript.
           "chat.forkTo": async ({ placement }) => {
             const shown = snapshotRef.current;
             const refusal = shown ? forkRefusal(shown) : "unavailable";
-            const through = shown ? latestForkSeq(shown.rows) : undefined;
-            if (refusal || through === undefined) {
+            const target = shown ? forkToTarget(shown) : undefined;
+            if (refusal || target === undefined) {
               client.notice(
-                refusal === "busy"
-                  ? translate("notice.forkBusy")
-                  : refusal === "nothingYet"
-                    ? translate("notice.forkNothingYet")
-                    : translate("notice.forkFailed"),
+                refusal === "nothingYet" ? translate("notice.forkNothingYet") : translate("notice.forkFailed"),
               );
               return undefined;
             }
             harnessSwitch.cancel();
             const chat = client.selectedSession;
-            const forked = await client.fork(through, undefined, true);
+            // A working chat forks now, as it is; its own turn goes on (acpmux `hub/fork.rs`).
+            const forked = await client.fork("live" in target ? "live" : target.throughSeq, undefined, true);
             if (!forked || (await openOwnTab(forked, String(placement ?? "tab"))) || client.selectedSession !== chat)
               return forked;
             return persistSession(await client.select(forked));
@@ -6838,7 +6969,8 @@ function AcpmuxPane() {
       byPath.set(session.cwd, listed(session.cwd));
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, listed(newTab.cwd));
-    return [...byPath.values()];
+    // The pickers list repositories in the order of their newest folder: the folder of the newest chat first.
+    return byRecentUse([...byPath.values()], recentLocalFolders(newTabSnapshot.sessions));
   }, [newTabSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
   // The new chat's hero picker (cx-9g0w): this Mac's projects, then other machines' folders from
   // their chats (each with its machine's name), Add project and Do not work in a project.
@@ -6856,7 +6988,13 @@ function AcpmuxPane() {
     // The machine as the rows key it (ComposerContext.computerId): a peer, else a Cloud host.
     const peer = summary?.peer || (summary?.hostKind === "cloud" ? summary.host : undefined);
     return {
-      projects: [...newTabProjects.filter((project) => !isAgentHome(project.cwd)), ...remote.values()],
+      projects: [
+        ...projectRows(
+          newTabProjects.filter((project) => !isAgentHome(project.cwd)),
+          cwd?.replace(/(.)\/+$/, "$1"),
+        ),
+        ...remote.values(),
+      ],
       current: cwd && !isAgentHome(cwd) ? cwd.replace(/(.)\/+$/, "$1") : undefined,
       currentPeer: peer,
       // In no project only when it is: its folder is agent-home, or the host starts it there. A chat
@@ -6983,6 +7121,8 @@ function AcpmuxPane() {
                                                   }
                                                   expanded={expanded}
                                                   reveal={childRows ? undefined : revealRow}
+                                                  coldOpen={!childRows && opened.cold ? opened.open : undefined}
+                                                  onColdOpenShown={coldOpenShown}
                                                   registry={registry}
                                                   githubRepository={githubRepository}
                                                   fallbackRepository={
@@ -7958,7 +8098,6 @@ function AcpmuxPane() {
                         {snapshot.summary?.enforcement ? handoffLabels.nativePolicy : handoffLabels.unverified}
                       </span>
                     )}
-                    <NeedsYouButton items={needsYou.items} mode={needsYou.mode} actions={needsYou.actions} />
                     <ChatHeaderTools
                       tabTools={!quick}
                       pullRequestChip={!readOnlySubagent}
@@ -8026,6 +8165,7 @@ function AcpmuxPane() {
                         );
                       }}
                       inspector={inspector.button}
+                      inbox={<NeedsYouButton items={needsYou.items} mode={needsYou.mode} actions={needsYou.actions} />}
                       summary={inspector.on ? null : <SummaryButton card={summaryCard} />}
                       menu={chatMenu}
                       onMenuOpen={readTabState}
