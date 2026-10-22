@@ -77,6 +77,7 @@ import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
 import { queuePauseReason } from "./queuePause";
+import { composerControl, openComposerControl } from "./composerControls";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -769,6 +770,14 @@ export function Composer({
       plusDraft.current = undefined;
       return false;
     }
+    // The menu owns live model/account/speed state. A chat control never becomes an agent prompt.
+    const control = attachments.length === 0 ? composerControl(prompt) : undefined;
+    if (control) {
+      if (!openComposerControl(control, t)) return false;
+      plusDraft.current = undefined;
+      edit("", 0);
+      return true;
+    }
     // A Claude command that needs its terminal is not sent: the composer keeps it and says what to use.
     const cliOnly = attachments.length === 0 ? cliOnlyCommand(prompt, snapshot.summary?.harness) : undefined;
     if (cliOnly) {
@@ -907,6 +916,14 @@ export function Composer({
   const runShell = () => {
     const command = shellText.trim();
     if (!command || !onShell) return;
+    // `/fast` is a chat control, not an executable at the filesystem root. Use the same picker
+    // path as the normal prompt; if no picker is mounted, leave shell mode and keep the text.
+    const control = composerControl(command);
+    if (control) {
+      exitShell();
+      if (openComposerControl(control, t)) edit("", 0);
+      return;
+    }
     const run = onShell(command);
     if (!run) return;
     setAttachments((current) => cappedShellChips([...current, shellAttachment(run)]));

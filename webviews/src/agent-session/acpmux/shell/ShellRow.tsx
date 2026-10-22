@@ -2,11 +2,12 @@
 // (Stop while it runs, then its exit status and time), the end of its output (all of it once
 // opened), and "Open in terminal", which types the command into a new terminal tab in the same
 // folder without running it.
-import { createContext, useContext } from "react";
+import { createContext, useContext, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
-import { Check, Spinner } from "../conversation/icons";
+import { Check, ChevronRight, Spinner } from "../conversation/icons";
 import type { ShellRun } from "./shellRuns";
+import { stripAnsi } from "../conversation/toolOutput";
 
 /// Lines of output a closed block shows: the last ones, where results and errors are.
 export const SHELL_COLLAPSED_LINES = 8;
@@ -25,14 +26,37 @@ export function ShellRow({
 }) {
   const t = useT();
   const actions = useContext(ShellActionsContext);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const run = row.shell;
   if (!run) return null;
-  const output = run.output.replace(/\n$/, "");
+  const output = stripAnsi(run.output).replace(/\n$/, "");
   const lines = output ? output.split("\n") : [];
   const long = lines.length > SHELL_COLLAPSED_LINES;
   const shown = long && !expanded ? lines.slice(-SHELL_COLLAPSED_LINES) : lines;
   const seconds = run.endedAt !== undefined ? (run.endedAt - run.startedAt) / 1000 : undefined;
   const time = seconds === undefined ? "" : seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`;
+  const failed = run.status === "failed";
+  const diagnostics = (
+    <pre className="acpmux-shell-block-output selectable">
+      {(run.truncated || (long && !expanded)) && (
+        <span className="acpmux-shell-block-cut" aria-hidden="true">
+          …
+        </span>
+      )}
+      {shown.join("\n")}
+      {run.error && <span className="acpmux-shell-block-error">{run.error}</span>}
+    </pre>
+  );
+  const more = long && (
+    <button
+      type="button"
+      className="acpmux-shell-block-more"
+      aria-expanded={expanded}
+      onClick={() => onToggleActivity(row.id)}
+    >
+      {expanded ? t("shell.showLess") : t("shell.showAll")}
+    </button>
+  );
   return (
     <div className="acpmux-shell-block" data-status={run.status}>
       <div className="acpmux-shell-block-head">
@@ -71,27 +95,29 @@ export function ShellRow({
           {t("shell.openInTerminal")}
         </button>
       </div>
-      {(shown.length > 0 || run.error) && (
-        <pre className="acpmux-shell-block-output selectable">
-          {(run.truncated || (long && !expanded)) && (
-            <span className="acpmux-shell-block-cut" aria-hidden="true">
-              …
-            </span>
+      {failed ? (
+        <div className="cv-turn-note" role="alert">
+          <span className="text-fg">{t("shell.commandFailed")}</span>
+          {(shown.length > 0 || run.error) && (
+            <details className="mt-0.5" onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
+              <summary className="cv-turn-note__summary">
+                {t("turn.failure.details")}
+                <ChevronRight
+                  size={12}
+                  strokeWidth={1.2}
+                  aria-hidden="true"
+                  className={`cv-rotor${detailsOpen ? " is-open" : ""}`}
+                />
+              </summary>
+              {diagnostics}
+              {more}
+            </details>
           )}
-          {shown.join("\n")}
-          {run.error && <span className="acpmux-shell-block-error">{run.error}</span>}
-        </pre>
+        </div>
+      ) : (
+        (shown.length > 0 || run.error) && diagnostics
       )}
-      {long && (
-        <button
-          type="button"
-          className="acpmux-shell-block-more"
-          aria-expanded={expanded}
-          onClick={() => onToggleActivity(row.id)}
-        >
-          {expanded ? t("shell.showLess") : t("shell.showAll")}
-        </button>
-      )}
+      {!failed && more}
     </div>
   );
 }

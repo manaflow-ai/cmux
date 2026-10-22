@@ -105702,6 +105702,137 @@
         }
       }
     },
+    "shell.commandFailed": {
+      "comment": "A failed shell command; its raw output is collapsed under Details.",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تشغيل الأمر. افتح التفاصيل للاطّلاع على الخطأ."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naredba se nije mogla izvršiti. Otvorite detalje da vidite grešku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommandoen kunne ikke køres. Åbn detaljer for at se fejlen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Befehl konnte nicht ausgeführt werden. Öffne die Details, um den Fehler zu sehen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The command could not run. Open Details to see the error."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo ejecutar el comando. Abre Detalles para ver el error."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La commande n’a pas pu être exécutée. Ouvrez les détails pour voir l’erreur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è stato possibile eseguire il comando. Apri i dettagli per vedere l’errore."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドを実行できませんでした。「詳細」を開くとエラーを確認できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចដំណើរការពាក្យបញ្ជាបានទេ។ បើកព័ត៌មានលម្អិតដើម្បីមើលកំហុស។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령을 실행할 수 없습니다. 세부사항을 열어 오류를 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommandoen kunne ikke kjøres. Åpne detaljer for å se feilen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się uruchomić polecenia. Otwórz szczegóły, aby zobaczyć błąd."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível executar o comando. Abra os detalhes para ver o erro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось выполнить команду. Откройте подробности, чтобы увидеть ошибку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถเรียกใช้คำสั่งได้ เปิดรายละเอียดเพื่อดูข้อผิดพลาด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komut çalıştırılamadı. Hatayı görmek için ayrıntıları açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося виконати команду. Відкрийте подробиці, щоб переглянути помилку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể chạy lệnh. Mở chi tiết để xem lỗi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法运行命令。打开“详细信息”以查看错误。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法執行指令。開啟「詳細資訊」以查看錯誤。"
+          }
+        }
+      }
+    },
     "shell.failed": {
       "comment": "Agent pane",
       "extractionState": "manual",

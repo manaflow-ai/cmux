@@ -73,7 +73,8 @@ export function failureKind(message: string | undefined, route?: FailureRoute): 
 }
 
 /// The footer's sentence for a failed turn: the cause in plain words with the route and status when known.
-/// The agent's raw message stays available as the detail; `other` shows it as the sentence.
+/// The agent's raw message stays available under Details; unknown backend diagnostics never
+/// become the answer's primary sentence.
 export function failureCopy(t: Translate, message: string | undefined, route?: FailureRoute): string {
   if (!message) return t("turn.failed");
   const kind = failureKind(message, route);
@@ -100,6 +101,6 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
     case "auth":
       return t("turn.failure.auth", { harness, status: status ?? "401" });
     default:
-      return message;
+      return t("turn.failed");
   }
 }

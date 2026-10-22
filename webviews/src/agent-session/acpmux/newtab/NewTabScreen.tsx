@@ -71,6 +71,7 @@ import { useRowFit } from "../composerRowFit";
 import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
+import { composerControl, openComposerControl } from "../composerControls";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -628,6 +629,11 @@ export function NewTabScreen(props: Props) {
   const submit = () => {
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
     if (holdForAttachments(() => submitNow.current())) return;
+    const control = attachments.length === 0 ? composerControl(text) : undefined;
+    if (control) {
+      if (openComposerControl(control, t)) setText("");
+      return;
+    }
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
     const row = rows.length ? rows[current] : suggested[defaultSelection(suggested)];
     // Staged attachments go with a chat: a row that opens a page or a tab would drop them.
@@ -664,6 +670,12 @@ export function NewTabScreen(props: Props) {
     touch();
     if (!shell) return submit();
     const command = text.trim();
+    const control = composerControl(command);
+    if (control) {
+      setShell(false);
+      if (openComposerControl(control, t)) setText("");
+      return;
+    }
     if (command) props.onShell(command);
   };
   const sendRef = useRef(send);
@@ -746,8 +758,7 @@ export function NewTabScreen(props: Props) {
     if (shell) {
       if (event.key === "Enter") {
         event.preventDefault();
-        const command = text.trim();
-        if (command) props.onShell(command);
+        send();
       } else if (event.key === "Escape" || (event.key === "Backspace" && input.selectionEnd === 0)) {
         // Leaves shell mode; what was typed stays in the field.
         event.preventDefault();
