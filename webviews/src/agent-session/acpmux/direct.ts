@@ -1,6 +1,7 @@
 import type {
   AcpmuxActivity,
   AcpmuxFileDiff,
+  AcpmuxLocation,
   AcpmuxPermission,
   AcpmuxSecretAsk,
   AcpmuxSessionOffer,
@@ -11,6 +12,7 @@ import type {
   AcpmuxPlanEntry,
   AcpmuxRow,
   AcpmuxSnapshot,
+  MissingSessionReason,
   PromptImage,
   QueueEdit,
   QueuedPrompt,
@@ -486,8 +488,32 @@ export function toolDiffs(content: any, locations: any): AcpmuxFileDiff[] | unde
       newText: item.newText,
       line: lines.get(item.path),
       ...(item.fragment === true || item._meta?.acpmux?.fragment === true ? { fragment: true as const } : {}),
+      ...canonicalOf(item),
     }));
   return diffs.length ? diffs : undefined;
+}
+
+/// The canonical path acpmux recorded beside an item's path (hub/tool_paths.rs), as `canonical`:
+/// a `diff` item's or location's `_meta.acpmux.canonicalPath`, or a diff this page placed again.
+/// Composed (NFC), as every canonical path the page compares is (turnCheckpoint.ts `checkpointFiles`).
+function canonicalOf(item: any): { canonical?: string } {
+  const canonical = item?._meta?.acpmux?.canonicalPath ?? item?.canonical;
+  return typeof canonical === "string" && canonical ? { canonical: canonical.normalize("NFC") } : {};
+}
+
+/// A call's locations with their canonical paths read (`canonicalOf`).
+function readLocations(locations: any): AcpmuxLocation[] | undefined {
+  if (!Array.isArray(locations)) return undefined;
+  return locations.map((location: any) =>
+    location && typeof location === "object" ? { ...location, ...canonicalOf(location) } : location,
+  );
+}
+
+/// The input's file and the canonical path acpmux recorded for it on the update (`_meta.acpmux`).
+function inputPath(update: any): { path: string; canonical: string } | undefined {
+  const path = update.rawInput?.file_path;
+  const { canonical } = canonicalOf(update);
+  return typeof path === "string" && canonical ? { path, canonical } : undefined;
 }
 
 /// Claude Code's result for a Write that made a new file ("File created successfully at: …"). An
@@ -500,10 +526,10 @@ const CREATED_RESULT = /^\s*File created successfully at\b/;
 /// diff against, so it stays a path without counts. Each is marked `fragment` (the page never saw the
 /// file around it, so Undo, turnChanges/model.ts `fileUndo`, never writes a file back from these)
 /// and `fromInput` (a later input replaces them).
-export function inputDiffs(rawInput: any, result?: string): AcpmuxFileDiff[] | undefined {
+export function inputDiffs(rawInput: any, result?: string, canonical?: string): AcpmuxFileDiff[] | undefined {
   const path = rawInput?.file_path;
   if (typeof path !== "string" || !path) return undefined;
-  const mark = { fragment: true as const, fromInput: true as const };
+  const mark = { fragment: true as const, fromInput: true as const, ...(canonical ? { canonical } : {}) };
   if (typeof rawInput.content === "string")
     return result !== undefined && CREATED_RESULT.test(result)
       ? [{ path, newText: rawInput.content, ...mark }]
@@ -552,10 +578,11 @@ export function mergeToolItem(
   const status = String(update.status ?? before?.status ?? "in_progress");
   const ended = status === "completed" || status === "failed";
   const kind = update.kind ?? before?.kind;
+  const locations = readLocations(update.locations) ?? before?.locations;
+  // The input's file, from the update that carries the input.
+  const input = update.rawInput ? inputPath(update) : before?.inputPath;
   const placed =
-    update.content === undefined
-      ? placeDiffs(before?.diffs, update.locations)
-      : toolDiffs(update.content, Array.isArray(update.locations) ? update.locations : before?.locations);
+    update.content === undefined ? placeDiffs(before?.diffs, update.locations) : toolDiffs(update.content, locations);
   // An edit whose content names no `diff` (Claude Code's Edit, whose result is plain text) still
   // changed its file: its input has the change, read again from the latest input. A failed one
   // changed nothing. A `diff` in the content always wins over the input.
@@ -565,7 +592,7 @@ export function mergeToolItem(
     diffs =
       status === "failed"
         ? undefined
-        : (inputDiffs(update.rawInput ?? storedInput(before?.inputSummary), result) ?? placed);
+        : (inputDiffs(update.rawInput ?? storedInput(before?.inputSummary), result, input?.canonical) ?? placed);
   }
   return {
     kind: "tool",
@@ -585,7 +612,8 @@ export function mergeToolItem(
       endedAt: before?.endedAt ?? (ended ? at : undefined),
       // A shell that went to the background stays there as its call's result comes in.
       ...(before?.background ? { background: before.background } : {}),
-      locations: Array.isArray(update.locations) ? update.locations : before?.locations,
+      locations,
+      ...(input ? { inputPath: input } : {}),
       images: update.content === undefined ? before?.images : imagesFromContent(update.content),
       diffs,
     },
@@ -892,6 +920,8 @@ export class AcpmuxDirectClient {
   private selectedSessionId?: string;
   /** The session a link named that the daemon does not have (`sessionMustExist`). */
   private missingSession?: string;
+  /** Why `missingSession` is set: the daemon's list lacked it when the pane opened, or it left the list while shown. */
+  private missingReason?: MissingSessionReason;
   /** The adopt acpmux refused because its chat is live elsewhere, until the user picks a way on. */
   private liveAdopt?: { adopt: AcpmuxAdopt; canFork: boolean; command?: string };
   /** Take Over refused because the watched chat's app still runs it, until the user picks a way on. */
@@ -969,6 +999,9 @@ export class AcpmuxDirectClient {
   /// The prompt sent now whose turn ended (`continued`) and that has not run yet. It may never run:
   /// removed, withdrawn or refused, the turn it ended reads as ended again (``dropContinuation``).
   private awaiting?: string;
+  /// The turns this page saw end (`turn_result`): a summary that still names one as running was
+  /// read before it ended (``staleRun``).
+  private endedTurns = new Set<string>();
   /// Each steer's row by its promptId. A steer that reaches the agent as its turn ends runs as the
   /// next prompt with the same promptId, recorded again: that prompt's row replaces the steer's.
   private steerRows = new Map<string, string>();
@@ -1314,7 +1347,10 @@ export class AcpmuxDirectClient {
       this.listedSessions = first !== undefined || this.sessions.length > 0;
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
         // A linked session the daemon lacks is refused, never replaced by the most recent chat.
-        if (this.host.sessionMustExist) this.missingSession = this.selectedSessionId;
+        if (this.host.sessionMustExist) {
+          this.missingSession = this.selectedSessionId;
+          this.missingReason = "notListedAtOpen";
+        }
         this.selectedSessionId = this.host.sessionMustExist ? undefined : this.sessions[0]?.sessionId;
         this.selectionGeneration += 1;
         this.resetSessionState();
@@ -1447,6 +1483,7 @@ export class AcpmuxDirectClient {
     this.waitingSteers = [];
     this.interrupting = undefined;
     this.awaiting = undefined;
+    this.endedTurns.clear();
     this.continuations.clear();
     this.steerRows.clear();
     this.promptsShown.clear();
@@ -1524,7 +1561,8 @@ export class AcpmuxDirectClient {
     this.rebuild();
     // After the replay, not before: a `session_changed` the tail holds would take the live state back.
     this.summary = { ...kept.summary, ...listed };
-    this.turnOpen = listed?.status === "running";
+    // A paused queue's failed turn no longer runs, whatever status acpmux last listed (`staleRun`).
+    this.turnOpen = listed?.status === "running" && !this.staleRun(listed);
     // Only acpmux says what is pending (attach's `session.pending`): a replayed ask is history
     // here. The marks it left on its own rows (an edit "awaiting permission") stand until the
     // attach replays the page, as they do on a page whose decision it does not hold either.
@@ -1705,7 +1743,10 @@ export class AcpmuxDirectClient {
   /// The selected session is gone: a tab bound to its session (`sessionMustExist`) says so;
   /// any other pane shows the most recent remaining one, or none.
   private selectFallbackSession(reason: string): void {
-    if (this.host.sessionMustExist) this.missingSession = this.selectedSessionId;
+    if (this.host.sessionMustExist) {
+      this.missingSession = this.selectedSessionId;
+      this.missingReason = "leftListWhileShown";
+    }
     this.selectedSessionId = this.host.sessionMustExist ? undefined : this.sessions[0]?.sessionId;
     if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
     const generation = ++this.selectionGeneration;
@@ -2191,6 +2232,14 @@ export class AcpmuxDirectClient {
     this.emit("commands");
   }
 
+  /// A summary of a paused queue that says "running" from before its turn failed: it names no
+  /// running turn, or one this page saw end. A turn sent now while prompts stay held runs.
+  private staleRun(summary: Record<string, any>): boolean {
+    if (summary.queuePaused !== true) return false;
+    const turnId = summary.turn?.turnId;
+    return typeof turnId !== "string" || this.endedTurns.has(turnId);
+  }
+
   private sessionChanged(params: SessionChanged): void {
     // Only a purge carries the id alone; every other change carries the whole summary.
     const session = params?.session as SessionSummary | undefined;
@@ -2302,6 +2351,7 @@ export class AcpmuxDirectClient {
     this.waitingSteers = [];
     this.interrupting = undefined;
     this.awaiting = undefined;
+    this.endedTurns.clear();
     this.steerRows.clear();
     this.promptsShown.clear();
     this.firstSeq = undefined;
@@ -2602,6 +2652,19 @@ export class AcpmuxDirectClient {
         bookmarksHeard(event.sessionId ?? this.selectedSessionId, event.msg?.bookmarks);
       } else if (event.kind === "forked") {
         this.forkedAtSeq = event.seq;
+        // An agent that could not fork the working chat: the fork's agent reads the chat's
+        // transcript instead, and the fork says so in one line (acpmux `hub/fork.rs`).
+        if (msg.from === "transcript") {
+          const id = `fork-note-${event.seq}`;
+          const harness = typeof msg.harness === "string" ? msg.harness : "";
+          this.rows.set(id, {
+            id,
+            version: 1,
+            at: event.at,
+            kind: "notice",
+            text: translate("notice.forkFromTranscript", { harness }),
+          });
+        }
       } else if (event.kind === "failover") {
         // acpmux moved the chat to its fallback harness (`hub/turns.rs`); the turn goes on there.
         if (typeof msg.from === "string" && typeof msg.to === "string") {
@@ -2803,6 +2866,7 @@ export class AcpmuxDirectClient {
           this.awaiting = this.interrupting;
         }
         if (event.kind === "turn_result") this.interrupting = undefined;
+        if (event.kind === "turn_result" && typeof msg.turnId === "string") this.endedTurns.add(msg.turnId);
         if (event.kind === "turn_result")
           this.rows.set(`summary-${event.seq}`, {
             id: `summary-${event.seq}`,
@@ -3245,7 +3309,10 @@ export class AcpmuxDirectClient {
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
       isWorking:
-        this.replayThrough === undefined && !this.stopGaveUp && (this.turnOpen || summary?.status === "running"),
+        this.replayThrough === undefined &&
+        !this.stopGaveUp &&
+        // acpmux may still list a paused queue's session as running from before its turn failed.
+        (this.turnOpen || (summary?.status === "running" && !this.staleRun(summary))),
       ...(this.replayThrough === undefined && this.turnTokens ? { turnTokens: this.turnTokens } : {}),
       ...(this.replayThrough === undefined && this.turnOpen && this.silentTurn ? { silentTurn: true as const } : {}),
       // Only a peer runs on another clock; this computer's own sessions need no correction.
@@ -3267,6 +3334,7 @@ export class AcpmuxDirectClient {
       canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1,
       historyFrom: this.firstSeq,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
+      missingReason: this.selectedSessionId ? undefined : this.missingReason,
       liveChat: this.liveAdopt && {
         canFork: this.liveAdopt.canFork,
         command: this.liveAdopt.command,
@@ -3329,7 +3397,9 @@ export class AcpmuxDirectClient {
   /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it.
   /// `steer`: into the running turn, read when the agent's current step ends; an agent that
   /// cannot steer queues it behind the turn. Nothing sent stops the turn: only Stop does (Leo
-  /// 2026-10-20), so no send carries `_meta.acpmux.interrupt`.
+  /// 2026-10-20), so no send carries `_meta.acpmux.interrupt`. No send carries
+  /// `_meta.acpmux.resend` either: the host refuses a page frame that does, and marks a resend
+  /// itself (#22881, AgentPanePromptRelay.swift).
   async send(
     input: string,
     attachments: ComposerAttachment[] = [],
@@ -3337,7 +3407,6 @@ export class AcpmuxDirectClient {
     accepted?: () => void,
     ticket?: string,
     steer = false,
-    resend = false,
   ): Promise<string | undefined> {
     // A `data:` image written into the prompt goes as an image, never as text: the bubble, the
     // agent and the chat's compaction never see base64 (inlineImages.ts, Leo 2026-10-20).
@@ -3491,7 +3560,6 @@ export class AcpmuxDirectClient {
           acpmux: {
             promptId,
             ...(steer ? { steer: true } : {}),
-            ...(resend ? { resend: true } : {}),
             ...(context ? { context } : {}),
             ...promptSurfaceMeta(),
           },
@@ -3675,7 +3743,10 @@ export class AcpmuxDirectClient {
   }
 
   /// Retry on a prompt that was not sent: its bubble goes and the same prompt goes again, under the
-  /// same prompt id with `resend`, so a copy acpmux did take answers as that one and runs no second turn.
+  /// same prompt id, so a copy acpmux did take answers as that one and runs no second turn (acpmux runs
+  /// a prompt id once). It carries no `resend`: the host refuses that from the page (#22881) and marks
+  /// a prompt id it sent the daemon before a resend itself, so acpmux also finds a first copy in the
+  /// chat's log after a daemon restart.
   /// `ticket`: the gesture a trust refusal kept for this prompt (heldPrompt.ts).
   async retryPrompt(rowId: string, ticket?: string): Promise<string | undefined> {
     const failed = this.failedPrompts.get(rowId);
@@ -3690,15 +3761,7 @@ export class AcpmuxDirectClient {
     const promptId = failed.promptId ?? crypto.randomUUID();
     this.retriedPrompts.add(promptId);
     try {
-      return await this.send(
-        failed.input,
-        failed.attachments,
-        promptId,
-        undefined,
-        ticket,
-        false,
-        failed.promptId !== undefined,
-      );
+      return await this.send(failed.input, failed.attachments, promptId, undefined, ticket);
     } finally {
       this.retriedPrompts.delete(promptId);
     }
@@ -4190,6 +4253,7 @@ export class AcpmuxDirectClient {
     const hold = this.holdSnapshots(SWITCH_HOLD_MS);
     this.selectedSessionId = sessionId;
     this.missingSession = undefined;
+    this.missingReason = undefined;
     this.markSeen(sessionId);
     this.resetSessionState();
     // A chat this page read already draws from what that visit left, on the frame the switch lands;
@@ -4457,7 +4521,7 @@ export class AcpmuxDirectClient {
         this.emit();
         return;
       }
-      this.adoptFailed(error instanceof Error && error.message ? error.message : undefined);
+      this.adoptFailed(errorMessage(error) || undefined);
       return;
     }
     const sessionId = result?.sessionId ? String(result.sessionId) : undefined;
@@ -4540,7 +4604,7 @@ export class AcpmuxDirectClient {
         this.emit();
         return false;
       }
-      this.notice(error instanceof Error && error.message ? error.message : String(error));
+      this.notice(errorMessage(error) || String(error));
       return false;
     }
   }
@@ -4589,22 +4653,24 @@ export class AcpmuxDirectClient {
   /// is `throughSeq`, and opens the fork. One fork at a time; a second click while acpmux forks does
   /// nothing. A failure says so in the transcript; a reader who opened another session meanwhile
   /// stays there. `stay` keeps this chat open and only answers the fork, for its own tab.
-  async fork(throughSeq: number, from?: string, stay = false): Promise<string | undefined> {
+  /// `"live"`: the whole chat as it is now, also while its turn runs (Fork Conversation).
+  async fork(throughSeq: number | "live", from?: string, stay = false): Promise<string | undefined> {
     if (!this.canFork || !this.actingSessionId || this.forking) return undefined;
     this.forking = true;
     const generation = this.selectionGeneration;
     try {
-      const result = await this.request(FORK_OP, {
-        sessionId: from ?? this.actingSessionId,
-        throughSeq,
-      });
+      const sessionId = from ?? this.actingSessionId;
+      const result = await this.request(
+        FORK_OP,
+        throughSeq === "live" ? { sessionId, live: true } : { sessionId, throughSeq },
+      );
       if (!result?.sessionId || generation !== this.selectionGeneration) return undefined;
       if (stay) return String(result.sessionId);
       return await this.select(String(result.sessionId));
     } catch (error) {
       if (generation === this.selectionGeneration) {
         const at = Date.now();
-        const reason = error instanceof Error && error.message ? error.message : undefined;
+        const reason = errorMessage(error) || undefined;
         const id = noticeId("notice-fork");
         this.rows.set(id, {
           id,
@@ -4740,9 +4806,19 @@ export class AcpmuxDirectClient {
   /// queue and permission stay as they are. A page that lands after the
   /// selection changed belongs to another session and is dropped.
   loadOlder(): Promise<void> {
-    if (Date.now() < this.olderRetryAt) return Promise.resolve();
     if (this.loadingOlder) return this.loadingOlder;
-    const loading = this.fetchOlder()
+    // An ask inside the back-off after a failed page waits it out, then reads. One that returned
+    // at once read nothing, and the transcript that asked at the very top had no scroll left to
+    // ask again with: a 720-turn chat stopped paging for good (Leo 2026-10-21).
+    const wait = this.olderRetryAt - Date.now();
+    const generation = this.selectionGeneration;
+    const read =
+      wait > 0
+        ? new Promise<void>((resolve) => setTimeout(resolve, wait)).then(() =>
+            !this.closed && generation === this.selectionGeneration ? this.fetchOlder() : undefined,
+          )
+        : this.fetchOlder();
+    const loading = read
       .catch((error: unknown) => {
         this.olderRetryAt = Date.now() + 2_000;
         throw error;
@@ -4781,7 +4857,8 @@ export class AcpmuxDirectClient {
       });
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
       // The held transcript's older end moved while this read was out (a kept tail the attach
-      // page did not continue): these records sit above a transcript the chat no longer holds.
+      // page did not continue): these records sit above a transcript the chat no longer holds. The
+      // ask brings nothing, and the transcript asks again (App.tsx checkOlder).
       if (epoch !== this.historyEpoch) return;
       const page = records(result?.events);
       older = [...page, ...older];
