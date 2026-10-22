@@ -16,32 +16,36 @@ const moreRight = (box: Element) => box.scrollLeft + box.clientWidth < box.scrol
 /// Whether `box`'s content is wider than it, scrolled or not.
 const sideways = (box: Element) => box.clientWidth < box.scrollWidth - 0.5;
 
-/// Pierre's sideways scrollers in `root`'s subtree, through the shadow roots it draws in.
-function pierreScrollers(root: ParentNode, into: Element[]) {
-  for (const element of root.querySelectorAll("*")) {
-    const shadow = element.shadowRoot;
-    if (!shadow) continue;
-    into.push(...shadow.querySelectorAll("[data-code]"));
-    pierreScrollers(shadow, into);
-  }
-  return into;
-}
-
 /// Keeps `MORE_RIGHT` and `SIDEWAYS_ATTRIBUTE` current on `container` and on every Pierre code
-/// box inside it: now, on each scroll, when one changes size and when Pierre draws (it renders
-/// after its highlighter answers). Returns the stop function.
+/// box inside it (its sideways scrollers, `[data-code]` in the shadow roots Pierre draws in): on
+/// each scroll and size change of one, and once a frame for the boxes whose lines changed.
+///
+/// Only mount walks the whole block. A change (a streamed token, a new line, Pierre drawing) marks
+/// the box it is in and takes in only the nodes it added: no work per change grows with the
+/// block's lines (Codex review of #23967). Its frame, its observers and its listeners end with the
+/// returned stop function.
 export function watchSideways(container: HTMLElement): () => void {
   // The page's desktop layer installs it at start (installScrollers); a page without one gets it here.
   installSidewaysScrollers(container.ownerDocument);
   const view = container.ownerDocument.defaultView;
   const watched = new Map<Element, () => void>();
-  const resize = view?.ResizeObserver
-    ? new view.ResizeObserver((entries) => entries.forEach(({ target }) => watched.get(target)?.()))
-    : undefined;
+  /// Boxes whose lines changed since the last frame.
+  const dirty = new Set<Element>();
+  /// Custom elements without their shadow root yet: Pierre attaches it as it draws.
+  const hosts = new Set<Element>();
   const shadows = new Set<ShadowRoot>();
-  const mutations = view?.MutationObserver ? new view.MutationObserver(() => scan()) : undefined;
+  let frame: number | undefined;
+  const resize = view?.ResizeObserver
+    ? new view.ResizeObserver((entries) =>
+        entries.forEach(({ target }) => {
+          watched.get(target)?.();
+          if (hosts.has(target)) adopt(target);
+        }),
+      )
+    : undefined;
+  const mutations = view?.MutationObserver ? new view.MutationObserver((records) => changed(records)) : undefined;
   const watch = (box: Element) => {
-    if (watched.has(box)) return watched.get(box)!();
+    if (watched.has(box)) return;
     const update = () => {
       box.toggleAttribute(MORE_RIGHT, moreRight(box));
       box.toggleAttribute(SIDEWAYS_ATTRIBUTE, sideways(box));
@@ -52,21 +56,74 @@ export function watchSideways(container: HTMLElement): () => void {
     for (const child of box.children) resize?.observe(child);
     update();
   };
-  function scan() {
-    for (const box of [container, ...pierreScrollers(container, [])]) watch(box);
-    for (const element of container.querySelectorAll("*"))
-      if (element.shadowRoot && !shadows.has(element.shadowRoot)) {
-        shadows.add(element.shadowRoot);
-        mutations?.observe(element.shadowRoot, { childList: true, subtree: true });
+  const unwatch = (box: Element) => {
+    const update = watched.get(box);
+    if (!update) return;
+    box.removeEventListener("scroll", update);
+    resize?.unobserve(box);
+    watched.delete(box);
+    dirty.delete(box);
+  };
+  /// A shadow host: its root's code boxes, and the root's own changes. One without a root yet
+  /// waits in `hosts` until it resizes or the next frame.
+  function adopt(host: Element) {
+    const shadow = host.shadowRoot;
+    if (!shadow) {
+      if (!hosts.has(host)) {
+        hosts.add(host);
+        resize?.observe(host);
       }
+      return;
+    }
+    hosts.delete(host);
+    if (shadows.has(shadow)) return;
+    shadows.add(shadow);
+    mutations?.observe(shadow, { childList: true, subtree: true, characterData: true });
+    take(shadow);
   }
+  const visit = (element: Element) => {
+    if (element.hasAttribute("data-code")) watch(element);
+    if (element.shadowRoot || element.localName.includes("-")) adopt(element);
+  };
+  /// `node` and what lies under it: an added node, a shadow root, or the block at mount.
+  function take(node: Node) {
+    if (node.nodeType === 1) visit(node as Element);
+    else if (node.nodeType !== 11) return;
+    for (const element of (node as ParentNode).querySelectorAll("*")) visit(element);
+  }
+  function drop(node: Node) {
+    if (node.nodeType !== 1) return;
+    hosts.delete(node as Element);
+    unwatch(node as Element);
+    for (const box of (node as Element).querySelectorAll("[data-code]")) unwatch(box);
+  }
+  function changed(records: MutationRecord[]) {
+    for (const record of records) {
+      const at = record.target.nodeType === 1 ? (record.target as Element) : record.target.parentElement;
+      const box = at?.closest("[data-code]");
+      dirty.add(box && watched.has(box) ? box : container);
+      for (const node of record.addedNodes) take(node);
+      for (const node of record.removedNodes) drop(node);
+    }
+    frame ??= view?.requestAnimationFrame(flush);
+  }
+  function flush() {
+    frame = undefined;
+    for (const host of hosts) adopt(host);
+    for (const box of dirty) watched.get(box)?.();
+    dirty.clear();
+  }
+  watch(container);
   mutations?.observe(container, { childList: true, subtree: true, characterData: true });
-  scan();
+  take(container);
   return () => {
+    if (frame !== undefined) view?.cancelAnimationFrame(frame);
     mutations?.disconnect();
     resize?.disconnect();
     for (const [box, update] of watched) box.removeEventListener("scroll", update);
     watched.clear();
+    dirty.clear();
+    hosts.clear();
   };
 }
 

@@ -1085,6 +1085,7 @@
    sideways.ts PIERRE_BLOCK_CSS), and its bottom fade stops above the lane. */
 .cv-edit-diff__body {
   --cv-lane: 6px;
+  --cv-bar: var(--cv-lane);
   --diffs-scrollbar-gutter-override: var(--cv-lane);
   overflow: hidden;
 }
@@ -2255,10 +2256,23 @@ button.cv-received__name:focus-visible {
    (Show all N lines opens it), and an unwrapped line running past the right edge fades out there
    while more of it lies past (sideways.ts). A fade, never a hard edge; no transition, so it shows
    and goes at once whatever the motion settings. Under unwrapped lines that run past the edge, the
-   box keeps a thin scrollbar thumb at rest (scrollers.ts SIDEWAYS_ATTRIBUTE), in a lane `--cv-lane`
-   tall at the bottom: a cut preview grows by it, and its bottom fade ends above it. */
+   box keeps a thin scrollbar thumb at rest (scrollers.ts SIDEWAYS_ATTRIBUTE), `--cv-bar` tall, in a
+   lane `--cv-lane` tall that an unwrapped body keeps at its bottom whether or not its lines run
+   past: a cut preview is that much taller and its bottom fade ends above the lane, and the bar
+   takes the lane's padding when it comes, so the body is the same height with it or without it
+   (Codex review of #23967: the transcript must not jump when a line starts running past). */
 :is(.cv-shell__body, .cv-tool-output__box > .cv-tool-output) {
-  --cv-lane: var(--cmux-sideways-lane, 0px);
+  --cv-bar: var(--cmux-sideways-lane, 0px);
+}
+:is(.cv-shell__body, .cv-tool-output__box > .cv-tool-output)[data-wrap="false"] {
+  --cv-lane: var(--cmux-scroller-size, 8px);
+}
+.cv-shell__body {
+  padding-bottom: calc(var(--cv-lane, 0px) - var(--cv-bar));
+}
+/* Its own bottom padding is the lane. */
+.cv-tool-output__box > .cv-tool-output {
+  padding-bottom: calc(8px - var(--cv-bar));
 }
 :is(.cv-edit-diff__body, .cv-shell__body, .cv-tool-output__box > .cv-tool-output)[data-preview="cut"] {
   --cv-fade-bottom: 28px;
@@ -2275,7 +2289,8 @@ button.cv-received__name:focus-visible {
       to bottom,
       #000 calc(100% - var(--cv-fade-bottom, 0px) - var(--cv-lane, 0px)),
       transparent calc(100% - var(--cv-lane, 0px)),
-      #000 calc(100% - var(--cv-lane, 0px))
+      transparent calc(100% - var(--cv-bar, 0px)),
+      #000 calc(100% - var(--cv-bar, 0px))
     ),
     linear-gradient(to left, transparent, #000 var(--cv-fade-right, 0px));
   mask-composite: intersect;
