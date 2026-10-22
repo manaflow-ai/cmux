@@ -406,7 +406,7 @@ final class AgentTabStore {
             if let model { AgentPaneNewTabFrame.shared.modelChanged(pick, by: model) }
             self?.pageHandler(provisional)?.remember(pick)
         }
-        model.onSetNewTabTemplate = { [weak self] template in self?.pageHandler(provisional)?.setTemplate(template) }
+        model.onEditNewTab = { [weak self] edit in self?.pageHandler(provisional)?.edit(edit) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
         model.onRunAction = { [weak self] id, arguments in

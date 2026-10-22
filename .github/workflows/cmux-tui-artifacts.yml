@@ -1059,14 +1059,17 @@ jobs:
     # A cmux-tui-pin-* push (one per merged pull request) takes
     # vars.CI_PIN_DAEMON_POOL on every attempt, unless it names the side lane
     # or the promotion's daemon pool (CI_NEXT_DAEMON_POOL, else the promote
-    # pool); else the light minis (vars.CI_LIGHT_LANE_RUNNER while the owned
-    # pools are on) unless they are the side lane; else Blacksmith macOS 15.
-    # 2026-10-21: pins flooded the side-std pull request lane, and sharing the
-    # promotion's daemon pool stalls nightly-next. The light minis may still
-    # serve both until promotion gets its own label (claude-sr2);
-    # ci-repo-variables.yml on main warns then, and fails on a pin pool equal
-    # to either (tests/test_ci_tui_routes_avoid_nightly_label.py).
-    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_DAEMON_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && (vars.CI_PIN_DAEMON_POOL != vars.CI_SIDE_LANE_RUNNER && vars.CI_PIN_DAEMON_POOL != (vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL) && vars.CI_PIN_DAEMON_POOL || vars.CI_PR_POOL_OWNED == '1' && vars.CI_LIGHT_LANE_RUNNER != vars.CI_SIDE_LANE_RUNNER && vars.CI_LIGHT_LANE_RUNNER || 'blacksmith-6vcpu-macos-15') || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
+    # pool); else Blacksmith Linux. 2026-10-21: pins flooded the side-std pull
+    # request lane, and sharing the promotion's daemon pool stalls
+    # nightly-next; ci-repo-variables.yml on main fails on a pin pool equal to
+    # either (tests/test_ci_tui_routes_avoid_nightly_label.py). The tests are
+    # Rust and pass on Linux (cmux-tui.yml's Linux test job runs the whole
+    # workspace), so no Mac waits for them. A Linux run never writes the
+    # daemon-tests marker (publish-tree-tested), so the feat-cmux-next push of
+    # the same tree still tests it on its Mac pool before promotion
+    # (tests/test_cmux_tui_daemon_tests_linux.py). The name keeps "(macOS)":
+    # cmux_tui_publisher_testing.py and the routing tests find the job by it.
+    runs-on: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_DAEMON_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && (vars.CI_PIN_DAEMON_POOL != vars.CI_SIDE_LANE_RUNNER && vars.CI_PIN_DAEMON_POOL != (vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL) && vars.CI_PIN_DAEMON_POOL || 'blacksmith-16vcpu-ubuntu-2404') || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       # Cargo's default registry retry is too small for a transient index DNS
@@ -1087,6 +1090,8 @@ jobs:
       key: ${{ steps.key.outputs.key }}
       legacy_key: ${{ steps.key.outputs.legacy_key }}
       superseded: ${{ steps.current.outputs.stale }}
+      # publish-tree-tested writes the promotion's marker only for macOS.
+      runner_os: ${{ runner.os }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1159,6 +1164,12 @@ jobs:
         if: steps.current.outputs.stale != 'true'
         run: git submodule update --init --depth 1 ghostty-next
 
+      - name: Install Linux build dependencies
+        if: steps.current.outputs.stale != 'true' && runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
       # A verified Zig tarball survives a mirror outage (FLAKE-ZIG-MIRRORS-502):
       # install-zig-ci.sh uses it only when it matches the pinned SHA-256.
       - name: Cache the verified Zig tarball
@@ -1188,7 +1199,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-macos
+          shared-key: ${{ runner.os == 'macOS' && 'cmux-tui-macos' || 'cmux-tui-linux' }}
           cache-all-crates: true
 
       - name: cargo test cmux_next_
@@ -2058,8 +2069,8 @@ jobs:
     # references are this job's own output.
     # !cancelled(): publish's chain runs through the skipped macOS fallback jobs.
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.tree-preflight.outputs.darwin_builder == 'mac' }}
-    # 8 vCPU: the shadow builds both macOS targets of every binary.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || 'blacksmith-8vcpu-ubuntu-2404' }}
+    # 32 vCPU: the shadow builds both macOS targets of every binary.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 60
     continue-on-error: true
     permissions:
@@ -2542,11 +2553,13 @@ jobs:
   # publisher writes it (cx-y0nf2): only this job, only after this run's daemon
   # tests of the same key passed. request-nightly-next.sh promotes a tree whose
   # source.json says daemonTests "separate" only when the marker exists.
+  # Only a macOS run of those tests writes it: a pin push tests on Linux, and
+  # the feat-cmux-next push of its tree then tests it on its Mac pool.
   publish-tree-tested:
     environment: artifacts
     name: mark the published tree as daemon-tested
     needs: [tree-preflight, tree-owner-wait, publish-tree, cmux-next-daemon-tests]
-    if: ${{ !cancelled() && (needs.publish-tree.result == 'success' || needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.unmarked == 'true') && needs.cmux-next-daemon-tests.result == 'success' && needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key }}
+    if: ${{ !cancelled() && (needs.publish-tree.result == 'success' || needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.unmarked == 'true') && needs.cmux-next-daemon-tests.result == 'success' && needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key && needs.cmux-next-daemon-tests.outputs.runner_os == 'macOS' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:

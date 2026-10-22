@@ -140,4 +140,45 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
           await page.close();
         }
       });
+
+  // Leo, 2026-10-22: "THIS BECAME A SIDEBAR FOR NO REASON, ALL THIS DEAD SPACE". Over the chat the
+  // Inspector ran from under the header to the pane's foot (#22643), and as glass (#23477) its
+  // empty foot was a slab of glass taller than its sections. It is a card as tall as its sections:
+  // in a tall pane its foot is its last section's (plus the body's padding), never the pane's; in a
+  // short one it stops above the pane's foot and its body scrolls.
+  for (const name of browsers.keys())
+    test(`${name}: over the chat the Inspector is as tall as its sections, and scrolls when they are taller`, async () => {
+      current = browsers.get(name)!;
+      const measure = (page: Page) =>
+        page.evaluate(() => {
+          const panel = document.querySelector("aside.acpmux-chat-inspector")!;
+          const body = panel.querySelector(".acpmux-chat-inspector__body")!;
+          const sections = [...panel.querySelectorAll("[data-section]")];
+          const last = sections[sections.length - 1]!.getBoundingClientRect();
+          const box = panel.getBoundingClientRect();
+          return {
+            empty: Math.round(box.bottom - last.bottom),
+            bottom: box.bottom,
+            pane: window.innerHeight,
+            scrolls: body.scrollHeight > body.clientHeight + 1,
+          };
+        });
+      const tall = await pane!.open({ width: 900, height: 1400 });
+      try {
+        await openInspector(tall, 0);
+        const { empty, bottom, pane: height } = await measure(tall);
+        expect({ deadSpace: empty <= 16, short: bottom < height - 200 }).toEqual({ deadSpace: true, short: true });
+      } finally {
+        await tall.close();
+      }
+      // The harness's sections are about 160px tall: a 160px pane leaves them about 110.
+      const short = await pane!.open({ width: 900, height: 160 });
+      try {
+        await openInspector(short, 0);
+        const { bottom, pane: height, scrolls } = await measure(short);
+        expect({ inside: bottom <= height - 8 + 0.5, scrolls }).toEqual({ inside: true, scrolls: true });
+      } finally {
+        await short.close();
+      }
+    });
 });
