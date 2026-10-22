@@ -61,6 +61,38 @@ In this order; the first failure rejects the reply and reports why:
 Then hostd applies it on its own connection, the same request the phone would
 send over the link, through the same policy.
 
+## The phone (`push-fallback-ios`)
+
+- **Which replies use the mailbox.** A text reply (a finished turn, an error,
+  Chief, a terminal), a Deny, and an Allow from a sealed push. An Allow is a
+  foreground action: the app opens, asks Face ID once, and signs the acpmux
+  approval with the `decisionNonce` and `personInstance` the sealed push
+  carried (valid 290 s; acpmux takes at most 300). A question's answers need
+  the prompt the link reads, so they never go through the mailbox, and an
+  unsealed push's Allow can't either; both say "Couldn't reach <Mac>" with
+  Retry. Attachments stay on the link.
+- **When.** Only after the link missed its 4 s budget (or the cold-launch
+  budget), or failed mid-send. "Couldn't reach <Mac>" shows only when the
+  mailbox also failed (no box key from that Mac, or the service is out of
+  reach). When the Mac's host was online, the phone asks once, 3 s later,
+  whether it applied the reply, and shows its refusal ("This was already
+  answered.", "Your reply arrived too late.").
+- **Terminal input needs the device unlocked.** The terminal Reply action is
+  an `authenticationRequired` text action: iOS asks for Face ID or the
+  passcode before it hands the text to cmux, on the lock screen too. It is
+  offered only for a notification whose poster asked for a reply
+  (`notify --reply`, `replyable`), it carries that notification's ledger id,
+  and it is text only, at most 4096 bytes.
+- **Keys.** The push key is a Secure Enclave key-agreement key (a software key
+  on the simulator), readable after the first unlock so the service extension
+  can open pushes on a locked phone. It and the trust record (each paired
+  Mac's pinned identity key and its signed box key) live in the keychain group
+  `<team>.<app bundle id>.push`, shared with
+  `CmuxMobileNotificationService`. Removing a Mac forgets its entry;
+  "Remove This iPhone from My Macs" and account deletion delete the key.
+- **A forged or unopened push** keeps the generic banner ("cmux", "New
+  notification from <Mac>") and has no buttons that act.
+
 ## Recommendation for #13742 (draft, not posted)
 
 > **Trust call: replies to cmux notifications on iPhone without the live link

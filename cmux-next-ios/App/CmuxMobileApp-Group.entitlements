@@ -8,5 +8,12 @@
 	<array>
 		<string>group.$(CMUX_MOBILE_APP_BUNDLE_ID)</string>
 	</array>
+	<!-- Its own group first (the default), then the one the notification
+	     service extension shares: the push key and the Macs' trust record. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+		<string>$(DEVELOPMENT_TEAM).$(CMUX_MOBILE_APP_BUNDLE_ID).push</string>
+	</array>
 </dict>
 </plist>
