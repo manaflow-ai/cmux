@@ -152,4 +152,72 @@ await requireBrowserLane("new-tab-remote-known-projects.test.ts", async () => {
       expect(strip).not.toContain("atlas");
     },
   );
+
+  // Codex review of #24274: the store answered `project.list` with no project (every entry removed
+  // or missing). The page must not fall back to "not loaded" and start in a chat's folder.
+  test.each(engines.map(([name]) => name))(
+    "%s: a New Tab whose project list answered empty starts in no chat folder",
+    async (name) => {
+      const context = await browsers.get(name)!.newContext({ viewport: { width: 900, height: 640 } });
+      const page = await context.newPage();
+      await installPaintedFrames(page);
+      const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+      await page.addInitScript(
+        ({ endpoint, home }) => {
+          const newTab = { kind: "agent", hotkeys: {}, home, cwd: home, projects: [], host: "cosmic-gray" };
+          (window as unknown as Record<string, unknown>).__cmuxNewTabContext = newTab;
+          const w = window as unknown as { __listed?: boolean };
+          const answer = (request: { method: string }): unknown => {
+            switch (request.method) {
+              case "ready":
+                return Promise.resolve({
+                  ok: true,
+                  value: {
+                    protocolVersion: 1,
+                    transport: "acpmux-websocket",
+                    endpoint,
+                    token: "t",
+                    newSession: true,
+                    newTab,
+                    machineName: "cosmic-gray",
+                  },
+                });
+              case "newTab.context":
+                return Promise.resolve({ ok: true, value: { newTab } });
+              case "project.list":
+                w.__listed = true;
+                return Promise.resolve({ ok: true, value: { projects: [] } });
+              default:
+                return Promise.resolve({ ok: true, value: null });
+            }
+          };
+          (window as unknown as { webkit: unknown }).webkit = {
+            messageHandlers: {
+              agentSession: { postMessage: (request: { method: string }) => answer(request) },
+            },
+          };
+        },
+        { endpoint, home: HOME },
+      );
+      // The daemon's chat list reaching the page.
+      const listed = new Promise<void>((resolve) =>
+        page.on("websocket", (socket) =>
+          socket.on("framereceived", (frame) => {
+            if (String(frame.payload).includes('"sessions":[{')) resolve();
+          }),
+        ),
+      );
+      const { port } = vite!.httpServer!.address() as { port: number };
+      await page.goto(`http://127.0.0.1:${port}/`);
+      await listed;
+      await page.waitForFunction(() => (window as unknown as { __listed?: boolean }).__listed === true);
+      await page.evaluate(() => window.cmuxPaintFrame());
+      await page.evaluate(() => window.cmuxPaintFrame());
+      const strip = (await page.locator(".nt-location").textContent()) ?? "";
+      await context.close();
+      expect(strip).toContain("cosmic-gray");
+      expect(strip).not.toContain("atlas");
+      expect(strip).not.toContain("api");
+    },
+  );
 });

@@ -123,7 +123,7 @@ async function startChat(
 /// A fresh New Tab page (no folder of its own) over `sessions`: its chip and the folder Enter asks in.
 async function newTab(
   sessions: ReturnType<typeof session>[],
-  fields: { knownProjects?: string[]; startedProject?: string; home?: string | undefined } = {},
+  fields: { knownProjects?: string[] | null; startedProject?: string; home?: string | undefined } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -227,7 +227,12 @@ test("a refused or failed chat start leaves the remembered project unchanged", a
 
 /// The classic New Tab page (Debug Settings `newTab.layout` "a") with no folder of its own: the
 /// project its chip names and the folder Enter asks in.
-async function classicTab(fields: { home?: string; knownProjects?: string[]; startedProject?: string; cwd?: string }) {
+async function classicTab(fields: {
+  home?: string;
+  knownProjects?: string[] | null;
+  startedProject?: string;
+  cwd?: string;
+}) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabPage } = await import("../src/agent-session/acpmux/NewTabPage");
   act(() => root?.unmount());
@@ -274,4 +279,25 @@ test("a New Tab on another machine never starts in this Mac's started project", 
   const screen = await newTab([], { home: undefined });
   expect(screen.chip).not.toContain("atlas");
   expect(screen.folder).toBeUndefined();
+});
+
+// Codex review of #24274: the host's project store answered and lists no project (every entry
+// removed or missing). That is not "not loaded yet": no chat folder and no stored started project
+// counts, on either New Tab page.
+test("a project list that answered empty accepts no chat or started folder", async () => {
+  const { firstProject, mostRecentProject } = await import("../src/agent-session/acpmux/sessionList");
+  expect(firstProject([PICKED], HOME, null)).toBeUndefined();
+  expect(mostRecentProject([theirs, ...agents], HOME, null)).toBeUndefined();
+  // Not loaded yet (absent or empty): every folder still counts.
+  expect(firstProject([PICKED], HOME, [])).toBe(PICKED);
+  expect(firstProject([PICKED], HOME)).toBe(PICKED);
+
+  await startChat(PICKED);
+  const screen = await newTab([theirs, ...agents], { knownProjects: null, startedProject: PICKED });
+  expect(screen.chip).not.toContain("atlas");
+  expect(screen.chip).not.toContain("lane-2");
+  expect(screen.folder).toBeUndefined();
+  const classic = await classicTab({ home: HOME, cwd: HOME, knownProjects: null, startedProject: PICKED });
+  expect(classic.chip).not.toContain("atlas");
+  expect(classic.folder).toBe(HOME);
 });
