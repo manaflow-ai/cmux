@@ -47,6 +47,8 @@ struct MacScreenColors: Equatable {
         return view.performWithTheme {
             MacScreenColors(
                 page: color(Palette.surfaceOverride(.internalPage) ?? Palette.paneFill), chrome: color(Palette.chromeBackground),
+                // glass-opaque-allow: the connect, connecting and failed cards sit over the remote Mac's live picture, and the
+                // host's approval panel floats over any app; glass would show moving pixels through a security prompt's text.
                 popup: color(Palette.popupSurface), card: card,
                 primary: color(Palette.textPrimary), secondary: color(Palette.textSecondary), tertiary: color(Palette.textTertiary),
                 hover: color(Palette.hoverFill), selection: color(Palette.selectionFill), pressed: color(Palette.pressedFill),
