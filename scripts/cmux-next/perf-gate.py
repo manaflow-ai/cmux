@@ -791,10 +791,11 @@ class Gate:
         for window in (self.app.rpc("debug.sidebar_rows") or {}).get("windows") or []:
             for row in window.get("rows") or []:
                 key = str(row.get("key", ""))
-                if not key.startswith("workspace(") or workspace not in key or not row.get("in_list") or row.get("clips"):
+                if not key.startswith("workspace(") or workspace not in key or not row.get("in_list"):
                     continue
+                # A row scrolled out of the viewport sits above 0 or below the window's 800 pt test height.
                 frame = row.get("window_frame") or {}
-                if frame.get("height", 0) <= 0:
+                if frame.get("height", 0) <= 0 or not (0 <= frame.get("y", -1) and frame["y"] + frame["height"] <= 760):
                     continue
                 return frame["x"] + frame["width"] / 2, frame["y"] + frame["height"] / 2
         return None
@@ -813,7 +814,7 @@ class Gate:
                 app.action("openBrowser.chromium", {"url": "about:blank"})
             if n % 7 == 0:
                 app.action("palette.newAgentChat")
-        return wait(lambda: (lambda w: w if len(w) >= want else None)(app.workspace_ids()), 120) or app.workspace_ids()
+        return wait(lambda: (lambda w: w if len(w) >= want else None)(app.workspace_ids()), 300) or app.workspace_ids()
 
     def workspace_switch(self, scenario="workspace_switch"):
         app = self.app
@@ -834,6 +835,7 @@ class Gate:
             app.quiet_counters()
             app.rpc("debug.frames", {"action": "start"})
             app.rpc("debug.workspace_switch", {"action": "start"})
+            app.rpc("debug.hangs", {"clear": True})
             presses, wrong, sends, worst = 0, [], [], {}
             plan = [(t, "press") for t in recent * 3] + [(t, "action") for t in cold]
             for target, how in plan:
@@ -856,7 +858,11 @@ class Gate:
             own = app.rpc("debug.workspace_switch", {"action": "stop"}) or {}
             frames = app.rpc("debug.frames", {"action": "stop"}) or {}
             rows = own.get("switches") or []
-            by_scale[str(scale)] = {"presses": presses, "worst": worst, "frames": frames,
+            hangs = (app.rpc("debug.hangs") or {}).get("records") or []
+            for record in hangs[:4]:
+                print(f"  {scale} workspaces: main-thread stall {record.get('duration_ms', 0):.1f} ms: "
+                      + " < ".join(str(f)[:70] for f in (record.get("frames") or [])[:30]), flush=True)
+            by_scale[str(scale)] = {"presses": presses, "worst": worst, "frames": frames, "hangs": hangs[:16],
                                     "switches": [{k: (round(v, 2) if isinstance(v, (int, float)) else v) for k, v in r.items()} for r in rows]}
             check(presses > 0, f"{scale} workspaces: {presses} of {len(recent) * 3} warm switches pressed in the sidebar", scenario)
             check(not wrong, f"{scale} workspaces: every press switched on its mouse-down ({len(wrong)} did not"
@@ -880,7 +886,7 @@ class Gate:
                 summary[f"{name}_count"] = len(group)
                 stages = {}
                 previous = 0.0
-                for stage in ("park", "content", "swap", "theme", "did_show", "focus", "side"):
+                for stage in ("park", "content", "sidebar", "swap", "theme", "did_show", "focus", "side"):
                     values = [r.get(stage + "_ms") for r in group if r.get(stage + "_ms") is not None]
                     if values:
                         p50 = pct(values, 0.5)
