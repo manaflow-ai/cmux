@@ -859,14 +859,18 @@ impl Brain {
     fn control_cloud(&mut self, peer: Option<&str>) -> Result<String, String> {
         let now = |p: Option<&str>| {
             match p {
+            Some(crate::subagents::PER_AGENT) => "each new subagent runs in its own Freestyle VM (chief-sub-<id>), sized to its task; tasks that need the Mac stay here (spawn place \"local\" keeps one here, \"cloud:small|medium|large\" picks the size)".to_owned(),
             Some(p) => format!("new subagents run on the cloud peer {p} (spawn place \"local\" keeps one here)"),
             None => "new subagents run on this host (spawn place \"cloud\" needs a peer: control cloud PEER)".to_owned(),
         }
         };
         let current = self.state.cloud_peer.clone();
+        // Nothing saved: cloud by default when a pool tool is set up (v2).
+        let pool = self.cloud_vms.as_ref().is_some_and(|v| v.available());
         let effective = |saved: &Option<String>| match saved.as_deref() {
             Some("") => None,
             Some(p) => Some(p.to_owned()),
+            None if pool => Some(crate::subagents::PER_AGENT.to_owned()),
             None => None,
         };
         let Some(peer) = peer.map(str::trim).filter(|p| !p.is_empty()) else {

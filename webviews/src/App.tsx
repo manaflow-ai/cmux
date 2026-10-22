@@ -619,10 +619,10 @@ export function App({ config, initialStatus }: ConfigProps) {
     dispatch({ type: "set-option", key: "layout", value: layout });
   };
   // Dispatches an options change and persists it globally when the key is a
-  // persisted preference (`collapsed` and `groupByKind` stay session-local; see ViewerPrefs).
+  // persisted preference (`collapsed` stays session-local; see ViewerPrefs).
   const setOption = (key: keyof DiffViewerOptions, value: any) => {
     dispatch({ type: "set-option", key, value });
-    if (key !== "collapsed" && key !== "groupByKind") {
+    if (key !== "collapsed") {
       saveViewerPrefs({ [key]: value }, writes);
     }
   };

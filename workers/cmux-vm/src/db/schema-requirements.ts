@@ -52,6 +52,13 @@ export const REQUIRED_SCHEMA: ReadonlyArray<Requirement> = [
   { table: "cmux_vm.mesh_overlay_servers", privileges: ["SELECT", "INSERT", "UPDATE"], migration: "0014" },
   { table: "cmux_vm.mesh_signed_requests", constraint: "mesh_signed_requests_purpose_v3_check", migration: "0014" },
   { table: "cmux_vm.mesh_overlay_server_codes", privileges: ["SELECT", "INSERT", "UPDATE"], migration: "0015" },
+  // Agent keys (budgeted, label-confined, reaped) and per-VM client sessions.
+  { table: "cmux_vm.api_keys", column: "agent_labels", migration: "0016" },
+  { table: "cmux_vm.api_keys", column: "agent_max_vms", migration: "0016" },
+  { table: "cmux_vm.api_keys", column: "agent_max_usd_per_hour", migration: "0016" },
+  { table: "cmux_vm.api_keys", column: "agent_cleaned_at", migration: "0016" },
+  { table: "cmux_vm.vm_client_sessions", privileges: ["SELECT", "INSERT", "UPDATE"], migration: "0016" },
+  { table: "cmux_vm.vm_client_sessions_vm_idx", migration: "0017" },
 ];
 
 /** The highest migration this build's requirements name. */
