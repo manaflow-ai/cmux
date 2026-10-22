@@ -72,6 +72,28 @@ import UniformTypeIdentifiers
         #expect(next.draftAttachments(for: Self.austin) == [pasted[1]])
     }
 
+    /// A screenshot whose preview is gone cannot be sent (the upload needs it),
+    /// so it is skipped like one whose bytes are gone.
+    @Test func anAttachmentWhosePreviewIsGoneIsSkipped() async throws {
+        let root = Self.root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = Self.store(root)
+        store.start()
+        await waitUntil { store.isOnline }
+        var shot = try await store.prepareAttachment(data: Data("screenshot bytes".utf8), typeIdentifier: UTType.data.identifier)
+        let preview = shot.fileURL.deletingLastPathComponent().appendingPathComponent("preview")
+        try Data("preview bytes".utf8).write(to: preview)
+        shot.previewURL = preview
+        let notes = try await store.prepareAttachment(data: Data("notes".utf8), typeIdentifier: UTType.plainText.identifier)
+        store.setDraftAttachments([shot, notes], for: Self.austin)
+        store.stop()
+        try FileManager.default.removeItem(at: preview)
+        let next = Self.store(root)
+        next.start()
+        defer { next.stop() }
+        #expect(next.draftAttachments(for: Self.austin) == [notes])
+    }
+
     /// The blob cache prunes what nothing holds; a draft's files are held.
     @Test func thePruneKeepsADraftsFiles() async throws {
         let root = Self.root()

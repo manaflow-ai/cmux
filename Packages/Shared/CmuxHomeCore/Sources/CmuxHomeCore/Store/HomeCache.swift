@@ -76,9 +76,13 @@ public struct HomeCachedDraftAttachment: Hashable, Sendable, Codable {
         previewURL = attachment.previewURL
     }
 
-    /// The prepared attachment again; nil once the blob cache no longer holds its bytes.
+    /// Its file, poster and preview, whichever it has.
+    var urls: [URL] { [fileURL, posterURL, previewURL].compactMap { $0 } }
+
+    /// The prepared attachment again; nil once the blob cache no longer holds
+    /// its bytes, its poster or its preview (a send needs all three).
     var local: LocalAttachment? {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+        guard urls.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) else { return nil }
         return LocalAttachment(ref: ref, fileURL: fileURL, posterURL: posterURL, previewURL: previewURL)
     }
 }

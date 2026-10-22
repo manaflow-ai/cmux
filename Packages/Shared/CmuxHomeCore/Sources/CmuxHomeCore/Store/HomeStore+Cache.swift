@@ -45,9 +45,10 @@ extension HomeStore {
             me = mirror.me
             // A draft's files are this client's own, like a prepare's: the prune keeps them, and
             // they count as used now for a store on the same directory that does not hold them.
-            for attachment in viewCache.draftAttachments.values.joined().compactMap(\.local) {
+            for cached in viewCache.draftAttachments.values.joined() {
+                guard let attachment = cached.local else { continue }
                 localFiles[attachment.ref.hash] = attachment.files
-                AttachmentMedia.touch(attachment.fileURL.deletingLastPathComponent())
+                for url in cached.urls { AttachmentMedia.touch(url.deletingLastPathComponent()) }
             }
             for send in snapshot.sends { log.restore(send.intent, failed: send.failed) }
             rebuildRows()
