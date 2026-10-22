@@ -124,6 +124,9 @@ public struct AgentAttachment: Hashable, Sendable, Identifiable {
         if bytes.starts(with: [0x52, 0x49, 0x46, 0x46]), bytes[8...11] == [0x57, 0x45, 0x42, 0x50] { return "image/webp" }
         return nil
     }
+
+    /// The attachment as a preview reads it (composer and sent message alike).
+    public var localFile: LocalFile { LocalFile(id: id, name: name, data: data, isImage: kind == .image) }
 }
 
 /// The data side of an agent chat. The mock streams a scripted session offline;

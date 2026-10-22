@@ -302,6 +302,9 @@ public struct AgentChatTranscript: View {
     var placement: ChatDockPlacement
     var onUserScroll: ((CGFloat) -> Void)?
     @State private var warningTrigger = 0
+    /// A file the agent named (a link in an answer, a tool call's path, a diff's
+    /// file), previewed full screen from the Mac.
+    @State private var filePreview: FilePreviewRequest?
     #if DEBUG
     private let director = DemoDirector.shared
     #endif
@@ -333,7 +336,14 @@ public struct AgentChatTranscript: View {
             isEmpty: store.turns.isEmpty,
             identity: ObjectIdentifier(store),
             content: AnyView(AgentChatTurns(store: store, surface: surface)
-                .environment(\.openDiff, OpenDiffAction { changes, file in surface.diffRoute = AgentChatSurface.DiffRoute(changes: changes, fileID: file) })),
+                .environment(\.openDiff, OpenDiffAction { changes, file in surface.diffRoute = AgentChatSurface.DiffRoute(changes: changes, fileID: file) })
+                .environment(\.openSessionFile, openFile)
+                // A file link in an answer opens its preview; web links open as before.
+                .environment(\.openURL, OpenURLAction { url in
+                    guard let link = FileLink(url: url) else { return .systemAction }
+                    openFile(link.reference, line: link.line)
+                    return .handled
+                })),
             empty: AnyView(AgentChatEmptyState(store: store)),
             dock: placement == .owned ? AnyView(AgentChatBottomStack(store: store, surface: surface, bottomPadding: 0)) : nil,
             // Both placements: the controller hosts the circle at a fixed
@@ -345,12 +355,16 @@ public struct AgentChatTranscript: View {
         .ignoresSafeArea()
         // The soft top edge under the status bar or bar is the controller's TopFadeView.
         .navigationDestination(item: $surface.diffRoute) { route in
-            if let file = route.fileID {
-                DiffFileScreen(changeSet: route.changes, fileID: file)
-            } else {
-                DiffChangesScreen(changeSet: route.changes)
+            Group {
+                if let file = route.fileID {
+                    DiffFileScreen(changeSet: route.changes, fileID: file)
+                } else {
+                    DiffChangesScreen(changeSet: route.changes)
+                }
             }
+            .environment(\.openSessionFile, openFile)
         }
+        .filePreview($filePreview)
         .navigationDestination(item: $surface.parityRoute) { route in
             AgentParityDestination(route: route, store: store, surface: surface)
         }
@@ -371,6 +385,18 @@ public struct AgentChatTranscript: View {
             if let command = director.command { surface.run(command, store: store) }
         }
         #endif
+    }
+}
+
+extension AgentChatTranscript {
+    /// Reads the file from the Mac over the link (`artifactSource`: the `file`
+    /// service, confined to the folders the Mac shares; relative paths resolve
+    /// against the session's folder).
+    var openFile: OpenFileAction {
+        let source = store.source.artifactSource
+        return OpenFileAction { path, line in
+            filePreview = FilePreviewRequest(reference: path, source: source, line: line)
+        }
     }
 }
 
@@ -470,7 +496,8 @@ public struct AgentChatBottomStack: View {
     @Bindable var surface: AgentChatSurface
     var bottomPadding: CGFloat = 8
     @State private var reportedHeight: CGFloat = 0
-    @FocusState private var composerFocused: Bool
+    /// The composer field's focus (a UITextView that follows it both ways).
+    @State private var composerFocused = false
 
     public init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
@@ -816,7 +843,8 @@ struct UserBubble: View {
 /// edges line up with the bubble (no remove-badge room).
 struct SentAttachments: View {
     let attachments: [AgentAttachment]
-    @State private var viewing: ImageViewerItem?
+    /// A tapped attachment: every attachment of the message opens full screen, to swipe between.
+    @State private var preview: FilePreviewRequest?
 
     var body: some View {
         let images = attachments.filter { $0.kind == .image }
@@ -833,16 +861,23 @@ struct SentAttachments: View {
                                     Text("+\(images.count - 3)").font(.headline).foregroundStyle(.white)
                                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                                         .background(.black.opacity(0.45), in: .rect(cornerRadius: 16, style: .continuous))
+                                        .allowsHitTesting(false)
                                 }
                             }
                     }
                 }
             }
             ForEach(files) { file in
-                AttachmentThumb(attachment: file).padding(.top, -6).padding(.trailing, -6)
+                AttachmentThumb(attachment: file, open: { open(file) }).padding(.top, -6).padding(.trailing, -6)
             }
         }
-        .fullScreenCover(item: $viewing) { FullScreenImageViewer(item: $0) }
+        .filePreview($preview)
+    }
+
+    /// Images first, then files: the order they show in.
+    private func open(_ attachment: AgentAttachment) {
+        let ordered = attachments.filter { $0.kind == .image } + attachments.filter { $0.kind != .image }
+        preview = FilePreviewRequest(files: ordered.map(\.localFile), startingAt: attachment.id)
     }
 
     @ViewBuilder
@@ -857,10 +892,8 @@ struct SentAttachments: View {
         .frame(width: size.width, height: size.height)
         .clipShape(.rect(cornerRadius: 16, style: .continuous))
         .contentShape(.rect(cornerRadius: 16, style: .continuous))
-        // Tap opens the image full screen.
-        .onTapGesture {
-            if let data = attachment.data { viewing = ImageViewerItem(id: attachment.id, name: attachment.name, data: data) }
-        }
+        // Tap opens it full screen (swipe to the message's other attachments).
+        .onTapGesture { open(attachment) }
         .accessibilityElement()
         .accessibilityLabel(Text("Image, \(attachment.name)"))
         .accessibilityAddTraits(.isButton)
