@@ -144,6 +144,25 @@ import Testing
         #expect(!Self.covers(shape, r + e, b + 1), "the shape fills past the line under the bar")
     }
 
+    /// The joined line runs below the header row and left of it, outside the row's bounds: no layer
+    /// from the header up to the list may clip it. In the real app a header row the list made new
+    /// clipped to its bounds (only a recycled one was set not to), so the bar drew alone, every
+    /// corner round, and no line showed (#21999 capture, fleet probe: header clipsToBounds 1, mask 1).
+    @Test func noLayerClipsTheJoinedLine() throws {
+        let sidebar = Self.sidebar(minimal: false, joined: true)
+        let (layer, _, _) = try Self.parts(sidebar)
+        let header = try Self.header(sidebar)
+        #expect(!header.clipsToBounds, "the header row clips its joined line")
+        let listLayer = try #require(sidebar.list.layer)
+        var ancestor: CALayer? = try #require(header.layer)
+        while let current = ancestor, current !== listLayer {
+            let shape = current.convert(layer.frame, from: layer.superlayer)
+            #expect(!current.masksToBounds || current.bounds.insetBy(dx: -0.01, dy: -0.01).contains(shape),
+                    "\(current) clips the joined bar \(shape) to \(current.bounds)")
+            ancestor = current.superlayer
+        }
+    }
+
     /// Turning the setting on or off redraws an open sidebar, without a relaunch: the render
     /// reloads the list (Reduce Motion, so it lands in this turn).
     @Test func turningTheJoinOnAndOffRedrawsTheGroup() throws {
