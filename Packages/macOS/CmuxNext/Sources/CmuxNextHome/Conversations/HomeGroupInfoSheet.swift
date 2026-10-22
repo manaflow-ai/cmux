@@ -1,6 +1,5 @@
 public import AppKit
 import CmuxNextDesign
-import SwiftUI
 
 /// The group info sheet's controller: hosts ``HomeGroupInfoView`` over its model. The app
 /// presents it as a sheet of the Home page's window and feeds it newer reads of the
@@ -11,7 +10,7 @@ public final class HomeGroupInfoSheet: NSViewController {
     /// The sheet closed (Done, Escape, Leave Group…, Invite by Email…).
     public var onClose: @MainActor () -> Void = {}
     private let colors: HomeGroupInfoColors
-    /// The sheet's material, under the SwiftUI content: this Mac's glass with no card fill, solid
+    /// The sheet's material, under the content: this Mac's glass with no card fill, solid
     /// only under Reduce Transparency (Leo 2026-10-21: "glass is never opaque").
     let surface = OverlaySurfaceView(interactive: true, cornerRadius: 0)
 
@@ -29,24 +28,23 @@ public final class HomeGroupInfoSheet: NSViewController {
     required init?(coder: NSCoder) { nil }
 
     public override func loadView() {
-        let hosting = NSHostingView(rootView: HomeGroupInfoView(model: model, colors: colors))
-        hosting.setAccessibilityIdentifier("cmux.home.groupInfo")
-        hosting.translatesAutoresizingMaskIntoConstraints = false
+        let content = HomeGroupInfoView(model: model, colors: colors)
+        content.translatesAutoresizingMaskIntoConstraints = false
         let root = NSView()
         // The sheet is a window of its own: the vibrancy fallback blurs the window behind it.
         surface.samplesBehindWindow = true
         root.addSubview(surface)
-        root.addSubview(hosting)
+        root.addSubview(content)
         surface.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             surface.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             surface.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             surface.topAnchor.constraint(equalTo: root.topAnchor),
             surface.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            hosting.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: root.topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            content.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            content.topAnchor.constraint(equalTo: root.topAnchor),
+            content.bottomAnchor.constraint(equalTo: root.bottomAnchor),
         ])
         view = root
     }

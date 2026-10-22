@@ -1,42 +1,62 @@
+import AppKit
 import CmuxHomeCore
 import CmuxNextDesign
-import SwiftUI
 
 /// One member row of the group info sheet: a monogram avatar, the name with its tags, and Remove.
 /// A value snapshot plus a closure (no model below the list).
-struct HomeGroupMemberRow: View {
+final class HomeGroupMemberRow: NSView {
     let member: HomeGroupMember
-    let colors: HomeGroupInfoColors
     /// Remove; nil hides the button (me, a DM, or while an action runs).
-    let onRemove: (@MainActor () -> Void)?
+    private let onRemove: (@MainActor () -> Void)?
 
-    var body: some View {
-        HStack(spacing: Metrics.space3) {
-            HomeGroupAvatar(initials: member.initials, isAgent: member.isAgent, colors: colors)
-            Text(member.name.isEmpty ? HomeConversationStrings.untitled : member.name)
-                .font(Font(Typography.body))
-                .foregroundStyle(colors.primary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            ForEach(tags, id: \.self) { tag in
-                Text(tag)
-                    .font(Font(Typography.caption))
-                    .foregroundStyle(colors.secondary)
-            }
-            Spacer(minLength: Metrics.space2)
-            if let onRemove {
-                Button(HomeConversationStrings.infoRemove) { onRemove() }
-                    .buttonStyle(.plain)
-                    .font(Font(Typography.caption))
-                    .foregroundStyle(colors.danger)
-                    .accessibilityIdentifier("cmux.home.groupInfo.remove.\(member.id.rawValue)")
-            }
+    init(member: HomeGroupMember, colors: HomeGroupInfoColors, onRemove: (@MainActor () -> Void)?) {
+        self.member = member
+        self.onRemove = onRemove
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        let name = NSTextField(labelWithString: member.name.isEmpty ? HomeConversationStrings.untitled : member.name)
+        name.font = Typography.body
+        name.textColor = colors.primary
+        name.lineBreakMode = .byTruncatingTail
+        name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        var views: [NSView] = [HomeGroupAvatar(initials: member.initials, isAgent: member.isAgent, colors: colors), name]
+        for tag in Self.tags(member) {
+            let label = NSTextField(labelWithString: tag)
+            label.font = Typography.caption
+            label.textColor = colors.secondary
+            views.append(label)
         }
-        .frame(height: Metrics.sidebarRowHeight + Metrics.space1)
-        .accessibilityElement(children: .combine)
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        views.append(spacer)
+        if onRemove != nil {
+            let remove = NSButton(title: HomeConversationStrings.infoRemove, target: self, action: #selector(removeClicked))
+            remove.isBordered = false
+            remove.attributedTitle = NSAttributedString(string: HomeConversationStrings.infoRemove,
+                                                        attributes: [.font: Typography.caption, .foregroundColor: colors.danger])
+            remove.setAccessibilityIdentifier("cmux.home.groupInfo.remove.\(member.id.rawValue)")
+            views.append(remove)
+        }
+        let line = NSStackView(views: views)
+        line.orientation = .horizontal
+        line.spacing = Metrics.space3
+        line.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(line)
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: Metrics.sidebarRowHeight + Metrics.space1),
+            line.leadingAnchor.constraint(equalTo: leadingAnchor),
+            line.trailingAnchor.constraint(equalTo: trailingAnchor),
+            line.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+        setAccessibilityLabel(([name.stringValue] + Self.tags(member)).joined(separator: ", "))
     }
 
-    private var tags: [String] {
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    private static func tags(_ member: HomeGroupMember) -> [String] {
         var tags: [String] = []
         if member.isMe { tags.append(HomeConversationStrings.infoYou) }
         if let role = member.roleTag { tags.append(role) }
@@ -44,4 +64,6 @@ struct HomeGroupMemberRow: View {
         if member.isInvited { tags.append(HomeConversationStrings.infoInvited) }
         return tags
     }
+
+    @objc private func removeClicked() { onRemove?() }
 }

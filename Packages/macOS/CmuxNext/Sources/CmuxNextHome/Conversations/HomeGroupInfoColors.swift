@@ -1,20 +1,19 @@
 import AppKit
 import CmuxNextDesign
-import SwiftUI
 
 /// The group info sheet's colors, resolved once in the presenting page's theme scope (a room's
-/// own theme), so the SwiftUI sheet draws in it rather than in macOS's grays. The sheet's
+/// own theme), so the sheet draws in it rather than in macOS's grays. The sheet's
 /// background is its glass (``HomeGroupInfoSheet/surface``), not a color.
 public struct HomeGroupInfoColors: Equatable, Sendable {
-    // Until the presenter resolves its scope: the app theme, never SwiftUI's label grays.
-    var primary = ThemeTokens.unresolved.textPrimary.swiftUIColor
-    var secondary = ThemeTokens.unresolved.textSecondary.swiftUIColor
-    var tertiary = ThemeTokens.unresolved.textTertiary.swiftUIColor
-    var hover = ThemeTokens.unresolved.hoverFill.swiftUIColor
-    var separator = ThemeTokens.unresolved.separator.swiftUIColor
-    var danger = ThemeTokens.unresolved.danger.swiftUIColor
-    var accent = ThemeTokens.unresolved.focusRing.swiftUIColor
-    var litGlyph = ThemeTokens.unresolved.litGlyph.swiftUIColor
+    // Until the presenter resolves its scope: the app theme, never AppKit's label grays.
+    var primary = ThemeTokens.unresolved.textPrimary.nsColor
+    var secondary = ThemeTokens.unresolved.textSecondary.nsColor
+    var tertiary = ThemeTokens.unresolved.textTertiary.nsColor
+    var hover = ThemeTokens.unresolved.hoverFill.nsColor
+    var separator = ThemeTokens.unresolved.separator.nsColor
+    var danger = ThemeTokens.unresolved.danger.nsColor
+    var accent = ThemeTokens.unresolved.focusRing.nsColor
+    var litGlyph = ThemeTokens.unresolved.litGlyph.nsColor
 
     public init() {}
 
@@ -33,7 +32,7 @@ public struct HomeGroupInfoColors: Equatable, Sendable {
         return colors
     }
 
-    private static func fixed(_ color: NSColor) -> Color {
-        Color(nsColor: color.usingColorSpace(.sRGB) ?? color)
+    private static func fixed(_ color: NSColor) -> NSColor {
+        color.usingColorSpace(.sRGB) ?? color
     }
 }

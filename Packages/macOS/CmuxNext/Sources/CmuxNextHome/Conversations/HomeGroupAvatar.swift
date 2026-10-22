@@ -1,26 +1,40 @@
+import AppKit
 import CmuxNextDesign
-import SwiftUI
 
 /// A member's monogram disc in the group info sheet (an agent shows a sparkle instead of letters).
-struct HomeGroupAvatar: View {
-    let initials: String
-    let isAgent: Bool
-    let colors: HomeGroupInfoColors
+final class HomeGroupAvatar: NSView {
+    private static let side: CGFloat = 24
 
-    var body: some View {
-        ZStack {
-            Circle().fill(colors.hover)
-            if isAgent {
-                Image(systemName: "sparkles")
-                    .font(Font(Typography.system(size: TypeScale.caption, weight: TypeScale.regular)))
-                    .foregroundStyle(colors.secondary)
-            } else {
-                Text(initials)
-                    .font(Font(Typography.system(size: TypeScale.caption, weight: TypeScale.emphasis)))
-                    .foregroundStyle(colors.secondary)
-            }
+    init(initials: String, isAgent: Bool, colors: HomeGroupInfoColors) {
+        super.init(frame: NSRect(x: 0, y: 0, width: Self.side, height: Self.side))
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        layer?.cornerRadius = Self.side / 2
+        layer?.backgroundColor = colors.hover.cgColor
+        setAccessibilityElement(false)
+        let mark: NSView
+        if isAgent {
+            let config = NSImage.SymbolConfiguration(pointSize: TypeScale.caption, weight: .regular)
+            let image = NSImageView(image: NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil)?.withSymbolConfiguration(config) ?? NSImage())
+            image.contentTintColor = colors.secondary
+            mark = image
+        } else {
+            let label = NSTextField(labelWithString: initials)
+            label.font = Typography.system(size: TypeScale.caption, weight: TypeScale.emphasis)
+            label.textColor = colors.secondary
+            label.alignment = .center
+            mark = label
         }
-        .frame(width: 24, height: 24)
-        .accessibilityHidden(true)
+        mark.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(mark)
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: Self.side),
+            heightAnchor.constraint(equalToConstant: Self.side),
+            mark.centerXAnchor.constraint(equalTo: centerXAnchor),
+            mark.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
     }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 }

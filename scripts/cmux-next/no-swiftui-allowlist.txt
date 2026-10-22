@@ -83,12 +83,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryPageRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryPageView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/StashPageHostView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/StashPageView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupAvatar.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupContactRow.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupInfoColors.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupInfoSheet.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupInfoView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextHome/Conversations/HomeGroupMemberRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextIcons/EnvironmentValues+Icon.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextIcons/Icon.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconCanvas.swift
