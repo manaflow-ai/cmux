@@ -109,6 +109,9 @@ public nonisolated struct SidebarDocItem: Hashable, Sendable, Identifiable {
     /// A group member pinned inside its group (`extra.pinned`): the reducer
     /// lists it first among the members (plans/cmux-next/pinning-DESIGN.md).
     public var pinnedInGroup: Bool
+    /// A workspace item's creation time (`body.ref.extra.created_ms`, R3 of
+    /// remote-groups-per-machine-DESIGN.md); nil for other items and older documents.
+    public var createdMs: UInt64?
 
     public init(id: String, section: String, parent: String? = nil, body: SidebarDocBody, showsLabel: Bool = true, span: Int? = nil,
                 label: String? = nil, iconURL: String? = nil, pinnedInGroup: Bool = false) {

@@ -154,6 +154,10 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// The title's weight from the user's row decoration (`SidebarRowDecoration`); nil is the
     /// default (regular).
     public var titleWeight: SidebarRowDecoration.Weight?
+    /// When the workspace joined the sidebar document, in milliseconds since 1970 (its item's
+    /// `created_ms`); nil for an item made before the daemon stamped it. The one list orders
+    /// computers' workspaces by it (remote-groups-per-machine-DESIGN.md R3).
+    public var createdMs: UInt64?
 
     public init(
         id: WorkspaceID,
