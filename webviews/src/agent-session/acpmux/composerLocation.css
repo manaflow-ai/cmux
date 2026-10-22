@@ -261,12 +261,12 @@
   justify-content: center;
 }
 .acpmux-pill[aria-expanded="true"] {
-  background: var(--acpmux-pill-hover);
+  background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
   box-shadow: none;
 }
 @media (hover: hover) and (pointer: fine) {
-  .acpmux-pill:not(:disabled, [data-state="starting"], [data-state="listening"], [data-state="finalizing"]):hover {
-    background: var(--acpmux-pill-hover);
+  .acpmux-pill:not(:disabled):not([data-state="starting"]):not([data-state="listening"]):not([data-state="finalizing"]):hover {
+    background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
   }
 }
 /* The controls row's rhythm (Leo 2026-10-14: "one consistent gap, group related controls, and
@@ -478,16 +478,16 @@
   box-shadow: none;
 }
 /* No pill at rest; the one under the pointer gets the soft pill (.acpmux-pill above) and its ink
-   steps up, as the Claude app's chips do (Leo 2026-10-19). Hover only under a fine pointer
+   steps up (Send keeps its glyph's color), as the Claude app's chips do (Leo 2026-10-19). Hover only under a fine pointer
    (cg-composer click polish): a tap never leaves a wash behind. */
 @media (hover: hover) and (pointer: fine) {
-  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-pill:not(.acpmux-send, [data-state="starting"], [data-state="listening"], [data-state="finalizing"]):hover {
+  :is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-picker-button, .acpmux-plan, .acpmux-fast, .acpmux-mic:not([data-state="starting"]):not([data-state="listening"]):not([data-state="finalizing"])):hover {
     color: var(--agent-text);
   }
 }
 /* Keyboard focus draws the same pill on any pill, beside its focus outline (below). A lit mic
    (a running dictation, dictation.css) keeps its accent square. */
-:is(.acpmux-composer-bar, .nt-pickers) .acpmux-pill:not([data-state="starting"], [data-state="listening"], [data-state="finalizing"]):focus-visible {
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-pill:not([data-state="starting"]):not([data-state="listening"]):not([data-state="finalizing"]):focus-visible {
   background: var(--acpmux-row-hover);
   box-shadow: none;
 }
