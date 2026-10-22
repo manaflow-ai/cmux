@@ -26,9 +26,6 @@ const MAX_IMAGE_CHARS = 8 * 1024 * 1024;
 /// Envelopes inside envelopes (JSON text in a text block that is itself a result) are peeled this deep.
 const MAX_DEPTH = 6;
 
-/// MCP and ACP content block types (`ContentBlock`), and ACP's `content` wrapper around one.
-const BLOCK_TYPES = new Set(["text", "image", "audio", "resource", "resource_link", "content"]);
-
 type Peeled = { texts: string[]; images: string[]; rest?: unknown };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -50,16 +47,46 @@ function onlyKeys(value: Record<string, unknown>, keys: readonly string[]): bool
   return Object.keys(value).every((key) => keys.includes(key));
 }
 
-function isBlock(value: unknown): value is Record<string, unknown> {
-  return isRecord(value) && typeof value.type === "string" && BLOCK_TYPES.has(value.type);
+type Block = Record<string, unknown>;
+
+/// MCP and ACP content blocks (`ContentBlock`, and ACP's `content` wrapper around one), each with
+/// the field that holds its value and the fields it may carry. An object that names one of these
+/// types but lacks its value or has other fields (Notion's rich text `{"type":"text","text":{…}}`,
+/// Slack's `{"type":"image","image_url":…}`) is a tool's own JSON, not an envelope.
+const BLOCKS: Record<string, { value: (block: Block) => boolean; keys: readonly string[] }> = {
+  text: { value: (block) => typeof block.text === "string", keys: ["text"] },
+  image: {
+    value: (block) => typeof block.data === "string" && typeof block.mimeType === "string",
+    keys: ["data", "mimeType"],
+  },
+  audio: {
+    value: (block) => typeof block.data === "string" && typeof block.mimeType === "string",
+    keys: ["data", "mimeType"],
+  },
+  resource: {
+    value: (block) => isRecord(block.resource) && typeof block.resource.uri === "string",
+    keys: ["resource"],
+  },
+  resource_link: {
+    value: (block) => typeof block.uri === "string",
+    keys: ["uri", "name", "title", "description", "mimeType", "size"],
+  },
+  content: { value: (block) => isBlock(block.content), keys: ["content"] },
+};
+const BLOCK_KEYS = ["type", "annotations", "_meta"];
+
+function isBlock(value: unknown): value is Block {
+  if (!isRecord(value) || typeof value.type !== "string" || !Object.hasOwn(BLOCKS, value.type)) return false;
+  const shape = BLOCKS[value.type]!;
+  return shape.value(value) && onlyKeys(value, [...BLOCK_KEYS, ...shape.keys]);
 }
 
-function isBlocks(value: unknown): value is Record<string, unknown>[] {
+function isBlocks(value: unknown): value is Block[] {
   return Array.isArray(value) && value.length > 0 && value.every(isBlock);
 }
 
 /// One content block's parts: its text, an image's data URL, a resource's text or its link.
-function peelBlock(block: Record<string, unknown>, into: Peeled) {
+function peelBlock(block: Block, into: Peeled) {
   switch (block.type) {
     case "text":
       if (typeof block.text === "string") into.texts.push(block.text);
@@ -96,23 +123,17 @@ function peelBlock(block: Record<string, unknown>, into: Peeled) {
 
 /// The parts of `value` when it is an envelope a harness wrapped a result in, else undefined.
 export function peelEnvelope(value: unknown): Peeled | undefined {
-  // A list of content blocks: `[{"type":"text","text":"…"}]`.
-  if (isBlocks(value)) {
+  // A list of content blocks (`[{"type":"text","text":"…"}]`), or one block. Blocks that give
+  // nothing to show (audio alone) stay JSON.
+  if (isBlocks(value) || isBlock(value)) {
     const peeled: Peeled = { texts: [], images: [] };
-    for (const block of value) peelBlock(block, peeled);
-    return peeled;
+    for (const block of Array.isArray(value) ? value : [value]) peelBlock(block, peeled);
+    const empty = peeled.texts.every((text) => !text) && !peeled.images.length;
+    return empty && (Array.isArray(value) ? value : [value]).some((block) => block.type !== "text")
+      ? undefined
+      : peeled;
   }
   if (!isRecord(value)) return undefined;
-  // One content block.
-  if (
-    isBlock(value) &&
-    (value.type === "text" ? typeof value.text === "string" : true) &&
-    onlyKeys(value, ["type", "text", "content", "data", "mimeType", "resource", "uri", "name", "annotations", "_meta"])
-  ) {
-    const peeled: Peeled = { texts: [], images: [] };
-    peelBlock(value, peeled);
-    return peeled.texts.length || peeled.images.length ? peeled : undefined;
-  }
   // An MCP `CallToolResult`: its content blocks, or its structured content when they say nothing.
   if (
     Array.isArray(value.content) &&
@@ -120,7 +141,7 @@ export function peelEnvelope(value: unknown): Peeled | undefined {
     onlyKeys(value, ["content", "structuredContent", "isError", "_meta"])
   ) {
     const peeled: Peeled = { texts: [], images: [] };
-    for (const block of value.content as Record<string, unknown>[]) peelBlock(block, peeled);
+    for (const block of value.content as Block[]) peelBlock(block, peeled);
     const structured = value.structuredContent;
     if (
       !peeled.texts.some((text) => text.trim()) &&
@@ -141,7 +162,10 @@ export function peelEnvelope(value: unknown): Peeled | undefined {
           : isRecord(error) && typeof error.message === "string"
             ? error.message
             : undefined;
-      return message ? { texts: [message], images: [] } : { texts: [], images: [], rest: error };
+      // The message reads as text; the error's `data`, when it has any, follows as JSON.
+      const data = isRecord(error) ? error.data : undefined;
+      if (!message) return { texts: [], images: [], rest: error };
+      return { texts: [message], images: [], ...(data !== undefined && data !== null ? { rest: data } : {}) };
     }
     const result = value.result;
     if (result === undefined || result === null) return { texts: [], images: [] };
@@ -181,24 +205,39 @@ function textLang(text: string): ToolResult["lang"] {
   return text.length <= MAX_MARKDOWN_CHARS && MARKDOWN.test(text) ? "markdown" : "text";
 }
 
-/// What an opened non-shell call shows of `output`.
-export function toolResult(output: string): ToolResult {
+/// What an opened non-shell call shows of `output` (ToolRow.tsx), and what Find in Chat reads of it
+/// (chatFind.ts), so both see one text. `clean` drops what a host injected into the result's text
+/// (mcpCalls.ts `cleanText`), once it is out of its envelope.
+export function toolResult(output: string, clean: (text: string) => string = (text) => text): ToolResult {
   const parsed = parseJSONValue(output);
-  if (parsed === undefined) return { text: output, lang: "text", images: [], unwrapped: false };
-  return fromValue(parsed, output, 0);
+  if (parsed !== undefined) return fromValue(parsed, output, 0, clean);
+  // A host may have put its context around the JSON (a reminder after a result): read it again without.
+  const cleaned = clean(output).replace(/\n$/, "");
+  const reparsed = cleaned === output ? undefined : parseJSONValue(cleaned);
+  if (reparsed !== undefined) return fromValue(reparsed, cleaned, 0, clean);
+  return { text: cleaned, lang: "text", images: [], unwrapped: false };
 }
 
-function fromValue(value: unknown, printed: string | undefined, depth: number): ToolResult {
-  const peeled = depth < MAX_DEPTH ? peelEnvelope(value) : undefined;
+function fromValue(
+  value: unknown,
+  printed: string | undefined,
+  depth: number,
+  clean: (text: string) => string,
+): ToolResult {
+  let peeled = depth < MAX_DEPTH ? peelEnvelope(value) : undefined;
+  // An envelope with nothing in it (`{"content":[],"isError":false}`) shows as the JSON it is,
+  // so an opened call is never empty.
+  if (peeled && !peeled.images.length && peeled.rest === undefined && !peeled.texts.some((text) => text.trim()))
+    peeled = undefined;
   if (!peeled) {
     // JSON the tool returned. Printed on lines (a file it read) it stays as printed; one long line
     // is pretty-printed.
     const text = printed !== undefined && printed.trim().includes("\n") ? printed.replace(/\n$/, "") : pretty(value);
     return { text, lang: "json", images: [], unwrapped: printed === undefined };
   }
-  const text = peeled.texts.join("\n\n");
+  const text = clean(peeled.texts.join("\n\n"));
   if (peeled.rest !== undefined) {
-    const rest = fromValue(peeled.rest, undefined, depth + 1);
+    const rest = fromValue(peeled.rest, undefined, depth + 1, clean);
     return {
       ...rest,
       text: text.trim() ? `${text}\n\n${rest.text}` : rest.text,
@@ -206,10 +245,11 @@ function fromValue(value: unknown, printed: string | undefined, depth: number): 
       unwrapped: true,
     };
   }
-  // The text inside is JSON again: an envelope in an envelope, or a JSON result.
+  // The text inside is JSON again: an envelope in an envelope, or a JSON result (kept as printed
+  // when it was printed on lines, as a file read through an MCP tool is).
   const inner = parseJSONValue(text);
   if (inner !== undefined) {
-    const result = fromValue(inner, undefined, depth + 1);
+    const result = fromValue(inner, text, depth + 1, clean);
     return { ...result, images: [...peeled.images, ...result.images], unwrapped: true };
   }
   return { text: text.replace(/\n$/, ""), lang: textLang(text), images: peeled.images, unwrapped: true };

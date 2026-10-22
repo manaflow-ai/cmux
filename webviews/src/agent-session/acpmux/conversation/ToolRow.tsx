@@ -92,13 +92,15 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // Find counts a shell's whole line: a label that is its description or a shortened line is skipped.
   const drawsCommand = !tool.description && shortCommand(tool.command ?? "") === tool.command?.trim();
-  // A shell prints what it printed; any other output loses the context a host injects into it.
-  // Any other call's result is shown without the JSON envelope a harness wrapped it in (toolResult.ts).
+  // A shell prints what it printed. Any other call's result is shown without the JSON envelope a
+  // harness wrapped it in and the context a host injects into it (toolResult.ts), read only while
+  // the call is open: a closed row parses nothing.
   const result = useMemo(
-    () => (shell || !tool.output ? undefined : toolResult(cleanText(tool.output).replace(/\n$/, ""))),
-    [shell, tool.output],
+    () => (shell || !tool.output || !fold.present ? undefined : toolResult(tool.output, cleanText)),
+    [shell, tool.output, fold.present],
   );
   const body = shell ? tool.output?.replace(/\n$/, "") : result?.text;
+  const opens = shell ? Boolean(body) : Boolean(tool.output && cleanText(tool.output).trim());
   const images = useMemo(() => toolImages(tool), [tool]);
   const content = (
     <>
@@ -124,7 +126,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   );
   return (
     <>
-      {body || shell || hasDiff ? (
+      {opens || shell || hasDiff ? (
         <button
           type="button"
           className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
@@ -180,7 +182,8 @@ function ToolOutput({ id, result, reveal }: { id: string; result: ToolResult; re
     return (
       <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: result.text })}>
         <div className="cv-tool-output__box cv-tool-output__markdown selectable">
-          <Markdown>{result.text}</Markdown>
+          {/* Fences stay code: a tool's text never runs a render card or draws a diagram. */}
+          <Markdown plainCode>{result.text}</Markdown>
         </div>
       </div>
     );

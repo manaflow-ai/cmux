@@ -8,6 +8,7 @@ import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRe
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { commandFolder } from "./commandFolder";
 import { cleanText, mcpCall, prettyOutput, prettyValue } from "./mcpCalls";
+import { toolResult } from "./toolResult";
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
 export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
@@ -28,7 +29,8 @@ function drawnText(item: AcpmuxActivity): string {
   const call = mcpCall(tool);
   if (call) return [prettyValue(call.args), prettyOutput(tool.output)].filter(Boolean).join("\n");
   const shell = tool.kind === "execute" && Boolean(tool.command);
-  const output = shell || !tool.output ? tool.output : cleanText(tool.output);
+  // Other output reads as ToolRow draws it: out of its envelope, without injected context (toolResult.ts).
+  const output = shell || !tool.output ? tool.output : toolResult(tool.output, cleanText).text;
   // The command as its rows draw it, without a leading `cd <folder> &&` (commandFolder).
   return [(tool.command && commandFolder(tool.command).rest) || tool.title, output].filter(Boolean).join("\n");
 }

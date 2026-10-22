@@ -270,7 +270,8 @@ function mcpValue(output: string | undefined): unknown {
   const peeled = peelEnvelope(parsed);
   if (!peeled) return parsed;
   if (peeled.texts.some((text) => text.trim())) return peeled.texts.length === 1 ? peeled.texts[0] : peeled.texts;
-  return peeled.rest;
+  // An envelope with nothing in it shows as the JSON it is.
+  return peeled.rest ?? parsed;
 }
 
 /// A value as the opened call shows it: text as itself, anything else as indented JSON.

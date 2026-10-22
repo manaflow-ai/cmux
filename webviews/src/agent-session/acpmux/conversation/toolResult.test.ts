@@ -4,7 +4,9 @@
 // stays JSON.
 import { expect, test } from "bun:test";
 import { envelopeImages, toolResult } from "./toolResult";
-import { prettyOutput } from "./mcpCalls";
+import { cleanText, prettyOutput } from "./mcpCalls";
+import { findMatches } from "./chatFind";
+import type { AcpmuxRow } from "../model";
 import { toolImages } from "../toolImages";
 
 const PNG = "iVBORw0KGgo=";
@@ -132,4 +134,52 @@ test("an MCP response under a result envelope unwraps in the opened MCP call", (
   expect(prettyOutput(output)).toBe("Rejected");
   const structured = JSON.stringify({ content: [{ type: "text", text: "" }], structuredContent: { ok: true } });
   expect(prettyOutput(structured)).toBe('{\n  "ok": true\n}');
+});
+
+test("a tool's own JSON that names a block type but not its shape stays JSON", () => {
+  // Notion rich text, a Slack image block, an Anthropic image block.
+  const notion = JSON.stringify([{ type: "text", text: { content: "Hi" }, plain_text: "Hi" }]);
+  const slack = JSON.stringify({ content: [{ type: "image", image_url: "https://example.com/a.png" }] });
+  const anthropic = JSON.stringify([{ type: "image", source: { type: "base64", data: PNG } }]);
+  for (const output of [notion, slack, anthropic]) {
+    const result = toolResult(output);
+    expect(result.lang).toBe("json");
+    expect(result.text).toBe(JSON.stringify(JSON.parse(output), null, 2));
+  }
+});
+
+test("a result envelope's error keeps its data", () => {
+  const output = JSON.stringify({ error: { code: -32602, message: "Invalid params", data: { field: "path" } } });
+  expect(toolResult(output).text).toBe('Invalid params\n\n{\n  "field": "path"\n}');
+});
+
+test("a JSON file read through an MCP tool keeps its own lines", () => {
+  const file = '{\n    "name": "cmux",\n    "private": true\n}';
+  expect(toolResult(JSON.stringify([{ type: "text", text: file }]))).toMatchObject({ text: file, lang: "json" });
+});
+
+test("context a host injected into an envelope's text is dropped once it is unwrapped", () => {
+  const text = "<system-reminder>internal</system-reminder>\nThe result";
+  expect(toolResult(JSON.stringify([{ type: "text", text }]), cleanText).text).toBe("The result");
+});
+
+test("Find in Chat counts what the opened call shows, not the envelope", () => {
+  const output = JSON.stringify([{ type: "text", text: 'Said "some text"' }]);
+  const row: AcpmuxRow = {
+    id: "work",
+    version: 1,
+    at: 0,
+    kind: "activity",
+    text: "",
+    items: [{ kind: "tool", text: "Lookup", tool: { id: "c1", title: "Lookup", status: "completed", output } }],
+  };
+  expect(findMatches([row], "text")).toHaveLength(1);
+  expect(findMatches([row], '"some')).toHaveLength(1);
+});
+
+test("an envelope with nothing in it shows as its JSON", () => {
+  expect(toolResult(JSON.stringify({ content: [], isError: false }))).toMatchObject({
+    text: '{\n  "content": [],\n  "isError": false\n}',
+    lang: "json",
+  });
 });
