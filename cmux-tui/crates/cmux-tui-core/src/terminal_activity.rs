@@ -208,6 +208,13 @@ impl ShellActivity {
         self.prompt_since_ms = snapshot.prompt_since_ms;
     }
 
+    /// Keeps `previous`'s last output (the host's state does not carry it),
+    /// so a reconnect neither drops it nor pushes it again.
+    pub(crate) fn keep_output_of(&mut self, previous: &ShellActivity) {
+        self.last_output_ms = previous.last_output_ms;
+        self.published_output_ms = previous.published_output_ms;
+    }
+
     /// Whether the command or prompt fact changed, or the last output moved
     /// a whole interval past the one published, since the last call (marks
     /// it taken).
@@ -286,6 +293,18 @@ mod tests {
         assert!(activity.take_change());
         activity.note_output(2_000 + OUTPUT_PUBLISH_INTERVAL_MS - 1);
         assert!(!activity.take_change());
+    }
+
+    #[test]
+    fn restoring_a_host_state_keeps_the_last_output() {
+        let mut previous = ShellActivity::default();
+        previous.note_output(7_000);
+        assert!(previous.take_change());
+
+        let mut restored = ShellActivity::default();
+        restored.restore(previous.snapshot());
+        restored.keep_output_of(&previous);
+        assert_eq!(restored.last_output(), Some(7_000));
     }
 
     #[test]
