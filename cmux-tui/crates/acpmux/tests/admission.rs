@@ -56,7 +56,6 @@ impl Daemon {
             json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
         )
         .unwrap();
-        let home = daemon_env::home(&root);
         let daemon = Self { root, child: None };
         if let Some(max) = max_lanes {
             daemon.write_registry(
