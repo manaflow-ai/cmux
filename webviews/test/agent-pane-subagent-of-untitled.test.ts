@@ -42,7 +42,11 @@ await requireBrowserLane("agent-pane-subagent-of-untitled.test.ts", async () => 
       "subagent_spawned",
       update(
         { sessionUpdate: "subagent_spawned" },
-        { subagents: [{ id: "a1", parent: null, name: "Reviewer", task: "Review the uploader branch", state: "completed" }] },
+        {
+          subagents: [
+            { id: "a1", parent: null, name: "Reviewer", task: "Review the uploader branch", state: "completed" },
+          ],
+        },
       ),
     ],
     [
