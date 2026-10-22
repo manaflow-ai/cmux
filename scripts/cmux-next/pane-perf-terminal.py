@@ -569,7 +569,7 @@ def main():
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
         for index in range(opts.rounds):
             for step in sequence:
-                if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "sidepanel-close"):
+                if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "sidepanel-close", "page-close"):
                     focus_page()  # each pair starts on the Chromium pane
                 run = measure(f"{panes:>2}p {step} #{index}", step)
                 run.update(layout=name, panes=panes, round=index)
