@@ -68,7 +68,7 @@ Pressed screenshots are UNVERIFIED: a synthetic mouse-down enters AppKit's track
 
 ## Unfocused pane tabs (focus.inactiveTabStyle)
 
-Applies when `appearance.focusIndicator` is `tabs` or `both`, the screen has more than one pane, and the pane is not focused (`CmuxNextDesign/ChromeEmphasis.swift:30-77 (ChromeEmphasis.forPane, ThemeTokens.emphasized)`). Style: cmux.json `focus.inactiveTabStyle`, `fade` (default), `tonal` or `quiet`; Settings > Appearance > Unfocused Pane Tabs; the Debug tunable of the same name overrides it. Strength 0.6 (Debug tunable `focus.inactiveTabStrength`; 0.35 until 2026-10-21). Contrast floors: primary 3.5, secondary 2.5, tertiary 2.0. Fade step: `fade` starts at the strength and steps the mix fraction down by 0.02 until the color holds min(floor, its own contrast) against the page; tonal and quiet fade the tertiary tier by strength / 2.
+Applies when `appearance.focusIndicator` is `tabs` or `both`, the screen has more than one pane, and the pane is not focused (`CmuxNextDesign/ChromeEmphasis.swift:30-77 (ChromeEmphasis.forPane, ThemeTokens.emphasized)`). Style: cmux.json `focus.inactiveTabStyle`, `fade` (default), `tonal` or `quiet`; Settings > Appearance > Unfocused Pane Tabs; the Debug tunable of the same name overrides it. Strength 0.4 (Debug tunable `focus.inactiveTabStrength`; 0.35, then briefly 0.6, on 2026-10-21). Contrast floors: primary 3.5, secondary 2.5, tertiary 2.0. Fade step: `fade` starts at the strength and steps the mix fraction down by 0.02 until the color holds min(floor, its own contrast) against the page; tonal and quiet fade the tertiary tier by strength / 2.
 
 | style | textPrimary | textSecondary | selectionFill | hoverFill |
 |---|---|---|---|---|

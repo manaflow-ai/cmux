@@ -2593,8 +2593,8 @@
      "quiet"
     ],
     "default": "fade",
-    "strength": 0.6,
-    "cmuxJson": "focus.inactiveTabStyle (Settings > Appearance > Unfocused Pane Tabs); the Debug Settings tunable of the same name overrides it. focus.inactiveTabStrength (0.6) stays a Debug tunable."
+    "strength": 0.4,
+    "cmuxJson": "focus.inactiveTabStyle (Settings > Appearance > Unfocused Pane Tabs); the Debug Settings tunable of the same name overrides it. focus.inactiveTabStrength (0.4) stays a Debug tunable."
    },
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/PaneFocusSettings.swift (PaneFocusSettings.inactiveTabStylePath); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DesignSettings.swift (DesignSettings.inactiveTabStyle, effectiveInactiveTabStyle); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FocusIndicatorTunables.swift:9-16 (FocusIndicatorTunables.inactiveTabStyle)"
   },
@@ -3228,7 +3228,7 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FocusIndicatorTunables.swift:9-16 (FocusIndicatorTunables.inactiveTabStyle)"
    ],
    "metrics": {
-    "strength": 0.6,
+    "strength": 0.4,
     "floors": {
      "primary": 3.5,
      "secondary": 2.5,
