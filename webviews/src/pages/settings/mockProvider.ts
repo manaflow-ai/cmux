@@ -20,6 +20,7 @@ import {
   type AccountsRun,
   type AgentsRun,
   type AgentsState,
+  type ChannelSwitch,
   type ChannelsState,
   type AccountsState,
   type HarnessesRun,
@@ -212,12 +213,22 @@ export class MockSettingsProvider {
           });
         return {};
       },
+      // The fixture's way back is Nightly's whatever channel the card asks about, as a late
+      // reply for an earlier pick would be: the card shows it only on the Nightly row.
       "cmux.settings.channels.state": () => {
         if (!this.channels) throw new ProtocolError("cmux.page.unavailable", "no updater");
-        return this.channels;
+        return { ...this.channels, switch: this.channelSwitch };
+      },
+      "cmux.settings.channels.go_back": (params) => {
+        this.wentBack = params.build as string;
+        return {};
       },
       "cmux.settings.agents.state": () => this.agents.state,
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
+      "cmux.settings.voice_input.set": (params) => {
+        if (this.host.voice_input) this.setHost({ ...this.host, voice_input: { on: params.on === true } });
+        return {};
+      },
       // Agents > Chiefs (ChiefsCard): the host's page relay to the Chief owner and harness center.
       "cmux.chief.profile.list": () => ({ chiefs: this.chiefs }),
       "cmux.chief.profile.avatar.get": (params) => ({ avatar: this.chiefAvatars.get(params.chief as string) ?? null }),
@@ -432,6 +443,7 @@ export class MockSettingsProvider {
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
       "cmux.settings.channels.state",
+      "cmux.settings.channels.go_back",
       "cmux.settings.agents.state",
       "cmux.settings.agents.run",
       "cmux.chief.profile.list",
@@ -497,6 +509,10 @@ export class MockSettingsProvider {
 
   /** Settings > Updates' channels; null: the host has no updater. */
   channels: ChannelsState | null = mockChannels;
+  /** The way back the host answers with (Nightly's: the fixture runs a Dev build). */
+  channelSwitch: ChannelSwitch | null = null;
+  /** The build the card's Go Back asked for. */
+  wentBack: string | null = null;
   /** Custom Chief pictures by Chief id (`chief.profile.avatar.get`); a Chief without one reads null. */
   chiefAvatars = new Map<string, Params>();
 
@@ -612,6 +628,8 @@ export class MockSettingsProvider {
       { id: "work", title: "Work", subtitle: null, active: false },
     ],
     machines: [{ id: "ssh:build", title: "build-mac", subtitle: "cmux@build-mac", active: true }],
+    // A DEV build: the home.voiceInput tunable exists, on as Leo set it.
+    voice_input: { on: true },
     browser_profiles: [
       { id: "p-default", name: "Default", color: null, icon: null, is_default: true, source: null },
       { id: "p-work", name: "Work", color: "green", icon: null, is_default: false, source: "Google Chrome · Work" },
