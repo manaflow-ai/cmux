@@ -5,6 +5,20 @@ import Testing
 @MainActor
 @Suite("ControlCommandCoordinator tab-action domain")
 struct ControlCommandCoordinatorTabActionTests {
+    @Test func windowScopedRenameReachesContextWithSurface() {
+        let surfaceID = UUID()
+        let context = FakeTabActionControlCommandContext()
+        context.resolution = .unknownAction
+        let coordinator = ControlCommandCoordinator(context: context)
+        _ = coordinator.handle(ControlRequest(
+            id: .int(1), method: "tab.action",
+            params: ["action": .string("rename_tab"), "surface_id": .string(surfaceID.uuidString),
+                     "title": .string("window")]
+        ))
+        #expect(context.actionKey == "rename_tab")
+        #expect(context.surfaceID == surfaceID)
+    }
+
     @Test func toggleFullWidthTabPayloadIncludesResultingMode() throws {
         let windowID = UUID()
         let workspaceID = UUID()

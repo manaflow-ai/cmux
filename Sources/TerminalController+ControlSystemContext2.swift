@@ -45,7 +45,7 @@ extension TerminalController {
             return .missingAction
         }
 
-        let resolvesMirroredTab = action == "rename" || action == "clear_name"
+        let resolvesMirroredTab = action == "rename" || action == "rename_tab" || action == "clear_name"
         let workspace = resolvesMirroredTab
             ? resolveSurfaceWorkspace(routing: routing, tabManager: tabManager)
             : controlTabActionResolveWorkspace(routing: routing, tabManager: tabManager)
@@ -142,18 +142,19 @@ extension TerminalController {
         }
 
         switch action {
-        case "rename":
+        case "rename", "rename_tab":
             guard let titleRaw = title,
                   !titleRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return .invalidTitle
             }
             let trimmedTitle = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Generic tab operations use the mirror's container panel. Pane
-            // renames must instead retain the projected surface identity, or
-            // they would rename both the remote window and its active pane.
-            let titlePanelID = resolvesMirroredTab ? surfaceId : panelId
-            let isProjectedTmuxPane = workspace.remoteTmuxControlPane(surfaceID: titlePanelID) != nil
-            guard workspace.setPanelCustomTitle(panelId: titlePanelID, title: trimmedTitle) || !isProjectedTmuxPane else {
+            // A default or explicitly window-scoped rename targets the mirror
+            // container. Explicit pane renames retain the projected identity.
+            let targetsWindow = action == "rename_tab" || (surfaceID == nil && routing.paneID == nil)
+            let titlePanelID = targetsWindow ? panelId : surfaceId
+            let isRemoteTmuxTarget = workspace.remoteTmuxControlPane(surfaceID: titlePanelID) != nil
+                || workspace.isRemoteTmuxControlContainer(titlePanelID)
+            guard workspace.setPanelCustomTitle(panelId: titlePanelID, title: trimmedTitle) || !isRemoteTmuxTarget else {
                 return .renameFailed
             }
             return finish(.title(trimmedTitle))

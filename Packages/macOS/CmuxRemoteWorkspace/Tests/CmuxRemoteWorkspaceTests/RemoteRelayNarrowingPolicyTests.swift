@@ -7,6 +7,16 @@ struct RemoteRelayNarrowingPolicyTests {
     private let owner = UUID()
     private let surface = UUID()
 
+    @Test("tab actions are not relay methods", arguments: ["rename", "rename_tab"])
+    func tabRenameIsDenied(action: String) {
+        let params: [String: Any] = ["workspace_id": owner.uuidString,
+                                     "surface_id": surface.uuidString,
+                                     "action": action, "title": "build"]
+        #expect(RemoteRelayRoutingSchema().parameters(for: "tab.action") == nil)
+        #expect(decision("tab.action", params) != .allowed)
+        #expect(commandVerdict("tab.action", params) != .allow)
+    }
+
     @Test("resume registration is not a relay method, with or without a command")
     func resumeRegistrationIsDenied() throws {
         #expect(RemoteRelayRoutingSchema().parameters(for: "surface.resume.set") == nil)

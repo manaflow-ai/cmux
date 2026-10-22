@@ -156,17 +156,17 @@ import Testing
     @Test func attachModesSpellOutTheirTmuxCommands() {
         #expect(
             RemoteTmuxControlAttachMode.attach.tmuxArguments(sessionName: "work")
-                == ["-CC", "attach-session", "-t", "work"]
+                == ["-u", "-CC", "attach-session", "-t", "work"]
         )
         #expect(
             RemoteTmuxControlAttachMode.attachOrCreate.tmuxArguments(sessionName: "work")
-                == ["-CC", "new-session", "-A", "-s", "work"]
+                == ["-u", "-CC", "new-session", "-A", "-s", "work"]
         )
         #expect(
             RemoteTmuxControlAttachMode.attachOrCreateSized(columns: 120, rows: 40)
                 .tmuxArguments(sessionName: "cmux-view-abc")
                 == [
-                    "-CC", "new-session", "-A", "-s", "cmux-view-abc",
+                    "-u", "-CC", "new-session", "-A", "-s", "cmux-view-abc",
                     "-x", "120", "-y", "40",
                 ]
         )
@@ -188,7 +188,7 @@ import Testing
         #expect(
             RemoteTmuxETTransportProfile.controlStreamRemoteCommand(
                 sessionName: "cmux-view-abc", mode: mode
-            ) == "'tmux' '-CC' 'new-session' '-A' '-s' 'cmux-view-abc' '-x' '120' '-y' '40'"
+            ) == "'tmux' '-u' '-CC' 'new-session' '-A' '-s' 'cmux-view-abc' '-x' '120' '-y' '40'"
         )
     }
 
@@ -1487,7 +1487,7 @@ import Testing
         #expect(profile.executablePath() == "/opt/site/bin/broker")
         #expect(argv.prefix(3) == ["-et", "-fallback", "somehost"])
         #expect(argv.contains("-p") == false)
-        #expect(argv.last == "exec 'tmux' '-CC' 'attach-session' '-t' 'work'")
+        #expect(argv.last == "exec 'tmux' '-u' '-CC' 'attach-session' '-t' 'work'")
     }
 }
 

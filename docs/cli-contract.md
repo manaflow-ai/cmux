@@ -164,7 +164,7 @@ Environment:
 | `split-off` | Move a surface into a new split without changing focus by default. |
 | `reorder-surface` | Reorder a surface within its pane. |
 | `tab-action` | Run horizontal tab context-menu actions. |
-| `rename-tab` | Rename a tab. Compatibility wrapper for `tab-action rename`. |
+| `rename-tab` | Rename a tab. In a remote tmux mirror, the default target renames the containing tmux window; an explicit `--tab` or `--surface` targets the projected pane. A workspace-only inherited ID cannot identify the calling pane, so supply an explicit target in that case. All default renames, including local tabs, require a matching app version; older apps reject them rather than risk silently renaming a pane. |
 | `drag-surface-to-split` | Move a surface into a split direction. |
 | `canvas` | Canvas layout namespace: `info`, `mode`, `set-frame`, `align`, `reveal`, `overview`, `zoom`, `join`, `break`, `select-tab`, `set-viewport`, `new-pane`. Most take a required argument: `mode`, `align`, and `zoom` a direction or mode word, `set-frame` numeric `--x --y --width --height`, `set-viewport` numeric `--x --y` and an optional numeric `--zoom`, `join` a target. `set-frame`, `join`, `break`, and `select-tab` need a surface, positionally or with `--surface <id\|ref>`; `reveal` takes one optionally, and `align` takes none, because its positional is the align command. `new-pane` takes an optional `--type terminal\|browser\|simulator`. `--workspace <ref>` scopes the whole namespace. |
 | `refresh-surfaces` | Ask the app to refresh terminal surfaces. |
@@ -546,6 +546,12 @@ Workspace and tab action names:
 | --- | --- |
 | `workspace-action` | `pin`, `unpin`, `rename`, `clear-name`, `set-description`, `clear-description`, `move-up`, `move-down`, `move-top`, `close-others`, `close-above`, `close-below`, `mark-read`, `mark-unread`, `set-color`, `clear-color` |
 | `tab-action` | `rename`, `clear-name`, `close-left`, `close-right`, `close-others`, `new-terminal-right`, `new-browser-right`, `reload`, `duplicate`, `pin`, `unpin`, `mark-unread` |
+
+In a remote tmux mirror, a socket `tab.action` `rename` without a surface or
+pane selector also targets the focused tmux window; an explicit surface or
+pane still targets that pane. The existing `clear-name` action remains
+pane-oriented and does not undo a window rename or re-enable tmux's automatic
+window naming. Renaming a tmux window disables its automatic naming.
 
 ### Workspace environment variables
 
