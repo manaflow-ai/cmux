@@ -3,13 +3,7 @@
 // the `ready` answer carries `newTab`, as the app's new tab does.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
-import {
-  CATALOG,
-  CWD,
-  manySessions,
-  noChat,
-  session,
-} from "../../../gallery/fixtures/acpmux";
+import { CATALOG, CWD, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import { composerStatePlays } from "../composerStatePlays";
 
@@ -23,9 +17,7 @@ const OTHER_SITE_ICON =
 const reasoningChat = () =>
   noChat([], {
     catalog: CATALOG.map((entry) =>
-      entry.id === "claude"
-        ? { ...entry, start: { model: "claude-opus-5-5", effort: "medium" } }
-        : entry,
+      entry.id === "claude" ? { ...entry, start: { model: "claude-opus-5-5", effort: "medium" } } : entry,
     ),
   });
 
@@ -36,30 +28,15 @@ const ALBUM_ART =
 /// The typed-tab-match variants' omnibar: open tabs, a workspace and visited pages that match "release".
 const RELEASE_OMNIBAR = {
   tabs: [
-    {
-      id: "tab-1",
-      kind: "browser",
-      title: "Release notes",
-      detail: "cmux.dev",
-      icon: SITE_ICON,
-    },
-    {
-      id: "tab-2",
-      kind: "terminal",
-      title: "release build",
-      detail: "~/src/release",
-    },
+    { id: "tab-1", kind: "browser", title: "Release notes", detail: "cmux.dev", icon: SITE_ICON },
+    { id: "tab-2", kind: "terminal", title: "release build", detail: "~/src/release" },
   ],
   workspaces: [{ id: "workspace-1", name: "Release", detail: "~/src/release" }],
   folders: [CWD],
   commands: [],
   // A visited page with its site's icon, and one whose icon is still loading (the glyph).
   history: [
-    {
-      url: "https://cmux.dev/release",
-      title: "cmux release notes",
-      icon: OTHER_SITE_ICON,
-    },
+    { url: "https://cmux.dev/release", title: "cmux release notes", icon: OTHER_SITE_ICON },
     { url: "https://example.com/release", title: "example release" },
   ],
 };
@@ -77,12 +54,7 @@ const nowPlayingTrack = (playing: boolean) => ({
   canPrevious: true,
   canNext: true,
   source: "Spotify",
-  labels: {
-    play: "Play",
-    pause: "Pause",
-    previous: "Previous Track",
-    next: "Next Track",
-  },
+  labels: { play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track" },
 });
 
 // The variants were drawn on Cards, the page an unset template showed before Minimal (Leo
@@ -112,11 +84,7 @@ const CHAT_TITLES = [
   "subscription extra usage: how much per account?",
   "GPUI CEF browser with libghostty tabs",
 ];
-const CHAT_PROJECTS = [
-  "/Users/you/src/cmux",
-  "/Users/you/src/cmux-web",
-  "/Users/you/.acpmux/tags/dev/unattended",
-];
+const CHAT_PROJECTS = ["/Users/you/src/cmux", "/Users/you/src/cmux-web", "/Users/you/.acpmux/tags/dev/unattended"];
 const allChatsPage = {
   ready: true,
   design: "age",
@@ -130,18 +98,11 @@ const allChatsPage = {
 };
 const withAllChats = <V extends object>(variants: Record<string, V>) =>
   Object.fromEntries(
-    Object.entries(variants).map(([name, variant]) => [
-      name,
-      { native: { "chats.page": allChatsPage }, ...variant },
-    ]),
+    Object.entries(variants).map(([name, variant]) => [name, { native: { "chats.page": allChatsPage }, ...variant }]),
   ) as Record<string, V>;
 
 /// The widget view's fixtures: projects as the host sends them, and chats where three need the user.
-const WIDGET_PROJECTS = [
-  "/Users/you/src/cmux",
-  "/Users/you/src/cmux-web",
-  "/Users/you/src/manaflow",
-];
+const WIDGET_PROJECTS = ["/Users/you/src/cmux", "/Users/you/src/cmux-web", "/Users/you/src/manaflow"];
 const widgetSessions = () => [
   session({
     sessionId: "widget-failed",
@@ -194,10 +155,7 @@ async function waitForTabJump(
 ): Promise<void> {
   await ctx.waitFor(() =>
     galleryNativeCalls(ctx.document).some(
-      (call) =>
-        call.method === "tab.jump" &&
-        call.params?.target === target &&
-        call.params?.id === id,
+      (call) => call.method === "tab.jump" && call.params?.target === target && call.params?.id === id,
     ),
   );
 }
@@ -208,16 +166,12 @@ async function holdsItsPlace(ctx: PlayContext): Promise<void> {
   await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
   const place = () => {
     const box = ctx.document.querySelector(".nt-box")!.getBoundingClientRect();
-    const field = ctx.document
-      .querySelector(".nt-field")!
-      .getBoundingClientRect();
+    const field = ctx.document.querySelector(".nt-field")!.getBoundingClientRect();
     return `${box.top},${box.left},${box.width} ${field.top},${field.left}`;
   };
   const start = place();
   await ctx.type("why does the release build fail", { selector: ".nt-field" });
-  await ctx.waitFor(
-    () => ctx.document.querySelector(".nt-popover .nt-row") !== null,
-  );
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-popover .nt-row") !== null);
   const view = ctx.document.defaultView as unknown as typeof globalThis & {
     cmuxAcpmuxBridge?: { applyNowPlaying?(track: unknown): void };
   };
@@ -227,26 +181,13 @@ async function holdsItsPlace(ctx: PlayContext): Promise<void> {
   const paint = canvas.getContext("2d")!;
   paint.fillStyle = "#3a7bd5";
   paint.fillRect(0, 0, 320, 200);
-  const blob = await new Promise<Blob>((resolve) =>
-    canvas.toBlob((png) => resolve(png!), "image/png"),
-  );
+  const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
   const data = new view.DataTransfer();
-  data.items.add(
-    new view.File([blob], "Screenshot.png", { type: "image/png" }),
-  );
+  data.items.add(new view.File([blob], "Screenshot.png", { type: "image/png" }));
   ctx
     .find({ selector: ".nt-field" })
-    .dispatchEvent(
-      new view.ClipboardEvent("paste", {
-        clipboardData: data,
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
-  await ctx.waitFor(
-    () =>
-      ctx.document.querySelector(".nt-box .acpmux-attachment-image") !== null,
-  );
+    .dispatchEvent(new view.ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-box .acpmux-attachment-image") !== null);
   view.cmuxAcpmuxBridge?.applyNowPlaying?.({
     title: "Weightless",
     artist: "Marconi Union",
@@ -258,19 +199,13 @@ async function holdsItsPlace(ctx: PlayContext): Promise<void> {
     positionDate: Date.now(),
     canPrevious: true,
     canNext: true,
-    labels: {
-      play: "Play",
-      pause: "Pause",
-      previous: "Previous Track",
-      next: "Next Track",
-    },
+    labels: { play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track" },
   });
   await ctx.waitFor(() => ctx.document.querySelector(".nt-player") !== null);
   // The suggestions close, so the capture shows the image under the text.
   await ctx.press("Escape");
   await ctx.waitFor(() => ctx.document.querySelector(".nt-popover") === null);
-  if (place() !== start)
-    throw new Error(`the composer moved from ${start} to ${place()}`);
+  if (place() !== start) throw new Error(`the composer moved from ${start} to ${place()}`);
 }
 
 export default agentPaneEntry({
@@ -286,8 +221,7 @@ export default agentPaneEntry({
     },
     settleMaxMs: {
       value: 250,
-      reason:
-        "New Tab navigation, menu selection, and local suggestion updates should settle within a quarter second.",
+      reason: "New Tab navigation, menu selection, and local suggestion updates should settle within a quarter second.",
     },
   },
   covers: [
@@ -317,13 +251,9 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: noChat(),
       play: async (ctx) => {
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".nt-field") !== null,
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         if (ctx.document.querySelector(".nt-no-agent, .acpmux-add-harness"))
-          throw new Error(
-            "Add harness shows on the page with a harness installed",
-          );
+          throw new Error("Add harness shows on the page with a harness installed");
       },
     },
     // The model button opens its one menu (Leo 2026-10-20), whole: the card does not clip it
@@ -334,33 +264,21 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: noChat(),
       play: async (ctx) => {
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".nt-field") !== null,
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         await ctx.click({ role: "button", name: "Model" });
         await ctx.waitFor(() => {
-          const menu =
-            ctx.document.querySelector<HTMLElement>(".acpmux-quick-menu");
-          if (!menu || !menu.querySelector('[role="menuitemradio"]'))
-            return false;
+          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-quick-menu");
+          if (!menu || !menu.querySelector('[role="menuitemradio"]')) return false;
           const box = menu.getBoundingClientRect();
           if (box.height < 120) return false;
           const x = box.left + box.width / 2;
-          return [box.top + 6, box.bottom - 6].every((y) =>
-            menu.contains(ctx.document.elementFromPoint(x, y)),
-          );
+          return [box.top + 6, box.bottom - 6].every((y) => menu.contains(ctx.document.elementFromPoint(x, y)));
         });
         await ctx.hover({ text: "More models" });
-        await ctx.waitFor(() =>
-          ctx.document.querySelector(".acpmux-quick-more"),
-        );
-        const rows = ctx.document.querySelectorAll(
-          ".acpmux-quick-more [role^=menuitem]",
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-more"));
+        const rows = ctx.document.querySelectorAll(".acpmux-quick-more [role^=menuitem]");
         if (!rows[rows.length - 1]?.textContent?.includes("Add harness"))
-          throw new Error(
-            "the model menu's More models does not end on Add harness…",
-          );
+          throw new Error("the model menu's More models does not end on Add harness…");
       },
     },
     // The effort is part of the one model button (Leo 2026-10-20: "Opus 5.5  Medium"), and its
@@ -384,12 +302,8 @@ export default agentPaneEntry({
       ready: newTab({ template: undefined }),
       snapshot: noChat(manySessions(12)),
       play: async (ctx: PlayContext) => {
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".nt-greeting") !== null,
-        );
-        const extra = ctx.document.querySelector(
-          ".nt-stage, .nt-cards, .nt-create, .nt-style",
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-greeting") !== null);
+        const extra = ctx.document.querySelector(".nt-stage, .nt-cards, .nt-create, .nt-style");
         if (extra) throw new Error(`the minimal page shows ${extra.className}`);
       },
     },
@@ -401,12 +315,8 @@ export default agentPaneEntry({
       }),
       snapshot: noChat(manySessions(12)),
       play: async (ctx: PlayContext) => {
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".nt-stage .nt-env") !== null,
-        );
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".nt-style") !== null,
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-style") !== null);
       },
     },
     "minimal-stage-foot": {
@@ -417,25 +327,17 @@ export default agentPaneEntry({
       }),
       snapshot: noChat(manySessions(12)),
       play: async (ctx: PlayContext) => {
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".nt-stage .nt-env") !== null,
-        );
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".nt-foot .acpmux-composer-foot") !==
-            null,
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-foot .acpmux-composer-foot") !== null);
       },
     },
     // The New Tab composer's states, as the chat composer's (agent-pane.composer composer-*): the
     // same chips, pills, caret and rim (test/composer-caret-focus.test.ts).
     ...Object.fromEntries(
-      Object.entries(composerStatePlays(".nt-field")).map(
-        ([state, variant]) => [
-          `composer-${state}`,
-          { ...variant, ready: newTab(), snapshot: reasoningChat() },
-        ],
-      ),
+      Object.entries(composerStatePlays(".nt-field")).map(([state, variant]) => [
+        `composer-${state}`,
+        { ...variant, ready: newTab(), snapshot: reasoningChat() },
+      ]),
     ),
     // The mic never leaves the box (Leo 2026-10-19, as Claude Code's): the prompt shrinks instead.
     // The box holds the prompt, the mic and Send; the model, effort and permission mode sit in the
@@ -458,33 +360,18 @@ export default agentPaneEntry({
           ready: newTab({ template: "cards" }),
           snapshot: reasoningChat(),
           play: async (ctx: PlayContext) => {
-            await ctx.waitFor(
-              () => ctx.document.querySelector(".nt-field") !== null,
-            );
+            await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
             if (width) ctx.document.body.style.maxWidth = `${width}px`;
             await ctx.waitFor(() => {
-              const box = ctx.document
-                .querySelector(".nt-box")
-                ?.getBoundingClientRect();
-              const mic = ctx.document
-                .querySelector(".nt-box .acpmux-mic")
-                ?.getBoundingClientRect();
-              const send = ctx.document
-                .querySelector(".nt-box .acpmux-send")
-                ?.getBoundingClientRect();
-              if (!box || !mic || !send || mic.width < 12 || send.width < 12)
-                return false;
+              const box = ctx.document.querySelector(".nt-box")?.getBoundingClientRect();
+              const mic = ctx.document.querySelector(".nt-box .acpmux-mic")?.getBoundingClientRect();
+              const send = ctx.document.querySelector(".nt-box .acpmux-send")?.getBoundingClientRect();
+              if (!box || !mic || !send || mic.width < 12 || send.width < 12) return false;
               if (width && box.width > width) return false;
-              return (
-                mic.right <= send.left + 0.5 &&
-                send.right <= box.right + 0.5 &&
-                mic.left >= box.left
-              );
+              return mic.right <= send.left + 0.5 && send.right <= box.right + 0.5 && mic.left >= box.left;
             });
             if (!ctx.document.querySelector(".nt-foot .acpmux-model"))
-              throw new Error(
-                "the model chip is not in the quiet row under the box",
-              );
+              throw new Error("the model chip is not in the quiet row under the box");
           },
         },
       ]),
@@ -500,22 +387,12 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: noChat(manySessions(14)),
       play: async (ctx) => {
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelectorAll(
-              ".nt-cards[data-variant=list] .nt-card",
-            ).length === 5,
-        );
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length === 5);
         // Quiet rows, one line each (the fleet capture drew them 86px tall).
-        const tall = [
-          ...ctx.document.querySelectorAll(
-            ".nt-cards[data-variant=list] .nt-card",
-          ),
-        ].filter((row) => row.getBoundingClientRect().height > 32);
-        if (tall.length)
-          throw new Error(
-            `${tall.length} recent chat rows are taller than one line`,
-          );
+        const tall = [...ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card")].filter(
+          (row) => row.getBoundingClientRect().height > 32,
+        );
+        if (tall.length) throw new Error(`${tall.length} recent chat rows are taller than one line`);
       },
     },
     "current-composer": {
@@ -523,23 +400,10 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: noChat(manySessions(14)),
       play: async (ctx) => {
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".nt-field") !== null,
-        );
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelectorAll(
-              ".nt-cards[data-variant=list] .nt-card",
-            ).length === 5,
-        );
-        if (
-          [...ctx.document.querySelectorAll(".nt-row")].some((row) =>
-            row.textContent?.includes("Release"),
-          )
-        )
-          throw new Error(
-            "the visual-only composer fixture unexpectedly contains the Release journey",
-          );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length === 5);
+        if ([...ctx.document.querySelectorAll(".nt-row")].some((row) => row.textContent?.includes("Release")))
+          throw new Error("the visual-only composer fixture unexpectedly contains the Release journey");
       },
     },
     // The widget view (Debug Settings `newTab.widgets`, Leo 2026-10-18): soft cards under the create
@@ -550,16 +414,9 @@ export default agentPaneEntry({
       ready: newTab({ widgets: true, projects: WIDGET_PROJECTS }),
       snapshot: noChat(widgetSessions()),
       play: async (ctx) => {
-        await ctx.waitFor(
-          () => ctx.document.querySelectorAll(".nt-widget-chat").length === 3,
-        );
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-chat").length === 3);
         await ctx.click({ text: "cmux" });
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(
-              '.nt-widget-row[aria-pressed="true"]',
-            ) !== null,
-        );
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-widget-row[aria-pressed="true"]') !== null);
       },
     },
     "widgets-off": {
@@ -567,14 +424,8 @@ export default agentPaneEntry({
       ready: newTab({ projects: WIDGET_PROJECTS }),
       snapshot: noChat(widgetSessions()),
       play: async (ctx) => {
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelectorAll(
-              ".nt-cards[data-variant=list] .nt-card",
-            ).length > 0,
-        );
-        if (ctx.document.querySelector(".nt-widgets"))
-          throw new Error("widget cards show with the widget view off");
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length > 0);
+        if (ctx.document.querySelector(".nt-widgets")) throw new Error("widget cards show with the widget view off");
       },
     },
     "widgets-hover": {
@@ -582,15 +433,9 @@ export default agentPaneEntry({
       ready: newTab({ widgets: true, projects: WIDGET_PROJECTS }),
       snapshot: noChat(widgetSessions()),
       play: async (ctx) => {
-        await ctx.waitFor(
-          () => ctx.document.querySelectorAll(".nt-widget-chat").length === 3,
-        );
-        await ctx.hover({
-          selector: ".nt-widget-chat[data-state=failed] .nt-widget-chat-open",
-        });
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".nt-widget-tip") !== null,
-        );
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-chat").length === 3);
+        await ctx.hover({ selector: ".nt-widget-chat[data-state=failed] .nt-widget-chat-open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-widget-tip") !== null);
       },
     },
     "stage-layout": {
@@ -598,20 +443,11 @@ export default agentPaneEntry({
       ready: newTab({ template: "default", projects: WIDGET_PROJECTS }),
       snapshot: noChat(widgetSessions()),
       play: async (ctx) => {
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".nt-stage .nt-env") !== null,
-        );
-        await ctx.waitFor(
-          () => ctx.document.querySelectorAll(".nt-suggest-chat").length > 0,
-        );
-        const composer = ctx.document
-          .querySelector(".nt-composer")!
-          .getBoundingClientRect();
-        const env = ctx.document
-          .querySelector(".nt-env")!
-          .getBoundingClientRect();
-        if (env.bottom > composer.top)
-          throw new Error("the environment card is not above the composer");
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-suggest-chat").length > 0);
+        const composer = ctx.document.querySelector(".nt-composer")!.getBoundingClientRect();
+        const env = ctx.document.querySelector(".nt-env")!.getBoundingClientRect();
+        if (env.bottom > composer.top) throw new Error("the environment card is not above the composer");
       },
     },
     "stage-hover": {
@@ -619,9 +455,7 @@ export default agentPaneEntry({
       ready: newTab({ template: "default", projects: WIDGET_PROJECTS }),
       snapshot: noChat(widgetSessions()),
       play: async (ctx) => {
-        await ctx.waitFor(
-          () => ctx.document.querySelectorAll(".nt-suggest-chat").length > 0,
-        );
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-suggest-chat").length > 0);
         await ctx.hover({ selector: ".nt-suggest-chat" });
         // The card settled: its fade-in ended, so the capture shows the solid card, not a ghost.
         await ctx.waitFor(() => {
@@ -632,14 +466,9 @@ export default agentPaneEntry({
             ctx.document.defaultView?.getComputedStyle(card).opacity === "1"
           );
         });
-        const row = ctx.document
-          .querySelector(".nt-suggest-chat .nt-stage-text")!
-          .getBoundingClientRect();
-        const card = ctx.document
-          .querySelector(".nt-hovercard")!
-          .getBoundingClientRect();
-        if (card.bottom > row.top && card.top < row.bottom)
-          throw new Error("the hover card covers its row's text");
+        const row = ctx.document.querySelector(".nt-suggest-chat .nt-stage-text")!.getBoundingClientRect();
+        const card = ctx.document.querySelector(".nt-hovercard")!.getBoundingClientRect();
+        if (card.bottom > row.top && card.top < row.bottom) throw new Error("the hover card covers its row's text");
       },
     },
     "no-harness-installed": {
@@ -649,20 +478,10 @@ export default agentPaneEntry({
       mockHarnesses: [],
       snapshot: { ...noChat(), catalog: [] },
       play: async (ctx) => {
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".nt-composer .acpmux-add-harness") !==
-            null,
-        );
-        if (ctx.document.querySelector(".nt-no-agent"))
-          throw new Error("a No agent to ask line shows under the field");
-        const chip = ctx.document
-          .querySelector(".nt-composer .acpmux-add-harness")!
-          .getBoundingClientRect();
-        if (chip.height > 32)
-          throw new Error(
-            `the Add harness chip is ${chip.height}px tall, not one chip`,
-          );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-composer .acpmux-add-harness") !== null);
+        if (ctx.document.querySelector(".nt-no-agent")) throw new Error("a No agent to ask line shows under the field");
+        const chip = ctx.document.querySelector(".nt-composer .acpmux-add-harness")!.getBoundingClientRect();
+        if (chip.height > 32) throw new Error(`the Add harness chip is ${chip.height}px tall, not one chip`);
       },
     },
     "typed-over-note": {
@@ -671,54 +490,31 @@ export default agentPaneEntry({
       mockHarnesses: [],
       snapshot: { ...noChat(), catalog: [] },
       play: async (ctx) => {
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".nt-create") !== null,
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-create") !== null);
         await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".nt-popover .nt-row") !== null,
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-popover .nt-row") !== null);
         const popover = ctx.document.querySelector<HTMLElement>(".nt-popover")!;
         const style = ctx.document.defaultView!.getComputedStyle(popover);
-        const alpha =
-          /\/\s*([\d.]+%?)\s*\)$|rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)/.exec(
-            style.backgroundColor,
-          );
+        const alpha = /\/\s*([\d.]+%?)\s*\)$|rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)/.exec(style.backgroundColor);
         const fill = alpha ? (alpha[1] ?? alpha[2])! : "1";
-        const opaque = fill.endsWith("%")
-          ? parseFloat(fill) >= 100
-          : parseFloat(fill) >= 1;
+        const opaque = fill.endsWith("%") ? parseFloat(fill) >= 100 : parseFloat(fill) >= 1;
         if (!opaque || parseFloat(style.opacity) < 1)
           throw new Error(
             `the suggestions show the page through them (${style.backgroundColor}, opacity ${style.opacity})`,
           );
         const cover = popover.getBoundingClientRect();
-        const under = [
-          ...ctx.document.querySelectorAll<HTMLElement>(".nt-create > *"),
-        ].filter((item) => {
+        const under = [...ctx.document.querySelectorAll<HTMLElement>(".nt-create > *")].filter((item) => {
           const rect = item.getBoundingClientRect();
           return (
-            rect.width > 0 &&
-            rect.top < cover.bottom - 2 &&
-            rect.bottom > cover.top &&
-            rect.left < cover.right - 8
+            rect.width > 0 && rect.top < cover.bottom - 2 && rect.bottom > cover.top && rect.left < cover.right - 8
           );
         });
-        if (!under.length)
-          throw new Error(
-            "the suggestions do not reach the create row under the field",
-          );
+        if (!under.length) throw new Error("the suggestions do not reach the create row under the field");
         for (const item of under) {
           const rect = item.getBoundingClientRect();
           const y = Math.min((rect.top + rect.bottom) / 2, cover.bottom - 2);
-          const hit = ctx.document.elementFromPoint(
-            Math.max(rect.left, cover.left) + Math.min(8, rect.width / 2),
-            y,
-          );
-          if (!hit?.closest(".nt-popover"))
-            throw new Error(
-              `"${item.textContent?.trim()}" draws over the suggestions`,
-            );
+          const hit = ctx.document.elementFromPoint(Math.max(rect.left, cover.left) + Math.min(8, rect.width / 2), y);
+          if (!hit?.closest(".nt-popover")) throw new Error(`"${item.textContent?.trim()}" draws over the suggestions`);
         }
       },
     },
@@ -727,14 +523,10 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: noChat(),
       play: async (ctx) => {
-        const page = ctx.document.defaultView as unknown as {
-          cmuxAcpmuxBridge?: { command?(name: string): void };
-        };
+        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { command?(name: string): void } };
         await ctx.waitFor(() => page.cmuxAcpmuxBridge?.command !== undefined);
         page.cmuxAcpmuxBridge?.command?.("showHarnesses");
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".acpmux-harnesses") !== null,
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-harnesses") !== null);
       },
     },
     "chats-filter-open": {
@@ -744,10 +536,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Filter" });
         await ctx.waitFor(
-          () =>
-            ctx.document.querySelectorAll(
-              '.nt-chats-filter-list [role="menuitemradio"]',
-            ).length === 4,
+          () => ctx.document.querySelectorAll('.nt-chats-filter-list [role="menuitemradio"]').length === 4,
         );
       },
     },
@@ -757,34 +546,18 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(14)),
       play: async (ctx) => {
         await ctx.waitFor(() => {
-          const list = ctx.document
-            .querySelector(".nt-all-scroll")
-            ?.getBoundingClientRect();
-          const box = ctx.document
-            .querySelector(".nt-box")
-            ?.getBoundingClientRect();
-          const row = ctx.document
-            .querySelector(".nt-all-item:not(.is-loader)")
-            ?.getBoundingClientRect();
-          return (
-            !!list &&
-            !!box &&
-            !!row &&
-            row.top >= list.top - 1 &&
-            row.top >= box.bottom
-          );
+          const list = ctx.document.querySelector(".nt-all-scroll")?.getBoundingClientRect();
+          const box = ctx.document.querySelector(".nt-box")?.getBoundingClientRect();
+          const row = ctx.document.querySelector(".nt-all-item:not(.is-loader)")?.getBoundingClientRect();
+          return !!list && !!box && !!row && row.top >= list.top - 1 && row.top >= box.bottom;
         });
         // The rows stay inside the list's box after a scroll too (cx-p8ul): every drawn row sits
         // within the scroller, below the field. The scroll is a measured step, so the play reports.
         await ctx.scroll({ selector: ".nt-all-list" }, "bottom");
         if ((ctx.document.querySelector(".nt-all-list")?.scrollTop ?? 0) === 0)
           throw new Error("All chats did not scroll");
-        const list = ctx.document
-          .querySelector(".nt-all-list")!
-          .getBoundingClientRect();
-        const rows = [
-          ...ctx.document.querySelectorAll(".nt-all-item:not(.is-loader)"),
-        ];
+        const list = ctx.document.querySelector(".nt-all-list")!.getBoundingClientRect();
+        const rows = [...ctx.document.querySelectorAll(".nt-all-item:not(.is-loader)")];
         if (rows.length === 0) throw new Error("All chats drew no rows");
         // A row outside the scroller's box must be clipped: the point at its center shows
         // something else (the field, a card), never a row.
@@ -792,20 +565,10 @@ export default agentPaneEntry({
           const rect = row.getBoundingClientRect();
           const x = rect.left + rect.width / 2;
           const y = rect.top + rect.height / 2;
-          const within =
-            y >= list.top &&
-            y <= list.bottom &&
-            x >= list.left &&
-            x <= list.right;
-          return (
-            !within &&
-            !!ctx.document.elementFromPoint(x, y)?.closest(".nt-all-item")
-          );
+          const within = y >= list.top && y <= list.bottom && x >= list.left && x <= list.right;
+          return !within && !!ctx.document.elementFromPoint(x, y)?.closest(".nt-all-item");
         });
-        if (outside.length)
-          throw new Error(
-            `${outside.length} All chats rows draw outside the list`,
-          );
+        if (outside.length) throw new Error(`${outside.length} All chats rows draw outside the list`);
       },
     },
     "long-title": {
@@ -823,9 +586,7 @@ export default agentPaneEntry({
     },
     "from-location": {
       note: "Opened from a web tab: the field holds its address.",
-      ready: newTab({
-        location: "https://github.com/manaflow-ai/cmux/pull/17516",
-      }),
+      ready: newTab({ location: "https://github.com/manaflow-ai/cmux/pull/17516" }),
       snapshot: noChat(manySessions(4)),
     },
     "split-open-tabs": {
@@ -833,13 +594,7 @@ export default agentPaneEntry({
       ready: newTab({
         openTabs: [
           { id: "t1", kind: "terminal", title: "zsh", detail: "~/src/cmux" },
-          {
-            id: "t2",
-            kind: "browser",
-            title: "PR #17516",
-            detail: "github.com/manaflow-ai/cmux",
-            icon: SITE_ICON,
-          },
+          { id: "t2", kind: "browser", title: "PR #17516", detail: "github.com/manaflow-ai/cmux", icon: SITE_ICON },
           { id: "t3", kind: "agent", title: "cmux-next chief" },
         ],
       }),
@@ -854,13 +609,7 @@ export default agentPaneEntry({
       ready: newTab({
         openTabs: [
           { id: "t1", kind: "terminal", title: "zsh", detail: "~/src/cmux" },
-          {
-            id: "t2",
-            kind: "browser",
-            title: "PR #17516",
-            detail: "github.com/manaflow-ai/cmux",
-            icon: SITE_ICON,
-          },
+          { id: "t2", kind: "browser", title: "PR #17516", detail: "github.com/manaflow-ai/cmux", icon: SITE_ICON },
           { id: "t3", kind: "agent", title: "cmux-next chief" },
         ],
       }),
@@ -920,21 +669,14 @@ export default agentPaneEntry({
             available: false,
           },
         ]);
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelectorAll(".nt-closed .nt-open-tab").length ===
-            5,
-        );
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-closed .nt-open-tab").length === 5);
         await ctx.click({ role: "button", name: /PR #17516/ });
         await waitForTabJump(ctx, "closed", "closed:1");
         await ctx.contextMenu({ role: "button", name: /zsh/ });
         await ctx.click({ role: "menuitem", name: "Reopen" });
         await waitForTabJump(ctx, "closed", "closed:2");
-        const unavailable = ctx.find({
-          selector: ".nt-closed .nt-open-tab[disabled]",
-        });
-        if (!(unavailable as HTMLButtonElement).disabled)
-          throw new Error("unavailable closed row is not disabled");
+        const unavailable = ctx.find({ selector: ".nt-closed .nt-open-tab[disabled]" });
+        if (!(unavailable as HTMLButtonElement).disabled) throw new Error("unavailable closed row is not disabled");
       },
     },
     "now-playing": {
@@ -945,31 +687,17 @@ export default agentPaneEntry({
       play: async (ctx) => {
         const bridge = ctx.document.defaultView?.cmuxAcpmuxBridge;
         bridge?.applyNowPlaying?.(nowPlayingTrack(true));
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".nt-player[data-playing=true]") !==
-            null,
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player[data-playing=true]") !== null);
         await ctx.click({ role: "button", name: "Pause" });
         await ctx.waitFor(() =>
           galleryNativeCalls(ctx.document).some(
-            (call) =>
-              call.method === "nowPlaying.command" &&
-              call.params?.command === "playPause",
+            (call) => call.method === "nowPlaying.command" && call.params?.command === "playPause",
           ),
         );
         bridge?.applyNowPlaying?.(nowPlayingTrack(false));
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".nt-player[data-playing=false]") !==
-            null,
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player[data-playing=false]") !== null);
         bridge?.applyNowPlaying?.(nowPlayingTrack(true));
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".nt-player[data-playing=true]") !==
-            null,
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player[data-playing=true]") !== null);
       },
     },
     "now-playing-paused": {
@@ -978,14 +706,8 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(2)),
       native: { "nowPlaying.command": null },
       play: async (ctx) => {
-        ctx.document.defaultView?.cmuxAcpmuxBridge?.applyNowPlaying?.(
-          nowPlayingTrack(false),
-        );
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".nt-player[data-playing=false]") !==
-            null,
-        );
+        ctx.document.defaultView?.cmuxAcpmuxBridge?.applyNowPlaying?.(nowPlayingTrack(false));
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player[data-playing=false]") !== null);
       },
     },
     "now-playing-no-artwork": {
@@ -994,21 +716,13 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(2)),
       native: { "nowPlaying.command": null },
       play: async (ctx) => {
-        const {
-          artwork: _artwork,
-          duration: _duration,
-          ...track
-        } = nowPlayingTrack(true);
+        const { artwork: _artwork, duration: _duration, ...track } = nowPlayingTrack(true);
         ctx.document.defaultView?.cmuxAcpmuxBridge?.applyNowPlaying?.({
           ...track,
           title: "Lo-fi beats to code to",
           artist: "YouTube",
         });
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".nt-player[data-artwork=false]") !==
-            null,
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player[data-artwork=false]") !== null);
       },
     },
     "now-playing-long-title": {
@@ -1021,12 +735,9 @@ export default agentPaneEntry({
           ...nowPlayingTrack(true),
           title:
             "Symphony No. 9 in D Minor, Op. 125 \u201cChoral\u201d: IV. Presto \u2013 Allegro assai \u2013 Alla marcia",
-          artist:
-            "Berliner Philharmoniker, Herbert von Karajan, Gundula Janowitz, Hilde R\u00f6ssel-Majdan",
+          artist: "Berliner Philharmoniker, Herbert von Karajan, Gundula Janowitz, Hilde R\u00f6ssel-Majdan",
         });
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".nt-player") !== null,
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player") !== null);
       },
     },
     "now-playing-menu": {
@@ -1035,19 +746,10 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(2)),
       native: { "nowPlaying.command": null },
       play: async (ctx) => {
-        ctx.document.defaultView?.cmuxAcpmuxBridge?.applyNowPlaying?.({
-          ...nowPlayingTrack(true),
-          canNext: false,
-        });
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".nt-player") !== null,
-        );
+        ctx.document.defaultView?.cmuxAcpmuxBridge?.applyNowPlaying?.({ ...nowPlayingTrack(true), canNext: false });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player") !== null);
         await ctx.contextMenu({ selector: ".nt-player-title" });
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector('.ui-context-menu [role="menuitem"]') !==
-            null,
-        );
+        await ctx.waitFor(() => ctx.document.querySelector('.ui-context-menu [role="menuitem"]') !== null);
       },
     },
     "now-playing-off": {
@@ -1058,9 +760,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         ctx.document.defaultView?.cmuxAcpmuxBridge?.applyNowPlaying?.(null);
         await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".nt-screen") !== null &&
-            ctx.document.querySelector(".nt-player") === null,
+          () => ctx.document.querySelector(".nt-screen") !== null && ctx.document.querySelector(".nt-player") === null,
         );
       },
     },
@@ -1072,22 +772,16 @@ export default agentPaneEntry({
       play: async (ctx) => {
         const bridge = ctx.document.defaultView?.cmuxAcpmuxBridge;
         bridge?.applyNowPlaying?.(nowPlayingTrack(true));
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".nt-player") !== null,
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player") !== null);
         await ctx.contextMenu({ selector: ".nt-player-title" });
         await ctx.click({ role: "menuitem", name: "Hide Now Playing" });
         await ctx.waitFor(() =>
           galleryNativeCalls(ctx.document).some(
-            (call) =>
-              call.method === "nowPlaying.command" &&
-              call.params?.command === "hide",
+            (call) => call.method === "nowPlaying.command" && call.params?.command === "hide",
           ),
         );
         bridge?.applyNowPlaying?.(null);
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".nt-player-note") !== null,
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player-note") !== null);
       },
     },
     "typed-prompt": {
@@ -1104,11 +798,7 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await ctx.type("rust serde", { selector: ".nt-field" });
-        await ctx.waitFor(() =>
-          ctx.document.querySelector(
-            '#nt-row-0[data-type="search"][aria-selected="true"]',
-          ),
-        );
+        await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="search"][aria-selected="true"]'));
       },
     },
     "typed-question": {
@@ -1116,14 +806,8 @@ export default agentPaneEntry({
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
-        await ctx.type("why does the upload test flake?", {
-          selector: ".nt-field",
-        });
-        await ctx.waitFor(() =>
-          ctx.document.querySelector(
-            '#nt-row-0[data-type="ask"][aria-selected="true"]',
-          ),
-        );
+        await ctx.type("why does the upload test flake?", { selector: ".nt-field" });
+        await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="ask"][aria-selected="true"]'));
       },
     },
     "typed-tab-match-stage": {
@@ -1152,21 +836,8 @@ export default agentPaneEntry({
       note: "Workspace switch review: type Release, choose the workspace suggestion, and wait for the native jump receipt. The play runner records settle time, layout shift, and long frames for this transition.",
       ready: newTab({
         omnibar: {
-          tabs: [
-            {
-              id: "tab-release",
-              kind: "browser",
-              title: "Release notes",
-              detail: "cmux.dev",
-            },
-          ],
-          workspaces: [
-            {
-              id: "workspace-release",
-              name: "Release",
-              detail: "~/src/release",
-            },
-          ],
+          tabs: [{ id: "tab-release", kind: "browser", title: "Release notes", detail: "cmux.dev" }],
+          workspaces: [{ id: "workspace-release", name: "Release", detail: "~/src/release" }],
           folders: [CWD],
           commands: [],
           history: [],
@@ -1176,12 +847,8 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.type("Release", { selector: ".nt-field" });
         await ctx.waitFor(() =>
-          [
-            ...ctx.document.querySelectorAll<HTMLElement>('[role="option"]'),
-          ].some(
-            (row) =>
-              row.dataset.type === "workspace" &&
-              row.textContent?.includes("Release"),
+          [...ctx.document.querySelectorAll<HTMLElement>('[role="option"]')].some(
+            (row) => row.dataset.type === "workspace" && row.textContent?.includes("Release"),
           ),
         );
         await ctx.click({ role: "option", name: /^Release\s+~\/src\/release/ });
@@ -1193,28 +860,10 @@ export default agentPaneEntry({
       ready: newTab({
         omnibar: {
           tabs: [
-            {
-              id: "tab-blank",
-              kind: "browser",
-              title: "about:blank",
-              detail: "about:blank",
-              workspace: "workspace-3",
-            },
-            {
-              id: "tab-1",
-              kind: "browser",
-              title: "Reddit API docs",
-              detail: "reddit.com/dev/api",
-              icon: SITE_ICON,
-            },
+            { id: "tab-blank", kind: "browser", title: "about:blank", detail: "about:blank", workspace: "workspace-3" },
+            { id: "tab-1", kind: "browser", title: "Reddit API docs", detail: "reddit.com/dev/api", icon: SITE_ICON },
           ],
-          workspaces: [
-            {
-              id: "workspace-1",
-              name: "reddit-scraper",
-              detail: "~/src/reddit-scraper",
-            },
-          ],
+          workspaces: [{ id: "workspace-1", name: "reddit-scraper", detail: "~/src/reddit-scraper" }],
           folders: [CWD],
           commands: [],
           history: [{ url: "about:blank" }],
@@ -1222,17 +871,10 @@ export default agentPaneEntry({
       }),
       snapshot: noChat(manySessions(3)),
       checks: {
-        popupLayer: {
-          value: true,
-          reason: "The omnibar's popover floats above the page sections.",
-        },
+        popupLayer: { value: true, reason: "The omnibar's popover floats above the page sections." },
         // The page never moves (typed-prompt holds it at 0); here the popover's own rows move as
         // "red" brings reddit.com in on top, as any omnibar's list does while you type.
-        layoutShiftMax: {
-          value: 0.02,
-          reason:
-            "Only the popover's rows reorder while typing; the page stays put.",
-        },
+        layoutShiftMax: { value: 0.02, reason: "Only the popover's rows reorder while typing; the page stays put." },
       },
       play: async (ctx) => {
         await ctx.type("reddit", { selector: ".nt-field" });
@@ -1252,13 +894,7 @@ export default agentPaneEntry({
               workspace: "workspace-1",
               icon: SITE_ICON,
             },
-            {
-              id: "tab-redis",
-              kind: "browser",
-              title: "Redis docs",
-              detail: "redis.io/docs",
-              workspace: "notes",
-            },
+            { id: "tab-redis", kind: "browser", title: "Redis docs", detail: "redis.io/docs", workspace: "notes" },
           ],
           workspaces: [],
           folders: [CWD],
@@ -1269,44 +905,22 @@ export default agentPaneEntry({
               title: "Reddit - The heart of the internet",
               icon: SITE_ICON,
             },
-            {
-              url: "https://www.reddit.com/",
-              title: "Reddit",
-              icon: SITE_ICON,
-            },
-            {
-              url: "https://www.redblobgames.com/",
-              title: "Red Blob Games",
-              icon: OTHER_SITE_ICON,
-            },
+            { url: "https://www.reddit.com/", title: "Reddit", icon: SITE_ICON },
+            { url: "https://www.redblobgames.com/", title: "Red Blob Games", icon: OTHER_SITE_ICON },
           ],
         },
       }),
       snapshot: noChat(manySessions(3)),
       checks: {
-        popupLayer: {
-          value: true,
-          reason: "The suggestions float above the page sections.",
-        },
-        layoutShiftMax: {
-          value: 0.02,
-          reason:
-            "Only the popover's rows reorder while typing; the page stays put.",
-        },
+        popupLayer: { value: true, reason: "The suggestions float above the page sections." },
+        layoutShiftMax: { value: 0.02, reason: "Only the popover's rows reorder while typing; the page stays put." },
       },
       play: async (ctx) => {
         await ctx.type("red", { selector: ".nt-field" });
         await ctx.waitFor(() => {
-          const titles = [
-            ...ctx.document.querySelectorAll(".nt-row-title"),
-          ].map((node) => node.textContent);
-          const first = ctx.document.querySelector(
-            '.nt-row[data-type="tab"] .nt-row-title',
-          );
-          return (
-            titles.filter((title) => title?.startsWith("Reddit")).length ===
-              1 && first?.textContent === "Reddit"
-          );
+          const titles = [...ctx.document.querySelectorAll(".nt-row-title")].map((node) => node.textContent);
+          const first = ctx.document.querySelector('.nt-row[data-type="tab"] .nt-row-title');
+          return titles.filter((title) => title?.startsWith("Reddit")).length === 1 && first?.textContent === "Reddit";
         });
       },
     },
@@ -1321,8 +935,7 @@ export default agentPaneEntry({
         await ctx.waitFor(
           () =>
             !ctx.document.querySelector(".nt-popover") &&
-            ctx.document.querySelector<HTMLInputElement>(".nt-field")?.value ===
-              "reddit",
+            ctx.document.querySelector<HTMLInputElement>(".nt-field")?.value === "reddit",
         );
       },
     },
@@ -1340,17 +953,8 @@ export default agentPaneEntry({
       ready: newTab({
         location: "release notes",
         omnibar: {
-          tabs: [
-            {
-              id: "tab-1",
-              kind: "browser",
-              title: "Release notes",
-              detail: "cmux.dev",
-            },
-          ],
-          workspaces: [
-            { id: "workspace-1", name: "Docs", detail: "~/src/docs" },
-          ],
+          tabs: [{ id: "tab-1", kind: "browser", title: "Release notes", detail: "cmux.dev" }],
+          workspaces: [{ id: "workspace-1", name: "Docs", detail: "~/src/docs" }],
           folders: [CWD],
           commands: ["bun test"],
           history: [{ url: "https://cmux.dev/docs", title: "cmux docs" }],
@@ -1363,11 +967,7 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
-        await ctx.waitFor(() =>
-          ctx.document.querySelector(
-            ".nt-pickers .acpmux-mic-menu:has(.acpmux-mic) + .nt-send",
-          ),
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-pickers .acpmux-mic-menu:has(.acpmux-mic) + .nt-send"));
       },
     },
     "dictation-menu": {
@@ -1375,31 +975,17 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
       checks: {
-        popupLayer: {
-          value: true,
-          reason:
-            "The mic's menu must be above the New Tab page and fully visible.",
-        },
-        layoutShiftMax: {
-          value: 0,
-          reason: "Opening the mic's menu must not move the page.",
-        },
+        popupLayer: { value: true, reason: "The mic's menu must be above the New Tab page and fully visible." },
+        layoutShiftMax: { value: 0, reason: "Opening the mic's menu must not move the page." },
       },
       play: async (ctx) => {
         const mic = ctx.find({ selector: ".nt-pickers .acpmux-mic" });
         const box = mic.getBoundingClientRect();
         mic.dispatchEvent(
-          new MouseEvent("contextmenu", {
-            bubbles: true,
-            cancelable: true,
-            clientX: box.left,
-            clientY: box.bottom,
-          }),
+          new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left, clientY: box.bottom }),
         );
         await ctx.waitFor(
-          () =>
-            ctx.document.querySelector('[role="menuitem"]')?.textContent ===
-            "Hide Dictation Button",
+          () => ctx.document.querySelector('[role="menuitem"]')?.textContent === "Hide Dictation Button",
         );
       },
     },
@@ -1408,38 +994,22 @@ export default agentPaneEntry({
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
       checks: {
-        popupLayer: {
-          value: true,
-          reason:
-            "The row's menu must be above the New Tab page and fully visible.",
-        },
-        layoutShiftMax: {
-          value: 0.1,
-          reason: "Hiding the mic only closes its 24px gap beside Send.",
-        },
+        popupLayer: { value: true, reason: "The row's menu must be above the New Tab page and fully visible." },
+        layoutShiftMax: { value: 0.1, reason: "Hiding the mic only closes its 24px gap beside Send." },
       },
       play: async (ctx) => {
         const rightClick = (element: Element) => {
           const box = element.getBoundingClientRect();
           element.dispatchEvent(
-            new MouseEvent("contextmenu", {
-              bubbles: true,
-              cancelable: true,
-              clientX: box.left,
-              clientY: box.bottom,
-            }),
+            new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left, clientY: box.bottom }),
           );
         };
         const item = (label: string) =>
-          [
-            ...ctx.document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-          ].find((row) => row.textContent === label);
+          [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((row) => row.textContent === label);
         rightClick(ctx.find({ selector: ".nt-pickers .acpmux-mic" }));
         await ctx.waitFor(() => item("Hide Dictation Button"));
         item("Hide Dictation Button")!.click();
-        await ctx.waitFor(
-          () => !ctx.document.querySelector(".nt-pickers .acpmux-mic"),
-        );
+        await ctx.waitFor(() => !ctx.document.querySelector(".nt-pickers .acpmux-mic"));
         rightClick(ctx.find({ selector: ".nt-pickers .nt-send" }));
         await ctx.waitFor(() => item("Show Dictation Button"));
       },
@@ -1455,9 +1025,7 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(6)),
       play: async (ctx) => {
         await ctx.type("rust serde", { selector: ".nt-field" });
-        await ctx.waitFor(() =>
-          ctx.document.querySelector('#nt-row-0[data-type="search"]'),
-        );
+        await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="search"]'));
       },
     },
     "template-composer": {
@@ -1506,40 +1074,24 @@ export default agentPaneEntry({
       ready: newTab({ template: "default" }),
       snapshot: noChat(manySessions(4)),
       play: async (ctx) => {
-        await ctx.waitFor(() =>
-          ctx.document.querySelector(".nt-style input[value=default]:checked"),
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-style input[value=default]:checked"));
         await ctx.click({ role: "radio", name: "Threads" });
         await ctx.waitFor(() =>
           galleryNativeCalls(ctx.document).some(
-            (call) =>
-              call.method === "newTab.setTemplate" &&
-              call.params?.template === "threads",
+            (call) => call.method === "newTab.setTemplate" && call.params?.template === "threads",
           ),
         );
-        await ctx.waitFor(() =>
-          ctx.document.querySelector(".nt-style input[value=threads]:checked"),
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-style input[value=threads]:checked"));
       },
     },
     "no-template-dots": {
       note: "New Tab shows no template dots and no default-kind toggle: the template is set in Settings, and a terminal opens only when picked (Leo 2026-10-12). The host payload is what it sent before, dots on.",
-      ready: newTab({
-        template: "classic",
-        templateSwitcher: true,
-        defaultKind: "terminal",
-      }),
+      ready: newTab({ template: "classic", templateSwitcher: true, defaultKind: "terminal" }),
       snapshot: noChat(manySessions(4)),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-newtab"));
-        if (
-          ctx.document.querySelector(
-            '.nt-templates, input[name="nt-template"], .acpmux-newtab-default',
-          )
-        )
-          throw new Error(
-            "the New Tab page still shows template dots or the default-kind toggle",
-          );
+        if (ctx.document.querySelector('.nt-templates, input[name="nt-template"], .acpmux-newtab-default'))
+          throw new Error("the New Tab page still shows template dots or the default-kind toggle");
       },
     },
   }),

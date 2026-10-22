@@ -13,14 +13,7 @@
 //
 // Real Chromium and WebKit on the gallery stage. CI fails the file when it cannot launch them
 // (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/composer-bottom-space.test.ts
-import {
-  afterAll,
-  beforeAll,
-  describe,
-  expect,
-  setDefaultTimeout,
-  test,
-} from "bun:test";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
@@ -45,13 +38,7 @@ await requireBrowserLane("composer-bottom-space.test.ts", async () => {
     return;
   }
 
-  type Stage = {
-    name: string;
-    entry: string;
-    variant: string;
-    pane: string;
-    height: number;
-  };
+  type Stage = { name: string; entry: string; variant: string; pane: string; height: number };
   const STAGES: Stage[] = [
     {
       name: "chat pane, idle",
@@ -90,15 +77,11 @@ await requireBrowserLane("composer-bottom-space.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    for (const [name, engine] of engines)
-      browsers.set(name, await engine.launch({ headless: true }));
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
     const browser = browsers.get("chromium") ?? browsers.get("webkit");
     // The first load can run Vite's dependency optimizer and reload mid-compile.
     for (const stage of [...STAGES, dotsStage])
-      await warmGalleryFrame(vite, stage.entry, {
-        browser,
-        params: { variant: stage.variant },
-      });
+      await warmGalleryFrame(vite, stage.entry, { browser, params: { variant: stage.variant } });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
@@ -109,27 +92,16 @@ await requireBrowserLane("composer-bottom-space.test.ts", async () => {
     for (const stage of STAGES)
       for (const width of [420, 760])
         test(`${engine}: ${stage.name} at ${width} px: the quiet row sits a few px over the pane's bottom edge`, async () => {
-          const page = await browsers
-            .get(engine)!
-            .newPage({ viewport: { width, height: stage.height } });
+          const page = await browsers.get(engine)!.newPage({ viewport: { width, height: stage.height } });
           await page.goto(stageURL(stage));
-          await page.waitForFunction(
-            () => document.documentElement.dataset.galleryReady === "1",
-            undefined,
-            {
-              timeout: 120_000,
-            },
-          );
-          await page
-            .locator(".acpmux-composer-foot button:visible")
-            .first()
-            .waitFor();
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+            timeout: 120_000,
+          });
+          await page.locator(".acpmux-composer-foot button:visible").first().waitFor();
           await page.evaluate(() => document.fonts.ready);
           const drawn = await page.evaluate((paneSelector) => {
             const foot = document.querySelector(".acpmux-composer-foot")!;
-            const pane = document
-              .querySelector(paneSelector)!
-              .getBoundingClientRect();
+            const pane = document.querySelector(paneSelector)!.getBoundingClientRect();
             const edge = Math.min(pane.bottom, window.innerHeight);
             const controls = [...foot.querySelectorAll("button")]
               .map((button) => button.getBoundingClientRect())
@@ -140,18 +112,9 @@ await requireBrowserLane("composer-bottom-space.test.ts", async () => {
             };
           }, stage.pane);
           await page.close();
-          expect(
-            drawn.row,
-            "the row ends inside the pane",
-          ).toBeGreaterThanOrEqual(-0.5);
-          expect(
-            drawn.row,
-            "a few px under the row, as Claude Code's",
-          ).toBeLessThanOrEqual(6);
-          expect(
-            drawn.controls,
-            "room for a control's focus outline",
-          ).toBeGreaterThanOrEqual(2);
+          expect(drawn.row, "the row ends inside the pane").toBeGreaterThanOrEqual(-0.5);
+          expect(drawn.row, "a few px under the row, as Claude Code's").toBeLessThanOrEqual(6);
+          expect(drawn.controls, "room for a control's focus outline").toBeGreaterThanOrEqual(2);
         });
 
   // The template dots (a widget, off by default) sit absolutely at the page's foot: with them on,
@@ -165,33 +128,18 @@ await requireBrowserLane("composer-bottom-space.test.ts", async () => {
   };
   for (const [engine] of engines)
     test(`${engine}: ${dotsStage.name}: the quiet row stays clear of the dots`, async () => {
-      const page = await browsers
-        .get(engine)!
-        .newPage({ viewport: { width: 760, height: dotsStage.height } });
+      const page = await browsers.get(engine)!.newPage({ viewport: { width: 760, height: dotsStage.height } });
       await page.goto(stageURL(dotsStage));
-      await page.waitForFunction(
-        () => document.documentElement.dataset.galleryReady === "1",
-        undefined,
-        {
-          timeout: 120_000,
-        },
-      );
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+        timeout: 120_000,
+      });
       await page.locator(".nt-style").waitFor();
-      await page
-        .locator(".acpmux-composer-foot button:visible")
-        .first()
-        .waitFor();
+      await page.locator(".acpmux-composer-foot button:visible").first().waitFor();
       const drawn = await page.evaluate(() => ({
-        foot: document
-          .querySelector(".acpmux-composer-foot")!
-          .getBoundingClientRect().bottom,
-        dots: document
-          .querySelector(".nt-style-options, .nt-style")!
-          .getBoundingClientRect().top,
+        foot: document.querySelector(".acpmux-composer-foot")!.getBoundingClientRect().bottom,
+        dots: document.querySelector(".nt-style-options, .nt-style")!.getBoundingClientRect().top,
       }));
       await page.close();
-      expect(drawn.foot, "the row ends over the dots").toBeLessThanOrEqual(
-        drawn.dots + 0.5,
-      );
+      expect(drawn.foot, "the row ends over the dots").toBeLessThanOrEqual(drawn.dots + 0.5);
     });
 });
