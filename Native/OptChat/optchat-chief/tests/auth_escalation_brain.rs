@@ -125,7 +125,11 @@ fn the_shipped_skill_installs_once_and_a_user_copy_is_kept() {
     let written = skills::install_builtin(&shared).unwrap();
     assert_eq!(
         written,
-        vec!["chief-auth-escalation".to_owned(), "cmux-setup".to_owned()]
+        vec![
+            "chief-auth-escalation".to_owned(),
+            "cmux-adoption".to_owned(),
+            "cmux-setup".to_owned()
+        ]
     );
     let path = shared.join("chief-auth-escalation").join("SKILL.md");
     let text = std::fs::read_to_string(&path).unwrap();
