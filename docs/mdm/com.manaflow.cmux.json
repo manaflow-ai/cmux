@@ -1193,12 +1193,6 @@
       "title" : "Theme Edits",
       "type" : "object"
     },
-    "appearance.wallpaperTint" : {
-      "default" : true,
-      "description" : "The glass takes the colors of your desktop picture and follows it when the picture or Space changes.",
-      "title" : "Tint with Desktop Wallpaper",
-      "type" : "boolean"
-    },
     "browser.agentMouse.maxMoveMs" : {
       "default" : 350,
       "description" : "The longest time one agent pointer move takes with human motion. Short moves take less.",
@@ -3399,6 +3393,12 @@
       "default" : true,
       "description" : "On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only.",
       "title" : "Show All Chats on New Tab",
+      "type" : "boolean"
+    },
+    "sidebar.showLocalMachine" : {
+      "default" : false,
+      "description" : "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too.",
+      "title" : "Mark This Mac's Workspaces",
       "type" : "boolean"
     },
     "sidebar.showProfileControl" : {

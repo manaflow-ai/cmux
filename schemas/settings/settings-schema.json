@@ -400,8 +400,7 @@
               "appearance.paneBackgrounds",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur",
-              "appearance.inactiveWindowDim",
-              "appearance.wallpaperTint"
+              "appearance.inactiveWindowDim"
             ],
             "title" : {
               "key" : "settings.group.windowBackground",
@@ -463,6 +462,7 @@
               "sidebar.density",
               "sidebar.detailedStatusIcons",
               "sidebar.showTimestamps",
+              "sidebar.showLocalMachine",
               "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount",
               "sidebar.minimalMode",
@@ -900,7 +900,8 @@
         "id" : "chief",
         "lead" : [
           "chiefs",
-          "chiefPet"
+          "chiefPet",
+          "voiceInput"
         ],
         "symbol" : "crown",
         "title" : {
@@ -11290,58 +11291,6 @@
     },
     {
       "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.windowBackground",
-        "text" : "Window Background"
-      },
-      "help" : {
-        "key" : "settings.appearance.wallpaperTint.help",
-        "text" : "The glass takes the colors of your desktop picture and follows it when the picture or Space changes."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.wallpaperTint",
-      "keywords" : [
-        "wallpaper",
-        "desktop",
-        "tint",
-        "tinting",
-        "glass",
-        "color",
-        "colour",
-        "space",
-        "background"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "appearance",
-        "wallpaperTint"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.appearance.wallpaperTint",
-        "text" : "Tint with Desktop Wallpaper"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         0,
         1,
         0.5
@@ -21606,6 +21555,58 @@
       "title" : {
         "key" : "settings.sidebar.showTimestamps",
         "text" : "Show Timestamps"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showLocalMachine.help",
+        "text" : "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showLocalMachine",
+      "keywords" : [
+        "sidebar",
+        "machine",
+        "computer",
+        "this mac",
+        "local",
+        "icon",
+        "color",
+        "remote",
+        "identity"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showLocalMachine"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.showLocalMachine",
+        "text" : "Mark This Mac's Workspaces"
       },
       "validation" : "portable"
     },
