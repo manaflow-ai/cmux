@@ -176,6 +176,9 @@ export type AgentPaneVariant = VariantBase & {
   /** `<html data-*>` attributes the app sets at document start for Debug Settings choices
    *  (AgentPaneTunables `documentAttributes`), by name without `data-`: `{ "needs-you": "off" }`. */
   documentAttributes?: Record<string, string>;
+  /** The host's `display` event (Swift AgentPaneDisplaySetting, chatDisplay.ts): cmux.json's
+   *  `agentPane.display.*` values by dotted key, `{ "agentPane.display.composer.style": "codex" }`. */
+  display?: Record<string, unknown>;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */
