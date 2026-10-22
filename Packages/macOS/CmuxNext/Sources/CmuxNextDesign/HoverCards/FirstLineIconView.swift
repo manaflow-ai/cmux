@@ -21,6 +21,13 @@ public final class FirstLineIconView: NSImageView {
         cell?.setAccessibilityElement(false)
     }
 
+    /// AppKit's own path (`initWithFrame:`): a side the size of the frame's height.
+    public override init(frame: NSRect) {
+        side = frame.height
+        super.init(frame: frame)
+        cell?.setAccessibilityElement(false)
+    }
+
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 

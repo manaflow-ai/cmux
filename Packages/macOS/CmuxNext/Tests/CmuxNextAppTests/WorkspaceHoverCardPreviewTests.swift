@@ -82,6 +82,23 @@ import Testing
         #expect(card.facts.first { $0.kind == "branch" }?.text == "cmux-next · fix/card")
     }
 
+    @Test(arguments: [("~/wt/glass-regressions--hover-card-polish", "glass-regressions/hover-card-polish"),
+                      ("~/wt/fix-card", "lane/fix-card"), ("~/code/Fix_Card", "fix-card")])
+    func aWorktreeNamedAfterItsBranchReadsAsTheBranch(_ directory: String, _ branch: String) {
+        let card = Self.card(Self.chat { $0.directory = directory; $0.branch = branch })
+        #expect(card.facts.first { $0.kind == "branch" }?.text == branch)
+    }
+
+    @Test func portsNeverLandUnderThePreview() throws {
+        let badge = Self.badge([Self.item(9, .passing, createdAt: "2026-10-21T10:00:00Z")])
+        var options = WorkspaceHoverCardOptions()
+        options.layout = .classic
+        let card = Self.card(Self.chat { $0.ports = ":3000"; $0.branch = "main"; $0.directory = "~/code/site" },
+                             pullRequests: badge, options: options)
+        #expect(card.facts.contains { $0.kind == "ports" })
+        #expect(try #require(card.facts.last).isPreview, "kinds: \(card.facts.map(\.kind))")
+    }
+
     @Test func aBranchInTheHomeFolderReadsAsTheBranch() {
         let card = Self.card(Self.chat { $0.branch = "main" })
         #expect(card.facts.first { $0.kind == "branch" }?.text == "main")
@@ -119,19 +136,25 @@ import Testing
         #expect(card.facts.first?.kind == "needsInput")
         #expect(card.facts.first?.iconTone == .attention)
 
+        // A wait with no reason: the last reply is the question, its icon in the wait's color.
         let waiting = Self.chat { $0.activity = .waiting(kind: nil) }
         #expect(WorkspaceHoverCardContent.preview(waiting, pullRequests: nil) == .needsYou)
-        #expect(!Self.card(waiting).facts.contains { $0.kind == WorkspaceHoverCardContent.Fact.lastReplyKind })
+        let question = Self.card(waiting).facts.last
+        #expect(question?.kind == WorkspaceHoverCardContent.Fact.lastReplyKind && question?.iconTone == .attention)
+        #expect(question?.text == waiting.lastMessage && question?.isPreview == true)
 
-        // A chip that needs the person, with no reason and no waiting status row: the preview says so.
-        let chip = Self.chat { $0.agentChip = .needsYou }
+        // A chip that needs the person, with no reason, no reply and no waiting status row: the
+        // preview says so, in the wait's color.
+        let chip = Self.chat { $0.agentChip = .needsYou; $0.lastMessage = nil }
         #expect(WorkspaceHoverCardContent.preview(chip, pullRequests: nil) == .needsYou)
         let last = Self.card(chip).facts.last
         #expect(last?.kind == WorkspaceHoverCardContent.needsYouKind && last?.iconTone == .attention && last?.isPreview == true)
-        #expect(last?.text == CmuxNextSidebar.Strings.priorityNeedsYou)
+        #expect(last?.ink == .attention && last?.text == CmuxNextSidebar.Strings.priorityNeedsYou)
         // With a reason or a waiting status row, it is said already: no second line.
         #expect(!Self.card(reason).facts.contains { $0.kind == WorkspaceHoverCardContent.needsYouKind })
         #expect(!Self.card(waiting).facts.contains { $0.kind == WorkspaceHoverCardContent.needsYouKind })
+        #expect(!Self.card(Self.chat { $0.activity = .waiting(kind: nil); $0.lastMessage = nil }).facts
+            .contains { $0.kind == WorkspaceHoverCardContent.needsYouKind })
     }
 
     @Test func aWaitWinsOverAPullRequest() {

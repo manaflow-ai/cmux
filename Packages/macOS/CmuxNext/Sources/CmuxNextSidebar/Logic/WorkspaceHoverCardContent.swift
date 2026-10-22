@@ -108,7 +108,7 @@ struct WorkspaceHoverCardContent: Equatable {
         }
         if !options.showsGit { card.facts.removeAll { $0.kind == "branch" || $0.kind == "pullRequest" } }
         if options.showsPorts, let ports = workspace.ports, !ports.isEmpty {
-            let at = card.facts.firstIndex { $0.kind == "machine" || $0.kind == "status" || $0.kind == "more" || $0.kind == Fact.lastReplyKind }
+            let at = card.facts.firstIndex { $0.kind == "machine" || $0.kind == "status" || $0.kind == "more" || $0.isPreview }
             card.facts.insert(Fact(icon: .network, text: ports, kind: "ports"), at: at ?? card.facts.count)
         }
         if !options.showsTimings {
@@ -255,11 +255,16 @@ struct WorkspaceHoverCardContent: Equatable {
         case .message(let message):
             facts.append(Fact(icon: .agentChatList, text: message, lines: 2, kind: Fact.lastReplyKind, isPreview: true))
         case .needsYou:
-            // A chat that needs the person with no reason given and no waiting status row: the
-            // preview says so, in the wait's color.
-            if detail.needsInput == nil, !workspace.activity.waitsForPerson {
-                facts.append(Fact(icon: .statusNeedsinput, text: Strings.priorityNeedsYou, kind: needsYouKind, iconTone: .attention,
+            // A wait whose reason the first row gives says it already. Without one, the last reply
+            // is usually the question: it shows, its icon in the wait's color. Without either, a
+            // chat whose chip needs the person and no waiting status row says "Needs you".
+            guard detail.needsInput == nil else { break }
+            if let message = lastReply(workspace) {
+                facts.append(Fact(icon: .agentChatList, text: message, lines: 2, kind: Fact.lastReplyKind, iconTone: .attention,
                                   isPreview: true))
+            } else if !workspace.activity.waitsForPerson {
+                facts.append(Fact(icon: .statusNeedsinput, text: Strings.priorityNeedsYou, kind: needsYouKind, ink: .attention,
+                                  iconTone: .attention, isPreview: true))
             }
         case .empty:
             break
@@ -273,8 +278,8 @@ struct WorkspaceHoverCardContent: Equatable {
     /// What the card's last line says (Leo 2026-10-21): the latest meaningful status, and the
     /// agent chat's raw last reply only when there is none.
     enum Preview: Equatable {
-        /// The workspace waits on the person: the first row says why (or the status row that it
-        /// waits), so no reply shows under it.
+        /// The workspace waits on the person: the first row says why, else the last reply (the
+        /// question) shows with the wait's color.
         case needsYou
         /// Its pull request, in its state's color.
         case pullRequest
@@ -293,11 +298,15 @@ struct WorkspaceHoverCardContent: Equatable {
         if workspace.detail.needsInput != nil || workspace.agentChip == .needsYou { return .needsYou }
         if workspace.activity.waitsForPerson { return .needsYou }
         if showsGit, newestPullRequest(pullRequests) != nil || workspace.pullRequest?.isEmpty == false { return .pullRequest }
-        if workspace.detail.task == nil, let message = workspace.lastMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !message.isEmpty {
-            return .message(message)
-        }
+        if let message = lastReply(workspace) { return .message(message) }
         return .empty
+    }
+
+    /// The agent chat's last reply worth a line: none while a task says more.
+    private static func lastReply(_ workspace: SidebarWorkspace) -> String? {
+        guard workspace.detail.task == nil, let message = workspace.lastMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !message.isEmpty else { return nil }
+        return message
     }
 
     /// The card's fields for the user's card (`ctx.card`).
@@ -379,17 +388,10 @@ struct WorkspaceHoverCardContent: Equatable {
         }
     }
 
-    /// The folder's own name: "~/Projects/site" reads "site", and the home
-    /// folder reads as its name, not "~".
-    static func folderName(_ directory: String) -> String {
-        let path = (directory as NSString).expandingTildeInPath
-        let name = (path as NSString).lastPathComponent
-        return name.isEmpty ? directory : name
-    }
-
     /// The folder worth a line: its own name, or nil for none, `~`, `home` (this Mac's home
     /// folder), a remote machine's home (`/home/<user>`, `/Users/<user>`, `/root`) or `/`. A
-    /// workspace that never left home says nothing by naming the user (Leo 2026-10-21).
+    /// workspace that never left home says nothing by naming the user (Leo 2026-10-21). Any
+    /// `/Users/<name>` counts, `/Users/Shared` too: a folder one level under `/Users` is a home.
     static func meaningfulFolder(_ directory: String?, home: String = NSHomeDirectory()) -> String? {
         guard var path = directory?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else { return nil }
         if path == "~" || path.hasPrefix("~/") { path = (home as NSString).appendingPathComponent(String(path.dropFirst())) }
@@ -403,12 +405,17 @@ struct WorkspaceHoverCardContent: Equatable {
     /// The repository's name ("cmux"): the newest pull request's (`owner/repo`), else the folder's
     /// when the workspace is on a branch (a checkout's folder is its repository); nil when neither
     /// says.
+    /// A worktree's folder named after its branch ("lane--fix-card" on `lane/fix-card`) says the
+    /// branch twice, so it names nothing.
     static func repositoryName(pullRequests: SidebarPullRequestBadge?, folder: String?, branch: String?) -> String? {
         if let repository = newestPullRequest(pullRequests)?.repository, let name = repository.split(separator: "/").last, !name.isEmpty {
             return String(name)
         }
-        guard branch?.isEmpty == false else { return nil }
-        return folder
+        guard let branch, !branch.isEmpty, let folder else { return nil }
+        func letters(_ text: some StringProtocol) -> String { String(text.lowercased().filter { $0.isLetter || $0.isNumber }) }
+        let name = letters(folder)
+        let branchNames = [letters(branch), branch.split(separator: "/").last.map { letters($0) }].compactMap { $0 }
+        return branchNames.contains(name) ? nil : folder
     }
 
     /// Where the workspace works, as one line: "cmux · feat-cmux-next" on a branch, the folder
