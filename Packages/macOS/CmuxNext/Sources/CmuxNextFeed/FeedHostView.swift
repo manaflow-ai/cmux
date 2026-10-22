@@ -14,16 +14,26 @@ public final class FeedHostView: NSView {
     public let model: FeedModel
     let appearanceState = FeedAppearance()
 
-    /// `floating`: the host is a panel of its own (the Feed panel), with no
-    /// pane under it, so it paints the content background itself; as a page
-    /// tab it paints the pane's fill (`Palette.paneFill`).
-    let floating: Bool
+    /// Where the feed is shown, which decides the ground it paints.
+    public enum Surface: Sendable {
+        /// A page tab: the pane's fill (`Palette.paneFill`) under the list.
+        case page
+        /// The Feed panel, a window of its own with no pane under it: the content background.
+        case panel
+        /// A right sidebar section: no ground of its own, the sidebar's shows through.
+        case sidebar
+    }
 
-    /// `layoutOverride` pins a prototype (demos and screenshots); nil
-    /// follows the Debug Settings switch `feed.layout`.
-    public init(model: FeedModel, layoutOverride: FeedLayout? = nil, floating: Bool = false) {
+    /// Where this host is shown (``Surface``).
+    let surface: Surface
+
+    /// - Parameters:
+    ///   - model: The feed.
+    ///   - layoutOverride: Pins a prototype (demos and screenshots); nil follows the Debug Settings switch `feed.layout`.
+    ///   - surface: Where the feed is shown; a page tab by default.
+    public init(model: FeedModel, layoutOverride: FeedLayout? = nil, surface: Surface = .page) {
         self.model = model
-        self.floating = floating
+        self.surface = surface
         super.init(frame: .zero)
         wantsLayer = true
         let root = FeedRoot(model: model, appearance: appearanceState, layoutOverride: layoutOverride)
@@ -51,8 +61,12 @@ public final class FeedHostView: NSView {
 
     private func resolveColors() {
         let colors = performWithTheme {
-            let background = floating ? Palette.contentBackground : (Palette.surfaceOverride(.internalPage) ?? Palette.paneFill)
-            layer?.backgroundColor = floating ? background.cgColor : nil
+            let background: NSColor = switch surface {
+            case .panel: Palette.contentBackground
+            case .page: Palette.surfaceOverride(.internalPage) ?? Palette.paneFill
+            case .sidebar: .clear
+            }
+            layer?.backgroundColor = surface == .panel ? background.cgColor : nil
             return FeedColors.resolved(background: background)
         }
         if appearanceState.colors != colors { appearanceState.colors = colors }
