@@ -25,7 +25,7 @@ protocol FileContentChangeObservingPanel: AnyObject {
 extension FileContentChangeObservingPanel {
     /// Registers this panel with the shared canonical-path change pipeline.
     func startWatchingForFileChanges() {
-        stopWatchingForFileChanges()
+        stopFileContentObservation()
         fileContentObservationID = fileContentChangeCoordinator.observe(
             path: filePath
         ) { [weak self] in
@@ -51,8 +51,17 @@ extension FileContentChangeObservingPanel {
         return reloadFromObservedFileChange()
     }
 
-    /// Removes the coordinator registration and cancels panel-specific reload work.
     func stopWatchingForFileChanges() {
+        stopFileContentObservation()
+    }
+
+    /// Removes the coordinator registration and cancels panel-specific reload work.
+    ///
+    /// Panels that own more observation than the file itself stop that in
+    /// their own ``stopWatchingForFileChanges()``, which discard paths call.
+    /// Restarting or retargeting the file watch calls this narrower teardown
+    /// so that extra observation survives.
+    func stopFileContentObservation() {
         fileContentObservationLifetime?.cancel()
         fileContentObservationLifetime = nil
         if let fileContentObservationID {

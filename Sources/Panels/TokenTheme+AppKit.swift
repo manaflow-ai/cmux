@@ -28,6 +28,21 @@ extension TokenTheme {
         nsColor(palette.comment, alpha: 1)
     }
 
+    /// Gutter stripe for a line the git base does not contain.
+    var gitAddedColor: NSColor {
+        nsColor(palette.gitAdded, alpha: 1)
+    }
+
+    /// Gutter stripe for a line that replaced a git base line.
+    var gitModifiedColor: NSColor {
+        nsColor(palette.gitModified, alpha: 1)
+    }
+
+    /// Gutter stripe marking where git base lines were deleted.
+    var gitDeletedColor: NSColor {
+        nsColor(palette.gitDeleted, alpha: 1)
+    }
+
     private func nsColor(_ color: TokenColor, alpha: Double) -> NSColor {
         NSColor(
             srgbRed: CGFloat(color.red) / 255.0,
