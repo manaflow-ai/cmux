@@ -18,6 +18,12 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
         /// The peer is a cmux Cloud VM (`failed` with reason `cloudMachine`): the CLI leaves it to
         /// `cmux link machine update --to-bundled`; nothing changed.
         case cloudMachine
+        /// The CLI's ssh probe of the peer failed (`failed` with reason `unreachable`, its first
+        /// step): the peer dropped off the network after the app read its build; nothing changed.
+        /// Not final: asked again later. Every other `failed` reason (`unsupportedPlatform`,
+        /// `pushFailed`, `pushMismatch`, `restartFailed`, the hand-written unit's refusals, ...)
+        /// stays a failure: retrying the same build would fail the same way.
+        case unreachable
         case failed
     }
 
@@ -58,8 +64,12 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
             }
             outcome = .needsBinary(target: target)
         case "rolledBack": outcome = .rolledBack
-        case "failed" where (try? container.decodeIfPresent(String.self, forKey: .reason)) == "cloudMachine":
-            outcome = .cloudMachine
+        case "failed":
+            switch (try? container.decodeIfPresent(String.self, forKey: .reason)) ?? nil {
+            case "cloudMachine": outcome = .cloudMachine
+            case "unreachable": outcome = .unreachable
+            default: outcome = .failed
+            }
         default: outcome = .failed
         }
     }

@@ -45,6 +45,9 @@ nonisolated struct AcpmuxPeerUpdateTarget: DaemonUpdateTarget {
         case .needsBinary(let triple): return .needsBinary(target: triple)
         case .rolledBack: return .rolledBack(reason: reply.error ?? "the new acpmux did not start")
         case .cloudMachine: return .handledElsewhere
+        // Not reachable now: the policy asks again with backoff, and drops it while the local
+        // daemon reports it disconnected (``currentBuild()``) until it connects again.
+        case .unreachable: return .busy
         case .failed: return .failed(reason: reply.error ?? "acpmux host update failed")
         }
     }

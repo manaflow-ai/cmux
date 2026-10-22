@@ -67,6 +67,8 @@ import Testing
         #expect(outcome(#"{"outcome":"rolledBack","error":"daemon did not come up"}"#) == .rolledBack)
         #expect(outcome(#"{"outcome":"failed","error":"ssh: connection refused"}"#) == .failed)
         #expect(outcome(#"{"outcome":"failed","reason":"cloudMachine","error":"a cmux Cloud VM"}"#) == .cloudMachine)
+        #expect(outcome(#"{"outcome":"failed","reason":"unreachable","error":"ssh huge-blue failed: timed out"}"#) == .unreachable)
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp failed"}"#) == .failed)
         #expect(outcome(#"{"outcome":"somethingNew"}"#) == .failed)
         // A target names a file in the binary directory: anything but a plain triple fails.
         #expect(outcome(#"{"outcome":"needsBinary","target":"../../etc/passwd"}"#) == .failed)
@@ -190,6 +192,31 @@ import Testing
         let busy = AcpmuxPeerUpdateCommand.updateArguments(peer: "huge-blue", binaryDirectory: binaries, whileBusy: true)
         #expect(fixture.calls.map(\.arguments) == [idle, idle, idle, busy])
         #expect(!fixture.overlapped)
+    }
+
+    /// The peer dropped off the network after the app read its build: the CLI's ssh probe fails
+    /// (`failed`, reason `unreachable`, acpmux `cli/host_update.rs`). That is no failure of this
+    /// build: nothing is recorded or shown as failed, the policy asks again after its backoff, and
+    /// the peer, back on the network, is updated.
+    @Test func anUnreachablePeerIsAskedAgainNotRecordedFailed() async throws {
+        let fixture = try StandInAcpmux()
+        defer { fixture.remove() }
+        try fixture.reply("huge-blue", 1, #"{"updated":[{"peer":"huge-blue","host":"huge-blue","outcome":"failed","ok":false,"build":null,"reason":"unreachable","error":"ssh huge-blue failed: Connection timed out"}],"peers":[]}"#)
+        try fixture.reply("huge-blue", 2, #"{"updated":[{"peer":"huge-blue","outcome":"updated","ok":true,"build":"abc123def 2026-10-20"}],"peers":[]}"#)
+        let source = fixture.source(peers: ["huge-blue"])
+        let events = Mutex<[DaemonUpdateEvent.State]>([])
+        let clock = PolicyTestClock()
+        let state = fixture.root.appendingPathComponent("state")
+        await DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.local }, targets: { await source.targets() }, enabled: { true },
+            report: { event in events.withLock { $0.append(event.state) } }, directory: state, clock: clock
+        )).run()
+
+        #expect(fixture.calls.count == 2)
+        #expect(clock.sleeps == [.seconds(120)])
+        #expect(events.withLock { $0 } == [.updating, .retrying, .updating, .updated(build: Self.local)])
+        let ledger = DaemonUpdateLedger.read(state, build: try #require(DaemonBuildCommit(Self.local)).hash)
+        #expect(ledger.targets == ["acpmux-peer:huge-blue": "updated"])
     }
 
     @Test func updateArgumentsDropIfIdleOnlyWhileBusy() {
