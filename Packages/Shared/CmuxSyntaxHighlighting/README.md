@@ -2,7 +2,7 @@
 
 Leaf package for token-coloring source text. File Preview (and later other native code views) consume it. Editor chrome — gutters, current-line, indent guides — stays in the app target.
 
-Token colors are the cmux product palette (`TokenPalette.cmuxDark` / `.cmuxLight`): electric `#0091FF` / `#006DC1` keywords on the published neutrals, not Highlightr's stock Xcode magenta. Highlightr still tokenizes with bundled `xcode` / `xcode-dark` CSS; `HighlightColorRemapper` paints the product colors.
+Token colors use the resolved Ghostty ANSI palette when File Preview supplies one, with `TokenPalette.cmuxDark` / `.cmuxLight` as readable fallbacks. Highlightr still tokenizes with bundled `xcode` / `xcode-dark` CSS; `HighlightColorRemapper` paints the mapped semantic colors.
 
 ## Test instantiation
 
