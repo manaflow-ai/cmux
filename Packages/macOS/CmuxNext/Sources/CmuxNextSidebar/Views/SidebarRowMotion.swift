@@ -193,7 +193,7 @@ struct RowMotion {
             if view.opens == open { view.clipsToBounds = false }
             if let list, list.rowMoves == move { Self.land(list) }
         }
-        animate(frames: [(view, target)], fades: [(view, 1)], lines: {}, in: list, ended: ended)
+        animate(frames: [(view, target)], companions: [], fades: [(view, 1)], lines: {}, in: list, ended: ended)
     }
 
     /// When the display sleeps mid-move (no frame draws, so the move never ends), the rows
