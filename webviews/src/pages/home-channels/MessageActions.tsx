@@ -1,5 +1,6 @@
 // A message's actions. A right-click on the row offers them all: three quick reactions, Add Reaction
-// (the emoji popover), Reply in Thread, Copy, and Edit and Delete on my own message. The hover card
+// (the emoji popover), Reply in Thread, Copy, Copy Link, Fork to New Chief (in a conversation with a
+// Chief of this Mac), and Edit and Delete on my own message. The hover card
 // at the row's top end shows on hover and on keyboard focus inside the row, and stays while one of
 // its popups is open: More alone, with every item (Leo dogfood 2026-10-13: hover buttons
 // everywhere); or, in the `hover-actions` experiment's "all" arm, the quick reactions, Add reaction,
@@ -34,6 +35,9 @@ export interface MessageActionsProps {
   onCopyLink?(): void;
   /** The Reply label: "Reply in Thread" in the timeline, "Reply" inside a thread. */
   replyLabel?: string;
+  /** Forks the Chief this message belongs to into a new Chief cut at it (chiefFork.ts); its label. */
+  onFork?(): void;
+  forkLabel?: string;
 }
 
 export function MessageActions({
@@ -49,6 +53,8 @@ export function MessageActions({
   children,
   onCopyLink,
   replyLabel,
+  onFork,
+  forkLabel,
 }: MessageActionsProps) {
   const { t, format } = strings;
   const reply = replyLabel ?? t("action.reply");
@@ -70,6 +76,9 @@ export function MessageActions({
     ...(onReply ? [{ id: "reply", label: reply, onSelect: onReply, separatorBefore: true }] : []),
     { id: "copy", label: t("action.copy"), onSelect: onCopy, separatorBefore: !onReply },
     ...(onCopyLink ? [{ id: "copyLink", label: t("action.copyLink"), onSelect: onCopyLink }] : []),
+    ...(onFork
+      ? [{ id: "fork", label: forkLabel ?? t("action.forkToNewChief"), onSelect: onFork, separatorBefore: true }]
+      : []),
     ...(canEdit ? [{ id: "edit", label: t("action.edit"), onSelect: onEdit, separatorBefore: true }] : []),
     ...(canDelete
       ? [{ id: "delete", label: t("action.delete"), onSelect: onDelete, destructive: true, separatorBefore: !canEdit }]
@@ -85,6 +94,7 @@ export function MessageActions({
         ...byId("copy"),
         ...byId("copyLink"),
         ...byId("reply"),
+        ...byId("fork"),
         ...items.filter((item) => item.id === "edit" || item.id === "delete"),
       ];
   const moreMenu = (

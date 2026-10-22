@@ -7,7 +7,7 @@
 // click in the cmux app), so the store sends them there, never here.
 import { pageError } from "../shared/pageClient";
 import type { DaemonSocket } from "../shared/daemonSocket";
-import type { HomeChief, HomeChiefNames, HomeParticipant } from "./types";
+import type { HomeChief, HomeChiefNames, HomeChiefOrigin, HomeParticipant } from "./types";
 
 type Json = Record<string, unknown>;
 
@@ -46,6 +46,19 @@ export function chief(raw: Json): HomeChief {
     if (Object.keys(picked).length > 0) result.engine = picked;
   }
   if (raw.locked === true) result.locked = true;
+  const origin = raw.forked_from as Json | null | undefined;
+  if (origin && typeof origin === "object" && str(origin.chief)) {
+    const forked: HomeChiefOrigin = {
+      chief: str(origin.chief),
+      name: str(origin.name) || "Chief",
+      by: str(origin.by) || "person",
+      at: str(origin.at),
+    };
+    if (str(origin.conversation)) forked.conversation = str(origin.conversation);
+    const seq = typeof origin.seq === "number" ? origin.seq : Number(origin.seq);
+    if (Number.isInteger(seq) && seq > 0) forked.seq = seq;
+    result.forkedFrom = forked;
+  }
   return result;
 }
 

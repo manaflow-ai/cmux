@@ -140,6 +140,13 @@ pub(crate) fn configured_home() -> Option<PathBuf> {
     config().map(|config| config.home)
 }
 
+/// The Chief home and the brain executable of this daemon's brains config:
+/// a fork (server/chief_fork.rs) runs the brain's own `memory fork` to copy
+/// a Chief's memory into a new Chief's directory.
+pub(crate) fn configured_home_and_brain() -> Option<(PathBuf, PathBuf)> {
+    config().map(|config| (config.home, config.executable))
+}
+
 /// The brain directory of Chief `chief` under the Chief home `home`: the
 /// last 8 characters of its id (40 random bits of the ULID), lowercased.
 pub fn brain_home(home: &Path, chief: &str) -> PathBuf {

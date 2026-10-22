@@ -89,7 +89,7 @@ test("a fork's create names its source and message, and defaults the name to '<C
     fork: { chief: "agent_scout", conversation: "conv_dm", seq: 7 },
   });
   const long = chief({ ...SCOUT, display_name: "n".repeat(100) });
-  expect([...forkName(long, strings)].length).toBeLessThanOrEqual(100);
+  expect(Array.from(forkName(long, strings)).length).toBeLessThanOrEqual(100);
 });
 
 test("a forked Chief's record and chat say where its memory came from", () => {

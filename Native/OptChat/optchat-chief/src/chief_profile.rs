@@ -885,17 +885,28 @@ impl ProfileClient {
                     .map_err(manage_denied)?;
                 Ok(pretty(&v.get("value").cloned().unwrap_or(v)))
             }
-            "create" | "update" => {
+            "create" | "fork" | "update" => {
                 let picture = match path {
                     Some(p) => Some(read_picture(p)?),
                     None => None,
                 };
-                let (id, mut record) = if action == "create" {
-                    if !fields.contains_key("display_name") {
+                let (id, mut record) = if action == "create" || action == "fork" {
+                    let mut fields = fields.clone();
+                    if action == "fork" {
+                        if args.contains_key("chief") {
+                            return Err("chiefs: fork forks you; it takes no chief".to_owned());
+                        }
+                        fork_fields(&mut fields, &self.chief, || {
+                            self.v2("chief.profile.get", Map::new(), false)
+                                .ok()
+                                .and_then(|v| Profile::from_wire(&v))
+                                .map(|p| p.display_name)
+                        });
+                    } else if !fields.contains_key("display_name") {
                         return Err("chiefs: create needs display_name".to_owned());
                     }
                     let made = self
-                        .v2_raw("chief.profile.create", fields.clone(), true, None)
+                        .v2_raw("chief.profile.create", fields, true, None)
                         .map_err(manage_denied)?;
                     let record = made.get("value").cloned().unwrap_or(made);
                     let id = record
@@ -952,19 +963,60 @@ impl ProfileClient {
                         fields.insert("brain".into(), brain);
                     }
                 }
-                let note = if action == "create" {
-                    brain_note(&record)
+                let note = if action == "fork" {
+                    fork_note(&record)
+                } else if action == "create" {
+                    brain_note(&record).to_owned()
                 } else {
                     "A changed name or picture shows at once; changed text reaches that Chief's \
 system prompt when its brain next starts."
+                        .to_owned()
                 };
                 Ok(format!("{}\n{note}", pretty(&record)))
             }
             other => Err(format!(
-                "chiefs: no action {other}; one of list, get, create, update, history, undo"
+                "chiefs: no action {other}; one of list, get, create, fork, update, history, undo"
             )),
         }
     }
+}
+
+/// A self-fork's `chief.profile.create` fields: `fork` names this Chief and
+/// no message (its memory as it is now), and the name defaults to
+/// "<its name> fork" (`name` reads it; "Chief" when it cannot).
+pub fn fork_fields(
+    fields: &mut Map<String, Value>,
+    me: &str,
+    name: impl FnOnce() -> Option<String>,
+) {
+    fields.insert("fork".into(), json!({"chief": me}));
+    if !fields.contains_key("display_name") {
+        let base = name()
+            .map(|n| n.trim().to_owned())
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| "Chief".to_owned());
+        // display_name holds at most 100 characters.
+        let base: String = base.chars().take(95).collect();
+        fields.insert("display_name".into(), json!(format!("{base} fork")));
+    }
+}
+
+/// What a fork answered: the brain, and what the new Chief has.
+fn fork_note(record: &Value) -> String {
+    let cut = record
+        .get("forked_from")
+        .and_then(|f| f.get("cut"))
+        .and_then(Value::as_u64);
+    let had = match cut {
+        Some(cut) => format!(
+            "It starts with your memory up to now ({cut} entries), copied: nothing either of you does from here reaches the other."
+        ),
+        None => "It starts with your memory up to now, copied.".to_owned(),
+    };
+    format!(
+        "{had} It has its own conversation with the person and its own subagents; your subagents and their chats stay yours. {}",
+        brain_note(record)
+    )
 }
 
 /// What the create answered about the new Chief's brain (the daemon's real
@@ -1098,4 +1150,47 @@ fn denied(error: SdkError) -> String {
         }
     }
     format!("profile: {error}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_self_fork_names_itself_and_defaults_the_name() {
+        let mut fields = Map::new();
+        fork_fields(&mut fields, "agent_ME", || Some("Scout".into()));
+        assert_eq!(fields["fork"], json!({"chief": "agent_ME"}));
+        assert_eq!(fields["display_name"], "Scout fork");
+
+        let mut named = Map::new();
+        named.insert("display_name".into(), json!("Night shift"));
+        fork_fields(&mut named, "agent_ME", || panic!("the name is given"));
+        assert_eq!(named["display_name"], "Night shift");
+
+        let mut unknown = Map::new();
+        fork_fields(&mut unknown, "agent_ME", || None);
+        assert_eq!(unknown["display_name"], "Chief fork");
+
+        let mut long = Map::new();
+        fork_fields(&mut long, "agent_ME", || Some("n".repeat(200)));
+        let name = long["display_name"].as_str().unwrap();
+        assert!(
+            name.chars().count() <= 100 && name.ends_with(" fork"),
+            "{name}"
+        );
+    }
+
+    #[test]
+    fn a_fork_answer_says_what_the_new_chief_has_and_whether_it_runs() {
+        let note = fork_note(&json!({"forked_from": {"cut": 812}, "brain": {"state": "started"}}));
+        assert!(note.contains("812 entries"), "{note}");
+        assert!(
+            note.contains("your subagents and their chats stay yours"),
+            "{note}"
+        );
+        assert!(note.contains("Its brain started"), "{note}");
+        let not = fork_note(&json!({"brain": {"state": "not_started", "reason": "no_supervisor"}}));
+        assert!(not.contains("did NOT start"), "{not}");
+    }
 }

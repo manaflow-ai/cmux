@@ -16,6 +16,7 @@
 
 pub mod checkpoint;
 mod export;
+pub mod fork;
 mod legacy;
 mod schema;
 

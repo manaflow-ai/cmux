@@ -121,6 +121,22 @@ export interface HomeChief {
   engine?: { harness?: string; model?: string; effort?: string };
   /** Only the person may change this Chief (`locked`): every Chief write is refused. */
   locked?: boolean;
+  /** This Chief started from another Chief's memory (`forked_from`, set once at create). */
+  forkedFrom?: HomeChiefOrigin;
+}
+
+/** Where a forked Chief's memory came from (the record's `forked_from`). */
+export interface HomeChiefOrigin {
+  /** The source Chief's id and its name at the fork. */
+  chief: string;
+  name: string;
+  /** The message the memory was cut after; absent: the source forked itself at that moment. */
+  conversation?: string;
+  seq?: number;
+  /** "person", or the id of the Chief that forked itself. */
+  by: string;
+  /** When, RFC 3339. */
+  at: string;
 }
 
 /** A Chief's backend as the editor picks it: "" means the Chief's usual (the owner's default). */

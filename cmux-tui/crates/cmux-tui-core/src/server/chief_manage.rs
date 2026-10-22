@@ -98,6 +98,7 @@ pub(super) fn check(
             created_at: String::new(),
             updated_at: String::new(),
             created_by: None,
+            forked_from: None,
         };
         let wanted = chief_registry::preview(&draft, profile);
         return within(operation, "grant_exceeds_caller", &caller, &wanted);

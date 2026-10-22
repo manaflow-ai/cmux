@@ -356,7 +356,8 @@ change; `{chief} profile '{{\"role\": \"...\"}}'` changes those fields, and\n  \
 fn chiefs_line(chief: &str) -> String {
     format!(
         "\n- Other Chiefs: `{chief} chiefs '{{\"action\": \"create\", \"display_name\": \"...\", \"role\": \"...\"}}'`\n  \
-makes a Chief and `\"action\": \"update\"` edits one, within your own grant (`{chief} chiefs` lists them)."
+makes a Chief, `\"action\": \"fork\"` makes one that starts from your memory as it is now,\n  \
+and `\"action\": \"update\"` edits one, within your own grant (`{chief} chiefs` lists them)."
     )
 }
 

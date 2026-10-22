@@ -334,12 +334,29 @@ fn mutate(
                     | "clear"
                     | "participant_id"
                     | "to_rev"
+                    | "fork"
             )
         })
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     if let Some(refusal) = chief_registry::validate_fields(&profile) {
         return Err(refused(operation, &refusal));
+    }
+    // A fork starts from its source's profile: the fields the request omits
+    // are the source's (the grant fields too, which a Chief's create then
+    // checks against its own grant as for any create).
+    let fork = match operation {
+        Op::ChiefProfileCreate => super::chief_fork::requested(fields)?,
+        _ if fields.contains_key("fork") => {
+            return Err(ResourceError::validation_invalid(
+                Some("fork"),
+                "only chief.profile.create takes fork",
+            ));
+        }
+        _ => None,
+    };
+    if let Some(fork) = &fork {
+        super::chief_fork::inherit(store, fork, &mut profile)?;
     }
     let chief = chief_field(fields).to_owned();
     let expected_rev = fields.get("expected_rev").and_then(Value::as_u64);
@@ -410,12 +427,41 @@ fn mutate(
         Caller::Chief(me) if manages => super::chief_manage::actor(me),
         _ => audit_actor(mux, client, caller),
     };
+    // A fork's memory goes into the new Chief's directory before its record
+    // exists: the brain the create starts opens it, never an empty memory.
+    let prepared = match &fork {
+        Some(fork) => {
+            let by = match caller {
+                Caller::Chief(me) => Some(me.as_str()),
+                _ => None,
+            };
+            Some(super::chief_fork::prepare(mux, store, fork, by)?)
+        }
+        None => None,
+    };
     let body = json!({"operation": operation.wire_name(), "fields": Value::Object(fields.clone())});
+    let new_id = match &prepared {
+        Some(prepared) => Ok(prepared.id.clone()),
+        None if operation == Op::ChiefProfileCreate => chief_registry::new_id(),
+        None => Ok(String::new()),
+    };
+    let new_id = match new_id {
+        Ok(id) => id,
+        Err(error) => {
+            if let Some(prepared) = prepared {
+                prepared.discard();
+            }
+            return Err(internal(operation, &error));
+        }
+    };
+    let forked_from = prepared.as_ref().map(|p| &p.forked_from);
     let outcome = store
         .mutate(&actor, &key, operation.wire_name(), &body, |tx| match operation {
             Op::ChiefProfileCreate => match caller {
-                Caller::Chief(me) if manages => chief_registry::create_by_chief(tx, &profile, me),
-                _ => chief_registry::create(tx, &profile),
+                Caller::Chief(me) if manages => {
+                    chief_registry::create_by_chief(tx, &new_id, &profile, forked_from, me)
+                }
+                _ => chief_registry::create(tx, &new_id, &profile, forked_from),
             },
             Op::ChiefProfileAdopt => match adoptee {
                 Some(Adoptee { id, display_name: Some(name) }) => {
@@ -439,7 +485,16 @@ fn mutate(
             }
             _ => chief_registry::delete(tx, &chief, expected_rev),
         })
-        .map_err(|e| internal(operation, &e))?;
+        .map_err(|e| internal(operation, &e));
+    // The copy stays only under the record written with its id now (a
+    // refusal, a failure or a replay of an earlier create keeps none).
+    if let Some(prepared) = prepared {
+        let kept = matches!(&outcome, Ok(Ok((record, false))) if record.id == prepared.id);
+        if !kept {
+            prepared.discard();
+        }
+    }
+    let outcome = outcome?;
     match outcome {
         Ok((record, replayed)) => {
             if !replayed

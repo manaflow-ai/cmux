@@ -27,7 +27,7 @@ optchat-chief settings [show | set cache.ttl 5m|1h | set replies.thread auto|alw
 optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR] [--append-after-live]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
                                                            dry-run prints counts only, write appends them (host stopped)
-optchat-chief memory export|import|search|stats ...         the memory database (see `optchat-chief memory`)
+optchat-chief memory export|import|search|stats|fork ...    the memory database (see `optchat-chief memory`)
 optchat-chief move --to local:/path|ssh:HOST[:/path] [--stop-host] [--dry-run] | rollback | checkpoint | restore | verify
                                                            move this Chief to another home or host (see `optchat-chief move help`)
 optchat-chief agent-memory search|get|remember|mcp|sync|sources|config ...  long-term memory shared by Codex and Claude Code sessions (see `optchat-chief agent-memory`)

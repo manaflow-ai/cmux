@@ -40,10 +40,12 @@ declare namespace Cmux {
   type ChiefBrainPlace = { host: Cmux.HostId; install: Cmux.InstallId }
   type ChiefBrainStart = { state: string; reason?: string }
   type ChiefEngineChoice = { harness?: string; model?: string; effort?: string }
+  type ChiefFork = { chief: string; conversation?: string; seq?: number }
+  type ChiefForkedFrom = { chief: string; name: string; conversation?: string; seq?: number; cut: number; by: string; at: string }
   type ChiefHistory = { chief: string; revisions: Array<Cmux.ChiefRevision> }
   type ChiefId = string
   type ChiefList = { chiefs: Array<Cmux.ChiefRecord> }
-  type ChiefRecord = { id: string; display_name: string; role: string; personality: string; instructions: string; avatar: Cmux.ChiefAvatarRef | null; tools: Array<string>; harnesses: Array<string>; engine: Cmux.ChiefEngineChoice; self_edit: Array<string>; locked: boolean; is_default: boolean; rev: number; created_at: string; updated_at: string; brain?: Cmux.ChiefBrainStart }
+  type ChiefRecord = { id: string; display_name: string; role: string; personality: string; instructions: string; avatar: Cmux.ChiefAvatarRef | null; tools: Array<string>; harnesses: Array<string>; engine: Cmux.ChiefEngineChoice; self_edit: Array<string>; locked: boolean; is_default: boolean; rev: number; created_at: string; updated_at: string; brain?: Cmux.ChiefBrainStart; forked_from?: Cmux.ChiefForkedFrom }
   type ChiefRevision = { rev: number; at: string; actor: string; operation: string; record: Cmux.ChiefRecord }
   type ChiefStopResult = { stopped: boolean; subagents?: Array<string>; note?: string; restarted?: Array<string>; errors?: Array<string> }
   type ClientSnapshot = { id: string /* client_… */; session_id: string /* session_… */; name: string | null; client_kind: string | null; transport: Cmux.ClientTransport; connected_seconds: string; attached_terminal_ids: Array<string /* terminal_… */>; sizes: Array<Cmux.ClientTerminalSize>; self: boolean; extra?: Record<string, Cmux.JsonValue> }
@@ -641,7 +643,7 @@ interface CmuxGlobal {
         set: CmuxOp<{ machine?: string; session?: string; chief: string; expected_rev?: number; media_type?: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; data?: string; clear?: boolean }, Cmux.MutationResult<Cmux.ChiefRecord>>
       }
       /** `chief.profile.create` (mutation, scope `chief:write`) */
-      create: CmuxOp<{ machine?: string; session?: string; display_name: string; role?: string; personality?: string; instructions?: string; tools?: Array<string>; harnesses?: Array<string>; self_edit?: Array<string>; harness?: string; model?: string; effort?: string; locked?: boolean }, Cmux.MutationResult<Cmux.ChiefRecord>>
+      create: CmuxOp<{ machine?: string; session?: string; display_name: string; role?: string; personality?: string; instructions?: string; tools?: Array<string>; harnesses?: Array<string>; self_edit?: Array<string>; harness?: string; model?: string; effort?: string; locked?: boolean; fork?: Cmux.ChiefFork }, Cmux.MutationResult<Cmux.ChiefRecord>>
       /** `chief.profile.delete` (mutation, scope `chief:write`) */
       delete: CmuxOp<{ machine?: string; session?: string; chief: string; expected_rev?: number }, Cmux.MutationResult<Cmux.ChiefRecord>>
       /** `chief.profile.get` (read, scope `chief:read`) */

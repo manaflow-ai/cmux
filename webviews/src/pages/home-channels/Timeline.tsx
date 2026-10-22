@@ -31,6 +31,8 @@ export interface TimelineProps {
   onRetract?(message: HomeMessage): void;
   onReply?(message: HomeMessage): void;
   onCopyLink?(message: HomeMessage): void;
+  /** The fork a message offers (MessageRow `fork`). */
+  fork?(message: HomeMessage): { label: string; run(): void } | undefined;
   /** The message a link opened. */
   highlight?: string;
   className?: string;
@@ -69,6 +71,7 @@ export function Timeline({
   onRetract,
   onReply,
   onCopyLink,
+  fork,
   highlight,
   className,
   empty,
@@ -164,6 +167,7 @@ export function Timeline({
                     onRetract={onRetract}
                     onReply={onReply}
                     onCopyLink={onCopyLink}
+                    fork={fork}
                     depth={row.depth}
                     parent={row.parent}
                     highlighted={row.message.id === highlight}
