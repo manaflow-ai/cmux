@@ -121,7 +121,8 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
           markWidth: mark?.getBoundingClientRect().width ?? 0,
           background: getComputedStyle(control).backgroundColor,
           button: control instanceof HTMLButtonElement,
-          weight: getComputedStyle(element.querySelector(".acpmux-harness-name, .acpmux-mode-text") ?? element).fontWeight,
+          weight: getComputedStyle(element.querySelector(".acpmux-harness-name, .acpmux-mode-text") ?? element)
+            .fontWeight,
         };
       })
       .sort((a, b) => a.left - b.left);
