@@ -78,6 +78,8 @@ final class AppServices {
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
+    /// Settings > Accounts > This Mac on Your Tailnet (Labs): the local daemon's tailnet node.
+    private(set) lazy var tailnetNode = TailnetNodeService(daemon: daemon)
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()

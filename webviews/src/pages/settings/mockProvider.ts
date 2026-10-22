@@ -35,6 +35,8 @@ import {
   type MutationResult,
   type SettingsClient,
   type SnapshotResult,
+  type TailnetPhase,
+  type TailnetState,
   type WorkspaceBackground,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
@@ -177,6 +179,15 @@ export class MockSettingsProvider {
    * exactly these, so an op added here reaches the page without a second list to keep in step. */
   served: { ops: string[]; streams: string[] } = { ops: [], streams: [] };
 
+  private tailnetEdit(change: Partial<TailnetState>): Record<string, never> {
+    if (this.host.tailnet) this.setHost({ ...this.host, tailnet: { ...this.host.tailnet, ...change } });
+    return {};
+  }
+
+  private tailnetPhase(phase: TailnetPhase): Record<string, never> {
+    return this.tailnetEdit({ phase, status: phase });
+  }
+
   /** Registers every op and stream on `session` (the provider side). */
   serve(session: Session): void {
     const ops: Record<string, (params: Params) => unknown> = {
@@ -190,6 +201,17 @@ export class MockSettingsProvider {
       "cmux.settings.sound.play": () => ({}),
       "cmux.settings.host.lists": () => this.host,
       "cmux.settings.accounts.state": () => this.accounts,
+      // This Mac on Your Tailnet: the sign-in flow as the host walks it (no browser, no node).
+      "cmux.settings.tailnet.sign_in": () => this.tailnetPhase("waiting"),
+      "cmux.settings.tailnet.cancel": () => this.tailnetPhase("signed_out"),
+      "cmux.settings.tailnet.sign_out": () => this.tailnetPhase("signed_out"),
+      "cmux.settings.tailnet.limit": (params) => this.tailnetEdit({ limited: params.on === true }),
+      "cmux.settings.tailnet.pair": () =>
+        this.tailnetEdit({
+          pair: { qr: null, link: "cmux://pair?address=x&ticket=cmxt1.x", help: "Open on your other Mac" },
+        }),
+      "cmux.settings.tailnet.close_pair": () => this.tailnetEdit({ pair: undefined }),
+      "cmux.settings.tailnet.copy_address": () => ({}),
       "cmux.settings.mobile.allow_again": () => {
         const iphone = this.host.iphone;
         if (iphone) this.setHost({ ...this.host, iphone: { ...iphone, phase: "connecting" } });
