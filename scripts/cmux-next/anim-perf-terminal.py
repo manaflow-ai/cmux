@@ -7,7 +7,7 @@ pane-perf-terminal.py's (a421). This bench covers every other animation, and one
 layout so a single table compares builds:
 
   tab-new / tab-close           newTab (the New Tab page) and closeTab, in a pane with 3 tabs
-  tab-move-right / -left        moveSurfaceRight / moveSurfaceLeft (the tab strip reorder)
+  tab-move / tab-move-back      moveSurfaceRight (Left at the strip's edge) and back (the tab strip reorder)
   tab-to-pane / tab-back        moveSurfaceToPaneRight / moveSurfaceToPaneLeft (a tab moves between two panes)
   split-right / split-down      splitRight / splitDown, each closed again (split-close)
   column / column-close         newColumn, then its closePane
@@ -248,16 +248,36 @@ def seed_home(count=4):
     return made
 
 
+OPPOSITE = {"moveSurfaceRight": "moveSurfaceLeft", "moveSurfaceLeft": "moveSurfaceRight",
+            "moveSurfaceToPaneRight": "moveSurfaceToPaneLeft", "moveSurfaceToPaneLeft": "moveSurfaceToPaneRight"}
+
+
+def either(first, second, key):
+    """Runs `first`; when the app refuses it (the tab is at that edge), `second`. Remembers which ran for `undo`.
+    A refusal runs no motion and costs no frame, so the timed gesture is the move that ran."""
+    reply = action(first)
+    if error_of(reply):
+        state[key] = second
+        return error_of(action(second))
+    state[key] = first
+    return None
+
+
+def undo(key):
+    return error_of(action(OPPOSITE[state[key]])) if state.get(key) else "nothing to undo"
+
+
 # Each animation: (prepare, perform). prepare runs untimed; perform is the timed gesture.
 def anims():
     run = lambda verb: (lambda: error_of(action(verb)))  # noqa: E731
     return [
         ("tab-new", lambda: at_a(1), run("newTab")),
         ("tab-close", None, run("closeTab")),
-        ("tab-move-left", None, run("moveSurfaceLeft")),
-        ("tab-move-right", None, run("moveSurfaceRight")),
-        ("tab-to-pane", lambda: at_a(2), run("moveSurfaceToPaneRight")),
-        ("tab-back", lambda: action("focusRight", settle=0.3), run("moveSurfaceToPaneLeft")),
+        ("tab-move", lambda: action("newTab", settle=0.8), lambda: either("moveSurfaceRight", "moveSurfaceLeft", "tab-move")),
+        ("tab-move-back", None, lambda: undo("tab-move")),
+        ("tab-to-pane", lambda: (at_a(2), action("newTab", settle=0.8)),
+         lambda: either("moveSurfaceToPaneRight", "moveSurfaceToPaneLeft", "tab-to-pane")),
+        ("tab-back", None, lambda: undo("tab-to-pane")),
         ("split-right", lambda: at_a(1), run("splitRight")),
         ("split-close", None, run("closePane")),
         ("split-down", lambda: at_a(1), run("splitDown")),
@@ -351,13 +371,14 @@ def main_thread_hot(text, limit=40):
     if len(graph) < 2:
         return ["  (no call graph)"]
     lines = graph[1].splitlines()
-    node = re.compile(r"^([ +!:|]*)(\d+) (.*?)(?:  \(in [^)]*\).*)?$")
+    node = re.compile(r"^([ +!:|]*)(\d+) (.*?)(?:  \(in ([^)]*)\).*)?$")
     start = next((i for i, l in enumerate(lines) if "com.apple.main-thread" in l), None)
     if start is None:
         return ["  (no main thread)"]
     head = node.match(lines[start])
     base = len(head.group(1))
     nodes = []  # (depth, count, symbol)
+    modules = []
     for line in lines[start + 1:]:
         m = node.match(line)
         if not m:
@@ -366,6 +387,7 @@ def main_thread_hot(text, limit=40):
         if depth <= base:
             break
         nodes.append((depth, int(m.group(2)), m.group(3).strip()[:150]))
+        modules.append(m.group(4) or "")
     # Each node's busy samples: its own count less the idle waits under it (children by depth).
     parents, busy_of = [], [0] * len(nodes)
     for i, (depth, count, sym) in enumerate(nodes):
@@ -374,14 +396,26 @@ def main_thread_hot(text, limit=40):
         busy_of[i] = 0 if any(k in sym for k in IDLE) else count
         nodes[i] = (depth, count, sym, parents[-1] if parents else None)
         parents.append(i)
+    def under_idle(i):
+        j = nodes[i][3]
+        while j is not None:
+            if any(k in nodes[j][2] for k in IDLE):
+                return True
+            j = nodes[j][3]
+        return False
     for i in range(len(nodes) - 1, -1, -1):
         parent = nodes[i][3]
-        if parent is not None and any(k in nodes[i][2] for k in IDLE):
+        # Only the outermost idle wait counts: a wait nested in another (mach_msg2_trap under
+        # __CFRunLoopServiceMachPort) is the same samples, and counting both drove busy below zero.
+        if parent is not None and any(k in nodes[i][2] for k in IDLE) and not under_idle(i):
             # the idle wait's samples leave every ancestor
             j = parent
             while j is not None:
                 busy_of[j] -= nodes[i][1]
                 j = nodes[j][3]
+    for i in range(len(nodes)):
+        if under_idle(i):
+            busy_of[i] = 0  # inside a wait: the waiting thread's own frames, not work
     total = int(head.group(2))
     busy = max(1, sum(b for i, b in enumerate(busy_of) if nodes[i][3] is None))
     out = [f"  main thread samples {total}, busy {busy} (1 ms each)"]
@@ -392,7 +426,24 @@ def main_thread_hot(text, limit=40):
         kids = [busy_of[j] for j in range(i + 1, len(nodes)) if nodes[j][3] == i]
         if all(k < threshold for k in kids):
             out.append(f"  {busy_of[i]:>6}  {100.0 * busy_of[i] / busy:5.1f}%  {sym}")
-    return out[:limit]
+    out = out[:limit]
+    # Where our own code spends it: the busiest cmux frames, inclusive (each counted once on its path).
+    ours = {}
+    for i, (depth, count, sym, _) in enumerate(nodes):
+        if "cmux" not in modules[i] or busy_of[i] < threshold:
+            continue
+        j, nested = nodes[i][3], False
+        while j is not None:
+            if nodes[j][2] == sym:
+                nested = True
+                break
+            j = nodes[j][3]
+        if not nested:
+            ours[sym] = ours.get(sym, 0) + busy_of[i]
+    out.append("  -- our frames, inclusive busy samples --")
+    for sym, count in sorted(ours.items(), key=lambda kv: -kv[1])[:40]:
+        out.append(f"  {count:>6}  {100.0 * count / busy:5.1f}%  {sym}")
+    return out
 
 
 def budgets():
@@ -480,13 +531,13 @@ def main():
                 json.dump(report, open(opts.json, "w"), indent=1)
             time.sleep(0.3)  # test harness: idle between runs
     by_name = {n: (p, f) for n, p, f in anims()}
-    undo = {"tab-new": "tab-close", "tab-move-right": "tab-move-left", "split-right": "split-close", "column": "column-close",
+    undo_of = {"tab-new": "tab-close", "tab-move": "tab-move-back", "split-right": "split-close", "column": "column-close",
             "ws-switch": "ws-back", "sidebar-hide": "sidebar-show", "right-open": "right-close", "group-collapse": "group-expand",
             "palette-open": "palette-close", "tab-to-pane": "tab-back", "split-down": "split-down-close"}
     for name in filter(None, opts.sample.split(",")):
         if name in by_name:
             prepare, perform = by_name[name]
-            profile(name, prepare, perform, by_name.get(undo.get(name), (None, None))[1])
+            profile(name, prepare, perform, by_name.get(undo_of.get(name), (None, None))[1])
 
     def med(runs, key):
         values = sorted(v for v in (r.get(key) for r in runs) if v is not None)
