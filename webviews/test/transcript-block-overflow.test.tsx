@@ -358,6 +358,90 @@ test("a box wider than its content area marks its right edge until scrolled to t
   }
 });
 
+test("a token streamed into one block of a long transcript measures that block once a frame, never the others", async () => {
+  const { watchSideways } = await import("../src/agent-session/acpmux/conversation/sideways");
+  const document = window.document;
+  // A transcript of many blocks of many lines, each watched as BlockParts.tsx does, one of them
+  // with Pierre's shadow root (a diff), counting every width read and every element walked.
+  const BLOCKS = 200;
+  const LINES = 20;
+  const reads = new Map<Element, number>();
+  const counted = (element: Element, scrollWidth: number, clientWidth: number) => {
+    const read = (value: number) => () => (reads.set(element, (reads.get(element) ?? 0) + 1), value);
+    Object.defineProperty(element, "scrollWidth", { configurable: true, get: read(scrollWidth) });
+    Object.defineProperty(element, "clientWidth", { configurable: true, get: read(clientWidth) });
+  };
+  const transcript = document.createElement("div");
+  host.append(transcript);
+  const bodies: HTMLElement[] = [];
+  for (let block = 0; block < BLOCKS; block++) {
+    const body = document.createElement("pre");
+    for (let line = 0; line < LINES; line++) {
+      const span = document.createElement("span");
+      span.className = "cv-line";
+      span.textContent = `line ${line}`;
+      body.append(span);
+    }
+    counted(body, 300, 300);
+    transcript.append(body);
+    bodies.push(body);
+  }
+  const diff = document.createElement("diffs-container");
+  bodies[3]!.append(diff);
+  const code = document.createElement("div");
+  code.setAttribute("data-code", "");
+  for (let line = 0; line < LINES; line++) code.append(document.createElement("div"));
+  diff.attachShadow({ mode: "open" }).append(code);
+  counted(code, 300, 300);
+  const stops = bodies.map((body) => watchSideways(body));
+  const walked = { elements: 0 };
+  const queryAll = window.Element.prototype.querySelectorAll;
+  const queryAllFragment = window.DocumentFragment.prototype.querySelectorAll;
+  try {
+    window.Element.prototype.querySelectorAll = function (this: Element, selectors: string) {
+      const found = queryAll.call(this, selectors);
+      walked.elements += found.length;
+      return found;
+    } as typeof queryAll;
+    window.DocumentFragment.prototype.querySelectorAll = function (this: DocumentFragment, selectors: string) {
+      const found = queryAllFragment.call(this, selectors);
+      walked.elements += found.length;
+      return found;
+    } as typeof queryAllFragment;
+    reads.clear();
+    const streamed = bodies[100]!;
+    const line = streamed.children[LINES - 1]!;
+    const nextFrame = () => new Promise((resolve) => window.requestAnimationFrame(resolve));
+    // Fifty tokens, each its own change, inside one frame: nothing is measured yet.
+    for (let token = 0; token < 50; token++) {
+      line.append(document.createTextNode(` token${token}`));
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    const duringStream = reads.size;
+    await nextFrame();
+    await nextFrame();
+    const measured = [...reads.keys()].map((element) => bodies.indexOf(element as HTMLElement));
+    expect({ duringStream, measured }).toEqual({ duringStream: 0, measured: [100] });
+    // Once (both widths) for the fifty tokens.
+    expect(reads.get(streamed)).toBeLessThanOrEqual(4);
+    // No token walks the block's lines, nor any other block's.
+    expect(walked.elements).toBeLessThan(LINES);
+    // A token in the diff's shadow root measures only the diff's code box.
+    reads.clear();
+    code.lastElementChild!.append(document.createTextNode(" token"));
+    await Promise.resolve();
+    await nextFrame();
+    await nextFrame();
+    expect([...reads.keys()]).toEqual([code]);
+  } finally {
+    window.Element.prototype.querySelectorAll = queryAll;
+    window.DocumentFragment.prototype.querySelectorAll = queryAllFragment;
+    for (const stop of stops) stop();
+    transcript.remove();
+  }
+});
+
 test("the cuts are fades, a wrapped line hangs, and Pierre's rows get both", async () => {
   const css = readFileSync(
     path.join(import.meta.dir, "../src/agent-session/acpmux/conversation/conversation.css"),
@@ -370,9 +454,9 @@ test("the cuts are fades, a wrapped line hangs, and Pierre's rows get both", asy
   expect(rule(/\[data-preview="cut"\]/)).toMatch(/--cv-fade-bottom:\s*\d/);
   expect(rule(/\[data-more-right\]/)).toMatch(/--cv-fade-right:\s*\d/);
   expect(css).toMatch(/mask-image:\s*linear-gradient\(\s*to bottom[^;]*var\(--cv-fade-bottom/);
-  // The fade ends above the sideways scrollbar's lane, which stays opaque under it.
+  // The fade ends above the sideways scrollbar's lane, and the bar in it stays opaque.
   expect(css).toMatch(
-    /linear-gradient\(\s*to bottom[^;]*transparent calc\(100% - var\(--cv-lane[^;]*#000 calc\(100% - var\(--cv-lane/,
+    /linear-gradient\(\s*to bottom[^;]*transparent calc\(100% - var\(--cv-lane[^;]*#000 calc\(100% - var\(--cv-bar/,
   );
   expect(css).toMatch(/linear-gradient\(to left[^;]*var\(--cv-fade-right/);
   // A wrapped line hangs: its second row starts further in than its first.

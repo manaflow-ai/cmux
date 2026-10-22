@@ -220,5 +220,44 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
             await page.close();
           }
         });
+
+      // A command's output is as tall with its sideways scrollbar as without it: the lane is kept
+      // whether or not a line runs past, so the transcript under it does not jump when one starts
+      // or stops (Codex review of #23967).
+      for (const block of blocks.filter(({ shadow }) => !shadow))
+        test(`${block.variant}: the block is as tall with its sideways scrollbar as without it`, async () => {
+          const page = await open(engine, block);
+          try {
+            const heights = () =>
+              page.evaluate(({ scroller, card }) => {
+                const body = document.querySelector<HTMLElement>(scroller)!;
+                return {
+                  sideways: body.hasAttribute("data-cmux-sideways"),
+                  body: body.getBoundingClientRect().height,
+                  card: document.querySelector<HTMLElement>(card)!.getBoundingClientRect().height,
+                };
+              }, block);
+            const before = await heights();
+            expect(before.sideways).toBe(true);
+            // Every line made short enough to fit: the lines stop running past and the bar goes.
+            await page.evaluate((scroller) => {
+              for (const line of document.querySelector(scroller)!.querySelectorAll(".cv-line"))
+                line.textContent = "ok";
+            }, block.scroller);
+            await page.waitForFunction(
+              (scroller) => !document.querySelector(scroller)!.hasAttribute("data-cmux-sideways"),
+              block.scroller,
+              { timeout: 10_000 },
+            );
+            await page.evaluate(async () => {
+              for (let left = 2; left > 0; left--) await window.cmuxPaintFrame();
+            });
+            const after = await heights();
+            console.log(`${engine} ${block.variant} heights: ${JSON.stringify({ before, after })}`);
+            expect({ body: after.body, card: after.card }).toEqual({ body: before.body, card: before.card });
+          } finally {
+            await page.close();
+          }
+        });
     });
 });
