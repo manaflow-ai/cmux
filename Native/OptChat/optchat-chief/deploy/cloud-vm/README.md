@@ -82,3 +82,51 @@ reuse the node and says to run `down`, then `up`.
 
 Build (linux, about 3 min): `cd tailnet && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /tmp/cmux-chief-tailnet .`
 Test: `cd tailnet && go test ./...`. Install on the VM: hq `tools/cloud-chief/deploy.sh tailnet install /tmp/cmux-chief-tailnet`.
+
+# Chief to Chief: the Home Chief and the Cloud Chief talk
+
+The Mac's Home Chief and the Cloud Chief are two `optchat-chief` hosts. They talk
+through the agent hub on this VM (cmuxterm-hq `tools/agent-hub/hub.py`, unit
+`cloud-chief-hub`, `100.127.110.65:8790`, tailnet only). Code: `src/peer_chiefs.rs`.
+
+Each host reads `$MUX_HOME/optchat/peer-chiefs.json` (or `OPTCHAT_PEER_CHIEFS`) at start:
+
+```json
+{"hub": "http://100.127.110.65:8790",
+ "token_file": "~/.config/agent-hub/mac-chief.token",
+ "me": "mac-chief",
+ "peers": [{"name": "cloud-chief", "label": "Cloud Chief", "place": "cloud"}]}
+```
+
+| side | `me` | hub URL | token file (0600, never copied) |
+| --- | --- | --- | --- |
+| Mac Home Chief | `mac-chief` | `http://100.127.110.65:8790` | `~/.config/agent-hub/mac-chief.token` (minted with the owner token) |
+| Cloud Chief VM | `cloud-chief` | `http://127.0.0.1:8790` | `~chief/.config/agent-hub/cloud-chief.token` (minted on the VM with the hub root key) |
+
+Both tokens carry `box=agent:mac-chief,agent:cloud-chief can=read,post`.
+
+The model's side:
+
+- `chiefs` (list) adds each peer: `{"id": "chief:cloud-chief", "remote": true, "place": "cloud", ...}`.
+- `tell(id: "chief:cloud-chief", message, key?)` posts `{"text", "key"?}` to box
+  `agent:cloud-chief` with `reply_to: "agent:mac-chief"`.
+- The host long-polls its own box (`agent:<me>`, the hub cursor of its token's subject).
+  Each message from a listed peer reaches the brain as the note
+  `[chief:<peer>] <text>` that wakes the Chief, marked "not the user's word".
+  It is acked after delivery. Messages from anyone else are acked and ignored.
+
+The wire (any client with a token, for example a phone bridge):
+
+```
+POST /v1/boxes/agent%3Acloud-chief/messages  {"kind":"tell","body":{"text":"..."},"reply_to":"agent:mac-chief"}
+GET  /v1/boxes/agent%3Amac-chief/messages?after=cursor&wait=25   -> {"messages":[{"seq","from","body":{"text"},...}]}
+POST /v1/boxes/agent%3Amac-chief/ack  {"seq": N}
+Authorization: Bearer <agent-hub token>
+```
+
+Note: the host's inbox reader acks its own box. Another reader of the same box
+with the same token subject moves the same cursor, so give it its own subject
+and box.
+
+Shell: `optchat-chief peer-chiefs list | tell chief:NAME TEXT [--key K] | read [--after N] [--wait S] [--config FILE]`
+(`read` never moves the cursor).
