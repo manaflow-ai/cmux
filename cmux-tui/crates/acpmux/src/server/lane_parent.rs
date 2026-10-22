@@ -1,0 +1,17 @@
+//! The session a new session reports its turns to (`hub/lane_reports.rs`), from its
+//! `session/new`: the session the connection proved it runs in. A run tied to its connection
+//! (`ephemeral`) is no lane and has none.
+
+use super::Conn;
+use crate::hub::Hub;
+use serde_json::Value;
+use std::sync::Arc;
+
+/// The parent's exact id, or none.
+pub(super) fn lane_parent(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Option<String> {
+    if super::ephemeral::requested(params) {
+        return None;
+    }
+    let caller = conn.caller().filter(|_| !conn.is_person())?;
+    hub.resolve(caller).ok().map(|s| s.id.clone())
+}

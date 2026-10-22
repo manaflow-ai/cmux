@@ -78,7 +78,10 @@ pub(super) fn agent_sender(provenance: Option<&Value>, declared: Option<&str>) -
     }
     let p = provenance?;
     let kind = p.get("kind").and_then(Value::as_str);
-    if !matches!(kind, Some("agent_message" | super::subsessions::PROVENANCE_KIND)) {
+    if !matches!(
+        kind,
+        Some("agent_message" | super::subsessions::PROVENANCE_KIND | super::lane_reports::KIND)
+    ) {
         return None;
     }
     let field = |k: &str| p.get(k).and_then(Value::as_str).filter(|v| !v.trim().is_empty());
