@@ -1,11 +1,15 @@
 // l10n-allow-file: test fixture commands and replies, not shipped UI.
-// The running turn as the Codex app draws it (Leo 2026-10-20, stack-224..226.png): "Working for"
-// stays over the turn's work, finished runs fold, and ONE live line at the bottom of the turn is
-// replaced in place by each step: Thinking (shimmer) -> Running <short label> 13s -> Thinking.
+// The running turn as the Codex app draws it (Leo 2026-10-20, stack-224..226.png): finished runs
+// fold, and ONE live line at the bottom of the turn is replaced in place by each step: Thinking
+// (shimmer) -> Running <short label> 13s -> Thinking. It is the turn's one live block: no "Working
+// for" over the turn's work (Leo 2026-10-21, on nightly 3a63d6d: a "Working for 18s" header at the
+// top, then tool rows, then a separate "Thinking" far below, past his steers).
 import { expect, test } from "bun:test";
+import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
+import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { THINKING, turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
 import { shortCommand } from "../src/agent-session/acpmux/conversation/shortCommand";
@@ -40,21 +44,89 @@ test("before any output the turn is one Thinking line, timed from the prompt", (
   expect(shaped.at(-1)!.untimed).toBeUndefined();
 });
 
-test("a call in flight is the live line at the bottom, under Working for and the folded runs", () => {
+test("a call in flight is the live line at the bottom, under the folded runs, with no line over the turn", () => {
   const shaped = codex([
     row("u", "user"),
     row("a", "assistant", { text: "On it." }),
     row("run", "activity", { items: [call("git log"), call("bun test src/net", "in_progress")] }),
   ]);
-  expect(kinds(shaped)).toEqual(["user", WORKING, "assistant", "activity", THINKING]);
+  expect(kinds(shaped)).toEqual(["user", "assistant", "activity", THINKING]);
   const line = shaped.at(-1)!;
-  expect(line).toMatchObject({ id: "thinking-live", doing: "bun test src/net", doingShell: true, untimed: false });
+  expect(line).toMatchObject({ id: "thinking-live", doing: "bun test src/net", doingShell: true });
   // The run holds only the finished call, folded.
   const run = shaped.find((entry) => entry.id === "run")!;
   expect(run.items?.map((item) => item.tool?.id)).toEqual(["git log"]);
   expect(run.foldRun).toBe(true);
-  // "Working for" stays a line over the work, not the bottom line.
-  expect(shaped.find((entry) => entry.kind === WORKING)!.below).toBeUndefined();
+  expect(shaped.some((entry) => entry.kind === WORKING)).toBe(false);
+});
+
+test("a steered turn is one live block at its bottom, under the steer, timed from the prompt", () => {
+  const user = row("u", "user");
+  const shaped = codex([
+    user,
+    row("run", "activity", { items: [call("git log")] }),
+    row("s", "user", { text: "Also check the retry path", steer: "landed" }),
+    row("run2", "activity", { items: [call("git diff"), thought("Now the retry path")] }),
+  ]);
+  // Nothing over the turn's work; the one live line is the last row, after the steer.
+  expect(shaped.some((entry) => entry.kind === WORKING)).toBe(false);
+  expect(shaped.filter((entry) => entry.kind === THINKING)).toHaveLength(1);
+  const line = shaped.at(-1)!;
+  expect(line).toMatchObject({ id: "thinking-live", kind: THINKING, below: true, at: user.at });
+  expect(shaped.findIndex((entry) => entry.id === "s")).toBeLessThan(shaped.length - 1);
+  // Between steps it is timed ("Thinking 18s"), from the prompt.
+  expect(line.untimed).toBeUndefined();
+  expect(words(renderToStaticMarkup(<Thinking since={line.at} now={() => line.at + 18_000} />))).toBe("Thinking 18s");
+});
+
+test("the live line carries the turn's tokens while it times the turn, not beside a call", () => {
+  const start = 1_000_000;
+  const counts = { agents: 0, commands: 0, sessions: 0, openAgents() {}, openCommands() {}, openSessions() {} };
+  const drawn = (node: ReactElement) =>
+    words(
+      renderToStaticMarkup(
+        <WorkingCountsContext.Provider value={{ ...counts, tokens: 2_140_000 }}>{node}</WorkingCountsContext.Provider>,
+      ),
+    );
+  expect(drawn(<Thinking since={start} now={() => start + 354_000} />)).toBe("Thinking 5m 54s · 2.1M tokens");
+  expect(drawn(<Thinking doing="cargo test" doingShell doingAt={start} now={() => start + 4_000} />)).toBe(
+    "Running cargo test 4s",
+  );
+});
+
+test("with the tray off the live line counts the work still going, beside a call too", () => {
+  const start = 1_000_000;
+  const counts = { agents: 2, commands: 1, sessions: 0, openAgents() {}, openCommands() {}, openSessions() {} };
+  const drawn = (node: ReactElement) =>
+    words(renderToStaticMarkup(<WorkingCountsContext.Provider value={counts}>{node}</WorkingCountsContext.Provider>));
+  expect(drawn(<Thinking doing="Read app.ts" doingAt={start} now={() => start + 3_000} />)).toBe(
+    "Read app.ts 3s · 2 agents · 1 command",
+  );
+  expect(drawn(<Thinking since={start} now={() => start + 18_000} />)).toBe("Thinking 18s · 2 agents · 1 command");
+  // Not on the start status line, before the agent runs.
+  expect(drawn(<Thinking status="Starting Claude Code…" />)).toBe("Starting Claude Code…");
+});
+
+test("a command Claude is still writing reads Writing a command, with no Ctrl-B", () => {
+  // Claude sends a Bash call with no input first and its command up to 20s later, as the model
+  // writes it (Leo's session, 2026-10-21): it had read "Running a command 9s".
+  const drafting = codex([
+    row("u", "user"),
+    row("run", "activity", { items: [call("Bash", "pending", { command: undefined })] }),
+  ]).at(-1)!;
+  expect(drafting).toMatchObject({ doing: "", doingShell: true, doingDraft: true });
+  expect(drafting.doingCommand).toBeUndefined();
+  const start = 1_000_000;
+  expect(
+    words(renderToStaticMarkup(<Thinking doing="" doingShell draft doingAt={start} now={() => start + 9_000} />)),
+  ).toBe("Writing a command 9s");
+  // Once its command comes, it runs and offers Ctrl-B.
+  const running = codex([
+    row("u", "user"),
+    row("run", "activity", { items: [call("Bash", "in_progress", { command: "cargo test" })] }),
+  ]).at(-1)!;
+  expect(running).toMatchObject({ doing: "cargo test", doingShell: true, doingCommand: true });
+  expect(running.doingDraft).toBeUndefined();
 });
 
 test("each step replaces the line in place: Thinking, Running, Thinking, one id throughout", () => {
@@ -139,7 +211,7 @@ test("two runs with only a short note between them draw as one run, the note fol
     row("n", "assistant", { text: "Relay the decisions, then answer." }),
     row("r2", "activity", { items: [call("gh pr view 1"), call("acpmux send", "in_progress")] }),
   ]);
-  expect(kinds(shaped)).toEqual(["user", WORKING, "activity", THINKING]);
+  expect(kinds(shaped)).toEqual(["user", "activity", THINKING]);
   const run = shaped.find((entry) => entry.kind === "activity")!;
   expect(run.id).toBe("r1");
   expect(run.items?.map((item) => item.tool?.id ?? item.text)).toEqual([
@@ -162,7 +234,7 @@ test("a long note, or one with code, stays its own paragraph between the runs", 
       row("n", "assistant", { text }),
       row("r2", "activity", { items: [call("b")] }),
     ]);
-    expect(kinds(shaped)).toEqual(["user", WORKING, "activity", "assistant", "activity", THINKING]);
+    expect(kinds(shaped)).toEqual(["user", "activity", "assistant", "activity", THINKING]);
   }
 });
 

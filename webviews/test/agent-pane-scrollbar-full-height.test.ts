@@ -640,11 +640,12 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       (frame) => frame.top - start > distance * 0.01 && landed - frame.top > distance * 0.01,
     ).length;
     // Chromium runs the glide on the compositor and the page reads it in uneven chunks, so a frame
-    // may cover up to three times its share of the glide's time.
+    // may cover up to four times its share of the glide's time (3.3 at most over 21 glides on a
+    // runner painting every 17-133ms; a snap mid-glide in a short frame is still many times more).
     const fast = frames.slice(1).flatMap((frame, index) => {
       const before = frames[index]!;
       const step = frame.top - before.top;
-      return step > distance * Math.max(0.5, (3 * (frame.t - before.t)) / took)
+      return step > distance * Math.max(0.5, (4 * (frame.t - before.t)) / took)
         ? [`${Math.round(before.t)}-${Math.round(frame.t)}ms: ${Math.round(step)}px`]
         : [];
     });
