@@ -219,3 +219,72 @@ fn a_retry_after_the_focus_moved_replays_the_same_tab() {
     };
     assert_eq!(count(&last), count(&after), "the retry made a second tab: {last}");
 }
+
+/// Pins the dock column of `dock_pane` (`pinned-dock-v1`, the Home dock).
+fn pin_dock(server: &HeadlessServer, dock_pane: &Value) {
+    raw(
+        server,
+        json!({"cmd": "set-column-dock", "pane": dock_pane, "dock": true, "edge": "left",
+               "role": "agent_chat", "pinned": true}),
+    );
+    let pinned = raw(server, json!({"cmd": "list-workspaces"}));
+    assert!(pinned.to_string().contains("\"pinned\":true"), "the dock is not pinned: {pinned}");
+}
+
+/// A tab created in the Home dock pane itself (`--pane <dock>`, as `cmux file
+/// open --target <dock>` and an agent's open do) goes to the right side, never
+/// into the dock and never refused: the dock takes no other tab, whatever
+/// names it (u9415: an index.html opened in the Home dock).
+fn assert_named_dock_pane_goes_right(server: &HeadlessServer, name: &str, kind: &str) {
+    let (_, dock_pane, right) = docked_workspace(
+        server,
+        name,
+        json!({"edge": "left", "mode": "docked", "role": "agent_chat"}),
+    );
+    pin_dock(server, &dock_pane);
+    focus(server, name, &right[1]);
+    focus(server, name, &dock_pane);
+    let before = screen(server, name);
+    let dock_resource = pane(&before, &dock_pane)["resource_id"].as_str().unwrap().to_string();
+    let output = json_cli(server, &["tab", "create", kind, "--pane", dock_resource.as_str()]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let after = screen(server, name);
+    assert_eq!(
+        tabs(&after, &dock_pane),
+        tabs(&before, &dock_pane),
+        "a new {kind} tab went into the Home dock: {after}"
+    );
+    assert_eq!(
+        tabs(&after, &right[1]),
+        tabs(&before, &right[1]) + 1,
+        "the new {kind} tab is not in the right-side pane used last: {after}"
+    );
+}
+
+#[test]
+fn a_terminal_created_in_the_named_home_dock_pane_goes_right() {
+    let server = HeadlessServer::start("dock-tab-named-term");
+    assert_named_dock_pane_goes_right(&server, "dock-tab-named-term", "terminal");
+}
+
+// A browser tab needs an engine, which a headless daemon lacks; the same reroute of a
+// frontend browser tab is covered in cmux-tui-core (server/pinned_columns_tests.rs).
+
+/// The JSON-lines `new-tab` with the dock pane (an older client) goes right too.
+#[test]
+fn a_json_lines_new_tab_in_the_home_dock_goes_right() {
+    let server = HeadlessServer::start("dock-tab-jsonl");
+    let name = "dock-tab-jsonl";
+    let (_, dock_pane, right) = docked_workspace(
+        &server,
+        name,
+        json!({"edge": "left", "mode": "docked", "role": "agent_chat"}),
+    );
+    pin_dock(&server, &dock_pane);
+    focus(&server, name, &right[0]);
+    let before = screen(&server, name);
+    raw(&server, json!({"cmd": "new-tab", "pane": dock_pane}));
+    let after = screen(&server, name);
+    assert_eq!(tabs(&after, &dock_pane), tabs(&before, &dock_pane), "{after}");
+    assert_eq!(tabs(&after, &right[0]), tabs(&before, &right[0]) + 1, "{after}");
+}
