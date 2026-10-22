@@ -6,9 +6,12 @@
 //!
 //! So this only warns. The budget is derived from the host itself, never
 //! hand-set: the host is over budget while any of these holds:
-//! - the 1-minute load is at least `load1_per_core` per core, counting
-//!   performance cores (`hw.perflevel0.physicalcpu`, else `hw.physicalcpu`)
-//!   on macOS and the CPUs this process may use (`nproc`) on Linux;
+//! - the 1-minute load is at least `load1_per_core` per core. macOS counts the
+//!   performance cores: the `hw.perflevelN.physicalcpu` of every level whose
+//!   `hw.perflevelN.name` is not `Efficiency` (M1 to M4: the P-cores; M5: the
+//!   Super cores, plus an M5 Pro's Performance cores, so 15 on an M5 Pro and 4
+//!   on an M5), else `hw.physicalcpu`. Linux counts the CPUs this process may
+//!   use (`nproc`);
 //! - memory pressure is above `pressure` (macOS
 //!   `kern.memorystatus_vm_pressure_level`: 1 normal, 2 warn, 4 critical; Linux
 //!   `/proc/pressure/memory` `some avg10` at or above `psi_some_avg10` is warn);
@@ -24,21 +27,21 @@
 //!
 //! [`evaluate`] is the one place the verdict is made, from a [`Sample`]. The
 //! daemon samples only when asked (a turn starts, `daemon status`), at most once
-//! per `sample_seconds`, and keeps no timer (`Meter`).
+//! per `sample_seconds`, and keeps no timer (`Meter`). A sample, and the read of
+//! the override file, runs on a blocking thread, one at a time; a request waits
+//! for it at most [`SAMPLE_WAIT`] and otherwise gets the last verdict, so a slow
+//! disk never holds a turn or a runtime worker.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::path::PathBuf;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::io::Read;
+use std::path::{Path, PathBuf};
 
 /// Names the override file (module docs).
 pub const OVERRIDE_ENV: &str = "ACPMUX_HOST_BUDGET";
 
-/// A swap baseline older than this gives no rate; the next sample starts a new one.
-const SWAP_WINDOW: Duration = Duration::from_secs(600);
-
-const MIB: f64 = 1024.0 * 1024.0;
+/// The largest override file read; a bigger one keeps the defaults.
+const MAX_FILE_BYTES: u64 = 64 << 10;
 
 /// How the budget follows from the host (module docs). Field names are the
 /// shared file's keys.
@@ -137,17 +140,33 @@ pub fn override_path() -> Option<PathBuf> {
     }
 }
 
-/// This host's budget, read from the override file now.
+/// This host's budget, read from the override file now (blocking: a sample's thread).
 pub fn load_budget(host: &str) -> Budget {
-    let bytes = override_path().and_then(|p| std::fs::read(p).ok());
+    let bytes = override_path().and_then(|p| read_override(&p));
     parse_budget(bytes.as_deref(), host)
+}
+
+/// The override file's bytes: only a regular file (a FIFO or a device would
+/// block the read) of at most [`MAX_FILE_BYTES`]; `None` keeps the defaults.
+pub fn read_override(path: &Path) -> Option<Vec<u8>> {
+    let meta = std::fs::metadata(path).ok()?;
+    if !meta.is_file() || meta.len() > MAX_FILE_BYTES {
+        tracing::warn!(
+            "{}: not a regular file of at most 64 KiB; using the defaults",
+            path.display()
+        );
+        return None;
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(path).ok()?.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes).ok()?;
+    (bytes.len() as u64 <= MAX_FILE_BYTES).then_some(bytes)
 }
 
 /// What the host reports at one moment. `None` where the platform has no reading.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Sample {
     pub load1: Option<f64>,
-    /// macOS `hw.perflevel0.physicalcpu`.
+    /// macOS: the cores of every perf level not named `Efficiency` ([`performance_cores`]).
     pub performance_cores: Option<u32>,
     /// macOS `hw.physicalcpu`.
     pub physical_cores: Option<u32>,
@@ -268,76 +287,6 @@ fn trim(n: f64) -> String {
     if n.fract() == 0.0 { format!("{n:.0}") } else { format!("{n:.1}") }
 }
 
-/// Samples on demand, at most once per `sample_seconds`, and remembers the swap
-/// baseline between samples. No timer: a verdict is made only when one is asked for.
-pub struct Meter {
-    host: String,
-    probe: Box<dyn Probe>,
-    budget: Box<dyn Fn(&str) -> Budget + Send + Sync>,
-    state: Mutex<MeterState>,
-}
-
-#[derive(Default)]
-struct MeterState {
-    /// When the last fresh verdict was made, and it.
-    cached: Option<(Instant, Verdict)>,
-    /// The swap-out counter at the last sample that had one.
-    swap: Option<(Instant, u64)>,
-}
-
-impl Meter {
-    /// This host, its own probe, and the override file read at each fresh sample.
-    pub fn for_this_host() -> Self {
-        Self::new(host_name(), Box::new(HostProbe), Box::new(load_budget))
-    }
-
-    pub fn new(
-        host: String,
-        probe: Box<dyn Probe>,
-        budget: Box<dyn Fn(&str) -> Budget + Send + Sync>,
-    ) -> Self {
-        Self { host, probe, budget, state: Mutex::default() }
-    }
-
-    /// The verdict now (one from the last `sample_seconds` when there is one).
-    pub fn verdict(&self) -> Verdict {
-        self.verdict_at(Instant::now())
-    }
-
-    pub fn verdict_at(&self, now: Instant) -> Verdict {
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some((at, v)) = &state.cached
-            && now.saturating_duration_since(*at).as_secs_f64() < v.formula.sample_seconds
-        {
-            return v.clone();
-        }
-        let budget = (self.budget)(&self.host);
-        let sample = self.probe.sample();
-        let rate = match (sample.swapout_bytes, state.swap) {
-            (Some(bytes), Some((at, before))) => {
-                let elapsed = now.saturating_duration_since(at);
-                (elapsed.as_secs_f64() >= budget.formula.sample_seconds && elapsed <= SWAP_WINDOW)
-                    .then(|| {
-                        bytes.saturating_sub(before) as f64 / MIB / (elapsed.as_secs_f64() / 60.0)
-                    })
-            }
-            _ => None,
-        };
-        if let Some(bytes) = sample.swapout_bytes {
-            state.swap = Some((now, bytes));
-        }
-        let v = evaluate(&self.host, &sample, rate, &budget);
-        let was_ok = state.cached.as_ref().is_none_or(|(_, before)| before.ok);
-        if let Some(line) = v.warning.as_deref().filter(|_| was_ok) {
-            tracing::warn!("{line}");
-        } else if v.ok && !was_ok {
-            tracing::info!("host-budget: {} is within its CPU/RAM budget again", self.host);
-        }
-        state.cached = Some((now, v.clone()));
-        v
-    }
-}
-
 /// This machine's short name (`cosmic-gray` for `cosmic-gray.local`), the key
 /// of its `hosts` entry.
 pub fn host_name() -> String {
@@ -355,134 +304,18 @@ pub fn host_name() -> String {
     if short.is_empty() { "localhost".into() } else { short }
 }
 
-/// The real host's readings.
-pub struct HostProbe;
+// Samples on demand and keeps the last verdict (no timer).
+#[path = "host_pressure_meter.rs"]
+mod meter;
+pub use meter::{Meter, SAMPLE_WAIT};
 
-impl Probe for HostProbe {
-    fn sample(&self) -> Sample {
-        let logical_cpus = std::thread::available_parallelism().map_or(1, |n| n.get() as u32);
-        platform::sample(logical_cpus)
-    }
-}
-
-#[cfg(target_os = "macos")]
-mod platform {
-    use super::Sample;
-
-    pub(super) fn sample(logical_cpus: u32) -> Sample {
-        let mut load = [0f64; 3];
-        // SAFETY: `load` has room for the 3 values asked for.
-        let load1 = (unsafe { libc::getloadavg(load.as_mut_ptr(), 3) } >= 1).then_some(load[0]);
-        let count = |name: &std::ffi::CStr| {
-            sysctl_i32(name).and_then(|n| u32::try_from(n).ok()).filter(|n| *n > 0)
-        };
-        Sample {
-            load1,
-            performance_cores: count(c"hw.perflevel0.physicalcpu"),
-            physical_cores: count(c"hw.physicalcpu"),
-            logical_cpus,
-            vm_pressure_level: count(c"kern.memorystatus_vm_pressure_level"),
-            psi_some_avg10: None,
-            // The "System-wide memory free percentage" memory_pressure prints.
-            available_ram_fraction: sysctl_i32(c"kern.memorystatus_level")
-                .map(|p| f64::from(p) / 100.0),
-            swapout_bytes: swapout_bytes(),
-        }
-    }
-
-    fn sysctl_i32(name: &std::ffi::CStr) -> Option<i32> {
-        let mut value: libc::c_int = 0;
-        let mut size = size_of::<libc::c_int>();
-        // SAFETY: the name is NUL-terminated and `value`/`size` describe valid storage.
-        let ok = unsafe {
-            libc::sysctlbyname(
-                name.as_ptr(),
-                (&raw mut value).cast(),
-                &raw mut size,
-                std::ptr::null_mut(),
-                0,
-            )
-        } == 0;
-        ok.then_some(value)
-    }
-
-    /// `vm_stat`'s Swapouts (pages) in bytes.
-    fn swapout_bytes() -> Option<u64> {
-        // One send right for the daemon's life, not one per sample.
-        static HOST: std::sync::OnceLock<libc::mach_port_t> = std::sync::OnceLock::new();
-        // SAFETY: no arguments; returns this host's name port.
-        #[allow(deprecated)]
-        let host = *HOST.get_or_init(|| unsafe { libc::mach_host_self() });
-        // SAFETY: an all-zero vm_statistics64 is a valid value of this plain C struct.
-        let mut stats: libc::vm_statistics64 = unsafe { std::mem::zeroed() };
-        let mut count = libc::HOST_VM_INFO64_COUNT;
-        // SAFETY: `stats` is HOST_VM_INFO64_COUNT integers of writable storage, as `count` says.
-        let rc = unsafe {
-            libc::host_statistics64(
-                host,
-                libc::HOST_VM_INFO64,
-                (&raw mut stats).cast(),
-                &raw mut count,
-            )
-        };
-        // SAFETY: sysconf has no preconditions.
-        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
-        (rc == libc::KERN_SUCCESS && page > 0).then(|| stats.swapouts.saturating_mul(page as u64))
-    }
-}
-
-#[cfg(target_os = "linux")]
-mod platform {
-    use super::Sample;
-
-    pub(super) fn sample(logical_cpus: u32) -> Sample {
-        let read = |path: &str| std::fs::read_to_string(path).ok();
-        let load1 = read("/proc/loadavg").and_then(|s| s.split_whitespace().next()?.parse().ok());
-        let psi = read("/proc/pressure/memory").and_then(|s| psi_some_avg10(&s));
-        let available = read("/proc/meminfo").and_then(|s| {
-            let kb = |key: &str| {
-                s.lines().find_map(|l| {
-                    l.strip_prefix(key)?.trim().trim_end_matches("kB").trim().parse::<f64>().ok()
-                })
-            };
-            let total = kb("MemTotal:").filter(|t| *t > 0.0)?;
-            Some(kb("MemAvailable:")? / total)
-        });
-        // SAFETY: sysconf has no preconditions.
-        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
-        let swapout_bytes = read("/proc/vmstat")
-            .and_then(|s| {
-                s.lines().find_map(|l| l.strip_prefix("pswpout ")?.trim().parse::<u64>().ok())
-            })
-            .filter(|_| page > 0)
-            .map(|pages| pages.saturating_mul(page as u64));
-        Sample {
-            load1,
-            performance_cores: None,
-            physical_cores: None,
-            logical_cpus,
-            vm_pressure_level: None,
-            psi_some_avg10: psi,
-            available_ram_fraction: available,
-            swapout_bytes,
-        }
-    }
-
-    /// `some avg10=1.23 avg60=... total=...` → 1.23.
-    pub(super) fn psi_some_avg10(text: &str) -> Option<f64> {
-        let line = text.lines().find(|l| l.starts_with("some "))?;
-        line.split_whitespace().find_map(|w| w.strip_prefix("avg10=")?.parse().ok())
-    }
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-mod platform {
-    use super::Sample;
-
-    pub(super) fn sample(logical_cpus: u32) -> Sample {
-        Sample { logical_cpus, ..Sample::default() }
-    }
-}
+// The real host's readings, and the parsers of Linux's `/proc` files.
+#[path = "host_pressure_probe.rs"]
+mod probe;
+pub use probe::{
+    HostProbe, parse_loadavg, parse_meminfo_available, parse_psi_some_avg10, parse_vmstat_pswpout,
+    performance_cores,
+};
 
 #[cfg(test)]
 #[path = "host_pressure_tests.rs"]

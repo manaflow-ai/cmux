@@ -10,10 +10,16 @@ const TOP: usize = 5;
 
 impl Hub {
     /// `daemon status`'s `host_pressure`: the verdict, the turns and background
-    /// processes running here, and the sessions with the most of them.
-    pub(super) fn host_pressure_status(&self) -> Value {
-        let mut v =
-            serde_json::to_value(self.host_pressure.verdict()).unwrap_or_else(|_| json!({}));
+    /// processes running here, and the sessions with the most of them. Waits at most
+    /// `host_pressure::SAMPLE_WAIT` for a sample; with none yet, `ok` is null.
+    pub(super) async fn host_pressure_status(&self) -> Value {
+        let verdict = self.host_pressure.current().await;
+        let mut v = match verdict.and_then(|v| serde_json::to_value(v).ok()) {
+            Some(v) => v,
+            None => {
+                json!({"host": self.host_pressure.host(), "ok": null, "over": [], "warning": null})
+            }
+        };
         let mut top = Vec::new();
         let (mut turns, mut processes) = (0, 0);
         for s in self.sessions() {
@@ -41,12 +47,10 @@ impl Hub {
         v
     }
 
-    /// The verdict, for a turn's acceptance, while the host is over budget.
+    /// The verdict, for a turn's acceptance, while the host is over budget. Never
+    /// waits (`Meter::peek`).
     pub(super) fn host_pressure_warning(&self) -> Option<Value> {
-        let v = self.host_pressure.verdict();
-        if v.ok {
-            return None;
-        }
+        let v = self.host_pressure.peek().filter(|v| !v.ok)?;
         serde_json::to_value(v).ok()
     }
 }

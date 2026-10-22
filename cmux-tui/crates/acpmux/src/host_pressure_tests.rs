@@ -1,11 +1,11 @@
 use super::*;
-use std::sync::Arc;
 
 /// cosmic-gray at 23:10 PDT on 2026-10-21 (cmuxterm-hq#2995), read the way the probe reads it.
-fn incident() -> Sample {
+pub(super) fn incident() -> Sample {
     Sample {
         load1: Some(146.3),
-        performance_cores: Some(10),
+        // 5 Super + 10 Performance cores (an M5 Pro): `performance_cores`.
+        performance_cores: Some(15),
         physical_cores: Some(15),
         logical_cpus: 15,
         vm_pressure_level: Some(2),
@@ -16,7 +16,7 @@ fn incident() -> Sample {
 }
 
 /// The same Mac running a normal lane load.
-fn calm() -> Sample {
+pub(super) fn calm() -> Sample {
     Sample {
         load1: Some(6.2),
         vm_pressure_level: Some(1),
@@ -30,7 +30,7 @@ fn a_calm_host_is_within_budget() {
     let v = evaluate("cosmic-gray", &calm(), Some(0.0), &Budget::default());
     assert!(v.ok, "{:?}", v.over);
     assert_eq!(v.warning, None);
-    assert_eq!((v.cores, v.cores_kind, v.load_limit), (10, "performance", 10.0));
+    assert_eq!((v.cores, v.cores_kind, v.load_limit), (15, "performance", 15.0));
 }
 
 #[test]
@@ -39,12 +39,12 @@ fn the_incident_is_over_on_every_count_and_says_so_in_one_line() {
     assert!(!v.ok);
     assert_eq!(
         v.over,
-        ["load1 146.3 >= 10 (10 P-cores)", "memory pressure warn", "swap +900 MB/min"]
+        ["load1 146.3 >= 15 (15 P-cores)", "memory pressure warn", "swap +900 MB/min"]
     );
     assert_eq!(
         v.warning.as_deref(),
         Some(
-            "host-budget: cosmic-gray over its CPU/RAM budget: load1 146.3 >= 10 (10 P-cores); \
+            "host-budget: cosmic-gray over its CPU/RAM budget: load1 146.3 >= 15 (15 P-cores); \
              memory pressure warn; swap +900 MB/min"
         )
     );
@@ -56,11 +56,11 @@ fn load_is_measured_against_performance_cores_then_physical_then_logical() {
         evaluate("h", &Sample { load1: Some(load), ..s }, None, &Budget::default())
     };
     // Under the P-core count, over at it.
-    assert!(at(9.9, calm()).ok);
-    assert!(!at(10.0, calm()).ok);
+    assert!(at(14.9, calm()).ok);
+    assert!(!at(15.0, calm()).ok);
     // No perf levels (an Intel Mac): physical cores.
-    let intel = Sample { performance_cores: None, ..calm() };
-    assert_eq!((at(14.0, intel.clone()).load_limit, at(14.0, intel).ok), (15.0, true));
+    let intel = Sample { performance_cores: None, physical_cores: Some(8), ..calm() };
+    assert_eq!((at(7.0, intel.clone()).load_limit, at(7.0, intel).ok), (8.0, true));
     // Linux reports neither: the CPUs this process may use.
     let linux = Sample {
         performance_cores: None,
@@ -73,7 +73,8 @@ fn load_is_measured_against_performance_cores_then_physical_then_logical() {
     assert_eq!((v.cores, v.cores_kind, v.ok), (32, "logical", true));
     // `cores: logical` counts every CPU even with perf levels.
     let budget = parse_budget(Some(br#"{"formula": {"cores": "logical"}}"#), "h");
-    assert_eq!(evaluate("h", &calm(), None, &budget).cores, 15);
+    let threads = Sample { logical_cpus: 18, ..calm() };
+    assert_eq!(evaluate("h", &threads, None, &budget).cores, 18);
 }
 
 #[test]
@@ -126,61 +127,93 @@ fn bad_values_and_bad_files_keep_the_defaults() {
     assert_eq!(parse_budget(None, "h"), Budget::default());
 }
 
-/// A probe whose readings a test changes between samples, and counts.
-#[derive(Default)]
-struct FakeProbe {
-    sample: Mutex<Sample>,
-    reads: Mutex<u32>,
-}
-
-impl Probe for Arc<FakeProbe> {
-    fn sample(&self) -> Sample {
-        *self.reads.lock().unwrap() += 1;
-        self.sample.lock().unwrap().clone()
+#[test]
+fn the_override_file_must_be_a_small_regular_file() {
+    let dir = std::env::temp_dir().join(format!("acpmux-host-budget-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let small = dir.join("small.json");
+    std::fs::write(&small, br#"{"formula": {"load1_per_core": 2}}"#).unwrap();
+    assert!(read_override(&small).is_some());
+    let big = dir.join("big.json");
+    std::fs::write(&big, vec![b' '; 70 << 10]).unwrap();
+    assert_eq!(read_override(&big), None);
+    assert_eq!(read_override(&dir), None);
+    assert_eq!(read_override(&dir.join("missing.json")), None);
+    #[cfg(unix)]
+    {
+        // A FIFO with no writer would block an open forever: it is never opened.
+        let fifo = dir.join("fifo.json");
+        let path = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: a NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        assert_eq!(read_override(&fifo), None);
     }
-}
-
-fn defaults(_host: &str) -> Budget {
-    Budget::default()
-}
-
-fn meter(probe: &Arc<FakeProbe>) -> Meter {
-    Meter::new("h".into(), Box::new(probe.clone()), Box::new(defaults))
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
-fn the_meter_samples_at_most_once_per_sample_seconds() {
-    let probe = Arc::new(FakeProbe::default());
-    *probe.sample.lock().unwrap() = calm();
-    let m = meter(&probe);
-    let t0 = Instant::now();
-    m.verdict_at(t0);
-    m.verdict_at(t0 + Duration::from_millis(2_900));
-    assert_eq!(*probe.reads.lock().unwrap(), 1);
-    m.verdict_at(t0 + Duration::from_secs(3));
-    assert_eq!(*probe.reads.lock().unwrap(), 2);
+fn performance_cores_are_every_level_but_efficiency() {
+    let levels =
+        |l: &[(&str, u32)]| l.iter().map(|(n, c)| ((*n).to_owned(), *c)).collect::<Vec<_>>();
+    // cosmic-gray, an M5 Pro: 5 Super + 10 Performance.
+    assert_eq!(performance_cores(&levels(&[("Super", 5), ("Performance", 10)])), Some(15));
+    // air-blue, an M5: 4 Super + 6 Efficiency.
+    assert_eq!(performance_cores(&levels(&[("Super", 4), ("Efficiency", 6)])), Some(4));
+    // M1 to M4.
+    assert_eq!(performance_cores(&levels(&[("Performance", 8), ("Efficiency", 4)])), Some(8));
+    assert_eq!(performance_cores(&levels(&[("Efficiency", 4)])), None);
+    assert_eq!(performance_cores(&[]), None);
 }
 
 #[test]
-fn swap_growth_is_the_rate_between_two_samples() {
-    let probe = Arc::new(FakeProbe::default());
-    let set_swap = |bytes: u64| {
-        *probe.sample.lock().unwrap() = Sample { swapout_bytes: Some(bytes), ..calm() }
-    };
-    let m = meter(&probe);
-    let t0 = Instant::now();
-    set_swap(1 << 30);
-    // One sample has no rate yet.
-    assert_eq!(m.verdict_at(t0).swap_mb_per_min, None);
-    // 100 MiB in 30 s is 200 MB/min: over.
-    set_swap((1 << 30) + (100 << 20));
-    let v = m.verdict_at(t0 + Duration::from_secs(30));
-    assert_eq!((v.swap_mb_per_min, v.ok), (Some(200.0), false));
-    // Then flat: back within budget.
-    let v = m.verdict_at(t0 + Duration::from_secs(60));
-    assert_eq!((v.swap_mb_per_min, v.ok), (Some(0.0), true));
-    // A baseline older than the window gives no rate, and starts a new one.
-    set_swap(5 << 30);
-    assert_eq!(m.verdict_at(t0 + Duration::from_secs(60 + 601)).swap_mb_per_min, None);
-    assert_eq!(m.verdict_at(t0 + Duration::from_secs(60 + 661)).swap_mb_per_min, Some(0.0));
+fn linux_proc_files_parse() {
+    assert_eq!(parse_loadavg("23.41 21.65 17.77 3/1201 4242\n"), Some(23.41));
+    let psi = "some avg10=12.50 avg60=3.10 avg300=0.80 total=123456\nfull avg10=1.00 avg60=0.20 avg300=0.05 total=2345\n";
+    assert_eq!(parse_psi_some_avg10(psi), Some(12.5));
+    let meminfo =
+        "MemTotal:       65536000 kB\nMemFree:         1000000 kB\nMemAvailable:   16384000 kB\n";
+    assert_eq!(parse_meminfo_available(meminfo), Some(0.25));
+    assert_eq!(parse_meminfo_available("MemFree: 1 kB\n"), None);
+    assert_eq!(parse_vmstat_pswpout("pswpin 10\npswpout 4096\n"), Some(4096));
+}
+
+#[test]
+fn the_verdict_carries_the_contract_keys() {
+    let v =
+        serde_json::to_value(evaluate("h", &incident(), Some(100.0), &Budget::default())).unwrap();
+    let mut keys: Vec<_> = v.as_object().unwrap().keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        [
+            "available_ram_fraction",
+            "cores",
+            "cores_kind",
+            "enforce",
+            "formula",
+            "host",
+            "load1",
+            "load_limit",
+            "ok",
+            "over",
+            "pressure",
+            "swap_mb_per_min",
+            "warning"
+        ]
+    );
+    let mut formula: Vec<_> =
+        v["formula"].as_object().unwrap().keys().map(String::as_str).collect();
+    formula.sort_unstable();
+    assert_eq!(
+        formula,
+        [
+            "cores",
+            "load1_per_core",
+            "min_available_ram_fraction",
+            "pressure",
+            "psi_some_avg10",
+            "sample_seconds",
+            "swap_growth_mb_per_min"
+        ]
+    );
 }
