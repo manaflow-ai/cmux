@@ -16,6 +16,7 @@ extension CloudStrings {
         case .booting: text("cloud.progress.stage.booting", "Starting the machine")
         case .connecting: text("cloud.progress.stage.connecting", "Connecting to cmux-tui")
         case .ready: text("cloud.progress.stage.ready", "Ready")
+        case .paused: text("cloud.progress.stage.paused", "Paused")
         case .failed: text("cloud.progress.stage.failed", "Failed")
         }
     }
@@ -27,6 +28,7 @@ extension CloudStrings {
         case .creating: text("cloud.progress.next.creating", "cmux Cloud is creating the VM. A new machine usually takes under a minute.")
         case .booting: text("cloud.progress.next.booting", "The VM exists. This Mac is opening a link to it and waits for its cmux-tui to answer.")
         case .connecting: text("cloud.progress.next.connecting", "The link is up. Loading the machine's workspaces.")
+        case .paused: machinePaused
         case .ready, .failed: text("cloud.progress.next.ready", "Opening the terminal.")
         }
     }
