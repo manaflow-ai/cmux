@@ -220,7 +220,13 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
         Ok(keys) => keys,
         Err(action) => return needs_user(report, action),
     };
-    let before = imported(&listed, Some(&id), source.map(|_| keys.as_slice()));
+    // A profile the browser no longer has is found only by the folder in
+    // the stored source key (its shown name is gone with it).
+    let stored = match (source, keys.is_empty()) {
+        (Some(source), true) => vec![format!("{id}/{source}")],
+        _ => keys.clone(),
+    };
+    let before = imported(&listed, Some(&id), source.map(|_| stored.as_slice()));
     report["before"] = json!({"profile": profile, "folders": before});
     if !before.is_empty() {
         report["after"] = report["before"].clone();
@@ -543,7 +549,9 @@ fn imported(listed: &Value, browser: Option<&str>, keys: Option<&[String]>) -> V
         .filter_map(|node| {
             let key = node["source_key"].as_str()?;
             let id = key.split_once('/').map_or(key, |(id, _)| id);
-            let profile = keys.is_none_or(|keys| keys.iter().any(|k| k == key));
+            // Ignoring case, as the app matches a named profile's folder.
+            let profile =
+                keys.is_none_or(|keys| keys.iter().any(|k| k.to_lowercase() == key.to_lowercase()));
             (profile && browser.is_none_or(|browser| id.eq_ignore_ascii_case(browser))).then(|| {
                 json!({"id": node["id"], "title": node["title"], "source_key": key, "browser": id})
             })

@@ -319,7 +319,10 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    profile, every profile of the browser) and looks for those, never at
    the title, which is localized and the person may rename; a browser or
    profile the app does not find, with no folder of it there yet, is
-   `needs_user` (`kind` `browser`).
+   `needs_user` (`kind` `browser`); a profile the browser no longer has is
+   still `ok` when named by its folder (`chrome:Profile 9`), which the
+   stored source key keeps, though not by its shown name, which went with
+   it.
    `bookmark.list` answers `loaded` false with an empty list until the app
    has the stored bookmarks; setup reads again until 2 seconds after the
    first answer (each reread gets only the time left), then is
