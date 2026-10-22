@@ -4,6 +4,7 @@
 // row, so nesting reads the same at every level.
 import { appendThought, mergeToolItem, textFromContent } from "../direct";
 import type { AcpmuxRow } from "../model";
+import { isPlumbingCall } from "../hiddenTools";
 import { SUBAGENTS, type Event, type Subagent } from "./subagentFold";
 
 /// One of a subagent's own updates, or the point where it spawned a subagent.
@@ -19,6 +20,7 @@ export function childRows(
 ): AcpmuxRow[] {
   const rows = new Map<string, AcpmuxRow>();
   const tools = new Map<string, string>();
+  const hidden = new Set<string>();
   const groups: { row: string; ids: string[] }[] = [];
   let reply: string | undefined;
   let activity: string | undefined;
@@ -65,6 +67,9 @@ export function childRows(
       reply = undefined;
     } else if (kind === "tool_call" || kind === "tool_call_update") {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
+      // Plumbing (Claude Code's ToolSearch) draws no row here either (hiddenTools.ts).
+      if (isPlumbingCall(update)) hidden.add(callId);
+      if (hidden.has(callId)) continue;
       const known = tools.get(callId);
       const rowId = known ?? activity ?? `${id}:activity-${event.seq}`;
       const existing = rows.get(rowId);
