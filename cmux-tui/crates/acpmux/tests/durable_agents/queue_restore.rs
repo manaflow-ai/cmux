@@ -289,9 +289,7 @@ async fn a_turn_a_restart_cut_off_resumes_first_and_its_steer_and_queue_deliver_
     let events = daemon.events(&session);
     let scheduled: Vec<&Value> = events
         .iter()
-        .filter(|e| {
-            e["kind"] == "auto_resume_scheduled" && e["msg"]["reason"] == "daemon_restart"
-        })
+        .filter(|e| e["kind"] == "auto_resume_scheduled" && e["msg"]["reason"] == "daemon_restart")
         .collect();
     assert_eq!(scheduled.len(), 1, "no single record that a restart resumed the turn: {events:#?}");
     assert_eq!(scheduled[0]["msg"]["promptId"], "cut-1", "{:#}", scheduled[0]);
