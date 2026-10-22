@@ -61,6 +61,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var generation: String?
         var hidesStrip = false // PaneTabBarChoices: only the person's Hide Tab Bar
         var fullWidthTab = false // PaneFullWidthTabs: the strip shows only the selected tab
+        var verticalTabs: PaneVerticalTabs? // WorkspaceVerticalTabs: a list instead of the strip; nil shows the strip
         /// `pinned-dock-v1`: the pane is in a pinned column (the Home dock): its first tab
         /// shows no close button.
         var keepsFirstTab = false
@@ -184,6 +185,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                          // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
                          hidesStrip: hidesTabBar || ownWorkspace?.app != nil || homeChief,
                          fullWidthTab: services.paneFullWidthTabs.contains(paneKey),
+                         verticalTabs: .shown(in: ownWorkspace?.id, unless: hidesTabBar || ownWorkspace?.app != nil || homeChief || pinned),
                          keepsFirstTab: pinned && tabs.first?.id == pane.tabs.first?.id,
                          takesNewTabs: !pinned || dock?.allowsTabs == true)
     }
@@ -254,7 +256,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     func apply(_ reported: Snapshot, force: Bool = false) {
         let snapshot = NewTabSuccession.order(reported, in: self)
         if force { view.stripView.discardPendingReorder() }
-        if view.hidesStrip != snapshot.hidesStrip { view.hidesStrip = snapshot.hidesStrip }
+        view.showStrip(hidden: snapshot.hidesStrip, vertical: snapshot.verticalTabs)
         if stripModel.showsSelectedFullWidth != snapshot.fullWidthTab { stripModel.showsSelectedFullWidth = snapshot.fullWidthTab }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items {
@@ -409,9 +411,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     }
 
     /// This pane is its workspace's focused pane.
-    var isFocusedInWorkspace: Bool {
-        workspace?.focus.state.pane == paneKey
-    }
+    var isFocusedInWorkspace: Bool { workspace?.focus.state.pane == paneKey }
 
     func content(for key: String) -> TabContent? {
         if key.hasPrefix(LocalPageTab.prefix) { return services.pages.view(for: key).map(TabContent.page) }

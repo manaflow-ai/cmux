@@ -26,6 +26,8 @@ extension SidebarViewComponents {
         var drawsLines: Bool
         var preferences: SidebarSectionsPreferences
         var suppressedApps: Set<String>
+        /// `SidebarModel.inWorkspaceTabs`: a workspace turning vertical tabs on drops its tab rows.
+        var inWorkspaceTabs: SidebarInWorkspaceTabs
         /// Design tokens (density, overrides, chrome font size). Reading them
         /// inside the tracked closure makes a settings change re-render.
         var metrics: SidebarLayoutMetrics
@@ -58,6 +60,7 @@ extension SidebarViewComponents {
             drawsLines = Borders.drawsLines
             preferences = design.sidebarSections
             suppressedApps = model.suppressedApps
+            inWorkspaceTabs = model.inWorkspaceTabs
             metrics = .standard
             fontSize = Typography.body.pointSize
             titlebarHeight = Metrics.titlebarHeight
@@ -99,6 +102,7 @@ extension SidebarViewComponents {
         let selectionChanged = lastState?.selection != state.selection || lastState?.selected != state.selected
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
             || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
+            || (state.preferences.showWorkspaceTabs && lastState?.inWorkspaceTabs != state.inWorkspaceTabs)
             || lastState?.pullRequests != state.pullRequests
             || lastState?.history != state.history
             || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.foldsDone != state.foldsDone

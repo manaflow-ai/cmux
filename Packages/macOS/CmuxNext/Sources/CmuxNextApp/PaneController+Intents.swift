@@ -359,8 +359,8 @@ extension PaneController {
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),
                                             entries: TabGroupPinMenu.entries(saved: saved)).themeRows(in: view.themeScope.fullStrength)
         case .emptyStrip:
-            let entries = ContextMenuCatalog.shared.entries(for: .newTab) + [.separator] + ContextMenuCatalog.shared.entries(for: .pane)
-            return registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: paneKey), entries: entries).themeRows(in: view.themeScope.fullStrength)
+            // The tab bar's menu, the strip's or the vertical list's (TabStripMenu).
+            return TabStripMenu.make(target: ActionTargetRef(kind: .pane, id: paneKey), registry: registry).themeRows(in: view.themeScope.fullStrength)
         case .newTabButton:
             // The engine menu predicts a Chromium tab (ChromiumWarmup).
             services.chromiumWarmup.chromiumLikely(.newTabMenu)

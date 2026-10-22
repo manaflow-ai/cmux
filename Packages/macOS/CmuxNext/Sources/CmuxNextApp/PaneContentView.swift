@@ -53,6 +53,13 @@ final class PaneContentView: NSView, PaneContentChrome {
             needsLayout = true
         }
     }
+    /// Vertical tabs (`PaneContentView+VerticalTabs`): the pane's tabs as a list on its leading edge
+    /// instead of the strip; nil shows the strip.
+    var verticalTabs: PaneVerticalTabs? {
+        didSet { if verticalTabs != oldValue { applyVerticalTabs() } }
+    }
+    /// The vertical list, made the first time the pane shows vertical tabs.
+    var verticalList: VerticalTabListView?
     /// A browser's tab bar above or below its toolbar (`tabs.barOrder`, R109).
     var barOrder: TabBarOrder = .aboveToolbar {
         didSet { if barOrder != oldValue { updateBand() } }
@@ -159,7 +166,9 @@ final class PaneContentView: NSView, PaneContentChrome {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools - rowTools, height: shown)
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
         }
-        let hostFrame = isBandActive || rowTools > 0 ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
+        var hostFrame = isBandActive || rowTools > 0 ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
+        let listWidth = layoutVerticalList()
+        if listWidth > 0 { (hostFrame.origin.x, hostFrame.size.width) = (hostFrame.minX + listWidth, max(0, hostFrame.width - listWidth)) }
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
         if hostChanged { contentHost.frame = hostFrame }

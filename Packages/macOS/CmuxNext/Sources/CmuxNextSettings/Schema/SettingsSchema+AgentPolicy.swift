@@ -64,6 +64,7 @@ extension SettingsSchema {
         "tabs.terminalFirst",
         "app.hideDockIconWithoutWindows", // Dock icon and Cmd-Tab entry with no window open; ends no work
         "tabs.overflow",
+        "tabs.verticalTabs", "tabs.verticalTabsExpandOnHover", // how tabs are listed (looks only)
         "tabs.swapCmdTAndCmdN",
         "palette.scopes.tabs.prefix",
         "palette.scopes.workspaces.prefix",
