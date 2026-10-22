@@ -348,11 +348,15 @@ async function mountBetween(props: Parameters<typeof ContextRing>[0]) {
   });
   return container.querySelector<HTMLButtonElement>(".acpmux-context-ring")!;
 }
+/// A Tab press: the page's keydown first, then, unless the page took it, the browser's own move to
+/// the next (or previous) button in document order, which jsdom does not do.
 const tab = async (shift = false) => {
   await act(async () => {
-    document.activeElement!.dispatchEvent(
-      new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: shift, bubbles: true, cancelable: true }),
-    );
+    const from = document.activeElement as HTMLElement;
+    const press = new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: shift, bubbles: true, cancelable: true });
+    if (!from.dispatchEvent(press)) return;
+    const order = [...document.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+    order[order.indexOf(from as HTMLButtonElement) + (shift ? -1 : 1)]?.focus();
   });
   await wait();
 };

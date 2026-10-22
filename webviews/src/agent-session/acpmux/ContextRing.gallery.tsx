@@ -145,6 +145,18 @@ export default componentEntry<Props>({
       },
       play: hoverCard,
     },
+    "rich-at-rest": {
+      note: "The rich Claude card's ring at rest, with no hover: where the keyboard tests start (focus the ring, then Tab into the card).",
+      props: {
+        used: 111_000,
+        size: 475_000,
+        breakdown: CLAUDE_BREAKDOWN,
+        model: "Opus 5.5",
+        compactedMinutesAgo: 12,
+        compact: true,
+        details: true,
+      },
+    },
     "card-codex-rich": {
       note: "Hover on a Codex chat: Codex reports no breakdown and this chat never compacted, so the card shows the totals, the model's window, Compact now and Details ›, and no category rows.",
       props: { used: 111_000, size: 475_000, model: "GPT-5.5 Codex", compact: true, details: true },
