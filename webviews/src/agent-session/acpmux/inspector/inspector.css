@@ -582,7 +582,7 @@ button.acpmux-chat-inspector-port:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
 }
-/* Subagents: one row of avatars; running ones breathe. */
+/* Subagents: one row of avatars; a shimmer sweeps across the running ones (ui/wave.ts). */
 .acpmux-chat-inspector-avatars {
   display: flex;
   align-items: center;
@@ -614,16 +614,6 @@ button.acpmux-chat-inspector-port:focus-visible {
   flex: none;
   color: var(--agent-muted);
   font-size: var(--text-detail);
-}
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-chat-inspector-avatars .cv-subagent-avatar[data-state="running"] {
-    animation: acpmux-chat-inspector-breathe 2.4s ease-in-out infinite;
-  }
-}
-@keyframes acpmux-chat-inspector-breathe {
-  50% {
-    opacity: 0.62;
-  }
 }
 .acpmux-chat-inspector-subagents__list {
   margin-top: 4px;
