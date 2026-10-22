@@ -26,6 +26,7 @@ import { catalogRow } from "./catalogRow";
 import { harnessProfiles } from "./harnessProfiles";
 import { useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
+import { useModelCatalogState } from "./modelCatalogHost";
 import { focusWithRing } from "../../ui/focusWithRing";
 import { Popover } from "../../ui/Popover";
 import { ContextMenu } from "../../ui/ContextMenu";
@@ -276,22 +277,67 @@ export function ComposerPickers({
       ? (resolvedModel(summary) ?? (summary.harness ? loadResolvedDefaults()[summary.harness] : undefined))
       : summary?.model;
   // A profile the catalog does not map to its family (a second Claude account's harness id) still
-  // runs a catalogued model: its family's row for that id (else any harness's) names it and its
-  // default level, so the chips never fall back to the raw id or to the word Reasoning.
-  const catalogModel =
-    catalogRow(
-      pickerCatalog?.harnesses.find(
-        (entry) => entry.acpmuxHarness === summary?.harness || entry.id === summary?.harness,
-      )?.models,
-      runningModel,
-    ) ??
+  // runs a catalogued model: its family's row for that id (else any harness's) names it, so the
+  // chips never fall back to the raw id or to the word Reasoning.
+  const kinRows = (id = runningModel) =>
     [
       ...(pickerCatalog?.harnesses.filter((entry) => entry.id === summary?.family) ?? []),
       ...(pickerCatalog?.harnesses ?? []),
-    ]
-      .map((entry) => catalogRow(entry.models, runningModel))
-      .find((row) => row !== undefined);
-  const efforts: Choice[] = reasoningChoices(effort?.options ?? [], catalogModel, t);
+    ].map((entry) => catalogRow(entry.models, id));
+  const ownRow = catalogRow(
+    pickerCatalog?.harnesses.find((entry) => entry.acpmuxHarness === summary?.harness || entry.id === summary?.harness)
+      ?.models,
+    runningModel,
+  );
+  const catalogModel = ownRow ?? kinRows().find((row) => row !== undefined);
+  // The levels the chat runs and the one the agent's "default" resolves to come from this chat's
+  // own model row, else from the release it runs (Leo 2026-10-22: "this should just show the effort
+  // too right? and then the effort tells you what you're already currrently on?"). A profile's probed
+  // row (a claude-sr2 chat's Opus 5.5) names the model but no level; the release's catalog row does.
+  // An alias ("opus") is not a release: what it runs depends on the installed harness, so another
+  // profile's row for it never lends its levels. Its release is the one its own row names, else
+  // acpmux's row for it, else the one the session's model option reports it runs (Claude Code's
+  // `opus` running claude-opus-5-5), once no switch or other pick is in flight. A release is an id
+  // the model catalog lists as a model; unknown, the button names no level.
+  const { catalog: modelCatalog } = useModelCatalogState();
+  const isRelease = (id: string | undefined): id is string => {
+    const bare = id?.replace(/\[[^\]]*\]$/, "");
+    return (
+      !!bare &&
+      !isDefaultChoice({ id: bare }) &&
+      (bare in modelCatalog.models ||
+        modelCatalog.harnesses.some((harness) => harness.models.some((model) => model.id === bare)))
+    );
+  };
+  const modelOption = summary?.configOptions?.find((option) => option.category === "model" || option.id === "model");
+  // A harness still starting shows its last session's options, which name no model this chat runs.
+  const settled =
+    snapshot.switching === undefined && (!summary?.confirmedModel || summary.confirmedModel === summary.model);
+  const runningRelease = [
+    runningModel,
+    ownRow?.release,
+    snapshot.catalog.find((entry) => entry.id === summary?.harness)?.models.find((row) => row.id === runningModel)
+      ?.release,
+    settled && typeof modelOption?.currentValue === "string" ? modelOption.currentValue : undefined,
+  ].find(isRelease);
+  // The release's own row first (a harness that lists it pinned), else a row that stands for it.
+  const releaseRows = runningRelease
+    ? [
+        ...kinRows(runningRelease).filter((row) => row?.id === runningRelease && !row.release),
+        ...kinRows(runningRelease),
+      ].filter((row) => row !== undefined)
+    : [];
+  const levelRow = ownRow?.efforts.length ? ownRow : (releaseRows.find((row) => row.efforts.length > 0) ?? ownRow);
+  const defaultEffort =
+    ownRow?.defaultEffort ?? releaseRows.find((row) => row.defaultEffort !== undefined)?.defaultEffort;
+  const efforts: Choice[] = reasoningChoices(
+    effort?.options ?? [],
+    {
+      ...(levelRow ? { efforts: levelRow.efforts } : {}),
+      ...(defaultEffort ? { defaultEffort } : {}),
+    },
+    t,
+  );
   // Claude Code's Ultracode: a switch beside the levels, offered where the model runs Extra High.
   // It rides the free effort option (ultracode on, Extra High off): acpmux's own `ultracode` id is a
   // mode switch the app would confirm with a sheet.
@@ -543,7 +589,7 @@ export function ComposerPickers({
   // The agent's own level ("default") names the level it resolves to: the running model's default
   // effort. It never guesses the first level.
   const effortDefaulted = effort?.currentValue === "default";
-  const effortValue = effort && (effortDefaulted ? catalogModel?.defaultEffort : effort.currentValue);
+  const effortValue = effort && (effortDefaulted ? defaultEffort : effort.currentValue);
   const effortChoice = efforts.find((choice) => choice.id === effortValue);
   const ultracodeOn = ultracode !== undefined && ultracode.current === ultracode.on;
   const lastChips = awaiting && chipHarness ? loadLastChips()[chipHarness] : undefined;

@@ -18,13 +18,26 @@ extension PageWebView {
     }
 
     /// A picture of the page as it draws now, at the view's size in points; nil when there is none.
+    ///
+    /// In Chromium it is a fast-mode JPEG: the browser encodes the capture on its UI thread, which
+    /// is the app's main thread, and a full retina PNG took 80-140 ms there (see `CEFThumbnail`).
+    /// The picture is a cover shown while the page draws again, so JPEG is plenty. The reply (a
+    /// multi-megabyte base64 string) is parsed and decoded off the main actor.
     public func snapshot() async -> NSImage? {
         guard let page = chromiumSession?.page else { return try? await webView.takeSnapshot(configuration: nil) }
-        guard let json = try? await page.devTools("Page.captureScreenshot", params: ["format": "png"]),
-              let object = ChromiumPageHostWire.object(json), let base64 = object["data"] as? String,
-              let data = Data(base64Encoded: base64), let image = NSImage(data: data) else { return nil }
+        guard let json = try? await page.devTools("Page.captureScreenshot", params: Self.snapshotParams),
+              let data = await Self.screenshotData(json), let image = NSImage(data: data) else { return nil }
         image.size = bounds.size
         return image
+    }
+
+    /// `Page.captureScreenshot` for ``snapshot()``.
+    nonisolated static var snapshotParams: [String: any Sendable] { ["format": "jpeg", "quality": 85, "optimizeForSpeed": true] }
+
+    /// The image bytes of a `Page.captureScreenshot` reply, parsed off the main actor.
+    @concurrent nonisolated static func screenshotData(_ json: String) async -> Data? {
+        guard let object = ChromiumPageHostWire.object(json), let base64 = object["data"] as? String else { return nil }
+        return Data(base64Encoded: base64)
     }
 
     /// Runs `body` once the page drew its next frame: an animation frame and a task in the page, then

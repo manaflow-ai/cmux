@@ -231,6 +231,9 @@ public final class CEFEngine: BrowserEngine {
     /// External message pump counters (for `debug.cef`); nil before CEF runs.
     public var pumpStats: CEFPumpStats? { CEFRuntime.shared.pump?.stats }
 
+    /// What the fork's page tracker read from host views (for `debug.cef`).
+    public var trackerStats: CEFTrackerStats { CEFHostView.trackerStats }
+
     /// Chromium asked for a window (a link, `window.open`,
     /// `chrome.windows.create`) and no Chromium window of its profile exists:
     /// Chromium opens nothing, and this opens the URL in a new cmux tab.

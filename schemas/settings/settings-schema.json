@@ -271,6 +271,7 @@
           "text" : "Updates"
         },
         "trail" : [
+          "webUpdates",
           "channels"
         ]
       },
@@ -1333,6 +1334,16 @@
             "title" : {
               "key" : "settings.group.messagesServer",
               "text" : "Messages Server"
+            }
+          },
+          {
+            "key" : "settings.group.machineColors",
+            "rows" : [
+              "appearance.machineColors"
+            ],
+            "title" : {
+              "key" : "settings.group.machineColors",
+              "text" : "Machine Colors"
             }
           }
         ],
@@ -5097,6 +5108,68 @@
       "title" : {
         "key" : "settings.phone.cloudReplica",
         "text" : "Show This Mac's Workspaces on Your Phone While It's Off"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.machineColors",
+        "text" : "Machine Colors"
+      },
+      "help" : {
+        "key" : "settings.machines.colors.help",
+        "text" : "The color of each machine's sidebar rows and tab badges, by machine name: \"#RRGGBB\", or an accent name (red, green, yellow, purple, cyan, orange, pink, blue) that follows the theme. A machine without one gets a color from its name."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.machineColors",
+      "keywords" : [
+        "machine",
+        "computer",
+        "server",
+        "ssh",
+        "cloud",
+        "color",
+        "colour",
+        "identity"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "machineColors"
+      ],
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.machines.colors",
+        "text" : "Machine Color"
       },
       "validation" : "portable"
     },
@@ -24944,7 +25017,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.workspaceRows",
@@ -25274,7 +25347,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.workspaceRows",
