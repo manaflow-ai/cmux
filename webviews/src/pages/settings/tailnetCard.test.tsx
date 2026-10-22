@@ -69,9 +69,16 @@ test("Sign In, then Cancel and Reopen while the browser finishes; Limit access i
 });
 
 test("signed in: the address with Copy and Pair; Pair shows the link, Done closes it", async () => {
-  const page = await open({ ...base, phase: "signed_in", status: "Signed in as me@example.com", address: "https://mac-cmux.tail1.ts.net" });
+  const page = await open({
+    ...base,
+    phase: "signed_in",
+    status: "Signed in as me@example.com",
+    address: "https://mac-cmux.tail1.ts.net",
+  });
   await settle();
-  expect(card(page.container)?.querySelector("[data-tailnet-address]")?.textContent).toContain("https://mac-cmux.tail1.ts.net");
+  expect(card(page.container)?.querySelector("[data-tailnet-address]")?.textContent).toContain(
+    "https://mac-cmux.tail1.ts.net",
+  );
   await click(card(page.container)!.querySelector<HTMLButtonElement>("[data-tailnet-pair]")!);
   await settle();
   expect(card(page.container)?.querySelector("[data-tailnet-pair-link]")?.textContent).toStartWith("cmux://pair?");

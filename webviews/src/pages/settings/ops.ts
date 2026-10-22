@@ -136,7 +136,14 @@ export type HostLists = {
  */
 /** This Mac on Your Tailnet: the host's card, every text localized by the host. The sign-in link
  * never reaches the page (Reopen asks the host to open it). */
-export type TailnetPhase = "unavailable" | "signed_out" | "starting" | "waiting" | "needs_approval" | "failed" | "signed_in";
+export type TailnetPhase =
+  | "unavailable"
+  | "signed_out"
+  | "starting"
+  | "waiting"
+  | "needs_approval"
+  | "failed"
+  | "signed_in";
 export type TailnetState = {
   title: string;
   phase: TailnetPhase;

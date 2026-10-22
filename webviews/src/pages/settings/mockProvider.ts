@@ -207,7 +207,9 @@ export class MockSettingsProvider {
       "cmux.settings.tailnet.sign_out": () => this.tailnetPhase("signed_out"),
       "cmux.settings.tailnet.limit": (params) => this.tailnetEdit({ limited: params.on === true }),
       "cmux.settings.tailnet.pair": () =>
-        this.tailnetEdit({ pair: { qr: null, link: "cmux://pair?address=x&ticket=cmxt1.x", help: "Open on your other Mac" } }),
+        this.tailnetEdit({
+          pair: { qr: null, link: "cmux://pair?address=x&ticket=cmxt1.x", help: "Open on your other Mac" },
+        }),
       "cmux.settings.tailnet.close_pair": () => this.tailnetEdit({ pair: undefined }),
       "cmux.settings.tailnet.copy_address": () => ({}),
       "cmux.settings.mobile.allow_again": () => {
