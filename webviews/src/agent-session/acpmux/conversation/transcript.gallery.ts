@@ -195,6 +195,14 @@ const EDIT_LONG_CODE =
     "}",
   ].join("\n") + "\n";
 
+/// Code past the eight-line preview, every line wider than the column.
+const EDIT_LONG_CODE_CUT =
+  Array.from(
+    { length: 14 },
+    (_, index) =>
+      `export const uploadRoute${index + 1} = { path: "/v2/uploads/:id/parts/${index + 1}", method: "PUT", timeoutMs: 30_000, retry: retryPolicy, headers: { "content-type": "application/octet-stream" } } as const;`,
+  ).join("\n") + "\n";
+
 const EDIT_LONG_PROSE =
   Array.from({ length: 21 }, (_, index) =>
     index % 4 === 0
@@ -202,11 +210,11 @@ const EDIT_LONG_PROSE =
       : `- Day ${index}: the trail climbs past the old lighthouse and the tide pools, then follows the ridge back to the harbour, where the ferry waits until the last walkers are on board.`,
   ).join("\n") + "\n";
 
-const SHELL_LONG_LOG = Array.from(
-  { length: 6 },
-  (_, index) =>
-    `2026-10-21T09:0${index}:12.481Z retry attempt=${index + 1} url=https://api.example.test/v2/uploads/9f3c2a71/parts?part=${index + 1}&checksum=sha256-4b1f0c9e2d7a6b5c status=503 delayMs=${250 * 2 ** index}`,
-).join("\n");
+const shellLogLine = (index: number) =>
+  `2026-10-21T09:${String(index).padStart(2, "0")}:12.481Z retry attempt=${index + 1} url=https://api.example.test/v2/uploads/9f3c2a71/parts?part=${index + 1}&checksum=sha256-4b1f0c9e2d7a6b5c status=503 delayMs=${250 * 2 ** (index % 6)}`;
+const SHELL_LONG_LOG = Array.from({ length: 6 }, (_, index) => shellLogLine(index)).join("\n");
+/// A log past the eight-line preview, every line wider than the column.
+const SHELL_LONG_LOG_CUT = Array.from({ length: 14 }, (_, index) => shellLogLine(index)).join("\n");
 
 const shellDisclosureChecks = {
   layoutShiftMax: {
@@ -1988,7 +1996,7 @@ export default agentPaneEntry({
       },
     },
     "edit-long-line-code": {
-      note: "An Edited card's diff for code: long lines stay whole, the right edge fades while more lies past it (trackpad or Shift-wheel scrolls it), and Wrap lines sits beside Copy.",
+      note: "An Edited card's diff for code: long lines stay whole, the right edge fades while more lies past it, a thin sideways scrollbar shows under the lines at rest (trackpad or Shift-wheel scrolls it), and Wrap lines sits beside Copy.",
       checks: shellDisclosureChecks,
       snapshot: chat(editedRows("gallery-edit-code", "src/net/retryPolicy.ts", EDIT_LONG_CODE)),
       play: openEditedDiff,
@@ -2012,11 +2020,32 @@ export default agentPaneEntry({
       },
     },
     "shell-unwrapped-long-line": {
-      note: "A command's output with Wrap lines off: each line stays whole and the right edge fades while more lies past it.",
+      note: "A command's output with Wrap lines off: each line stays whole, the right edge fades while more lies past it, and a thin sideways scrollbar shows under the lines at rest.",
       checks: shellDisclosureChecks,
       snapshot: chat(
         shellRows("gallery-shell-unwrapped", "Print the retry log", "cat logs/retry.log", {
           output: SHELL_LONG_LOG,
+          exitCode: 0,
+        }),
+      ),
+      play: async (ctx) => {
+        await openSingleShell(ctx);
+        await ctx.click({ selector: '.cv-shell__actions button[aria-label="Wrap lines"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__body")?.getAttribute("data-wrap") === "false");
+      },
+    },
+    "edit-long-line-code-cut": {
+      note: "An Edited card's diff for code past eight lines, lines whole: the first eight under a fade, and below them the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(editedRows("gallery-edit-code-cut", "src/net/uploadRoutes.ts", EDIT_LONG_CODE_CUT)),
+      play: openEditedDiff,
+    },
+    "shell-unwrapped-long-cut": {
+      note: "A long command output with Wrap lines off: the first eight lines under a fade, and below them the thin sideways scrollbar, shown at rest while the lines run past the right edge.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(
+        shellRows("gallery-shell-unwrapped-cut", "Print the retry log", "cat logs/retry.log", {
+          output: SHELL_LONG_LOG_CUT,
           exitCode: 0,
         }),
       ),

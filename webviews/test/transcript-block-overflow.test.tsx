@@ -315,6 +315,7 @@ test("a call's output has Wrap lines and the same preview", async () => {
 
 test("a box wider than its content area marks its right edge until scrolled to the end, inside shadow roots too", async () => {
   const { watchSideways, MORE_RIGHT } = await import("../src/agent-session/acpmux/conversation/sideways");
+  const { SIDEWAYS_ATTRIBUTE } = await import("../src/scrollers");
   const box = window.document.createElement("pre");
   host.append(box);
   const size = (element: Element, scrollWidth: number, clientWidth: number) => {
@@ -330,17 +331,28 @@ test("a box wider than its content area marks its right edge until scrolled to t
   code.setAttribute("data-code", "");
   shadow.append(code);
   size(code, 1200, 300);
+  // A box whose lines fit marks neither.
+  const fits = window.document.createElement("pre");
+  box.append(fits);
+  size(fits, 300, 300);
   const stop = watchSideways(box);
+  const stopFits = watchSideways(fits);
   try {
     expect(box.hasAttribute(MORE_RIGHT)).toBe(true);
     expect(code.hasAttribute(MORE_RIGHT)).toBe(true);
+    // Both scroll sideways, so both keep their thumb at rest (scrollers.ts SIDEWAYS_ATTRIBUTE).
+    expect([box.hasAttribute(SIDEWAYS_ATTRIBUTE), code.hasAttribute(SIDEWAYS_ATTRIBUTE)]).toEqual([true, true]);
+    expect([fits.hasAttribute(MORE_RIGHT), fits.hasAttribute(SIDEWAYS_ATTRIBUTE)]).toEqual([false, false]);
     box.scrollLeft = 600;
     box.dispatchEvent(new window.Event("scroll"));
     expect(box.hasAttribute(MORE_RIGHT)).toBe(false);
     code.scrollLeft = 900;
     code.dispatchEvent(new window.Event("scroll"));
     expect(code.hasAttribute(MORE_RIGHT)).toBe(false);
+    // Scrolled to the end they still scroll: the thumb stays.
+    expect([box.hasAttribute(SIDEWAYS_ATTRIBUTE), code.hasAttribute(SIDEWAYS_ATTRIBUTE)]).toEqual([true, true]);
   } finally {
+    stopFits();
     stop();
     box.remove();
   }
