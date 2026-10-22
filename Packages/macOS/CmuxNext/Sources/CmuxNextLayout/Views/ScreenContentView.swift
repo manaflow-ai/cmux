@@ -9,6 +9,9 @@ final class ScreenContentView: NSView {
     private(set) var layout: ScreenLayout
     /// The layout is one zoomed pane (`LayoutScreen.zoomed`).
     private(set) var zoomed = false
+    /// The panes the zoom hides (`LayoutScreen.zoomHiddenPanes`): parked here, hidden, with their
+    /// content alive for the unzoom, never released while the zoom lasts.
+    private(set) var zoomHidden: Set<PaneID> = []
     /// Where the panes a structural change carries showed (view x), set again
     /// once `syncScroll` has moved the camera for the new layout (`settleCarried`).
     var carriedShown: [PaneID: CGFloat] = [:]
@@ -139,7 +142,7 @@ final class ScreenContentView: NSView {
     /// divider drag) keep their spring. The strip scroll (including the
     /// spring back after the last column closes) is `syncScroll`'s.
     @discardableResult
-    func update(layout: ScreenLayout, zoomed: Bool = false, canvas: CanvasScreen? = nil, animated: Bool) -> Bool {
+    func update(layout: ScreenLayout, zoomed: Bool = false, zoomHidden: [PaneID] = [], canvas: CanvasScreen? = nil, animated: Bool) -> Bool {
         // Into or out of a canvas, frames change coordinate space (the camera is the bounds): they snap.
         let animated = updateCanvas(canvas, animated: animated) && animated
         let structural = !self.layout.hasSameStructure(as: layout)
@@ -147,9 +150,13 @@ final class ScreenContentView: NSView {
         let zooming = !self.zoomed && zoomed
         self.layout = layout
         self.zoomed = zoomed
+        let hiddenChanged = self.zoomHidden != Set(zoomHidden)
+        self.zoomHidden = Set(zoomHidden)
         // The release's intent is in this layout (or was refused).
         if activeDrag == nil { rowDragPreview = nil }
         let moving = reconcile(animated: animated, structural: structural, unzooming: unzooming, zooming: zooming)
+        // A pane closed while zoomed leaves the hidden set only.
+        if hiddenChanged { releaseParked() }
         return moving || canvasState.camera.isMoving
     }
 
@@ -225,6 +232,8 @@ final class ScreenContentView: NSView {
                     // Under the zooming pane and the dividers: `reconcileDock` ranks it (`ensureStacking`).
                     addSubview(host, positioned: .below, relativeTo: firstDividerView)
                 }
+                // A pane a zoom parked shows again (an unzoom), with the content it kept.
+                if host.isHidden { host.isHidden = false }
                 // Opaque from its first frame: an arriving pane grows in from its edge, never fades.
                 var frame = AnimatedFrame(arrivals[pane]?.seed ?? target)
                 if arrivals[pane] != nil { SplitMotion.ride(&frame, panes: shownBefore, skipping: Set(arrivals.keys)) }
@@ -240,9 +249,13 @@ final class ScreenContentView: NSView {
                 zoomMotion.leave(pane)
                 continue
             }
+            // A zoom with no motion (Reduce Motion): the panes it hides park at once.
+            if park(pane) { continue }
             // A pane that moved to another screen belongs to that screen now.
             if !context.livePanes.contains(pane) { context.release(pane) }
         }
+
+        if structural { releaseParked() }
 
         // Dividers and column edges.
         var targets: [DividerHandleView.Kind: (rect: CGRect, axis: SplitAxis)] = [:]
@@ -327,8 +340,9 @@ final class ScreenContentView: NSView {
 
     /// Lets go of the panes a zoom covered once it landed (every one with `all`).
     func releaseCovered(all: Bool = false) {
-        for pane in zoomMotion.settled(all: all) where paneFrames[pane] == nil && !context.livePanes.contains(pane) {
-            context.release(pane)
+        for pane in zoomMotion.settled(all: all) where paneFrames[pane] == nil {
+            if !all, park(pane) { continue }
+            if !context.livePanes.contains(pane) { context.release(pane) }
         }
     }
 
@@ -370,5 +384,6 @@ final class ScreenContentView: NSView {
         }
         paneFrames.removeAll()
         releaseCovered(all: true)
+        releaseParked(all: true)
     }
 }

@@ -271,7 +271,7 @@ public final class LayoutRootView: NSView {
         let animated = chromeAnimated && context.animatesPaneLayout
         var needsFrames = false
 
-        if previous?.screens != snapshot.screens { context.livePanes = Set(snapshot.screens.flatMap(\.layout.panes)) }
+        if previous?.screens != snapshot.screens { context.livePanes = Set(snapshot.screens.flatMap { $0.layout.panes + $0.zoomHiddenPanes }) }
         // Only a screen whose inputs changed reconciles (I7): a divider drag
         // frame rewrites one screen, and the others (shown or hidden) keep
         // their frames, chrome and scroll.
@@ -317,7 +317,7 @@ public final class LayoutRootView: NSView {
             let old = before[screen.id]
             // A zoomed pane shows full size over its canvas (canvas-layout.md).
             let canvas = screen.zoomed ? nil : snapshot.canvases[screen.id]
-            let layoutChanged = isNew || old?.layout != screen.layout || old?.zoomed != screen.zoomed || sharedChanged
+            let layoutChanged = isNew || old?.layout != screen.layout || old?.zoomed != screen.zoomed || old?.zoomHiddenPanes != screen.zoomHiddenPanes || sharedChanged
                 || view.holdsRowDragPreview || canvas != (old?.zoomed == true ? nil : previous?.canvases[screen.id])
             if layoutChanged {
                 let structureChanged = old.map { !$0.layout.hasSameStructure(as: screen.layout) } ?? true
@@ -327,7 +327,7 @@ public final class LayoutRootView: NSView {
                 // A hidden screen lands at once: frames step only the screens shown (`advanceFrame`), so a
                 // spring started there (a restore, a daemon echo) froze its panes mid-motion, their
                 // content held wider than the pane and pinned to its edge (Leo 2026-10-21).
-                if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas,
+                if view.update(layout: screen.layout, zoomed: screen.zoomed, zoomHidden: screen.zoomHiddenPanes, canvas: canvas,
                                animated: (animated || reflows) && !view.isHidden) {
                     needsFrames = true
                 }
