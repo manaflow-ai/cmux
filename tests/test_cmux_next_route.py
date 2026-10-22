@@ -399,5 +399,63 @@ class PushAttribution(unittest.TestCase):
                                       "cmux-next checks": "success"}), ["cmux-next swift test"])
 
 
+class RouteLabels(unittest.TestCase):
+    """The route step reads the push's labels from the event and the live ones only on a re-run.
+
+    Every push read issues/N/labels; the event already carries them. A re-run keeps its event, so
+    adding full-ci or dev-build and re-running still routes on the live labels.
+    """
+
+    def run_route(self, attempt: str) -> tuple[str, list[str]]:
+        import os
+        import subprocess
+        import tempfile
+        import yaml
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8"))
+        step = next(s for s in workflow["jobs"]["path_route"]["steps"] if s.get("id") == "route")
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, bin_dir = Path(tmp) / "repo", Path(tmp) / "bin"
+            (repo / "scripts/ci").mkdir(parents=True)
+            (repo / "scripts/cmux-next").mkdir(parents=True)
+            bin_dir.mkdir()
+            (repo / "scripts/ci/cmux_next_route.py").write_text(
+                "import sys, pathlib\n"
+                "args = sys.argv[1:]\n"
+                "pathlib.Path(sys.argv[0]).with_name('labels.txt').write_text(args[args.index('--labels') + 1])\n")
+            (repo / "scripts/cmux-next/cmux-tui-tree-inputs.txt").write_text("tree cmux-tui\n")
+            gh_log = Path(tmp) / "gh.log"
+            (bin_dir / "gh").write_text(f'#!/usr/bin/env bash\necho "$*" >> {gh_log}\necho dev-build\n')
+            (bin_dir / "gh").chmod(0o755)
+            git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com"]
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run([*git, "add", "-A"], check=True)
+            subprocess.run([*git, "commit", "-qm", "base"], check=True)
+            (repo / "webviews.txt").write_text("x\n")
+            subprocess.run([*git, "add", "-A"], check=True)
+            subprocess.run([*git, "commit", "-qm", "head"], check=True)
+            out = Path(tmp) / "out"
+            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "EVENT_NAME": "pull_request",
+                   "PR_NUMBER": "7", "GITHUB_REPOSITORY": "o/r", "GITHUB_RUN_ATTEMPT": attempt,
+                   "EVENT_LABELS": "full-ci,risk:low", "RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(out),
+                   "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary"), "DEV_DAILY": "false",
+                   "DEV_DAILY_SHA": "", "SAME_TREE_SHA": "", "GH_TOKEN": "t"}
+            result = subprocess.run(["bash", "-e", "-c", step["run"]], cwd=repo, env=env,
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            labels = (repo / "scripts/ci/labels.txt").read_text()
+            return labels, gh_log.read_text().splitlines() if gh_log.exists() else []
+
+    def test_a_first_attempt_routes_on_the_event_labels(self):
+        labels, gh_calls = self.run_route("1")
+        self.assertEqual(labels, "full-ci,risk:low")
+        self.assertEqual(gh_calls, [])
+
+    def test_a_rerun_routes_on_the_live_labels(self):
+        labels, gh_calls = self.run_route("2")
+        self.assertEqual(labels, "dev-build")
+        self.assertEqual(len(gh_calls), 1)
+        self.assertIn("issues/7/labels", gh_calls[0])
+
+
 if __name__ == "__main__":
     unittest.main()

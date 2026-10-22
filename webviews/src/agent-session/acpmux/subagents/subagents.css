@@ -241,13 +241,22 @@ button.cv-subagent > :last-child {
   font-weight: 600;
   color: var(--cv-text);
 }
-.cv-subagent-of__parent {
+.cv-subagent-of__parent,
+.cv-subagent-of__task {
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.cv-subagent-of__parent::before {
-  content: "· ";
+.cv-subagent-of__parent {
+  flex: 0 1 auto;
+  color: var(--cv-text);
+}
+.cv-subagent-of__dot {
+  flex: none;
+}
+.cv-subagent-of__task {
+  flex: 1 1 auto;
 }
 /* Each subagent's color (agentTones.ts): its dot in the agents list and its name in the
    transcript. The theme's terminal colors, so a theme recolors them. Red stays for failure and
