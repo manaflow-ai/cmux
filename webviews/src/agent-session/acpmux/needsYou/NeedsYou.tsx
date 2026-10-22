@@ -19,7 +19,9 @@ import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./model";
 import "./needsYou.css";
 
 /// The Debug choice `agentPane.debug.needsYou` (data-needs-you on <html>): `pinned` (the default)
-/// draws each ask with its answers; `compact` one line per ask; `off` no badge at all.
+/// draws each ask with its answers; `compact` one line per ask; `off` no badge at all. The host
+/// also writes `off` while the App Store's Needs You item is not installed
+/// (`agentPane.needsYou.enabled`, off by default): no badge, no list, and no link opens one.
 export type NeedsYouMode = "pinned" | "compact" | "off";
 
 export function needsYouMode(
@@ -70,14 +72,17 @@ export function NeedsYouButton({
   // bordered button (Leo 2026-10-21). Tab still reaches every row's tools from here.
   const panelRef = useRef<HTMLDivElement | null>(null);
   const trigger = usePopoverTrigger(open, setOpen);
-  // A `cmux://needs-you/<id>` chip in a reply opens the list on its ask (links.ts).
+  // A `cmux://needs-you/<id>` chip in a reply opens the list on its ask (links.ts). Off (the App
+  // Store item not installed) registers no opener, so nothing can open a list that is not drawn.
   useEffect(
     () =>
-      onOpenNeedsYou((itemId) => {
-        setFocus(itemId);
-        setOpen(true);
-      }),
-    [],
+      mode === "off"
+        ? undefined
+        : onOpenNeedsYou((itemId) => {
+            setFocus(itemId);
+            setOpen(true);
+          }),
+    [mode],
   );
   if (mode === "off") return null;
   const count = items.length;
@@ -377,10 +382,11 @@ function Avatar({ item }: { item: NeedsYouItem }) {
   );
 }
 
-/// The ask's line: its own text, else what its kind says.
+/// The ask's line: its own text, else what its kind says (a permission asks to allow, anything
+/// else for an answer).
 export function askText(item: NeedsYouItem, t: Translate): string {
   if (item.kind === "held") return t("needsYou.held", { n: item.held ?? 1, peer: item.ask });
-  return item.ask || t("needsYou.waiting");
+  return item.ask || t(item.kind === "approval" ? "needsYou.waitingPermission" : "needsYou.waiting");
 }
 
 /// The side session's first prompt (`_acpmux/btw`): the ask, then the person's question, so the
