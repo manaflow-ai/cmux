@@ -1,5 +1,5 @@
-import CmuxNextDaemon
-import Foundation
+public import CmuxNextDaemon
+public import Foundation
 
 /// The Chief conversation's notice when the person's last message has no reply
 /// for over two minutes (user 2026-10-21: "make every user message in the Chief
