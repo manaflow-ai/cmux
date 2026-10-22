@@ -12,8 +12,6 @@ public final class BrowserMediaRowView: NSView {
     public static let width: CGFloat = 300
 
     private var media: BrowserMediaState
-    /// Offers Picture in Picture for a video (`media.pictureInPicture.enabled`).
-    private var offersPictureInPicture: Bool
     private var onCommand: (BrowserMediaCommand) -> Void
     private var onReveal: () -> Void
     private let artwork = NSImageView()
@@ -27,10 +25,9 @@ public final class BrowserMediaRowView: NSView {
     private lazy var mute = button(.toggleMute)
     private lazy var pictureInPicture = button(.pictureInPicture)
 
-    public init(title: String, subtitle: String, media: BrowserMediaState, artwork image: NSImage?, pictureInPicture offers: Bool = true,
+    public init(title: String, subtitle: String, media: BrowserMediaState, artwork image: NSImage?,
                 onCommand: @escaping (BrowserMediaCommand) -> Void, onReveal: @escaping () -> Void) {
         self.media = media
-        offersPictureInPicture = offers
         self.onCommand = onCommand
         self.onReveal = onReveal
         super.init(frame: NSRect(x: 0, y: 0, width: Self.width, height: 96))
@@ -77,10 +74,9 @@ public final class BrowserMediaRowView: NSView {
 
     /// Shows another state in place: the media hub reuses a tab's card between opens instead of
     /// building its labels, stacks and four buttons again (u2426).
-    public func show(title: String, subtitle: String, media: BrowserMediaState, artwork image: NSImage?, pictureInPicture offers: Bool = true,
+    public func show(title: String, subtitle: String, media: BrowserMediaState, artwork image: NSImage?,
                      onCommand: @escaping (BrowserMediaCommand) -> Void, onReveal: @escaping () -> Void) {
         self.media = media
-        offersPictureInPicture = offers
         self.onCommand = onCommand
         self.onReveal = onReveal
         if titleLabel.stringValue != title { titleLabel.stringValue = title }
@@ -118,7 +114,7 @@ public final class BrowserMediaRowView: NSView {
     private func update() {
         playPause.setIcon(media.isPlaying ? .browserTabPause : .browserTabPlay, label: media.isPlaying ? Strings.mediaPause : Strings.mediaPlay)
         mute.setIcon(media.isMuted ? .browserTabMuted : .browserTabAudio, label: media.isMuted ? Strings.mediaUnmute : Strings.mediaMute)
-        pictureInPicture.isHidden = !media.isVideo || !offersPictureInPicture
+        pictureInPicture.isHidden = !media.isVideo
         pictureInPicture.setIcon(Self.pictureInPictureIcon,
                                  label: media.isPictureInPicture ? Strings.mediaExitPictureInPicture : Strings.mediaPictureInPicture)
     }
