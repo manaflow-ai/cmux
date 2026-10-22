@@ -183,6 +183,42 @@ fn notifications_become_a_script_stream_with_or_without_a_terminal() {
 }
 
 #[test]
+fn an_event_right_after_watch_reaches_the_script() {
+    let mux = Mux::new_for_test("scripts-router-watch-race", SurfaceOptions::default());
+    let router = DaemonRouter::new(&mux, "scr_t");
+    let (sender, received) = std::sync::mpsc::channel::<String>();
+    let sender = Mutex::new(sender);
+    let guard = router.watch(Arc::new(move |stream: &str, _fields: Value| {
+        let _ = sender.lock().unwrap().send(stream.to_string());
+    }));
+    // The script's next op can commit at once (the host runs it on another
+    // worker): its event must not fall before the bus subscription.
+    mux.emit(MuxEvent::Notification(crate::mux::NotificationEvent {
+        notification: 1,
+        title: "now".into(),
+        subtitle: None,
+        body: String::new(),
+        preview: None,
+        level: crate::mux::NotificationLevel::Info,
+        surface: None,
+        workspace_id: None,
+        source: crate::mux::NotificationSource::Cli,
+        desktop: false,
+        reply: false,
+    }));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match received.recv_timeout(left) {
+            Ok(stream) if stream == "notification.created" => break,
+            Ok(_) => {}
+            Err(_) => panic!("the notification right after watch was lost"),
+        }
+    }
+    drop(guard);
+}
+
+#[test]
 fn the_router_runs_daemon_reads_with_current_selectors() {
     let mux = Mux::new_for_test("scripts-router-read", SurfaceOptions::default());
     let router = DaemonRouter::new(&mux, "scr_t");
