@@ -279,6 +279,47 @@ class PruneTests(unittest.TestCase):
         trim.assert_not_called()
 
 
+    def test_newest_cap_counts_only_testflight_folders(self):
+        other = self.make("20261001-abc-prod", age_s=3600)
+        for i in range(ib.KEEP_OUTPUTS + 1):
+            self.make(f"2026102{i}-abc-testflight", age_s=60 * (10 - i))
+        ib._prune(1_000_000.0)
+        self.assertTrue(other.is_dir())
+        self.assertFalse((self.root / "20261020-abc-testflight").exists())
+
+    def test_pressure_trim_leaves_a_symlinked_cargo_target_and_empties_trash(self):
+        real = self.tmp / "elsewhere"
+        real.mkdir()
+        (self.root / ".cache").mkdir(parents=True)
+        (self.root / ".cache/cmux-mobile-rust-target").symlink_to(real)
+        ib.prune_caches()
+        self.assertTrue(real.is_dir())
+        self.make(".trash/leftover")
+        ib._prune(1_000_000.0)
+        self.assertEqual(list((self.root / ".trash").iterdir()), [])
+
+    def test_job_running_matches_a_worker_from_any_runner_bin(self):
+        seen = []
+
+        def pgrep(argv, **_kw):
+            seen.append(argv[-1])
+            return subprocess.CompletedProcess(argv, 0 if argv[-1] == "Runner.Worker" else 1, "", "")
+        with mock.patch.object(ib.subprocess, "run", side_effect=pgrep):
+            self.assertTrue(ib.job_running())
+        self.assertEqual(seen, ["Runner.Worker"])
+        with mock.patch.object(ib.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", "")):
+            self.assertFalse(ib.job_running())
+
+    def test_admit_refuses_cleanly_when_the_trim_fails_or_frees_too_little(self):
+        env = AdmitTests.env(None)
+        for effect in (PermissionError("denied"), None):
+            with mock.patch.dict(os.environ, env, clear=True), \
+                    mock.patch.object(ib, "LOG_PATH", self.tmp / "log"), \
+                    mock.patch.object(ib.shutil, "disk_usage", return_value=mock.Mock(free=39 * 1024 ** 3)), \
+                    mock.patch.object(ib, "prune_caches", side_effect=effect):
+                self.assertEqual(ib.main(["admit"]), 1)
+
+
 class FakeGh:
     """Stands in for subprocess.run(["gh", "api", ...]): answers from a script of (returncode, stdout, stderr)."""
 

@@ -294,7 +294,7 @@ BUILDS_ROOT = Path(os.environ.get("CMUX_MOBILE_BUILDS_ROOT", HOME / "cmux-mobile
 RUNS_EVERY_S = 300
 KEEP = {"_diag": 7 * 86400, "_work/_temp": 86400}
 OUTPUT_KEEP_S = 3 * 86400
-KEEP_OUTPUTS = 5  # newest build folders kept regardless of age; older ones beyond these go too
+KEEP_OUTPUTS = 5  # newest *-testflight build folders; older ones beyond these go too (3-day rule aside)
 # The pre-rename build root (cnx -> cmux-mobile, 2026-10-20). Nothing reads it any more, but its
 # cargo target, xcframeworks and SwiftPM checkouts stayed on disk (cmux23 fell to 39.9 GiB free
 # on 2026-10-22 and refused every archive job).
@@ -323,13 +323,28 @@ def _remove(entry: Path) -> bool:
         return False
 
 
-def _by_age(folder: Path) -> list[Path]:
-    """Folder's non-dot children, newest first."""
-    if not folder.is_dir():
+def _discard(entry: Path) -> bool:
+    """Move entry into BUILDS_ROOT/.trash (one atomic rename on the same volume), then delete it there.
+
+    A build that starts while a slow delete runs then gets a fresh directory instead of a half-deleted one.
+    """
+    trash = BUILDS_ROOT / ".trash"
+    try:
+        trash.mkdir(parents=True, exist_ok=True)
+        moved = trash / f"{entry.name}-{os.getpid()}-{time.time_ns()}"
+        entry.rename(moved)
+    except OSError:
+        return False
+    return _remove(moved)
+
+
+def _by_age(folder: Path, suffix: str = "") -> list[Path]:
+    """Folder's non-dot children (ending in suffix), newest first. A symlinked folder is not followed."""
+    if not folder.is_dir() or folder.is_symlink():
         return []
     entries = []
     for entry in folder.iterdir():
-        if entry.name.startswith("."):
+        if entry.name.startswith(".") or not entry.name.endswith(suffix):
             continue
         try:
             entries.append((entry.lstat().st_mtime, entry))
@@ -338,24 +353,31 @@ def _by_age(folder: Path) -> list[Path]:
     return [e for _, e in sorted(entries, key=lambda pair: pair[0], reverse=True)]
 
 
+# Any of these means a build may be using the caches. `Runner.Worker` is matched anywhere: after a
+# self-update the runner starts it from `bin.<version>/`, not `bin/`, and cmux23 has no other runner.
+BUSY_PATTERNS = ("Runner.Worker", "testflight-build.sh", "build-xcframework.sh")
+
+
 def job_running() -> bool:
-    """A runner job (the archive) is in progress: its caches and .work must not move under it."""
-    return subprocess.run(["pgrep", "-f", f"{RUNNER_DIR}/bin/Runner.Worker"], capture_output=True).returncode == 0
+    """A runner job or a manual build is in progress: its caches and .work must not move under it."""
+    return any(subprocess.run(["pgrep", "-f", pattern], capture_output=True).returncode == 0
+               for pattern in BUSY_PATTERNS)
 
 
 def prune_caches() -> int:
     """Disk-pressure trim, only while no build runs (the concurrency group allows one build)."""
-    removed = sum(_remove(root) for root in LEGACY_ROOTS if root.exists())
-    removed += sum(_remove(entry) for entry in _by_age(BUILDS_ROOT / ".work"))
-    removed += sum(_remove(entry) for entry in _by_age(BUILDS_ROOT / ".cache/xcframework")[KEEP_XCFRAMEWORKS:])
+    removed = sum(_remove(root) for root in LEGACY_ROOTS if root.exists() and not root.is_symlink())
+    removed += sum(_discard(entry) for entry in _by_age(BUILDS_ROOT / ".work"))
+    removed += sum(_discard(entry) for entry in _by_age(BUILDS_ROOT / ".cache/xcframework")[KEEP_XCFRAMEWORKS:])
     target = BUILDS_ROOT / ".cache/cmux-mobile-rust-target"
     if target.is_dir() and not target.is_symlink():
-        removed += _remove(target)
+        removed += _discard(target)
     return removed
 
 
 def _prune(now: float) -> int:
-    removed = sum(_remove(entry) for entry in _by_age(BUILDS_ROOT)[KEEP_OUTPUTS:])
+    removed = sum(_remove(entry) for entry in _by_age(BUILDS_ROOT / ".trash"))  # an interrupted _discard
+    removed += sum(_remove(entry) for entry in _by_age(BUILDS_ROOT, "-testflight")[KEEP_OUTPUTS:])
     targets = [(RUNNER_DIR / sub, keep) for sub, keep in KEEP.items()]
     targets += [(BUILDS_ROOT, OUTPUT_KEEP_S), (BUILDS_ROOT / ".work", OUTPUT_KEEP_S)]
     for folder, keep in targets:
@@ -471,7 +493,10 @@ def main(argv: list[str]) -> int:
         if not ok and admit(env, MIN_FREE_BYTES)[0]:
             # Only the disk refused an admitted archive job, and that job has not started building
             # (the hook runs first; the concurrency group allows one build): trim caches, re-check.
-            prune_caches()
+            try:
+                prune_caches()
+            except OSError as error:  # a trim error still ends in the plain disk refusal below
+                _log({"time": dt.datetime.now(dt.timezone.utc).isoformat(), "error": repr(error)})
             ok, reason = admit(env, shutil.disk_usage(disk).free)
         print(f"ios-internal-builder: {reason}", file=sys.stdout if ok else sys.stderr)
         _log({"time": dt.datetime.now(dt.timezone.utc).isoformat(), "admit": ok, "reason": reason,
