@@ -343,8 +343,7 @@ final class BrowserHibernation {
         let threshold = setting.freezeSeconds
         var recheck: Double?
         let candidates = hidden.filter { candidate in
-            // `probing`: the hibernation probe just started asks the same question.
-            guard !frozen.contains(candidate.key), !freezeProbing.contains(candidate.key), !probing.contains(candidate.key),
+            guard !frozen.contains(candidate.key), !freezeProbing.contains(candidate.key),
                   let tab = cache.browsers[candidate.key]?.tab, freezer(tab) != nil else { return false }
             if let kept = freezeKeptAt[candidate.key], let threshold {
                 let left = threshold - (now - kept).seconds
@@ -387,12 +386,10 @@ final class BrowserHibernation {
         }
     }
 
-    /// Freezing is on, no agent called the hidden page within `agentGrace`, and it is no
-    /// neighbor or hovered tab.
+    /// No agent called the hidden page within `agentGrace`, and it is no neighbor or hovered tab.
     private func mayFreeze(_ key: String) -> Bool {
-        guard setting.freezeSeconds != nil else { return false }
         if let used = agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace { return false }
-        return !frozen.contains(key) && !awakeNeighbors.contains(key) && hoverLeft(key, now: .now) == nil
+        return !awakeNeighbors.contains(key) && hoverLeft(key, now: .now) == nil
     }
 
     private func freeze(_ key: String, _ page: any BrowserFreezing) {
@@ -410,11 +407,14 @@ final class BrowserHibernation {
             if probe.capturing || probe.webAudio { answeredBusy.insert(key) } else { answeredBusy.remove(key) }
             return false
         }
-        guard hiddenAt[key] != nil else { return true }
-        if answeredBusy.contains(key) { return true }
-        let count = (unanswered[key] ?? 0) + 1
-        unanswered[key] = count
-        return count < Self.unansweredLimit
+        guard hiddenAt[key] != nil, !answeredBusy.contains(key) else { return true }
+        unanswered[key, default: 0] += 1
+        return doubted(key)
+    }
+
+    /// The page still gets the benefit of the doubt, without counting a probe.
+    private func doubted(_ key: String) -> Bool {
+        answeredBusy.contains(key) || unanswered[key, default: 0] < Self.unansweredLimit
     }
 
     /// Thaws a frozen page (shown, driven by an agent, about to hibernate, or
@@ -465,8 +465,9 @@ final class BrowserHibernation {
         Task { @MainActor [weak self] in
             let probe = user ? PageProbe() : await PageProbe.run(tab)
             let pressure = self?.pressure ?? .normal
-            // A page that keeps not answering hibernates only under memory pressure: its form edits are unknown.
-            let doubted = self?.doubts(key, probe) ?? true
+            // A page that keeps not answering hibernates only under memory pressure: its form edits are
+            // unknown. The freeze probe counts the misses (it runs beside this one and refreezes the page).
+            let doubted = probe.answered ? self?.doubts(key, probe) ?? false : self?.doubted(key) ?? true
             let exemption = probe.exemption(pressure: pressure) ?? (source.showsFormSubmission ? .formSubmission : nil)
                 ?? (!probe.answered && (doubted || pressure == .normal) ? .unanswered : nil)
             // A page that stays needs no picture (each replan probes it again).
@@ -481,8 +482,6 @@ final class BrowserHibernation {
             }
             if let exemption {
                 self.exemptions[key] = exemption
-                // The probe thawed it; a page past its doubt freezes again at once (no replan would).
-                if exemption == .unanswered, !doubted, self.mayFreeze(key), let page = self.freezer(tab) { self.freeze(key, page) }
                 return
             }
             // It became a neighbor or was hovered while the probe ran (the person's Hibernate Tab still applies).
