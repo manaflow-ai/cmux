@@ -76,8 +76,10 @@ final class CustomSidebarTransport: AppsTransport {
 
     /// The interface of the next mount the client sends.
     func nextMount() async -> String? {
-        if iterator == nil { iterator = mounts.makeAsyncIterator() }
-        return await iterator?.next()
+        var next = iterator ?? mounts.makeAsyncIterator()
+        let value = await next.next(isolation: #isolation)
+        iterator = next
+        return value
     }
 
     func start() {}

@@ -13,7 +13,7 @@ import Testing
 @Suite(.serialized) struct CustomSidebarGalleryTests {
     static let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .appendingPathComponent("../../../../..").standardizedFileURL
-    static let names = ["dots", "board", "cards"]
+    nonisolated static let names = ["dots", "board", "cards"]
     static let size = NSSize(width: 260, height: 620)
 
     static func model(_ name: String) throws -> AppSceneModel {

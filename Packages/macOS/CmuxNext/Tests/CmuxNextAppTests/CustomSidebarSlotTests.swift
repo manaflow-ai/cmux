@@ -74,7 +74,7 @@ import Testing
 
 // Observation calls onChange synchronously on the mutating (main) thread; the box only
 // collects ids inside one test, so no two threads touch it.
-private final class Fired: @unchecked Sendable {
+private nonisolated final class Fired: @unchecked Sendable {
     private(set) var ids: Set<String> = []
     func insert(_ id: String) { ids.insert(id) }
 }
