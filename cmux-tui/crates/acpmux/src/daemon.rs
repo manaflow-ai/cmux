@@ -649,6 +649,13 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
     loop {
         let ready = start_daemon_with(Some(key.clone())).await?;
         if !lock_held(&ready) {
+            // A keyed daemon that exited before it was ready fails this start: the caller must
+            // not go on to start an unkeyed daemon in its place.
+            anyhow::ensure!(
+                !ready.trim().is_empty(),
+                "the keyed daemon exited before it was ready; see {}",
+                home().join("daemon.log").display()
+            );
             return Ok(ready);
         }
         if tokio::time::Instant::now() + HANDOVER_RETRY >= deadline {
