@@ -282,7 +282,7 @@ Every action has a key tier (`ActionKeyTier`), default from the catalog, overrid
 
 | Tier | Meaning | Default members |
 | --- | --- | --- |
-| 0 system | Always runs, no content can capture it, also in browser focus mode and text fields | quit, closeTab, closeWorkspace, closeWindow, newWindow, commandPalette, toggleBrowserFocusMode, openSettings, showHideAllWindows, toggleFullScreen |
+| 0 system | Always runs, no content can capture it, also in text fields; in browser focus mode only toggleBrowserFocusMode and quit (the page gets the rest, Esc Esc also exits) | quit, closeTab, closeWorkspace, closeWindow, newWindow, commandPalette, toggleBrowserFocusMode, openSettings, showHideAllWindows, toggleFullScreen |
 | 1 navigation | Beats terminal keybinds, page shortcuts and text fields | window, workspace, pane, tab, sidebar, notification and cloud categories without a content requirement: focus pane (Cmd-Opt-arrows), next/previous tab, Cmd-1..9, Ctrl-1..9, workspaces, sidebar toggle, new tab, split, column focus, Cmd-L (`focusBrowserAddressBar`) |
 | 2 content | Runs only when its content has the keyboard; never in a text field | actions that require a content context (`terminalFocused`, `browserFocused`, viewer contexts): Copy, Paste, reload, back/forward, zoom |
 | 3 raw | Not a registry action | the focused view: Ghostty keybinds and input, the page, the text field |
