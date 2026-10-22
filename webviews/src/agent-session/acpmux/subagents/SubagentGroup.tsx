@@ -243,8 +243,9 @@ export function StopButton({ agent, stop }: { agent: Subagent; stop: (id: string
   );
 }
 
-/// The child view's first line: a "Subagent of" pill naming the agent that spawned it (`text`);
-/// a click goes back to that agent's view, or to the session's own.
+/// The child view's first line: a "Subagent of" pill naming the agent that spawned it (`text`) and
+/// what the subagent was asked to do (its task, Claude's Agent call description), "Subagent of
+/// <chat> · <task>"; a click goes back to that agent's view, or to the session's own.
 export function SubagentOfRow({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const open = useContext(SubagentNavContext);
@@ -256,6 +257,14 @@ export function SubagentOfRow({ row }: { row: AcpmuxRow }) {
         <Icon name="agent.session" size={12} />
         <span className="cv-subagent-of__label">{t("subagents.of")}</span>
         <span className="cv-subagent-of__parent">{row.text}</span>
+        {agent.task ? (
+          <>
+            <span className="cv-subagent-of__dot" aria-hidden="true">
+              ·
+            </span>
+            <span className="cv-subagent-of__task">{agent.task}</span>
+          </>
+        ) : null}
       </button>
     </div>
   );

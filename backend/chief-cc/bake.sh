@@ -61,6 +61,15 @@ if [[ "${HQ_CLONE:-1}" == 1 ]]; then
   exec_root 'umask 077; t="$(cat)"; cd /home/chief/work && [ -d cmuxterm-hq/.git ] || runuser -u chief -- git -c "http.https://github.com/.extraheader=Authorization: Basic $(printf "x-access-token:%s" "$t" | base64 -w0)" clone -q --depth 50 --single-branch --branch main https://github.com/manaflow-ai/cmuxterm-hq cmuxterm-hq; unset t; runuser -u chief -- git -C cmuxterm-hq config --get-regexp "extraheader" && exit 9; runuser -u chief -- git -C cmuxterm-hq log --oneline -1' "$tok"
   rm -f "$tok"
 fi
+# Shell defaults (web/services/vms/images/shell/shell-defaults.sh): the devbox image's terminfo overlay
+# (xterm-ghostty for htop/vim/tmux/less), hostname cmux, its prompt/bashrc and banner, UTF-8, truecolor and a
+# TERM fallback. Baked here, never at boot.
+shell_src="$here/../../web/services/vms/images"
+shell_tar="$(mktemp)"
+tar --no-xattrs -C "$shell_src" -czf "$shell_tar" shell/shell-defaults.sh shell/cmux-shell.sh shell/nvm-lazy.sh \
+  devbox/cmux-terminfo.src devbox/cmux-terminfo.sh devbox/cmux-bashrc devbox/cmux-prompt.bash devbox/cmux-motd
+exec_root 'rm -rf /tmp/cmux-shell && mkdir -p /tmp/cmux-shell/in && base64 -d | tar -xz -C /tmp/cmux-shell/in && cp /tmp/cmux-shell/in/shell/* /tmp/cmux-shell/in/devbox/* /tmp/cmux-shell/ && bash /tmp/cmux-shell/shell-defaults.sh /tmp/cmux-shell && rm -rf /tmp/cmux-shell && infocmp -x xterm-ghostty >/dev/null && hostname' <(base64 < "$shell_tar")
+rm -f "$shell_tar"
 exec_root 'df -h /home | tail -1'
 printf '%s\n' "$upstream" > /tmp/chief-cc-upstream.$$
 exec_root 'cat > /etc/chief-cc/upstream && chmod 644 /etc/chief-cc/upstream' /tmp/chief-cc-upstream.$$

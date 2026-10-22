@@ -96,30 +96,39 @@ pub fn diff_lines(old: &str, new: &str) -> Vec<(char, String)> {
         return out;
     }
     let (n, m) = (a.len(), b.len());
-    let mut lcs = vec![vec![0u32; m + 1]; n + 1];
-    for i in (0..n).rev() {
-        for j in (0..m).rev() {
-            lcs[i][j] =
-                if a[i] == b[j] { lcs[i + 1][j + 1] + 1 } else { lcs[i + 1][j].max(lcs[i][j + 1]) };
+    // Cell `i * width + j`: the longest common subsequence of `a[i..]` and `b[j..]`.
+    let width = m + 1;
+    let mut lcs = vec![0u32; (n + 1) * width];
+    let at = |lcs: &[u32], i: usize, j: usize| lcs.get(i * width + j).copied().unwrap_or(0);
+    for (i, x) in a.iter().enumerate().rev() {
+        for (j, y) in b.iter().enumerate().rev() {
+            let v = if x == y {
+                at(&lcs, i + 1, j + 1) + 1
+            } else {
+                at(&lcs, i + 1, j).max(at(&lcs, i, j + 1))
+            };
+            if let Some(cell) = lcs.get_mut(i * width + j) {
+                *cell = v;
+            }
         }
     }
     let (mut i, mut j) = (0, 0);
     let mut out = Vec::new();
-    while i < n && j < m {
-        if a[i] == b[j] {
-            out.push((' ', a[i].to_string()));
+    while let (Some(x), Some(y)) = (a.get(i), b.get(j)) {
+        if x == y {
+            out.push((' ', x.to_string()));
             i += 1;
             j += 1;
-        } else if lcs[i + 1][j] >= lcs[i][j + 1] {
-            out.push(('-', a[i].to_string()));
+        } else if at(&lcs, i + 1, j) >= at(&lcs, i, j + 1) {
+            out.push(('-', x.to_string()));
             i += 1;
         } else {
-            out.push(('+', b[j].to_string()));
+            out.push(('+', y.to_string()));
             j += 1;
         }
     }
-    out.extend(a[i..].iter().map(|l| ('-', l.to_string())));
-    out.extend(b[j..].iter().map(|l| ('+', l.to_string())));
+    out.extend(a.get(i..).unwrap_or_default().iter().map(|l| ('-', l.to_string())));
+    out.extend(b.get(j..).unwrap_or_default().iter().map(|l| ('+', l.to_string())));
     out
 }
 
@@ -131,7 +140,7 @@ pub fn diff_text(path: &str, old: &str, new: &str) -> String {
         .map(|i| {
             let lo = i.saturating_sub(2);
             let hi = (i + 3).min(lines.len());
-            lines[lo..hi].iter().any(|(k, _)| *k != ' ')
+            lines.get(lo..hi).unwrap_or_default().iter().any(|(k, _)| *k != ' ')
         })
         .collect();
     let mut out = String::new();
@@ -139,8 +148,8 @@ pub fn diff_text(path: &str, old: &str, new: &str) -> String {
         out.push_str(&format!("@@ {path}\n"));
     }
     let mut gap = false;
-    for (i, (k, l)) in lines.iter().enumerate() {
-        if !keep[i] {
+    for ((k, l), &kept) in lines.iter().zip(&keep) {
+        if !kept {
             gap = true;
             continue;
         }
@@ -593,8 +602,8 @@ impl Transcript {
                 if steer
                     && !prompt_id.is_empty()
                     && let Some(idx) = (0..self.items.len()).rev().find(|&i| {
-                        let shown = match &self.items[i] {
-                            Item::User { text: t, steer: true, .. } => shows_prompt(t, &text),
+                        let shown = match self.items.get(i) {
+                            Some(Item::User { text: t, steer: true, .. }) => shows_prompt(t, &text),
                             _ => false,
                         };
                         shown && !self.waiting_steers.iter().any(|(_, w)| *w == i)

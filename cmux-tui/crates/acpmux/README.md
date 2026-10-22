@@ -162,6 +162,7 @@ acpmux history NAME                                           # one line per tur
 acpmux pending                                                # every pending permission, with the option ids to answer it
 acpmux session allow NAME [OPTION] | acpmux session deny NAME
 acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"], "default": "approve"}'
+acpmux session limits NAME [--max N | --clear]                 # sub-sessions running at once (more wait), running and queued now
 acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
 acpmux ls --status running | --pending                        # filters; --json for the full records
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
@@ -775,7 +776,7 @@ The simplest peer is an SSH host, and `host setup` does the whole install from t
 acpmux host setup HOST                 # scp the binary, write config + launchd plist, start it, add the peer
 acpmux host ls                         # connected/offline, remote build, and "outdated" when it lags yours
 acpmux host update --all               # push the current binary to every ssh peer and restart it
-acpmux host update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn
+acpmux host update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn (not counting the one running this)
 acpmux ls                              # HOST/session-name next to local sessions
 acpmux new -m claude --host HOST "…"   # start a session there; `ensure NAME --host HOST` too
 acpmux attach HOST/session-name        # or plain `acpmux attach` for the full sidebar
@@ -789,6 +790,11 @@ binary only once it runs on the peer, keeps the binary it replaces as `~/.local/
 not answer with the new build. A daemon that runs under a hand-written `acpmux*.service` unit is
 moved to the standard `acpmux.service` (its home, socket and drop-ins carried over, agents kept).
 A cmux Cloud VM is never updated this way (`cloudMachine`): `cmux link machine update --to-bundled` owns it.
+One update of a host runs at a time: `host update`, `host setup` and `host enroll --fix` take the
+host's update lock (a lease in `~/.acpmux`, kept by the update's connection; it needs `flock` or
+`perl` on the host), and one that finds it held changes nothing (`host update`: `updateRunning`). Every step checks the lease on the host first,
+so an update whose connection dropped stops (`lockLost`). The updates reach the daemon through the
+`ACPMUX_HOME` and `ACPMUX_SOCKET` that `acpmux.service` and its drop-ins set.
 `--json` reports each peer's `outcome`: `updated`, `current`, `busy`, `needsBinary`,
 `rolledBack` or `failed`. `host setup` needs ssh + scp access and a Mac or Linux box with `launchctl`
 (Linux hosts run `acpmux daemon` under whatever supervisor you use). Hosts added by hand still
