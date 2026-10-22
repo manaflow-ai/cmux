@@ -11,6 +11,7 @@ import CmuxNextSettingsWindow
 /// `cmux.app.action.run`, the same path as the palette and the CLI.
 extension SettingsWindowService {
     func pageHostLists() -> JSONValue {
+        Self.hostListRuns += 1
         // The app scope is not observable; reading the store's generation makes the page's
         // host-lists watch re-send the Ghostty config preview after a config edit.
         _ = ThemeStore.shared.generation
@@ -49,7 +50,7 @@ extension SettingsWindowService {
             // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).
             "voice_input": ChiefVoiceInputPageRoute().hostJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
-            "backdrops": Self.backdrops.pageRows,
+            "backdrops": BackdropCatalogSource.shared.pageRows,
             "derived": .object(pageDerivedNumbers()),
         ]
     }
@@ -64,11 +65,12 @@ extension SettingsWindowService {
         return derived
     }
 
-    /// The wallpaper grid's choices, read each time so an image the person just added, or a
-    /// macOS wallpaper they just downloaded, is listed as it is now.
-    static var backdrops: BackdropCatalog {
-        BackdropCatalog(systemDirectory: AppleWallpapers.system.desktopPictures, fileManager: .default, userImages: userImages)
-    }
+    /// The wallpaper grid's choices as they are now: listed again only after a change in a folder
+    /// they come from (an image the person just added, a macOS wallpaper they just downloaded).
+    static var backdrops: BackdropCatalog { BackdropCatalogSource.shared.catalog }
+
+    /// Runs of ``pageHostLists()`` (debug.layout_counters `settings_host_list_runs`).
+    static var hostListRuns = 0
 
     /// The person's own background images, in the backgrounds folder.
     static var userImages: BackdropUserImages? {
