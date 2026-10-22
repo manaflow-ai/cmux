@@ -42,9 +42,10 @@ TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|s)\b")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # Oxlint's graphical report (the type check, `vp lint`): `  x typescript(TS2339): message`, wrapped lines of the
 # message, `   ,-[path:line:col]`, a code frame and `help:` lines. One finding per diagnostic, its whole message.
+# Oxlint draws the frame in ASCII or Unicode (`╭─[`, `│`, `·`, `╰`) depending on the terminal; both are read.
 DIAGNOSTIC = re.compile(r"^\s*[x!×⚠]\s+(?P<code>[\w/@-]+\([^)]*\)):\s*(?P<message>.*?)\s*$")
-LOCATION = re.compile(r"^\s*,-\[(?P<path>[^\]]+?)(?::\d+:\d+)?\]\s*$")
-FRAME = re.compile(r"^\s*(?:\d+\s*\||:|`-+)")
+LOCATION = re.compile(r"^\s*(?:,-|╭─)\[(?P<path>[^\]]+?)(?::\d+:\d+)?\]\s*$")
+FRAME = re.compile(r"^\s*(?:\d+\s*[|│]|[:·]|`-+|╰─+)")
 HELP = re.compile(r"^\s*help:")
 # Lines that describe a run, not a finding: a count that falls when the change fixes one of the base's errors.
 NOISE = re.compile(r"^(?:error: (?:Type errors|Formatting issues|Lint issues) found$|Found \d+ errors? and \d+ warnings?\b|note: You are running)")
@@ -96,7 +97,7 @@ def findings(output: str, root: str = "") -> list[tuple[str, str]]:
                 continue
             if FRAME.match(line) and record["framed"]:
                 continue
-            if HELP.match(line) or (not record["framed"] and line.strip()):
+            if HELP.match(line) or (not record["framed"] and line.strip() and not NOISE.match(line.strip())):
                 record["message"].append(line.strip().lstrip("|").strip())
                 continue
             if not line.strip():
