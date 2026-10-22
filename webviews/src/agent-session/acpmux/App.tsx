@@ -374,6 +374,12 @@ import { contextAttachment, floatingStatus, type QuickFloating } from "./Floatin
 import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
 import { DeliveryFailure } from "./conversation/PromptDelivery";
+import {
+  FailedPromptGroupsContext,
+  useFailedPromptGroups,
+  type FailedPromptGroups,
+} from "./conversation/failedPromptGroups";
+import { RetryGateContext } from "./promptFailureCause";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { useSideSessions } from "./aside/sideSessions";
@@ -1671,15 +1677,20 @@ function JumpToLatest({
 function TranscriptContext({
   find,
   sessionId,
+  failed,
   children,
 }: {
   find: React.ContextType<typeof FindReveal>;
   sessionId?: string;
+  /// The runs of prompts that failed for one cause, which share a failure line (failedPromptGroups.ts).
+  failed: FailedPromptGroups;
   children: React.ReactNode;
 }) {
   return (
     <FindReveal.Provider value={find}>
-      <PromptMarksSession.Provider value={sessionId ?? ""}>{children}</PromptMarksSession.Provider>
+      <PromptMarksSession.Provider value={sessionId ?? ""}>
+        <FailedPromptGroupsContext.Provider value={failed}>{children}</FailedPromptGroupsContext.Provider>
+      </PromptMarksSession.Provider>
     </FindReveal.Provider>
   );
 }
@@ -1755,6 +1766,8 @@ export function VirtualTranscript({
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.span("vt.renders", 1);
+  // Prompts drawn one after another that failed for one cause share one failure line.
+  const failedGroups = useFailedPromptGroups(rows);
   const [scroll, setScroll] = useState({ top: 0, delta: 0 });
   /// The view follows the latest row (scrolledTo.atLatest, as of the last scroll). Jump to latest shows
   /// when it does not and the latest message is more than JUMP_LATEST_DISTANCE below, read each render,
@@ -3194,7 +3207,7 @@ export function VirtualTranscript({
           placed={minimapPlaced}
         />
         {find?.open && <ChatFindBar find={find} />}
-        <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
+        <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId} failed={failedGroups}>
           <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
             <div
               ref={thread}
@@ -5870,11 +5883,16 @@ function AcpmuxPane() {
               },
             ),
           "chat.harness.cancelPrompt": async ({ promptId }) => harnessSwitch.cancelQueued(String(promptId)),
-          "chat.retryPrompt": ({ rowId }) => client.retryPrompt(String(rowId)),
-          // Edit on a prompt that did not get there: its row goes and the prompt comes back to the
-          // composer, ahead of what is typed there now.
-          "chat.editFailedPrompt": async ({ rowId }) => {
-            const failed = client.takeFailedPrompt(String(rowId));
+          // `rowIds`: the run of failed prompts a shared failure line covers, which goes again as one
+          // prompt (direct.ts retryPrompts).
+          "chat.retryPrompt": ({ rowId, rowIds }) =>
+            Array.isArray(rowIds) ? client.retryPrompts(rowIds.map(String)) : client.retryPrompt(String(rowId)),
+          // Edit on a prompt that did not get there (or a run of them, `rowIds`): its row goes and the
+          // prompt comes back to the composer, ahead of what is typed there now.
+          "chat.editFailedPrompt": async ({ rowId, rowIds }) => {
+            const failed = Array.isArray(rowIds)
+              ? client.takeFailedPrompts(rowIds.map(String))
+              : client.takeFailedPrompt(String(rowId));
             if (failed) composerHandle.current?.restore(failed.input, failed.attachments);
           },
           "chat.removeFailedPrompt": async ({ rowId }) => client.removeFailedPrompt(String(rowId)),
@@ -6778,6 +6796,10 @@ function AcpmuxPane() {
     cards: toolCards,
     silent: snapshot.silentTurn,
   });
+  // Whether a failed prompt's held cause cleared, for its Retry (promptFailureCause.ts): the trust
+  // question answered Trust, the pane connected again.
+  const trustHolds = Boolean(trustAsk.blocked);
+  const retryGate = useMemo(() => ({ trustBlocked: trustHolds, connected }), [trustHolds, connected]);
   const transcript = (
     // Quick Chat's panel has no room beside it: its fences have no Open preview.
     <ArtifactContext.Provider value={quick ? undefined : openArtifact}>
@@ -7892,7 +7914,7 @@ function AcpmuxPane() {
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>
                     <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-                      {transcript}
+                      <RetryGateContext.Provider value={retryGate}>{transcript}</RetryGateContext.Provider>
                     </BackgroundTaskOutputContext.Provider>
                   </AgentTonesContext.Provider>
                 )}

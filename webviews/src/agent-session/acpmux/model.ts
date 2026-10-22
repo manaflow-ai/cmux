@@ -112,6 +112,10 @@ export type PromptDelivery = {
   slow?: boolean;
   hop?: PromptDeliveryHop;
   code?: string;
+  /// acpmux's own reason for a refusal (`data.reason`: `trust.pending`, `peer_unreachable`, ...).
+  reason?: string;
+  /// acpmux says whether the same request can work again (`data.retryable`).
+  retryable?: boolean;
   error?: string;
   /// The machine acpmux runs on, when it is not this one.
   connection?: string;
