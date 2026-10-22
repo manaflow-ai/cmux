@@ -132,7 +132,7 @@ struct RowMotion {
         }
         // A close on the render server's spring (`animate`) already has its frame at its end, which moved with it:
         // its spring keeps running on top. Only a close whose frame is not at its end re-targets here.
-        let retargeted = closing.filter { $0.closingEnd.map { end in $0.frame != end } ?? false }
+        let retargeted = closing.filter { view in view.closingEnd.map { view.frame != $0 } ?? false }
         guard !retargeted.isEmpty else { return }
         // The close's own completion (`run`) still recycles each row.
         Motion.sidebar.animate(.move, in: list, {
