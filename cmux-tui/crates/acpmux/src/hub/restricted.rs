@@ -182,10 +182,7 @@ fn frozen_program(program: &str, cwd: &Path) -> Result<String, String> {
     let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
     // A folder that holds the person's home (the home itself, `/`) holds their own install of
     // Claude Code too (`~/.local/bin`): that is not one the folder planted.
-    let holds_home = dirs::home_dir()
-        .and_then(|home| std::fs::canonicalize(home).ok())
-        .is_some_and(|home| home.starts_with(&cwd));
-    if real.starts_with(&cwd) && !holds_home {
+    if real.starts_with(&cwd) && held_home(&cwd).is_none() {
         return Err(format!("{} is inside the chat's folder", real.display()));
     }
     Ok(found.to_string_lossy().into_owned())
@@ -217,39 +214,77 @@ pub(crate) fn strip_lasting_allows(request: &mut Value) {
 }
 
 /// Profile, login and daemon env that loads code into Claude Code's process: a restricted chat
-/// starts with it blank (a relative `--require` in `NODE_OPTIONS` would load the folder's).
-const BLANKED_ENV: &[&str] = &["NODE_OPTIONS", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH"];
+/// starts with it blank (a relative `--require` in `NODE_OPTIONS` would load the folder's;
+/// `CLAUDE_CODE_PLUGIN_DIRS` loads plugins and their hooks, as `--plugin-dir` does).
+const BLANKED_ENV: &[&str] =
+    &["NODE_OPTIONS", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "CLAUDE_CODE_PLUGIN_DIRS"];
 
-/// The env that says where Claude Code reads its user settings: `$CLAUDE_CONFIG_DIR`, else
-/// `$HOME/.claude`.
-const SETTINGS_ROOTS: &[&str] = &["CLAUDE_CONFIG_DIR", "HOME"];
+/// The env that says where Claude Code reads its user settings, and the folder under it:
+/// `$CLAUDE_CONFIG_DIR`, else `$HOME/.claude`.
+const SETTINGS_ROOTS: &[(&str, &str)] = &[("CLAUDE_CONFIG_DIR", ""), ("HOME", ".claude")];
+
+/// The person's home from the account database, canonical: not `$HOME`, which the env being
+/// checked can set.
+#[cfg(unix)]
+fn account_home() -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut buf = vec![0 as libc::c_char; 4096];
+    // SAFETY: zeroed passwd is a valid out-parameter for getpwuid_r.
+    let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut result: *mut libc::passwd = std::ptr::null_mut();
+    // SAFETY: getuid has no preconditions; every pointer is valid for the call and buf
+    // outlives it.
+    let rc = unsafe {
+        libc::getpwuid_r(libc::getuid(), &mut pwd, buf.as_mut_ptr(), buf.len(), &mut result)
+    };
+    if rc != 0 || result.is_null() || pwd.pw_dir.is_null() {
+        return None;
+    }
+    // SAFETY: getpwuid_r returned a NUL-terminated path inside buf.
+    let dir = unsafe { std::ffi::CStr::from_ptr(pwd.pw_dir) };
+    std::fs::canonicalize(std::ffi::OsStr::from_bytes(dir.to_bytes())).ok()
+}
+
+#[cfg(not(unix))]
+fn account_home() -> Option<PathBuf> {
+    None
+}
+
+/// The person's home when the canonical folder `cwd` holds it (the home itself, `/`).
+fn held_home(cwd: &Path) -> Option<PathBuf> {
+    account_home().filter(|home| home.starts_with(cwd))
+}
+
+/// `path` with its nearest existing folder canonical: where it is, or would be once made.
+fn resolved(path: &Path) -> PathBuf {
+    path.ancestors()
+        .find_map(|a| Some(std::fs::canonicalize(a).ok()?.join(path.strip_prefix(a).ok()?)))
+        .unwrap_or_else(|| path.to_path_buf())
+}
 
 /// Refuses a `key` of `SETTINGS_ROOTS` (each value the spawn could inherit) that is relative or
-/// inside the chat's folder `cwd`: Claude Code reads its user settings there, so
-/// `--setting-sources user` would load the folder's own. One elsewhere is the person's own
-/// (another Claude account's folder), unless `cwd` holds the person's home (`frozen_program`).
+/// whose settings folder (`under` it) is inside the chat's folder `cwd`: Claude Code reads its
+/// user settings there, so `--setting-sources user` would load the folder's own. One elsewhere
+/// is the person's own (another Claude account's folder). When `cwd` holds the person's home
+/// (`frozen_program`), the home's own folders (`~/.claude`, `~/.claude-work`) are theirs too.
 fn check_settings_root<'v>(
-    key: &str,
+    (key, under): (&str, &str),
     values: impl IntoIterator<Item = &'v str>,
     cwd: &Path,
 ) -> Result<(), String> {
     let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
-    let holds_home = dirs::home_dir()
-        .and_then(|home| std::fs::canonicalize(home).ok())
-        .is_some_and(|home| home.starts_with(&cwd));
+    let home = held_home(&cwd);
     for value in values.into_iter().filter(|v| !v.is_empty()) {
-        let dir = Path::new(value);
-        if !dir.is_absolute() {
+        let root = Path::new(value);
+        if !root.is_absolute() {
             return Err(format!("{key}={value} is a relative path"));
         }
-        // Claude Code makes the folder when it is missing: its nearest existing folder says
-        // where it would be.
-        let real = dir
-            .ancestors()
-            .find_map(|a| Some(std::fs::canonicalize(a).ok()?.join(dir.strip_prefix(a).ok()?)))
-            .unwrap_or_else(|| dir.to_path_buf());
-        if real.starts_with(&cwd) && !holds_home {
-            return Err(format!("{key}={value} is inside the chat's folder"));
+        // Claude Code makes the folder when it is missing; a symlink to it counts where it
+        // points.
+        let real = resolved(&root.join(under));
+        let own = home.as_deref().is_some_and(|home| real.parent() == Some(home));
+        if real.starts_with(&cwd) && !own {
+            return Err(format!("{key}={value} puts Claude's settings inside the chat's folder"));
         }
     }
     Ok(())
@@ -489,13 +524,13 @@ impl Hub {
         self.refuse_unrestricted_start(session, &profile)?;
         let mut plan = command_line(&profile.argv, plan).map_err(refused)?;
         plan.program = frozen_program(&plan.program, &meta.cwd).map_err(refused)?;
-        for key in SETTINGS_ROOTS {
-            let own = profile.env.get(*key).map(|v| env_refs_read(key, v)).transpose();
+        for &(key, under) in SETTINGS_ROOTS {
+            let own = profile.env.get(key).map(|v| env_refs_read(key, v)).transpose();
             let (own, login, daemon) =
                 (own.map_err(refused)?, crate::login_env::var(key), std::env::var(key).ok());
             let values = [own.as_ref(), login.as_ref(), daemon.as_ref()];
-            check_settings_root(key, values.into_iter().flatten().map(String::as_str), &meta.cwd)
-                .map_err(refused)?;
+            let values = values.into_iter().flatten().map(String::as_str);
+            check_settings_root((key, under), values, &meta.cwd).map_err(refused)?;
         }
         let mut profile = profile.into_owned();
         for key in BLANKED_ENV {
@@ -631,7 +666,7 @@ mod tests {
         let frozen = frozen_program(&program.to_string_lossy(), &elsewhere).unwrap();
         assert_eq!(frozen, program.to_string_lossy());
         // A folder holding the person's home (here `/`) holds their own install too.
-        if dirs::home_dir().is_some_and(|home| home.canonicalize().is_ok()) {
+        if account_home().is_some() {
             assert!(frozen_program(&program.to_string_lossy(), Path::new("/")).is_ok());
         }
         let _ = std::fs::remove_dir_all(&root);
@@ -650,6 +685,7 @@ mod tests {
         assert_eq!(kinds, [json!("allow_once"), json!("reject_once")]);
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_settings_root_in_the_chat_folder_or_relative_is_refused() {
         let root = std::env::temp_dir().join(format!("restricted-config-{}", std::process::id()));
@@ -657,35 +693,41 @@ mod tests {
         std::fs::create_dir_all(&chat).unwrap();
         std::fs::create_dir_all(&elsewhere).unwrap();
         let text = |p: &Path| p.to_string_lossy().into_owned();
-        assert!(check_settings_root("CLAUDE_CONFIG_DIR", [], &chat).is_ok());
-        assert!(
-            check_settings_root("CLAUDE_CONFIG_DIR", [""], &chat).is_ok(),
-            "set but empty is unset"
-        );
-        let relative = check_settings_root("CLAUDE_CONFIG_DIR", [".claude"], &chat).unwrap_err();
+        let (config, home) = (SETTINGS_ROOTS[0], SETTINGS_ROOTS[1]);
+        assert!(check_settings_root(config, [], &chat).is_ok());
+        assert!(check_settings_root(config, [""], &chat).is_ok(), "set but empty is unset");
+        let relative = check_settings_root(config, [".claude"], &chat).unwrap_err();
         assert!(relative.contains("relative path"), "{relative}");
         // Missing yet (Claude Code makes it), and through the temp folder's symlink on macOS.
         let inside = text(&chat.join(".claude"));
-        let refused =
-            check_settings_root("CLAUDE_CONFIG_DIR", [inside.as_str()], &chat).unwrap_err();
+        let refused = check_settings_root(config, [inside.as_str()], &chat).unwrap_err();
         assert!(refused.contains("inside the chat's folder"), "{refused}");
         // Another account's folder elsewhere is the person's own.
         let own = text(&elsewhere.join(".claude-work"));
-        assert!(check_settings_root("CLAUDE_CONFIG_DIR", [own.as_str()], &chat).is_ok());
+        assert!(check_settings_root(config, [own.as_str()], &chat).is_ok());
         // Any one value the spawn could inherit is enough to refuse.
-        assert!(
-            check_settings_root("CLAUDE_CONFIG_DIR", [own.as_str(), inside.as_str()], &chat)
-                .is_err()
-        );
+        assert!(check_settings_root(config, [own.as_str(), inside.as_str()], &chat).is_err());
         // A profile's references: `${env:…}` is read, any other cannot be checked.
         assert_eq!(env_refs_read("CLAUDE_CONFIG_DIR", "/opt/claude").unwrap(), "/opt/claude");
         assert!(env_refs_read("CLAUDE_CONFIG_DIR", "${cwd}/.claude").is_err());
         assert!(env_refs_read("CLAUDE_CONFIG_DIR", "${keychain:claude}").is_err());
-        // `HOME` the same way: Claude Code's user settings are `$HOME/.claude` without one.
-        let home = text(&chat);
-        let refused = check_settings_root("HOME", [home.as_str()], &chat).unwrap_err();
-        assert_eq!(refused, format!("HOME={home} is inside the chat's folder"));
+        // `HOME` counts by its `.claude`: the chat's folder itself, a HOME just above a chat
+        // in `.claude`, or a HOME elsewhere whose `.claude` links to the chat.
+        assert!(check_settings_root(home, [text(&chat).as_str()], &chat).is_err());
+        let settings = chat.join(".claude");
+        std::fs::create_dir_all(&settings).unwrap();
+        assert!(check_settings_root(home, [text(&chat).as_str()], &settings).is_err());
+        std::os::unix::fs::symlink(&chat, elsewhere.join(".claude")).unwrap();
+        let linked = check_settings_root(home, [text(&elsewhere).as_str()], &chat).unwrap_err();
+        assert!(linked.contains("inside the chat's folder"), "{linked}");
         assert!(env_refs_read("HOME", "${cwd}").is_err());
+        // The person's own home, read from the account database, not from `$HOME`.
+        if let Some(account) = account_home() {
+            let own = text(&account);
+            assert!(check_settings_root(home, [own.as_str()], Path::new("/")).is_ok());
+            let deeper = text(&account.join("project"));
+            assert!(check_settings_root(home, [deeper.as_str()], Path::new("/")).is_err());
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 
