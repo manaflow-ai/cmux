@@ -75,9 +75,17 @@ public struct AgentNotificationReconciler: Sendable {
     public init() {}
 
     /// Observes one committed semantic event and classifies its candidate.
-    /// - Parameter event: A journal event with causal evidence from its adapter.
+    /// - Parameters:
+    ///   - event: A journal event with causal evidence from its adapter.
+    ///   - deliversPendingCompletions: Whether a turn that ends while its own
+    ///     background work is still running is a completion candidate now (the
+    ///     Agent Finished "Always" setting) rather than held until the session is
+    ///     idle (the default, "When idle").
     /// - Returns: An admission candidate or a diagnostic explaining suppression.
-    public mutating func apply(_ event: AgentJournalEvent) -> AgentNotificationDecision {
+    public mutating func apply(
+        _ event: AgentJournalEvent,
+        deliversPendingCompletions: Bool = false
+    ) -> AgentNotificationDecision {
         let draft = event.draft
         guard draft.unattributedReason == nil, draft.surfaceId != nil,
               let sessionID = draft.sessionId, !sessionID.isEmpty else {
@@ -539,8 +547,24 @@ public struct AgentNotificationReconciler: Sendable {
         let boundary: String
         switch draft.kind {
         case .turnCompleted:
-            guard session.phase == .idle else { return .init(.delayed) }
-            boundary = Self.key(["completion", incomingTurn ?? session.turn])
+            // A turn waiting on its own background work is still running. "Always"
+            // notifies it as it ends (#24386); a blocking request keeps its own
+            // attention notification either way.
+            guard session.phase == .idle || (deliversPendingCompletions && session.phase == .running) else {
+                return .init(.delayed)
+            }
+            // A Stop accepted while the session still runs is keyed by the Stop
+            // itself: Claude's hooks carry no turn id, and a prompt sent while the
+            // session runs does not advance its turn, so the turn alone cannot tell
+            // its replies apart. A Stop held for subagents is released under the
+            // same key, and the settled Stop that follows gets the turn's key.
+            let ownStop = Self.key(["completion", incomingTurn ?? session.turn, "stop",
+                                    context?.eventIdentity ?? draft.eventId])
+            if session.phase == .running || session.delivered[Self.key([sessionKey, ownStop])] != nil {
+                boundary = ownStop
+            } else {
+                boundary = Self.key(["completion", incomingTurn ?? session.turn])
+            }
         case .approvalRequested, .questionRequested, .planReviewRequested:
             // A real blocking request is never gated by background work.
             boundary = Self.key(["attention", context?.requestIdentity
