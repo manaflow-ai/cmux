@@ -160,6 +160,11 @@ extension LiveCoordinator {
 
     // MARK: The mailbox (PR B)
 
+    /// How long a mailbox Allow's acpmux signature stays valid: acpmux takes
+    /// at most 300 s, less a margin for the Mac's clock. A reply that waits
+    /// longer in the mailbox is refused by acpmux, and the phone says so.
+    static let mailboxApprovalLifetime: TimeInterval = 290
+
     /// What the mailbox did with a reply.
     public enum MailboxOutcome: Equatable, Sendable {
         /// The service holds it and the Mac's host was online (it has it now).
@@ -184,7 +189,7 @@ extension LiveCoordinator {
            let session = reply.sessionId, let permission = reply.permissionId {
             let payload = ApprovalPayload(instance: instance, macDevice: reply.mac, approver: pairing.phoneID, session: session,
                                           permission: permission, option: optionID, nonce: nonce,
-                                          expiresAt: Int(now.timeIntervalSince1970 + ApprovalPayload.lifetime))
+                                          expiresAt: Int(now.timeIntervalSince1970 + Self.mailboxApprovalLifetime))
             do {
                 let sign = try await pairing.keys.authorizeApproval(reason: String(localized: "Allow this request on your Mac"))
                 approval = Self.pushJSON(payload.meta(signature: try sign(payload.message)))
