@@ -375,6 +375,9 @@ def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list
             if old:
                 print(f"::warning title=web lint (base)::{result.label}: {result.command}: {len(old)} finding(s) "
                       f"the base {base[:12]} has too", file=sys.stderr)
+            if not new and not old:  # both red with no finding to compare: unexplained, so the change's
+                new = [f"{result.command} failed (exit {result.returncode}) and printed no finding to compare "
+                       "with the base"]
             if not new:
                 result.returncode = 0
                 continue
