@@ -59,11 +59,12 @@ extension WorkspaceRowView {
 
     override func updateLayer() {
         performWithTheme {
-            title.textColor = Palette.textPrimary
-            subtitle.setColor(Palette.textSecondary); [timeLabel, metaLabel, elapsedLabel].forEach { $0.setColor(Palette.textTertiary) }
-            if let chip { timeLabel.setColor(SidebarPriorityRowView.chipColor(chip)) }
+            // An idle workspace nobody named reads quiet until it is selected, hovered or busy.
+            title.textColor = isQuiet && !isSelected && !isSecondarySelected && !isHovered ? Palette.textSecondary : Palette.textPrimary
+            subtitle.setColor(Palette.textSecondary); [timeLabel, metaLabel].forEach { $0.setColor(Palette.textTertiary) }
             tabCount.setColor(Palette.textTertiary)
             mutedMark.setTint(Palette.textTertiary)
+            if let machine { machineMark.setTint(machine.color) }
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
             let waits = if case .waiting = activityState { true } else { false }
@@ -205,7 +206,10 @@ extension WorkspaceRowView {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = agentMark.frame.maxX + Metrics.space1
         }
-        trailing = layoutElapsed(trailing: trailing, textX: textX, cy: cy, height: sh)
+        if !machineMark.isHidden {
+            machineMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
+            textX = machineMark.frame.maxX + Metrics.space1
+        }
         let textW = max(0, trailing - textX)
         let titleArrival = titleArrivalPending || titleArrivalActive
         title.isHidden = renaming || (isShowingPlaceholder && !titleArrival)
@@ -227,7 +231,7 @@ extension WorkspaceRowView {
         updateCalmTitleTip()
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: overlayStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
-        for mark in [activity, rowBadge, agentMark, mutedMark, audioButton, presenceDots, timeLabel, elapsedLabel] as [NSView] {
+        for mark in [activity, rowBadge, agentMark, mutedMark, machineMark, audioButton, presenceDots, timeLabel] as [NSView] {
             fadeOpacity(mark, to: overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true ? 0 : 1, fades: fades)
         }
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
