@@ -64,10 +64,19 @@ enum AgentSessionWorkspace {
         // The workspace's most recently focused pane, as New Agent Chat's workspace target picks
         // it (AgentChatPlacement, #23016).
         guard let (workspace, daemon) = found,
-              let pane = workspace.screens.flatMap(\.panes).max(by: { $0.focusedAt < $1.focusedAt }) else {
+              let pane = Self.lastFocusedPane(of: workspace) else {
             throw ActionFailure(message: RefusalStrings.noWorkspace(id), isNotFound: true)
         }
         return (pane, daemon)
+    }
+
+    /// The workspace's most recently focused pane; a workspace never focused (every pane at 0)
+    /// gives its first screen's default pane, as before.
+    private static func lastFocusedPane(of workspace: WorkspaceModel) -> PaneModel? {
+        let panes = workspace.screens.flatMap(\.panes)
+        if let focused = panes.max(by: { $0.focusedAt < $1.focusedAt }), focused.focusedAt > 0 { return focused }
+        let screen = workspace.screens.first
+        return screen?.panes.first { $0.handle == screen?.defaultPane } ?? panes.first
     }
 
     /// A target or string argument's id, nil when absent or empty.

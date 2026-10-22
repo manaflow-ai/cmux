@@ -10,7 +10,8 @@
 //! The prompt text says the same thing to the receiving agent
 //! (`agent_message_prompt::render`).
 //!
-//! Both verbs reach only chats of this cmux session: a chat whose acpmux
+//! Every chat verb reaches only chats of this cmux session (in the caller's
+//! acpmux, or the app's own when that is another one, `scoped_chat`): a chat whose acpmux
 //! session runs in one of the session's workspaces (`sessionEnv.
 //! CMUX_WORKSPACE_ID`, as the daemon's agent message policy reads it). A
 //! send never goes to the caller's own chat.
@@ -182,8 +183,9 @@ fn not_run(code: &str, message: impl Into<String>, details: Value) -> CallFailur
     }
 }
 
-/// A chat a verb reaches: its acpmux session id and the app's acpmux socket when the chat runs
-/// there and not in the caller's own acpmux (`Chat::app`).
+/// A chat a verb reaches: its acpmux session id, and the app's acpmux socket when the chat runs
+/// there and not in the caller's own acpmux (read, state and interrupt reach it there; a send
+/// goes through the daemon, whose acpmux it is).
 pub(in crate::cli) struct Chat {
     pub id: String,
     pub app: Option<PathBuf>,
@@ -196,11 +198,11 @@ impl Chat {
     }
 }
 
-/// The chat `target` names (an id, a name or a unique prefix): a chat of this cmux session
-/// (its acpmux session runs in one of the session's workspaces), or a chat of the cmux app this
-/// CLI reaches, found in the app's own acpmux (`agent.acpmux`) when the caller's acpmux is
-/// another one, as a Chief turn's is (#23026). A person can type into any of the app's chats;
-/// an agent reaches the same chats, never its own.
+/// The chat `target` names (an id, a name or a unique prefix), when it is a chat of this cmux
+/// session: its acpmux session runs in one of the session's workspaces (`sessionEnv.
+/// CMUX_WORKSPACE_ID`). It is looked up in the caller's own acpmux, then in the cmux app's own
+/// (`agent.acpmux`) when that is another one, as a Chief turn's is (its home's; its `cmux`
+/// calls reach the app's daemon session, #23026). Either way the same scope check applies.
 pub(super) fn scoped_chat(global: &GlobalArgs, target: &str) -> Result<Chat, CallFailure> {
     let not_found = |error: String| {
         not_run(
@@ -209,12 +211,11 @@ pub(super) fn scoped_chat(global: &GlobalArgs, target: &str) -> Result<Chat, Cal
             json!({"scope": "chat", "selector": target}),
         )
     };
-    let (chat, info) = match acp::lookup(target, None) {
-        Ok(found) => found,
+    let ((chat, info), app) = match acp::lookup(target, None) {
+        Ok(found) => (found, None),
         Err(error) => {
             let Some(app) = app_acpmux(global) else { return Err(not_found(error)) };
-            let (chat, _) = acp::lookup(target, Some(&app)).map_err(not_found)?;
-            return Ok(Chat { id: chat, app: Some(app) });
+            (acp::lookup(target, Some(&app)).map_err(not_found)?, Some(app))
         }
     };
     let workspace =
@@ -227,7 +228,7 @@ pub(super) fn scoped_chat(global: &GlobalArgs, target: &str) -> Result<Chat, Cal
             json!({"scope": "chat", "selector": target, "chat": chat}),
         ));
     }
-    Ok(Chat { id: chat, app: None })
+    Ok(Chat { id: chat, app })
 }
 
 /// The socket of the acpmux the cmux app's own chats use (`agent.acpmux`), when the app
@@ -237,7 +238,9 @@ pub(in crate::cli) fn app_acpmux(global: &GlobalArgs) -> Option<PathBuf> {
         mcp::agent_app(global, "agent.acpmux", json!({}), super::super::app::READ_TIMEOUT, None)
             .ok()?;
     let app = PathBuf::from(answer["socket_path"].as_str().filter(|path| !path.is_empty())?);
-    (acp::own_socket() != app).then_some(app)
+    // One daemon can be named two ways (`/tmp` and `/private/tmp`, a relative path).
+    let same = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    (same(&acp::own_socket()) != same(&app)).then_some(app)
 }
 
 /// A workspace key in one comparable form: lowercase, without dashes (the
@@ -292,18 +295,15 @@ fn send(
 ) -> Result<Value, CallFailure> {
     let found = scoped_chat(global, target)?;
     refuse_own_chat(&found.id, target)?;
-    let chat = found.id.clone();
+    let chat = found.id;
     let key = match idempotency_key {
         Some(key) => key.to_owned(),
         None => wire::random_idempotency_key()
             .map_err(|error| not_run("usage.invalid", error.0, json!({})))?,
     };
     let recipient = format!("acp:{chat}");
-    // A chat of the app's own acpmux that the caller's cmux session does not hold: the message
-    // goes straight to it, written and marked as the daemon writes an agent message.
-    if let Some(app) = found.socket() {
-        return send_to_app_chat(&chat, app, text, &key, origin);
-    }
+    // The daemon stores the message under its policy and its pump hands it to the chat in the
+    // daemon's acpmux, the app's own for a chat found there (`Chat::app`).
     let plan = MessagePlan {
         target: Some(recipient.clone()),
         body: Body::Text(text.to_owned()),
@@ -311,6 +311,7 @@ fn send(
         thread: None,
         reply_to: None,
         idempotency_key: Some(key.clone()),
+        target_resolved: true,
     };
     let sent =
         agent_message::send_and_deliver(global, &plan, text.to_owned()).map_err(|failure| {
@@ -359,35 +360,6 @@ fn send(
         "action": "chat.send",
         "origin": origin,
         "result": result,
-        "idempotency_key": key,
-    }))
-}
-
-/// `send` to a chat of the app's own acpmux (`Chat::app`): the agent message text and
-/// provenance the daemon's delivery gives (`agent_message_prompt`), with the key as the
-/// message id, so a resend with the same key runs once.
-fn send_to_app_chat(
-    chat: &str,
-    app: &Path,
-    text: &str,
-    key: &str,
-    origin: &str,
-) -> Result<Value, CallFailure> {
-    let sender = own_chat().map_or_else(|| "cli".to_owned(), |own| format!("acp:{own}"));
-    let id = format!("msg_{}", key.trim_start_matches("mutation_"));
-    let message = json!({"id": id, "sender": sender, "thread_id": id, "body": text});
-    let rendered = cmux_tui_core::agent_message_prompt::render(std::slice::from_ref(&message));
-    let provenance =
-        cmux_tui_core::agent_message_prompt::provenance(&message, &format!("acp:{chat}"));
-    let state = match acp::prompt(chat, &rendered, &id, provenance.as_ref(), Some(app)) {
-        Ok(_) => "delivered",
-        Err(_) => "failed",
-    };
-    Ok(json!({
-        "schema_version": 1,
-        "action": "chat.send",
-        "origin": origin,
-        "result": {"chat": chat, "message_id": id, "state": state},
         "idempotency_key": key,
     }))
 }

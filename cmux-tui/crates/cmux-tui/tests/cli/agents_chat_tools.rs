@@ -780,13 +780,15 @@ fn fake_app_with_acpmux(socket: &std::path::Path, acpmux: PathBuf) {
     });
 }
 
-/// A caller whose own acpmux is another one, as a Chief turn's is (its home's): `chat new`
-/// starts the chat in the app's own acpmux (`agent.acpmux`), an ordinary chat of the app and
-/// not a subagent of the caller's, and `state`, `send`, `read` and `interrupt` find it there
-/// (#23026).
+/// A caller whose own acpmux is another one, as a Chief turn's is (its home's; its `cmux` calls
+/// reach the app's daemon session): `chat new` starts the chat in the app's own acpmux
+/// (`agent.acpmux`), an ordinary chat of the app and not a subagent of the caller's, and
+/// `state`, `read` and `interrupt` find it there; a `send` goes through the daemon, whose pump
+/// delivers it in that acpmux, under the daemon's agent message policy (#23026).
 #[test]
 fn a_caller_with_its_own_acpmux_starts_and_drives_a_chat_of_the_apps_acpmux() {
     let daemon = machine("chat-app-acpmux");
+    let workspace = workspace(&daemon);
     let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
     let app_socket = daemon.dir.join("app.sock");
     fake_app_with_acpmux(&app_socket, daemon.dir.join("acpmux/acpmux.sock"));
@@ -799,7 +801,7 @@ fn a_caller_with_its_own_acpmux_starts_and_drives_a_chat_of_the_apps_acpmux() {
     };
 
     let (code, created) =
-        chat_json(chief(), &["new", "--cwd", work.to_str().unwrap(), "--", "hello from chief"]);
+        chat_json(chief(), &["new", "--workspace", &workspace, "--cwd", work.to_str().unwrap(), "--", "hello from chief"]);
     assert_eq!(code, Some(0), "{created}");
     assert_eq!(created["result"]["opened"], true, "{created}");
     assert_eq!(created["result"]["tab"], "tab_fake", "{created}");
