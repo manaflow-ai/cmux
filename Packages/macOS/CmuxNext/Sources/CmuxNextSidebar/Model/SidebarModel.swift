@@ -541,7 +541,8 @@ public final class SidebarModel {
                 o.machineStatusLabels[machine.id] = status
             }
         }
-        let listed = sections.compactMap(\.machine)
+        // The local Chief runs on this Mac (SidebarRowIndex.machineLabel): not another machine.
+        let listed = sections.compactMap(\.machine).filter { !$0.id.isLocalChief }
         if Set(listed.map(\.id)).count > 1 {
             o.machines = Dictionary(listed.filter { $0.kind != .local || showsLocalMachine }.map { ($0.id, $0) },
                                     uniquingKeysWith: { first, _ in first })
