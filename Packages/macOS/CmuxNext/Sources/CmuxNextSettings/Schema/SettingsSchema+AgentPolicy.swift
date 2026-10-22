@@ -89,6 +89,7 @@ extension SettingsSchema {
         "appearance.appTheme",
         "appearance.accent",
         "appearance.themeEdits",
+        "appearance.machineColors", // the color of each machine's marks (looks only)
         "appearance.backdropArt",
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",

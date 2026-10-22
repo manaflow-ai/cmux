@@ -67,7 +67,17 @@ export type GhosttyDiagnostic = {
 
 /** One space or machine row (`cmux.settings.host.lists`). */
 /** `icon` is the row's wire icon (a space's; a machine's symbol): an emoji, a symbol or a stored asset. */
-export type HostListRow = { id: string; title: string; subtitle: string | null; icon?: string | null; active: boolean };
+export type HostListRow = {
+  id: string;
+  title: string;
+  subtitle: string | null;
+  icon?: string | null;
+  active: boolean;
+  /** A machine's color now (`#RRGGBB`: the person's pick, else the automatic one). */
+  color?: string;
+  /** The key a machine's pick is under in `appearance.machineColors` (its name, trimmed and lowercased). */
+  color_key?: string;
+};
 
 /** One browser profile row. */
 export type BrowserProfile = {

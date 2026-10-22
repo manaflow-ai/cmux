@@ -16,7 +16,7 @@ extension SettingsWindowService {
         _ = ThemeStore.shared.generation
         return [
             "rooms": rooms.map { .array($0.map(Self.listRow)) } ?? .null,
-            "machines": .array(machines.map(Self.listRow)),
+            "machines": .array(machines.map(Self.machineRow)),
             "browser_profiles": .array(browserProfiles.map { profile in
                 [
                     "id": .string(profile.id), "name": .string(profile.name),
@@ -101,6 +101,17 @@ extension SettingsWindowService {
     static func listRow(_ row: SettingsListRow) -> JSONValue {
         ["id": .string(row.id), "title": .string(row.title), "subtitle": row.subtitle.map(JSONValue.string) ?? .null,
          "icon": .string(row.icon.wire), "active": .bool(row.isActive)]
+    }
+
+    /// A machine's row with its color (`appearance.machineColors`): `color`, the color its marks draw
+    /// in now (the person's pick, else the automatic one), and `color_key`, the key its pick is under.
+    /// Reading the color observes the store's picks, so the host lists are sent again after a pick.
+    static func machineRow(_ row: SettingsListRow) -> JSONValue {
+        guard case .object(var members) = listRow(row) else { return .null }
+        let color = MachineColor(name: row.title)
+        members["color"] = .string(hex(color.color))
+        members["color_key"] = .string(color.key)
+        return .object(members)
     }
 
     static func hex(_ color: NSColor) -> String {
