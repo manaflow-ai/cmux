@@ -74,6 +74,7 @@ mod settings_watch;
 mod silent_turn;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
+mod shell_readonly;
 mod shutdown;
 mod spawn;
 mod start_defaults;

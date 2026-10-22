@@ -346,3 +346,28 @@ async fn a_web_answer_never_makes_a_lasting_grant() {
     let e = web.request(method::SESSION_PROMPT, prompt(&id, "hi", None)).await.unwrap_err();
     assert!(e.contains("lasting grant"), "{e}");
 }
+
+/// Leo: "Read-only commands (rg, git status/diff/rev-parse, pwd) under approve-reads must
+/// auto-approve and never prompt." A shell command (`execute`) that only reads is answered with
+/// allow_once, never a persistent grant; one that writes still asks.
+#[tokio::test]
+async fn approve_reads_runs_read_only_shell_commands_without_asking() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveReads).await;
+    let id = new_session(&mut c, "shell-reads").await;
+    let rid =
+        c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: shell-reads", None)).await;
+    let g = ready(&mut c).await;
+    let detail = c.request(method::MUX_INFO, json!({"sessionId":id})).await.unwrap();
+    let pending = detail["pending"].as_array().unwrap();
+    assert_eq!(pending.len(), 1, "{pending:?}");
+    assert_eq!(pending[0]["request"]["toolCall"]["rawInput"]["command"], "git push");
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let auto = find(&events, "permission_auto");
+    assert_eq!(auto.len(), 1, "{auto:?}");
+    assert_eq!(auto[0].msg["request"]["toolCall"]["rawInput"]["command"], "git status");
+    let option = auto[0].msg["optionId"].as_str().unwrap();
+    assert!(option.starts_with("yes-"), "{option}");
+    let mut r = connect(&hub).await;
+    r.request(RESPOND, decision(&id, &g, "push", "deny")).await.unwrap();
+    assert!(c.response(rid).await.0.is_ok());
+}

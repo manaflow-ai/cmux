@@ -465,16 +465,18 @@ impl Hub {
                 None => match policy {
                     PermissionPolicy::ApproveAll => pick(&["allow_once", "allow_always"]),
                     PermissionPolicy::DenyAll => pick(&["reject_once", "reject_always"]),
-                    PermissionPolicy::ApproveReads => {
-                        if matches!(tool_kind, "read" | "search" | "fetch" | "think") {
+                    PermissionPolicy::ApproveReads | PermissionPolicy::ApproveEdits => {
+                        let edits = policy == PermissionPolicy::ApproveEdits;
+                        if matches!(tool_kind, "read" | "search" | "fetch" | "think")
+                            || (edits && tool_kind == "edit")
+                        {
                             pick(&["allow_once", "allow_always"])
-                        } else {
-                            None
-                        }
-                    }
-                    PermissionPolicy::ApproveEdits => {
-                        if matches!(tool_kind, "read" | "search" | "fetch" | "think" | "edit") {
-                            pick(&["allow_once", "allow_always"])
+                        } else if tool_kind == "execute"
+                            && super::shell_readonly::request_is_read_only(&request)
+                        {
+                            // A shell command that only reads (`shell_readonly.rs`), once:
+                            // allow_always would widen later asks and set the harness grant.
+                            pick(&["allow_once"])
                         } else {
                             None
                         }

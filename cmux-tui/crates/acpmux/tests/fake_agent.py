@@ -387,7 +387,8 @@ def handle_prompt(rid, params):
                 asks.append({"jsonrpc":"2.0", "id":aid, "method":"session/request_permission", "params":{
                     "sessionId":sid,
                     "toolCall":{"toolCallId":str(aid), "title":item["title"], "kind":item["kind"],
-                                "rawInput":{"fixture":item["title"]},
+                                "rawInput":({"command":item["command"]} if "command" in item
+                                             else {"fixture":item["title"]}),
                                 "_meta":{"acpmux":{"interactive":item.get("interactive", False)}}},
                     "options":[{"optionId":f"yes-{aid}", "kind":allow_kind, "name":"Allow"}] +
                               ([{"optionId":f"no-{aid}", "kind":"reject_once", "name":"Deny"}]
