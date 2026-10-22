@@ -82,7 +82,7 @@ cmux pane screenshot --target pane_… --out pane.png
 cmux tab screenshot --target tab_… --out tab.png
 ```
 
-The reply's `result` holds `path` (or `png_base64` for `--out -`; a PNG over 4 MiB still goes to a file), `width` and `height` in pixels, `scale` (pixels per point) and `method` (`window`, or `page` for a browser tab that is not on screen, which its engine renders in the background). Without `--out` the PNG goes to the temporary directory. A pane or terminal tab that no window shows, or a minimized window, fails with `screenshot.unavailable` and the reason; read a terminal's text with `cmux terminal <id> screen read` instead.
+The reply's `result` holds `path` (or `png_base64` for `--out -`; a PNG over 4 MiB still goes to a file), `width` and `height` in pixels, `scale` (pixels per point) and `method` (`window`). Without `--out` the PNG goes to the temporary directory. A pane or terminal tab that no window shows, or a minimized window, fails with `screenshot.unavailable` and the reason; read a terminal's text with `cmux terminal <id> screen read` instead. Your image has every web page cmux does not own painted black (browser tabs, sidebar apps, link previews) and leaves out menus and floating panels, because only the browser REPL can hide the secrets a page shows; a browser tab, or a pane showing one, fails with the reason. Screenshot a page with `browser_repl_eval` and `page.screenshot()` ([cmux-browser](../cmux-browser/SKILL.md)). A person's palette or menu run captures everything and also copies the image.
 
 ## Settings
 

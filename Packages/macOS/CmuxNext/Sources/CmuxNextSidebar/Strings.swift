@@ -16,6 +16,8 @@ enum Strings {
     static var newWorkspace: String { String(localized: "sidebar.newWorkspace", defaultValue: "New Workspace", bundle: .module) }
     /// The footer's Search button: its VoiceOver label and tooltip.
     static var searchButton: String { String(localized: "sidebar.search", defaultValue: "Search", bundle: .module) }
+    /// The thin rail's VoiceOver label (`sidebar.style` = rail).
+    static var railLabel: String { String(localized: "sidebar.rail.label", defaultValue: "Workspaces", bundle: .module) }
     static var rename: String { String(localized: "sidebar.rename", defaultValue: "Rename", bundle: .module) }
     static var pinned: String { String(localized: "sidebar.section.pinned", defaultValue: "Pinned", bundle: .module) }
     static var moveToGroup: String { String(localized: "sidebar.group.moveTo", defaultValue: "Move to Group", bundle: .module) }
@@ -50,8 +52,12 @@ enum Strings {
     static var statusAuthFailed: String { String(localized: "sidebar.machine.authFailed", defaultValue: "Sign-in failed", bundle: .module) }
     static var statusUnreachable: String { String(localized: "sidebar.machine.unreachable", defaultValue: "Unreachable", bundle: .module) }
     static var statusFailed: String { String(localized: "sidebar.machine.failed", defaultValue: "Failed to start", bundle: .module) }
+    static var statusPaused: String { String(localized: "sidebar.machine.paused", defaultValue: "Paused", bundle: .module) }
+    /// A Cloud machine the idle auto-pause parked (not a failure).
+    static var statusPausedIdle: String { String(localized: "sidebar.machine.pausedIdle", defaultValue: "Paused (idle)", bundle: .module) }
     /// The status of a computer that cannot connect until the person acts,
-    /// nil otherwise: its workspace rows name it in one list (cx-mdo0).
+    /// nil otherwise: its workspace rows name it in one list (cx-mdo0). A
+    /// paused machine is named too (it resumes on attach, nothing to fix).
     static func attentionStatus(_ status: SidebarMachine.Status) -> String? {
         switch status {
         case .authFailed: statusAuthFailed
@@ -60,6 +66,8 @@ enum Strings {
         case .installRequired: statusInstallRequired
         case .updateRequired: statusUpdateRequired
         case .failed: statusFailed
+        case .paused: statusPaused
+        case .pausedIdle: statusPausedIdle
         case .connected, .connecting, .offline, .updateAvailable, .installing: nil
         }
     }
