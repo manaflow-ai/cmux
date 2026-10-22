@@ -92,6 +92,24 @@ export function isRunning(tool: Tool): boolean {
   return tool.status === "pending" || tool.status === "in_progress";
 }
 
+/// A call in flight with nothing to show yet: Claude sends a call before its input, which the
+/// model is still writing (a Bash with no command for up to 20s), and one a turn left that way
+/// never gets any. Its row would only say "Running a command", so the transcript draws none
+/// (conversation/turns.ts `withoutDrafts`): the live line names it, and its row comes with its input.
+export function isDraftCall(tool: Tool): boolean {
+  return (
+    isRunning(tool) &&
+    !tool.command?.trim() &&
+    !tool.description &&
+    !tool.output &&
+    !tool.background &&
+    !tool.diffs?.length &&
+    !tool.locations?.length &&
+    !tool.images?.length &&
+    !/[^\s{}[\]]/.test(tool.inputSummary ?? "")
+  );
+}
+
 /// A call that failed: its status says so or its command exited nonzero.
 export function isFailed(tool: Tool): boolean {
   return tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0);

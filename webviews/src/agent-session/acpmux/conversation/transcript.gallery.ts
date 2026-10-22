@@ -1304,6 +1304,40 @@ export default agentPaneEntry({
       ),
       play: liveLineClear,
     },
+    "codex-turn-drafts-replace": {
+      note: "Leo's status-task-notification-replacement.png: a task notification's work after the turn ended, three calls Claude has not written yet. They draw no rows of their own (it was four bare command rows stacked under Worked for 1s); the newest is the one live line at the bottom (Writing a command), under the finished call, and each next call replaces it there, as Thinking does. Play: one live line, no running rows.",
+      snapshot: chat(
+        [
+          user("Start the release build in the background and tell me when it's done.", 3),
+          activity([describedShell("make release &", "Start the release build")], 2.9),
+          assistant("The release build is running in the background.", 2.8),
+          summary(2.8, { status: "completed", durationMs: 1_000, toolCount: 1 }),
+          activity(
+            [
+              describedShell("tail -n 40 build/release.log", "Read the end of the build log", {
+                startedAt: minutesAgo(0.4),
+                endedAt: minutesAgo(0.39),
+              }),
+              ...[0.3, 0.2, 0.1].map((minutes) =>
+                tool("Bash", "execute", "pending", { inputSummary: "{}", startedAt: minutesAgo(minutes) }),
+              ),
+            ],
+            0.4,
+          ),
+        ],
+        { isWorking: true },
+      ),
+      play: async (ctx: PlayContext) => {
+        const doc = ctx.document;
+        await ctx.waitFor(() =>
+          (doc.querySelector(".cv-worked.is-below")?.textContent ?? "").startsWith("Writing a command"),
+        );
+        const lines = doc.querySelectorAll(".cv-worked.is-below").length;
+        if (lines !== 1) throw new Error(`${lines} live lines, not one`);
+        const live = doc.querySelectorAll(".cv-tool.is-live").length;
+        if (live) throw new Error(`${live} running rows stack over the live line`);
+      },
+    },
     "codex-turn-run-open": {
       note: "The same turn ended: opened, Worked for shows the commentary between the runs' summary lines; a click opens Ran 3 commands to its calls. Play: open the turn, then the second run.",
       snapshot: chat([
