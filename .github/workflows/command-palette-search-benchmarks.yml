@@ -147,6 +147,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
+          retention-days: 14
           name: command-palette-search-benchmarks
           path: ${{ env.CMUX_NUCLEO_FFI_LOG }}
           if-no-files-found: ignore
