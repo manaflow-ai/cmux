@@ -358,8 +358,13 @@ public struct AgentChatTranscript: View {
             SessionArtifactsSheet(store: store, surface: surface)
         }
         .sensoryFeedback(.warning, trigger: warningTrigger)
-        .onChange(of: store.pendingPermission?.request.id) { _, new in if new != nil { warningTrigger += 1 } }
-        .onChange(of: store.pendingQuestion?.id) { _, new in if new != nil { warningTrigger += 1 } }
+        // A live ask buzzes; one that was already waiting when the chat opened does not.
+        .onChange(of: store.pendingPermission?.request.id) { _, new in
+            if new != nil, let record = store.pendingPermission, !store.isReplayed(TurnRow.permission(record).id) { warningTrigger += 1 }
+        }
+        .onChange(of: store.pendingQuestion?.id) { _, new in
+            if let new, !store.isReplayed(TurnRow.question(new).id) { warningTrigger += 1 }
+        }
         #if DEBUG
         .onChange(of: director.serial) {
             if let command = director.command { surface.run(command, store: store) }
@@ -630,15 +635,18 @@ struct TurnView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            // Replayed history (the transcript on open, a reattach's catch-up) is drawn in
+            // place; only what arrives live animates in.
             UserBubble(turn: turn, isLast: isLast) { store.send(prompt: $0) }
                 .frame(maxWidth: .infinity, alignment: .trailing)
-                .transition(.asymmetric(insertion: .offset(y: 24).combined(with: .scale(scale: 0.96)).combined(with: .opacity), removal: .opacity))
+                .transition(store.isReplayed(turn.id) ? .identity
+                    : .asymmetric(insertion: .offset(y: 24).combined(with: .scale(scale: 0.96)).combined(with: .opacity), removal: .opacity))
             VStack(alignment: .leading, spacing: 10) {
                 let rows = turn.rows
                 ForEach(rows) { row in
                     rowView(row, isLastRow: row.id == rows.last?.id)
                         .rowHeightProbe("\(row.id)")
-                        .transition(.opacity.animation(.easeOut(duration: 0.15)))
+                        .transition(store.isReplayed(row.id) ? .identity : .opacity.animation(.easeOut(duration: 0.15)))
                 }
                 if turn.status == .running, rows.needsWorkingIndicator, store.pendingPermission == nil, store.pendingQuestion == nil {
                     WorkingLabel(turn.retry?.label ?? "Working", since: turn.startedAt)

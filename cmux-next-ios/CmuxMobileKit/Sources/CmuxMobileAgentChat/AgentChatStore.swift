@@ -206,6 +206,11 @@ public final class AgentChatStore {
     private var seenPromptIDs: Set<String> = []
     /// Bumps on every streamed change (follow-mode scroll keys off it).
     public private(set) var revision = 0
+    /// Turn and row ids (`TurnRow.id`) that came in as replayed history (a `.batch`: the
+    /// transcript on open, or what a reattach caught up on). They are drawn in place: no
+    /// insert animation, no haptic. Only what arrives after the replay boundary animates.
+    /// Not observed: it changes only with `turns`, which the views already observe.
+    @ObservationIgnored private var replayedIDs: Set<String> = []
     private var currentMessageID: String?
     private var task: Task<Void, Never>?
 
@@ -443,6 +448,7 @@ public final class AgentChatStore {
             applySubagent(change)
         case .batch(let events):
             for event in events { apply(event) }
+            markReplayed()
         case .subagentUpdate(let id, let update):
             guard let index = subagents.firstIndex(where: { $0.id == id }) else { return }
             subagents[index].items.apply(update)
@@ -453,8 +459,17 @@ public final class AgentChatStore {
 
     public func subagent(_ id: String) -> AgentSubagent? { subagents.first { $0.id == id } }
 
-    /// Whether `id` (a turn's id or a `TurnRow.id`) came in as replayed history.
-    public func isReplayed(_ id: String) -> Bool { false }
+    /// Whether `id` (a turn's id or a `TurnRow.id`) was on screen as replayed history,
+    /// so its view appears without an insert transition (and its ask without a haptic).
+    public func isReplayed(_ id: String) -> Bool { replayedIDs.contains(id) }
+
+    /// Everything shown now is history: what a batch brought, and anything before it.
+    private func markReplayed() {
+        for turn in turns {
+            replayedIDs.insert(turn.id)
+            for row in turn.rows { replayedIDs.insert(row.id) }
+        }
+    }
 
     private func applySubagent(_ change: AgentSubagentChange) {
         if let index = subagents.firstIndex(where: { $0.id == change.id }) {

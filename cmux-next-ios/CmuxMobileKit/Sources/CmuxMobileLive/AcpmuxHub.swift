@@ -342,7 +342,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     public func events() -> AsyncStream<AgentSessionEvent> {
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
-        for event in replay { continuation.yield(event) }
+        // What this source already has is history to a new reader: one change, drawn in place.
+        if !replay.isEmpty { continuation.yield(.batch(replay)) }
         continuations.append(continuation)
         return stream
     }
@@ -640,6 +641,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 if !session.name.isEmpty { summary.name = session.name }
             }
             attached = true
+            // The replay boundary is the attach reply: its page (and the session state it
+            // carries) is history, applied as one change, so the chat opens on the whole
+            // transcript instead of animating every past record in (or, on a reattach, the
+            // records missed while the link was down). Records after the reply are live.
+            beginHistory()
             for record in page { receive(record: record) }
             // The session's models, modes and options as acpmux keeps them now (D4: a running
             // chat had no model menu, as they only came with later updates). After the page:
@@ -651,16 +657,19 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     emit(event)
                 }
             }
-            let pending = held
-            held = []
-            for record in pending { receive(record: record) }
-            // Permissions still open (records may be older than the page).
+            // Permissions still open (records may be older than the page). Before the held
+            // records: a decision among them must land after its request.
             for entry in result["session"]?["pending"]?.arrayValue ?? [] {
                 if let id = entry["permissionId"]?.stringValue, let request = entry["request"],
                    let event = records.permission(id, request: request) { emitPermission(event) }
             }
             emit(.status(summary.status))
+            endHistory()
+            let pending = held
+            held = []
+            for record in pending { receive(record: record) }
         } catch {
+            endHistory()
             emit(.clientError(Self.message(error)))
         }
     }
@@ -729,10 +738,32 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         emit(event)
     }
 
+    /// Events of the attach reply, sent as one `.batch` by `endHistory()` (no
+    /// suspension point between the two, so nothing else lands in between).
+    private var history: [AgentSessionEvent]?
+
+    private func beginHistory() {
+        history = []
+    }
+
+    private func endHistory() {
+        guard let events = history else { return }
+        history = nil
+        guard !events.isEmpty else { return }
+        replay.append(contentsOf: events)
+        for continuation in continuations { continuation.yield(.batch(events)) }
+    }
+
     private func emit(_ event: AgentSessionEvent) {
         switch event {
-        case .clientError, .promptNotSent: break
-        default: replay.append(event)
+        case .clientError, .promptNotSent:
+            break
+        default:
+            if history != nil {
+                history?.append(event)
+                return
+            }
+            replay.append(event)
         }
         for continuation in continuations { continuation.yield(event) }
     }
