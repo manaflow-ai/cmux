@@ -67,6 +67,10 @@ fn hub(d: &Path) -> Arc<Hub> {
                                 "LD_PRELOAD": d.join("work").join("preload.so"),
                                 "PATH": planted_path(d)}},
             "fcodex": {"argv": ["python3", FAKE], "family": "codex"},
+            // An interpreter is checked, but its script is the folder's own: by path, or found
+            // in the chat's folder, where Claude Code starts.
+            "fscript": {"argv": ["python3", "${cwd}/claude.py"], "kind": "claude-stdio"},
+            "fscriptrel": {"argv": ["python3", "claude.py"], "kind": "claude-stdio"},
             // Its HOME is the chat's folder: Claude Code would read the folder's
             // `.claude/settings.json` as the person's own.
             "fhome": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
@@ -289,8 +293,9 @@ async fn not_now_opens_a_restricted_claude_chat_only_with_the_setting_on() {
     // Other harnesses keep the refusal.
     assert_eq!(reason(&app.new_session(&work, "fcodex").await), "trust.untrusted");
 
-    // A Claude Code whose user settings would be the folder's own does not start.
-    for harness in ["fhome", "fhomelink"] {
+    // A Claude Code whose user settings or script would be the folder's own does not start.
+    std::fs::copy(FAKE_CLAUDE, work.join("claude.py")).unwrap();
+    for harness in ["fhome", "fhomelink", "fscript", "fscriptrel"] {
         let r = app.new_session(&work, harness).await;
         let refused = match r["result"]["sessionId"].as_str() {
             Some(id) => {
