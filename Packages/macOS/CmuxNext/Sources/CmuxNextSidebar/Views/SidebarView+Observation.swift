@@ -119,7 +119,7 @@ extension SidebarViewComponents {
             || lastState?.groupLineJoinsBar != state.groupLineJoinsBar
         let listChanged = rowsChanged || selectionChanged
         // A selected session never hides in a fold (a notification, the palette or Cmd-number chose it).
-        if selectionChanged { state.selection.forEach(SidebarSessionTree.shared.reveal) }
+        if selectionChanged { state.selection.forEach { SidebarSessionTree.shared.reveal($0, sameList: model.sharesList) } }
         let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)
         model.groupByStatus(state.groupsByStatus)

@@ -145,16 +145,26 @@ public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
         collapsed.contains(id) || (foldsDeep && depth > 0 && !opened.contains(id))
     }
 
-    /// Whether a folded ancestor hides `id` (its roll-up counts it).
-    public func hidesInFold(_ id: WorkspaceID) -> Bool {
-        guard !collapsed.isEmpty || foldsDeep else { return false }
+    /// The ancestors `id` draws under, nearest first, as `SidebarLayout.treeChildren` nests it: the chain of
+    /// parents in `id`'s own list (`sameList`); a parent in another list ends it (that row is a root). A chain that
+    /// runs into a cycle draws no nesting at all: empty.
+    public func drawnAncestors(of id: WorkspaceID, sameList: (WorkspaceID, WorkspaceID) -> Bool) -> [WorkspaceID] {
         var seen: Set<WorkspaceID> = [id]
         var ancestors: [WorkspaceID] = []
         var current = id
-        while let parent = parents[current], seen.insert(parent).inserted {
+        while let parent = parents[current], sameList(current, parent) {
+            guard seen.insert(parent).inserted else { return [] } // a cycle: every row of it is a root
             ancestors.append(parent)
             current = parent
         }
+        return ancestors
+    }
+
+    /// Whether a folded ancestor hides `id` (its roll-up counts it). `sameList`: whether two workspaces are
+    /// listed in one list (the sidebar model's `sharesList`).
+    public func hidesInFold(_ id: WorkspaceID, sameList: (WorkspaceID, WorkspaceID) -> Bool) -> Bool {
+        guard !collapsed.isEmpty || foldsDeep else { return false }
+        let ancestors = drawnAncestors(of: id, sameList: sameList)
         // The last ancestor is the root (depth 0); each one before it is one deeper.
         return ancestors.enumerated().contains { isFolded($0.element, depth: ancestors.count - 1 - $0.offset) }
     }
@@ -209,14 +219,15 @@ public final class SidebarSessionTree {
         save()
     }
 
-    /// Opens every fold above `id` (a selected session, or one the needs-you tray goes to).
-    public func reveal(_ id: WorkspaceID) {
-        var seen: Set<WorkspaceID> = [id]
-        var current = id, folds = collapsed, opens = opened
-        while let parent = state?.parents[current], seen.insert(parent).inserted {
+    /// Opens every fold above `id` (a selected session, or one the needs-you tray goes to): only the parents it
+    /// draws under (`drawnAncestors`), so a parent in another list, or a cycle, opens nothing.
+    public func reveal(_ id: WorkspaceID, sameList: (WorkspaceID, WorkspaceID) -> Bool) {
+        guard let state else { return }
+        let ancestors = state.drawnAncestors(of: id, sameList: sameList)
+        var folds = collapsed, opens = opened
+        for (n, parent) in ancestors.enumerated() {
             folds.remove(parent)
-            if state?.parents[parent] != nil { opens.insert(parent) } // a parent below the top level
-            current = parent
+            if n < ancestors.count - 1 { opens.insert(parent) } // a parent below the top level
         }
         guard folds != collapsed || opens != opened else { return }
         (collapsed, opened) = (folds, opens)
