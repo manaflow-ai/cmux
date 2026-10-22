@@ -227,9 +227,11 @@ import Testing
         menu.addItem(more)
         menu.themeRows(in: try Self.accentedScope())
 
-        // Type-select and VoiceOver read the item's title; the submenu still opens from its row.
+        // Type-select and VoiceOver read the item's title; the submenu still opens from its row and draws its rows then.
         #expect(menu.items.map(\.title) == ["Rename", "Close", "More"])
-        #expect(menu.items[2].submenu?.items.first?.view is ThemedMenuRowView)
+        let submenu = try #require(menu.items[2].submenu)
+        submenu.delegate?.menuNeedsUpdate?(submenu)
+        #expect(submenu.items.first?.view is ThemedMenuRowView)
         // Disabled stays disabled: validation still reaches the action's own target.
         counter.enabled = false
         menu.update()
