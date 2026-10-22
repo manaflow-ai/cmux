@@ -179,6 +179,21 @@ import Testing
         #expect(view.attentionLayer.animationKeys() == nil, "ring style none flashed")
     }
 
+    /// Turning the look to none mid-flash stops the flash and its glow at once.
+    @Test func turningTheLookOffStopsARunningFlash() {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let view = Self.overlay()
+        Self.update(view, AttentionMark(generation: 3), AttentionSettings())
+        Self.update(view, nil, AttentionSettings(), readByEntry: true)
+        #expect(view.attentionLayer.animation(forKey: "attention-dismiss") != nil, "no flash to stop")
+        var off = AttentionSettings()
+        off.terminalRing = .none
+        Self.update(view, nil, off)
+        #expect(view.attentionLayer.animation(forKey: "attention-dismiss") == nil, "the flash outlived look none")
+        #expect(view.attentionLayer.animation(forKey: "attention-dismiss-glow") == nil, "the glow outlived look none")
+    }
+
     /// Look ring: the stroke alone, with no glow at rest or in the flash; glow keeps classic's.
     @Test func ringStyleRingHasNoGlow() {
         Motion.reduceMotionOverride = false

@@ -243,7 +243,7 @@ extension NotificationCenterService {
             dismissedHighlights = [:]
             dismissedHighlightSession = session
         }
-        for tab in tabs where agentFinished[tab.id] != nil { agentFinished[tab.id] = nil }
+        for tab in tabs where agentFinished[tab.id] != nil { agentFinished[tab.id] = nil; quietAgentFinishes.remove(tab.id) }
         for tab in tabs where tab.markedUnread && dismissedMarks[tab.id] != tab.markedUnreadGeneration {
             dismissedMarks[tab.id] = tab.markedUnreadGeneration
         }

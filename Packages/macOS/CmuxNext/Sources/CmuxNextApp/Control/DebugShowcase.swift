@@ -30,10 +30,10 @@ enum DebugShowcase {
             if focus, let nsWindow = window.window { WindowActivation.show(nsWindow, .focus) }
         }
         services.feed.startIfSignedIn()
-        // Never onto a page tab (the Home dock, Settings): an unread marker there rang the Home
-        // pane and dotted its tab in every scene capture, though no reply had happened. With no
-        // other tab the notifications go to the ledger alone.
-        seedNotifications(services: services, surface: pane.pane.tabs.first { $0.page == nil }?.surface)
+        // Onto a terminal, never a page tab (the Home dock, Settings) or an agent chat: an unread
+        // marker on the Home dock rang its pane and dotted its tab in every scene capture, though
+        // no reply had happened. With no terminal the notifications go to the ledger alone.
+        seedNotifications(services: services, surface: pane.pane.tabs.first { $0.page == nil && $0.agentSession == nil }?.surface)
         let workspace = pane.daemon.store.workspace(containing: pane.pane.handle)?.id ?? ""
         return .object([
             "seeded": .bool(true),

@@ -307,6 +307,11 @@ final class PaneOverlayView: NSView {
         attentionLook = observedAttentionLook()
         guard let mark, attentionSettings.drawsRing else {
             attention.removeAnimation(forKey: "attention")
+            // The look turned off (none) mid-flash: the flash and its glow go with it.
+            if !attentionSettings.drawsRing {
+                attention.removeAnimation(forKey: "attention-dismiss")
+                attention.removeAnimation(forKey: "attention-dismiss-glow")
+            }
             if previous != nil, readByEntry, animated,
                let flash = Motion.indicators.attentionDismissAnimation(attentionSettings, look: attentionLook) {
                 dismissingColor = previous?.color

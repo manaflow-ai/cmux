@@ -294,6 +294,7 @@ final class NotificationCenterService {
         if agentFinished[tab.id] != nil, NotificationPolicy(prefs: preferences).clears(trigger, for: .agent) {
             note("\(trigger.rawValue) read agent turn \(tab.id)")
             agentFinished[tab.id] = nil
+            quietAgentFinishes.remove(tab.id)
             if Self.flashesOnEntry(trigger, DesignSettings.shared.attention) { entryReads.insert(tab.id) }
         }
         readMark(trigger, tab: tab)
@@ -338,6 +339,7 @@ final class NotificationCenterService {
     func acknowledge(_ tab: TabModel) {
         note("ack \(tab.id)")
         if agentFinished[tab.id] != nil { agentFinished[tab.id] = nil }
+        quietAgentFinishes.remove(tab.id)
         timeouts.removeValue(forKey: tab.id)?.cancel()
         approvals.forget(tab: tab.id, retire: true)
         finishedBursts.read(tab: tab.id)
