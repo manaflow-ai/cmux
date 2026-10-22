@@ -29,13 +29,14 @@ import argparse
 import json
 import os
 import platform
-import select
+import queue
 import shutil
 import signal
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 
@@ -101,39 +102,45 @@ def summary(samples):
 
 
 class Marker:
-    """A FIFO the marker shell writes one line to when it starts."""
+    """A FIFO the marker shell writes one line to when it starts; a reader
+    thread stamps each line as it arrives, so the stamp is not delayed by the
+    control request still waiting for its reply."""
 
     def __init__(self, root):
         self.path = os.path.join(root, "marker.fifo")
         os.mkfifo(self.path)
         # O_RDWR: a writer never blocks and the read end never sees EOF.
-        self.fd = os.open(self.path, os.O_RDWR | os.O_NONBLOCK)
-        self.buf = b""
+        self.fd = os.open(self.path, os.O_RDWR)
+        self.stamps = queue.Queue()
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self):
+        buf = b""
+        while True:
+            try:
+                chunk = os.read(self.fd, 65536)
+            except OSError:
+                return
+            now = time.perf_counter()
+            if not chunk:
+                return
+            buf += chunk
+            while b"\n" in buf:
+                _, buf = buf.split(b"\n", 1)
+                self.stamps.put(now)
 
     def drain(self):
         while True:
             try:
-                if not os.read(self.fd, 65536):
-                    break
-            except BlockingIOError:
-                break
-        self.buf = b""
+                self.stamps.get_nowait()
+            except queue.Empty:
+                return
 
     def wait(self, t0, timeout=20.0):
-        deadline = t0 + timeout
-        while b"\n" not in self.buf:
-            left = deadline - time.perf_counter()
-            if left <= 0:
-                raise TimeoutError("marker shell never started")
-            r, _, _ = select.select([self.fd], [], [], left)
-            if r:
-                try:
-                    self.buf += os.read(self.fd, 65536)
-                except BlockingIOError:
-                    pass
-        t = time.perf_counter()
-        _, self.buf = self.buf.split(b"\n", 1)
-        return (t - t0) * 1000.0
+        try:
+            return (self.stamps.get(timeout=timeout) - t0) * 1000.0
+        except queue.Empty:
+            raise TimeoutError("marker shell never started") from None
 
 
 def host_pids(daemon_pid):
@@ -231,7 +238,7 @@ def main():
 
         base = must(c.call("new-workspace", name="base", cols=120, rows=40), "new-workspace")
         base_pane, _ = pane_of(c, base["surface"])
-        marker.wait(time.perf_counter() - 0.0)
+        marker.wait(time.perf_counter())
         sized = {"cols": 80, "rows": 24}
         samples = {}
 
