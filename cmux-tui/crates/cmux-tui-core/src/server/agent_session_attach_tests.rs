@@ -143,6 +143,11 @@ fn serve(stream: UnixStream, frames: Sender<Value>) {
             "_acpmux/permission_respond" => Some(json!({})),
             // `acpmux.transfer.v1` with the guarded receive (agent_transfer_tests.rs).
             method if method.starts_with("_acpmux/transfer_") => transfer_reply(method, params),
+            // A machine whose disk is full: acpmux refuses the prompt before taking it.
+            "session/prompt" if params["prompt"][0]["text"] == json!("disk full") => Some(json!({
+                FAKE_ERROR: "the disk on mini-1 is full, so acpmux cannot save this chat",
+                FAKE_ERROR_DATA: {"reason": "storage.full", "retryable": true, "host": "mini-1", "freeBytes": 4096},
+            })),
             "session/prompt" => {
                 let accepted = json!({"jsonrpc":"2.0","method":"_acpmux/prompt_accepted","params":{
                     "sessionId": SESSION, "promptId": params["_meta"]["acpmux"]["promptId"],
@@ -754,6 +759,28 @@ fn a_prompt_is_one_text_block_on_the_pinned_session() {
         assert_code(&client.request(frame), "agent_session.bad_request");
     }
     fake.no_frame();
+}
+
+/// A remote machine's acpmux that cannot save the prompt (its disk is full)
+/// refuses it at once: the caller gets `agent_session.storage_full`, never a
+/// timeout that reads as "acpmux did not answer" while the message is lost.
+#[test]
+fn a_prompt_refused_for_a_full_disk_says_storage_full_at_once() {
+    let fake = FakeAcpmux::start("diskfull");
+    let mux = mux_with(&fake, "asa-diskfull");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "diskfull");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    let started = Instant::now();
+    let reply = client.request(json!({"cmd":"agent-session-prompt","surface":surface,
+                                      "prompt_id":"prompt-full","text":"disk full"}));
+    assert_code(&reply, "agent_session.storage_full");
+    assert!(started.elapsed() < Duration::from_secs(4), "waited {:?}", started.elapsed());
+    // The daemon still serves the tab: the next prompt runs.
+    let next = client.request(json!({"cmd":"agent-session-prompt","surface":surface,
+                                     "prompt_id":"prompt-2","text":"hello"}));
+    assert_eq!(next["ok"], json!(true), "{next}");
 }
 
 #[test]

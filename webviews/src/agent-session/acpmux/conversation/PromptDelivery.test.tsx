@@ -9,7 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { translate } from "../i18n";
 import type { AcpmuxRow, PromptDelivery } from "../model";
-import { failedRuns } from "../sendFailure";
+import { failedRuns, failedSendText, sendCause } from "../sendFailure";
 import { DeliveryFailure, FailedSendsContext, type FailedSends } from "./PromptDelivery";
 
 let dom: JSDOM | undefined;
@@ -158,4 +158,28 @@ test("Retry waits while the folder's trust question is open, and comes back once
   );
   expect(button(container, "Retry")!.disabled).toBe(false);
   expect(button(container, "Trust folder")).toBeUndefined();
+});
+
+// Leo 2026-10-21: a chat on a Mac mini that Tailscale could not reach, or whose disk was full,
+// read like any other failure. Each is its own cause on the card, and the card says the
+// machine's sentence (what to fix) after "Not sent", not a code.
+test("a machine that cannot be reached and a full disk there are their own causes with the fix", async () => {
+  const unreached = {
+    code: "agent_session.unreached.tailscale_off",
+    error: "Tailscale is off on this Mac, so cmux cannot reach mini-1. Turn Tailscale on, then try again.",
+  };
+  const full = {
+    code: "agent_session.storage_full",
+    error: "The disk on mini-1 is full, so it cannot save this chat. Free some space there, then send again.",
+  };
+  expect(sendCause(unreached)).toBe("unreached");
+  expect(sendCause(full)).toBe("storage-full");
+  expect(failedSendText({ code: unreached.code, message: unreached.error }, false)).toBe(
+    translate("prompt.notSent", { reason: unreached.error }),
+  );
+  const container = await render(transcript([failed("a", "ship it", unreached), failed("b", "and this", full)], {}));
+  const causes = [...container.querySelectorAll<HTMLElement>("[data-failure-cause]")].map(
+    (node) => node.dataset.failureCause,
+  );
+  expect(causes).toEqual(["unreached", "storage-full"]);
 });
