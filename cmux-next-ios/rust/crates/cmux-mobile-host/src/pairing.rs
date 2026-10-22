@@ -179,6 +179,9 @@ pub struct Pairing {
     pub identity: watch::Receiver<Option<MacIdentity>>,
     /// Paired phones' push keys (`push_keys.rs`), sent with `auth`.
     pub push_keys: Arc<crate::push_keys::PushKeys>,
+    /// Notification replies already applied, over a link or from the mailbox
+    /// (`mailbox.rs`): a reply that came both ways is applied once.
+    pub spent_replies: Arc<crate::mailbox::SpentReplies>,
 }
 
 impl Pairing {
@@ -196,7 +199,14 @@ impl Pairing {
             spent_answers: Arc::default(),
             identity: watch::channel(None).1,
             push_keys: Arc::new(crate::push_keys::PushKeys::memory()),
+            spent_replies: Arc::new(crate::mailbox::SpentReplies::memory()),
         }
+    }
+
+    /// With the store of applied notification replies.
+    pub fn with_spent_replies(mut self, spent: Arc<crate::mailbox::SpentReplies>) -> Self {
+        self.spent_replies = spent;
+        self
     }
 
     /// With a store for the phones' push keys.

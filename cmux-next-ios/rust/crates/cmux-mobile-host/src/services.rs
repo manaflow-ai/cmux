@@ -247,6 +247,7 @@ async fn daemon(
         LinePolicy::Daemon(
             DaemonPolicy::new(&peer.device_id).with_agent_tab_host(config.agent_tab_host.clone()),
         ),
+        config.pairing.as_ref().map(|pairing| std::sync::Arc::clone(&pairing.spent_replies)),
         sender,
         receiver,
     )
@@ -274,7 +275,7 @@ async fn chief(
         }),
         None => ChiefPolicy::new(),
     };
-    splice(&path, "chief", LinePolicy::Chief(policy), sender, receiver).await
+    splice(&path, "chief", LinePolicy::Chief(policy), None, sender, receiver).await
 }
 
 /// Splices one phone channel to a daemon socket. Responses and refusals
@@ -283,6 +284,7 @@ async fn splice(
     path: &Path,
     label: &str,
     policy: LinePolicy,
+    spent_replies: Option<std::sync::Arc<crate::mailbox::SpentReplies>>,
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
@@ -350,9 +352,14 @@ async fn splice(
                     && let (Some(path), Some(phone)) = (&terminal_folders, &reply_phone)
                     && is_notification_reply(&line)
                 {
-                    let mut answer = crate::mailbox_apply::answer_notification_reply(path, phone, &line)
-                        .await
-                        .into_bytes();
+                    let mut answer = crate::mailbox_apply::answer_notification_reply(
+                        path,
+                        phone,
+                        spent_replies.as_deref(),
+                        &line,
+                    )
+                    .await
+                    .into_bytes();
                     answer.push(b'\n');
                     if refusals.send(answer).await.is_err() {
                         return;

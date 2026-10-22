@@ -148,9 +148,19 @@ impl SpentReplies {
     /// Spends the reply's id and nonce until `expires`; false when either
     /// was spent already (nothing changes then).
     pub fn spend(&self, id: &str, phone: &str, nonce: &str, expires: u64, now: u64) -> bool {
+        self.spend_keys(vec![format!("id:{id}"), format!("nonce:{phone}:{nonce}")], expires, now)
+    }
+
+    /// Spends a reply that came over a link (`notification-reply` with
+    /// `reply_id`): the same id the mailbox copy carries, so whichever comes
+    /// second is not applied again.
+    pub fn spend_link_reply(&self, id: &str, now: u64) -> bool {
+        self.spend_keys(vec![format!("id:{id}")], now + MAX_LIFETIME, now)
+    }
+
+    fn spend_keys(&self, keys: Vec<String>, expires: u64, now: u64) -> bool {
         let mut spent = self.spent.lock().unwrap_or_else(PoisonError::into_inner);
         spent.retain(|_, until| *until >= now);
-        let keys = [format!("id:{id}"), format!("nonce:{phone}:{nonce}")];
         if keys.iter().any(|k| spent.contains_key(k)) {
             return false;
         }
@@ -326,7 +336,8 @@ pub struct Mailbox {
     pub mac: String,
     pub trust: watch::Receiver<Option<DeviceTrust>>,
     pub identity: watch::Receiver<Option<MacIdentity>>,
-    pub spent: SpentReplies,
+    /// Shared with the links (`Pairing::spent_replies`).
+    pub spent: Arc<SpentReplies>,
     pub applier: Arc<dyn Applier>,
 }
 
@@ -583,6 +594,22 @@ mod tests {
         assert!(SpentReplies::load(path).spend("r", PHONE, "n", NOW + 600, NOW + 61));
     }
 
+    #[test]
+    fn a_reply_that_came_over_a_link_is_not_applied_again_from_the_mailbox() {
+        // The phone's link failed mid-send and it posted the same reply to the mailbox.
+        let spent = SpentReplies::memory();
+        assert!(spent.spend_link_reply("r-link", NOW));
+        let item = sealed(text_reply("r-link"), &phone_signer());
+        assert_eq!(checked(&item, &spent), Err(Rejection::Replayed));
+        // The other way round: the mailbox applied it, then the link copy arrives.
+        let spent = SpentReplies::memory();
+        assert!(checked(&sealed(text_reply("r-box"), &phone_signer()), &spent).is_ok());
+        assert!(!spent.spend_link_reply("r-box", NOW));
+        // And a link copy twice.
+        assert!(spent.spend_link_reply("r-twice", NOW));
+        assert!(!spent.spend_link_reply("r-twice", NOW + 1));
+    }
+
     struct Recorder(Mutex<Vec<String>>, Result<(), Rejection>);
 
     impl Applier for Recorder {
@@ -600,7 +627,7 @@ mod tests {
             mac: MAC.into(),
             trust: watch::channel(Some(trust())).1,
             identity: watch::channel(Some(mac_identity())).1,
-            spent: SpentReplies::memory(),
+            spent: Arc::new(SpentReplies::memory()),
             applier: recorder.clone(),
         };
         let good = sealed(text_reply("m-1"), &phone_signer());
@@ -618,13 +645,14 @@ mod tests {
         // A target that no longer waits.
         let stale = Mailbox {
             applier: Arc::new(Recorder(Mutex::default(), Err(Rejection::NotPending))),
-            spent: SpentReplies::memory(),
+            spent: Arc::new(SpentReplies::memory()),
             ..mailbox
         };
         let results = stale.handle(vec![sealed(text_reply("m-3"), &phone_signer())], NOW).await;
         assert_eq!(results[0].reason.as_deref(), Some("not_pending"));
         // No identity key from the app yet: nothing opens.
-        let blind = Mailbox { identity: watch::channel(None).1, spent: SpentReplies::memory(), ..stale };
+        let blind =
+            Mailbox { identity: watch::channel(None).1, spent: Arc::new(SpentReplies::memory()), ..stale };
         let results = blind.handle(vec![sealed(text_reply("m-4"), &phone_signer())], NOW).await;
         assert_eq!(results[0].reason.as_deref(), Some("unsealed"));
     }

@@ -219,7 +219,7 @@ fn creation_fields(command: &str) -> Option<HashSet<&'static str>> {
         // folder the record holds; the phone names no program, folder or env.
         "reopen-saved-tab-group" => return Some(["saved", "pane", "transaction"].into_iter().collect()),
         "delete-saved-tab-group" => return Some(["saved"].into_iter().collect()),
-        "notification-reply" => return Some(["notification", "text"].into_iter().collect()),
+        "notification-reply" => return Some(["notification", "text", "reply_id"].into_iter().collect()),
         "new-tab" | "new-pane" => &["pane"],
         "new-pane-right" => &["pane", "width"],
         "split" => &["pane", "dir"],
@@ -767,6 +767,13 @@ fn notification_reply_refusal(object: &Map<String, Value>) -> Option<String> {
     if object.get("notification").and_then(Value::as_u64).is_none() {
         return Some("notification-reply names a notification id".into());
     }
+    if let Some(reply) = object.get("reply_id")
+        && !reply.as_str().is_some_and(|r| {
+            (8..=64).contains(&r.len()) && r.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+    {
+        return Some("reply_id is the reply's id (8 to 64 letters, digits or dashes)".into());
+    }
     match object.get("text").and_then(Value::as_str) {
         Some(text) if !text.is_empty() && text.len() <= NOTIFICATION_REPLY_MAX_BYTES => None,
         _ => Some(format!("notification-reply carries 1 to {NOTIFICATION_REPLY_MAX_BYTES} bytes of text")),
@@ -1067,6 +1074,19 @@ mod tests {
             "x".repeat(4096)
         );
         assert_eq!(policy().evaluate(exact.as_bytes()), Verdict::Forward);
+        // The reply's id, so a copy that also went through the mailbox is applied once.
+        assert_eq!(
+            policy().evaluate(
+                br#"{"cmd":"notification-reply","id":"m8","notification":1,"text":"y","reply_id":"0d9f5e2c-7b3a-4e61-8f20-5c4b3a291807"}"#
+            ),
+            Verdict::Forward
+        );
+        assert!(matches!(
+            policy().evaluate(
+                br#"{"cmd":"notification-reply","id":"m8","notification":1,"text":"y","reply_id":"a b"}"#
+            ),
+            Verdict::Refuse(_)
+        ));
         for line in [
             // Another field: a surface, a command, raw bytes, a paste flag.
             br#"{"cmd":"notification-reply","id":"m7","notification":1,"text":"y","surface":3}"#.as_slice(),

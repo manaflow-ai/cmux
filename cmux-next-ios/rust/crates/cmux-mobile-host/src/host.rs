@@ -282,9 +282,7 @@ fn mailbox_for(services: &ServiceConfig) -> Option<Arc<crate::mailbox::Mailbox>>
         mac: pairing.mac_device_id.clone(),
         trust: pairing.trust.clone(),
         identity: pairing.identity.clone(),
-        spent: crate::mailbox::SpentReplies::load(
-            crate::config::default_state_dir().join("mailbox-spent.json"),
-        ),
+        spent: Arc::clone(&pairing.spent_replies),
         applier: Arc::new(crate::mailbox_apply::LiveApplier {
             acpmux: services.acpmux.clone(),
             daemon_socket,

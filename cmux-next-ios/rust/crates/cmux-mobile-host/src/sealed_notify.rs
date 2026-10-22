@@ -26,6 +26,55 @@ use crate::config::AcpmuxTarget;
 use crate::pairing::{DeviceTrust, MacIdentity};
 use crate::push_keys::PushKeys;
 
+/// The backend's limit for one box, in base64url characters (`MAX_SEALED_BOX`),
+/// so the whole APNs payload stays under 4096 bytes.
+pub const MAX_BOX_CHARS: usize = 3072;
+/// The most plaintext one box holds: its base64url bytes less the version,
+/// the ephemeral point, the nonce and the tag.
+pub const MAX_BOX_PLAINTEXT: usize = MAX_BOX_CHARS * 3 / 4 - (1 + 65 + 12 + 16);
+
+/// The sealed content cut to fit one box, in the backend's order for the
+/// plain payload: the oldest last lines first, then option descriptions, a
+/// shorter title and body, then the questions (the phone opens the app to
+/// answer), then the last lines and the body altogether.
+pub fn fit(content: &mut Map<String, Value>) {
+    let size = |c: &Map<String, Value>| Value::Object(c.clone()).to_string().len();
+    while size(content) > MAX_BOX_PLAINTEXT {
+        let tail = content.get_mut("tail").and_then(Value::as_array_mut);
+        if let Some(tail) = tail.filter(|t| t.len() > 1) {
+            tail.remove(0);
+            continue;
+        }
+        break;
+    }
+    if size(content) > MAX_BOX_PLAINTEXT
+        && let Some(questions) = content.get_mut("questions").and_then(Value::as_array_mut)
+    {
+        for option in questions
+            .iter_mut()
+            .filter_map(|q| q.get_mut("options"))
+            .filter_map(Value::as_array_mut)
+            .flatten()
+        {
+            if let Some(option) = option.as_object_mut() {
+                option.remove("description");
+            }
+        }
+    }
+    for (field, max) in [("title", 120), ("body", 160)] {
+        if size(content) > MAX_BOX_PLAINTEXT
+            && let Some(Value::String(text)) = content.get_mut(field)
+        {
+            *text = text.chars().take(max).collect();
+        }
+    }
+    for field in ["questions", "tail", "body", "options"] {
+        if size(content) > MAX_BOX_PLAINTEXT {
+            content.remove(field);
+        }
+    }
+}
+
 /// Fields that route and coalesce a push: kept in clear.
 pub const ROUTING_FIELDS: &[&str] = &[
     "eventId",
@@ -62,6 +111,7 @@ pub fn sealed_body(
         content.insert("decisionNonce".into(), json!(nonce));
         content.insert("personInstance".into(), json!(instance));
     }
+    fit(&mut content);
     let plaintext = Value::Object(content).to_string();
     let mut sealed = Map::new();
     for (phone, push_key) in phones {
@@ -220,6 +270,42 @@ mod tests {
         assert!(body["sealed"]["p1"]["box"].is_string());
         // No push keys at all: exactly the event.
         assert_eq!(sealed_body(&event(), "m", &identity, &[], true, None), event());
+    }
+
+    #[test]
+    fn a_large_notification_fits_one_box() {
+        let identity = MacIdentity::generate().unwrap();
+        let push = crate::seal::random_secret().unwrap();
+        let phone = "a2b4c6d8-1e3f-4a5b-8c7d-9e0f1a2b3c4d";
+        let phones = vec![(phone.to_owned(), crate::seal::point_hex(&push.public_key()))];
+        let long = |n: usize| "é".repeat(n);
+        let question = json!({"question": long(200), "header": long(30), "multiSelect": true, "allowsOther": true,
+                              "options": (0..6).map(|i| json!({"label": format!("{i}{}", long(59)), "description": long(120)})).collect::<Vec<_>>()});
+        let event = json!({"eventId": "p-big", "kind": "question", "agent": "Claude", "place": long(60),
+                           "workspace": long(60), "sessionId": "s1", "permissionId": "p1", "title": long(200),
+                           "body": long(400), "questions": [question.clone(), question.clone(), question.clone(), question],
+                           "tail": (0..6).map(|i| format!("{i}{}", long(159))).collect::<Vec<_>>()});
+        let body = sealed_body(&event, "m", &identity, &phones, true, Some(("n".into(), "run".into())));
+        let boxed = body["sealed"][phone]["box"].as_str().unwrap();
+        assert!(boxed.len() <= MAX_BOX_CHARS, "{}", boxed.len());
+        let opened: Value = serde_json::from_slice(
+            &crate::seal::open(&push, &crate::seal::push_context("m", phone, "p-big"), boxed).unwrap(),
+        )
+        .unwrap();
+        // What routes and signs an answer always stays.
+        for field in
+            ["eventId", "kind", "sessionId", "permissionId", "decisionNonce", "personInstance", "title"]
+        {
+            assert!(opened.get(field).is_some(), "{field}");
+        }
+        // A small one keeps everything.
+        let small = sealed_body(&super::tests::event(), "m", &identity, &phones, true, None);
+        let boxed = small["sealed"][phone]["box"].as_str().unwrap();
+        let opened: Value = serde_json::from_slice(
+            &crate::seal::open(&push, &crate::seal::push_context("m", phone, "p-perm1"), boxed).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(opened["tail"], json!(["sk-123"]));
     }
 
     #[test]

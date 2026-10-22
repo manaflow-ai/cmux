@@ -177,11 +177,26 @@ pub async fn reply_to_notification(
 
 /// hostd's answer to a phone's `notification-reply` line (already through
 /// the policy): a v12 response line, ok or the reason.
-pub async fn answer_notification_reply(daemon_socket: &std::path::Path, phone: &str, line: &[u8]) -> String {
+///
+/// With `reply_id` (the phone's reply id) it is applied at most once with
+/// the mailbox copy of the same reply (`spent`): a repeat answers ok with
+/// `duplicate: true` and types nothing.
+pub async fn answer_notification_reply(
+    daemon_socket: &std::path::Path,
+    phone: &str,
+    spent: Option<&crate::mailbox::SpentReplies>,
+    line: &[u8],
+) -> String {
     let request: Value = serde_json::from_slice(line).unwrap_or_default();
     let id = request.get("id");
     let notification = request.get("notification").and_then(Value::as_u64).unwrap_or_default();
     let text = request.get("text").and_then(Value::as_str).unwrap_or_default();
+    if let (Some(spent), Some(reply)) = (spent, request.get("reply_id").and_then(Value::as_str))
+        && !spent.spend_link_reply(reply, crate::mailbox::now())
+    {
+        return json!({"id": id.cloned().unwrap_or(Value::Null), "ok": true, "data": {"duplicate": true}})
+            .to_string();
+    }
     match reply_to_notification(daemon_socket, phone, notification, None, text).await {
         Ok(()) => json!({"id": id.cloned().unwrap_or(Value::Null), "ok": true, "data": {}}).to_string(),
         Err(Rejection::NotPending) => crate::policy::error_line(id, "not_found", "that notification is gone"),
