@@ -9,9 +9,9 @@ import CmuxNextWakeups
 /// tabs). New Tab After Current Tab, at Start, at End and the tab menu's
 /// New Tab to the Right name their place whatever the setting says. The
 /// tab is made where it always is (the end), then moves into its slot
-/// (`TabMoves.move`, optimistic) as soon as its pane lists it. A tab made in
-/// another pane (the docked chat's strip) stays where it lands. What a New
-/// Tab page turns into takes the page's slot.
+/// (`TabMoves.move`, optimistic) as soon as its pane lists it. A tab routed
+/// from an agent chat to the pane on its right takes that pane's slot
+/// (``rebased(_:onto:)``). What a New Tab page turns into takes the page's slot.
 @MainActor
 enum NewTabSlot {
     /// How long the move waits for the pane to list the new tab.
@@ -47,6 +47,17 @@ enum NewTabSlot {
         case .end: nil
         case .afterCurrent: current.map(Target.after)
         case .start: (current ?? pane.first).map(Target.start)
+        }
+    }
+
+    /// `target`'s slot in `controller`'s pane, for a tab routed there from the pane `target` was
+    /// worked out for (from an agent chat to the pane on its right): right after that pane's selected
+    /// tab, or at its start. The end stays the end. Nothing is placed or held in the chat's pane.
+    static func rebased(_ target: Target?, onto controller: PaneController) -> Target? {
+        switch target {
+        case nil: nil
+        case .after?: controller.selectedTab.map(Target.after)
+        case .start?: (controller.selectedTab ?? controller.pane.tabs.first).map(Target.start)
         }
     }
 
