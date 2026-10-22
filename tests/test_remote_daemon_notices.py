@@ -290,10 +290,20 @@ class RemoteDaemonNoticesTest(unittest.TestCase):
         _, same, _ = rdn.go_entry("go1.27.3", review, self.go_root())
         self.assertEqual(same["approved"], "a person, for the old texts")
 
-    def test_an_automatic_approval_names_the_copyright_lines_it_let_through(self) -> None:
-        notes: list = []
-        rdn.compose([*self.modules, self.module("example.com/mit", LICENSE=MIT)], "go1.26.8", self.review, notes=notes)
-        self.assertIn("copyright (c) 2011 keith rarick", "\n".join(notes))
+    def test_an_automatic_approval_shows_the_free_text_it_let_through(self) -> None:
+        # Codex review of 6c03d61: a name-shaped phrase in a free part is accepted, so every
+        # automatic approval shows the spans its template left free, wherever they sit.
+        inline = "MIT License Copyright (c) 2026 Example Academic Projects Exclusively\n" + MIT.split("\n", 1)[1]
+        for name, files, shown in (
+            ("a copyright line", {"LICENSE": MIT}, "copyright (c) 2011 keith rarick"),
+            ("a title and copyright on one line", {"LICENSE": inline}, "example academic projects exclusively"),
+            ("BSD's organization", {"LICENSE": BSD3}, "google llc"),
+        ):
+            with self.subTest(name):
+                notes: list = []
+                module = self.module(f"example.com/{name.replace(' ', '-').replace(chr(39), '')}", **files)
+                rdn.compose([*self.modules, module], "go1.26.8", self.review, notes=notes)
+                self.assertIn(shown, "\n".join(notes))
 
     def test_a_go_patch_release_under_another_license_fails(self) -> None:
         with self.assertRaises(rdn.NoticeError) as raised:
