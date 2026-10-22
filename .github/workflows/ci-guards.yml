@@ -413,6 +413,7 @@ jobs:
           python3 scripts/whats-new/test_validate.py
           python3 scripts/whats-new/test_community.py
           python3 tests/test_cmux_next_release_notes.py
+          python3 tests/test_release_notes_pr_media.py
 
       - name: Test the server bootstrap candidate renderer
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
@@ -1368,6 +1369,10 @@ jobs:
       - name: Validate the nightly-next release-ring tags
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_ring.py
+
+      - name: Validate the cmux NEXT Edge feed composer
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_edge_feed.py
 
       - name: Validate the nightly-next canary mode and its one-week flip
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

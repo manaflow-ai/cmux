@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxNextAgentPane
 @testable import CmuxNextNowPlaying
 import CmuxNextSidebar
 import Foundation
@@ -146,7 +147,7 @@ import Testing
     @Test func theAdapterRunsOnlyWhileTheCardIsOn() async throws {
         let adapter = FakeAdapter()
         let system = SystemNowPlaying(adapter: adapter, ignoring: [], labels: Self.labels)
-        let sources = NowPlayingSources(player: MusicPlayer(labels: Self.labels), tabs: FakeSource(), system: system)
+        let sources = NowPlayingSources(player: MusicPlayer(labels: Self.labels), tabs: FakeSource(), system: system, otherApps: { true })
         let model = SidebarModel()
         let flag = Flag(false)
         let feed = model.followNowPlaying(sources, enabled: { flag.on })
@@ -203,7 +204,7 @@ import Testing
     @Test func aPlayingAppTakesTheCardOnlyFromWhatIsPaused() {
         let player = MusicPlayer(labels: Self.labels)
         let tab = FakeSource(), system = FakeSource()
-        let sources = NowPlayingSources(player: player, tabs: tab, system: system)
+        let sources = NowPlayingSources(player: player, tabs: tab, system: system, otherApps: { true })
         system.nowPlaying = SidebarNowPlaying(title: "Spotify", isPlaying: false, labels: Self.labels)
         #expect(sources.nowPlaying?.title == "Spotify")
         tab.nowPlaying = SidebarNowPlaying(title: "Video", isPlaying: false, labels: Self.labels)
@@ -215,5 +216,51 @@ import Testing
         tab.nowPlaying?.isPlaying = true
         #expect(sources.nowPlaying?.title == "Video", "a playing tab came after another app")
         #expect(NowPlayingSources.pick([nil, nil, nil]) == nil)
+    }
+
+    /// u8394: the player showed the user's other browser's audio (macOS Now Playing). By default
+    /// (`sidebar.nowPlaying.otherApps` off) only what plays in cmux shows: another app's track
+    /// never reaches the card or the New Tab page and a control never goes to it.
+    @Test func anotherAppIsLeftOutWhileOtherAppsIsOff() {
+        let tab = FakeSource(), system = FakeSource()
+        system.nowPlaying = SidebarNowPlaying(title: "A Chrome video", isPlaying: true, labels: Self.labels)
+        let byDefault = NowPlayingSources(player: MusicPlayer(labels: Self.labels), tabs: tab, system: system)
+        #expect(byDefault.nowPlaying == nil, "another browser's audio is on the card by default")
+        byDefault.perform(.playPause)
+        #expect(system.commands.isEmpty, "a control went to another app by default")
+        tab.nowPlaying = SidebarNowPlaying(title: "A cmux tab", isPlaying: false, labels: Self.labels)
+        #expect(byDefault.nowPlaying?.title == "A cmux tab", "a paused cmux tab lost to another app that plays")
+        let on = NowPlayingSources(player: MusicPlayer(labels: Self.labels), tabs: FakeSource(), system: system, otherApps: { true })
+        #expect(on.nowPlaying?.title == "A Chrome video", "other apps on, and another app's track is not on the card")
+    }
+
+    /// With other apps off macOS Now Playing is not read at all, card and New Tab player on or
+    /// not; turning the setting on starts the stream and the track shows on both, off stops it.
+    @Test func macOSNowPlayingStreamsOnlyWhileOtherAppsIsOn() async throws {
+        let adapter = FakeAdapter()
+        let system = SystemNowPlaying(adapter: adapter, ignoring: [], labels: Self.labels)
+        let otherApps = Flag(false)
+        let sources = NowPlayingSources(player: MusicPlayer(labels: Self.labels), tabs: FakeSource(), system: system,
+                                        otherApps: { otherApps.on })
+        let model = SidebarModel()
+        let page = AgentPaneNowPlaying()
+        let feed = model.followNowPlaying(sources, enabled: { true }, onNewTab: { true }, player: page)
+        defer { feed.cancel() }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(adapter.starts == 0, "macOS Now Playing was read while other apps are off")
+        #expect(model.nowPlaying == nil && page.track == nil)
+        otherApps.on = true
+        try await Self.until { adapter.starts == 1 }
+        #expect(adapter.starts == 1, "turning other apps on did not read macOS Now Playing")
+        var chrome = Self.spotify
+        chrome["bundleIdentifier"] = "com.google.Chrome"
+        chrome["title"] = "A Chrome video"
+        adapter.emit(diff: false, chrome)
+        try await Self.until { model.nowPlaying?.title == "A Chrome video" && page.track?.title == "A Chrome video" }
+        #expect(model.nowPlaying?.title == "A Chrome video" && page.track?.title == "A Chrome video",
+                "other apps on, and another app's track is not on the card and the New Tab page")
+        otherApps.on = false
+        try await Self.until { adapter.stops == 1 && model.nowPlaying == nil }
+        #expect(adapter.stops == 1 && model.nowPlaying == nil, "turning other apps off kept the stream or the card")
     }
 }

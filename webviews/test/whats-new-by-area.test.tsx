@@ -108,6 +108,8 @@ test("What's New lists the update's changes by area with their pull requests, in
     ["A click never drags", pull(301)],
   ]);
   expect(rows(areas[1]?.querySelector("ul"))).toEqual([["Return steers a running turn", pull(202)]]);
+  // The title links its pull request too, not only the trailing number.
+  expect(areas[1]?.querySelector<HTMLAnchorElement>("a.cl-change-link")?.href).toBe(pull(202));
   expect(rows(areas[2]?.querySelector("ul"))).toEqual([["Enroll Computer Use after peer check", pull(302)]]);
   // The installed build's own change is not part of the update.
   expect(fold?.textContent).not.toContain("installed build");

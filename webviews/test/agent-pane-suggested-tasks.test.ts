@@ -12,8 +12,8 @@
 //   which ends when the chat's turn ends.
 // - The parent's prompt that carries a task's result (`_meta.provenance.kind: "offer_result"`)
 //   draws as "Received message from <title>", not as the person's bubble.
-// - Off (no Debug toggle, no experiment) nothing draws; the `agent.suggestedTasks` Debug toggle
-//   (`applySuggestedTasks`) alone draws the card; `applyPreview` does not.
+// - Off (the `sessions.promptSuggestions` setting off, no Debug tunable, no experiment) nothing
+//   draws; suggested tasks on (`applySuggestedTasks`) alone draws the card; `applyPreview` does not.
 // - Another agent's message (`agent_message` provenance, a Claude Code `<cross-session-message>`
 //   in an adopted chat's history) draws as a message card from that agent, toggle or not; Claude
 //   Code's task notifications and reminders there draw no raw XML.
