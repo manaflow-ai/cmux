@@ -1213,6 +1213,7 @@ let package = Package(
                 .process("ServerActions.xcstrings"),
                 .process("SettingsActions.xcstrings"),
                 .process("SidebarSectionActions.xcstrings"),
+                .process("StashActions.xcstrings"),
                 .process("ShortcutRecorder.xcstrings"),
                 .process("ThemeActions.xcstrings"),
                 .process("WorkspaceActions.xcstrings"),
