@@ -1,4 +1,5 @@
 import CmuxNextControl
+import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
 import CmuxNextTerminal
@@ -55,6 +56,7 @@ enum DebugLayoutCounters {
             "pane_chrome_updates": JSONValue(Int(truncatingIfNeeded: LayoutRootView.paneChromeUpdates)),
             "terminal_window_updates": JSONValue(Int(truncatingIfNeeded: TerminalSurfaceView.windowStateUpdates)),
             "terminal_grid_reports": JSONValue(Int(truncatingIfNeeded: TerminalSurfaceView.gridReports)),
+            "indicator_resyncs": JSONValue(Int(truncatingIfNeeded: StatusIndicatorView.resyncs)),
             "pane_count_changes": .array(paneCountChanges.map { JSONValue($0) }),
             "sources": .object(sources.mapValues { JSONValue($0) }),
         ]
@@ -66,6 +68,7 @@ enum DebugLayoutCounters {
             LayoutRootView.layoutPasses = 0
             LayoutRootView.paneChromeUpdates = 0
             TerminalSurfaceView.windowStateUpdates = 0
+            StatusIndicatorView.resyncs = 0
             paneCountChanges.removeAll()
             sources.removeAll()
         }
