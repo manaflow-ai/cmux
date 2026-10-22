@@ -4830,6 +4830,8 @@ function AcpmuxPane() {
     onStopProcess: stopProcess,
     subagents: cardSubagents,
     sessions: cardSessions,
+    // Quick Chat's panel has no room beside it for the side panel.
+    onOpenDocument: quick ? undefined : openArtifact,
   });
   // The running line's counts (conversation/WorkingFor.tsx), with the tray off (Debug Settings):
   // the subagents still running, the background commands that have not ended and the started chats
