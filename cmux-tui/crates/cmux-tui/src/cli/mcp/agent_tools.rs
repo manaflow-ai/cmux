@@ -344,7 +344,7 @@ impl AgentTool {
             Verb::ChatNew => {
                 properties.insert(
                     "workspace".into(),
-                    id_schema("The workspace whose active pane gets the chat (ws_ id)."),
+                    id_schema("The workspace whose most recently focused pane gets the chat (ws_ id)."),
                 );
                 properties.insert("pane".into(), id_schema("The pane that gets the chat (pane_ id)."));
                 for (name, description) in [

@@ -37,7 +37,7 @@ pub(in crate::cli) const CONTINUE_TEXT: &str = "Continue.";
 /// A new chat's settings (`chat new` flags).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::cli) struct NewChat {
-    /// An existing workspace (`ws_` id) whose active pane gets the tab.
+    /// An existing workspace (`ws_` id) whose most recently focused pane gets the tab.
     pub workspace: Option<String>,
     /// An existing pane (`pane_` id) that gets the tab.
     pub pane: Option<String>,

@@ -19,7 +19,7 @@ import Foundation
 /// (`chief:<home id>`: the session runs in this app's Chief home's acpmux).
 ///
 /// With `pane` or `workspace` (#23026, `cmux agents chat new`) no workspace is
-/// made: the chat tab opens in that pane (the workspace's active pane) from the
+/// made: the chat tab opens in that pane (the workspace's most recently focused one) from the
 /// daemon's tree, so a workspace no window shows works too. The tab is
 /// selected in its pane for when the pane is shown; focus and the shown
 /// workspace stay where they are. The run's result names `tab`, `pane` and
@@ -50,7 +50,7 @@ enum AgentSessionWorkspace {
         context.services.registry.track(task)
     }
 
-    /// The pane the run names (`pane`, else `workspace`'s active pane) and its daemon; nil
+    /// The pane the run names (`pane`, else `workspace`'s most recently focused pane) and its daemon; nil
     /// when it names neither. Throws when the named pane or workspace is not in any tree.
     private static func existingPane(_ invocation: ActionInvocation, services: AppServices) throws -> (pane: PaneModel, daemon: DaemonService)? {
         if let id = argumentID(invocation, "pane") {
