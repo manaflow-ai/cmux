@@ -67,9 +67,15 @@ function flush() {
   void callChipHost("link.inspect", { paths: batchPaths, urls: batchUrls })
     .then((reply) => {
       const value = (reply ?? {}) as Inspect;
-      // An answer about a locality that has changed since is asked again now.
-      if (asked !== localityGeneration()) queuedPaths.push(...batchPaths);
-      else if (isPending(reply)) for (const path of batchPaths) pending.add(path);
+      // An answer about a locality that has changed since is dropped whole (paths, sites and
+      // policy) and asked again now.
+      if (asked !== localityGeneration()) {
+        queuedPaths.push(...batchPaths);
+        queuedUrls.push(...batchUrls);
+        if (first) policyAsked = false;
+        return;
+      }
+      if (isPending(reply)) for (const path of batchPaths) pending.add(path);
       else
         for (const path of batchPaths) {
           paths.set(path, value.paths?.[path] ?? null);
@@ -81,7 +87,7 @@ function flush() {
     .finally(() => {
       inFlight = false;
       changed();
-      if (queuedPaths.length || queuedUrls.length) {
+      if (queuedPaths.length || queuedUrls.length || !policyAsked) {
         scheduleFlush();
       }
     });
@@ -138,12 +144,17 @@ function subscribe(listener: () => void) {
 const useStore = <T>(read: () => T): T => useSyncExternalStore(subscribe, read, read);
 
 /// The host's answer for `path` (undefined while it is asked, or when the host had none), whether
-/// the host has answered, and the policy.
-export function usePathInfo(path: string): { info: PathInfo | undefined; answered: boolean; policy: ReplyPolicy } {
+/// the host has answered, whether it answered pending (it will be asked again), and the policy.
+export function usePathInfo(path: string): {
+  info: PathInfo | undefined;
+  answered: boolean;
+  pending: boolean;
+  policy: ReplyPolicy;
+} {
   ask(path);
   const info = useStore(() => paths.get(path) ?? undefined);
   const answered = useStore(() => !asking.has(path));
-  return { info, answered, policy: useStore(() => policy) };
+  return { info, answered, pending: useStore(() => pending.has(path)), policy: useStore(() => policy) };
 }
 
 /// What cmux already has for `url` (nothing while it is asked, or when it has nothing).

@@ -30,12 +30,13 @@ export function localityGeneration(): number {
   return generation;
 }
 
-/// The host's `locality` event. A malformed value, or the locality the page already has, changes
-/// nothing.
+/// The host's `locality` event. A malformed value (an unknown kind, a `machine` that is not a
+/// non-empty string), or the locality the page already has, changes nothing.
 export function setLocality(value: unknown): void {
   const next = value as Partial<Locality> | null | undefined;
   if (!next || typeof next !== "object" || !KINDS.has(next.locality as string)) return;
-  const machine = typeof next.machine === "string" && next.machine ? next.machine : undefined;
+  if (next.machine !== undefined && (typeof next.machine !== "string" || !next.machine)) return;
+  const machine = next.machine;
   if (next.locality === current.locality && machine === current.machine) return;
   const before = current;
   current = { locality: next.locality!, ...(machine ? { machine } : {}) };
@@ -44,9 +45,11 @@ export function setLocality(value: unknown): void {
   for (const listener of listeners) listener();
 }
 
-/// Runs `reset` with the locality before each change, before any component draws again.
-export function onLocalityChange(reset: (before: Locality) => void): void {
+/// Runs `reset` with the locality before each change, before any component draws again. Returns
+/// the call that stops it.
+export function onLocalityChange(reset: (before: Locality) => void): () => void {
   resets.add(reset);
+  return () => resets.delete(reset);
 }
 
 function subscribe(listener: () => void) {
