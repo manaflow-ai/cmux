@@ -93,6 +93,8 @@ extension SidebarListViewComponents {
         case let .workspaces(ids):
             o.excludedWorkspaces.formUnion(ids)
             o.showEmptyPinned = true
+            // Rows an open fold would draw apart (some below it, some in their place) slide as one slot only unfolded.
+            if SidebarLayout.foldSplits(ids.compactMap { model.workspace($0) }, options: o) { o.foldsDone = false }
         case let .group(group):
             o.excludedGroup = group
         case let .item(item):
