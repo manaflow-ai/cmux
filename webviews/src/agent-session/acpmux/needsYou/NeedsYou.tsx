@@ -18,18 +18,9 @@ import { onOpenNeedsYou } from "./links";
 import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./model";
 import "./needsYou.css";
 
-/// The Debug choice `agentPane.debug.needsYou` (data-needs-you on <html>): `pinned` (the default)
-/// draws each ask with its answers; `compact` one line per ask; `off` no badge at all. The host
-/// also writes `off` while the App Store's Needs You item is not installed
-/// (`agentPane.needsYou.enabled`, off by default): no badge, no list, and no link opens one.
-export type NeedsYouMode = "pinned" | "compact" | "off";
-
-export function needsYouMode(
-  root: { dataset: DOMStringMap } | undefined = globalThis.document?.documentElement,
-): NeedsYouMode {
-  const value = root?.dataset.needsYou;
-  return value === "off" || value === "compact" ? value : "pinned";
-}
+// The mode (data-needs-you on <html>, followed live) lives in mode.ts.
+import type { NeedsYouMode } from "./mode";
+export { needsYouMode, type NeedsYouMode } from "./mode";
 
 export type NeedsYouActions = {
   /// Sends a one-click answer; rejects when acpmux refused it.

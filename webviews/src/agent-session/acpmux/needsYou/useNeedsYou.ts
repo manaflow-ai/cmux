@@ -6,7 +6,8 @@ import type { AcpmuxSnapshot } from "../model";
 import { reply, replyParams, selection } from "../question/model";
 import { nextAsk, needsYouPillOn, type TranscriptNeedsYou } from "./JumpPill";
 import { needsYouItems, type NeedsYouAnswer, type NeedsYouItem } from "./model";
-import { needsYouMode, type NeedsYouActions, type NeedsYouMode } from "./NeedsYou";
+import type { NeedsYouActions } from "./NeedsYou";
+import { useNeedsYouMode, type NeedsYouMode } from "./mode";
 
 type CallNative = <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
 
@@ -43,7 +44,8 @@ export function useNeedsYou({
   /// `chat.sideChat`); rejects when acpmux or the relay refused it.
   sideSession: (sessionId: string, question: string) => Promise<unknown>;
 }): { mode: NeedsYouMode; items: NeedsYouItem[]; actions: NeedsYouActions; pill?: TranscriptNeedsYou } {
-  const mode = needsYouMode();
+  // Live: installing the App Store item, or a new Debug choice, redraws the header (mode.ts).
+  const mode = useNeedsYouMode();
   const pillOn = needsYouPillOn();
   const { sessions, asks, sessionId, rows } = snapshot;
   const items = useMemo(

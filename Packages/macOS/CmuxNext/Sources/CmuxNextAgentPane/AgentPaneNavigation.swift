@@ -53,6 +53,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         view?.applyPreviewFeatures()
         if let view { AgentPaneSessionStatus.push(to: view) }
         if let view { AgentPaneSuggestedTasks.shared.push(to: view) }
+        if let view { AgentPaneNeedsYou.shared.push(to: view) }
         view?.applyEditedFiles()
         view?.replayCustomization()
     }
