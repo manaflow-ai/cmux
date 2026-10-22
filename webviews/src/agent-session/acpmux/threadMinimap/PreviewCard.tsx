@@ -55,11 +55,14 @@ export const PreviewCard = React.forwardRef<
     prompt?: string;
     reply: readonly ReplyBlock[];
     bookmark?: PreviewBookmark;
+    /// The rail's edge (railSide.ts): on the right, `x` counts in from the right and the card opens
+    /// on the rail's left.
+    side?: "left" | "right";
     onPointerLeave(event: React.PointerEvent<HTMLDivElement>): void;
     onFocus?(): void;
     onBlur?(event: React.FocusEvent<HTMLDivElement>): void;
   }
->(function PreviewCard({ id, x, y, scroller, prompt, reply, bookmark, onPointerLeave, onFocus, onBlur }, ref) {
+>(function PreviewCard({ id, x, y, scroller, prompt, reply, bookmark, side, onPointerLeave, onFocus, onBlur }, ref) {
   const t = useT();
   const layer = scroller?.parentElement;
   const anchor = useRef<HTMLSpanElement>(null);
@@ -94,7 +97,15 @@ export const PreviewCard = React.forwardRef<
       ref={own}
       id={id}
       className="acpmux-minimap__card"
-      style={{ transform: `translate3d(${at.x + x}px, ${at.y + y}px, 0)` }}
+      // On the right the anchor marks the rail box's top-right corner: the card's right edge sits
+      // `x` in from it (translateX(-100%) is the card's own width), so it opens on the rail's left.
+      style={
+        side !== "right"
+          ? { transform: `translate3d(${at.x + x}px, ${at.y + y}px, 0)` }
+          : layer
+            ? { transform: `translate3d(${at.x - x}px, ${at.y + y}px, 0) translateX(-100%)` }
+            : { left: "auto", right: 0, transform: `translate3d(${-x}px, ${y}px, 0)` }
+      }
       onPointerLeave={onPointerLeave}
       onWheel={layer ? (event) => forwardWheel(scroller!, event.nativeEvent) : undefined}
       onFocus={onFocus}
@@ -134,7 +145,12 @@ export const PreviewCard = React.forwardRef<
   if (!layer) return card;
   return (
     <>
-      <span ref={anchor} className="acpmux-minimap__anchor" aria-hidden />
+      <span
+        ref={anchor}
+        className="acpmux-minimap__anchor"
+        style={side === "right" ? { left: "auto", right: 0 } : undefined}
+        aria-hidden
+      />
       {createPortal(card, layer)}
     </>
   );

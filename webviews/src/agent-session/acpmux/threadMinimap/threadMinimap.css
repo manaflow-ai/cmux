@@ -342,3 +342,12 @@
 .acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-bookmarked] .acpmux-minimap__bar {
   opacity: 1;
 }
+/* On the right edge (railSide.ts: Settings > Agent Chat > Prompt Rail Side, or the rail's right-click
+   menu) the rail mirrors, so its ticks start at the chat's edge and grow toward the text as they do
+   on the left. The compact rail mirrors its list (the rail itself glides by transform when older
+   turns arrive); the full-height map mirrors whole. Only x flips: rows and the pointer's y are as
+   on the left. */
+.acpmux-minimap__rail[data-side="right"] .acpmux-minimap__list,
+.acpmux-scrollmap[data-side="right"] {
+  transform: scaleX(-1);
+}
