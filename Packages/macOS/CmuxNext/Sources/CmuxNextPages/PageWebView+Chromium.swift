@@ -124,6 +124,8 @@ extension PageWebView {
         scriptTarget.bridge = bridge
         bridge.evaluate(DesignSettings.shared.interfaceScaleScript)
         page.setZoom(pageZoom)
+        // The WebKit page draws no background (`drawsBackground` off): the Chromium page neither.
+        page.setSeeThrough(true)
         page.contentView.frame = bounds
         page.contentView.autoresizingMask = [.width, .height]
         addSubview(page.contentView)
