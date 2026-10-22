@@ -3,6 +3,7 @@
 //! frontend rendered.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Surface {
     pub fn encode_mouse(
@@ -183,6 +184,6 @@ impl Surface {
 
     pub fn reset_mouse_motion_dedupe(&self) {
         let Some(pty) = self.as_pty() else { return };
-        pty.mouse_encoders.lock().unwrap().reset_motion_dedupe();
+        pty.mouse_encoders.lock().recover_poison().reset_motion_dedupe();
     }
 }

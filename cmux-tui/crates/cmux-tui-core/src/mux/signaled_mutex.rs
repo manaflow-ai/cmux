@@ -10,6 +10,7 @@ use std::time::Instant;
 
 use super::{Mux, State, WorkspaceRegistry};
 use crate::lock_rank::{HeldRank, LockRank};
+use crate::panic_free::RecoverPoison;
 use crate::workspace_registry::registry_connection::RegistryConnectionPin;
 
 pub(crate) struct SignaledMutex<T> {
@@ -112,7 +113,7 @@ impl<T> SignaledMutex<T> {
                 Err(TryLockError::WouldBlock) => {}
             }
 
-            let observed = *self.release_epoch.lock().unwrap();
+            let observed = *self.release_epoch.lock().recover_poison();
             match self.try_lock_at(site, waited_from, blocker) {
                 Ok(value) => return Ok(value),
                 Err(TryLockError::Poisoned(_)) => {
@@ -122,7 +123,7 @@ impl<T> SignaledMutex<T> {
                 Err(TryLockError::WouldBlock) => {}
             }
 
-            let mut epoch = self.release_epoch.lock().unwrap();
+            let mut epoch = self.release_epoch.lock().recover_poison();
             if *epoch != observed {
                 continue;
             }
@@ -131,7 +132,7 @@ impl<T> SignaledMutex<T> {
                 self.stats.wait_failed(site, waited_from.elapsed(), blocker);
                 return Err(crate::JournalContention::MUTEX_DEADLINE.into());
             }
-            let (next, result) = self.released.wait_timeout(epoch, remaining).unwrap();
+            let (next, result) = self.released.wait_timeout(epoch, remaining).recover_poison();
             epoch = next;
             if result.timed_out() && *epoch == observed {
                 self.stats.wait_failed(site, waited_from.elapsed(), blocker);
@@ -189,7 +190,7 @@ impl<T> Drop for SignaledMutexGuard<'_, T> {
         // by this older unlock.
         self.owner.stats.released(self.site, self.acquired_at.elapsed());
         drop(self.value.take());
-        let mut epoch = self.owner.release_epoch.lock().unwrap();
+        let mut epoch = self.owner.release_epoch.lock().recover_poison();
         *epoch = epoch.wrapping_add(1);
         self.owner.released.notify_all();
     }

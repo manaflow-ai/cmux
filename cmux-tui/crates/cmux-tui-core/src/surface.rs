@@ -33,6 +33,7 @@ mod terminal_stream;
 pub use color_overrides::apply_terminal_color_overrides;
 pub use host_state::{TerminalHostConnectionState, TerminalHostFallback};
 // Hosted (unix) code and the unit tests are the only callers.
+use crate::panic_free::RecoverPoison;
 use clear_history::LOCAL_PASTE_WRITE_TIMEOUT;
 pub use clear_history::{
     CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR, CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
@@ -444,7 +445,7 @@ pub(crate) struct TerminalJournalUpdateGuard<'a> {
 
 impl TerminalJournalUpdateGuard<'_> {
     pub(crate) fn activate(&mut self) -> bool {
-        let _gate = self.owner.journal_capture_gate.lock().unwrap();
+        let _gate = self.owner.journal_capture_gate.lock().recover_poison();
         if !self.owner.journal_capture_open.load(Ordering::Acquire) {
             return false;
         }
@@ -459,7 +460,7 @@ impl TerminalJournalUpdateGuard<'_> {
 
 impl Drop for TerminalJournalUpdateGuard<'_> {
     fn drop(&mut self) {
-        let _gate = self.owner.journal_capture_gate.lock().unwrap();
+        let _gate = self.owner.journal_capture_gate.lock().recover_poison();
         self.owner.journal_capture_reserved.store(false, Ordering::Release);
         if self.owner.journal_capture_active.swap(false, Ordering::AcqRel) {
             self.owner.journal_capture_epoch.fetch_add(1, Ordering::Release);
@@ -883,18 +884,17 @@ impl Surface {
                 let surface = surface.clone();
                 move || hosted_reader.run(surface, reader)
             })?;
-        *surface
-            .as_pty()
-            .expect("hosted PTY surface owns its reader")
-            .reader_thread
-            .lock()
-            .unwrap() = Some(reader_thread);
+        // `surface` was built as `Surface::Pty` above, so this always stores
+        // the handle; a browser surface has no reader thread to keep.
+        if let Some(pty) = surface.as_pty() {
+            *pty.reader_thread.lock().recover_poison() = Some(reader_thread);
+        }
         let kitty_registration = kitty_reservation.map_or(Ok(()), |reservation| {
             reservation.commit(&surface, snapshot.kitty_state.limits)
         });
         if let Err(error) = kitty_registration {
             if let Some(pty) = surface.as_pty()
-                && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().unwrap()
+                && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().recover_poison()
             {
                 if terminate_on_error {
                     let _ = host.terminate();
@@ -905,7 +905,7 @@ impl Surface {
         }
         if terminate_on_error
             && let Some(pty) = surface.as_pty()
-            && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().unwrap()
+            && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().recover_poison()
         {
             if !defer_launch_activation && let Err(error) = host.activate_launched_host() {
                 let _ = host.terminate();
@@ -925,7 +925,7 @@ impl Surface {
                 move || {
                     std::thread::sleep(delay);
                     if let Some(pty) = test_surface.as_pty()
-                        && let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
+                        && let PtyRuntime::Hosted(host) = &*pty.runtime.lock().recover_poison()
                     {
                         host.disconnect();
                     }

@@ -2,6 +2,7 @@
 //! completion reporting, and the test hooks that drive the PTY master.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Surface {
     /// Resize this surface. PTYs receive cell dimensions; browsers also
@@ -228,7 +229,7 @@ impl Surface {
     pub(crate) fn requested_size(&self) -> (u16, u16) {
         #[cfg(any(unix, windows))]
         if let Surface::Pty(pty) = self
-            && let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
+            && let PtyRuntime::Hosted(host) = &*pty.runtime.lock().recover_poison()
             && let Some(size) = host.viewer_size()
         {
             return size;
@@ -258,7 +259,7 @@ impl Surface {
 
     #[cfg(test)]
     pub(crate) fn test_master_size(&self) -> PtySize {
-        let runtime = self.as_pty().expect("test PTY surface").runtime.lock().unwrap();
+        let runtime = self.as_pty().expect("test PTY surface").runtime.lock().recover_poison();
         let PtyRuntime::Local { master, .. } = &*runtime else {
             panic!("test PTY surface uses a local runtime");
         };
@@ -267,7 +268,7 @@ impl Surface {
 
     #[cfg(test)]
     pub(crate) fn test_cell_pixel_size(&self) -> (u16, u16) {
-        let geometry = *self.as_pty().expect("test PTY surface").geometry.lock().unwrap();
+        let geometry = *self.as_pty().expect("test PTY surface").geometry.lock().recover_poison();
         (geometry.cell_width, geometry.cell_height)
     }
 
@@ -278,7 +279,7 @@ impl Surface {
         let Surface::Pty(pty) = self else { return Ok(false) };
         #[cfg(any(unix, windows))]
         {
-            let runtime = pty.runtime.lock().unwrap();
+            let runtime = pty.runtime.lock().recover_poison();
             if let PtyRuntime::Hosted(host) = &*runtime {
                 return Ok(host.release_viewer_size()?);
             }

@@ -2,6 +2,7 @@
 //! bounded queues, the render hub, and the initial graphics snapshot.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 /// One immutable terminal frame plus retained-history metadata captured with it.
 #[derive(Debug, Clone)]
@@ -98,25 +99,22 @@ impl RenderTapQueue {
     }
 
     fn pop(&mut self) -> Option<RenderAttachFrame> {
-        let next =
-            match (self.pending_frame.is_some(), self.pending_scroll.is_some(), self.latest_kind) {
-                (true, true, Some(PendingRenderKind::Frame)) => {
-                    let (offset, at_bottom) = self.pending_scroll.take().unwrap();
-                    RenderAttachFrame::ScrollChanged { offset, at_bottom }
-                }
-                (true, true, Some(PendingRenderKind::Scroll)) => {
-                    RenderAttachFrame::Frame(self.pending_frame.take().unwrap().into_frame())
-                }
-                (true, true, None) => unreachable!("pending render events have an ordering"),
-                (true, false, _) => {
-                    RenderAttachFrame::Frame(self.pending_frame.take().unwrap().into_frame())
-                }
-                (false, true, _) => {
-                    let (offset, at_bottom) = self.pending_scroll.take().unwrap();
-                    RenderAttachFrame::ScrollChanged { offset, at_bottom }
-                }
-                (false, false, _) => return None,
-            };
+        // With both pending, the newer kind (`latest_kind`) goes last; a
+        // frame goes first when the order is unknown.
+        let scroll_first = matches!(self.latest_kind, Some(PendingRenderKind::Frame));
+        let take_scroll = |this: &mut Self| {
+            this.pending_scroll
+                .take()
+                .map(|(offset, at_bottom)| RenderAttachFrame::ScrollChanged { offset, at_bottom })
+        };
+        let take_frame = |this: &mut Self| {
+            this.pending_frame.take().map(|frame| RenderAttachFrame::Frame(frame.into_frame()))
+        };
+        let next = if scroll_first {
+            take_scroll(self).or_else(|| take_frame(self))
+        } else {
+            take_frame(self).or_else(|| take_scroll(self))
+        }?;
         if self.pending_frame.is_none() && self.pending_scroll.is_none() {
             self.latest_kind = None;
         }
@@ -152,7 +150,7 @@ impl RenderTap {
     }
 
     pub(super) fn send(&self, event: RenderAttachFrame) -> bool {
-        let mut queue = self.state.queue.lock().unwrap();
+        let mut queue = self.state.queue.lock().recover_poison();
         if !queue.receiver_alive {
             return false;
         }
@@ -165,7 +163,7 @@ impl RenderTap {
 
 impl Drop for RenderTap {
     fn drop(&mut self) {
-        self.state.queue.lock().unwrap().sender_alive = false;
+        self.state.queue.lock().recover_poison().sender_alive = false;
         self.state.ready.notify_all();
     }
 }
@@ -178,7 +176,7 @@ pub struct RenderAttachFrameReceiver {
 
 impl RenderAttachFrameReceiver {
     pub fn recv(&self) -> Result<RenderAttachFrame, RecvError> {
-        let mut queue = self.state.queue.lock().unwrap();
+        let mut queue = self.state.queue.lock().recover_poison();
         loop {
             if let Some(event) = queue.pop() {
                 return Ok(event);
@@ -186,13 +184,13 @@ impl RenderAttachFrameReceiver {
             if !queue.sender_alive {
                 return Err(RecvError);
             }
-            queue = self.state.ready.wait(queue).unwrap();
+            queue = self.state.ready.wait(queue).recover_poison();
         }
     }
 
     pub fn recv_timeout(&self, timeout: Duration) -> Result<RenderAttachFrame, RecvTimeoutError> {
         let started = Instant::now();
-        let mut queue = self.state.queue.lock().unwrap();
+        let mut queue = self.state.queue.lock().recover_poison();
         loop {
             if let Some(event) = queue.pop() {
                 return Ok(event);
@@ -203,7 +201,7 @@ impl RenderAttachFrameReceiver {
             let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
                 return Err(RecvTimeoutError::Timeout);
             };
-            let (next, result) = self.state.ready.wait_timeout(queue, remaining).unwrap();
+            let (next, result) = self.state.ready.wait_timeout(queue, remaining).recover_poison();
             queue = next;
             if result.timed_out() && queue.pending_frame.is_none() && queue.pending_scroll.is_none()
             {
@@ -229,7 +227,7 @@ impl RenderAttachFrameReceiver {
         &self,
         interrupt: &crate::stream_interrupt::StreamInterrupt,
     ) -> Result<RenderAttachFrame, RecvTimeoutError> {
-        let mut queue = self.state.queue.lock().unwrap();
+        let mut queue = self.state.queue.lock().recover_poison();
         loop {
             if let Some(event) = queue.pop() {
                 return Ok(event);
@@ -240,12 +238,12 @@ impl RenderAttachFrameReceiver {
             if interrupt.is_fired() {
                 return Err(RecvTimeoutError::Timeout);
             }
-            queue = self.state.ready.wait(queue).unwrap();
+            queue = self.state.ready.wait(queue).recover_poison();
         }
     }
 
     pub fn try_recv(&self) -> Result<RenderAttachFrame, TryRecvError> {
-        let mut queue = self.state.queue.lock().unwrap();
+        let mut queue = self.state.queue.lock().recover_poison();
         if let Some(event) = queue.pop() {
             Ok(event)
         } else if queue.sender_alive {
@@ -261,13 +259,13 @@ impl Drop for RenderAttachFrameReceiver {
         // Frame fan-out holds the hub before this queue. Release the queue
         // before taking the hub so receiver teardown cannot invert that order.
         {
-            let mut queue = self.state.queue.lock().unwrap();
+            let mut queue = self.state.queue.lock().recover_poison();
             queue.receiver_alive = false;
             queue.pending_frame = None;
             queue.pending_scroll = None;
         }
         if let Some(render) = self.render.upgrade() {
-            render.lock().unwrap().taps.retain(|tap| !Arc::ptr_eq(&tap.state, &self.state));
+            render.lock().recover_poison().taps.retain(|tap| !Arc::ptr_eq(&tap.state, &self.state));
         }
     }
 }

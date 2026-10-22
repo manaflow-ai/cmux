@@ -1,6 +1,7 @@
 //! Output, resize and color transitions of [`HostedReader`]'s host stream.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl HostedReader {
     /// Apply one `Output` or `OutputWithColors` transition to the mirror.
@@ -8,7 +9,8 @@ impl HostedReader {
         &mut self,
         surface: &Arc<Surface>,
         pty: &PtySurface,
-        transition: HostedTransition,
+        output: Vec<u8>,
+        colors: Option<TerminalColorOverrides>,
         journal_target: &mut Option<(Arc<Mux>, Arc<TerminalPublicId>)>,
         journal_update: &mut Option<TerminalJournalUpdateGuard<'_>>,
     ) -> Flow {
@@ -16,11 +18,6 @@ impl HostedReader {
         if let Some(delay) = self.output_apply_delay {
             std::thread::sleep(delay);
         }
-        let (output, colors) = match transition {
-            HostedTransition::Output(output) => (output, None),
-            HostedTransition::OutputWithColors { output, colors } => (output, Some(colors)),
-            _ => unreachable!(),
-        };
         if crate::debug_spans::following() {
             follow_marks(pty, &output);
         }
@@ -30,7 +27,7 @@ impl HostedReader {
         let finished_commands;
         let defaults = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let generation = {
-            let mut term = pty.term.lock().unwrap();
+            let mut term = pty.term.lock().recover_poison();
             if let Some(update) = journal_update.as_mut()
                 && !update.activate()
             {
@@ -74,7 +71,7 @@ impl HostedReader {
                 // violated the producer's iff contract.
                 return Flow::Break;
             }
-            pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+            pty.mouse_encoders.lock().recover_poison().sync_from_terminal(&term);
             let after = terminal_scroll_position(&term);
             // The parser already contains the complete
             // coupled state before any attach observer can
@@ -94,7 +91,7 @@ impl HostedReader {
                 // A program that rewrites the same title (a spinner's
                 // resting frame, a prompt redraw) announces nothing.
                 let title = crate::terminal_title::read(&term);
-                let mut stored = pty.title.lock().unwrap();
+                let mut stored = pty.title.lock().recover_poison();
                 if *stored != title {
                     *stored = title.clone();
                     title_update = Some(title);

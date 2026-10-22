@@ -2,6 +2,7 @@
 //! into frames at a fixed cadence.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 const RENDER_FRAME_CADENCE: Duration = Duration::from_millis(8);
 
@@ -33,12 +34,12 @@ pub(super) fn spawn_frame_producer(
                 }
             }
             #[cfg(test)]
-            if let Some(hook) = before_upgrade.lock().unwrap().clone() {
+            if let Some(hook) = before_upgrade.lock().recover_poison().clone() {
                 hook();
             }
             let Some(surface) = weak.upgrade() else { break };
             let Some(pty) = surface.as_pty() else { break };
-            let term = pty.term.lock().unwrap();
+            let term = pty.term.lock().recover_poison();
             let generation = requested.max(pty.render_generation.load(Ordering::Acquire));
             let colors_pending = pty.attach_colors_pending.load(Ordering::Acquire);
             if colors_pending {

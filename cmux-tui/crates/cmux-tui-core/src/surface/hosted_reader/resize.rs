@@ -2,6 +2,7 @@
 //! the authoritative replay that replaces the mirror's parser.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl HostedReader {
     /// Apply one `Resized` transition: commit the host's geometry.
@@ -14,7 +15,7 @@ impl HostedReader {
         cell_pixels: Option<(u16, u16)>,
     ) -> Flow {
         let mux = self.mux.clone();
-        let mut geometry = pty.geometry.lock().unwrap();
+        let mut geometry = pty.geometry.lock().recover_poison();
         let next_geometry = PtyGeometry {
             cols,
             rows,
@@ -52,7 +53,7 @@ impl HostedReader {
         colors: TerminalColorOverrides,
     ) -> Flow {
         let mux = self.mux.clone();
-        let mut geometry = pty.geometry.lock().unwrap();
+        let mut geometry = pty.geometry.lock().recover_poison();
         let next_geometry =
             PtyGeometry { cols, rows, cell_width: cell_pixels.0, cell_height: cell_pixels.1 };
         let defaults = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
@@ -92,13 +93,13 @@ impl HostedReader {
         let generation = pty.with_terminal_stream_update(|term| {
             let before = terminal_scroll_position(term);
             *term = replacement;
-            pty.mouse_encoders.lock().unwrap().sync_from_terminal(term);
+            pty.mouse_encoders.lock().recover_poison().sync_from_terminal(term);
             *geometry = next_geometry;
             pty.journal_geometry(next_geometry);
             title_moved =
-                std::mem::replace(&mut *pty.title.lock().unwrap(), title.clone()) != title;
+                std::mem::replace(&mut *pty.title.lock().recover_poison(), title.clone()) != title;
             pty.record_directory(pwd);
-            *pty.kitty_graphics_limits.lock().unwrap() = kitty_state.limits;
+            *pty.kitty_graphics_limits.lock().recover_poison() = kitty_state.limits;
             self.applied_color_overrides = colors;
             self.applied_color_revision = term.color_revision();
             self.applied_cursor_activity = term.cursor_activity().ok();

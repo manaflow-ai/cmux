@@ -136,17 +136,24 @@ impl HostedFrameStager {
                     return Err("invalid Resized frame");
                 }
                 if valid_smart {
-                    let cols = u16::from_le_bytes([frame.payload[0], frame.payload[1]]);
-                    let rows = u16::from_le_bytes([frame.payload[2], frame.payload[3]]);
+                    // `valid_smart` checked the length is 4 or 8.
+                    let le_u16 = |at: usize| {
+                        frame
+                            .payload
+                            .get(at..at + 2)
+                            .and_then(|bytes| bytes.try_into().ok())
+                            .map(u16::from_le_bytes)
+                    };
+                    let (Some(cols), Some(rows)) = (le_u16(0), le_u16(2)) else {
+                        return Err("invalid Resized frame");
+                    };
                     let (cols, rows) =
                         crate::terminal_host_runtime::normalize_terminal_geometry(cols, rows)
                             .map_err(|_| "invalid Resized geometry")?;
-                    let cell_pixels = (frame.payload.len() == 8).then(|| {
-                        (
-                            u16::from_le_bytes([frame.payload[4], frame.payload[5]]).max(1),
-                            u16::from_le_bytes([frame.payload[6], frame.payload[7]]).max(1),
-                        )
-                    });
+                    let cell_pixels = match (le_u16(4), le_u16(6)) {
+                        (Some(width), Some(height)) => Some((width.max(1), height.max(1))),
+                        _ => None,
+                    };
                     return Ok(Some(HostedTransition::Resized { cols, rows, cell_pixels }));
                 }
                 let crate::terminal_host_runtime::DecodedHostResize {

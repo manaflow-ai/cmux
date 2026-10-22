@@ -1,10 +1,12 @@
 //! Notifications: per-surface unread markers, posting (CLI, terminal, resource), the durable notification ledger, reads, acks and clears.
 
 use super::*;
+use crate::panic_free::JsonField;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub fn surface_notification(&self, surface: SurfaceId) -> Option<SurfaceNotification> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         let terminal_id =
             match state.surfaces.get(&surface).or_else(|| state.terminal_runtime_by_id(surface)) {
                 Some(runtime) => runtime.terminal_public_id().cloned(),
@@ -17,9 +19,9 @@ impl Mux {
         drop(state);
         match terminal_id {
             Some(terminal_id) => {
-                self.terminal_notifications.lock().unwrap().get(&terminal_id).copied()
+                self.terminal_notifications.lock().recover_poison().get(&terminal_id).copied()
             }
-            None => self.placement_notifications.lock().unwrap().get(&surface).copied(),
+            None => self.placement_notifications.lock().recover_poison().get(&surface).copied(),
         }
     }
 
@@ -27,11 +29,11 @@ impl Mux {
         &self,
         terminal_id: &TerminalPublicId,
     ) -> Option<SurfaceNotification> {
-        self.terminal_notifications.lock().unwrap().get(terminal_id).copied()
+        self.terminal_notifications.lock().recover_poison().get(terminal_id).copied()
     }
 
     pub fn surface_notifications(&self) -> HashMap<SurfaceId, SurfaceNotification> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         self.surface_notifications_in_state(&state)
     }
 
@@ -39,8 +41,8 @@ impl Mux {
         &self,
         state: &State,
     ) -> HashMap<SurfaceId, SurfaceNotification> {
-        let placement_notifications = self.placement_notifications.lock().unwrap();
-        let terminal_notifications = self.terminal_notifications.lock().unwrap();
+        let placement_notifications = self.placement_notifications.lock().recover_poison();
+        let terminal_notifications = self.terminal_notifications.lock().recover_poison();
         let mut result = HashMap::new();
         for (surface_id, surface) in &state.surfaces {
             let notification = match surface.terminal_public_id() {
@@ -178,7 +180,7 @@ impl Mux {
         let id = self.next_notification_id();
         {
             const NOTIFICATION_LEDGER_CAPACITY: usize = 256;
-            let mut ledger = self.notification_ledger.lock().unwrap();
+            let mut ledger = self.notification_ledger.lock().recover_poison();
             ledger.push_back(ResourceNotification {
                 id: public_id,
                 title,
@@ -200,11 +202,11 @@ impl Mux {
                 }
             }
             if !evicted.is_empty() {
-                let mut reads = self.notification_reads.lock().unwrap();
+                let mut reads = self.notification_reads.lock().recover_poison();
                 for id in &evicted {
                     reads.remove(id);
                 }
-                self.notification_read_prunes.lock().unwrap().extend(evicted);
+                self.notification_read_prunes.lock().recover_poison().extend(evicted);
             }
         }
         // The ring and the `notification` event follow the commit
@@ -216,13 +218,13 @@ impl Mux {
         let mut notifications = self
             .notification_ledger
             .lock()
-            .unwrap()
+            .recover_poison()
             .iter()
             .rev()
             .take(limit.min(256))
             .cloned()
             .collect::<Vec<_>>();
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         for notification in &mut notifications {
             if let Some(terminal_id) = &notification.terminal_id {
                 notification.surface = state
@@ -239,7 +241,7 @@ impl Mux {
     pub fn notification_read_by(&self, notification: &NotificationPublicId) -> Vec<String> {
         self.notification_reads
             .lock()
-            .unwrap()
+            .recover_poison()
             .get(notification)
             .map(|clients| clients.iter().cloned().collect())
             .unwrap_or_default()
@@ -270,17 +272,18 @@ impl Mux {
             "read_by": read_by,
         });
         if let Some(terminal_id) = &notification.terminal_id {
-            value["terminal_id"] = serde_json::json!(terminal_id);
+            value.set_field("terminal_id", serde_json::json!(terminal_id));
         }
         if let Some(subtitle) = &notification.subtitle {
-            value["subtitle"] = serde_json::json!(subtitle);
+            value.set_field("subtitle", serde_json::json!(subtitle));
         }
         // Stored under `extra`, which every registry schema already accepts,
         // so a downgraded daemon still opens the receipt.
-        value["extra"] = serde_json::json!({"source": notification.source.as_str()});
+        let mut extra = serde_json::json!({"source": notification.source.as_str()});
         if let Some(workspace) = &notification.workspace_id {
-            value["extra"]["workspace_id"] = serde_json::json!(workspace);
+            extra.set_field("workspace_id", serde_json::json!(workspace));
         }
+        value.set_field("extra", extra);
         value
     }
 
@@ -293,7 +296,7 @@ impl Mux {
         session_id: &SessionPublicId,
     ) -> Value {
         let mut value = self.notification_snapshot_value(notification, session_id, &[]);
-        value["unread"] = Value::Bool(notification.terminal_id.is_some());
+        value.set_field("unread", Value::Bool(notification.terminal_id.is_some()));
         // A non-terminal tab (an agent chat) is named by its content, so a
         // restart finds the tab again to dedupe and acknowledge against.
         if notification.terminal_id.is_none()
@@ -301,13 +304,14 @@ impl Mux {
             && let Some(ContentPublicId::Browser(browser)) = self
                 .state
                 .lock()
-                .unwrap()
+                .recover_poison()
                 .surfaces
                 .get(&surface)
                 .and_then(|surface| surface.resource_identity())
                 .map(|identity| identity.content_id.clone())
+            && let Some(extra) = value.get_mut("extra")
         {
-            value["extra"]["browser_id"] = serde_json::json!(browser);
+            extra.set_field("browser_id", serde_json::json!(browser));
         }
         value
     }
@@ -360,7 +364,7 @@ impl Mux {
     ) -> anyhow::Result<Option<u64>> {
         const OPERATION: &str = "notification.create";
         let terminal_id = surface.and_then(|surface| {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             state
                 .surfaces
                 .get(&surface)
@@ -379,7 +383,7 @@ impl Mux {
             "terminal_id": terminal_id,
         });
         if let Some(subtitle) = &subtitle {
-            fingerprint["subtitle"] = serde_json::json!(subtitle);
+            fingerprint.set_field("subtitle", serde_json::json!(subtitle));
         }
         let committed = |outcome: ResourceEffectOutcome| match outcome {
             ResourceEffectOutcome::Success(_) => Ok(None),
@@ -430,7 +434,7 @@ impl Mux {
             }
         };
         let notification_id: NotificationPublicId =
-            serde_json::from_value(intent["notification_id"].clone())
+            serde_json::from_value(intent.get("notification_id").cloned().unwrap_or_default())
                 .context("stored notification intent has an invalid identity")?;
         let created_at_ms = intent
             .get("created_at_ms")
@@ -459,7 +463,7 @@ impl Mux {
             desktop,
             false,
         );
-        let session_id = self.workspace_registry.lock().unwrap().session_id().clone();
+        let session_id = self.workspace_registry.lock().recover_poison().session_id().clone();
         let notification = ResourceNotification {
             id: notification_id.clone(),
             title,
@@ -503,20 +507,25 @@ impl Mux {
     /// receipts no longer retain. Called after a notification create commits;
     /// ids still retained durably stay queued for a later create.
     pub(crate) fn prune_evicted_notification_reads(&self) {
-        let candidates = std::mem::take(&mut *self.notification_read_prunes.lock().unwrap());
+        let candidates =
+            std::mem::take(&mut *self.notification_read_prunes.lock().recover_poison());
         if candidates.is_empty() {
             return;
         }
-        let remaining =
-            match self.workspace_registry.lock().unwrap().prune_notification_reads(&candidates) {
-                Ok(remaining) => remaining,
-                Err(_) => {
-                    self.report_internal_diagnostic("notification read-mark prune deferred");
-                    candidates
-                }
-            };
+        let remaining = match self
+            .workspace_registry
+            .lock()
+            .recover_poison()
+            .prune_notification_reads(&candidates)
+        {
+            Ok(remaining) => remaining,
+            Err(_) => {
+                self.report_internal_diagnostic("notification read-mark prune deferred");
+                candidates
+            }
+        };
         if !remaining.is_empty() {
-            self.notification_read_prunes.lock().unwrap().extend(remaining);
+            self.notification_read_prunes.lock().recover_poison().extend(remaining);
         }
     }
 
@@ -539,7 +548,7 @@ impl Mux {
             "client_id": client_id,
             "notifications": notifications,
         });
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         if let Some(replay) = registry.replay_resource_patch(mutation, OPERATION, &fingerprint)? {
             return Ok(replay);
         }
@@ -548,8 +557,8 @@ impl Mux {
         let mut unknown: Vec<NotificationPublicId> = Vec::new();
         let mut deltas = Vec::new();
         {
-            let ledger = self.notification_ledger.lock().unwrap();
-            let reads = self.notification_reads.lock().unwrap();
+            let ledger = self.notification_ledger.lock().recover_poison();
+            let reads = self.notification_reads.lock().recover_poison();
             for id in notifications {
                 if acknowledged.contains(id) || unknown.contains(id) {
                     continue;
@@ -590,12 +599,12 @@ impl Mux {
         )?;
         if !commit.replayed {
             {
-                let mut reads = self.notification_reads.lock().unwrap();
+                let mut reads = self.notification_reads.lock().recover_poison();
                 for id in &acknowledged {
                     reads.entry(id.clone()).or_default().insert(client_id.to_string());
                 }
             }
-            self.state.lock().unwrap().resource_revision = commit.revision;
+            self.state.lock().recover_poison().resource_revision = commit.revision;
         }
         drop(registry);
         if !commit.replayed {
@@ -693,14 +702,14 @@ impl Mux {
             "terminal_id": terminal_id,
         });
         if let NotificationClearScope::Workspace(workspace) = cleared_scope.scope {
-            fingerprint["workspace_id"] = serde_json::json!(workspace);
+            fingerprint.set_field("workspace_id", serde_json::json!(workspace));
         }
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().recover_poison();
         if let Some(replay) = registry.replay_resource_patch(mutation, OPERATION, &fingerprint)? {
             return Ok(replay);
         }
         let candidates: Vec<NotificationPublicId> = {
-            let ledger = self.notification_ledger.lock().unwrap();
+            let ledger = self.notification_ledger.lock().recover_poison();
             ledger
                 .iter()
                 .filter(|entry| cleared_scope.covers_entry(entry))
@@ -734,11 +743,11 @@ impl Mux {
         )?;
         if !commit.replayed {
             {
-                let mut ledger = self.notification_ledger.lock().unwrap();
+                let mut ledger = self.notification_ledger.lock().recover_poison();
                 ledger.retain(|entry| !cleared.contains(&entry.id));
             }
             {
-                let mut reads = self.notification_reads.lock().unwrap();
+                let mut reads = self.notification_reads.lock().recover_poison();
                 for id in &cleared {
                     reads.remove(id);
                 }
@@ -761,28 +770,31 @@ impl Mux {
                 (NotificationClearScope::Terminal(terminal_id), _)
                     if !terminal_unread(terminal_id) =>
                 {
-                    self.terminal_notifications.lock().unwrap().remove(terminal_id);
+                    self.terminal_notifications.lock().recover_poison().remove(terminal_id);
                 }
                 (NotificationClearScope::Terminal(_), _) => {}
                 (NotificationClearScope::Workspace(_), Some(members)) => {
-                    self.terminal_notifications.lock().unwrap().retain(|terminal, _| {
+                    self.terminal_notifications.lock().recover_poison().retain(|terminal, _| {
                         !members.terminals.contains(terminal) || terminal_unread(terminal)
                     });
-                    self.placement_notifications.lock().unwrap().retain(|surface, _| {
+                    self.placement_notifications.lock().recover_poison().retain(|surface, _| {
                         !members.surfaces.contains(surface) || tab_unread(&members.tabs, surface)
                     });
                 }
                 (NotificationClearScope::Workspace(_), None) => {}
                 (NotificationClearScope::Session, _) => {
                     let tabs = self.with_state(|state| state.resource_indexes.tab_ids.clone());
-                    self.terminal_notifications.lock().unwrap().retain(|t, _| terminal_unread(t));
+                    self.terminal_notifications
+                        .lock()
+                        .recover_poison()
+                        .retain(|t, _| terminal_unread(t));
                     self.placement_notifications
                         .lock()
-                        .unwrap()
+                        .recover_poison()
                         .retain(|surface, _| tab_unread(&tabs, surface));
                 }
             }
-            self.state.lock().unwrap().resource_revision = commit.revision;
+            self.state.lock().recover_poison().resource_revision = commit.revision;
         }
         drop(registry);
         Ok(commit)

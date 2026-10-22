@@ -1,6 +1,7 @@
 //! Input delivery on `Surface`: raw and receipted writes and bounded paste.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 /// How long hosted input waits for a lost host connection to come back (a
 /// reconnect or an in-place replacement host, cx-6so.49) before it fails.
@@ -37,7 +38,7 @@ impl Surface {
         if let Some(result) = Self::send_hosted_input(pty, MessageKind::Input, bytes) {
             return result;
         }
-        let mut runtime = pty.runtime.lock().unwrap();
+        let mut runtime = pty.runtime.lock().recover_poison();
         match &mut *runtime {
             PtyRuntime::Local { writer, master, .. } => {
                 let master = master.as_deref().map(|master| master as &dyn MasterPty);
@@ -75,7 +76,7 @@ impl Surface {
             // Read the revision before the send: an install after it wakes
             // the wait below, so no reconnect is missed.
             let observed = pty.stream_progress.revision();
-            let sent = match &*pty.runtime.lock().unwrap() {
+            let sent = match &*pty.runtime.lock().recover_poison() {
                 PtyRuntime::Hosted(host) => host.send(kind, bytes),
                 // Keep-on-exit: the final screen drops input (see
                 // write_bytes). Input that already failed to reach the host
@@ -121,7 +122,7 @@ impl Surface {
                 "browser surface does not accept PTY bytes",
             )));
         };
-        let mut runtime = pty.runtime.lock().unwrap();
+        let mut runtime = pty.runtime.lock().recover_poison();
         match &mut *runtime {
             PtyRuntime::Local { writer, .. } => writer
                 .write_all(bytes)
@@ -183,12 +184,14 @@ impl Surface {
             return result;
         }
         let bracketed = {
-            let term = pty.term.lock().unwrap();
+            let term = pty.term.lock().recover_poison();
             term.mode(2004, false)
         };
-        let mut runtime = pty.runtime.lock().unwrap();
+        let mut runtime = pty.runtime.lock().recover_poison();
+        // A hosted runtime returned above (send_hosted_input); an exited
+        // host has no writer either.
         let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
-            unreachable!("hosted paste returned above")
+            return Err(std::io::Error::other("terminal does not accept paste input"));
         };
         #[cfg(not(unix))]
         let _ = master;
@@ -219,7 +222,7 @@ impl Surface {
     #[cfg(test)]
     pub(crate) fn replace_input_writer_for_test(&self, replacement: Box<dyn Write + Send>) {
         let pty = self.as_pty().expect("input test requires a terminal");
-        let mut runtime = pty.runtime.lock().unwrap();
+        let mut runtime = pty.runtime.lock().recover_poison();
         let PtyRuntime::Local { writer, .. } = &mut *runtime else {
             panic!("input test requires the in-process test runtime");
         };

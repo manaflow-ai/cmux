@@ -2,6 +2,7 @@
 //! and the reset after a healthy connection.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 #[cfg(any(unix, windows))]
 pub(super) const TERMINAL_HOST_RECONNECT_MAX_FAILURES: u8 = 16;
@@ -78,7 +79,7 @@ impl TerminalHostReconnectBackoff {
             }
             pty.host_connection_state
                 .store(TerminalHostConnectionState::Failed as u8, Ordering::Release);
-            if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
+            if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().recover_poison() {
                 host.disconnect();
             }
             // Input waiting out the reconnect (surface/input.rs) fails now.

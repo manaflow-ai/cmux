@@ -3,6 +3,7 @@
 //! cell-pixel and hosted clear-history helpers they install.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Surface {
     #[cfg_attr(not(test), allow(dead_code))]
@@ -263,8 +264,11 @@ impl Surface {
             ),
         };
         let argv = launch.command;
-        let mut cmd = PtyCommand::new(&argv[0]);
-        cmd.args(argv[1..].iter().cloned());
+        let Some((program, args)) = argv.split_first() else {
+            anyhow::bail!("terminal launch command is empty");
+        };
+        let mut cmd = PtyCommand::new(program);
+        cmd.args(args.iter().cloned());
         cmd.env("TERM", &opts.term);
         // The embedded ghostty-vt terminal always parses 24-bit SGR and every
         // frontend forwards RGB cells losslessly, so children can rely on
@@ -330,11 +334,10 @@ impl Surface {
         responses: &Arc<crate::terminal_host_runtime::ControlResponses>,
     ) {
         let surface = Arc::downgrade(surface);
+        let installer = responses;
         let responses = Arc::downgrade(responses);
-        responses
-            .upgrade()
-            .expect("control responses are live while installing their handler")
-            .set_deferred_cell_pixel_handler(Arc::new(move |request_id, expected, resolution| {
+        installer.set_deferred_cell_pixel_handler(Arc::new(
+            move |request_id, expected, resolution| {
                 if matches!(
                     &resolution,
                     crate::terminal_host_runtime::DeferredCellPixelResolution::Disconnected
@@ -366,7 +369,8 @@ impl Surface {
                         &responses, request_id, expected, resolution,
                     );
                 }
-            }));
+            },
+        ));
     }
 
     #[cfg(any(unix, windows))]
@@ -379,7 +383,8 @@ impl Surface {
     ) {
         #[cfg(test)]
         if let Some(pty) = self.as_pty()
-            && let Some(hook) = pty.deferred_cell_pixel_ack_test_hook.lock().unwrap().clone()
+            && let Some(hook) =
+                pty.deferred_cell_pixel_ack_test_hook.lock().recover_poison().clone()
         {
             hook();
         }
@@ -391,7 +396,7 @@ impl Surface {
         };
         let Some(pty) = self.as_pty() else { return };
         let owns_response = {
-            let runtime = pty.runtime.lock().unwrap();
+            let runtime = pty.runtime.lock().recover_poison();
             matches!(
                 &*runtime,
                 PtyRuntime::Hosted(host)
@@ -405,15 +410,15 @@ impl Surface {
         if frame.kind != MessageKind::CellPixelSizeAck
             || frame.payload.as_slice() != expected_payload
         {
-            if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
+            if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().recover_poison() {
                 host.disconnect();
             }
             return;
         }
 
-        let mut geometry = pty.geometry.lock().unwrap();
+        let mut geometry = pty.geometry.lock().recover_poison();
         let still_owns_response = {
-            let runtime = pty.runtime.lock().unwrap();
+            let runtime = pty.runtime.lock().recover_poison();
             matches!(
                 &*runtime,
                 PtyRuntime::Hosted(host)
@@ -436,7 +441,7 @@ impl Surface {
                 }
             }
             Err(_) => {
-                if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
+                if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().recover_poison() {
                     host.disconnect();
                 }
             }
@@ -452,14 +457,14 @@ impl Surface {
     ) {
         let mut scroll_changed = None;
         let generation = {
-            let mut term = pty.term.lock().unwrap();
+            let mut term = pty.term.lock().recover_poison();
             let before = terminal_scroll_position(&term);
             let normalized = term.vt_write_with_normalized(replay);
             let output = match normalized {
                 Cow::Borrowed(_) => replay.to_vec(),
                 Cow::Owned(normalized) => normalized,
             };
-            pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+            pty.mouse_encoders.lock().recover_poison().sync_from_terminal(&term);
             pty.broadcast_attach_output(&output);
             let after = terminal_scroll_position(&term);
             if before != after {

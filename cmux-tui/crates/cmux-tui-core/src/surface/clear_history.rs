@@ -2,6 +2,7 @@
 //! alternate-screen key fallback, classified by delivery failure.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Surface {
     /// Clear retained primary-screen output inside the emulator without
@@ -63,7 +64,7 @@ impl Surface {
         // the new stream.
         #[cfg(any(unix, windows))]
         {
-            let pending = match &*pty.runtime.lock().unwrap() {
+            let pending = match &*pty.runtime.lock().recover_poison() {
                 PtyRuntime::Hosted(host) => Some(host.begin_clear_history(fallback_key)?),
                 PtyRuntime::ExitedHosted => {
                     return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
@@ -88,7 +89,7 @@ impl Surface {
         let mut observed_progress = pty.stream_progress.revision();
         let mut stream_wait = None;
         loop {
-            let mut term = pty.term.lock().unwrap();
+            let mut term = pty.term.lock().recover_poison();
             let before = terminal_scroll_position(&term);
             let scroll_changed = match apply_clear_history_transition(&mut term, fallback_key)
                 .map_err(ClearHistoryFailure::known_not_delivered)?
@@ -113,9 +114,13 @@ impl Surface {
                     continue;
                 }
                 ClearHistoryTransition::EncodedFallback(encoded) => {
-                    let mut runtime = pty.runtime.lock().unwrap();
+                    let mut runtime = pty.runtime.lock().recover_poison();
+                    // A local PTY runtime never becomes hosted; if it did,
+                    // nothing was written.
                     let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
-                        unreachable!("a local PTY runtime cannot become hosted")
+                        return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+                            "terminal runtime is not a local PTY"
+                        )));
                     };
                     let Some(master) = master.as_deref() else {
                         return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
@@ -127,7 +132,7 @@ impl Surface {
                 }
                 ClearHistoryTransition::Noop => return Ok(()),
                 ClearHistoryTransition::Cleared(clear) => {
-                    pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+                    pty.mouse_encoders.lock().recover_poison().sync_from_terminal(&term);
                     pty.broadcast_attach_output(&clear);
                     pty.stream_progress.notify();
                     let after = terminal_scroll_position(&term);

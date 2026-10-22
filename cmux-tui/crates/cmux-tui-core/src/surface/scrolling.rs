@@ -2,6 +2,7 @@
 //! scrollbar reads, and scroll-to-bottom with scroll events to the mux.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Surface {
     pub fn scroll_delta(&self, delta: isize) -> anyhow::Result<()> {
@@ -15,7 +16,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
-        let mut term = pty.term.lock().unwrap();
+        let mut term = pty.term.lock().recover_poison();
         let Some(scrollbar) = pty.view_scrollbar_locked(&mut term) else { return Ok(None) };
         let target = if delta < 0 {
             scrollbar.offset.saturating_sub(delta.unsigned_abs() as u64)
@@ -38,7 +39,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
-        let mut term = pty.term.lock().unwrap();
+        let mut term = pty.term.lock().recover_poison();
         let Some(scrollbar) = pty.view_scrollbar_locked(&mut term) else { return Ok(None) };
         if scrollbar != expected {
             return Ok(None);
@@ -55,7 +56,7 @@ impl Surface {
 
     pub fn view_scrollbar(&self) -> Option<Scrollbar> {
         let pty = self.as_pty()?;
-        let mut term = pty.term.lock().unwrap();
+        let mut term = pty.term.lock().recover_poison();
         pty.view_scrollbar_locked(&mut term)
     }
 
@@ -63,7 +64,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
-        let mut term = pty.term.lock().unwrap();
+        let mut term = pty.term.lock().recover_poison();
         let Some(scrollbar) = pty.view_scrollbar_locked(&mut term) else { return Ok(false) };
         let bottom = scrollbar.total.saturating_sub(scrollbar.len);
         let changed = scrollbar.offset != bottom;
@@ -90,7 +91,7 @@ impl Surface {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
         let (scrollbar, changed) = {
-            let mut term = pty.term.lock().unwrap();
+            let mut term = pty.term.lock().recover_poison();
             if expected.is_some_and(|expected| term.scrollbar() != Some(expected)) {
                 return Ok(None);
             }
@@ -120,7 +121,7 @@ impl Surface {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
         let changed = {
-            let mut term = pty.term.lock().unwrap();
+            let mut term = pty.term.lock().recover_poison();
             let before = terminal_scroll_position(&term);
             term.scroll_to_bottom();
             let after = terminal_scroll_position(&term);
@@ -144,7 +145,7 @@ impl Surface {
 
 pub(super) fn broadcast_render_scroll_locked(pty: &PtySurface, position: (u64, bool)) {
     let (offset, at_bottom) = position;
-    let mut render = pty.render.lock().unwrap();
+    let mut render = pty.render.lock().recover_poison();
     render.taps.retain(|tap| tap.send(RenderAttachFrame::ScrollChanged { offset, at_bottom }));
 }
 

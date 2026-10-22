@@ -3,6 +3,7 @@
 //! terminal and, after a loss or resync, reconnects or rehosts.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 use crate::terminal_host_runtime::HostStream as UnixStream;
 
 mod output;
@@ -89,11 +90,11 @@ impl HostedReader {
         // Declared first so it drops last: input waiting out a reconnect
         // (surface/input.rs) wakes after the completion below is recorded.
         let _wake_waiting_input = WakeInputOnReaderEnd(surface.clone());
-        let _reader_completion = ReaderCompletionGuard(
-            surface.as_pty().expect("host reader owns a PTY surface").reader_completion.clone(),
-        );
+        // Only a PTY surface starts a host reader; a browser surface has no
+        // host stream to read.
+        let Some(pty) = surface.as_pty() else { return };
+        let _reader_completion = ReaderCompletionGuard(pty.reader_completion.clone());
         loop {
-            let pty = surface.as_pty().expect("host reader owns a PTY surface");
             rehost::request_custody(&surface);
             let Some(end) = self.stream(&surface, pty, reader) else { return };
             let Some(next) = self.after_stream(&surface, end.received_exit, end.resync_requested)
@@ -161,7 +162,7 @@ impl HostedReader {
                     {
                         break;
                     }
-                    Some(&frame.payload[1..])
+                    frame.payload.get(1..)
                 } else {
                     None
                 };
@@ -181,11 +182,19 @@ impl HostedReader {
             };
             let Some(transition) = transition else { continue };
             let flow = match transition {
-                transition @ (HostedTransition::Output(_)
-                | HostedTransition::OutputWithColors { .. }) => self.apply_output(
+                HostedTransition::Output(output) => self.apply_output(
                     surface,
                     pty,
-                    transition,
+                    output,
+                    None,
+                    &mut journal_target,
+                    &mut journal_update,
+                ),
+                HostedTransition::OutputWithColors { output, colors } => self.apply_output(
+                    surface,
+                    pty,
+                    output,
+                    Some(colors),
                     &mut journal_target,
                     &mut journal_update,
                 ),
@@ -266,7 +275,7 @@ impl HostedReader {
         if let Some(exit) = received_exit {
             // The host's Exit frame is its report that the child
             // ended, even when an older host omits the status.
-            *pty.exit.lock().unwrap() = Some(TerminalEnd::from_host_exit(exit));
+            *pty.exit.lock().recover_poison() = Some(TerminalEnd::from_host_exit(exit));
             mark_hosted_runtime_exited(pty, &identity);
             pty.host_connection_state
                 .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);

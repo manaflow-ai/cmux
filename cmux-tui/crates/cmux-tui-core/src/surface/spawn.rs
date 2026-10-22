@@ -13,6 +13,7 @@ use cmux_pty::{ChildKiller, MasterPty};
 use ghostty_vt::{Callbacks, RenderState, Terminal};
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 use crate::terminal_end::TerminalEnd;
 
 /// What the local runtime of one terminal runs on.
@@ -86,7 +87,7 @@ impl Surface {
         let callbacks = Callbacks {
             on_pty_write: Some(Box::new({
                 let pending = pending_responses.clone();
-                move |bytes| pending.lock().unwrap().extend_from_slice(bytes)
+                move |bytes| pending.lock().recover_poison().extend_from_slice(bytes)
             })),
             on_title_changed: Some(Box::new({
                 let flag = title_changed.clone();
@@ -243,13 +244,9 @@ impl Surface {
             std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn({
                 let surface = surface.clone();
                 move || {
-                    let _reader_completion = ReaderCompletionGuard(
-                        surface
-                            .as_pty()
-                            .expect("local PTY reader owns a PTY surface")
-                            .reader_completion
-                            .clone(),
-                    );
+                    // `surface` is the `Surface::Pty` built above.
+                    let Some(pty) = surface.as_pty() else { return };
+                    let _reader_completion = ReaderCompletionGuard(pty.reader_completion.clone());
                     let mut buf = [0u8; 64 * 1024];
                     let mut shell_marks = crate::prompt_mode_reset::ShellMarks::default();
                     // The PTY master is blocking, so WouldBlock should not
@@ -260,7 +257,6 @@ impl Surface {
                         Duration::from_millis(50),
                     );
                     loop {
-                        let pty = surface.as_pty().expect("surface reader got non-pty surface");
                         let journal_target = pty.journal_target();
                         // Reserve the capture epoch before read(2). Shutdown
                         // can revoke a blocked reservation, but it cannot place
@@ -286,12 +282,14 @@ impl Surface {
                             }
                             Err(_) => break,
                         };
+                        // `read` never reports more than the buffer holds.
+                        let Some(chunk) = buf.get(..n) else { break };
                         let mut scroll_changed = None;
                         let mut title_update = None;
                         let terminal_notifications;
                         let finished_commands;
                         let generation = {
-                            let mut term = pty.term.lock().unwrap();
+                            let mut term = pty.term.lock().recover_poison();
                             if let Some(update) = journal_update.as_mut()
                                 && !update.activate()
                             {
@@ -301,24 +299,21 @@ impl Surface {
                             let before = terminal_scroll_position(&term);
                             let color_revision = term.color_revision();
                             let color_reapply_revision = term.color_reapply_revision();
-                            let cursor_activity = term
-                                .cursor_activity()
-                                .expect("valid local terminals expose cursor activity");
+                            // An error reads as "unknown" on both sides, so a
+                            // terminal that cannot report it never flags a change.
+                            let cursor_activity = term.cursor_activity().ok();
                             let normalized = crate::prompt_mode_reset::write_output(
                                 &mut term,
-                                &buf[..n],
+                                chunk,
                                 &mut shell_marks,
                             );
-                            terminal_notifications = pty.observe_terminal_output(&buf[..n]);
+                            terminal_notifications = pty.observe_terminal_output(chunk);
                             finished_commands = pty.observe_shell_marks(&mut term, || {
                                 mux.upgrade()
                                     .is_some_and(|mux| mux.terminal_command_history_enabled())
                             });
-                            let cursor_changed = term
-                                .cursor_activity()
-                                .expect("valid local terminals expose cursor activity")
-                                != cursor_activity;
-                            pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+                            let cursor_changed = term.cursor_activity().ok() != cursor_activity;
+                            pty.mouse_encoders.lock().recover_poison().sync_from_terminal(&term);
                             let after = terminal_scroll_position(&term);
                             let has_attach_taps = pty.broadcast_attach_output(normalized.as_ref());
                             if has_attach_taps
@@ -335,7 +330,7 @@ impl Surface {
                                 // A program that rewrites the same title (a spinner's
                                 // resting frame, a prompt redraw) announces nothing.
                                 let title = crate::terminal_title::read(&term);
-                                let mut stored = pty.title.lock().unwrap();
+                                let mut stored = pty.title.lock().recover_poison();
                                 if *stored != title {
                                     *stored = title.clone();
                                     title_update = Some(title);
@@ -395,7 +390,8 @@ impl Surface {
                         {
                             mux.append_shell_commands(terminal.clone(), finished_commands);
                         }
-                        let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
+                        let responses =
+                            std::mem::take(&mut *pending_responses.lock().recover_poison());
                         if !responses.is_empty() {
                             let _ = surface.write_bytes(&responses);
                         }
@@ -407,17 +403,17 @@ impl Surface {
                     publish_local_exit_if_ready(&surface);
                 }
             })?;
-        *surface
-            .as_pty()
-            .expect("local PTY surface owns its reader")
-            .reader_thread
-            .lock()
-            .unwrap() = Some(reader_thread);
+        let Some(pty) = surface.as_pty() else {
+            // Unreachable in practice: `surface` is the `Surface::Pty` built
+            // above. Fail the spawn rather than run without a reaper.
+            close_local_terminal_master_after_exit(&surface);
+            anyhow::bail!("local PTY spawn built a non-PTY surface");
+        };
+        *pty.reader_thread.lock().recover_poison() = Some(reader_thread);
 
         // Child reaper: retain the native status and rendezvous with PTY EOF
         // so final output is visible before the mux observes completion.
-        let reaper_completion =
-            surface.as_pty().expect("local PTY surface owns its reaper").reaper_completion.clone();
+        let reaper_completion = pty.reaper_completion.clone();
         reaper_completion.reset();
         // Keep the surface alive with the join handle until the child wait
         // completes. This prevents a deadline timeout from detaching a live
@@ -428,7 +424,7 @@ impl Surface {
                 let _reaper_completion = ReaderCompletionGuard(reaper_completion);
                 let end = wait();
                 if let Some(pty) = reaper_surface.as_pty() {
-                    *pty.exit.lock().unwrap() = Some(end);
+                    *pty.exit.lock().recover_poison() = Some(end);
                 }
                 close_local_terminal_master_after_exit(&reaper_surface);
                 publish_local_exit_if_ready(&reaper_surface);
@@ -439,12 +435,7 @@ impl Surface {
                     return Err(error.into());
                 }
             };
-        *surface
-            .as_pty()
-            .expect("local PTY surface owns its reaper")
-            .reaper_thread
-            .lock()
-            .unwrap() = Some(reaper_thread);
+        *pty.reaper_thread.lock().recover_poison() = Some(reaper_thread);
 
         Ok(surface)
     }

@@ -2,6 +2,7 @@
 //! killers and a startup child whose exit the test controls.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 #[cfg(test)]
 pub(super) struct TestMasterPty {
@@ -21,12 +22,12 @@ impl MasterPty for TestMasterPty {
         if self.control.fail_next_resize.swap(false, Ordering::AcqRel) {
             anyhow::bail!("injected PTY master resize failure");
         }
-        *self.size.lock().unwrap() = size;
+        *self.size.lock().recover_poison() = size;
         Ok(())
     }
 
     fn get_size(&self) -> anyhow::Result<PtySize> {
-        Ok(*self.size.lock().unwrap())
+        Ok(*self.size.lock().recover_poison())
     }
 
     fn try_clone_reader(&self) -> anyhow::Result<Box<dyn Read + Send>> {
@@ -62,12 +63,12 @@ pub(super) struct FdMasterPty {
 #[cfg(all(test, unix))]
 impl MasterPty for FdMasterPty {
     fn resize(&self, size: PtySize) -> anyhow::Result<()> {
-        *self.size.lock().unwrap() = size;
+        *self.size.lock().recover_poison() = size;
         Ok(())
     }
 
     fn get_size(&self) -> anyhow::Result<PtySize> {
-        Ok(*self.size.lock().unwrap())
+        Ok(*self.size.lock().recover_poison())
     }
 
     fn try_clone_reader(&self) -> anyhow::Result<Box<dyn Read + Send>> {
