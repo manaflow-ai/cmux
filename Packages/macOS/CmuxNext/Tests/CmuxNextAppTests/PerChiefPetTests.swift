@@ -18,10 +18,16 @@ import Testing
     static let main = HomeChiefAvatars.defaultChief
     static let scout = "agent_scout01"
 
+    /// How many times the rows asked the header to redraw (`onMascot`).
+    @MainActor final class Redraws {
+        var count = 0
+    }
+
     /// One Chief's settings popover with the pet rows installed, as HomeHostView builds it.
     struct Popover {
         let view: HomeChiefSettingsView
         let rows: ChiefPetSettingsRows
+        let redraws: Redraws
 
         /// The popover's character buttons, by the names the Settings page shows.
         func characters() -> [NSButton] {
@@ -64,13 +70,19 @@ import Testing
         /// The app's per-Chief picks as a launch reads them from its defaults.
         func picks() -> ChiefMascotPicks { ChiefMascotPicks(defaults: defaults, defaultChief: PerChiefPetTests.main) }
 
-        func popover(chief: String, picks: ChiefMascotPicks) -> Popover {
+        func popover(chief: String, picks: ChiefMascotPicks) async -> Popover {
             let home = url.deletingLastPathComponent().appending(path: "brain-\(chief)")
             let view = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
             let rows = ChiefPetSettingsRows(settings: { settings }, homes: ChiefPetHomes(), picks: picks)
-            rows.chief = chief
+            let redraws = Redraws()
+            rows.onMascot = { redraws.count += 1 }
+            // HomeHostView's order: the rows are installed and show the default Chief's character,
+            // then the conversation's Chief is known.
             rows.install(in: view, addRow: { view.addAppearanceRow($0, control: $1) }, open: { false })
-            return Popover(view: view, rows: rows)
+            let popover = Popover(view: view, rows: rows, redraws: redraws)
+            await until { redraws.count > 0 }
+            rows.chief = chief
+            return popover
         }
     }
 
@@ -93,8 +105,8 @@ import Testing
         let h = try await make(#"{"home":{"chiefPetMascot":"fox"}}"#)
         defer { h.tearDown() }
         let picks = h.picks()
-        let main = h.popover(chief: Self.main, picks: picks)
-        let scout = h.popover(chief: Self.scout, picks: picks)
+        let main = await h.popover(chief: Self.main, picks: picks)
+        let scout = await h.popover(chief: Self.scout, picks: picks)
         let fox = try #require(ChiefPetPopoverPickerTests.name(of: "fox"))
         let orb = try #require(ChiefPetPopoverPickerTests.name(of: "orb"))
         let moon = try #require(ChiefPetPopoverPickerTests.name(of: "moon"))
@@ -102,6 +114,14 @@ import Testing
         await h.until { main.checked() == [fox] && scout.checked() == [orb] }
         #expect(main.checked() == [fox], "the default Chief keeps the character it wore")
         #expect(scout.checked() == [orb], "another Chief starts on the default character")
+
+        // Scout picks the character the default Chief wears: the header redraws in Scout's.
+        let redraws = scout.redraws.count
+        try scout.pick("fox")
+        await h.until { scout.redraws.count > redraws }
+        #expect(scout.redraws.count > redraws, "Scout's header wears its new character")
+        #expect(scout.checked() == [fox])
+        #expect(picks.mascot(of: Self.scout, in: h.settings.snapshot) == "fox")
 
         // Scout's pick changes Scout only.
         try scout.pick("moon")
@@ -124,7 +144,7 @@ import Testing
         #expect(relaunched.mascot(of: Self.scout, in: h.settings.snapshot) == "moon")
         #expect(relaunched.mascot(of: Self.main, in: h.settings.snapshot) == "machine")
         #expect(relaunched.mascot(of: "agent_new02", in: h.settings.snapshot) == HomeChiefPetSetting.defaultMascot)
-        let reopened = h.popover(chief: Self.scout, picks: relaunched)
+        let reopened = await h.popover(chief: Self.scout, picks: relaunched)
         await h.until { reopened.checked() == [moon] }
         #expect(reopened.checked() == [moon])
     }
