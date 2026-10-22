@@ -18,6 +18,18 @@ struct GhosttySecurityDefaultsTests {
         #expect(try resolvedString("clipboard-write", configText: "clipboard-write = ask\n") == "ask")
     }
 
+    @Test func programWriteWithoutConfirmationIsCommittedSilently() {
+        #expect(TerminalClipboardRequests.writeDecision(userInitiated: false, requiresConfirmation: false) == .write)
+    }
+
+    @Test func programWriteGhosttyAsksAboutShowsTheDialog() {
+        #expect(TerminalClipboardRequests.writeDecision(userInitiated: false, requiresConfirmation: true) == .confirm)
+    }
+
+    @Test func userCopyNeverShowsTheDialog() {
+        #expect(TerminalClipboardRequests.writeDecision(userInitiated: true, requiresConfirmation: true) == .write)
+    }
+
     @Test func explicitClipboardWriteDenyStaysDenied() throws {
         #expect(try resolvedString("clipboard-write", configText: "clipboard-write = deny\n") == "deny")
     }
