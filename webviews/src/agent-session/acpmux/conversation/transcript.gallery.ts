@@ -1582,7 +1582,7 @@ export default agentPaneEntry({
       },
     },
     "refused-retry": {
-      note: "A prompt the host refused: why, and Retry.",
+      note: "A failed prompt from an older session, with no record of its send: why, and no Retry, since nothing is left to send.",
       snapshot: chat([
         user(prompt, 3),
         assistant("Done.", 2.8),

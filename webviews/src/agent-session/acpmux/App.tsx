@@ -374,7 +374,7 @@ import { contextAttachment, floatingStatus, type QuickFloating } from "./Floatin
 import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
 import { DeliveryFailure } from "./conversation/PromptDelivery";
-import { RetryGateContext } from "./promptFailureCause";
+import { RetryGateContext, trustHolds } from "./promptFailureCause";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { useSideSessions } from "./aside/sideSessions";
@@ -6781,10 +6781,10 @@ function AcpmuxPane() {
     cards: toolCards,
     silent: snapshot.silentTurn,
   });
-  // Whether a failed prompt's held cause cleared, for its Retry (promptFailureCause.ts): the trust
-  // question answered Trust, the pane connected again.
-  const trustHolds = Boolean(trustAsk.blocked);
-  const retryGate = useMemo(() => ({ trustBlocked: trustHolds, connected }), [trustHolds, connected]);
+  // Whether a failed prompt's held cause cleared, for its Retry (promptFailureCause.ts): the folder
+  // is known to be trusted (a read in flight still holds), the pane connected again.
+  const retryTrustHolds = trustHolds(trustAsk);
+  const retryGate = useMemo(() => ({ trustBlocked: retryTrustHolds, connected }), [retryTrustHolds, connected]);
   const transcript = (
     // Quick Chat's panel has no room beside it: its fences have no Open preview.
     <ArtifactContext.Provider value={quick ? undefined : openArtifact}>
