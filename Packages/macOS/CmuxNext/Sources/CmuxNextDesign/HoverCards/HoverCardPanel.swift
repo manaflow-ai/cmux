@@ -404,7 +404,7 @@ extension HoverCardPanel {
             // the screen keeps its top in that part and runs out of the window's bottom. The screen
             // wins over the window: when that would push the card off the screen's bottom (a window
             // mostly below the screen), it sits on the screen's bottom and its top rises past the
-            // window's only as far as it must.
+            // window's only as far as it must; a card taller than the screen sits on its bottom too.
             if origin.x + size.width > room.maxX {
                 origin.x = ((anchor.minX - HoverCardEscapeGeometry.edgeGap(scale: scale)) * scale).rounded(.up) / scale - size.width
                 isLeading = true
@@ -414,7 +414,7 @@ extension HoverCardPanel {
             if let inWindow, !inWindow.isNull, inWindow.height > 0 {
                 origin.y = min(max(origin.y, inWindow.minY), inWindow.maxY - size.height)
             }
-            origin.y = clampY(origin.y)
+            origin.y = max(min(origin.y, room.maxY - size.height), room.minY)
         case .besideRow:
             // Beside a sidebar row, top-aligned with it and clamped into the visible frame; left of
             // the row when the screen ends first (`HoverCardEscapeGeometry`).
