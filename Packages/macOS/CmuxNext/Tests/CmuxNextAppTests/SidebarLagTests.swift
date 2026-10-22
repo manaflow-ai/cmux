@@ -25,6 +25,7 @@ struct SidebarLagTests {
         bench.drain()
         _ = SidebarPerfCounters.report(reset: true)
         SidebarSessionTree.shared.pullRequests[bench.ids[2]] = SidebarPullRequestBadge(count: 2, status: .failing)
+        bench.sidebar.renderNow() // the render the observation runs, in this turn (`SidebarSameTurn`)
         bench.drain()
         bench.drawFrame()
         let counts = SidebarPerfCounters.report(reset: true)
