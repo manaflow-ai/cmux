@@ -1586,6 +1586,10 @@ path = "tests/test_cmux_next_tip_swift_suite.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_swift_test_shards.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_debug_only_controls.py"
 lane = "linux-guard"
 

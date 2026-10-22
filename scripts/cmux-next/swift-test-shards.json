@@ -1,0 +1,112 @@
+{
+  "_comment": "The shards of cmux-next.yml's swift-test job (scripts/cmux-next/swift_test_shards.py reads this file; tests/test_cmux_next_swift_test_shards.py holds the invariants). Every test target of the CmuxNext package is in exactly one shard. `runner` is the class of host a shard needs: `gui` (a logged-in console session: AppKit windows, WebKit, the pasteboard) or `mac` (macOS only). A shard's `parallel_skip` suites are left out of its parallel run and run in its `serial` steps, each in a process of its own; a serial step runs when any target in its `when_targets` is selected. `script_tests` marks the shard that runs the job's macOS script tests and the sidebar layout reducer's cargo test. Today the job runs every shard in one process on the gui runner.",
+  "package": "Packages/macOS/CmuxNext",
+  "shards": [
+    {
+      "name": "gui-1",
+      "runner": "gui",
+      "script_tests": false,
+      "targets": [
+        "CmuxNextActionsTests",
+        "CmuxNextAgentPaneTests",
+        "CmuxNextAppTests",
+        "CmuxNextBrowserTests",
+        "CmuxNextControlTests",
+        "CmuxNextDesignTests",
+        "CmuxNextFloatingTests",
+        "CmuxNextMobileHostTests",
+        "CmuxNextPagesTests",
+        "CmuxNextPaletteTests",
+        "CmuxNextPopupsTests",
+        "CmuxNextScreenshotsTests"
+      ],
+      "parallel_skip": ["CmuxNextControlTests", "CloudBringBackTests"],
+      "serial": [
+        {
+          "name": "Run CloudBringBack cases in fresh processes",
+          "when_targets": ["CmuxNextAppTests"],
+          "suite": "CloudBringBackTests",
+          "target": "CmuxNextAppTests",
+          "timeout_minutes": 40,
+          "hang_seconds": 900,
+          "no_parallel": true,
+          "each_case": [
+            "aCLIBringBackEndsWithTheChatInALocalTabAndTheMachineTabClosed",
+            "aRevokeThatFailsIsTriedAgainUntilItIsDone",
+            "aFileAskFromAMovedChatShowsACardAndOnlyThePersonsClickAnswersIt",
+            "aSecretAskTakesWhatThePersonTypesOnStdinOnlyAndNoFileHoldsIt",
+            "aFileDroppedInAMovedChatGoesToItsMachineFromThisMacsPastesFolderOnly",
+            "aSyncConflictKeepsTheMachineTabAndShowsTheConflict",
+            "anOutdatedMachineIsNamedAndTheChatStaysOnIt",
+            "updateMachineUpdatesAnOutdatedMachineThenBringsTheChatBack",
+            "aGuardRefusalKeepsTheMachineTabWithAClearMessage",
+            "aGuardRefusalOffersAskFirstThenBringsTheChatBack",
+            "aCommittedBringBackWhoseTabFailedStillOpensItAfterARelaunch",
+            "aSyncPullThatThrowsKeepsTheBringBackRetryable"
+          ]
+        },
+        {
+          "name": "Run control package tests and callback regressions",
+          "when_targets": ["CmuxNextControlTests", "CmuxNextAppTests"],
+          "filter": "CmuxNextControlTests",
+          "skip": ["CLISurfaceParityTests"],
+          "target": "CmuxNextControlTests",
+          "timeout_minutes": 20,
+          "hang_seconds": 900,
+          "no_parallel": false
+        },
+        {
+          "name": "Run CLI parity tests",
+          "when_targets": ["CmuxNextControlTests", "CmuxNextAppTests"],
+          "suite": "CLISurfaceParityTests",
+          "target": "CmuxNextControlTests",
+          "timeout_minutes": 10,
+          "hang_seconds": 480,
+          "no_parallel": true
+        }
+      ]
+    },
+    {
+      "name": "mac-1",
+      "runner": "mac",
+      "script_tests": true,
+      "targets": [
+        "CmuxNextAgentIntegrationsTests",
+        "CmuxNextAgentPermissionsTests",
+        "CmuxNextAppsTests",
+        "CmuxNextBrowserAutomationTests",
+        "CmuxNextChiefMemoryTests",
+        "CmuxNextChiefViewsTests",
+        "CmuxNextChromiumRuntimeTests",
+        "CmuxNextChromiumWarmupTests",
+        "CmuxNextCodeRouterTests",
+        "CmuxNextDaemonTests",
+        "CmuxNextErrorJournalTests",
+        "CmuxNextFilesTests",
+        "CmuxNextHomeEngineTests",
+        "CmuxNextImportSuggestionsTests",
+        "CmuxNextKeepAwakeTests",
+        "CmuxNextMobileTests",
+        "CmuxNextPhoneAccessTests",
+        "CmuxNextPhoneTests",
+        "CmuxNextRemoteViewTests",
+        "CmuxNextSettingsTests",
+        "CmuxNextVSCodeServerTests",
+        "CmuxNextWorkspaceNamingTests",
+        "CmuxNextWorkspaceRepairTests"
+      ],
+      "parallel_skip": ["BranchStateResourcesTests"],
+      "serial": [
+        {
+          "name": "Run state-resource regressions",
+          "when_targets": ["CmuxNextDaemonTests"],
+          "suite": "BranchStateResourcesTests",
+          "target": "CmuxNextDaemonTests",
+          "timeout_minutes": 10,
+          "hang_seconds": 480,
+          "no_parallel": true
+        }
+      ]
+    }
+  ]
+}
