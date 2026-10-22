@@ -1,0 +1,71 @@
+import Foundation
+import Testing
+@testable import CmuxMobileAgentChat
+
+/// Opening a chat shows its whole history at once: replayed history (a `.batch`)
+/// is drawn in place, and only what arrives after the replay boundary animates in.
+@MainActor
+@Suite struct ChatOpenSnapshotTests {
+    final class Silent: AgentSessionSource {
+        let summary = AgentSessionSummary(id: "s", name: "S", harness: "codex", agentName: "Codex", cwd: "~", workspaceTitle: "w", macName: "m")
+        func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { _ in } }
+        func send(_ intent: AgentClientIntent) {}
+    }
+
+    static func turn(_ n: Int, at: Date = Date(timeIntervalSince1970: 1_700_000_000)) -> [AgentSessionEvent] {
+        [
+            .userMessage(text: "prompt \(n)", promptId: "p\(n)", turnId: "t\(n)", attachments: [], at: at),
+            .turnStarted(turnId: "t\(n)", at: at),
+            .update(.agentMessageChunk(text: "answer ", messageId: "m\(n)")),
+            .update(.agentMessageChunk(text: "\(n)", messageId: "m\(n)")),
+            .turnResult(turnId: "t\(n)", status: .completed, errorText: nil, at: at),
+        ]
+    }
+
+    @Test func replayedHistoryIsDrawnInPlace() {
+        let store = AgentChatStore(source: Silent())
+        store.apply(.batch((0..<3).flatMap { Self.turn($0) }))
+        #expect(store.turns.map(\.id) == ["t0", "t1", "t2"])
+        for turn in store.turns {
+            #expect(store.isReplayed(turn.id))
+            for row in turn.rows { #expect(store.isReplayed(row.id), "row \(row.id) of \(turn.id) would animate in") }
+        }
+    }
+
+    @Test func onlyRecordsAfterTheBoundaryAnimate() {
+        let store = AgentChatStore(source: Silent())
+        store.apply(.batch(Self.turn(0)))
+        // Live: a new turn, its answer, and a permission ask.
+        for event in Self.turn(1).dropLast() { store.apply(event) }
+        #expect(!store.isReplayed("t1"))
+        let rows = store.turns[1].rows
+        #expect(!rows.isEmpty)
+        for row in rows { #expect(!store.isReplayed(row.id)) }
+        // History stays history.
+        #expect(store.isReplayed("t0"))
+        #expect(store.turns[0].rows.allSatisfy { store.isReplayed($0.id) })
+    }
+
+    /// A reattach catches up as a batch: what it brings is drawn in place, and what
+    /// was shown live before keeps its view (no row is inserted twice).
+    @Test func reattachCatchUpIsHistoryToo() {
+        let store = AgentChatStore(source: Silent())
+        store.apply(.batch(Self.turn(0)))
+        for event in Self.turn(1) { store.apply(event) }
+        store.apply(.batch(Self.turn(2)))
+        #expect(store.turns.map(\.id) == ["t0", "t1", "t2"])
+        #expect(store.isReplayed("t2"))
+        #expect(store.turns[2].rows.allSatisfy { store.isReplayed($0.id) })
+    }
+
+    /// An ask that was already waiting when the chat opened is history: no haptic.
+    @Test func pendingAskInHistoryIsReplayed() throws {
+        let store = AgentChatStore(source: Silent())
+        let ask = ACPPermissionRequest(id: "perm", toolCall: ACPToolCall(id: "c", title: "rm", kind: .execute),
+                                       options: [ACPPermissionOption(id: "allow", name: "Allow", kind: .allowOnce)])
+        let open = Self.turn(0).dropLast() + [.permissionRequest(ask)]
+        store.apply(.batch(Array(open)))
+        let pending = try #require(store.pendingPermission)
+        #expect(store.isReplayed(TurnRow.permission(pending).id))
+    }
+}

@@ -453,6 +453,9 @@ public final class AgentChatStore {
 
     public func subagent(_ id: String) -> AgentSubagent? { subagents.first { $0.id == id } }
 
+    /// Whether `id` (a turn's id or a `TurnRow.id`) came in as replayed history.
+    public func isReplayed(_ id: String) -> Bool { false }
+
     private func applySubagent(_ change: AgentSubagentChange) {
         if let index = subagents.firstIndex(where: { $0.id == change.id }) {
             if let name = change.name { subagents[index].name = name }
