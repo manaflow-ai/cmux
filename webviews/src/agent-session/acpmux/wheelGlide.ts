@@ -65,8 +65,8 @@ const ease = (t: number) => 1 - (1 - t) ** 3;
 ///
 /// Stop conditions: the glide's frame loop ends when it has covered its distance, at a trackpad's
 /// wheel event, at the reader's press, touch or key anywhere in the page, and on `stop()`. Cleanup:
-/// the returned remover ends a glide in flight and removes the wheel listener (the page listeners
-/// live only while a glide runs).
+/// the returned remover ends a glide in flight and removes the wheel and scroll listeners (the page
+/// listeners live only while a glide runs).
 export function installWheelGlide(scroller: HTMLElement): { stop: () => void; remove: () => void } {
   const page = scroller.ownerDocument.defaultView ?? window;
   let frame = 0;
@@ -78,6 +78,8 @@ export function installWheelGlide(scroller: HTMLElement): { stop: () => void; re
   /// offset it read back after its last step: a different one means rows moved the view meanwhile.
   let position = 0;
   let wrote = 0;
+  /// The offset a step announced with its own scroll event, until the browser's event for that write.
+  let announced: number | undefined;
   const stop = () => {
     if (!frame) return;
     cancelAnimationFrame(frame);
@@ -94,8 +96,17 @@ export function installWheelGlide(scroller: HTMLElement): { stop: () => void; re
     const next = distance * ease(progress);
     position += next - done;
     done = next;
+    const before = scroller.scrollTop;
     scroller.scrollTop = position;
     wrote = scroller.scrollTop;
+    // A write in a frame callback raises its scroll event only in the next frame, so everything that
+    // follows the offset (the rows mounted around it, the minimap's lit band) would paint a frame
+    // behind. The step announces it now, as a wheel's own scroll does, and the browser's event for
+    // the same offset is dropped when it comes (onBrowserScroll).
+    if (Math.abs(wrote - before) >= 0.5) {
+      announced = wrote;
+      scroller.dispatchEvent(new Event("scroll"));
+    }
     const max = scroller.scrollHeight - scroller.clientHeight;
     // At an end the rest of the distance goes nowhere.
     const blocked = (distance < 0 && wrote <= 0) || (distance > 0 && wrote >= max - 0.5);
@@ -133,12 +144,23 @@ export function installWheelGlide(scroller: HTMLElement): { stop: () => void; re
       frame = requestAnimationFrame(step);
     }
   };
+  /// The browser's scroll event for a step's write: its listeners heard that offset already. Captured
+  /// on the scroller, so it comes before the listeners added there without capture.
+  const onBrowserScroll = (event: Event) => {
+    if (announced === undefined || !event.isTrusted) return;
+    const same = Math.abs(scroller.scrollTop - announced) < 0.5;
+    announced = undefined;
+    if (same) event.stopImmediatePropagation();
+  };
   scroller.addEventListener("wheel", onWheel, { passive: false });
+  scroller.addEventListener("scroll", onBrowserScroll, { capture: true, passive: true });
   return {
     stop,
     remove: () => {
       stop();
+      announced = undefined;
       scroller.removeEventListener("wheel", onWheel);
+      scroller.removeEventListener("scroll", onBrowserScroll, { capture: true });
     },
   };
 }
