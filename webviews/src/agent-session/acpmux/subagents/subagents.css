@@ -480,7 +480,7 @@ button.cv-subagent > :last-child {
 }
 /* A line's hover card (the Inspector's Subagents): its name, then its state, time and what it does
    now, then its task, dim; a failed one's state in the danger color. */
-.acpmux-agent-card__popup {
+.ui-card.acpmux-agent-card__popup {
   max-width: min(320px, calc(100vw - 24px));
   padding: 8px 10px;
   border-radius: 8px;

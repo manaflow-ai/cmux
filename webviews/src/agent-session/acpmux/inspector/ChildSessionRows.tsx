@@ -1,9 +1,8 @@
 // The chats this chat's agent started (acpmux `spawnedBy`, started/startedSessions.ts), a chat on a
 // Cloud VM or another machine included (that machine's daemon lists its children with the chat's
-// attachment), as rows under Subagents after the harness's own subagents: the summary card's
-// Subagents tab (summary/SubagentsTab.tsx) and, with the Inspector off, its list
-// (summary/SubagentStatusList.tsx). The Inspector draws them as subagent lines
-// (SubagentsSection.tsx, with `sessionStatus` and `sessionStateLabel`). A chat icon whose dot says its live state, its title and
+// attachment), as rows under Subagents after the harness's own subagents: the summary card's list
+// (summary/SubagentStatusList.tsx), shown with the Inspector off. The Inspector draws them as
+// subagent lines instead (SubagentsSection.tsx, with `sessionStatus` and `sessionStateLabel`). A chat icon whose dot says its live state, its title and
 // that state in words. Waiting on the person first, then running, failed and idle
 // (`orderedSessions`). A row opens that chat.
 import { useT, type StringKey } from "../i18n";

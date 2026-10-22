@@ -46,7 +46,8 @@ export function subagentCounts(
     .join(" · ");
 }
 
-/// "94 done · 1 failed": the ended row's words, what needs a look first.
+/// "94 done · 1 failed": the ended row's words, the done ones first as Leo asked for them (its
+/// list below leads with the failed ones).
 function endedCounts(t: Translate, lines: readonly Line[]): string {
   const count = (status: SubagentStatus) => lines.filter((line) => line.status === status).length;
   return [
@@ -124,16 +125,21 @@ export function SubagentsSection({
     at: child.createdAt ?? 0,
     open: onOpenSession && (() => onOpenSession(child.sessionId)),
   });
-  // Running subagents in the tray's order (oldest first, a nested one under its parent), then the
-  // running chats; the ones waiting on the person lead.
-  const runningAgents = nestAgents(
-    agents.filter((agent) => live(subagentStatus(agent, waiting))).sort((a, b) => a.startedAt - b.startedAt),
-  ).map(({ agent, depth }) => agentLine(agent, depth));
+  // The chats waiting on the person lead, then the running subagents in the tray's order (oldest
+  // first, a nested one under its parent; among siblings a waiting one first, so it never leaves its
+  // parent), then the running chats.
+  const waitsFirst = (a: Subagent, b: Subagent) =>
+    Number(subagentStatus(b, waiting) === "waiting") - Number(subagentStatus(a, waiting) === "waiting") ||
+    a.startedAt - b.startedAt;
+  const runningAgents = nestAgents(agents.filter((agent) => live(subagentStatus(agent, waiting))).sort(waitsFirst)).map(
+    ({ agent, depth }) => agentLine(agent, depth),
+  );
   const children = orderedSessions(sessions);
   const runningLines = [
+    ...children.filter((child) => sessionStatus(child) === "waiting").map(sessionLine),
     ...runningAgents,
-    ...children.filter((child) => live(sessionStatus(child))).map(sessionLine),
-  ].sort((a, b) => Number(b.status === "waiting") - Number(a.status === "waiting"));
+    ...children.filter((child) => sessionStatus(child) === "running").map(sessionLine),
+  ];
   const endedLines = [
     ...agents.filter((agent) => !live(subagentStatus(agent, waiting))).map((agent) => agentLine(agent, 0)),
     ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
@@ -191,7 +197,7 @@ export function SubagentsSection({
             onClick={() => setEndedOpen(!endedOpen)}
           >
             <span className="acpmux-lineage__icon" data-state={endedLines[0]!.status}>
-              <Icon name="agent.session" size={14} />
+              <Icon name={endedLines[0]!.icon} size={14} />
             </span>
             <span className="acpmux-summary-text">{endedCounts(t, endedLines)}</span>
             <Icon name={endedOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />

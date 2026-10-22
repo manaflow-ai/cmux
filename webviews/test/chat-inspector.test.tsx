@@ -1,13 +1,14 @@
 // l10n-allow-file: test fixture chat titles, not shipped UI.
 // The Inspector (Debug Settings `agent.inspector`, on by default; Claude Code desktop's session
-// panel with ChatGPT's subagents row): with the flag on, the header's top-right toggle opens a
+// panel): with the flag on, the header's top-right toggle opens a
 // panel at the right of the chat with where it runs (Environment), how much of the context window
 // it used (Context), its MCP servers (Connectors), the pull requests it opened or touched
 // (Changes), its subagents and the chats its agent started, a Cloud VM's included, its background
 // commands and what it produced (Outputs). It is open by
 // default, stays open (or closed) across chat panes, lies over the chat so it never reflows it
 // (Settings Push moves the chat aside unless the pane is too narrow), hides a section with nothing
-// in it, and lists every row, scrolling instead of a "Show more".
+// in it, and lists every row, scrolling instead of a "Show more" (but Subagents, whose running lines
+// stop at five before a Show more, as Claude Code desktop's do).
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -580,6 +581,22 @@ test("Subagents names each running one on its line, and folds the ended ones int
   expect(subagents.querySelector(".acpmux-chat-inspector-subagents__list")).toBeNull();
 });
 
+test("a nested subagent waiting on the person stays under the one that spawned it", async () => {
+  const container = installDom(true);
+  const agents = [subagent(0, "running"), subagent(1, "running"), { ...subagent(2, "running"), parent: "agent-1" }];
+  await act(async () => {
+    root = createRoot(container);
+    // Agent 2 asks the person for a permission.
+    root.render(<ChatInspector agents={agents} waiting={new Set(["agent-2"])} onOpenSubagent={noop} />);
+  });
+  const subagents = section(container, "subagents")!;
+  expect(lines(subagents)).toEqual([
+    ["Agent 0", "Running"],
+    ["Agent 1", "Running"],
+    ["Agent 2", "Waiting"],
+  ]);
+});
+
 test("past five running lines, Show more opens the rest and Show less folds them back", async () => {
   const container = installDom(true);
   const agents = Array.from({ length: 8 }, (_, index) => subagent(index, "running"));
@@ -610,11 +627,6 @@ const started = (
   state,
   createdAt,
 });
-const sessionRows = (element: HTMLElement) =>
-  [...element.querySelectorAll<HTMLButtonElement>("button.acpmux-summary-session")].map((row) => [
-    row.querySelector(".acpmux-summary-agent__name")?.textContent,
-    row.querySelector(".acpmux-summary-agent__state")?.textContent,
-  ]);
 
 test("the chats the agent started are listed under Subagents, counted with them, and a row opens its chat", async () => {
   const container = installDom(true);
