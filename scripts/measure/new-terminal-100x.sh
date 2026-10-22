@@ -4,23 +4,27 @@
 # shell running (cmux-tui/scripts/bench-terminal-create.py), plus the processes and memory each
 # live terminal costs. Run alone on a worker:
 #   cmux-ci run --class exclusive --measurement --script scripts/measure/new-terminal-100x.sh --ref SHA
-#     [--arg=rounds=N] [--arg=against=SHA] [--arg=max_p50_ms=X]
+#     [--arg=rounds=N] [--arg=against=SHA] [--arg=max_p50_ms=X] [--arg=disk_load=N]
 # The binary is the commit's published cmux-tui tree, or a release build when unpublished.
 # against=SHA runs that commit's binary too, interleaved pass by pass. max_p50_ms=X fails the
-# step when any of this commit's exec p50 is above X ms.
+# step when any of this commit's first-text p50 is above X ms. disk_load=N runs every pass again with N
+# background writers that write and F_FULLFSYNC in a loop (labels *-load), as on a busy Mac.
 set -euo pipefail
 rounds=40
 against=""
 max_p50=""
+disk_load=0
 for arg in "$@"; do
   case "$arg" in
     rounds=*) rounds="${arg#rounds=}" ;;
     against=*) against="${arg#against=}" ;;
     max_p50_ms=*) max_p50="${arg#max_p50_ms=}" ;;
+    disk_load=*) disk_load="${arg#disk_load=}" ;;
     *) echo "new-terminal-100x.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
 case "$rounds" in [1-9]|[1-9][0-9]|[1-2][0-9][0-9]) ;; *) echo "new-terminal-100x.sh: rounds must be 1-299" >&2; exit 2 ;; esac
+case "$disk_load" in [0-9]|1[0-6]) ;; *) echo "new-terminal-100x.sh: disk_load must be 0-16" >&2; exit 2 ;; esac
 case "$max_p50" in ""|[0-9]*) ;; *) echo "new-terminal-100x.sh: max_p50_ms must be a number" >&2; exit 2 ;; esac
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
@@ -60,18 +64,25 @@ state_root="$(mktemp -d /private/tmp/ntc.XXXXXX)"
 trap 'rm -rf "$state_root"' EXIT
 passes=2
 per=$(( (rounds + passes - 1) / passes ))
-for pass in $(seq 1 "$passes"); do
-  for label in against ref; do
-    [ -x "$work/bin-$label" ] || continue
-    python3 -I cmux-tui/scripts/bench-terminal-create.py --bin "$work/bin-$label" --rounds "$per" \
-      --label "$label-p$pass" --root-dir "$state_root" --spans --out "$work/$label-p$pass.json" || status=$?
+loads="0"
+[ "$disk_load" -gt 0 ] && loads="0 $disk_load"
+for load in $loads; do
+  suffix=""
+  [ "$load" -gt 0 ] && suffix="-load"
+  for pass in $(seq 1 "$passes"); do
+    for label in against ref; do
+      [ -x "$work/bin-$label" ] || continue
+      python3 -I cmux-tui/scripts/bench-terminal-create.py --bin "$work/bin-$label" --rounds "$per" \
+        --disk-load "$load" --label "$label$suffix-p$pass" --root-dir "$state_root" --spans \
+        --out "$work/$label$suffix-p$pass.json" || status=$?
+    done
   done
 done
 python3 -I - "$work" "$max_p50" <<'PY' || status=$?
 import glob, json, os, sys
 work, max_p50 = sys.argv[1], sys.argv[2]
 bad = False
-for label in ("against", "ref"):
+for label in ("against", "ref", "against-load", "ref-load"):
     merged = {}
     for path in sorted(glob.glob(os.path.join(work, f"{label}-p*.json"))):
         for op, d in json.load(open(path))["ops"].items():
@@ -80,10 +91,10 @@ for label in ("against", "ref"):
         s.sort()
         q = lambda p: s[min(len(s) - 1, int(p * len(s)))]
         print(f'CREATE-RESULT {label} op="{op}" n={len(s)} p50={q(0.5):.2f} p95={q(0.95):.2f} max={s[-1]:.2f}')
-        if label == "ref" and max_p50 and op.endswith(" exec") and q(0.5) > float(max_p50):
+        if label == "ref" and max_p50 and op.endswith(" first-text") and q(0.5) > float(max_p50):
             bad = True
 if bad:
-    print(f"CREATE-RESULT FAIL: an exec p50 is above {max_p50} ms")
+    print(f"CREATE-RESULT FAIL: a first-text p50 is above {max_p50} ms")
     sys.exit(1)
 PY
 echo "CREATE-LOAD after $(uptime | sed 's/.*load averages*: //')"
