@@ -208,4 +208,74 @@ import Testing
         let c = try #require(layout.row(for: .workspace(WorkspaceID("c"))))
         #expect(abs(c.y - (gapY + layout.gapHeight + SidebarLayoutMetrics.standard.rowSpacing)) < 0.5, "the gap is not above c")
     }
+
+    /// Codex review: with the loose fold open, `a` and `d` (Done) selected and dragged together would draw `a` in its
+    /// place and `d` below the fold, with `b` and the fold row between them, while the drag maps the pointer through one
+    /// slot from the first dragged row to the last. Such a drag unfolds (as before), so every frame draws the dragged
+    /// rows together and the drop lands where the pointer left them; a drag the fold leaves together keeps it.
+    @Test func aDragTheOpenFoldWouldSplitDrawsItsRowsTogether() throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(true))
+        defer { TunableStore.shared.set(SidebarTunables.doneFold.key, nil) }
+        let loose = SidebarDoneFoldID(section: Self.section, group: nil)
+        _ = NSApplication.shared
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(Self.machine), nodes: [
+            .workspace(Self.ws("a")), .workspace(Self.ws("d", done: true)), .workspace(Self.ws("b")), .workspace(Self.ws("e", done: true)),
+        ])], activeWorkspaceID: WorkspaceID("a"))
+        let list = SidebarListView(model: model)
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 240, height: 500), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 500))
+        window.contentView = root
+        list.frame = root.bounds
+        root.addSubview(list)
+        window.orderFrontRegardless()
+        list.openDoneFolds = [loose]
+        list.reload(animated: false)
+        let drawn = list.displayed.rows.map(\.key).filter { if case .section = $0 { false } else { true } }
+        try #require(drawn == [.workspace(WorkspaceID("a")), .workspace(WorkspaceID("b")), .doneFold(loose),
+                               .workspace(WorkspaceID("d")), .workspace(WorkspaceID("e"))], "drawn: \(drawn)")
+        model.selection = [WorkspaceID("a"), WorkspaceID("d")]
+
+        let dragged: Set<SidebarRowKey> = [.workspace(WorkspaceID("a")), .workspace(WorkspaceID("d"))]
+        let row = try #require(list.displayed.row(for: .workspace(WorkspaceID("a"))))
+        let start = NSPoint(x: 80, y: row.y + row.height / 2)
+        list.press = SidebarPress(key: .workspace(WorkspaceID("a")), point: start)
+        list.beginDrag(try #require(list.press))
+        try #require(list.drag != nil, "a and d did not lift")
+        var failures: [String] = []
+        func check(_ step: String) {
+            let keys = list.displayed.rows.sorted { $0.y < $1.y }.map(\.key)
+            guard let first = keys.firstIndex(where: dragged.contains), let last = keys.lastIndex(where: dragged.contains) else { return }
+            let between = keys[first...last].filter { !dragged.contains($0) }
+            if !between.isEmpty { failures.append("\(step): \(between) drawn between the dragged rows") }
+        }
+        check("lift")
+        let bottom = (list.displayed.rows.last?.maxY ?? 400) + 10
+        var y = start.y, frame = 0
+        while y < bottom {
+            y += 6
+            frame += 1
+            list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))
+            check("frame \(frame) at y \(Int(y))")
+        }
+        list.finishDrag()
+        if let landing = list.landing { list.finishLand(landing, then: nil) }
+        let order = model.sections.first?.nodes.map(\.id) ?? []
+        #expect(order == ["b", "e", "a", "d"].map { SidebarNode.ID.workspace(WorkspaceID($0)) }, "dropped below e: \(order)")
+        #expect(failures.isEmpty, "\(failures.prefix(12).joined(separator: "\n"))")
+
+        // Which drags unfold: only rows an open fold would draw apart.
+        var o = SidebarLayoutOptions()
+        (o.foldsDone, o.openDoneFolds, o.activeWorkspaceID) = (true, [loose], WorkspaceID("a"))
+        #expect(SidebarLayout.foldSplits([Self.ws("a"), Self.ws("d", done: true)], options: o))
+        #expect(!SidebarLayout.foldSplits([Self.ws("b"), Self.ws("c")], options: o), "no Done row")
+        #expect(!SidebarLayout.foldSplits([Self.ws("d", done: true), Self.ws("e", done: true)], options: o), "all below the fold")
+        #expect(!SidebarLayout.foldSplits([Self.ws("a", done: true), Self.ws("b")], options: o), "the active Done row keeps its place")
+        o.openDoneFolds = []
+        #expect(!SidebarLayout.foldSplits([Self.ws("a"), Self.ws("d", done: true)], options: o), "a closed fold hides d")
+    }
 }
