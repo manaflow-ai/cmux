@@ -311,7 +311,10 @@ export type AcpmuxActivity = {
     startedAt?: number;
     endedAt?: number;
     diffs?: AcpmuxFileDiff[];
-    locations?: { path: string; line?: number }[];
+    locations?: AcpmuxLocation[];
+    /// The input's file (`rawInput.file_path`) and its canonical path (acpmux
+    /// `_meta.acpmux.canonicalPath` on the update), when acpmux recorded one.
+    inputPath?: { path: string; canonical: string };
     /// Images the call returned (ACP `image` content blocks), as data URLs.
     images?: string[];
     /// A shell that went on in the background: running there, then how it ended.
@@ -323,6 +326,7 @@ export type AcpmuxActivity = {
 /// `line` is where the change starts, when the tool call's locations name it. `fragment`: the
 /// texts are part of the file, not all of it (`_meta.acpmux.fragment`, a reopened Codex hunk).
 /// `fromInput`: the page read it from the call's input, not a `diff` item (direct.ts `inputDiffs`).
+/// `canonical`: the file's one spelling, as acpmux recorded it (`_meta.acpmux.canonicalPath`).
 export type AcpmuxFileDiff = {
   path: string;
   oldText?: string;
@@ -330,7 +334,29 @@ export type AcpmuxFileDiff = {
   line?: number;
   fragment?: true;
   fromInput?: true;
+  canonical?: string;
 };
+
+/// A file a tool call names (ACP `locations`), with its canonical path as for `AcpmuxFileDiff`.
+export type AcpmuxLocation = { path: string; line?: number; canonical?: string };
+
+/// What tells two tool call paths apart: the canonical path acpmux recorded, absolute with links,
+/// `.`, `..` and the volume's letter case resolved, so `./notes.txt`, a folder link's path and
+/// `Notes.txt` on a volume that ignores case are one file; for a file in a repository it is the
+/// turn checkpoint's `${root}/${path}`. A path recorded without one (an older log or peer) is
+/// itself. Rows, diffs and Undo still use the agent's `path`.
+export const pathKey = (file: { path: string; canonical?: string }) => file.canonical ?? file.path;
+
+/// The canonical path a tool call recorded for `path`, one of its own: on a diff, a location or
+/// its input.
+export function toolCanonical(tool: NonNullable<AcpmuxActivity["tool"]>, path: string): string | undefined {
+  const named = (file: { path: string; canonical?: string }) => file.path === path && file.canonical !== undefined;
+  return (
+    tool.diffs?.find(named)?.canonical ??
+    tool.locations?.find(named)?.canonical ??
+    (tool.inputPath?.path === path ? tool.inputPath.canonical : undefined)
+  );
+}
 
 /// A Write whose old contents are unknown: its whole new text with no old text, still a fragment
 /// because its result neither confirmed a create nor carried the old text (acpmux claude_stdio
@@ -698,27 +724,36 @@ export function editedCardHeight(files: number, plain = 0): number {
 /// (toolPaths.ts), and one entry with no path for each call that names none ("Unknown file"). A
 /// Write whose old contents are unknown (`contentsUnknown`) lists its diff's path the same way.
 /// `failed`: only calls that failed named it, so it lists as failed. Never the tool input itself.
-export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string; path?: string; failed?: true }[] {
-  const out: { key: string; path?: string; failed?: true }[] = [];
+/// Paths are one file by `pathKey`; an entry carries the canonical path when there is one.
+export function plainEditLabels(items: readonly AcpmuxActivity[]): PlainEditLabel[] {
+  const out: PlainEditLabel[] = [];
   const at = new Map<string, number>();
   items.forEach((item, index) => {
     // An edit still waiting for its permission has changed nothing yet.
-    if (!item.tool || item.tool.status === "pending") return;
-    const diffs = item.tool.diffs ?? [];
-    const failed = item.tool.status === "failed";
+    const tool = item.tool;
+    if (!tool || tool.status === "pending") return;
+    const diffs = tool.diffs ?? [];
+    const failed = tool.status === "failed";
     const mark = failed ? { failed: true as const } : {};
-    const paths = diffs.length ? diffs.filter(contentsUnknown).map((diff) => diff.path) : editedPaths(item.tool);
-    if (!diffs.length && !paths.length) out.push({ key: `unknown-${item.tool.id}-${index}`, ...mark });
-    for (const path of paths) {
-      const listed = at.get(path);
+    const files = diffs.length
+      ? diffs.filter(contentsUnknown)
+      : editedPaths(tool).map((path) => ({ path, canonical: toolCanonical(tool, path) }));
+    if (!diffs.length && !files.length) out.push({ key: `unknown-${tool.id}-${index}`, ...mark });
+    for (const file of files) {
+      const key = pathKey(file);
+      const listed = at.get(key);
+      const entry = { key: `path-${key}`, path: file.path, ...(file.canonical ? { canonical: file.canonical } : {}) };
       if (listed === undefined) {
-        at.set(path, out.length);
-        out.push({ key: `path-${path}`, path, ...mark });
-      } else if (!failed) out[listed] = { key: `path-${path}`, path };
+        at.set(key, out.length);
+        out.push({ ...entry, ...mark });
+      } else if (!failed) out[listed] = entry;
     }
   });
   return out;
 }
+
+/// An edited-files card entry without counts (`plainEditLabels`): `key` is its React key.
+export type PlainEditLabel = { key: string; path?: string; canonical?: string; failed?: true };
 
 /// First-layout estimates for rows not yet drawn; a drawn row places by its drawn height. Each
 /// includes the row's bottom padding (`.acpmux-row` in styles.css: the message gap for messages,
@@ -762,9 +797,11 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
     const edits = row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ?? [];
     if (edits.length && !isFoldedCopy(row)) {
       const files = new Set(
-        edits.flatMap((item) => item.tool?.diffs?.flatMap((diff) => (contentsUnknown(diff) ? [] : [diff.path])) ?? []),
+        edits.flatMap(
+          (item) => item.tool?.diffs?.flatMap((diff) => (contentsUnknown(diff) ? [] : [pathKey(diff)])) ?? [],
+        ),
       );
-      const plain = plainEditLabels(edits).filter((entry) => !entry.path || !files.has(entry.path));
+      const plain = plainEditLabels(edits).filter((entry) => !entry.path || !files.has(entry.canonical ?? entry.path));
       return 14 + editedCardHeight(files.size, plain.length);
     }
     // A folded run (Debug toggle) draws one summary line until opened.
