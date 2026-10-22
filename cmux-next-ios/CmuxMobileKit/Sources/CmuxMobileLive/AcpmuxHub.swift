@@ -173,6 +173,13 @@ public final class AcpmuxHub {
         }
     }
 
+    /// The Mac's session is gone (another team, the Mac removed): nobody waits on it.
+    public func cancelWaiters() {
+        let waiters = readyWaiters
+        readyWaiters = [:]
+        for waiter in waiters.values { waiter.resume(returning: false) }
+    }
+
     private func resumeWaiter(_ id: UUID, _ ready: Bool) {
         readyWaiters.removeValue(forKey: id)?.resume(returning: ready)
     }

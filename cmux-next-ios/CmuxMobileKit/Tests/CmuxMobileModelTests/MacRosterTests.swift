@@ -26,6 +26,13 @@ import Testing
         #expect(MacRoster([current, old], now: now).retired.map(\.id) == ["b"])
     }
 
+    /// A teammate's offline Mac with the same name is another computer: it stays.
+    @Test func aTeammatesSameNamedMacStays() {
+        let mine = MacDevice(id: "a", name: "MacBook Pro", isOnline: true, ownerUserID: "me")
+        let theirs = MacDevice(id: "b", name: "MacBook Pro", isOnline: false, lastSeenAt: now - 60, ownerUserID: "them")
+        #expect(MacRoster([mine, theirs], now: now).visible.count == 2)
+    }
+
     /// Both offline: the one seen last stays.
     @Test func ofTwoOfflineInstallsTheNewerStays() {
         let newer = MacDevice(id: "a", name: "Mini", isOnline: false, lastSeenAt: now - 60)
@@ -59,7 +66,16 @@ import Testing
     /// A retired record that comes back online shows again.
     @Test func aRetiredMacBackOnlineShows() {
         let current = MacDevice(id: "a", name: "Mini", isOnline: true)
-        let old = MacDevice(id: "b", name: "Mini", isOnline: true, lastSeenAt: now)
+        var old = MacDevice(id: "b", name: "Mini", isOnline: false, lastSeenAt: now - 3600)
+        #expect(MacRoster([current, old], now: now).retired.map(\.id) == ["b"])
+        old.isOnline = true
         #expect(MacRoster([current, old], now: now).visible.map(\.id) == ["a", "b"])
+    }
+
+    /// The month rule never retires an online Mac, however old its last-seen time.
+    @Test func anOnlineMacIsNeverStale() {
+        let online = MacDevice(id: "a", name: "Old iMac", isOnline: true, lastSeenAt: now - 90 * 24 * 3600)
+        let other = MacDevice(id: "b", name: "MacBook", isOnline: true)
+        #expect(MacRoster([online, other], now: now).visible.count == 2)
     }
 }

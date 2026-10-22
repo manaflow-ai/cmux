@@ -124,6 +124,36 @@ import Testing
         #expect(answers.of("m1").isEmpty)
     }
 
+    /// An ask this launch never read from its Mac (its Mac's feed does not own
+    /// it): the answer links that Mac, reads its asks again and answers there.
+    @Test func anAskNoFeedOwnsIsReadAgainOnItsMac() async throws {
+        UserDefaults.standard.removeObject(forKey: Self.teamKey)
+        defer { UserDefaults.standard.removeObject(forKey: Self.teamKey) }
+        let answers = Answers()
+        let feed = FeedStore(items: [])
+        let store = emptyStore()
+        let dialer = PerMacDialer(acpmux: Self.acpmux(answers))
+        let live = coordinator(store: store, feed: feed, dialer: dialer)
+        defer { live.stop() }
+        live.showing(macIDs: ["m1"])
+        await settle { feed.item(id: "ask-perm-m1") != nil }
+        #expect(dialer.dialCount("m2") == 0)
+        let request = ACPPermissionRequest(
+            id: "perm-m2", toolCall: ACPToolCall(id: "c", title: "git push", kind: .execute),
+            options: [ACPPermissionOption(id: "allow", name: "Allow once", kind: .allowOnce),
+                      ACPPermissionOption(id: "deny", name: "Deny", kind: .rejectOnce)])
+        var item = FeedItem(id: "ask-perm-m2", kind: .permission(request), workspaceID: "", tabID: "sess-m2", agentName: "Codex",
+                            harness: "codex", workspaceTitle: "m2", markdown: "git push", quote: nil, createdAt: Date())
+        item.macID = "m2"
+        feed.upsert(item, atTop: true)
+        try deny(feed, "ask-perm-m2")
+        await settle { !answers.of("m2").isEmpty || feed.item(id: "ask-perm-m2")?.error != nil }
+        #expect(feed.item(id: "ask-perm-m2")?.error == nil)
+        #expect(answers.of("m2") == ["sess-m2 perm-m2 deny"])
+        #expect(dialer.dialCount("m2") == 1)
+        #expect(answers.of("m1").isEmpty)
+    }
+
     /// An ask whose Mac's link went idle (nothing showed that Mac for a while)
     /// opens that Mac's link and answers there, instead of failing.
     @Test func anAnswerOpensTheIdleLinkOfItsMac() async throws {

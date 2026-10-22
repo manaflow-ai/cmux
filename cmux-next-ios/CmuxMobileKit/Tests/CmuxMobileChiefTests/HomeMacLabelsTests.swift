@@ -52,6 +52,21 @@ import Testing
         #expect(all.showsMacChief(macID: "m1"))
     }
 
+    /// A Mac Chief that has not named its Mac yet stays under a filter
+    /// (compose still writes to it); a row of an unlisted Mac never shows.
+    @Test func anUnnamedMacChiefStaysAndUnlistedMacsHide() {
+        let home = HomeMacLabels(macs: [laptop, other], scope: .mac("m2"))
+        #expect(home.showsMacChief(macID: nil))
+        #expect(!HomeMacLabels(macs: [laptop], scope: .all).includes(macID: "m2"))
+    }
+
+    /// Same-name tags use every listed Mac of the account, as Workspaces does.
+    @Test func tagsFollowTheAccountsMacs() {
+        let twin = MacDevice(id: "zz99", name: "Aziz's MacBook Pro", isOnline: true)
+        let home = HomeMacLabels(macs: [laptop, other], scope: .all, accountMacs: [laptop, other, twin])
+        #expect(home.macName("m1") != "Aziz's MacBook Pro")
+    }
+
     /// A chosen Mac that left the team reads as All Macs.
     @Test func aGoneMacReadsAsAll() {
         let home = HomeMacLabels(macs: [laptop], scope: .mac("m2"))

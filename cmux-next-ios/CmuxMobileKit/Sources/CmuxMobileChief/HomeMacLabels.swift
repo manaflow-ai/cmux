@@ -14,20 +14,24 @@ struct HomeMacLabels {
     let scope: MacScope
     private let names: MacNameDisambiguation
 
-    init(macs: [MacDevice], scope: MacScope) {
+    /// - `accountMacs`: every listed Mac on the account (all teams), the scope
+    ///   of same-name tags as on Workspaces; nil uses `macs`.
+    init(macs: [MacDevice], scope: MacScope, accountMacs: [MacDevice]? = nil) {
         self.macs = macs
         self.scope = MacFilter.resolve(scope, macs: macs)
-        names = MacNameDisambiguation(macs)
+        names = MacNameDisambiguation(accountMacs ?? macs)
     }
 
-    /// Whether a row of `macID` passes the filter.
+    /// Whether a row of `macID` passes the filter: a listed Mac, and the chosen one if any.
     func includes(macID: String) -> Bool {
-        scope.macID == nil || scope.macID == macID
+        guard macs.contains(where: { $0.id == macID }) else { return false }
+        return scope.macID == nil || scope.macID == macID
     }
 
-    /// The Mac Chief's pin passes the filter when it runs on the chosen Mac.
+    /// The Mac Chief's pin passes the filter when it runs on the chosen Mac (or
+    /// has not named its Mac yet: it is still the Chief compose writes to).
     func showsMacChief(macID: String?) -> Bool {
-        guard let chosen = scope.macID else { return true }
+        guard let chosen = scope.macID, let macID else { return true }
         return macID == chosen
     }
 

@@ -93,8 +93,9 @@ public struct WorkspacesList: View {
     }
 
     /// The listed Macs: a computer registered twice shows once (`MacRoster`).
-    private var macs: [MacDevice] { MacRoster(store.activeTeam?.macs ?? [], now: MinuteClock.shared.now).visible }
-    private var scope: MacScope { filter.scope(in: store.activeTeam) }
+    private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? [], now: MinuteClock.shared.now).visible }
+    /// A remembered Mac that is no longer listed reads as All Macs.
+    private var scope: MacScope { MacFilter.resolve(filter.scope(in: store.activeTeam), macs: macs) }
     private var scopedMac: MacDevice? { scope.macID.flatMap { id in macs.first { $0.id == id } } }
     private var target: MacDevice? {
         scope.newWorkspaceMac(available: creator.availableMacs, fallback: creator.targetMac)

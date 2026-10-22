@@ -897,10 +897,9 @@ final class MultiMacFeedActions: FeedActions {
         guard coordinator.canLink(macID: macID) else {
             throw Unsent(message: "Only the owner of \(name) can answer from a phone. Nothing was sent.")
         }
-        if coordinator.sessions[macID]?.acpmux.isReady != true {
-            // Opens the Mac's link if it was idle, and keeps it while recent.
-            coordinator.touch(macID)
-        }
+        // Opens the Mac's link if it was idle, and keeps it (it is recent now)
+        // while the answer goes out.
+        coordinator.touch(macID)
         guard let session = coordinator.sessions[macID] else {
             throw Unsent(message: "\(name) is offline. Nothing was sent.")
         }

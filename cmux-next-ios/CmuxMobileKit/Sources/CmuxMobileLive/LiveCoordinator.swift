@@ -484,7 +484,8 @@ public final class LiveCoordinator {
             forgetMac(mac.deviceId)
         case .mac(let mac):
             var current = store.teams.first { $0.id == teamID }?.macs ?? []
-            let device = MacDevice(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate)
+            let owner = current.first { $0.id == mac.deviceId }?.ownerUserID
+            let device = MacDevice(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate, ownerUserID: owner)
             if let index = current.firstIndex(where: { $0.id == mac.deviceId }) { current[index] = device } else { current.append(device) }
             store.setMacs(current, teamID: teamID)
             let session = sessions[mac.deviceId]
@@ -532,7 +533,8 @@ public final class LiveCoordinator {
         for mac in macs {
             if let owner = mac.ownerUserId, owner != userID { othersMacs.insert(mac.deviceId) } else { othersMacs.remove(mac.deviceId) }
         }
-        store.setMacs(macs.map { MacDevice(id: $0.deviceId, name: $0.name, isOnline: $0.online, lastSeenAt: $0.lastSeenDate) }, teamID: teamID)
+        store.setMacs(macs.map { MacDevice(id: $0.deviceId, name: $0.name, isOnline: $0.online, lastSeenAt: $0.lastSeenDate,
+                                           ownerUserID: $0.ownerUserId) }, teamID: teamID)
         retarget()
         scheduleSnapshotSave()
     }
@@ -635,6 +637,7 @@ public final class LiveCoordinator {
         if store.macLinkStatus[id] != nil { store.macLinkStatus[id] = nil }
         session.offlineTask?.cancel()
         session.workspacesTimeout?.cancel()
+        session.acpmux.cancelWaiters()
         Task {
             await session.workspaces.bind(nil, macID: "")
             await session.acpmux.bind(nil)

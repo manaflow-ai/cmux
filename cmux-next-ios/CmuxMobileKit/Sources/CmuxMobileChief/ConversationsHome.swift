@@ -90,10 +90,12 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 
     /// The listed Macs (a computer registered twice shows once: ``MacRoster``).
-    private var macs: [MacDevice] { MacRoster(store.activeTeam?.macs ?? [], now: MinuteClock.shared.now).visible }
+    private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? [], now: MinuteClock.shared.now).visible }
 
     private var labels: HomeMacLabels {
-        HomeMacLabels(macs: macs, scope: macFilter.scope(in: store.activeTeam))
+        let now = MinuteClock.shared.now
+        return HomeMacLabels(macs: macs, scope: macFilter.scope(in: store.activeTeam),
+                             accountMacs: MacRoster(MacNameDisambiguation.scope(store.teams), now: now).visible)
     }
 
     /// The default Chief: compose, New Message and the first pin.
@@ -156,12 +158,17 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// The first pin: the Cloud Chief (on no Mac) always; the Mac Chief only
     /// when it runs on the filter's Mac.
     private var showsPrimary: Bool {
-        shows(session) && (sources.isCloudReady || labels.showsMacChief(macID: session.macID))
+        shows(session) && (sources.isCloudReady || labels.showsMacChief(macID: session.macID) || holdsSomething(session))
     }
 
     /// The Mac Chief beside the Cloud Chief, when the filter's Mac is its Mac.
     private var macChief: ChiefSession? {
-        sources.secondary.flatMap { labels.showsMacChief(macID: $0.macID) ? $0 : nil }
+        sources.secondary.flatMap { labels.showsMacChief(macID: $0.macID) || holdsSomething($0) ? $0 : nil }
+    }
+
+    /// A Chief holding something for the person (unsent, unread, a question) stays under any filter.
+    private func holdsSomething(_ chief: ChiefSession) -> Bool {
+        !chief.outbox.isEmpty || chief.unreadCount > 0 || chief.openQuestion != nil
     }
 
     /// Under a pin's name: "Cloud", or the Mac the Chief runs on.
@@ -194,8 +201,10 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                    newChief: newChiefAction)
                     }
                     if let mac = macChief, shows(mac) {
-                        PinnedGrid(session: mac, route: ChiefRoute(place: .mac), name: String(localized: "Chief"),
-                                   detail: detail(mac, place: .mac), identifier: "home.chief.mac")
+                        let macDetail = detail(mac, place: .mac)
+                        PinnedGrid(session: mac, route: ChiefRoute(place: .mac),
+                                   name: macDetail == nil ? String(localized: "Mac Chief") : String(localized: "Chief"),
+                                   detail: macDetail, identifier: "home.chief.mac")
                     }
                 }
                 .listRowInsets(EdgeInsets())

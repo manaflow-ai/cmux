@@ -7,8 +7,9 @@ import Foundation
 /// reinstall leaves a record that stays offline for good beside the live one
 /// ("Abdulaziz's MacBook Pro (2) 3EB7" online and "… 39C6" offline). A record
 /// is retired from those lists when:
-/// - it is offline and another of the account's Macs with the same name is
-///   online or was seen later (the same computer's newer install), or
+/// - it is offline and another Mac with the same name and the same owner is
+///   online or was seen later (the same computer's newer install; a
+///   teammate's same-named Mac is another computer), or
 /// - it was last seen more than `staleAfter` ago and another Mac stays listed.
 ///
 /// Retired Macs stay in Settings → Devices, where Remove deletes them, and a
@@ -28,7 +29,7 @@ public struct MacRoster: Equatable, Sendable {
             guard !mac.isOnline else { return false }
             let seen = mac.lastSeenAt ?? .distantPast
             return macs.contains { other in
-                other.id != mac.id && key(other.name) == key(mac.name)
+                other.id != mac.id && key(other.name) == key(mac.name) && other.ownerUserID == mac.ownerUserID
                     && (other.isOnline || (other.lastSeenAt ?? .distantPast) > seen)
             }
         }
