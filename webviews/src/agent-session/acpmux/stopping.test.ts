@@ -69,7 +69,10 @@ test("Stop says it is stopping until the turn ends", async () => {
     await until(() => view.shown.stopping === true);
     expect(view.shown.isWorking).toBe(true);
 
+    // The turn's end takes it away, while acpmux still lists the chat as running.
     daemon.emit(id, { mux: "turn_end", msg: { stopReason: "cancelled" } });
+    await until(() => view.shown.stopping === undefined);
+    expect(view.shown.isWorking).toBe(true);
     daemon.emit(id, { mux: "turn_result", msg: { status: "cancelled", stopReason: "cancelled" } });
     daemon.touch(id, { status: "ready" });
     await until(() => !view.shown.isWorking);
@@ -80,6 +83,52 @@ test("Stop says it is stopping until the turn ends", async () => {
     daemon.emit(id, { mux: "turn_started" });
     await until(() => view.shown.isWorking);
     expect(view.shown.stopping).toBeUndefined();
+    daemon.emit(id, { mux: "turn_result", msg: { status: "completed", stopReason: "end_turn" } });
+    daemon.touch(id, { status: "ready" });
+    await until(() => !view.shown.isWorking);
+  } finally {
+    client.close?.();
+  }
+});
+
+test("a Stop sent before its turn's late turn_started keeps saying it is stopping", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const socket = new MockAcpmuxSocket(() => Promise.resolve());
+  const daemon = socket as unknown as Daemon;
+  const send = daemon.send.bind(socket);
+  daemon.send = (raw) => {
+    if ((JSON.parse(raw) as { method?: string }).method !== "session/cancel") send(raw);
+  };
+  const view = { shown: { isWorking: false } as Shown };
+  const snapshots: Array<() => void> = [];
+  const until = async (check: () => boolean) => {
+    while (!check()) await new Promise<void>((resolve) => snapshots.push(resolve));
+  };
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => {
+      view.shown = snapshot as unknown as Shown;
+      for (const wake of snapshots.splice(0)) wake();
+    },
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
+  const id = mockHost.sessionId!;
+  try {
+    await until(() => view.shown.summary !== undefined);
+    // acpmux records the prompt (which opens the turn) before the agent's turn_started.
+    daemon.touch(id, { status: "running" });
+    daemon.emit(id, { mux: "user_message", msg: { text: "go" } });
+    await until(() => view.shown.isWorking);
+    await client.cancel();
+    await until(() => view.shown.stopping === true);
+    daemon.emit(id, { mux: "turn_started" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(view.shown.isWorking).toBe(true);
+    expect(view.shown.stopping).toBe(true);
+    daemon.emit(id, { mux: "turn_end", msg: { stopReason: "cancelled" } });
+    await until(() => view.shown.stopping === undefined);
   } finally {
     client.close?.();
   }

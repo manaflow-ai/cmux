@@ -1085,7 +1085,7 @@ export function Composer({
     // does (escapeStop.ts), and the first arms Stop: it keeps its glyph, takes the accent and is named
     // "Press Esc again to stop". Menus, pickers and the
     // @ list take their Esc above, so one press still closes them.
-    if (event.key === "Escape" && plain && !open && stop && !quick) {
+    if (event.key === "Escape" && plain && !open && stop && !stopping && !quick) {
       event.preventDefault();
       // Holding Esc down is one press: its auto-repeat is not the second.
       escapeStop.press(event.repeat);
@@ -1152,14 +1152,14 @@ export function Composer({
 
   // Stop was sent and the turn has not ended: Stop turns and says so, and Esc has nothing more to stop.
   const stopping = !shell && snapshot.isWorking && snapshot.stopping === true;
-  const stop = !shell && snapshot.isWorking && !stopping && !text.trim();
+  const stop = !shell && snapshot.isWorking && !text.trim();
   // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
   const running = !shell && snapshot.isWorking;
   const hasDraft = Boolean(text.trim() || attachments.length || pending.length);
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
   const escapeStop = useEscapeStop({
-    stoppable: stop,
+    stoppable: stop && !stopping,
     session: sessionId,
     double: escapeDoublePress,
     pageEscape: !onOpenInWindow,

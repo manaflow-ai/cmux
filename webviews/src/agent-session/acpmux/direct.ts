@@ -1042,6 +1042,10 @@ export class AcpmuxDirectClient {
   /// The last seq seen when Stop was pressed: only a turn event after it answers that Stop. A
   /// rebuild (loadOlder, lag resync) replays older ones, which must not cancel the grace.
   private stopAfterSeq?: number;
+  /// The last seq seen when Stop was sent to the loaded chat: the snapshot says `stopping` until that
+  /// turn ends, or a turn opens after it. Apart from `stopAfterSeq`, which the stopped turn's own late
+  /// `turn_started` answers.
+  private stoppingAfterSeq?: number;
   /// A fork's `forked` boundary event: its copied history ends there (cx-ncc.61's versions).
   private forkedAtSeq: number | undefined;
   /// Session replay (replay/ReplayScreen.tsx): the recorded events are folded only through this seq.
@@ -1423,6 +1427,7 @@ export class AcpmuxDirectClient {
     clearTimeout(this.stopTimer);
     this.stopGaveUp = false;
     this.stopAfterSeq = undefined;
+    this.stoppingAfterSeq = undefined;
     this.events = [];
     this.turnOpener = undefined;
     this.historyExhausted = false;
@@ -2475,6 +2480,12 @@ export class AcpmuxDirectClient {
     this.stopAfterSeq = undefined;
   }
 
+  /// A turn that opens after a Stop, with none open, is a new one: the Stop was not for it.
+  private stoppingOpens(event: EventRecord): void {
+    if (!this.turnOpen && this.stoppingAfterSeq !== undefined && event.seq > this.stoppingAfterSeq)
+      this.stoppingAfterSeq = undefined;
+  }
+
   /// A decided question stays in the transcript as a compact record where its card was: what was
   /// chosen, or that it went unanswered. acpmux's log holds both records, so a reload draws it again.
   private recordQuestion(event: EventRecord, msg: any): void {
@@ -2772,12 +2783,14 @@ export class AcpmuxDirectClient {
           // This pane's prompt reached the agent: its row (now acpmux's) shows it read.
           this.setDelivery(fallbackPromptId, { state: "read", readAt: event.at }, `user-${event.seq}`);
         }
+        this.stoppingOpens(event);
         this.turnOpen = true;
       } else if (event.kind === "turn_silent") {
         this.silentTurn = this.turnOpen;
       } else if (event.kind === "turn_heard") {
         this.silentTurn = false;
       } else if (event.kind === "turn_started") {
+        this.stoppingOpens(event);
         this.turnOpen = true;
         this.silentTurn = false;
         this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
@@ -2803,6 +2816,7 @@ export class AcpmuxDirectClient {
         this.landSteer();
         // Stop was answered: its grace must not judge the next turn.
         this.stopAnswered(event);
+        if (this.stoppingAfterSeq !== undefined && event.seq > this.stoppingAfterSeq) this.stoppingAfterSeq = undefined;
         this.pendingPermission = undefined;
         this.waitingPermissions.clear();
         this.groupedPermissions.clear();
@@ -3266,8 +3280,8 @@ export class AcpmuxDirectClient {
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
       isWorking: working,
-      // A Stop the turn has not answered yet: a turn event after it (`stopAnswered`) ends it.
-      ...(working && this.stopAfterSeq !== undefined ? { stopping: true as const } : {}),
+      // A Stop whose turn has not ended yet (`stoppingAfterSeq`).
+      ...(working && this.stoppingAfterSeq !== undefined ? { stopping: true as const } : {}),
       ...(this.replayThrough === undefined && this.turnTokens ? { turnTokens: this.turnTokens } : {}),
       ...(this.replayThrough === undefined && this.turnOpen && this.silentTurn ? { silentTurn: true as const } : {}),
       // Only a peer runs on another clock; this computer's own sessions need no correction.
@@ -3858,8 +3872,12 @@ export class AcpmuxDirectClient {
       this.stopGaveUp = true;
       this.notice(translate("stop.forced"));
     }, STOP_GRACE_MS);
-    // Stop shows it was heard until the turn ends (the snapshot's `stopping`).
-    this.emit();
+    // Stop shows it was heard until the turn ends (the snapshot's `stopping`), for the chat whose
+    // state is loaded: during a switch's hold Stop goes to the chat still drawn, not the one loading.
+    if (sessionId === this.selectedSessionId) {
+      this.stoppingAfterSeq = this.lastSeq;
+      this.emit();
+    }
   }
   /// Withdraws a queued prompt before its turn starts; `removed` is false once it started.
   async removeQueued(promptId: string): Promise<{ removed: boolean }> {
