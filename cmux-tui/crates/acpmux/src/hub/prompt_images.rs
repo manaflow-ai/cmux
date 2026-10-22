@@ -43,16 +43,47 @@ fn sniffed_type(bytes: &[u8]) -> Option<&'static str> {
     if at(0, b"%PDF-") {
         return Some("application/pdf");
     }
-    // An ISO base media file: its `ftyp` box names the brand.
     if at(4, b"ftyp") {
-        match bytes.get(8..12)? {
-            b"heic" | b"heix" | b"heim" | b"heis" | b"hevc" | b"hevx" => return Some("image/heic"),
-            b"mif1" | b"msf1" | b"heif" => return Some("image/heif"),
-            b"avif" | b"avis" => return Some("image/avif"),
-            _ => {}
-        }
+        return iso_media_type(bytes);
     }
     None
+}
+
+/// An ISO base media file's image type from its whole `ftyp` box: its major brand and every
+/// compatible brand inside the box (as libavif's read.c reads it), so an AVIF whose major brand
+/// is `mif1` is AVIF. `None` for a box cut short, one whose brands are not whole, or one that
+/// names no HEIF brand.
+fn iso_media_type(bytes: &[u8]) -> Option<&'static str> {
+    let u32_at =
+        |at: usize| bytes.get(at..at + 4).map(|b| u32::from_be_bytes(b.try_into().unwrap()));
+    let (header, size) = match u32_at(0)? {
+        // A 64-bit size follows the type.
+        1 => {
+            let large = bytes.get(8..16).map(|b| u64::from_be_bytes(b.try_into().unwrap()))?;
+            (16, usize::try_from(large).ok()?)
+        }
+        // The box runs to the end of the file.
+        0 => (8, bytes.len()),
+        size => (8, size as usize),
+    };
+    // The major brand and minor version, then whole compatible brands, all inside the file.
+    if size < header + 8 || size > bytes.len() || (size - header - 8) % 4 != 0 {
+        return None;
+    }
+    let brands: Vec<&[u8]> = std::iter::once(&bytes[header..header + 4])
+        .chain(bytes[header + 8..size].chunks_exact(4))
+        .collect();
+    let has =
+        |names: &[&[u8; 4]]| brands.iter().any(|brand| names.iter().any(|name| *brand == *name));
+    if has(&[b"avif", b"avis"]) {
+        Some("image/avif")
+    } else if has(&[b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx"]) {
+        Some("image/heic")
+    } else if has(&[b"mif1", b"msf1", b"heif"]) {
+        Some("image/heif")
+    } else {
+        None
+    }
 }
 
 /// A kept image's name: 64 lowercase hex digits, never a path.
