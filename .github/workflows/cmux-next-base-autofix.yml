@@ -82,11 +82,15 @@ on:
       - backend/packages/protocol/scripts/export-rust-client.ts
       - backend/packages/protocol/src/automation-caps.ts
       - schemas/settings/**
-      # The cmuxd-remote license review (base-autofix.sh --license-review).
+      # The cmuxd-remote license review (base-autofix.sh --license-review): every input of the
+      # licenses area in autofix-areas.sh.
       - daemon/remote/go.mod
       - daemon/remote/go.sum
+      - daemon/remote/**/*.go
       - daemon/remote/third-party/**
       - scripts/remote_daemon_notices.py
+      - cmux-tui/build-support/notices/license_match.py
+      - scripts/cmux-next/check_app_crate_licenses.py
       - scripts/cmux-next/base-autofix.sh
       - scripts/cmux-next/base-autofix-push.sh
       - scripts/cmux-next/base-autofix-land.sh
