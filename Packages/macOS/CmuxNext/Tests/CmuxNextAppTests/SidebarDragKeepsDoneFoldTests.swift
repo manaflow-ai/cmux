@@ -211,9 +211,9 @@ import Testing
 
     /// Codex review: with the loose fold open, `a` and `d` (Done) selected and dragged together would draw `a` in its
     /// place and `d` below the fold, with `b` and the fold row between them, while the drag maps the pointer through one
-    /// slot from the first dragged row to the last. Such a drag unfolds (as before), so every frame draws the dragged
-    /// rows together and the drop lands where the pointer left them; a drag the fold leaves together keeps it.
-    @Test func aDragTheOpenFoldWouldSplitDrawsItsRowsTogether() throws {
+    /// slot from the first dragged row to the last. A drag that carries a Done row unfolds (as before), so every frame
+    /// draws the dragged rows together and the drop lands where the pointer left them.
+    @Test func aDragThatCarriesADoneRowDrawsItsRowsTogether() throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
         TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(true))
@@ -268,14 +268,17 @@ import Testing
         #expect(order == ["b", "e", "a", "d"].map { SidebarNode.ID.workspace(WorkspaceID($0)) }, "dropped below e: \(order)")
         #expect(failures.isEmpty, "\(failures.prefix(12).joined(separator: "\n"))")
 
-        // Which drags unfold: only rows an open fold would draw apart.
+        // Which drags unfold: those that carry a row the fold would hide or draw below it (Codex review: a lone Done
+        // row dropped into a list with no fold would add a "Done (1)" row the drag's base rows lack).
         var o = SidebarLayoutOptions()
         (o.foldsDone, o.openDoneFolds, o.activeWorkspaceID) = (true, [loose], WorkspaceID("a"))
-        #expect(SidebarLayout.foldSplits([Self.ws("a"), Self.ws("d", done: true)], options: o))
-        #expect(!SidebarLayout.foldSplits([Self.ws("b"), Self.ws("c")], options: o), "no Done row")
-        #expect(!SidebarLayout.foldSplits([Self.ws("d", done: true), Self.ws("e", done: true)], options: o), "all below the fold")
-        #expect(!SidebarLayout.foldSplits([Self.ws("a", done: true), Self.ws("b")], options: o), "the active Done row keeps its place")
+        #expect(SidebarLayout.dragUnfolds([Self.ws("b"), Self.ws("d", done: true)], options: o), "a mixed drag")
+        #expect(SidebarLayout.dragUnfolds([Self.ws("d", done: true)], options: o), "a lone Done row")
+        #expect(!SidebarLayout.dragUnfolds([Self.ws("b"), Self.ws("c")], options: o), "no Done row")
+        #expect(!SidebarLayout.dragUnfolds([Self.ws("a", done: true), Self.ws("b")], options: o), "the active Done row keeps its place")
         o.openDoneFolds = []
-        #expect(!SidebarLayout.foldSplits([Self.ws("a"), Self.ws("d", done: true)], options: o), "a closed fold hides d")
+        #expect(SidebarLayout.dragUnfolds([Self.ws("d", done: true)], options: o), "a selected Done row a closed fold hides")
+        o.foldsDone = false
+        #expect(!SidebarLayout.dragUnfolds([Self.ws("d", done: true)], options: o), "no fold")
     }
 }
