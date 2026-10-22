@@ -221,4 +221,20 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     expect(await focused()).toBe("prompt");
     await context.close();
   });
+
+  test("in shell mode Escape on a look dot goes back to the shell prompt", async () => {
+    const context = await browser.newContext({ viewport: { width: 760, height: 600 } });
+    const page = await context.newPage();
+    await open(page, "agent-pane.composer", "quiet-chips");
+    const form = ".acpmux-composer";
+    await page.locator(".acpmux-composer-prompt").click();
+    await page.keyboard.type("!");
+    await page.locator(".acpmux-shell-field").waitFor();
+
+    await page.focus(`${form} .acpmux-look-dots input[value=claude]`);
+    await page.keyboard.press("Escape");
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    expect(await page.evaluate(() => document.activeElement?.className ?? "none")).toBe("acpmux-shell-field");
+    await context.close();
+  });
 });
