@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextDiff
 import CmuxNextPalette
 import typealias CmuxNextDaemon.SurfaceID
 
@@ -76,6 +77,11 @@ final class ViewerService {
     func openDiff(_ directory: String, in pane: PaneController, focus: Bool,
                   created: (@MainActor (SurfaceID) -> Void)? = nil) async throws {
         try await diffViewer.openDiff(directory: directory, in: pane, focus: focus, created: created)
+    }
+
+    /// A diff tab showing `patch` (a chat turn's own changes) in `pane`.
+    func openDiff(patch: DiffPatch, in pane: PaneController, focus: Bool, created: (@MainActor (SurfaceID) -> Void)? = nil) {
+        diffViewer.openDiff(patch: patch, in: pane, focus: focus, created: created)
     }
 
     /// The picker's folder mode for the diff viewer. `beside`: the placement of a diff opened beside

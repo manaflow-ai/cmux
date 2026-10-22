@@ -272,16 +272,19 @@ async function viewedFiles(rows: AcpmuxRow[], load: TurnCheckpointLoad) {
   }));
 }
 
-/// Where View changes opens for the chat folder `folder`, whose `git.status` `readStatus` answers.
+/// What View changes opens beside the chat for the chat folder `folder` (undefined: a remote chat),
+/// whose `git.status` `readStatus` answers: the folder's diff, the turn's own diff, or nothing (the
+/// turn's diff opens in place).
 async function opensIn(
   rows: AcpmuxRow[],
   rowId: string,
   folder: string | undefined,
   readStatus: (cwd: string) => Promise<unknown> = inRepository(FOLDER),
 ) {
-  const { repositoryRoot, viewChangesBeside } = await import("../src/agent-session/acpmux/turnChanges/viewChanges");
+  const { besideRequest, repositoryRoot } = await import("../src/agent-session/acpmux/turnChanges/viewChanges");
   const root = folder ? await repositoryRoot(folder, readStatus) : undefined;
-  return viewChangesBeside(rows, rowId, root) ? "beside" : "in place";
+  const opens = besideRequest(rows, rowId, folder, root, "uploader");
+  return !opens ? "in place" : "cwd" in opens ? "folder diff beside" : "turn diff beside";
 }
 
 test.each([
@@ -310,8 +313,8 @@ test("a new file's View changes opens the turn's own diff, all nine lines added"
   const opened = await renderCard(row);
   await click(host.querySelector(".acpmux-review-changes"));
   expect(opened).toEqual([{ rowId: "turn-1", path: SETUP }]);
-  // The chat folder's git diff beside the chat has no /tmp file: the turn's diff opens in place.
-  expect(await opensIn([row], "turn-1", FOLDER)).toBe("in place");
+  // The chat folder's git diff beside the chat has no /tmp file: the turn's own diff opens there.
+  expect(await opensIn([row], "turn-1", FOLDER)).toBe("turn diff beside");
   // Read from the input, it is a fragment: never marked as a new file, though every line is added.
   expect(await viewedFiles([row], emptyCheckpoint)).toEqual([
     { path: SETUP, created: false, additions: 9, deletions: 0, lines: Array(9).fill("add") },
@@ -457,7 +460,7 @@ test("a file outside the repository opens through View changes with its tool-cal
   const opened = await renderCard(row, emptyCheckpoint);
   await click(host.querySelector(".acpmux-review-changes"));
   expect(opened).toEqual([{ rowId: "turn-2", path: "/etc/hosts.local" }]);
-  expect(await opensIn([row], "turn-2", FOLDER)).toBe("in place");
+  expect(await opensIn([row], "turn-2", FOLDER)).toBe("turn diff beside");
   expect(await viewedFiles([row], emptyCheckpoint)).toEqual([
     {
       path: "/etc/hosts.local",
@@ -514,25 +517,42 @@ test("an edited file in the chat folder opens through View changes beside the ch
   await click(host.querySelector(".acpmux-review-changes"));
   expect(opened).toEqual([{ rowId: "turn-3", path: `${FOLDER}/upload.sh` }]);
   // The folder's git diff holds it, as before; with no local folder the turn's diff opens in place.
-  expect(await opensIn([row], "turn-3", FOLDER)).toBe("beside");
-  expect(await opensIn([row], "turn-3", undefined)).toBe("in place");
+  expect(await opensIn([row], "turn-3", FOLDER)).toBe("folder diff beside");
+  // A remote chat's folder is not on this Mac: the turn's own diff opens beside the chat.
+  expect(await opensIn([row], "turn-3", undefined)).toBe("turn diff beside");
   // A chat in a subfolder of the repository still has its files in the repository's diff.
-  expect(await opensIn([row], "turn-3", `${FOLDER}/scripts`, inRepository(FOLDER))).toBe("beside");
-  // Without a checkpoint, the in-place view is the tool call's change.
+  expect(await opensIn([row], "turn-3", `${FOLDER}/scripts`, inRepository(FOLDER))).toBe("folder diff beside");
+  // Without a checkpoint, the turn's own diff is the tool call's change.
   expect(await viewedFiles([row], { state: "unsupported" })).toEqual([
     { path: `${FOLDER}/upload.sh`, created: false, additions: 1, deletions: 1, lines: ["del", "add"] },
   ]);
 });
 
-test("a chat folder that is not a repository opens the turn's own diff, even for a file inside it", async () => {
+test("a chat folder that is not a repository opens the turn's own diff beside the chat, even for a file inside it", async () => {
   const row = activity("turn-6", [await editInFolder()]);
   const opened = await renderCard(row);
   await click(host.querySelector(".acpmux-review-changes"));
   expect(opened).toEqual([{ rowId: "turn-6", path: `${FOLDER}/upload.sh` }]);
-  // git.status fails for the folder: the viewer beside the chat would only ask for a repository.
-  expect(await opensIn([row], "turn-6", FOLDER, notARepository)).toBe("in place");
+  // git.status fails for the folder: the folder's diff would only ask for a repository.
+  expect(await opensIn([row], "turn-6", FOLDER, notARepository)).toBe("turn diff beside");
   // A reply without a repository root reads the same way.
-  expect(await opensIn([row], "turn-6", FOLDER, async () => ({}))).toBe("in place");
+  expect(await opensIn([row], "turn-6", FOLDER, async () => ({}))).toBe("turn diff beside");
+});
+
+test("the turn's own diff beside the chat is its tool calls' patch, one block per edit, under the folder's name", async () => {
+  const { besideRequest, TURN_PATCH_LIMIT } = await import("../src/agent-session/acpmux/turnChanges/viewChanges");
+  const row = activity("turn-14", [await editInFolder()]);
+  expect(besideRequest([row], "turn-14", FOLDER, undefined, "uploader")).toEqual({
+    patch: "diff --git a/upload.sh b/upload.sh\n--- a/upload.sh\n+++ b/upload.sh\n@@ -1,1 +1,1 @@\n-attempt=0\n+attempt=1\n",
+    title: "uploader",
+  });
+  // The folder's diff when the repository holds the turn: no patch is sent.
+  expect(besideRequest([row], "turn-14", FOLDER, FOLDER, "uploader")).toEqual({ cwd: FOLDER });
+  // A new file outside the repository: all its lines added to nothing.
+  const created = activity("turn-15", [await translatorWrite("write-9", SETUP, true)]);
+  const patch = (besideRequest([created], "turn-15", FOLDER, FOLDER, "uploader") as { patch: string }).patch;
+  expect(patch.startsWith("diff --git a/l-setup.txt b/l-setup.txt\n--- /dev/null\n+++ b/l-setup.txt\n@@ -0,0 +1,9 @@\n+step 1\n")).toBe(true);
+  expect(patch.length).toBeLessThan(TURN_PATCH_LIMIT);
 });
 
 test("a MultiEdit opens inline with every edit from its latest input", async () => {

@@ -33,6 +33,9 @@ public struct AgentPaneHeaderHooks {
     public var sideTabs: @MainActor () -> Bool?
     /// Preview: toggles (`true`) or opens a browser tab beside the chat on a local page.
     public var preview: @MainActor (String?, Bool) -> Void
+    /// View changes on a turn the chat folder's diff does not hold: the turn's own patch (unified
+    /// diff text) in the diff viewer beside the chat, titled with the first argument.
+    public var diffPatch: @MainActor (_ title: String, _ patch: String) -> Void
     /// The right-click menu's quick actions, saved to `agent-pane/layout.json`; whether they were.
     public var saveQuickActions: @MainActor ([AgentPaneQuickAction]) async -> Bool
     /// The "..." menu's Move to Floating Chat (cx-b9qi): Start Agent's panel holds session `id` and
@@ -59,6 +62,7 @@ public struct AgentPaneHeaderHooks {
                 newChat: @escaping @MainActor (String) -> Bool = { _ in false },
                 sideTabs: @escaping @MainActor () -> Bool? = { nil },
                 preview: @escaping @MainActor (String?, Bool) -> Void = { _, _ in },
+                diffPatch: @escaping @MainActor (String, String) -> Void = { _, _ in },
                 saveQuickActions: (@MainActor ([AgentPaneQuickAction]) async -> Bool)? = nil,
                 moveToFloatingChat: (@MainActor (String) -> Bool)? = nil,
                 refreshPullRequest: (@MainActor () -> Void)? = nil,
@@ -74,6 +78,7 @@ public struct AgentPaneHeaderHooks {
         self.newChat = newChat
         self.sideTabs = sideTabs
         self.preview = preview
+        self.diffPatch = diffPatch
         self.saveQuickActions = saveQuickActions ?? { _ in false }
         self.moveToFloatingChat = moveToFloatingChat
         self.refreshPullRequest = refreshPullRequest
@@ -113,6 +118,8 @@ extension AgentPaneModel {
     static let sideTabsAction = "sideTabs"
     /// The header's Preview (`pane.action {id: "preview", url}`), ``AgentPaneRequest/preview(url:toggle:)``.
     public static let previewAction = "preview"
+    /// The header's Changes; with a `patch`, a turn's own diff (``AgentPaneRequest/diffPatch(title:patch:)``).
+    public static let diffViewerAction = "openDiffViewer"
 
     /// `pane.action` runs a listed action on a chat (never the New Tab page); `pane.tabState`
     /// reads the header's state. Archive and Mark as Unread are the page's own acpmux requests
@@ -130,6 +137,13 @@ extension AgentPaneModel {
             }
             header.preview(url, toggle)
             return AgentPaneReply.success()
+        case .diffPatch(let title, let patch):
+            guard newTab == nil, let header else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action openDiffViewer")
+            }
+            header.diffPatch(title, patch)
+            // `ran`, as for the folder's diff: the page opens nothing in place.
+            return AgentPaneReply.success(["ran": true])
         case .setQuickActions(let list):
             guard newTab == nil, let header, await header.saveQuickActions(list) else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.setQuickActions")

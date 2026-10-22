@@ -48,7 +48,7 @@ public final class DiffPageRuntime {
         let root = root, available = sidecar != nil
         return Task {
             guard available else { throw DiffTabFailure(title: repository.name, message: DiffPageStrings.unavailable) }
-            let grant = try await Self.grant(root: root, repository: repository.root)
+            let grant = try await Self.grant(root: root, repository: repository.root, title: repository.name)
             if Task.isCancelled {
                 await Self.drop(grant)
                 throw CancellationError()
@@ -57,19 +57,34 @@ public final class DiffPageRuntime {
         }
     }
 
-    @concurrent private static func grant(root wanted: URL, repository: String) async throws -> DiffSessionGrant {
+    /// A patch tab's grant, which lists `patch` and allows no repository, and its config.
+    public func prepare(patch: DiffPatch) -> Task<DiffTabReady, any Error> {
+        let root = root, available = sidecar != nil
+        return Task {
+            guard available else { throw DiffTabFailure(title: patch.title, message: DiffPageStrings.unavailable) }
+            let grant = try await Self.grant(root: root, repository: nil, patch: Data(patch.text.utf8), title: patch.title)
+            if Task.isCancelled {
+                await Self.drop(grant)
+                throw CancellationError()
+            }
+            return DiffTabReady(grant: grant, config: DiffPageConfig.make(patch: patch, token: grant.token))
+        }
+    }
+
+    @concurrent private static func grant(root wanted: URL, repository: String?, patch: Data? = nil,
+                                          title: String) async throws -> DiffSessionGrant {
         let root: URL
         do {
             root = try DiffSessionRoot.prepare(wanted)
         } catch {
-            throw DiffTabFailure(title: URL(fileURLWithPath: repository).lastPathComponent, message: DiffPageStrings.unavailable)
+            throw DiffTabFailure(title: title, message: DiffPageStrings.unavailable)
         }
         let sweep = swept.withLock { swept -> Bool in
             defer { swept = true }
             return !swept
         }
         if sweep { DiffSessionRoot.sweep(root) }
-        let grant = try DiffSessionGrant.create(root: root, repository: repository)
+        let grant = try DiffSessionGrant.create(root: root, repository: repository, patch: patch)
         live.withLock { $0[ObjectIdentifier(grant)] = grant }
         return grant
     }

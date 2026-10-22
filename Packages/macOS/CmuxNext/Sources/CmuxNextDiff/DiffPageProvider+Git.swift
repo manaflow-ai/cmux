@@ -97,7 +97,10 @@ extension DiffPageProvider {
     private func gitRepository() async throws -> String {
         guard let ready else { throw PageError(code: "sidecarUnavailable", message: "No repository is open") }
         do {
-            return try await ready.value.grant.repository
+            guard let repository = try await ready.value.grant.repository else {
+                throw PageError(code: "sidecarUnavailable", message: "No repository is open")
+            }
+            return repository
         } catch let failure as DiffTabFailure {
             throw PageError(code: "sidecarUnavailable", message: failure.message)
         }

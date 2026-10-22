@@ -2,8 +2,9 @@
 // beside the chat (App.tsx `diffBeside`), but that is the folder's git diff: it shows nothing for a
 // folder that is not a repository (the viewer asks for one instead), nor a file the turn wrote outside
 // the repository (a new /tmp/l-setup.txt). Such a turn opens its own diff in the page instead, built
-// from the tool calls, which shows any file.
-import { turnFiles, turnRows } from "../diff";
+// from the tool calls, which shows any file. Outside Quick Chat that diff opens beside the chat too, in
+// the same diff viewer, as a patch (`besideRequest`).
+import { turnFiles, turnPatch, turnRows } from "../diff";
 import type { AcpmuxRow } from "../model";
 
 /// The top level of the repository holding `folder`, from the host's `git.status` for it
@@ -27,4 +28,26 @@ export function viewChangesBeside(rows: readonly AcpmuxRow[], rowId: string, roo
   return turnFiles(turnRows([...rows], rowId)).every((file) =>
     file.path.startsWith("/") ? file.path.startsWith(`${top}/`) : !file.path.startsWith("~"),
   );
+}
+
+/// The longest turn patch sent to the App (UTF-16 units); a larger turn opens its diff in the page.
+export const TURN_PATCH_LIMIT = 8 * 1024 * 1024;
+
+/// What View changes asks the App to open beside the chat (`pane.action` `openDiffViewer`), or
+/// undefined when the turn's diff opens in the page:
+/// - `{cwd}`: the chat folder's diff, when `viewChangesBeside` holds;
+/// - `{patch, title}`: else the turn's own diff (`turnPatch`), in the same viewer (Leo, 2026-10-22: "why's
+///   the diff viewer not opening up in the right split tab? what about the existing diff viewer
+///   elsewhere that was previously made?"), titled `title`; undefined when the turn has no hunk to
+///   show or its patch passes `TURN_PATCH_LIMIT`.
+export function besideRequest(
+  rows: readonly AcpmuxRow[],
+  rowId: string,
+  folder: string | undefined,
+  root: string | undefined,
+  title: string,
+): { cwd: string } | { patch: string; title: string } | undefined {
+  if (folder && viewChangesBeside(rows, rowId, root)) return { cwd: folder };
+  const patch = turnPatch(turnFiles(turnRows([...rows], rowId)));
+  return patch && patch.length <= TURN_PATCH_LIMIT ? { patch, title } : undefined;
 }

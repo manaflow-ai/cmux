@@ -1,0 +1,11 @@
+{
+  "title": "Agent changes beside the chat",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Open agent chat", "cmux": ["agent", "new-chat"], "wait": 4},
+    {"title": "A turn that edited three files",
+     "rpc": {"method": "debug.agent_pane", "params": {"action": "seed_rows", "fixture": "worked-turn"}}, "wait": 2},
+    {"title": "View changes: the turn's diff opens in the diff viewer, in a split right of the chat",
+     "rpc": {"method": "debug.agent_pane", "params": {"action": "open_changes"}}, "wait": 4}
+  ]
+}

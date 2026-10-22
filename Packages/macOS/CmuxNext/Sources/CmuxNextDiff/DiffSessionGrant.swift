@@ -11,7 +11,9 @@ import CmuxNextCompat
 ///   each session's patch; it never creates a manifest, so this one starts with
 ///   a placeholder entry;
 /// - `.session-lease-<token>.lock`, held (flock) while the tab lives, so the
-///   sidecar's orphan sweep never removes a live tab's patches.
+///   sidecar's orphan sweep never removes a live tab's patches;
+/// - `.turn-<token>.patch`, a patch tab's patch (``DiffPatch``), listed at
+///   ``patchPath``; such a grant allows no repository.
 ///
 /// The token is 48 random hex characters and never leaves the tab: the tab's
 /// provider stamps it on every request and its patch source serves only it.
@@ -19,12 +21,15 @@ nonisolated final class DiffSessionGrant: Sendable {
     let root: URL
     let token: String
     let group: String
-    let repository: String
+    /// The repository the token may open sessions for; nil for a patch tab's grant.
+    let repository: String?
     private let lease = Mutex<Int32>(-1)
 
     static let placeholderPath = "/viewer.html"
+    /// Where a patch tab's patch is listed (``DiffPageConfig/make(patch:token:)``).
+    static let patchPath = "/turn.patch"
 
-    private init(root: URL, token: String, group: String, repository: String, lease: Int32) {
+    private init(root: URL, token: String, group: String, repository: String?, lease: Int32) {
         self.root = root
         self.token = token
         self.group = group
@@ -32,9 +37,9 @@ nonisolated final class DiffSessionGrant: Sendable {
         self.lease.withLock { $0 = lease }
     }
 
-    /// Takes the lease, then writes the grant files (0600). Blocking file IO:
-    /// call it off the main actor.
-    static func create(root: URL, repository: String) throws -> DiffSessionGrant {
+    /// Takes the lease, then writes the grant files (0600): for `repository`, or
+    /// for `patch` alone. Blocking file IO: call it off the main actor.
+    static func create(root: URL, repository: String?, patch: Data? = nil) throws -> DiffSessionGrant {
         let token = randomHex(bytes: 24)
         let group = "tab-" + randomHex(bytes: 8)
         let lease = Darwin.open(root.appending(path: ".session-lease-\(token).lock").path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
@@ -47,13 +52,17 @@ nonisolated final class DiffSessionGrant: Sendable {
         do {
             let placeholder = root.appending(path: ".viewer-\(token).html")
             try write(Data("<!doctype html>\n".utf8), to: placeholder)
-            let manifest: [String: Any] = [
-                "token": token,
-                "files": [["request_path": placeholderPath, "file_path": placeholder.path, "mime_type": "text/html",
-                           "remote_url": NSNull()]],
-            ]
+            var files: [[String: Any]] = [["request_path": placeholderPath, "file_path": placeholder.path, "mime_type": "text/html",
+                                           "remote_url": NSNull()]]
+            if let patch {
+                let file = grant.patchURL
+                try write(patch, to: file)
+                files.append(["request_path": patchPath, "file_path": file.path, "mime_type": DiffPatchResolver.mimeType,
+                              "remote_url": NSNull()])
+            }
+            let manifest: [String: Any] = ["token": token, "files": files]
             try write(JSONSerialization.data(withJSONObject: manifest), to: grant.manifestURL)
-            let session: [String: Any] = ["token": token, "groupID": group, "allowedRepoRoots": [repository]]
+            let session: [String: Any] = ["token": token, "groupID": group, "allowedRepoRoots": repository.map { [$0] } ?? []]
             try write(JSONSerialization.data(withJSONObject: session), to: root.appending(path: ".branch-session-\(group).json"))
         } catch {
             grant.remove()
@@ -63,6 +72,7 @@ nonisolated final class DiffSessionGrant: Sendable {
     }
 
     var manifestURL: URL { root.appending(path: ".manifest-\(token).json") }
+    var patchURL: URL { root.appending(path: ".turn-\(token).patch") }
 
     /// Removes the grant files, the patches its manifest lists inside the root,
     /// then releases the lease. Idempotent; blocking file IO.
@@ -75,7 +85,7 @@ nonisolated final class DiffSessionGrant: Sendable {
         let resolver = DiffPatchResolver(root: root, token: token)
         for file in resolver.listedFiles() { try? FileManager.default.removeItem(at: file) }
         for name in [".branch-session-\(group).json", ".manifest-\(token).json", ".manifest-\(token).lock",
-                     ".viewer-\(token).html", ".session-lease-\(token).lock"] {
+                     ".viewer-\(token).html", ".turn-\(token).patch", ".session-lease-\(token).lock"] {
             try? FileManager.default.removeItem(at: root.appending(path: name))
         }
         Darwin.close(lease)
@@ -127,7 +137,7 @@ nonisolated enum DiffSessionRoot {
             let resolver = DiffPatchResolver(root: root, token: token)
             for file in resolver.listedFiles() { try? FileManager.default.removeItem(at: file) }
             for stale in [name, ".manifest-\(token).json", ".manifest-\(token).lock", ".viewer-\(token).html",
-                          ".session-lease-\(token).lock"] {
+                          ".turn-\(token).patch", ".session-lease-\(token).lock"] {
                 try? FileManager.default.removeItem(at: root.appending(path: stale))
             }
         }

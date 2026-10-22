@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextDiff
 
 /// Opens a diff tab for a folder: the seam to the diff host (diff-host.md
 /// S4), which `DiffPageService` fills (`DiffPageService+Viewers.swift`).
@@ -11,6 +12,8 @@ protocol DiffViewerOpening: AnyObject {
     /// daemon holds, so it can move between panes).
     func openDiff(directory: String, in pane: PaneController, focus: Bool,
                   created: (@MainActor (SurfaceID) -> Void)?) async throws
+    /// A diff tab showing `patch`, which needs no repository.
+    func openDiff(patch: DiffPatch, in pane: PaneController, focus: Bool, created: (@MainActor (SurfaceID) -> Void)?)
 }
 
 /// Opens a chosen file: the seam to the file pages (diff-host S6, S7),

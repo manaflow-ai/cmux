@@ -32,6 +32,8 @@ final class DiffPageService: InternalPageProvider {
     private struct Tab {
         var repository: DiffRepository?
         var source: DiffOpenSource
+        /// A patch tab's patch (``open(patch:in:focus:created:)``); it has no repository.
+        var patch: DiffPatch?
         var page: PageWebView?
         var provider: DiffPageProvider?
         var host: DiffTabHost?
@@ -69,7 +71,10 @@ final class DiffPageService: InternalPageProvider {
     var icon: IconName? { .diffFile }
     var recents: DiffRecents { recentsStore }
 
-    func title(for key: String) -> String { tabs[key]?.repository?.name ?? title }
+    func title(for key: String) -> String {
+        if let patch = tabs[key]?.patch, !patch.title.isEmpty { return patch.title }
+        return tabs[key]?.repository?.name ?? title
+    }
 
     /// Opens a diff tab for the repository `folder` is in, comparing `source`
     /// first, after `pane`'s selected tab, or selects the tab of `pane`'s
@@ -93,6 +98,13 @@ final class DiffPageService: InternalPageProvider {
         }
     }
 
+    /// Opens a diff tab showing `patch` (a chat turn's own changes, opened beside the chat) after
+    /// `pane`'s selected tab, or selects the tab of `pane`'s window that already shows it. Not a
+    /// recent: no repository reopens it.
+    @discardableResult
+    func open(patch: DiffPatch, in pane: PaneController, focus: Bool, created: (@MainActor (SurfaceID) -> Void)? = nil) -> String {
+        show(in: pane, focus: focus, Tab(repository: nil, source: .default, patch: patch), created: created) { $0.patch == patch }
+    }
 
     /// The tab opens as a store tab where the pane's daemon holds page tabs
     /// (page-tabs-v1), so it moves between panes and columns like any daemon
@@ -178,9 +190,10 @@ final class DiffPageService: InternalPageProvider {
         // its page) shows the empty state: recents and a folder chooser.
         var tab = tabs[key] ?? Tab(repository: nil, source: .default)
         let host = DiffTabHost(service: self, key: key)
-        let ready = tab.repository.map { runtime.prepare(repository: $0, source: tab.source) }
+        let ready = tab.patch.map { runtime.prepare(patch: $0) } ?? tab.repository.map { runtime.prepare(repository: $0, source: tab.source) }
+        // A patch has no repository to stage, commit or push in.
         let provider = DiffPageProvider(ready: ready, sidecar: runtime.sidecar, languages: runtime.languages, host: host,
-                                        stores: stores, git: diffGit)
+                                        stores: stores, git: tab.patch == nil ? diffGit : nil)
         let native = AppPageNativeProvider(services: services, page: .diff)
         let routes = [PageRoute(prefix: "cmux.diff.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = PageWebView(descriptor: .diff, routes: routes, options: Self.engineOptions, surface: .diff,

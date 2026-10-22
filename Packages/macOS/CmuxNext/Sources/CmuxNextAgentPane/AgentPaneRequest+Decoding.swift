@@ -247,6 +247,9 @@ extension AgentPaneRequest {
         case "pane.action":
             if params?["id"] as? String == AgentPaneModel.previewAction {
                 self = Self.preview(params, method: method)
+            } else if params?["id"] as? String == AgentPaneModel.diffViewerAction, let patch = params?["patch"] as? String {
+                let title = (params?["title"] as? String).map { String($0.prefix(256)) } ?? ""
+                self = !patch.isEmpty && patch.utf16.count <= Self.maximumDiffPatchText ? .diffPatch(title: title, patch: patch) : .unsupported(method)
             } else if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
                 let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder)
                 self = .paneAction(id, cwd: cwd, toggle: params?["mode"] as? String == "toggle")

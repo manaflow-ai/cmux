@@ -27,6 +27,19 @@ public nonisolated struct DiffRepository: Sendable, Equatable {
     public var name: String { URL(fileURLWithPath: root).lastPathComponent }
 }
 
+/// A patch a diff tab shows in place of a repository's diff: a chat turn's own changes (the agent
+/// pane's View changes on a turn its folder's diff does not hold), as unified diff `text`, under
+/// `title` (the chat folder's name; empty for the viewer's own title).
+public nonisolated struct DiffPatch: Sendable, Equatable {
+    public let title: String
+    public let text: String
+
+    public init(title: String, text: String) {
+        self.title = title
+        self.text = text
+    }
+}
+
 /// What a diff tab compares first (the page can switch afterwards).
 public nonisolated enum DiffOpenSource: Sendable, Hashable {
     /// The branch against `base`; nil is the daemon's base branch.
@@ -72,6 +85,21 @@ nonisolated enum DiffPageConfig {
         case .staged:
             payload["sessionSource"] = ["kind": "staged", "repoRoot": root]
         }
+        return ["payload": .object(payload), "ops": .array(ops.map(JSONValue.string))]
+    }
+
+    /// A patch tab's config: the page opens `{kind: "patch"}` on the grant's patch
+    /// (``DiffSessionGrant/patchPath``), which its source menu names Last turn. No repository, so
+    /// no git source to switch to.
+    static func make(patch: DiffPatch, token: String) -> JSONValue {
+        let payload: [String: JSONValue] = [
+            "title": .string(patch.title.isEmpty ? DiffPageStrings.tabTitle : patch.title),
+            "transport": ["kind": "page", "endpoint": "cmux.diff", "protocolVersion": 1],
+            "capabilityToken": .string(token),
+            "layout": "split",
+            "layoutSource": "default",
+            "sessionSource": ["kind": "patch", "path": .string(DiffSessionGrant.patchPath)],
+        ]
         return ["payload": .object(payload), "ops": .array(ops.map(JSONValue.string))]
     }
 

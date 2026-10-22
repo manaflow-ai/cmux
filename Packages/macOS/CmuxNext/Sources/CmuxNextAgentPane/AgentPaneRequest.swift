@@ -123,6 +123,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// header/quickActions.ts) closes the split this tab's button opened
     /// when it is still there, else opens one.
     case paneAction(String, cwd: String? = nil, toggle: Bool = false)
+    /// View changes on a turn the chat folder's diff does not hold (`pane.action {id: "openDiffViewer",
+    /// patch, title}`, acpmux turnChanges/viewChanges.ts `besideRequest`): the turn's own unified
+    /// `patch` in the diff viewer beside the chat, titled `title`.
+    case diffPatch(title: String, patch: String)
     /// The header's Preview (`pane.action {id: "preview", url, mode}`): toggles or opens a browser tab
     /// beside the chat on `url`, the local page its last turn started or mentioned. A loopback
     /// address only; a click that closes the open preview may name none.
@@ -291,6 +295,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     public static let maximumPacingFrames = 640
     /// Longest `tab.open` text kept; a command or address is far shorter.
     public static let maximumOpenTabText = 8192
+    /// The longest turn patch `pane.action` carries (acpmux viewChanges.ts `TURN_PATCH_LIMIT`).
+    public static let maximumDiffPatchText = 8 * 1024 * 1024
     /// The page keeps about 2M characters of wire log; JSON escaping and
     /// multi-byte text can grow that, but not past this.
     public static let maximumLogBytes = 16 * 1024 * 1024

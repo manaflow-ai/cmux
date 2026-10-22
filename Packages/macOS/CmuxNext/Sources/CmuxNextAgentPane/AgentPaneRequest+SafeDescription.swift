@@ -54,6 +54,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .environment: "environment"
         case .appAction: "appAction"
         case .paneAction: "paneAction"
+        case .diffPatch: "diffPatch"
         case .preview: "preview"
         case .setQuickActions: "setQuickActions"
         case .tabState: "tabState"

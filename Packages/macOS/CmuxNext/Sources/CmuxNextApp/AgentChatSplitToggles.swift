@@ -65,14 +65,26 @@ final class AgentChatSplitToggles {
     /// Opens header action `id`'s split (`mode: "open"`): another one on every click.
     func open(_ id: String, cwd: String?, url: String? = nil, chat: String, store: DaemonStore?,
               actions: AgentChatTabActions) {
-        guard Self.panels.contains(id), let store, let tabs = Self.workspaceTabs(of: chat, in: store) else {
-            return Self.run(id, cwd: cwd, url: url, chat: chat, store: store, on: nil, actions: actions)
-        }
-        open(id, cwd: cwd, url: url, chat: chat, tabs: tabs, store: store, actions: actions)
+        open(id, cwd: cwd, url: url, patch: nil, chat: chat, store: store, actions: actions)
     }
 
-    private func open(_ id: String, cwd: String?, url: String?, chat: String, tabs: [TabModel], store: DaemonStore,
-                      actions: AgentChatTabActions) {
+    /// View changes on a turn the chat folder's diff does not hold (a folder outside a repository, a
+    /// file written outside it, a remote chat): the turn's own `patch` in the diff viewer, opened as
+    /// Changes opens the folder's, so it lines up right of the chat and lights the button.
+    func openPatch(_ patch: String, title: String, chat: String, store: DaemonStore?, actions: AgentChatTabActions) {
+        open(Self.changes, cwd: nil, url: nil, patch: (title, patch), chat: chat, store: store, actions: actions)
+    }
+
+    private func open(_ id: String, cwd: String?, url: String?, patch: (title: String, text: String)?, chat: String,
+                      store: DaemonStore?, actions: AgentChatTabActions) {
+        guard Self.panels.contains(id), let store, let tabs = Self.workspaceTabs(of: chat, in: store) else {
+            return Self.run(id, cwd: cwd, url: url, patch: patch, chat: chat, store: store, on: nil, actions: actions)
+        }
+        open(id, cwd: cwd, url: url, patch: patch, chat: chat, tabs: tabs, store: store, actions: actions)
+    }
+
+    private func open(_ id: String, cwd: String?, url: String?, patch: (title: String, text: String)? = nil, chat: String,
+                      tabs: [TabModel], store: DaemonStore, actions: AgentChatTabActions) {
         // Preview opens the chat's page; a click with none (its page closed elsewhere) opens nothing.
         if id == Self.preview, url == nil { return }
         let splits = splits(in: tabs, chat: chat)
@@ -84,16 +96,20 @@ final class AgentChatSplitToggles {
         // Open mode adds one per click: keep the recent ones, enough to find the last split beside the chat.
         opened = AgentChatTerminalAdds().room(in: opened, limit: Self.remembered) { $0.id }
         opened.append((id: AgentChatTerminalAdds().logged(id), baseline: Set(tabs.map(\.id))))
-        Self.run(id, cwd: cwd, url: url, chat: chat, store: store, on: anchor?.id, actions: actions)
+        Self.run(id, cwd: cwd, url: url, patch: patch, chat: chat, store: store, on: anchor?.id, actions: actions)
     }
 
     /// Runs header action `id` on tab `target` (the last panel beside the chat), or on the chat.
     /// Changes and Preview run as an agent's diff and browser do (AgentBesidePlacement): selected in
     /// the target's column, or with no target in a new column right of the chat.
-    private static func run(_ id: String, cwd: String?, url: String?, chat: String, store: DaemonStore?,
-                            on target: String?, actions: AgentChatTabActions) {
+    private static func run(_ id: String, cwd: String?, url: String?, patch: (title: String, text: String)? = nil, chat: String,
+                            store: DaemonStore?, on target: String?, actions: AgentChatTabActions) {
         switch id {
         case changes:
+            // A turn's own diff, which no folder names.
+            if let patch {
+                return actions.runBeside(id, arguments: ["patch": .string(patch.text), "title": .string(patch.title)], on: target)
+            }
             // The chat's repository, whichever tab the diff opens beside.
             let path = cwd ?? store?.tab(id: chat)?.cwd
             actions.runBeside(id, arguments: path.map { ["path": .string($0)] } ?? [:], on: target)

@@ -1,11 +1,13 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDiff
 import CmuxNextPalette
 
 /// The viewers' open actions (R89), one path for the palette, the CLI or
 /// socket, the File menu and shortcuts:
 /// - `openDiffViewer`: a diff tab for the focused pane's folder; without
-///   one, the cmux picker in folder mode;
+///   one, the cmux picker in folder mode; with `patch` (a chat turn's own
+///   changes, the agent pane's View changes) a tab showing that patch;
 /// - `palette.openDirectoryDiffViewer`: always the picker in folder mode;
 /// - `openMarkdownFile` and `file.open` without a path: the picker in file
 ///   mode at the pane's folder (Markdown only for the first); the file
@@ -20,12 +22,18 @@ enum ViewerHandlers {
         viewers.diffPages.chooser = PickerDiffFolderChooser(viewers: viewers)
         registry.bind("openDiffViewer", run: { invocation in
             guard let pane = context.paneController(invocation) else { return }
+            let focus = invocation.allowsViewChange && !invocation.besideCaller
+            // `patch`: a chat turn's own diff (AgentChatSplitToggles.openPatch), under `title`; no folder.
+            if let text = invocation["patch"]?.stringValue, !text.isEmpty {
+                let created = invocation.besideCaller ? AgentBesidePlacement.placed(invocation, in: pane, then: nil) : nil
+                let patch = DiffPatch(title: invocation["title"]?.stringValue ?? "", text: text)
+                return viewers.openDiff(patch: patch, in: pane, focus: focus, created: created)
+            }
             // `path`: that folder's repository; else the pane's folder.
             let given = invocation["path"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
             guard let folder = given ?? ViewerService.folder(of: pane) else {
                 return try showPicker(viewers.diffPickerPage(for: pane), context, invocation)
             }
-            let focus = invocation.allowsViewChange && !invocation.besideCaller
             // An agent's diff beside its chat: selected in the column right of it, or moved into a new one.
             let created = invocation.besideCaller ? AgentBesidePlacement.placed(invocation, in: pane, then: nil) : nil
             // No repository at the pane's folder: the picker asks for one (only when the run may

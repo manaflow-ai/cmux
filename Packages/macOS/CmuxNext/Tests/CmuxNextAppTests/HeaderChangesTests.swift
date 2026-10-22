@@ -62,4 +62,50 @@ struct HeaderChangesTests {
             #expect(cwd == nil)
         }
     }
+
+    /// View changes on a turn the chat folder's diff does not hold (a scratch folder outside any
+    /// repository, Leo 2026-10-22: "why's the diff viewer not opening up in the right split tab?"):
+    /// the page sends the turn's patch, and the diff viewer opens it beside the chat as Changes opens
+    /// the folder's diff, lit, with no folder named.
+    @Test func aTurnsOwnPatchOpensInTheDiffViewerBesideTheChat() {
+        let text = "diff --git a/batch.sh b/batch.sh\n--- /dev/null\n+++ b/batch.sh\n@@ -0,0 +1 @@\n+wait\n"
+        let message = AgentPaneRequest(body: ["method": "pane.action", "params": [
+            "id": "openDiffViewer", "patch": text, "title": "scratchpad", "mode": "open",
+        ]])
+        guard case .diffPatch(let title, let patch) = message else {
+            Issue.record("pane.action with a patch did not decode")
+            return
+        }
+        let row = Row(), toggles = AgentChatSplitToggles()
+        let actions = AgentChatTabActions(tab: { [chat = row.chat] in chat }, registry: { [registry = row.registry] in registry })
+        toggles.openPatch(patch, title: title, chat: row.chat, store: row.store, actions: actions)
+        #expect(row.order == ["chat", "changes"])
+        let opened = row.invocations["openDiffViewer"]
+        #expect(opened?["patch"]?.stringValue == text)
+        #expect(opened?["title"]?.stringValue == "scratchpad")
+        #expect(opened?["path"] == nil)
+        #expect(opened?.besideCaller == true)
+        #expect(toggles.headerState(chat: row.chat, store: row.store).lit == ["openDiffViewer"])
+        // Changes then closes it, as it closes the folder's diff.
+        row.click("openDiffViewer", toggles: toggles)
+        #expect(row.order == ["chat"])
+    }
+
+    /// A patch the page must not send: empty, or past the limit (the page opens those in place).
+    @Test func anEmptyOrOversizedPatchIsRefused() {
+        let message = { (patch: String) in
+            AgentPaneRequest(body: ["method": "pane.action", "params": ["id": "openDiffViewer", "patch": patch]])
+        }
+        for patch in ["", String(repeating: "+", count: AgentPaneRequest.maximumDiffPatchText + 1)] {
+            guard case .unsupported = message(patch) else {
+                Issue.record("a patch of \(patch.count) characters decoded")
+                continue
+            }
+        }
+        guard case .diffPatch(let title, _) = message("+x\n") else {
+            Issue.record("an untitled patch did not decode")
+            return
+        }
+        #expect(title.isEmpty)
+    }
 }

@@ -310,6 +310,17 @@ export function editPatch(file: TurnFile, edit: DiffEdit): string {
   return `${lines.join("\n")}\n`;
 }
 
+/// A turn's files as one unified patch for the diff viewer beside the chat (turnChanges/viewChanges.ts):
+/// each edit is its own `diff --git` block, as `editPatch` writes it, since a later edit's line numbers
+/// count from the file the earlier one left. The viewer lists a file written twice twice. Binary files
+/// and edits with no hunks are left out; "" when nothing is left.
+export function turnPatch(files: readonly TurnFile[]): string {
+  return files
+    .filter((file) => !file.binary)
+    .flatMap((file) => file.edits.filter((edit) => edit.hunks.length > 0).map((edit) => editPatch(file, edit)))
+    .join("");
+}
+
 /// A hunk's identity within a turn: the tool call, its file, which of that call's edits to the
 /// file it is in, and its place in that edit. Counting within the call keeps the key when an
 /// earlier call's diff arrives late.

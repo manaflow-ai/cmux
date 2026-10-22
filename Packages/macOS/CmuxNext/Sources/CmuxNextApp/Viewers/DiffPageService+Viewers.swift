@@ -15,6 +15,10 @@ extension DiffPageService: DiffViewerOpening {
             throw ActionFailure(message: DiffPageStrings.notRepository)
         }
     }
+
+    func openDiff(patch: DiffPatch, in pane: PaneController, focus: Bool, created: (@MainActor (SurfaceID) -> Void)?) {
+        open(patch: patch, in: pane, focus: focus, created: created)
+    }
 }
 
 /// `cmux.diff.chooseFolder` through the cmux picker (folder mode, the diff
