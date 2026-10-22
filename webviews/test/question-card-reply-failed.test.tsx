@@ -2,14 +2,16 @@
 // the card said "Couldn’t send your answer. Try again. approve this on the Mac app: allowing a
 // permission is accepted only from the cmux app, ..." because it appended acpmux's English
 // refusal, meant for its CLI, to its own sentence. Now an error the pane has words for (a refusal
-// with a code) shows those words alone, and any other failure shows only "Couldn’t send your
-// answer. Try again.", never the daemon's message.
+// with a code) shows those words alone; a message already in the person's language (the Swift
+// host's or the pane's own) follows the card's sentence; and acpmux's English never shows: such
+// a failure reads only "Couldn’t send your answer. Try again."
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { AcpmuxRpcError } from "../src/agent-session/acpmux/handoff/protocol";
+import { NativeError } from "../src/agent-session/acpmux/nativeError";
 import type { AgentQuestion } from "../src/agent-session/acpmux/question/model";
 import { QuestionCard } from "../src/agent-session/acpmux/question/QuestionCard";
 
@@ -114,8 +116,20 @@ test("acpmux's English refusal is never appended to the card's sentence", async 
       data: { reason: "permission.person_required" },
     }),
   );
+  // Not pinned to one sentence: #23890 gives this reason its own words; either way, never acpmux's.
   expect(text).not.toContain("approve this on the Mac app");
   expect(text).not.toContain("never from the CLI");
+});
+
+test("acpmux's English for a refusal the pane has no words for shows only the card's sentence", async () => {
+  const text = await refusedWith(
+    new AcpmuxRpcError({
+      code: -32000,
+      message: "session sess_claude_1 has no pending permission perm_toolu_one",
+      data: { reason: "permission.not_pending" },
+    }),
+  );
+  expect(text).toBe(translate("question.replyFailed"));
 });
 
 test("a failure the pane has no words for shows only the card's own sentence", async () => {
@@ -129,4 +143,16 @@ test("a refusal the pane has words for shows those words alone", async () => {
     Object.assign(new Error("not in this pane"), { code: "transport.session_not_in_pane" }),
   );
   expect(text).toBe(translate("transport.sessionNotInPane"));
+});
+
+test("the app's own message, already in the person's language, follows the card's sentence", async () => {
+  const message = "acpmux is not running. Open a new agent chat to start it.";
+  expect(await refusedWith(new NativeError({ userMessage: message }))).toBe(
+    `${translate("question.replyFailed")} ${message}`,
+  );
+});
+
+test("the pane's own words for a lost connection follow the card's sentence", async () => {
+  const lost = Object.assign(new Error(translate("error.notOpen")), { code: "native.not_connected", origin: "native" });
+  expect(await refusedWith(lost)).toBe(`${translate("question.replyFailed")} ${translate("error.notOpen")}`);
 });
