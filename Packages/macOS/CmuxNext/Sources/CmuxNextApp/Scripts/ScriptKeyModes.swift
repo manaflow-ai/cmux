@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextDaemon
 
 /// The config scripts' key modes (`cmux.keys.mode`, scripting-runtime.md
 /// section 10.3). Each mode gets the action `keyMode.enter.<name>`; while it
