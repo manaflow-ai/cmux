@@ -411,6 +411,24 @@
 .cv-user__status--failed {
   flex-direction: column;
   align-items: flex-end;
+  gap: 2px;
+}
+/* One plain sentence on its own line, the card's actions under it (Leo 2026-10-21: they ran on). */
+.cv-user__failure-text {
+  max-width: 100%;
+  text-align: right;
+  color: var(--cv-text);
+}
+/* The cause's own fix (Trust folder) reads first and in the text color. */
+.cv-user__fix {
+  color: var(--cv-text);
+  font-weight: 500;
+}
+.cv-user__cancel:disabled {
+  opacity: 0.45;
+}
+.cv-user__cancel:disabled:hover {
+  color: inherit;
 }
 .cv-user__failure {
   display: flex;
@@ -2747,6 +2765,17 @@ button.cv-received__name:focus-visible {
   outline: 1.5px solid var(--agent-muted);
   outline-offset: 1px;
 }
+/* The head's "Open in tab" and "Open in" (OpenInMenu.tsx) read like Load preview and the link hover
+   card's actions: no outline, muted text, a background only under the pointer. */
+.acpmux-turn-preview-head .acpmux-review-changes {
+  padding: 0 6px;
+  box-shadow: none;
+  color: var(--agent-muted);
+}
+.acpmux-turn-preview-head .acpmux-review-changes:hover {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  color: var(--agent-text);
+}
 
 /* A render card (RenderCard.tsx): a quiet head over the live frame, which takes its page's height. */
 .acpmux-render-card {
@@ -3278,6 +3307,19 @@ button.cv-received__name:focus-visible {
   overflow-wrap: anywhere;
 }
 
+/* ---------- A policy the chat's harness cannot keep (CompactionNote.tsx) ---------- */
+/* Its sentence wraps: the reason is the point of the note. */
+.cv-policy-unenforced {
+  align-items: flex-start;
+  padding-top: 3px;
+}
+.cv-policy-unenforced .cv-tool__icon {
+  margin-top: 2px;
+}
+.cv-policy-unenforced__text {
+  white-space: normal;
+}
+
 /* ---------- A paused agent pair (AgentPairNote.tsx) ---------- */
 /* Its sentence wraps; the held count and Resume sit under it, indented to the text. */
 .cv-agent-pair[data-state="paused"] {
@@ -3464,7 +3506,7 @@ button.cv-received__name:focus-visible {
 }
 .cv-received__replied {
   display: block;
-  margin: 0 0 6px 13px;
+  margin: 0 0 6px 22px;
 }
 /* Its Reply sits after the chevron, inside the line's padding, and shows while the line is hovered or holds the focus, so the
    line reads as before. */
