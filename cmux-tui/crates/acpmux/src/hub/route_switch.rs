@@ -83,7 +83,8 @@ impl Hub {
         };
         let route = routes::find(dir.as_deref(), &id).map_err(|e| {
             route_error(&routes::RouteError::NotFound(format!(
-                "{e}: this {scope}'s route is gone; restore it or pick another (`cmux route use`)"
+                "{e}: this {scope}'s route is gone; put its file back in ~/.config/cmux/routes \
+                 or pick another account in the chat's Account menu"
             )))
         })?;
         if !route.serves(&family) {
