@@ -12,7 +12,7 @@ use super::*;
 use crate::cli::hosts::host_auto_update::{
     NO_AUTO_UPDATE, UPDATE_SERVICE, UPDATE_TIMER, install_script,
 };
-use crate::cli::hosts::{Remote, install_daemon, lock_updates, push_binary};
+use crate::cli::hosts::{Remote, lock_to_install, lock_updates};
 use futures::future::BoxFuture;
 use std::collections::HashMap;
 use std::path::Path;
@@ -312,11 +312,10 @@ async fn a_host_update_and_a_self_update_of_one_host_never_run_at_once() {
     let up = update_locked(&peer, &opts);
     assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Failed, Some("updateRunning")));
     assert!(up.outcome.failed());
-    // `host setup` and `host enroll --fix` neither push nor restart.
-    let why = format!("{:#}", push_binary(&peer, DAEMON_BIN).unwrap_err());
-    assert!(why.contains("another update of fake is running"), "{why}");
-    let why = format!("{:#}", install_daemon(&peer, 47811, true).unwrap_err());
-    assert!(why.contains("another update of fake is running"), "{why}");
+    // `host setup` and `host enroll --fix` take it before they push, link
+    // or restart, so they do neither.
+    let Err(why) = lock_to_install(&peer) else { panic!("the lock was taken twice") };
+    assert!(format!("{why:#}").contains("another update of fake is running"), "{why:#}");
     peer.assert_only_read(&old, OLD);
     assert!(!peer.exists(".local/bin/acpmux.prev"));
     drop(held);
@@ -372,6 +371,115 @@ async fn a_daemon_whose_socket_a_drop_in_moved_is_checked_where_it_listens() {
         "{up:?}"
     );
     assert_eq!(peer.daemon(), NEW);
+}
+
+#[test]
+fn an_update_whose_lock_connection_drops_changes_nothing_more() {
+    // Re-review of #24232: once the connection that kept the lock ended,
+    // its flock was free while the update went on over other connections,
+    // so the timer could replace the binary and acpmux.prev under it. Every
+    // step now checks, on the host, that the lease is still its update's.
+    let peer = FakePeer::new("lease-ends");
+    let old = fake_acpmux(OLD, Some(OLD));
+    peer.offer(NEW, Some(NEW));
+    peer.lease_ends_after_copy.set(true);
+    let opts = UpdateOptions {
+        binary_dir: Some(peer.home.join("binaries")),
+        if_idle: false,
+        caller: None,
+    };
+    let up = update_locked(&peer, &opts);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Failed, Some("lockLost")), "{up:?}");
+    assert!(up.error.as_deref().unwrap_or_default().contains("lost its update lock"), "{up:?}");
+    // The pushed binary was never installed: the old one and its daemon run.
+    assert_eq!(peer.read(".local/bin/acpmux"), old);
+    assert!(!peer.exists(".local/bin/acpmux.prev"));
+    assert_eq!(peer.daemon(), OLD);
+    assert!(!peer.take_calls().iter().any(|c| c.contains("restart")));
+    // The lease is free for the next update at once.
+    let next = lock_updates(&peer).unwrap();
+    assert!(next.is_some(), "a lease whose process ended is free");
+}
+
+#[tokio::test]
+async fn a_self_update_whose_lease_another_update_took_changes_nothing_and_marks_nothing() {
+    // The lease went to another update (this test's process stands in for
+    // its holder): no step runs, and the build is not marked rolled back.
+    let peer = FakePeer::new("self-lease-taken");
+    let new = fake_acpmux(NEW, Some(NEW));
+    let files = serving(&new);
+    let plan = ready(&peer, &files).await;
+    let theirs = format!("{} {}\n", "f".repeat(32), std::process::id());
+    peer.write(".acpmux/update.owner", &theirs);
+    let up = apply(&peer, &plan, TARGET);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Failed, Some("lockLost")), "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));
+    assert!(!peer.exists(".local/bin/acpmux.prev"));
+    assert!(!peer.exists(&format!(".acpmux/update/{}/{ROLLED_BACK}", sha_of(&new))));
+    drop(plan);
+    assert_eq!(peer.read(".acpmux/update.owner"), theirs, "the other update's lease stays");
+}
+
+/// [`SERVICE_ENV`] with a fake `systemctl` whose `show` prints `printed`:
+/// the `ACPMUX_HOME` and `ACPMUX_SOCKET` a script then sees.
+fn service_env(printed: &str) -> (String, String) {
+    let dir = std::env::temp_dir().join(format!("acpmux-service-env-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("printed"), printed).unwrap();
+    let systemctl = dir.join("systemctl");
+    std::fs::write(&systemctl, "#!/bin/sh\ncat \"$(dirname \"$0\")/printed\"\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let script = format!(
+        "{SERVICE_ENV}printf '%s\\n%s' \"${{ACPMUX_HOME-unset}}\" \"${{ACPMUX_SOCKET-unset}}\""
+    );
+    let out = Command::new("sh")
+        .args(["-c", &script])
+        .env("PATH", format!("{}:/usr/bin:/bin", dir.display()))
+        .env("ACPMUX_HOME", "/inherited")
+        .env_remove("ACPMUX_SOCKET")
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let text = String::from_utf8(out.stdout).unwrap();
+    let (home, socket) = text.split_once('\n').unwrap();
+    (home.to_owned(), socket.to_owned())
+}
+
+#[test]
+fn the_daemons_settings_are_read_as_systemd_quotes_them() {
+    // Re-review of #24232: a value with a space, which `systemctl show`
+    // quotes, was dropped or cut at the space with a quote left in it.
+    let pair = |h: &str, s: &str| (h.to_owned(), s.to_owned());
+    for (printed, want) in [
+        (
+            r#"PATH=/usr/bin "ACPMUX_HOME=/srv/agent data" "ACPMUX_SOCKET=/srv/agent data/a\"b \$x.sock""#,
+            pair("/srv/agent data", r#"/srv/agent data/a"b $x.sock"#),
+        ),
+        (r#"ACPMUX_SOCKET="/srv/x y.sock" FOO=bar"#, pair("unset", "/srv/x y.sock")),
+        ("'ACPMUX_HOME=/single q' ACPMUX_SOCKET=/s\\ t", pair("/single q", "/s t")),
+        ("ACPMUX_HOME=/plain", pair("/plain", "unset")),
+        // A unit that sets neither leaves the inherited pair.
+        ("PATH=/usr/bin FOO=*", pair("/inherited", "unset")),
+        ("", pair("/inherited", "unset")),
+    ] {
+        assert_eq!(service_env(printed), want, "{printed}");
+    }
+}
+
+#[tokio::test]
+async fn a_daemon_whose_quoted_socket_has_a_space_is_checked_where_it_listens() {
+    let peer = FakePeer::new("self-quoted-socket");
+    let socket = peer.home.join("agent data/a\"b.sock").display().to_string();
+    let quoted = socket.replace('\\', "\\\\").replace('"', "\\\"");
+    peer.write("unit-environment", &format!("PATH=/usr/bin \"ACPMUX_SOCKET={quoted}\"\n"));
+    peer.exe(".local/bin/acpmux", &listening_at(&socket, &fake_acpmux(OLD, Some(OLD))));
+    let new = listening_at(&socket, &fake_acpmux(NEW, Some(NEW)));
+    let files = serving(&new);
+    let plan = ready(&peer, &files).await;
+    let up = apply(&peer, &plan, TARGET);
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
 }
 
 /// [`install_script`] in `home` with a fake `systemctl` that logs its

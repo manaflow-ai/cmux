@@ -11,13 +11,15 @@
 //! rolls back a daemon that does not come back on it. A build rolled back
 //! here is not tried again; the next one the channel names is. A failure
 //! after the push (the binary is put back) and a refusal before it are
-//! retried at the next run. The host's update lock (`~/.acpmux/update.lock`)
-//! is held from the channel read to the check or rollback: `host update`,
-//! `host setup` and `host enroll --fix` from another machine take the same
-//! lock on this host (`host_lock.rs`), so no two updates
-//! replace the binary or `acpmux.prev` at once.
+//! retried at the next run. The host's update lock (a lease in `~/.acpmux`,
+//! `host_lock.rs`) is held from the channel read to the check or rollback,
+//! and every script the update runs checks it is still this update's:
+//! `host update`, `host setup` and `host enroll --fix` from another machine
+//! take the same lease, so no two updates replace the binary or
+//! `acpmux.prev` at once.
 
 use super::super::host_auto_update::NO_AUTO_UPDATE;
+use super::super::host_lock::Lease;
 use super::super::{Remote, RemoteOut};
 use super::{
     CLOUD_VM_MARK, Outcome, PeerUpdate, UpdateOptions, embedded_build, local_target, update_peer,
@@ -199,8 +201,8 @@ pub(super) struct Plan {
     pub(super) commit: String,
     pub(super) sha256: String,
     pub(super) step: Step,
-    /// The update lock, held until the plan is dropped.
-    _lock: std::fs::File,
+    /// The host's update lease, held until the plan is dropped.
+    lease: Lease,
 }
 
 pub(super) enum Step {
@@ -223,7 +225,7 @@ pub(super) async fn prepare(paths: &Paths, fetch: &dyn Fetch, channel: &str) -> 
         bail!("this host is a cmux Cloud VM: `cmux link machine update --to-bundled` updates it");
     }
     let url = channel_url(channel)?;
-    let Some(lock) = lock(&paths.home.join("update.lock"))? else {
+    let Some(lease) = Lease::take(&paths.home)? else {
         return Ok(Prepared::Locked);
     };
     let body = fetch
@@ -244,31 +246,7 @@ pub(super) async fn prepare(paths: &Paths, fetch: &dyn Fetch, channel: &str) -> 
         }
         _ => Step::Install(download(fetch, &feed, paths.target, &sha, &downloads).await?),
     };
-    Ok(Prepared::Ready(Plan { commit: feed.commit, sha256: sha, step, _lock: lock }))
-}
-
-/// An exclusive flock on `path`, or None while another process holds it:
-/// the one `hold_update_lock` (`host_lock.rs`) takes for an update from another
-/// machine.
-fn lock(path: &Path) -> Result<Option<std::fs::File>> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
-    }
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(path)
-        .with_context(|| format!("opening {}", path.display()))?;
-    #[cfg(unix)]
-    {
-        use std::os::fd::AsRawFd;
-        // SAFETY: flock on a descriptor this function owns.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-            return Ok(None);
-        }
-    }
-    Ok(Some(file))
+    Ok(Prepared::Ready(Plan { commit: feed.commit, sha256: sha, step, lease }))
 }
 
 /// Remove the download folders (`<sha256>/`) of builds other than `keep`.
@@ -315,8 +293,8 @@ async fn download(
     Ok(dir)
 }
 
-/// Carry out `plan` on `remote` (this machine): the row `host update`
-/// prints for a peer. A build whose daemon was rolled back is marked, so the
+/// Carry out `plan` on `remote` (this machine), every script fenced for its
+/// lease: the row `host update` prints for a peer. A build whose daemon was rolled back is marked, so the
 /// next run leaves it alone.
 pub(super) fn apply(remote: &dyn Remote, plan: &Plan, target: &'static str) -> PeerUpdate {
     let mut up = PeerUpdate::new();
@@ -330,7 +308,7 @@ pub(super) fn apply(remote: &dyn Remote, plan: &Plan, target: &'static str) -> P
         Step::Install(dir) => {
             let opts =
                 UpdateOptions { binary_dir: Some(dir.clone()), if_idle: false, caller: None };
-            let up = update_peer(remote, &opts);
+            let up = update_peer(&plan.lease.fence(remote), &opts);
             if up.outcome == Outcome::RolledBack {
                 let _ = std::fs::write(dir.join(ROLLED_BACK), up.error.as_deref().unwrap_or(""));
             }

@@ -162,13 +162,15 @@ esac
 /// runtime drop-in) ends the agent host `$HOME/agents`. `$HOME/no-systemd`:
 /// no manager answers. A timer only needs its unit file. `show` (not
 /// logged: every update script reads it) prints `acpmux.service`'s
-/// `Environment=` settings, its drop-ins' included. Like the daemon
+/// `Environment=` settings, its drop-ins' included, or `$HOME/unit-environment`
+/// as it is (what systemd prints for values it quotes). Like the daemon
 /// (`config::private_state_dir`, which opens its home with `O_NOFOLLOW`),
 /// acpmux.service never answers when `~/.acpmux` is a link and no drop-in
 /// sets `ACPMUX_HOME`.
 #[cfg(unix)]
 const FAKE_SYSTEMCTL: &str = r#"#!/bin/sh
 d="$HOME/.config/systemd/user"; r="$XDG_RUNTIME_DIR/systemd/user"
+if [ "$2" = show ] && [ -f "$HOME/unit-environment" ]; then cat "$HOME/unit-environment"; exit 0; fi
 if [ "$2" = show ]; then cat "$d/$3" "$d/$3.d/"*.conf 2>/dev/null | sed -n 's/^Environment=//p' | tr '\n' ' '; echo; exit 0; fi
 echo "systemctl $*" >> "$HOME/calls"
 under() { echo "0::/user.slice/user-1001.slice/user@1001.service/app.slice/$1" > "$HOME/proc/4242/cgroup"; }
@@ -205,6 +207,9 @@ struct FakePeer {
     /// A file (relative path, text) written right after the next copy: what
     /// changes on the peer while the binary is pushed.
     after_copy: std::cell::RefCell<Option<(&'static str, &'static str)>>,
+    /// Right after the next copy, the process that keeps the host's update
+    /// lease ends: the connection that held the lock dropped.
+    lease_ends_after_copy: std::cell::Cell<bool>,
 }
 
 #[cfg(unix)]
@@ -235,6 +240,9 @@ impl Remote for FakePeer {
         if let Some((rel, text)) = self.after_copy.borrow_mut().take() {
             self.write(rel, text);
         }
+        if self.lease_ends_after_copy.take() {
+            self.end_lease();
+        }
         Ok(())
     }
 }
@@ -253,7 +261,11 @@ impl FakePeer {
     fn new(tag: &str) -> FakePeer {
         let home = std::env::temp_dir().join(format!("acpmux-up-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
-        let peer = FakePeer { home, after_copy: Default::default() };
+        let peer = FakePeer {
+            home,
+            after_copy: Default::default(),
+            lease_ends_after_copy: Default::default(),
+        };
         for dir in ["fakebin", ".local/bin", UNITS, "proc/4242", "run", "binaries", ".acpmux"] {
             std::fs::create_dir_all(peer.home.join(dir)).unwrap();
         }
@@ -313,6 +325,21 @@ impl FakePeer {
                 ),
             );
         self.exe(".local/bin/acpmux", &fake_acpmux(STALE, Some(STALE)));
+    }
+
+    /// End the process that keeps the update lease (a holder this test
+    /// spawned, `host_lock.rs`) and reap it, as sshd does when the
+    /// connection that held the lock drops.
+    fn end_lease(&self) {
+        let owner = self.read(".acpmux/update.owner");
+        let pid: i32 =
+            owner.split_whitespace().nth(1).and_then(|p| p.parse().ok()).expect("a lease");
+        let mut status = 0;
+        // SAFETY: the holder is a child of this test process (`Self::spawn`).
+        unsafe {
+            libc::kill(pid, libc::SIGKILL);
+            libc::waitpid(pid, &mut status, 0);
+        }
     }
 
     /// `script` under `sh` in the fake home, as [`Remote::exec`] runs it.

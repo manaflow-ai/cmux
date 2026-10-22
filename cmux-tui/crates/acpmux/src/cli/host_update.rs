@@ -5,8 +5,8 @@
 //! self-update` (`host_self_update.rs`) runs the same update on this machine.
 
 use super::{
-    DAEMON_UNIT, MIGRATING, REFUSED, RESTORE_PREV, Remote, RemoteOut, SshRemote, connect_peer,
-    linux_restart, lock_updates, migrate, migrate_back, push_update, run, ssh_host,
+    DAEMON_UNIT, LockLost, MIGRATING, REFUSED, RESTORE_PREV, Remote, RemoteOut, SshRemote,
+    connect_peer, linux_restart, lock_updates, migrate, migrate_back, push_update, run, ssh_host,
 };
 use crate::cli::output::print_json;
 use crate::client::Client;
@@ -33,12 +33,41 @@ const LAUNCHD_RESTART: &str = "{ launchctl kickstart -k gui/$(id -u)/com.acpmux.
 /// unit that sets neither leaves the inherited pair. So a status read or a
 /// check reaches the daemon the unit runs, from an ssh session and from
 /// `acpmux-update.service`, whose own environment has neither. Read again by
-/// every script, so a drop-in a move just wrote counts at once. A value
-/// `systemctl show` quotes (one with a space) is not read; the move never
-/// writes one (`carry` refuses it).
+/// every script, so a drop-in a move just wrote counts at once.
+///
+/// `systemctl show -p Environment --value` prints the assignments separated
+/// by spaces and quotes one that needs it as a shell would read it
+/// (`"ACPMUX_HOME=/srv/agent data"`, `\"`, `\\`, `\$` and `` \` `` inside):
+/// `acpmux_word` splits it into words the way `sh` does, quotes anywhere in
+/// a word, with no expansion.
 const SERVICE_ENV: &str = r#"acpmux_env=$(command -v systemctl >/dev/null 2>&1 && systemctl --user show acpmux.service -p Environment --value 2>/dev/null)
-case " $acpmux_env" in *" ACPMUX_HOME="?*|*" ACPMUX_SOCKET="?*) unset ACPMUX_HOME ACPMUX_SOCKET;; esac
-for acpmux_env in $acpmux_env; do case "$acpmux_env" in ACPMUX_HOME=?*|ACPMUX_SOCKET=?*) export "$acpmux_env";; esac; done
+acpmux_char() { acpmux_c=${acpmux_env%"${acpmux_env#?}"}; acpmux_env=${acpmux_env#?}; }
+acpmux_word() {
+  acpmux_w=; acpmux_q=; acpmux_any=
+  while [ -n "$acpmux_env" ]; do
+    acpmux_char
+    if [ "$acpmux_q" = "'" ]; then
+      if [ "$acpmux_c" = "'" ]; then acpmux_q=; else acpmux_w=$acpmux_w$acpmux_c; fi
+    elif [ "$acpmux_q" = '"' ]; then
+      case $acpmux_c in '"') acpmux_q= ;; '\') acpmux_char; acpmux_w=$acpmux_w$acpmux_c ;; *) acpmux_w=$acpmux_w$acpmux_c ;; esac
+    else
+      case $acpmux_c in
+        ' '|'	') [ -z "$acpmux_any" ] || return 0 ;;
+        "'"|'"') acpmux_q=$acpmux_c; acpmux_any=1 ;;
+        '\') acpmux_char; acpmux_w=$acpmux_w$acpmux_c; acpmux_any=1 ;;
+        *) acpmux_w=$acpmux_w$acpmux_c; acpmux_any=1 ;;
+      esac
+    fi
+  done
+  [ -n "$acpmux_any" ]
+}
+acpmux_set=; acpmux_h=; acpmux_s=
+while acpmux_word; do case $acpmux_w in ACPMUX_HOME=?*) acpmux_h=${acpmux_w#ACPMUX_HOME=}; acpmux_set=1 ;; ACPMUX_SOCKET=?*) acpmux_s=${acpmux_w#ACPMUX_SOCKET=}; acpmux_set=1 ;; esac; done
+if [ -n "$acpmux_set" ]; then
+  unset ACPMUX_HOME ACPMUX_SOCKET
+  if [ -n "$acpmux_h" ]; then export ACPMUX_HOME="$acpmux_h"; fi
+  if [ -n "$acpmux_s" ]; then export ACPMUX_SOCKET="$acpmux_s"; fi
+fi
 "#;
 
 /// A host whose every script starts with [`SERVICE_ENV`].
@@ -416,7 +445,7 @@ pub(crate) struct Caller {
 /// `acpmux.prev` under it; `updateRunning` (nothing changed) while one does.
 fn update_locked(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     match lock_updates(remote) {
-        Ok(Some(_lock)) => update_peer(remote, opts),
+        Ok(Some(lock)) => update_peer(&lock.fence(remote), opts),
         Ok(None) => {
             let why = format!(
                 "another update of {} is running (its acpmux-update.timer, or a host update): run this again once it ended",
@@ -431,7 +460,8 @@ fn update_locked(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
 /// Update one peer: read it, push the binary, restart the daemon, check it
 /// answers with the pushed build, and roll back when it does not. Nothing
 /// changes on the peer before the push. Every script runs with the daemon's
-/// environment ([`SERVICE_ENV`]). The caller holds the host's update lock.
+/// environment ([`SERVICE_ENV`]). The caller holds the host's update lock
+/// and passes `remote` fenced for it, so a step after the lease went fails.
 fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     let remote = &ServiceEnv(remote);
     let up = PeerUpdate::new();
@@ -448,7 +478,7 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
                 );
             }
         },
-        Err(e) => return up.end(Outcome::Failed, "unreachable", e.to_string()),
+        Err(e) => return up.end(Outcome::Failed, lock_lost_or(&e, "unreachable"), e.to_string()),
     };
     let mut up =
         PeerUpdate { target: uname_target(&probe.uname), build: probe.build.clone(), ..up };
@@ -517,7 +547,7 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
         Ok(version) => version,
         // The install checks the pushed binary runs before it replaces
         // anything, so the installed one is still the old one.
-        Err(e) => return up.end(Outcome::Failed, "pushFailed", e.to_string()),
+        Err(e) => return up.end(Outcome::Failed, lock_lost_or(&e, "pushFailed"), e.to_string()),
     };
     let pushed = version_build(&version).map(str::to_owned);
     up.version = Some(version);
@@ -601,6 +631,11 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
             up.end(Outcome::Failed, &reason, format!("{why}; the rollback failed too: {again}"))
         }
     }
+}
+
+/// `lockLost` for an update whose lease went ([`LockLost`]), else `reason`.
+fn lock_lost_or<'a>(e: &anyhow::Error, reason: &'a str) -> &'a str {
+    if e.is::<LockLost>() { "lockLost" } else { reason }
 }
 
 /// A restart script's run, then the daemon's answer.
@@ -693,7 +728,8 @@ fn cut(mut text: String, max: usize) -> String {
 ///   code (`busy`, `unknown`, `noBinary`, `wrongPlatform`,
 ///   `unsupportedPlatform`, `cloudMachine`, `unreachable`, `updateRunning`
 ///   (another update of the host, such as its self-update timer, holds its
-///   update lock), `pushFailed`, `pushMismatch`,
+///   update lock), `lockLost` (this update's hold on that lock ended, its
+///   connection dropped: it changed nothing more), `pushFailed`, `pushMismatch`,
 ///   `restartFailed`, `noAnswer`, `buildMismatch`, and for a daemon under a
 ///   hand-written unit `unitConflict`, `listenConflict`, `unitArgs`,
 ///   `unitSettings`, `unitElsewhere`, `noLinger`) and a message.

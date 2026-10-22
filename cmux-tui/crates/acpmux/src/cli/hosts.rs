@@ -25,8 +25,9 @@ mod host_lock;
 mod host_migrate;
 #[path = "host_update.rs"]
 mod host_update;
-use host_lock::lock_to_install;
-pub(crate) use host_lock::lock_updates;
+#[cfg(test)]
+pub(crate) use host_lock::unfence;
+pub(crate) use host_lock::{LockLost, lock_to_install, lock_updates};
 use host_migrate::{MIGRATING, REFUSED, migrate, migrate_back};
 pub(crate) use host_update::{Caller, UpdateOptions, self_update, update};
 
@@ -190,8 +191,9 @@ pub(crate) fn version_cmd(bin: &str) -> String {
 }
 
 /// Copy this very binary to the remote `bin` (rm then mv, never in place:
-/// macOS kills a running binary that is overwritten), holding the host's
-/// update lock ([`lock_updates`]); its version line.
+/// macOS kills a running binary that is overwritten); its version line.
+/// The caller holds the host's update lock and passes `r` fenced for it
+/// ([`lock_updates`]).
 /// Only the file goes (`self_command.rs`'s executable); no subcommand runs
 /// here, so no prefix: a copy named `acpmux` runs as acpmux by its argv0
 /// (cmux-tui's too), and [`version_cmd`] gives another name its `acp`.
@@ -200,7 +202,6 @@ pub(crate) fn push_binary(r: &dyn Remote, bin: &str) -> Result<String> {
         return Err(anyhow!("refusing that remote binary path (not a plain path)"));
     }
     let exe = crate::self_command::SelfCommand::current()?.exe;
-    let _lock = lock_to_install(r)?;
     let dir = bin.rsplit_once('/').map(|(d, _)| d).filter(|d| !d.is_empty()).unwrap_or("/");
     run(r, &format!("mkdir -p {dir} {REMOTE_HOME}"))?;
     r.push(&exe, &format!("{bin}.new"))?;
@@ -449,13 +450,16 @@ pub(crate) async fn setup(
     json_out: bool,
 ) -> Result<()> {
     let name = name.unwrap_or_else(|| short_name(host));
-    let remote = SshRemote(host);
+    let ssh = SshRemote(host);
+    let lock = lock_to_install(&ssh)?;
+    let remote = lock.fence(&ssh);
     let version = push_binary(&remote, DAEMON_BIN)?;
     if !auto_update {
         let mark = host_auto_update::NO_AUTO_UPDATE;
         run(&remote, &format!("mkdir -p {REMOTE_HOME} && touch {REMOTE_HOME}/{mark}"))?;
     }
     let status = install_daemon(&remote, port, false)?;
+    drop(lock);
     // Register (or re-register) the peer.
     let url = ssh_peer_url(host, port);
     // Always with the url: a known peer takes the host and port given now.
@@ -539,10 +543,10 @@ fn write_config(r: &dyn Remote, cfg_text: &str) -> Result<()> {
 /// Configure and (re)start the daemon of the acpmux at [`DAEMON_BIN`]: keep
 /// an existing config but make sure the WebSocket listener on `port` and its
 /// token exist ([`daemon_config`]), then launchd on macOS, the user systemd
-/// unit or a detached start on Linux ([`linux_restart`]), holding the host's
-/// update lock ([`lock_updates`]). The daemon's status (JSON with `json`).
+/// unit or a detached start on Linux ([`linux_restart`]). The daemon's
+/// status (JSON with `json`). The caller holds the host's update lock and
+/// passes `r` fenced for it ([`lock_updates`]).
 pub(crate) fn install_daemon(r: &dyn Remote, port: u16, json: bool) -> Result<String> {
-    let _lock = lock_to_install(r)?;
     let existing = run(r, &format!("cat {REMOTE_HOME}/config.json 2>/dev/null || echo '{{}}'"))?;
     let mut fresh = [0u8; 24];
     getrandom_fill(&mut fresh)?;
