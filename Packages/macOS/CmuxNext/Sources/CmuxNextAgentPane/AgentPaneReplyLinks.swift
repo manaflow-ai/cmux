@@ -50,11 +50,7 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     /// `pr.inspect`'s reply: the pull request the host already has, when it was read, and whether
     /// a read is running. `null` with no answer yet; the card then shows what the chat knows.
     func respondToPullRequest(_ url: URL) -> [String: Any] {
-        let answer = pullRequest(url)
-        var reply: [String: Any] = ["pullRequest": answer.pullRequest?.json.foundationObject ?? NSNull(),
-                                    "reading": answer.reading]
-        if let fetchedAt = answer.fetchedAt { reply["fetchedAt"] = fetchedAt }
-        return AgentPaneReply.success(reply)
+        AgentPaneReply.success(pullRequest(url).reply.foundationObject)
     }
 }
 

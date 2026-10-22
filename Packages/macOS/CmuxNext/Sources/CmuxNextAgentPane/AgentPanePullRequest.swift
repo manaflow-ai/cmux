@@ -1,4 +1,4 @@
-import CmuxNextSettings
+public import CmuxNextSettings
 public import Foundation
 
 /// What the host has for one pull request link, with the age of it. A card draws from the cache
@@ -20,6 +20,16 @@ public nonisolated struct AgentPanePullRequestAnswer: Equatable, Sendable {
         self.pullRequest = pullRequest
         self.fetchedAt = fetchedAt
         self.reading = reading
+    }
+
+    /// `pr.inspect`'s reply on every page whose PR card asks it (the agent page's
+    /// `cmux.agent.pr.inspect`, the changelog page's `cmux.changelog.pr.inspect`): `pullRequest`
+    /// (null with no answer yet; the card then shows what its page knows), `reading`, and
+    /// `fetchedAt` once gh has answered.
+    public var reply: JSONValue {
+        var reply: [String: JSONValue] = ["pullRequest": pullRequest?.json ?? .null, "reading": .bool(reading)]
+        if let fetchedAt { reply["fetchedAt"] = .number(fetchedAt) }
+        return .object(reply)
     }
 }
 
