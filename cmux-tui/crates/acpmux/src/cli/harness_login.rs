@@ -209,23 +209,70 @@ fn codex_bridge(profile: &HarnessProfile) -> bool {
         && crate::codex_app_server::is_profile_launch(&profile.argv)
 }
 
-/// The bridge's env as its launch builds it: the profile's own, then the
-/// family's and the profile's `defaults` (`hub::spawn`), references resolved.
-fn codex_env(cfg: &Config, id: &str, profile: &HarnessProfile) -> Result<BTreeMap<String, String>> {
-    let mut layered = profile.clone();
-    for (k, v) in cfg.defaults_for(id).env {
-        layered.env.entry(k).or_insert(v);
-    }
-    Ok(resolved(&layered)?.env)
+/// How the bridge's launch runs codex, for its own CLI: the program, the
+/// global options before `app-server` and the env.
+struct CodexCli {
+    /// `CODEX_PATH` of the env, as the launch picks it (`agent::command`),
+    /// else the profile's command.
+    program: String,
+    /// `-c key=value`, `--enable x`, `-p profile`: they pick the config
+    /// (`cli_auth_credentials_store`, `CODEX_HOME`'s profile) the harness
+    /// signs in with, so `login` gets them too.
+    globals: Vec<String>,
+    env: BTreeMap<String, String>,
 }
 
-/// The codex binary the bridge runs: `CODEX_PATH` of its env, as the
-/// launch picks it (`agent::command`), else its command.
-fn codex_program(profile: &HarnessProfile, env: &BTreeMap<String, String>) -> String {
-    env.get("CODEX_PATH")
+impl CodexCli {
+    /// `<codex> <globals...> <sub...>`.
+    fn argv(&self, sub: &[&str]) -> Vec<String> {
+        std::iter::once(self.program.clone())
+            .chain(self.globals.iter().cloned())
+            .chain(sub.iter().map(|s| (*s).to_owned()))
+            .collect()
+    }
+}
+
+/// The bridge's codex as its launch builds it (`hub::spawn`): the profile's
+/// env, then the family's and the profile's `defaults`, references resolved,
+/// then `${home}`, `${cwd}`, `${model}` and a leading `~/` expanded in the
+/// env and the argv.
+fn codex_cli(cfg: &Config, id: &str, profile: &HarnessProfile) -> Result<CodexCli> {
+    let defaults = cfg.defaults_for(id);
+    let mut layered = profile.clone();
+    for (k, v) in defaults.env {
+        layered.env.entry(k).or_insert(v);
+    }
+    let mut layered = resolved(&layered)?;
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let home = dirs::home_dir().unwrap_or_default();
+    let model = defaults.model.unwrap_or_default();
+    for v in layered.env.values_mut() {
+        *v = crate::hub::expand_env_value(v, &cwd, &home, &model);
+    }
+    let argv: Vec<String> =
+        layered.argv.iter().map(|a| crate::hub::expand_env_value(a, &cwd, &home, &model)).collect();
+    let (command, args) = argv.split_first().ok_or_else(|| anyhow!("{id} has an empty argv"))?;
+    let program = layered
+        .env
+        .get("CODEX_PATH")
         .filter(|p| !p.is_empty())
         .cloned()
-        .unwrap_or_else(|| profile.argv[0].clone())
+        .unwrap_or_else(|| command.clone());
+    Ok(CodexCli { program, globals: codex_globals(args).to_vec(), env: layered.env })
+}
+
+/// The global options before `app-server` in a bridge launch's args, read
+/// the way `codex_app_server::is_launch` reads them: `--flag=value` is one
+/// word, `-c value` and `--flag value` are two.
+fn codex_globals(args: &[String]) -> &[String] {
+    let mut i = 0;
+    while let Some(a) = args.get(i) {
+        if a == "app-server" || !a.starts_with('-') {
+            return &args[..i];
+        }
+        i += if a.contains('=') { 1 } else { 2 };
+    }
+    &args[..i.min(args.len())]
 }
 
 /// Whether harness `id` is signed in.
@@ -235,10 +282,12 @@ pub async fn auth_state(cfg: &Config, id: &str, timeout: Duration) -> Result<Aut
         return Ok(AuthState::NotAcp { hint });
     }
     if codex_bridge(profile) {
-        let env = codex_env(cfg, id, profile)?;
-        let codex = codex_program(profile, &env);
+        let codex = codex_cli(cfg, id, profile)?;
         let status = tokio::task::spawn_blocking(move || {
-            crate::harness_health::probe::codex_login_status_of(&codex, &env)
+            crate::harness_health::probe::codex_login_status_argv(
+                &codex.argv(&["login", "status"]),
+                &codex.env,
+            )
         })
         .await?;
         return match status {
@@ -336,9 +385,8 @@ pub async fn login(
         if let Some(m) = method {
             bail!("{id} signs in with `codex login`; it has no sign-in method {m:?}");
         }
-        let env = codex_env(cfg, id, profile)?;
-        let argv = vec![codex_program(profile, &env), "login".into()];
-        let code = terminal(&argv, &env)?;
+        let codex = codex_cli(cfg, id, profile)?;
+        let code = terminal(&codex.argv(&["login"]), &codex.env)?;
         return if code == 0 {
             Ok(format!("{id}: signed in"))
         } else {
@@ -484,13 +532,33 @@ mod tests {
         (outcome, ran.into_inner().unwrap())
     }
 
-    /// A fake `codex` that answers `login status` with `out` and exit `code`.
-    fn fake_codex(test: &str, out: &str, code: i32) -> String {
+    /// The commands and envs a login ran in the terminal (each exits 0).
+    async fn ran_with_env(cfg: &Config) -> Vec<(Vec<String>, BTreeMap<String, String>)> {
+        let ran = std::sync::Mutex::new(Vec::new());
+        let terminal = |argv: &[String], env: &BTreeMap<String, String>| {
+            ran.lock().unwrap().push((argv.to_vec(), env.clone()));
+            Ok(0)
+        };
+        login(cfg, "codex", None, Duration::from_secs(5), &terminal).await.unwrap();
+        ran.into_inner().unwrap()
+    }
+
+    /// A fake `codex` that answers `out` and exits `code` only when it is run
+    /// as `codex <args>` with `CODEX_HOME=<home>`; any other command exits 2
+    /// with output that is not Codex's "Not logged in".
+    #[cfg(unix)]
+    fn fake_codex(test: &str, args: &str, home: &str, out: &str, code: i32) -> String {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("acpmux-login-{test}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("codex");
-        std::fs::write(&path, format!("#!/bin/sh\necho '{out}'\nexit {code}\n")).unwrap();
+        let script = format!(
+            "#!/bin/sh\n\
+             if [ \"$*\" != '{args}' ] || [ \"${{CODEX_HOME-}}\" != '{home}' ]; then\n\
+             echo \"unexpected: $* (CODEX_HOME=${{CODEX_HOME-}})\"; exit 2\nfi\n\
+             echo '{out}'\nexit {code}\n"
+        );
+        std::fs::write(&path, script).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         path.to_string_lossy().into_owned()
     }
@@ -530,23 +598,89 @@ mod tests {
         assert!(ran.is_empty());
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn codex_bridge_status_asks_codex_login_status() {
         let timeout = Duration::from_secs(5);
+        let home = [("CODEX_HOME", "/tmp/acpmux-login-codex-home")];
+        let codex = |test, out, code| {
+            fake_codex(test, "login status", "/tmp/acpmux-login-codex-home", out, code)
+        };
         let signed_in =
-            config(acp(&[&fake_codex("in", "Logged in using ChatGPT", 0), "app-server"], &[]));
+            config(acp(&[&codex("in", "Logged in using ChatGPT", 0), "app-server"], &home));
         assert_eq!(
             auth_state(&signed_in, "codex", timeout).await.unwrap(),
             AuthState::SignedIn { methods: vec![] }
         );
-        let signed_out = config(acp(&[&fake_codex("out", "Not logged in", 1), "app-server"], &[]));
+        let signed_out = config(acp(&[&codex("out", "Not logged in", 1), "app-server"], &home));
         assert!(matches!(
             auth_state(&signed_out, "codex", timeout).await.unwrap(),
             AuthState::Required { .. }
         ));
         // A failure that is not Codex's own "Not logged in" says nothing about a sign-in.
         let broken =
-            config(acp(&[&fake_codex("err", "Error loading config.toml", 1), "app-server"], &[]));
+            config(acp(&[&codex("err", "Error loading config.toml", 1), "app-server"], &home));
         assert!(auth_state(&broken, "codex", timeout).await.is_err());
+        // The fake answers nothing but `login status` with that CODEX_HOME.
+        let wrong_home = config(acp(&[&codex("home", "Logged in", 0), "app-server"], &[]));
+        assert!(auth_state(&wrong_home, "codex", timeout).await.is_err());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codex_bridge_status_keeps_the_launch_global_options() {
+        let store = "cli_auth_credentials_store=\"keyring\"";
+        let codex = fake_codex(
+            "globals",
+            &format!("-c {store} --profile=work login status"),
+            "/tmp/acpmux-login-codex-home",
+            "Logged in using ChatGPT",
+            0,
+        );
+        let cfg = config(acp(
+            &[&codex, "-c", store, "--profile=work", "app-server", "--listen", "stdio://"],
+            &[("CODEX_HOME", "/tmp/acpmux-login-codex-home")],
+        ));
+        assert_eq!(
+            auth_state(&cfg, "codex", Duration::from_secs(5)).await.unwrap(),
+            AuthState::SignedIn { methods: vec![] }
+        );
+    }
+
+    #[tokio::test]
+    async fn codex_bridge_login_keeps_the_launch_global_options() {
+        let cfg = config(acp(
+            &["/opt/bin/codex", "--enable", "x", "-c", "k=v", "--profile=work", "app-server"],
+            &[],
+        ));
+        let (outcome, ran) = ran(&cfg, None).await;
+        assert_eq!(outcome.unwrap(), "codex: signed in");
+        let want = ["/opt/bin/codex", "--enable", "x", "-c", "k=v", "--profile=work", "login"];
+        assert_eq!(ran, vec![want.map(String::from).to_vec()]);
+    }
+
+    #[tokio::test]
+    async fn codex_bridge_login_expands_paths_like_the_launch() {
+        let home = dirs::home_dir().unwrap_or_default().to_string_lossy().into_owned();
+        let mut cfg = config(acp(&["codex", "app-server"], &[("CODEX_HOME", "~/.codex-work")]));
+        let mut defaults = crate::config::SessionDefaults::default();
+        defaults.env.insert("CODEX_PATH".into(), "${home}/bin/codex".into());
+        cfg.defaults.insert("codex".into(), defaults);
+        let ran = ran_with_env(&cfg).await;
+        assert_eq!(ran.len(), 1);
+        let (argv, env) = &ran[0];
+        assert_eq!(argv, &vec![format!("{home}/bin/codex"), "login".to_owned()]);
+        assert_eq!(env.get("CODEX_HOME"), Some(&format!("{home}/.codex-work")));
+        assert_eq!(env.get("CODEX_PATH"), Some(&format!("{home}/bin/codex")));
+    }
+
+    #[test]
+    fn codex_globals_stop_at_app_server() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(codex_globals(&args(&["app-server"])).is_empty());
+        assert_eq!(
+            codex_globals(&args(&["-c", "a=b", "--enable=x", "-p", "w", "app-server", "--x"])),
+            &args(&["-c", "a=b", "--enable=x", "-p", "w"])[..]
+        );
     }
 }
