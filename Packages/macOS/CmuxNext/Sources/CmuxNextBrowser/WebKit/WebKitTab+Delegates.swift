@@ -52,17 +52,16 @@ extension WebKitTab: WKNavigationDelegate {
             return
         }
         applySiteSettings(to: preferences, for: navigationAction)
+        // This view's own main-frame navigation, from here on not cancelled by this method: the
+        // newest one decides, as WebKit lets only the newest go ahead. A new window's action has
+        // no target frame and leaves it as it was.
+        if navigationAction.targetFrame?.isMainFrame == true {
+            let get = (navigationAction.request.httpMethod?.uppercased() ?? "GET") == "GET"
+            mainFramePlayableVideo = get && navigationAction.navigationType != .backForward && RemoteVideoPage.plays(url) ? url : nil
+        }
         guard navigationAction.targetFrame?.isMainFrame ?? true, let engine else { return decisionHandler(.allow, preferences) }
         navigationSourceSite = pageSite
-        // Only this view's own main-frame load that goes ahead: a new window's action (no target
-        // frame) or a cancelled one leaves a load already under way as it was.
-        let ownLoad = navigationAction.targetFrame?.isMainFrame == true
-        let mayPlayVideo = (navigationAction.request.httpMethod?.uppercased() ?? "GET") == "GET"
-            && navigationAction.navigationType != .backForward
-        engine.admitMainFrameLoad(url, in: self) { [weak self] allowed in
-            if allowed, ownLoad { self?.mainFrameNavigationMayPlayVideo = mayPlayVideo }
-            decisionHandler(allowed ? .allow : .cancel, preferences)
-        }
+        engine.admitMainFrameLoad(url, in: self) { decisionHandler($0 ? .allow : .cancel, preferences) }
     }
 
     public func webView(
@@ -75,8 +74,8 @@ extension WebKitTab: WKNavigationDelegate {
             .flatMap { $0.value(forHTTPHeaderField: "Content-Disposition") }?
             .lowercased()
             .hasPrefix("attachment") ?? false
-        if navigationResponse.isForMainFrame, !isAttachment, !navigationResponse.canShowMIMEType, mainFrameNavigationMayPlayVideo,
-           let url = navigationResponse.response.url, RemoteVideoPage.plays(url) {
+        if navigationResponse.isForMainFrame, !isAttachment, !navigationResponse.canShowMIMEType,
+           let url = navigationResponse.response.url, url == mainFramePlayableVideo {
             // A video sent as a generic file plays in the tab, at its own address. A simulated
             // load, not `loadHTMLString`: the player takes the video's place in the back list.
             decisionHandler(.cancel)
