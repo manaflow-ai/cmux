@@ -74,8 +74,17 @@ public final class RegistryControlBridge: ControlActionExecutor {
         var changed = publish
         if structureIsStale || built == nil {
             structureIsStale = false
-            built = buildObservingStructure()
-            reasonsAreStale = true
+            let previous = built
+            var next = buildObservingStructure()
+            if let previous, previous.ids == next.ids, !reasonsAreStale {
+                // The same actions, and the reason observation has not fired:
+                // keep its reasons. Arming another would leave this one
+                // registered (an observation ends only when it fires).
+                next.apply(reasons: previous.reasons)
+            } else {
+                reasonsAreStale = true
+            }
+            built = next
             changed = true
         }
         if reasonsAreStale, var catalog = built {
@@ -115,13 +124,17 @@ public final class RegistryControlBridge: ControlActionExecutor {
 
     /// Reads every action's unavailable reason under observation. Reasons
     /// read observable app state (daemon capabilities, the sidebar), so a
-    /// change there re-reads them.
+    /// change there re-reads them. It also reads the descriptors and actions
+    /// the ids come from, so whenever the ids change this observation has
+    /// fired, and a refresh that arms the next one leaves none behind.
     private func readObservingReasons(_ ids: [ActionID]) -> [String?] {
         reasonsArming += 1
         reasonReads += 1
         let (epoch, arming) = (epoch, reasonsArming)
         return withObservationTracking {
-            ids.map { registry.unavailableReason(for: $0) }
+            _ = registry.descriptors
+            _ = registry.actions
+            return ids.map { registry.unavailableReason(for: $0) }
         } onChange: { [weak self] in
             // task-owner: observation re-arm; ends when its epoch or arming is not current (state-audit R1)
             Task { @MainActor in

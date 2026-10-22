@@ -23,6 +23,9 @@ extension RegistryControlBridge {
             debugActionsAvailable = DevTools.isEnabled
         }
 
+        /// Each action's unavailable reason, in the order of ``ids``.
+        var reasons: [String?] { actions.map(\.unavailableReason) }
+
         /// Stores `reasons` (one per id) and says whether any differed.
         @discardableResult
         mutating func apply(reasons: [String?]) -> Bool {
