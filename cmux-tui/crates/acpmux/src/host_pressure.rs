@@ -25,12 +25,10 @@
 //! `machines/host-budget.json`, which lane-place reads. `enforce` is reported,
 //! not acted on: nothing is refused, queued or held.
 //!
-//! [`evaluate`] is the one place the verdict is made, from a [`Sample`]. The
-//! daemon samples only when asked (a turn starts, `daemon status`), at most once
-//! per `sample_seconds`, and keeps no timer (`Meter`). A sample, and the read of
-//! the override file, runs on a blocking thread, one at a time; a request waits
-//! for it at most [`SAMPLE_WAIT`] and otherwise gets the last verdict, so a slow
-//! disk never holds a turn or a runtime worker.
+//! [`evaluate`] is the one place the verdict is made, from a [`Sample`]. A
+//! sample ([`HostProbe`]) and the override file ([`load_budget`]) are blocking
+//! reads: run them off the async runtime. The daemon's on-demand meter, `daemon
+//! status`'s `host_pressure` and the warning on a turn's acceptance build on this.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -303,11 +301,6 @@ pub fn host_name() -> String {
     let short = name.split('.').next().unwrap_or_default().trim().to_ascii_lowercase();
     if short.is_empty() { "localhost".into() } else { short }
 }
-
-// Samples on demand and keeps the last verdict (no timer).
-#[path = "host_pressure_meter.rs"]
-mod meter;
-pub use meter::{Meter, SAMPLE_WAIT};
 
 // The real host's readings, and the parsers of Linux's `/proc` files.
 #[path = "host_pressure_probe.rs"]

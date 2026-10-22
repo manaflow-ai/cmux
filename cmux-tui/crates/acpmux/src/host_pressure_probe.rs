@@ -4,7 +4,7 @@
 
 use super::{Probe, Sample};
 
-/// The real host's readings. Blocking: run it on a blocking thread (`Meter::current`).
+/// The real host's readings. Blocking: run it on a blocking thread (off the async runtime).
 pub struct HostProbe;
 
 impl Probe for HostProbe {
