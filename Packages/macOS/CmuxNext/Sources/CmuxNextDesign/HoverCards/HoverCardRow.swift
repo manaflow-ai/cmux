@@ -56,10 +56,14 @@ public struct HoverCardRowContent: Hashable, Sendable {
     public var additions: Int?
     public var deletions: Int?
     public var accessory: HoverCardAccessory?
+    /// The leading icon's own ink (a pull request's state color, a wait's attention); nil draws
+    /// it in the secondary ink like every other row's icon.
+    public var iconTone: HoverCardTone?
 
     public init(text: String, ink: HoverCardTone = .secondary, lines: Int = 1, status: String? = nil,
                 statusTone: HoverCardTone = .secondary, additions: Int? = nil, deletions: Int? = nil,
-                accessory: HoverCardAccessory? = nil) {
+                accessory: HoverCardAccessory? = nil, iconTone: HoverCardTone? = nil) {
+        self.iconTone = iconTone
         self.text = text
         self.ink = ink
         self.lines = lines
@@ -100,12 +104,14 @@ extension HoverCardAccessory {
 /// One row of a hover card, shared by the sidebar's workspace card and the tab strip's card: the
 /// icon on the card's icon column, the text beside it on one leading edge, a colored status word
 /// and counts inline, and the trailing mark (a dot, a ring or bars) on the card's trailing edge.
-/// The row paints no fill: the card's overlay glass is the only surface.
+/// The row lines up on its text's first baseline: the icon and the mark sit on the first line,
+/// also when the text wraps (Leo 2026-10-21, the two-line preview's icon floated between its
+/// lines). The row paints no fill: the card's overlay glass is the only surface.
 @MainActor
 public final class HoverCardRowView: NSView {
     public static var iconSize: CGFloat { 13 }
 
-    public let icon = NSImageView()
+    public let icon = FirstLineIconView(side: HoverCardRowView.iconSize)
     public let statusLabel = ChromeLabel(labelWithString: "")
     public let textLabel = ChromeLabel(labelWithString: "")
     public let additionsLabel = ChromeLabel(labelWithString: "")
@@ -127,12 +133,14 @@ public final class HoverCardRowView: NSView {
         textLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         accessoryView.setContentHuggingPriority(.required, for: .horizontal)
         accessoryView.setContentCompressionResistancePriority(.required, for: .horizontal)
-        icon.cell?.setAccessibilityElement(false) // decorative: the row's text says it (an image view answers through its cell)
+        // The icon and the mark center on the text's first line (`FirstLineIconView`).
+        icon.line = textLabel
+        accessoryView.line = textLabel
         // The text and its counts read from the leading edge; the live mark sits at the trailing one.
         stack.setViews([icon, statusLabel, textLabel, additionsLabel, deletionsLabel], in: .leading)
         stack.setViews([accessoryView], in: .trailing)
         stack.orientation = .horizontal
-        stack.alignment = .centerY
+        stack.alignment = .firstBaseline
         stack.spacing = Metrics.space2
         stack.setCustomSpacing(Metrics.space1, after: additionsLabel)
         stack.setCustomSpacing(Metrics.space3, after: deletionsLabel)
@@ -186,7 +194,7 @@ public final class HoverCardRowView: NSView {
     /// Recolors the row in its theme scope; the card runs it on adopt and on every theme change.
     public func applyColors() {
         performWithTheme {
-            icon.contentTintColor = Palette.textSecondary
+            icon.contentTintColor = (content.iconTone ?? .secondary).color
             statusLabel.textColor = content.statusTone.color
             textLabel.textColor = content.ink.color
             additionsLabel.textColor = HoverCardTone.success.color
@@ -215,6 +223,13 @@ public final class HoverCardAccessoryView: NSView {
     private let track = CAShapeLayer()
     private let mark = CAShapeLayer()
     public let percentLabel = ChromeLabel(labelWithString: "")
+    /// The row's text: on a first-baseline row the mark centers on its first line.
+    public weak var line: ChromeLabel?
+
+    public override var firstBaselineOffsetFromTop: CGFloat {
+        guard let font = line?.font else { return super.firstBaselineOffsetFromTop }
+        return FirstLineIconView.baselineOffset(side: intrinsicContentSize.height, font: font)
+    }
 
     public var accessory: HoverCardAccessory? {
         didSet {

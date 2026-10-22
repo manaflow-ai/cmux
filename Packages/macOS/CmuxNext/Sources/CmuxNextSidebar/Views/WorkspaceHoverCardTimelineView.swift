@@ -15,7 +15,7 @@ final class WorkspaceHoverCardTimelineView: NSView {
     private let rowsStack = NSStackView()
     private let document = FlippedDocumentView()
     private var heightConstraint: NSLayoutConstraint?
-    private var rows: [(time: ChromeLabel, icon: NSImageView, text: ChromeLabel)] = []
+    private var rows: [(time: ChromeLabel, icon: FirstLineIconView, text: ChromeLabel)] = []
     private var entries: [SidebarTimelineEntry] = []
     private var textWidth: CGFloat = 0
 
@@ -111,8 +111,11 @@ final class WorkspaceHoverCardTimelineView: NSView {
         let time = ChromeLabel(labelWithString: "")
         time.font = Typography.system(.monospacedDigit, size: Typography.caption.pointSize, weight: .regular)
         time.alignment = .right
-        let icon = NSImageView()
+        // The icon centers on the text's first line (a plain image view reports no baseline, so
+        // the first-baseline row hung it below the line).
+        let icon = FirstLineIconView(side: Self.iconSize)
         let text = ChromeLabel(wrappingLabelWithString: "")
+        icon.line = text
         text.font = Typography.body
         text.lineBreakMode = .byWordWrapping
         text.truncatesLastVisibleLine = true
