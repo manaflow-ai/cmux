@@ -294,6 +294,16 @@ BUILDS_ROOT = Path(os.environ.get("CMUX_MOBILE_BUILDS_ROOT", HOME / "cmux-mobile
 RUNS_EVERY_S = 300
 KEEP = {"_diag": 7 * 86400, "_work/_temp": 86400}
 OUTPUT_KEEP_S = 3 * 86400
+KEEP_OUTPUTS = 5  # newest build folders kept regardless of age; older ones beyond these go too
+# The pre-rename build root (cnx -> cmux-mobile, 2026-10-20). Nothing reads it any more, but its
+# cargo target, xcframeworks and SwiftPM checkouts stayed on disk (cmux23 fell to 39.9 GiB free
+# on 2026-10-22 and refused every archive job).
+LEGACY_ROOTS = (HOME / "cnx-ios-builds",)
+# Below this, an idle builder also trims its caches: failed builds' .work (source and DerivedData),
+# xcframeworks beyond the newest KEEP_XCFRAMEWORKS keys, and the cargo target (rebuilt only on an
+# xcframework cache miss). SwiftPM checkouts stay. 20 GiB above the admission floor.
+PRESSURE_FREE_BYTES = 60 * 1024 ** 3
+KEEP_XCFRAMEWORKS = 3
 
 
 def _log(event: dict) -> None:
@@ -302,8 +312,50 @@ def _log(event: dict) -> None:
         fh.write(json.dumps(event, sort_keys=True) + "\n")
 
 
+def _remove(entry: Path) -> bool:
+    try:
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry, ignore_errors=True)
+        else:
+            entry.unlink()
+        return True
+    except OSError:
+        return False
+
+
+def _by_age(folder: Path) -> list[Path]:
+    """Folder's non-dot children, newest first."""
+    if not folder.is_dir():
+        return []
+    entries = []
+    for entry in folder.iterdir():
+        if entry.name.startswith("."):
+            continue
+        try:
+            entries.append((entry.lstat().st_mtime, entry))
+        except OSError:
+            continue
+    return [e for _, e in sorted(entries, key=lambda pair: pair[0], reverse=True)]
+
+
+def job_running() -> bool:
+    """A runner job (the archive) is in progress: its caches and .work must not move under it."""
+    return subprocess.run(["pgrep", "-f", f"{RUNNER_DIR}/bin/Runner.Worker"], capture_output=True).returncode == 0
+
+
+def prune_caches() -> int:
+    """Disk-pressure trim, only while no build runs (the concurrency group allows one build)."""
+    removed = sum(_remove(root) for root in LEGACY_ROOTS if root.exists())
+    removed += sum(_remove(entry) for entry in _by_age(BUILDS_ROOT / ".work"))
+    removed += sum(_remove(entry) for entry in _by_age(BUILDS_ROOT / ".cache/xcframework")[KEEP_XCFRAMEWORKS:])
+    target = BUILDS_ROOT / ".cache/cmux-mobile-rust-target"
+    if target.is_dir() and not target.is_symlink():
+        removed += _remove(target)
+    return removed
+
+
 def _prune(now: float) -> int:
-    removed = 0
+    removed = sum(_remove(entry) for entry in _by_age(BUILDS_ROOT)[KEEP_OUTPUTS:])
     targets = [(RUNNER_DIR / sub, keep) for sub, keep in KEEP.items()]
     targets += [(BUILDS_ROOT, OUTPUT_KEEP_S), (BUILDS_ROOT / ".work", OUTPUT_KEEP_S)]
     for folder, keep in targets:
@@ -315,13 +367,9 @@ def _prune(now: float) -> int:
             try:
                 if now - entry.lstat().st_mtime <= keep:
                     continue
-                if entry.is_dir() and not entry.is_symlink():
-                    shutil.rmtree(entry, ignore_errors=True)
-                else:
-                    entry.unlink()
-                removed += 1
             except OSError:
                 continue
+            removed += _remove(entry)
     return removed
 
 
@@ -356,8 +404,11 @@ def tick() -> dict:
         state["runs"], state["runs_at"] = prev.get("runs", []), runs_at
     state["runner_alive"] = subprocess.run(["pgrep", "-f", f"{RUNNER_DIR}/bin/Runner.Listener"],
                                            capture_output=True).returncode == 0
-    state["free_bytes"] = shutil.disk_usage(HOME).free
     state["pruned"] = _prune(time.time())
+    state["free_bytes"] = shutil.disk_usage(HOME).free
+    if state["free_bytes"] < PRESSURE_FREE_BYTES and not job_running():
+        state["pruned"] += prune_caches()
+        state["free_bytes"] = shutil.disk_usage(HOME).free
     reasons = []
     if not state["runner_alive"]:
         reasons.append("runner-down")
@@ -415,7 +466,13 @@ def main(argv: list[str]) -> int:
     if args.cmd == "stamp":
         return cmd_stamp(args.project_yml, args.last)
     if args.cmd == "admit":
-        ok, reason = admit(dict(os.environ), shutil.disk_usage(os.environ.get("GITHUB_WORKSPACE", str(HOME))).free)
+        env, disk = dict(os.environ), os.environ.get("GITHUB_WORKSPACE", str(HOME))
+        ok, reason = admit(env, shutil.disk_usage(disk).free)
+        if not ok and admit(env, MIN_FREE_BYTES)[0]:
+            # Only the disk refused an admitted archive job, and that job has not started building
+            # (the hook runs first; the concurrency group allows one build): trim caches, re-check.
+            prune_caches()
+            ok, reason = admit(env, shutil.disk_usage(disk).free)
         print(f"ios-internal-builder: {reason}", file=sys.stdout if ok else sys.stderr)
         _log({"time": dt.datetime.now(dt.timezone.utc).isoformat(), "admit": ok, "reason": reason,
               "run": os.environ.get("GITHUB_RUN_ID"), "job": os.environ.get("GITHUB_JOB"),
