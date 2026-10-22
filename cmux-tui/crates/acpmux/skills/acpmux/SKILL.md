@@ -25,6 +25,10 @@ Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `start_session` (with `worktree: true` for a worktree of its own),
 `list_sessions`, `get_session`, `wait_for_sessions`, `send_message` and
 `stop_session`. Prefer them when you have them; this CLI is the fallback.
+At most `maxRunning` of your sub-sessions run at once (16 unless the user
+changed it); a start past it is queued and starts by itself when one finishes.
+`list_sessions` (under `self`) or `acpmux session limits @` shows your limits
+and how many run and wait; only the user or your parent session raises them.
 A lane is different: an agent with its own worktree and brief that reports
 back to you and outlives you. Start it with the one launcher command in
 section 3 (`acpmux new --worktree … --prompt-file …`), not a hand-made
@@ -51,6 +55,19 @@ default) may you answer one marked `answerable` yourself with
 refused (`subsessions.answers_off`, `subsessions.not_a_question`). A
 permission request or a plan approval is never a question: only the user
 allows it, in cmux NEXT, so tell the user which sub-session waits.
+
+Your own questions follow the same split. The user allows tools through the
+chat's mode and the harness's permission prompts, and a chat in Full access
+(Claude Code `bypassPermissions`, Codex full access) has already allowed
+every tool call its harness would ask about. Never ask the user to allow,
+confirm or approve a step, with AskUserQuestion or in text ("allow this?",
+"should I go ahead?"): decide, say why in one line, and go on. Deciding never
+widens the task: a step a cmux skill keeps for the user's own request
+(computer use, importing a browser's cookies, deleting their data) waits for
+that request, and a cmux consent panel is theirs to answer; leave such a step
+out and say so. Ask only about product taste you cannot settle from the
+request or the code (how something should look, read or behave), and ask it
+as that choice, never as a permission.
 
 ## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`
 

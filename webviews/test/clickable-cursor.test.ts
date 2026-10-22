@@ -146,7 +146,8 @@ function clickableClassNames(): { file: string; line: number; value: string }[] 
       const role = /\brole="(\w+)"/.exec(attributes)?.[1];
       const clickable =
         match[1] !== "className" ||
-        /\son(Click|DoubleClick)=/.test(attributes) ||
+        // Selectable text that also takes a click (a cut message opens) keeps the I-beam.
+        (/\son(Click|DoubleClick)=/.test(attributes) && !/(^|\s)selectable(\s|$)/.test(value)) ||
         CLICKABLE_TAGS.has(tag) ||
         (role !== undefined && CLICKABLE_ROLES.has(role)) ||
         (/^[A-Z]/.test(tag) && CLICKABLE_COMPONENT.test(tag.split(".").at(-1)!));

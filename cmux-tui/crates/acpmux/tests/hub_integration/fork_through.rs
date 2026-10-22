@@ -46,6 +46,10 @@ mod session_scope;
 #[path = "turn_usage.rs"]
 mod turn_usage;
 
+// A fork of a chat whose turn runs, which shares these helpers too.
+#[path = "fork_running.rs"]
+mod fork_running;
+
 const FORK_OP: &str = "acp.session.fork";
 
 #[tokio::test]
