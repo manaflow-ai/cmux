@@ -71,11 +71,15 @@ import Testing
 /// `cmux_shim_create_window` reports the browser started; every other function does nothing.
 private nonisolated enum FocusSpyShim {
     nonisolated(unsafe) static var granted: [Int32] = []
+    /// Tabs hold their runtime unowned and may outlive a test's locals: every runtime lives on.
+    @MainActor static var runtimes: [CEFRuntime] = []
 
     @MainActor static func runtime() throws -> (CEFRuntime, URL) {
         granted = []
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-focus-\(UUID().uuidString)", directoryHint: .isDirectory)
-        return (CEFRuntime(shim: try library(), storage: CEFProfileStorage(root: root)), root)
+        let runtime = CEFRuntime(shim: try library(), storage: CEFProfileStorage(root: root))
+        runtimes.append(runtime)
+        return (runtime, root)
     }
 
     static func library() throws -> CEFShimLibrary {
