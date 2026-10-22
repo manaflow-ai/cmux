@@ -153,16 +153,22 @@ def parse_template(template: str) -> list:
     return root
 
 
-def template_matches(nodes: list, normalized: str) -> bool:
-    """Whether the whole text matches the template. It walks the set of word
-    positions each node can end at, so it never backtracks: a regex of
-    Apache-2.0's template took minutes on a text with an added clause."""
+def free_part(name: str, pattern: re.Pattern) -> bool:
+    """A variable whose text a person may want to see: the copyright part or a free `.+`/`.*` one."""
+    return name == "copyright" or bool(re.search(r"(?<!\\)\.[+*]", pattern.pattern))
+
+
+def template_matches(nodes: list, normalized: str) -> tuple | None:
+    """The free spans of one way the whole text matches the template, or None. It walks
+    the word positions each node can end at, each with the free spans of one path there,
+    so it never backtracks: a regex of Apache-2.0's template took minutes on a text with
+    an added clause."""
     tokens = words(normalized)
 
     def span(start: int, end: int) -> str:
         return normalized[tokens[start][1]:tokens[end - 1][2]] if end > start else ""
 
-    def advance(seq: list, positions: set) -> set:
+    def advance(seq: list, positions: dict) -> dict:
         previous = None
         for node in seq:
             # Apache-2.0's template says "Copyright <<var>>": its holder is checked with the word.
@@ -170,23 +176,23 @@ def template_matches(nodes: list, normalized: str) -> bool:
             if not positions:
                 break
             if node[0] == "word":
-                positions = {p + 1 for p in positions if p < len(tokens) and tokens[p][0] == node[1]}
+                positions = {p + 1: spans for p, spans in positions.items() if p < len(tokens) and tokens[p][0] == node[1]}
             elif node[0] == "optional":
-                positions = positions | advance(node[1], positions)
+                positions = {**advance(node[1], positions), **positions}
             else:
                 _, name, pattern, limit = node
-                reached = set()
-                for start in positions:
+                reached: dict = {}
+                for start, spans in positions.items():
                     for end in range(start, len(tokens) + 1):
                         text = span(start, end)
                         if len(text) > limit:
                             break
-                        if variable_holds(name, pattern, span(start - 1, end) if after_copyright else text):
-                            reached.add(end)
+                        if end not in reached and variable_holds(name, pattern, span(start - 1, end) if after_copyright else text):
+                            reached[end] = spans + ((name, text),) if free_part(name, pattern) and text else spans
                 positions = reached
         return positions
 
-    return len(tokens) in advance(nodes, {0})
+    return advance(nodes, {0: ()}).get(len(tokens))
 
 
 _TEMPLATES: dict = {}
@@ -245,13 +251,18 @@ def variable_holds(name: str, pattern: re.Pattern, text: str) -> bool:
     return True
 
 
-def allowed_license(text: str) -> str | None:
-    """The allowed SPDX id this text wholly is, or None."""
+def match_license(text: str) -> tuple:
+    """(the allowed SPDX id this text wholly is, or None; the free spans it matched with)."""
     normalized = normalize(text)
     for spdx, nodes in templates().items():
-        if template_matches(nodes, normalized):
-            return spdx
-    return None
+        spans = template_matches(nodes, normalized)
+        if spans is not None:
+            return spdx, spans
+    return None, ()
+
+
+def allowed_license(text: str) -> str | None:
+    return match_license(text)[0]
 
 
 def license_ids(expression: str) -> set:
@@ -298,14 +309,14 @@ def classify(directory: Path, label: str, known: set = frozenset()) -> str:
     return " AND ".join(sorted(ids))
 
 
-def copyright_lines(directory: Path) -> str:
-    """The copyright lines of a directory's license files: the free text an automatic approval lets
-    through, which a template cannot pin, shown in its note."""
-    lines = []
+def free_text(directory: Path) -> str:
+    """The spans an automatic approval let through that its templates leave free (holders,
+    copyright lines, BSD's organization), shown in its note: a template cannot prove them names."""
+    shown = []
     for name in license_digests(directory):
-        text = normalize((directory / name).read_bytes().decode("utf-8", "replace"))
-        lines += [line for line in text.split("\n") if COPYRIGHT_LINE.fullmatch(line) and line not in lines]
-    return "; ".join(lines) or "none"
+        _, spans = match_license((directory / name).read_bytes().decode("utf-8", "replace"))
+        shown += [f"{name} {part}: {text}" for part, text in spans]
+    return "; ".join(shown).replace("\n", " / ") or "none"
 
 
 def write_atomically(path: Path, text: str) -> None:
@@ -373,7 +384,7 @@ def compose(modules: List[Module], go_version: str, review: dict, go_root: Path 
     notes = [] if notes is None else notes
     recorded, go, go_texts = go_entry(go_version, review, go_root)
     if not recorded:
-        notes.append(f"Go {go_version}: approved automatically ({go['license']}; copyright lines: {copyright_lines(go_texts)}); generate --update-review records it")
+        notes.append(f"Go {go_version}: approved automatically ({go['license']}; free text: {free_text(go_texts)}); generate --update-review records it")
     out = [
         "Third-party notices for cmuxd-remote\n",
         "Generated by scripts/remote_daemon_notices.py; do not edit.\n\n",
@@ -396,7 +407,7 @@ def compose(modules: List[Module], go_version: str, review: dict, go_root: Path 
         seen.add(key)
         reviewed, entry = review_entry(module, review)
         if reviewed is None:
-            notes.append(f"{key}: approved automatically ({entry['license']}; copyright lines: {copyright_lines(module.directory)}); generate --update-review records it")
+            notes.append(f"{key}: approved automatically ({entry['license']}; free text: {free_text(module.directory)}); generate --update-review records it")
         else:
             used.add(reviewed)
         out.append(f"== {module.path} {module.version} ==\nLicense: {entry['license']}. Source: https://proxy.golang.org/{module.path}/@v/{module.version}.zip\n\n")
