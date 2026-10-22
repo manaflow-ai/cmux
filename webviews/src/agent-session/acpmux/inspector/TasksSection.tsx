@@ -49,8 +49,11 @@ export function TasksSection({
   const row = (command: BackgroundCommand, time: string | undefined, state?: string, enters = false) => {
     const toolCallId = command.toolCallId;
     return (
+      // Keyed by the call that started it: when the registry lists a command only the transcript
+      // knew, its id turns into the registry's, and a key by id remounted the row (Leo: "why does
+      // it FLICKER").
       <li
-        key={command.id}
+        key={arrivalKey(command)}
         className="acpmux-chat-inspector-task acpmux-chat-inspector-task--command"
         data-state={command.state}
         data-enter={enters ? "top" : undefined}

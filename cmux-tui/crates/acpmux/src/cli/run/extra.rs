@@ -47,6 +47,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::LimitsCmd { session, max, clear } => {
+            let client = connect(true).await?;
+            crate::cli::session_limits::run(&client, &session, max, clear, json_out).await
+        }
         Command::ResumeQueue { session } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -437,7 +441,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     return crate::cli::hosts::setup(client, &host, name, port, json_out).await;
                 }
                 PeerCmd::Update { name, all, binary_dir, if_idle } => {
-                    let opts = crate::cli::hosts::UpdateOptions { binary_dir, if_idle };
+                    // Run from a session, `--if-idle` never waits on that session's own turn.
+                    let caller = match std::env::var("ACPMUX_SESSION_ID") {
+                        Ok(session) if if_idle && !session.is_empty() => {
+                            let status = client.request(method::MUX_STATUS, json!({})).await?;
+                            status.get("personInstance").and_then(Value::as_str).map(|d| {
+                                crate::cli::hosts::Caller { session, daemon: d.to_owned() }
+                            })
+                        }
+                        _ => None,
+                    };
+                    let opts = crate::cli::hosts::UpdateOptions { binary_dir, if_idle, caller };
                     return crate::cli::hosts::update(client, name, all, opts, json_out).await;
                 }
                 PeerCmd::Enroll { host, name, harnesses, remote_binary, reverse } => {

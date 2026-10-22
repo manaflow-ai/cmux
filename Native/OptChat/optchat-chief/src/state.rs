@@ -321,6 +321,10 @@ pub struct SubRecord {
     /// revoked; the key itself is never stored here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_key: Option<String>,
+    /// Its own VM (`peer` chief-sub-<id>) was deleted after it finished and
+    /// its work was pushed: a tell can no longer reach it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub vm_deleted: bool,
     pub status: SubStatus,
     /// The report waiting for the log.
     #[serde(default)]

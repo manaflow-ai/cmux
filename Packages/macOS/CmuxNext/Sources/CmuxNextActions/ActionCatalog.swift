@@ -141,6 +141,7 @@ public nonisolated enum ActionCatalog {
         HibernationActionCatalog.self,
         LayoutActionCatalog.self,
         HistoryActionCatalog.self,
+        StashActionCatalog.self,
         MusicActionCatalog.self,
         NowPlayingCardActionCatalog.self,
         BookmarkActionCatalog.self,

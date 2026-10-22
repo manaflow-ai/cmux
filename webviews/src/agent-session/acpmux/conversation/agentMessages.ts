@@ -159,6 +159,49 @@ function sendMessage(args: string[]): AgentMessage | undefined {
   return { channel: "terminal", to: surface ?? workspace, text: oneMessage(rest.join(" ")) };
 }
 
+/// How far a send got, as one word on its line (Leo 2026-10-21: the raw result is "immediately
+/// TMI"): from the call's state and what it printed. Claude Code's SendMessage answers with JSON
+/// (`{"success":true,"message":"Message queued for delivery to …"}`), `acpmux send --no-wait`
+/// prints `queued` or `steered` (or `--json`'s `{"queued":…,"steered":…}`), tell-coordinator its
+/// receipt (`delivered to leoli-24 (id …)`). Anything else that finished reads as sent; a result
+/// that says it failed reads as failed.
+export type Delivery = "sending" | "sent" | "queued" | "delivered" | "failed";
+
+export function messageDelivery(tool: Pick<Tool, "status" | "exitCode" | "output">): Delivery {
+  if (tool.status === "pending" || tool.status === "in_progress") return "sending";
+  if (tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0)) return "failed";
+  const output = (tool.output ?? "").trim();
+  if (!output) return "sent";
+  const value = parseJson(output);
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const result = value as Record<string, unknown>;
+    if (result.success === false || result.ok === false || typeof result.error === "string" || result.isError === true)
+      return "failed";
+    if (result.steered === true || result.delivered === true) return "delivered";
+    if (result.queued === true) return "queued";
+    const said = [result.message, result.status, result.result].find((part) => typeof part === "string");
+    return typeof said === "string" ? deliveryWords(said) : "sent";
+  }
+  return deliveryWords(output);
+}
+
+/// A send's printed words, read for how far it got.
+function deliveryWords(text: string): Delivery {
+  if (/^\s*(?:error|failed|failure)\b/im.test(text)) return "failed";
+  if (/\bqueued\b/i.test(text)) return "queued";
+  if (/^\s*steered\s*$/im.test(text) || /\bdelivered\b/i.test(text)) return "delivered";
+  return "sent";
+}
+
+function parseJson(text: string): unknown {
+  if (!text.startsWith("{")) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
 const HEREDOC = /<<-?\s*(['"]?)(\w+)\1[^\n]*\n/;
 
 /// The body of the command's first here-document (`<<'EOF' … EOF`).

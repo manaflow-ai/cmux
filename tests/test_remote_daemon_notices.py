@@ -41,10 +41,21 @@ class RemoteDaemonNoticesTest(unittest.TestCase):
         text = rdn.compose(self.modules, "go1.26.8", self.review)
         self.assertIn("Go standard library and runtime (go1.26.8)", text)
         self.assertIn((rdn.TEXTS / "go/LICENSE").read_text(), text)
-        for module in ("github.com/creack/pty v1.1.24", "golang.org/x/sys v0.30.0", "nhooyr.io/websocket v1.8.17"):
+        for module in ("github.com/creack/pty v1.1.24", "golang.org/x/sys v0.44.0", "nhooyr.io/websocket v1.8.17"):
             self.assertIn(module, text)
         self.assertIn("Anmol Sethi", text)
         self.assertIn("Keith Rarick", text)
+
+    def test_every_module_go_mod_requires_is_reviewed(self) -> None:
+        # A dependency bump in daemon/remote/go.mod must bump review.json in
+        # the same change; 1c7138a0583 moved x/sys to v0.44.0 without it and
+        # every nightly-next build failed in remote_daemon_notices.
+        go_mod = (ROOT / "daemon/remote/go.mod").read_text()
+        block = go_mod.split("require (", 1)[1].split(")", 1)[0]
+        required = [" ".join(line.split()[:2]) for line in block.splitlines() if line.strip() and not line.strip().startswith("//")]
+        self.assertTrue(required)
+        for module in required:
+            self.assertIn(module.replace(" ", "@"), self.review["modules"])
 
     def test_an_unreviewed_module_fails(self) -> None:
         extra = self.tmp / "extra"

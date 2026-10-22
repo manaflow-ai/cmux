@@ -99,7 +99,9 @@ impl Brain {
             .spawns
             .values()
             .flat_map(|r| r.subs.iter())
+            .filter(|s| !s.vm_deleted)
             .filter_map(|s| s.peer.clone())
+            .filter(|p| !self.cloud_reaping.contains(p))
             .collect();
         peers.sort_unstable();
         peers.dedup();
@@ -140,6 +142,92 @@ impl Brain {
                         }
                     }
                 });
+        }
+    }
+
+    /// One VM per subagent: deletes the own VM (`chief-sub-<id>`) of each
+    /// subagent done (not starting, queued or running) for `cloud_reap`, off
+    /// the brain thread. The pool tool refuses while a worktree there holds
+    /// unpushed commits or edits (it pauses the VM instead); that delete is
+    /// tried again after another wait. [`CLOUD_TICK`](super::control::CLOUD_TICK) runs it.
+    pub(super) fn cloud_reap_tick(&mut self) {
+        let Some(vms) = self.cloud_vms.clone() else {
+            return;
+        };
+        let now = now_ms();
+        let own: Vec<(String, bool)> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| !s.vm_deleted)
+            .filter_map(|s| {
+                let peer = s
+                    .peer
+                    .clone()
+                    .filter(|p| crate::subagents::is_agent_peer(p))?;
+                let live = matches!(
+                    s.status,
+                    SubStatus::Starting | SubStatus::Queued | SubStatus::Running
+                );
+                Some((peer, live))
+            })
+            .collect();
+        for (peer, live) in own {
+            if live {
+                self.cloud_reap_since.remove(&peer);
+                continue;
+            }
+            if self.cloud_reaping.contains(&peer) {
+                continue;
+            }
+            let since = *self.cloud_reap_since.entry(peer.clone()).or_insert(now);
+            if now.saturating_sub(since) < self.cloud_reap.as_millis() as u64 {
+                continue;
+            }
+            self.cloud_reaping.insert(peer.clone());
+            let vms = vms.clone();
+            let log = self.log.clone();
+            let tx = self.tx.clone();
+            let _ = std::thread::Builder::new()
+                .name("cloud-reap".into())
+                .spawn(move || match vms.destroy(&peer) {
+                    Ok(()) => {
+                        log(&format!("cloud: deleted {peer} (its subagent is done)"));
+                        let _ = tx.send(super::Input::CloudVmDeleted { peer });
+                    }
+                    Err(e) => {
+                        log(&format!("cloud: delete {peer}: {e}"));
+                        let _ = tx.send(super::Input::CloudVmDeleteFailed { peer });
+                    }
+                });
+        }
+    }
+
+    /// `peer` (a subagent's own VM) is gone: its subagent is marked so.
+    pub(super) fn cloud_vm_deleted(&mut self, peer: &str) {
+        self.cloud_reaping.remove(peer);
+        self.cloud_reap_since.remove(peer);
+        self.cloud_paused.remove(peer);
+        self.cloud_idle_since.remove(peer);
+        for sub in self
+            .state
+            .spawns
+            .values_mut()
+            .flat_map(|r| r.subs.iter_mut())
+            .filter(|s| s.peer.as_deref() == Some(peer))
+        {
+            sub.vm_deleted = true;
+        }
+        self.save();
+    }
+
+    /// Subagent `id`'s own VM was not made: it runs here (`why` logged).
+    pub(super) fn sub_placed_here(&mut self, id: &str, why: &str) {
+        (self.log)(&format!("cloud: {id} runs here: {why}"));
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.peer = None;
+            self.save();
         }
     }
 
@@ -292,6 +380,30 @@ impl Brain {
         tasks: &[String],
         peers: &[String],
     ) -> Result<SpawnPlan, String> {
+        self.register_spawn_sized(tasks, peers, None, None)
+    }
+
+    /// [`register_spawn`](Self::register_spawn) with the call's `place`
+    /// (`cloud`, `local` or None) and VM `size`. With the peer list
+    /// [`PER_AGENT`](crate::subagents::PER_AGENT) each subagent gets its
+    /// own VM, `chief-sub-<id>`, at `size` or the size its task needs; a
+    /// task that needs the Mac stays here unless `place` is `cloud`.
+    pub(super) fn register_spawn_sized(
+        &mut self,
+        tasks: &[String],
+        peers: &[String],
+        place: Option<&str>,
+        size: Option<&str>,
+    ) -> Result<SpawnPlan, String> {
+        if let Some(s) = size
+            && !crate::subagents::SIZES.contains(&s)
+        {
+            return Err(format!(
+                "spawn: no VM size {s}; one of {}",
+                crate::subagents::SIZES.join(", ")
+            ));
+        }
+        let per_agent = peers.len() == 1 && peers[0] == crate::subagents::PER_AGENT;
         if tasks.is_empty() {
             return Err("spawn needs at least one task".into());
         }
@@ -306,7 +418,11 @@ impl Brain {
             load[k] += 1;
             Some(peers[k].clone())
         };
-        let chosen: Vec<Option<String>> = tasks.iter().map(|_| pick()).collect();
+        let chosen: Vec<Option<String>> = if per_agent {
+            Vec::new()
+        } else {
+            tasks.iter().map(|_| pick()).collect()
+        };
         for p in chosen.iter().flatten() {
             self.cloud_paused.remove(p);
             self.cloud_idle_since.remove(p);
@@ -322,6 +438,31 @@ impl Brain {
             .map(|k| format!("a{}", first + k))
             .collect();
         self.state.next_subagent = first + tasks.len() as u64;
+        // One VM per subagent: its own peer, named after its id; a task that
+        // needs the Mac (and was not sent to the cloud) runs here.
+        let chosen: Vec<Option<String>> = if per_agent {
+            ids.iter()
+                .zip(tasks)
+                .map(|(id, task)| {
+                    (place == Some("cloud") || !crate::subagents::needs_mac(task))
+                        .then(|| crate::subagents::agent_peer(id))
+                })
+                .collect()
+        } else {
+            chosen
+        };
+        let sizes: Vec<Option<String>> = chosen
+            .iter()
+            .zip(tasks)
+            .map(|(p, task)| {
+                p.as_ref().map(|_| {
+                    size.map_or_else(
+                        || crate::subagents::size_for(task).to_owned(),
+                        str::to_owned,
+                    )
+                })
+            })
+            .collect();
         let spawn = format!("s{first}");
         let record = SpawnRecord {
             subs: ids
@@ -381,6 +522,7 @@ impl Brain {
             engine: self.spawn_engine(),
             peer: chosen.iter().flatten().next().cloned(),
             peers: chosen,
+            sizes,
         })
     }
 
@@ -1262,6 +1404,12 @@ impl Brain {
             || sub.status == SubStatus::Queued;
         let cancelled = sub.cancelled;
         let peer = sub.peer.clone();
+        if sub.vm_deleted {
+            return Ok(format!(
+                "outcome: refused. {id} finished and its cloud VM {} was deleted after its work was pushed; spawn a new subagent for more work",
+                peer.as_deref().unwrap_or("?")
+            ));
+        }
         // B4: its VM was paused while it was idle; it resumes before the
         // message (a rare tell to a finished cloud subagent, seconds).
         if !cancelled

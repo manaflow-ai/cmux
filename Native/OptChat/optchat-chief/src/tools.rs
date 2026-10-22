@@ -482,7 +482,14 @@ pub fn agent_id(id: &str) -> bool {
 pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
 /// Where `spawn` runs its subagents (`place`).
-pub const PLACES: [&str; 2] = ["cloud", "local"];
+/// `cloud:SIZE` also picks the VM size with one VM per subagent.
+pub const PLACES: [&str; 5] = [
+    "cloud",
+    "local",
+    "cloud:small",
+    "cloud:medium",
+    "cloud:large",
+];
 
 /// The `control` tool's actions.
 pub const CONTROL_ACTIONS: [&str; 10] = [
@@ -722,8 +729,14 @@ impl Call {
                     .map(str::to_owned);
                 if let Some(p) = place.as_deref()
                     && !PLACES.contains(&p)
+                    && !p
+                        .strip_prefix("cloud:")
+                        .is_some_and(|s| crate::subagents::SIZES.contains(&s))
                 {
-                    return Err(format!("spawn: no place {p}; one of {}", PLACES.join(", ")));
+                    return Err(format!(
+                        "spawn: no place {p}; one of {}, or cloud:small|medium|large",
+                        PLACES.join(", ")
+                    ));
                 }
                 Ok(Call::Spawn {
                     tasks,

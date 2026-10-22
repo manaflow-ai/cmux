@@ -1,8 +1,9 @@
 // A run of tool calls split into what the transcript draws: consecutive calls of one kind
 // under one line ("Ran 3 commands", "Read 4 files", "Edited App.tsx +12 -3"), messages to
 // other agents and calls to the cmux-subsessions tools as cards, and everything else as its own row.
-import type { AcpmuxActivity } from "../model";
+import { pathKey, type AcpmuxActivity } from "../model";
 import type { Translate } from "../i18n";
+import { isBareShellName } from "../toolPaths";
 import { agentMessage, type AgentMessage } from "./agentMessages";
 import { mcpCall, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
@@ -92,19 +93,41 @@ export function isRunning(tool: Tool): boolean {
   return tool.status === "pending" || tool.status === "in_progress";
 }
 
+/// A shell call in flight with nothing to show yet: Claude sends a call before its input, which
+/// the model is still writing (a Bash with no command for up to 20s), and one a turn left that way
+/// never gets any. Its row would only say "Running a command", so the transcript draws none
+/// (conversation/turns.ts `withoutDrafts`): the live line names it ("Writing a command"), and its
+/// row comes with its input. Only a shell call: another tool may take no input at all (`{}`), and
+/// its row is the only record that it ran.
+export function isDraftCall(tool: Tool): boolean {
+  return (
+    isRunning(tool) &&
+    tool.kind === "execute" &&
+    isBareShellName(tool, tool.title) &&
+    !tool.description &&
+    !tool.output &&
+    !tool.background &&
+    !tool.diffs?.length &&
+    !tool.locations?.length &&
+    !tool.images?.length &&
+    !/[^\s{}[\]]/.test(tool.inputSummary ?? "")
+  );
+}
+
 /// A call that failed: its status says so or its command exited nonzero.
 export function isFailed(tool: Tool): boolean {
   return tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0);
 }
 
-/// The distinct files a run of reads opened, by their locations, or one per call without any.
+/// The distinct files a run of reads opened, by their locations (model.ts `pathKey`), or one per
+/// call without any.
 function readCount(items: readonly AcpmuxActivity[]): number {
   const paths = new Set<string>();
   let unnamed = 0;
   for (const item of items) {
     const locations = item.tool?.locations ?? [];
     if (!locations.length) unnamed++;
-    for (const location of locations) paths.add(location.path);
+    for (const location of locations) paths.add(pathKey(location));
   }
   return paths.size + unnamed;
 }

@@ -1017,6 +1017,10 @@ path = "tests/test_job_input_fingerprint.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_job_reuse.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_merge_compile_guard.py"
 lane = "linux-guard"
 
@@ -1586,6 +1590,10 @@ path = "tests/test_cmux_next_debug_only_controls.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_deferred_terminate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_feed_rollback.py"
 lane = "linux-guard"
 
@@ -1638,6 +1646,10 @@ path = "tests/test_pr_capture_check.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_pr_capture_check_paths.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_pr_proof_section.py"
 lane = "linux-guard"
 
@@ -1675,6 +1687,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_pr_autofix_settings.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_pr_changed_paths.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1795,4 +1811,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_daemon_tests_linux.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_fixture_host_names.py"
 lane = "linux-guard"

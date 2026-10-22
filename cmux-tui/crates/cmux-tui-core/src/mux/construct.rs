@@ -350,6 +350,8 @@ impl Mux {
             agent_cli_job_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
+            terminal_adoption_ended: Condvar::new(),
+            terminal_adoptions_now: Mutex::new(HashSet::new()),
             restored_tab_names: Mutex::new(HashMap::new()),
             startup_adoptions_released: AtomicBool::new(false),
             pending_terminals: Mutex::new(HashMap::new()),

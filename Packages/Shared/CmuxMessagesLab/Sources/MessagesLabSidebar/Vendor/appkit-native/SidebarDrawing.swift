@@ -236,11 +236,7 @@ enum SidebarDraw {
         case let .emoji(e):
             g.setFillColor(p.groupDisc)
             g.fillEllipse(in: r)
-            let font = emojiFont(r.width * 0.5) // held, not made per draw (cx-qpqs)
-            let l = line(e, font, CGColor(gray: 0, alpha: 1))
-            var asc: CGFloat = 0, desc: CGFloat = 0
-            let lw = CGFloat(CTLineGetTypographicBounds(l, &asc, &desc, nil))
-            draw(l, x: r.midX - lw / 2, baseline: r.midY + (asc - desc) / 2, g)
+            emoji(e, in: r, g) // cmux: centered by its drawn box, one share of the disc
         case let .group(members):
             g.setFillColor(p.groupDisc)
             g.fillEllipse(in: r)
@@ -261,6 +257,33 @@ enum SidebarDraw {
                 avatar(member ?? .monogram(""), in: sub, g, p)
             }
         }
+    }
+
+    /// cmux: an emoji avatar's drawn box (its glyph image bounds) spans this share of the disc's
+    /// diameter at every size, so the pinned tile and the row draw one avatar.
+    static let emojiShare: CGFloat = 0.6
+
+    /// cmux: `e` centered on the disc `r` by its drawn box, not by its advance and line height,
+    /// at `emojiShare` of the disc. Set at half the disc, the art of the Chief's 🫡 filled 47 % of
+    /// the tile's disc and 52 % of the row's (the user's screenshot, 2026-10-20: a small emoji in
+    /// a big disc).
+    static func emoji(_ e: String, in r: CGRect, _ g: CGContext) {
+        let black = CGColor(gray: 0, alpha: 1)
+        let probe = drawnBounds(line(e, emojiFont(r.width * 0.5), black))
+        let side = max(probe.width, probe.height)
+        guard side > 0, side.isFinite else { return }
+        // Half points, so the held fonts stay few (cx-qpqs).
+        let size = max(1, (r.width * 0.5 * emojiShare * r.width / side * 2).rounded() / 2)
+        let l = line(e, emojiFont(size), black)
+        let b = drawnBounds(l) // y up from the baseline; `draw` puts the baseline at y down
+        draw(l, x: r.midX - b.midX, baseline: r.midY + b.midY, g)
+    }
+
+    /// cmux: a line's drawn box (glyph bounds, y up from the baseline), else its typographic box.
+    static func drawnBounds(_ l: CTLine) -> CGRect {
+        let glyphs = CTLineGetBoundsWithOptions(l, .useGlyphPathBounds)
+        if glyphs.width > 0, glyphs.height > 0, glyphs.width.isFinite, glyphs.height.isFinite { return glyphs }
+        return CTLineGetBoundsWithOptions(l, [])
     }
 
     // MARK: Row

@@ -120,6 +120,7 @@ impl Brain {
             return;
         };
         if message.author == self.settings.membership.participant {
+            self.note_reactions(&main, message);
             return;
         }
         let key = format!("{main}#{}", message.seq);
@@ -142,6 +143,66 @@ impl Brain {
         if let Err(e) = self.chat.append_with(&[entry], |_| Vec::new()) {
             (self.log)(&format!(
                 "logging the change of message {target} failed: {e}"
+            ));
+        }
+    }
+
+    /// A tapback or emoji someone else put on one of the Chief's own messages
+    /// (a416: the user's reactions reach the Chief) is logged as a note,
+    /// `reaction <glyph> [<tapback>] from <name> on your message: <its first
+    /// line>`, which the next turn's delta carries; it wakes no turn, as a
+    /// tapback in Messages asks for no answer. The note's key names the
+    /// message, author, part and reaction, so a replayed update logs it once.
+    /// The Chief's own reactions and removed ones log nothing.
+    fn note_reactions(&mut self, main: &str, message: &Message) {
+        if message.retracted_at.is_some() {
+            return;
+        }
+        let me = &self.settings.membership.participant;
+        let first_line = message_text(message)
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or_default()
+            .chars()
+            .take(120)
+            .collect::<String>();
+        // (key, text): a note borrows its text, so the texts outlive the entries.
+        let notes: Vec<(String, String)> = message
+            .reactions
+            .iter()
+            .filter(|r| &r.author != me)
+            .map(|r| {
+                let (label, tag) = super::replies::reaction_label(&r.kind);
+                let who = self
+                    .summary
+                    .as_ref()
+                    .and_then(|s| s.participants.iter().find(|p| p.id == r.author))
+                    .map(|p| p.display_name.trim().to_owned())
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| r.author.clone());
+                (
+                    format!(
+                        "{main}#{}:reaction:{}:{}:{tag}",
+                        message.seq, r.author, r.part_index
+                    ),
+                    format!("reaction {label} from {who} on your message: {first_line}"),
+                )
+            })
+            .collect();
+        let entries: Vec<optchat_host::NewMessage> = notes
+            .iter()
+            .map(|(key, text)| optchat_host::NewMessage {
+                key: Some(key.clone()),
+                ..optchat_host::NewMessage::new(optchat_core::Kind::Note, text)
+            })
+            .collect();
+        if entries.is_empty() {
+            return;
+        }
+        if let Err(e) = self.chat.append_with(&entries, |_| Vec::new()) {
+            (self.log)(&format!(
+                "logging the reactions on message {} failed: {e}",
+                message.seq
             ));
         }
     }

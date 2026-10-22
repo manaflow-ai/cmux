@@ -23,7 +23,7 @@ public struct WorkspaceHoverCardGallery {
             Fact(icon: .gitPullrequest, text: "cmux #22231", kind: "pullRequest", status: status, statusTone: tone,
                  additions: adds, deletions: dels)
         }
-        let machine = Fact(icon: .machineRemote, text: "air-blue", kind: "machine", accessory: .dot(.danger))
+        let machine = Fact(icon: .machineRemote, text: "dev-mini", kind: "machine", accessory: .dot(.danger))
         let offline = Fact(icon: .statusDisconnected, text: "Remote environment is offline", kind: "machineStatus", ink: .danger)
         let states: [(String, WorkspaceHoverCardContent, [Double])] = [
             ("Agent running", WorkspaceHoverCardContent(

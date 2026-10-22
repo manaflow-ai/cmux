@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import CmuxNextDaemonService
 public import CmuxNextHistory
 import Foundation
@@ -58,6 +58,50 @@ public final class StashService: StashPageSource {
     /// Whether `daemon` keeps stashes; without it no stash UI shows. Only this Mac's daemon.
     func serves(_ daemon: DaemonService) -> Bool { daemon.isLocal && daemon.supports(DaemonCapabilities.shared.stash) }
 
+    /// The reason Save and Close of tabs (`workspaces` false) or of whole workspaces is unavailable,
+    /// or nil while this Mac's daemon keeps them (`stash-v1`, `stash-workspaces-v1`).
+    public func unavailableReason(workspaces: Bool = false) -> String? {
+        guard let daemon = host?.localDaemon else { return RefusalStrings.daemonConnecting }
+        let capability = workspaces ? DaemonCapabilities.shared.stashWorkspaces : DaemonCapabilities.shared.stash
+        guard daemon.isLocal, daemon.supports(DaemonCapabilities.shared.stash), daemon.supports(capability) else {
+            return daemon.missingCapabilityMessage(capability)
+        }
+        return nil
+    }
+
+    /// Closes browser pages `tabs` (this Mac's) into one stash named after the first one's
+    /// workspace. Returns the stash's id.
+    public func stash(tabs: [ResourceID]) async throws -> String {
+        let created: StateResourceClient.StashCreated
+        do { created = try await state().stashTabs(tabs) } catch { throw Self.failure(error) }
+        await model.reload()
+        return created.stashID
+    }
+
+    /// Closes workspaces `workspaces` (this Mac's) whole, every tab and its terminal, into one
+    /// stash named `name` (else the workspace's name for one). Returns the stash's id.
+    public func stash(workspaces: [ResourceID], name: String?) async throws -> String {
+        let created: StateResourceClient.StashCreated
+        do {
+            if let reason = unavailableReason(workspaces: true) { throw ActionFailure(message: reason) }
+            created = try await state().stashWorkspaces(workspaces, name: name)
+        } catch { throw Self.failure(error) }
+        await model.reload()
+        return created.stashID
+    }
+
+    /// Brings every member of stash `id` back where it was (a Save and Close's Undo) and shows
+    /// it: whole workspaces as workspaces, pages in their panes.
+    public func restoreAll(_ id: String, workspaces: Bool) async throws {
+        do {
+            let reopened = try await state().restoreStash(id, target: .here, pane: host?.stashRestorePane)
+            guard let host, let connection = host.localDaemon.connection else { return }
+            await host.localDaemon.store.applied(through: await connection.eventSequence())
+            host.showRestored(reopened, asWorkspace: workspaces)
+        } catch { throw Self.failure(error) }
+        await model.reload()
+    }
+
     /// This Mac's daemon's state client, when it keeps stashes.
     private func state() throws -> StateResourceClient {
         guard let daemon = host?.localDaemon else { throw ActionFailure(message: RefusalStrings.daemonConnecting) }
@@ -80,7 +124,20 @@ public final class StashService: StashPageSource {
         do { records = try await state().stashes() } catch { throw Self.failure(error) }
         return records.map { record in
             StashedGroup(id: record.id, name: record.name, createdAt: Date(timeIntervalSince1970: Double(record.createdAtMs) / 1000),
-                         tabs: record.members.map { StashedGroup.Tab(id: $0.id, url: $0.url, title: $0.title, profile: $0.browserProfileID) })
+                         tabs: record.members.map(Self.member))
+        }
+    }
+
+    /// One member as the page shows it: a page, or a whole workspace with its tabs' titles.
+    private static func member(_ member: StashRecord.Page) -> StashedGroup.Tab {
+        switch member.kind {
+        case .tab:
+            return StashedGroup.Tab(id: member.id, url: member.url ?? "", title: member.title, profile: member.browserProfileID)
+        case .workspace:
+            let tabs = member.tabs.compactMap { tab in (tab.title?.isEmpty == false ? tab.title : nil) ?? tab.url }
+            let addresses = member.tabs.compactMap { $0.url?.isEmpty == false ? $0.url : nil }
+            return StashedGroup.Tab(id: member.id, kind: .workspace(tabs: tabs, addresses: addresses), url: "", title: member.name,
+                                    profile: nil)
         }
     }
 

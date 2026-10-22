@@ -2,10 +2,11 @@
 // runner on 127.0.0.1:4018 (run.mjs). They outlive the turn (12 h, paused when idle; at most two).
 //
 //   chief-vm list
-//   chief-vm create
+//   chief-vm create [--cpu N] [--memory-gb N] [--disk-gb N]   (Freestyle's default is 4 vCPU / 8 GiB / 32 GB)
+//   chief-vm resize ID [--cpu N] [--memory-gb N] [--disk-gb N]   (grow only; CPU and memory live, then the disk and its filesystem)
 //   chief-vm exec ID [--timeout SECONDS] -- COMMAND...   (runs as root through bash -lc; prints stdout and stderr, exits with its code)
 //   chief-vm delete ID
-const USAGE = `usage: chief-vm list | create | exec ID [--timeout S] -- COMMAND... | delete ID`
+const USAGE = `usage: chief-vm list | create [--cpu N] [--memory-gb N] [--disk-gb N] | resize ID [--cpu N] [--memory-gb N] [--disk-gb N] | exec ID [--timeout S] -- COMMAND... | delete ID`
 const fail = (msg, code = 1) => [console.error(`chief-vm: ${msg}`), process.exit(code)]
 const call = async (body) => {
   const r = await fetch("http://127.0.0.1:4018/vm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(340_000) }).catch(() => null)
@@ -15,14 +16,35 @@ const call = async (body) => {
   return j
 }
 const q = (a) => (/^[A-Za-z0-9_./=:@%+,-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)
+// --cpu N, --memory-gb N (sent as MiB), --disk-gb N: whole numbers; anything else is a usage error.
+const sizeFlags = (args) => {
+  const out = {}
+  for (let i = 0; i < args.length; i++) {
+    const key = { "--cpu": "cpu", "--memory-gb": "memory_mb", "--disk-gb": "disk_gb" }[args[i]]
+    const n = Number(args[i + 1])
+    if (!key || !Number.isInteger(n) || n < 1) fail(USAGE, 2)
+    out[key] = key === "memory_mb" ? n * 1024 : n
+    i++
+  }
+  return out
+}
+const size = (r) => (r ? `${r.cpu} vCPU, ${r.memory_mb / 1024} GiB, ${r.disk_gb} GB disk` : "size unknown")
 const [verb, ...rest] = process.argv.slice(2)
 if (verb === "list" || verb === undefined) {
   const j = await call({ action: "list" })
   if (j.vms.length === 0) console.log(`no sandboxes (at most ${j.max}; chief-vm create)`)
   for (const v of j.vms) console.log(`${v.id}\t${v.state}\t${v.name}\tmade ${new Date(v.created_at).toISOString()}`)
 } else if (verb === "create") {
-  const j = await call({ action: "create" })
+  const j = await call({ action: "create", ...sizeFlags(rest) })
   console.log(`${j.vm.id}\t${j.vm.name}\t(${j.ttl_seconds / 3600} h, pauses after ${j.idle_pause_seconds / 60} min idle)`)
+  if (j.resources) console.log(`size: ${size(j.resources)}${j.df ? `\ndf: ${j.df}` : ""}`)
+  if (j.resize_error) console.error(`chief-vm: made, but not resized: ${j.resize_error}`)
+} else if (verb === "resize") {
+  const [id, ...args] = rest
+  const want = sizeFlags(args)
+  if (!id || id.startsWith("--") || Object.keys(want).length === 0) fail(USAGE, 2)
+  const j = await call({ action: "resize", id, ...want })
+  console.log(`${j.id}\t${size(j.resources)}${j.df ? `\ndf: ${j.df}` : ""}`)
 } else if (verb === "delete") {
   if (!rest[0]) fail(USAGE, 2)
   console.log(`deleted ${(await call({ action: "delete", id: rest[0] })).deleted}`)

@@ -780,3 +780,219 @@ fn an_unplaced_sandbox_key_is_revoked_and_the_subagent_starts_without_one() {
     );
     assert!(!subs(&h)[0].1.contains("CMUX_AGENT_CONFIG"));
 }
+
+// ---- One VM per subagent (cloud-subagents-DESIGN.md, "One VM per subagent") ----
+
+/// Records provision/resume/pause/destroy; the first `refuse` destroys fail
+/// (unpushed work on the VM).
+#[derive(Default)]
+struct PerAgentVms {
+    refuse: std::sync::atomic::AtomicUsize,
+    calls: std::sync::Mutex<Vec<String>>,
+}
+
+impl optchat_chief::cloud_vms::CloudVms for PerAgentVms {
+    fn resume(&self, peer: &str) -> Result<(), String> {
+        self.calls.lock().unwrap().push(format!("resume {peer}"));
+        Ok(())
+    }
+    fn pause(&self, peer: &str) -> Result<(), String> {
+        self.calls.lock().unwrap().push(format!("pause {peer}"));
+        Ok(())
+    }
+    fn provision(&self, peer: &str, size: &str) -> Result<(), String> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("provision {peer} {size}"));
+        Ok(())
+    }
+    fn destroy(&self, peer: &str) -> Result<(), String> {
+        self.calls.lock().unwrap().push(format!("destroy {peer}"));
+        use std::sync::atomic::Ordering::SeqCst;
+        if self.refuse.load(SeqCst) > 0 {
+            self.refuse.fetch_sub(1, SeqCst);
+            return Err("unpushed: ~/work/a1: 1 commits not pushed".into());
+        }
+        Ok(())
+    }
+}
+
+fn per_agent(h: &mut Harness, vms: &Arc<PerAgentVms>) -> Arc<Spawner> {
+    let dyn_vms: Arc<dyn optchat_chief::cloud_vms::CloudVms> = vms.clone();
+    let sp = Arc::new(
+        Arc::try_unwrap(spawner(h, None))
+            .ok()
+            .unwrap()
+            .with_cloud_text("SUBAGENT SYSTEM TEXT".into())
+            .with_cloud_vms(Some(dyn_vms.clone())),
+    );
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    h.brain
+        .set_cloud_vms(Some(dyn_vms), Duration::from_secs(3600));
+    set_cloud(h, &sp, optchat_chief::subagents::PER_AGENT);
+    sp
+}
+
+fn calls_of(vms: &PerAgentVms) -> Vec<String> {
+    vms.calls.lock().unwrap().clone()
+}
+
+/// `control cloud freestyle`: each subagent gets its own VM (its peer is
+/// chief-sub-<id>), made at the size its task needs; a task that needs the
+/// Mac (app UI, screenshots, computer use, sign-ins) stays on this host.
+#[test]
+fn each_cloud_subagent_gets_its_own_right_sized_vm_and_mac_tasks_stay_local() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    let a = sp.clone();
+    let spawned = run(&mut h, move || {
+        a.spawn(
+            vec![
+                "Design doc for cloud groups".into(),
+                "Fix the web route and run bun test in web/".into(),
+                "Screenshot the Home sidebar in the tagged app (reload.sh --launch)".into(),
+            ],
+            None,
+        )
+    })
+    .unwrap();
+    assert!(spawned.contains("Started a1, a2, a3"), "{spawned}");
+    let peers: Vec<Option<String>> = subs(&h).into_iter().map(|(s, _)| s.peer).collect();
+    assert_eq!(
+        peers,
+        vec![
+            Some("chief-sub-a1".to_owned()),
+            Some("chief-sub-a2".to_owned()),
+            None,
+        ]
+    );
+    let calls = calls_of(&vms);
+    assert!(
+        calls.contains(&"provision chief-sub-a1 small".to_owned()),
+        "{calls:?}"
+    );
+    assert!(
+        calls.contains(&"provision chief-sub-a2 medium".to_owned()),
+        "{calls:?}"
+    );
+    assert!(!calls.iter().any(|c| c.contains("a3")), "{calls:?}");
+
+    // An explicit size wins over the guess; `local` still means here.
+    let a = sp.clone();
+    run(&mut h, move || {
+        a.spawn_placed(
+            vec!["Write the README".into()],
+            None,
+            None,
+            Some("cloud:large".into()),
+        )
+    })
+    .unwrap();
+    assert!(calls_of(&vms).contains(&"provision chief-sub-a4 large".to_owned()));
+    let a = sp.clone();
+    run(&mut h, move || {
+        a.spawn_placed(
+            vec!["Write the README".into()],
+            None,
+            None,
+            Some("local".into()),
+        )
+    })
+    .unwrap();
+    assert_eq!(subs(&h).last().unwrap().0.peer, None);
+}
+
+/// A VM that cannot be made (over the daily budget, provider down) does not
+/// lose the subagent: it starts on this host instead.
+#[test]
+fn a_subagent_whose_vm_cannot_be_made_starts_here() {
+    struct NoVms;
+    impl optchat_chief::cloud_vms::CloudVms for NoVms {
+        fn resume(&self, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn pause(&self, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn provision(&self, _: &str, _: &str) -> Result<(), String> {
+            Err("budget: a small VM would pass 20 USD/day".into())
+        }
+    }
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms: Arc<dyn optchat_chief::cloud_vms::CloudVms> = Arc::new(NoVms);
+    let sp = Arc::new(
+        Arc::try_unwrap(spawner(&h, None))
+            .ok()
+            .unwrap()
+            .with_cloud_text("T".into())
+            .with_cloud_vms(Some(vms.clone())),
+    );
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    h.brain.set_cloud_vms(Some(vms), Duration::from_secs(3600));
+    set_cloud(&mut h, &sp, optchat_chief::subagents::PER_AGENT);
+    let a = sp.clone();
+    let spawned = run(&mut h, move || a.spawn(vec!["Design doc".into()], None)).unwrap();
+    assert!(spawned.contains("Started a1"), "{spawned}");
+    assert!(spawned.contains("budget"), "says why: {spawned}");
+    assert_eq!(subs(&h).last().unwrap().0.peer, None);
+}
+
+/// A finished subagent's own VM is deleted once its reap time passes; a
+/// refusal (unpushed work) leaves it and tries again later; a tell after
+/// the delete says so instead of reaching a VM that is gone.
+#[test]
+fn a_finished_subagents_vm_is_deleted_after_its_work_is_pushed() {
+    use optchat_chief::brain::Input;
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(PerAgentVms::default());
+    vms.refuse.store(1, std::sync::atomic::Ordering::SeqCst);
+    let sp = per_agent(&mut h, &vms);
+    h.brain.set_cloud_reap(Duration::ZERO);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["Design doc".into()], None)).unwrap();
+    h.brain.step(Input::CloudTick);
+    assert!(
+        !calls_of(&vms).iter().any(|c| c.starts_with("destroy")),
+        "a1 lives"
+    );
+
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    let destroys = |v: &PerAgentVms| {
+        calls_of(v)
+            .iter()
+            .filter(|c| *c == "destroy chief-sub-a1")
+            .count()
+    };
+    let until = Instant::now() + Duration::from_secs(5);
+    while destroys(&vms) < 2 && Instant::now() < until {
+        h.brain.step(Input::CloudTick);
+        while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+    }
+    assert_eq!(
+        destroys(&vms),
+        2,
+        "refused once, then deleted: {:?}",
+        calls_of(&vms)
+    );
+    for _ in 0..3 {
+        h.brain.step(Input::CloudTick);
+        while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+    }
+    assert_eq!(destroys(&vms), 2, "deleted once");
+    let a = sp.clone();
+    let told = run(&mut h, move || a.tell("a1", "one more thing"));
+    let told = format!("{told:?}");
+    assert!(told.contains("deleted"), "{told}");
+}

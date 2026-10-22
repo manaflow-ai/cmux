@@ -4,6 +4,7 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { fireAlarm } from "./setup/alarm.ts"
 import { memberUpsert } from "../src/domains/team-members.ts"
+import { createHash } from "node:crypto"
 
 /**
  * The Claude Code route of a Cloud Chief (chief-brain-cc/): for an owner on the paid-model list, each turn
@@ -61,7 +62,10 @@ const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: S
   const tags: Array<Array<string>> = []
   const other: Array<string> = []
   // Execs outside the turn machine's own steps (the Chief's sandboxes).
-  const execs: Array<{ vm: string; command: string }> = []
+  const execs: Array<{ vm: string; command: string; stdin: Uint8Array }> = []
+  // Each VM's size (Freestyle's default 4 vCPU / 8 GiB / 32 GB), and every resize asked for.
+  const sizes = new Map<string, { cpu: number; memory: number; storage: number }>()
+  const resizes: Array<{ vm: string; body: any }> = []
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = new Request(input, init)
     const url = new URL(req.url)
@@ -84,6 +88,7 @@ const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: S
     if (req.method === "POST" && url.pathname === "/v5/vms") {
       const id = `vm-test${made.length + 1}`
       made.push({ id, body: await req.json() })
+      sizes.set(id, { cpu: 4, memory: 8192, storage: 32768 })
       return Response.json({ id })
     }
     const del = /^\/v5\/vms\/([^/]+)$/.exec(url.pathname)
@@ -91,13 +96,26 @@ const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: S
     if (req.method === "GET" && del) {
       const m = made.find((x) => x.id === del[1])
       if (!m || deleted.includes(m.id)) return new Response("no such vm", { status: 404 })
-      return Response.json({ id: m.id, state: "running", ipMode: "dualStack" })
+      return Response.json({ id: m.id, state: "running", ipMode: "dualStack", resources: sizes.get(m.id) })
+    }
+    const rs = /^\/v5\/vms\/([^/]+)\/resize$/.exec(url.pathname)
+    if (req.method === "POST" && rs) {
+      const vm = rs[1]!
+      const body = (await req.json()) as { cpu?: number; memory?: number; storage?: number }
+      resizes.push({ vm, body })
+      const was = sizes.get(vm)
+      if (!was) return Response.json({ code: "NOT_FOUND", message: "no such vm" }, { status: 404 })
+      const next = { cpu: body.cpu ?? was.cpu, memory: body.memory ?? was.memory, storage: body.storage ?? was.storage }
+      if (next.cpu < was.cpu || next.memory < was.memory || next.storage < was.storage) return Response.json({ code: "BAD_REQUEST", message: "grow only" }, { status: 400 })
+      sizes.set(vm, next)
+      return Response.json({ id: vm, state: "running", resources: next })
     }
     const ex = /^\/v5\/vms\/([^/]+)\/exec-await$/.exec(url.pathname)
     if (req.method === "POST" && ex) {
       const vm = ex[1]!
       const body = (await req.json()) as { command: string; stdin?: string }
       const stdin = body.stdin ? atob(body.stdin) : ""
+      const raw = Uint8Array.from(stdin, (c) => c.charCodeAt(0))
       steps.push(`${vm} ${body.command.split(" ")[0]}`)
       if (body.command.startsWith("/opt/chief-cc/boot.sh ")) return boots.push({ vm, stdin }), Response.json({ statusCode: 0, stdout: "ready\n" })
       if (body.command === "bash -s") return nets.push({ vm, script: stdin }), Response.json({ statusCode: 0, stdout: "net ok\n" })
@@ -110,12 +128,13 @@ const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: S
         setTimeout(() => void (during ?? (async () => undefined))(s, n).then(() => machine(s, answer(s.input.prompt, n))), 20)
         return Response.json({ statusCode: 0, stdout: "started\n" })
       }
-      execs.push({ vm, command: body.command })
+      execs.push({ vm, command: body.command, stdin: raw })
+      if (body.command.includes("resize2fs")) return Response.json({ statusCode: 0, stdout: "/dev/vda 63G 1.2G 62G 2% /\n" })
       return Response.json({ statusCode: 0, stdout: body.command.startsWith("echo ") ? `${body.command.slice(5)}\n` : "" })
     }
     return new Response("unexpected", { status: 500 })
   })
-  return { made, deleted, boots, started, nets, steps, keys, tags, other, execs }
+  return { made, deleted, boots, started, nets, steps, keys, tags, other, execs, sizes, resizes }
 }
 const notes = (s: Started, body: unknown, token = s.input.token) => worker.fetch(s.input.notes_url, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) })
 const machine = async (s: Started, reply: string) => {
@@ -299,6 +318,59 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     }
   })
 
+  it("writes a pasted PNG into the turn machine with the same sha256, before the turn starts, at the path its message line names", async () => {
+    const cloud = fakeCloud(() => "I see the screenshot.")
+    const { token, chief } = await enabledChief("chief-cc-attachment", "cc")
+    const conversation = chief.main_conversation
+    // A PNG over one exec's stdin, so the write goes in chunks.
+    const png = new Uint8Array(1_700_000)
+    png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    for (let i = 8; i < png.length; i++) png[i] = (i * 31 + 7) & 0xff
+    const hash = createHash("sha256").update(png).digest("hex")
+    const intent = await http("POST", "/v1/home/attachments/intent", token, { conversation, sha256: hash, byte_count: png.byteLength, mime_type: "image/png", name: "Screenshot 9.47.59.png", width: 2880, height: 1800 })
+    expect(intent.json?.ok, intent.text).toBe(true)
+    if (intent.json.value.state !== "exists") {
+      const put = await worker.fetch(intent.json.value.upload_url, { method: "PUT", body: png, headers: { "content-length": String(png.byteLength) } })
+      expect(put.status, await put.clone().text()).toBe(200)
+    }
+    const part = { type: "attachment", hash, name: "Screenshot 9.47.59.png", mime_type: "image/png", byte_count: png.byteLength, width: 2880, height: 1800 }
+    const sent = await op(token, "message.send", { conversation, client_msg_id: "a1", parts: [{ type: "text", text: "what is wrong here?" }, part] }, "a1")
+    expect(sent.ok, JSON.stringify(sent)).toBe(true)
+    await replies(token, conversation, chief.id, 1)
+
+    const path = `/home/chief/work/.attachments/${hash}.png`
+    const s = cloud.started[0]!
+    expect(s.input.prompt).toContain(`[attachment: Screenshot 9.47.59.png, image/png 2880x1800 1.6 MB, file ${path}]`)
+    // The bytes: the chunks written to the part file, in order, then renamed to the named path.
+    const writes = cloud.execs.filter((e) => e.vm === s.vm && /cat >>? \/home\/chief\/work\/\.attachments\//.test(e.command))
+    expect(writes.length).toBeGreaterThan(1)
+    for (const w of writes) expect(w.stdin.byteLength).toBeLessThanOrEqual(1_000_000)
+    const got = new Uint8Array(writes.reduce((n, w) => n + w.stdin.byteLength, 0))
+    let at = 0
+    for (const w of writes) [got.set(w.stdin, at), (at += w.stdin.byteLength)]
+    expect(createHash("sha256").update(got).digest("hex")).toBe(hash)
+    expect(cloud.execs.some((e) => e.vm === s.vm && e.command.includes(`mv -f`) && e.command.endsWith(`${path} && echo ok`))).toBe(true)
+    // Owned by the agent user, mode 600; written before the turn started.
+    expect(cloud.execs.some((e) => e.command.includes("chown chief:chief") && e.command.includes("chmod 600"))).toBe(true)
+    const order = cloud.steps.filter((x) => x.startsWith(s.vm))
+    expect(order.findIndex((x) => x.endsWith("cat")) >= 0 || order.findIndex((x) => x.endsWith("install")) >= 0).toBe(true)
+    expect(order.findIndex((x) => x.endsWith("/opt/chief-cc/start.sh"))).toBeGreaterThan(order.findLastIndex((x) => x.endsWith("chown")))
+    // The bytes are in no reply or run.
+    const runs = (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${conversation}`, token)).json.value.runs as Array<any>
+    expect(JSON.stringify(runs)).not.toContain("iVBORw0KGgo")
+  })
+
+  it("does not write an attachment of another conversation into the turn machine", async () => {
+    const cloud = fakeCloud(() => "ok")
+    const { token, chief } = await enabledChief("chief-cc-attachment-other", "cc")
+    const foreign = "ab".repeat(32)
+    expect((await send(token, chief.main_conversation, "o1", `look at /home/chief/work/.attachments/${foreign}.png`)).ok).toBe(true)
+    await replies(token, chief.main_conversation, chief.id, 1)
+    const s = cloud.started[0]!
+    expect(cloud.execs.filter((e) => e.vm === s.vm && e.command.includes(".attachments/"))).toHaveLength(0)
+    expect(s.input.prompt).toContain(`${foreign}.png (not found in this conversation)`)
+  })
+
   it("lets the Chief keep sandbox VMs of its own across turns: at most two, only its own, through the turn token", async () => {
     const seen: Record<string, any> = {}
     const call = async (s: Started, vm: unknown) => {
@@ -331,7 +403,7 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     expect(sandbox.body.metadata).toMatchObject({ cmux_chief_sandbox: chief.id })
     expect(sandbox.body.ttlSeconds).toBeLessThanOrEqual(12 * 3600)
     expect(seen.exec).toMatchObject({ status: 200, body: { exit: 0, stdout: "hello\n" } })
-    expect(cloud.execs).toContainEqual({ vm: seen.a.body.vm.id, command: "echo hello" })
+    expect(cloud.execs.map(({ vm, command }) => ({ vm, command }))).toContainEqual({ vm: seen.a.body.vm.id, command: "echo hello" })
     // The turn machine itself (or any VM it did not make) is not the Chief's sandbox.
     expect(seen.foreign.status).toBe(404)
     expect(cloud.execs.some((e) => e.command === "echo nope")).toBe(false)
@@ -344,6 +416,52 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     expect(seen.list.status).toBe(200)
     expect(seen.list.body.vms.map((v: any) => v.id)).toEqual([seen.a.body.vm.id])
     expect(cloud.deleted).not.toContain(seen.a.body.vm.id)
+  })
+
+  it("lets the Chief grow its own sandboxes (grow only, capped, then the guest filesystem grows), and size them at create", async () => {
+    const seen: Record<string, any> = {}
+    const call = async (s: Started, vm: unknown) => {
+      const r = await notes(s, { run: s.run, vm })
+      return { status: r.status, body: await r.json().catch(() => null) }
+    }
+    const cloud = fakeCloud(
+      () => "resized",
+      async (s) => {
+        seen.a = await call(s, { action: "create" })
+        const id = seen.a.body?.vm?.id
+        seen.grow = await call(s, { action: "resize", id, cpu: 8, memory_mb: 16384, disk_gb: 64 })
+        seen.shrink = await call(s, { action: "resize", id, cpu: 2 })
+        seen.huge = await call(s, { action: "resize", id, cpu: 4096 })
+        seen.nothing = await call(s, { action: "resize", id })
+        seen.junk = await call(s, { action: "resize", id, memory_mb: "lots" })
+        seen.foreign = await call(s, { action: "resize", id: s.vm, cpu: 8 })
+        seen.sized = await call(s, { action: "create", cpu: 6, memory_mb: 12288, disk_gb: 48 })
+      }
+    )
+    const { token, chief } = await enabledChief("chief-cc-sandbox-resize", "cc")
+    expect((await send(token, chief.main_conversation, "r1", "grow the sandbox")).ok).toBe(true)
+    await replies(token, chief.main_conversation, chief.id, 1)
+    const id = seen.a.body.vm.id
+    expect(seen.grow.status).toBe(200)
+    expect(seen.grow.body).toMatchObject({ id, resources: { cpu: 8, memory_mb: 16384, disk_gb: 64 } })
+    expect(cloud.resizes).toContainEqual({ vm: id, body: { cpu: 8, memory: 16384, storage: 65536 } })
+    expect(cloud.sizes.get(id)).toEqual({ cpu: 8, memory: 16384, storage: 65536 })
+    // The disk grew, so the guest's root filesystem is grown too and df shows it.
+    expect(cloud.execs.some((e) => e.vm === id && e.command.includes("resize2fs"))).toBe(true)
+    expect(seen.grow.body.df).toContain("63G")
+    // Grow only, within the cap, a number on some axis, and only the Chief's own sandboxes; none reaches Freestyle.
+    expect(seen.shrink.status).toBe(400)
+    expect(seen.shrink.body.error).toMatch(/grow/)
+    expect(seen.huge.status).toBe(400)
+    expect(seen.nothing.status).toBe(400)
+    expect(seen.junk.status).toBe(400)
+    expect(seen.foreign.status).toBe(404)
+    expect(cloud.resizes.filter((r) => r.vm === id)).toHaveLength(1)
+    expect(cloud.resizes.some((r) => r.vm !== id && !cloud.made.some((m) => m.id === r.vm && m.body.metadata?.cmux_chief_sandbox))).toBe(false)
+    // create takes the same sizes.
+    expect(seen.sized.status).toBe(200)
+    expect(seen.sized.body.resources).toMatchObject({ cpu: 6, memory_mb: 12288, disk_gb: 48 })
+    expect(cloud.sizes.get(seen.sized.body.vm.id)).toEqual({ cpu: 6, memory: 12288, storage: 49152 })
   })
 
   it("refuses notes without the running turn's token, and after the turn ended", async () => {

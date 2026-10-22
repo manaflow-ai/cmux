@@ -41,10 +41,7 @@ impl Mux {
                 SavedTabMember::Terminal { terminal_id, cwd, .. } => {
                     let reattached = terminal_id
                         .as_deref()
-                        .and_then(|terminal| self.resolve_terminal(terminal).ok().flatten())
-                        .filter(|resolution| {
-                            resolution.terminal.lifecycle == TerminalLifecycle::Running
-                        })
+                        .and_then(|terminal| self.resolve_running_terminal(terminal))
                         .and_then(|resolution| {
                             self.project_terminal_into_pane(
                                 actor,

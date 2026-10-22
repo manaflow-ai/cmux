@@ -66,6 +66,7 @@ const { SettingsStore } = await import("./store");
 const { setLocale } = await import("./strings");
 const { homes } = await import("./categories");
 const { THEME_KEY } = await import("./components/ThemeStudio");
+const { withMockTiming } = await import("./mockTiming");
 // The same fresh React DOM copy testing.tsx loads (it sees the jsdom and the hook above).
 const { fileURLToPath } = await import("node:url");
 const clientPath = fileURLToPath(
@@ -89,10 +90,12 @@ let renderMs = 0;
 type FirstFrame = { at: number; react: number; rows: number };
 let firstFrame: FirstFrame | null = null;
 let mountReactStart = 0;
-async function mount(path: string): Promise<Page> {
+async function mount(path: string, latency = 0): Promise<Page> {
   setLocale("en");
   const mock = createMockClient();
-  const store = new SettingsStore(mock.client);
+  // `latency`: every call answers after that many ms, as the app's bridge does (mockTiming.ts).
+  const client = latency ? withMockTiming(mock.client, new URLSearchParams({ latency: String(latency) })) : mock.client;
+  const store = new SettingsStore(client);
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
@@ -275,6 +278,80 @@ test.skipIf(!enabled)(
     await scenario("set.fontSize", sectionPath(fontKey), async (page, index) => {
       await page.store.set(fontKey, 12 + (index % 6));
     });
+
+    // Section switch (msg 8948): a click on a sidebar section, with the host answering after
+    // 40 ms, to the first DOM commit that shows the section complete (its title and the host-read
+    // buttons at its end): `wallMs`. `firstFrameMs` is the first commit that shows the section at all;
+    // `rows` counts runs that showed it incomplete first (buttons filled in a frame later).
+    // "hoverClick" rests the pointer on the link first, as a person does before a click.
+    for (const mode of ["click", "hoverClick"] as const) {
+      const page = await mount("/settings/general", 40);
+      // The first section draws once its route's loader has its reads (one host round trip).
+      for (let turn = 0; turn < 2000 && !page.container.querySelector("[data-section-link]"); turn += 1) {
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+      }
+      try {
+        const samples: Sample[] = [];
+        for (let index = 0; index < iterations; index += 1) {
+          const target = index % 2 === 0 ? "advanced" : "general";
+          const link = page.container.querySelector<HTMLElement>(`[data-section-link="${target}"]`)!;
+          const shows = () => page.container.querySelector(`[data-section="${target}"]`) !== null;
+          const complete = () =>
+            shows() && page.container.querySelector(`[data-section-actions="${target}"] button`) !== null;
+          if (mode === "hoverClick") {
+            await act(async () => {
+              link.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true, relatedTarget: null }));
+              // fixed-wait: a person's pointer rests on a link about this long before the click
+              await new Promise((resolve) => setTimeout(resolve, 150));
+            });
+          }
+          // Stamped by the DOM commits themselves (a MutationObserver), not by when the test's own
+          // await returns: React's effects after the commit are not the user's wait.
+          let first: number | null = null;
+          let done: number | null = null;
+          let incomplete = false;
+          const observer = new window.MutationObserver(() => {
+            const now = performance.now();
+            if (first === null && shows()) first = now;
+            if (done === null && complete()) done = now;
+            if (shows() && !complete()) incomplete = true;
+          });
+          observer.observe(page.container, { subtree: true, childList: true, attributes: true });
+          const listsBefore = page.lists();
+          const start = performance.now();
+          await act(async () => {
+            link.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
+          });
+          for (let turn = 0; turn < 2000 && !complete(); turn += 1) {
+            await act(async () => {
+              await new Promise((resolve) => setTimeout(resolve, 0));
+            });
+          }
+          const wall = (done ?? performance.now()) - start;
+          observer.disconnect();
+          expect(complete()).toBe(true);
+          samples.push({
+            wall,
+            react: 0,
+            rendered: 0,
+            rows: incomplete ? 1 : 0,
+            lists: page.lists() - listsBefore,
+            firstFrame: (first ?? performance.now()) - start,
+            firstFrameReact: 0,
+          });
+          await settle();
+        }
+        stats(`section.switch.${mode}`, samples);
+        const shownIncomplete = samples.filter((sample) => sample.rows > 0).length;
+        console.log(
+          `::notice::SETTINGS_BENCH ${JSON.stringify({ scenario: `section.switch.${mode}.incomplete`, n: samples.length, shownIncomplete })}`,
+        );
+      } finally {
+        page.unmount();
+      }
+    }
 
     // Theme pick on the Theme page.
     const themes = ["Dracula", "Tokyo Night", "Gruvbox Dark", "Catppuccin Mocha"];

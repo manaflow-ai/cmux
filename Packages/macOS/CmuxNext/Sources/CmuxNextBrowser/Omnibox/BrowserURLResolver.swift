@@ -12,7 +12,8 @@ public import Foundation
 ///    `chrome-extension://` pages and `about:` aliases of WebUI pages, in
 ///    Chromium's canonical form (ChromiumInternalURL: `chrome://extensions`
 ///    is `chrome://extensions/`); every tab also takes the `chrome://` pages
-///    cmux shows itself (ChromiumPageRoute). Every other scheme (`javascript:`,
+///    cmux shows itself (ChromiumPageRoute), and `cmux://stashed`, the
+///    Stashed Tabs page (`cmuxAppPageHosts`; the App opens it). Every other scheme (`javascript:`,
 ///    `data:`, `mailto:`, ...) is searched, so typed text can never run
 ///    script or open another app.
 /// 3. `/abs/path`, `~`, and `~/path` are file URLs, spaces allowed.
@@ -120,9 +121,21 @@ public nonisolated struct BrowserURLResolver: Sendable {
             return chromiumPage(text, scheme: scheme)
         case "chrome", "chrome-extension":
             return chromiumPage(text, scheme: scheme)
+        case "cmux":
+            return cmuxAppPage(text)
         default:
             return nil
         }
+    }
+
+    /// cmux's own pages that are no browser page, which the App opens instead of loading
+    /// (ChromiumPageRouter). Every other `cmux:` link (`cmux://tab/…`) is searched, never run.
+    static let cmuxAppPageHosts: Set<String> = ["stashed"]
+
+    /// `cmux://stashed` in canonical form, with any path, query or fragment dropped.
+    private func cmuxAppPage(_ text: String) -> URL? {
+        guard let host = URL(string: text)?.host()?.lowercased(), Self.cmuxAppPageHosts.contains(host) else { return nil }
+        return URL(string: "cmux://\(host)")
     }
 
     /// A Chromium internal page in canonical form. A WebKit tab takes only

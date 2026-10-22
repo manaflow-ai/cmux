@@ -149,8 +149,16 @@ jobs:
             echo "a merge to feat-cmux-next or a batch dispatch tours"
             exit 0
           fi
-          # The files API lists at most 3000; past that the label decides.
-          if ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' \
+          # The changed paths from git, not the files API (a call per 100
+          # files on every push): the event's merge commit against its first
+          # parent, the base, fetched without blobs. With rename detection
+          # this is the files API's `.filename` set, less a change the base
+          # already carries. The files API is the fallback; it lists at most
+          # 3000, and past that the label decides.
+          if git fetch --no-tags --quiet --depth=2 --filter=blob:none origin "$GITHUB_SHA" \
+            && git diff --name-only -z -M "$GITHUB_SHA^1" "$GITHUB_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/changed.txt"; then
+            echo "listed=true" >> "$GITHUB_OUTPUT"
+          elif ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' \
             > "$RUNNER_TEMP/changed.txt"; then
             echo "::warning::could not list the pull request's files; only the media-tour label tours"
             : > "$RUNNER_TEMP/changed.txt"
@@ -171,8 +179,17 @@ jobs:
           # the event, or the push's before and after.
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          LISTED: ${{ steps.decide.outputs.listed }}
         run: |
           set -euo pipefail
+          # A pull request whose merge commit the step above diffed: the same
+          # diff with every rename as both paths, and no 300-file cap.
+          if [ "$LISTED" = true ] && git diff --no-renames --name-only -z "$GITHUB_SHA^1" "$GITHUB_SHA" \
+            | tr '\0' '\n' | sort -u > "$RUNNER_TEMP/changed-paths.txt"; then
+            echo "$(wc -l < "$RUNNER_TEMP/changed-paths.txt") changed path(s)"
+            exit 0
+          fi
+          rm -f "$RUNNER_TEMP/changed-paths.txt"
           listing="$RUNNER_TEMP/changed-files.json"
           gh api "repos/$GITHUB_REPOSITORY/compare/$BASE...$HEAD" --jq '[.files[] | {filename, previous_filename}]' > "$listing"
           python3 - "$listing" "$RUNNER_TEMP/changed-paths.txt" <<'PY'

@@ -92,6 +92,19 @@ test("Security keeps its own open list", () => {
   expect(doc.querySelector(".cl-group .cl-row-title")?.textContent).toBe("Title s1");
 });
 
+test("when fixes are all the update's news, their list is open", () => {
+  const doc = render(view(undefined, [{ category: "fixed", items: fixes }]));
+  expect(doc.querySelector<HTMLDetailsElement>("details.cln-fixed")?.hasAttribute("open")).toBe(true);
+  // Anything else to lead with keeps Fixed to its one line.
+  const led = render(
+    view(undefined, [
+      { category: "new", items: [item("n1", "new")] },
+      { category: "fixed", items: fixes },
+    ]),
+  );
+  expect(led.querySelector<HTMLDetailsElement>("details.cln-fixed")?.hasAttribute("open")).toBe(false);
+});
+
 test("a fix keeps its Learn more link", () => {
   const fix = item("f1", "fixed", { docs: "https://cmux.com/docs/fix" });
   const doc = render(view(undefined, [{ category: "fixed", items: [fix] }]));

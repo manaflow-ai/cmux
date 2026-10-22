@@ -23,6 +23,12 @@ final class CEFHostView: NSView {
     var pageBackdrop: CGColor? {
         didSet { if pageBackdrop != oldValue { updateBackground() } }
     }
+    /// The shown page is see-through (a cmux page, `CEFTab.pageSeeThrough`): this view under it
+    /// paints nothing, so the pane and the window backdrop show as under a WebKit page.
+    var pageSeeThrough = false {
+        didSet { if pageSeeThrough != oldValue { updateBackground() } }
+    }
+
     /// Called when the window starts a live resize (`CEFPaneHost` re-reads
     /// the shown page's background).
     var liveResizeWillStart: (() -> Void)?
@@ -61,8 +67,14 @@ final class CEFHostView: NSView {
     /// Until Chromium's page window shows its first frame, the page area
     /// follows the shared pane ground. It stays clear over Liquid Glass so
     /// the window backdrop remains visible. During a live resize it takes
-    /// the page's own background (`pageBackdrop`).
+    /// the page's own background (`pageBackdrop`). Under a see-through page
+    /// (`pageSeeThrough`) it paints nothing, so the page shows what a WebKit
+    /// page shows.
     private func updateBackground() {
+        if pageSeeThrough {
+            layer?.backgroundColor = nil
+            return
+        }
         if inLiveResize, let pageBackdrop {
             layer?.backgroundColor = pageBackdrop
             return

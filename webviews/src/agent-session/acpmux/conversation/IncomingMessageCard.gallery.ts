@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample messages and replies), not shipped UI.
 // Another agent's message to this chat as one line at the left among the tool rows (the sender's
-// mark, its name as a chip, a preview of the message; opened, a glass card), and a Claude Code task
-// notification as one quiet line
+// mark, its name as a chip) over a glass card with the message, cut to six lines when longer (›
+// opens it whole), and a Claude Code task notification as one quiet line
 // (IncomingMessageCard.tsx, incomingMessage.ts). A message from a chat here also has Reply at the line's end, which
 // answers in place in the sender's chat and thread.
 import { agentPaneEntry } from "../../../gallery/format";
@@ -21,6 +21,19 @@ const message = (
 const gridFix = "The grid fix is on cmux/grid-fix; tests pass.";
 const openedText =
   "The grid fix is on cmux/grid-fix; tests pass.\n\nOpened manaflow-ai/cmux#23727 at 3b01de6; the follow-up is hq#2505. The grid now reserves its height before the images load, so nothing below it moves.";
+const report = [
+  "**Landing report** for the grid lane:",
+  "",
+  "- #2210 merged; the grid reserves its height before images load.",
+  "- #2214 is in review; its only red is the gallery's scope menu, red on base too.",
+  "- #2219 waits on #2214's merge to rebase.",
+  "",
+  "Next I take the sidebar preview: it still shows the raw envelope for watched chats.",
+  "",
+  "Then the notification body, which reads the same field.",
+  "",
+  "Nothing needs you; I'll report when #2214 lands.",
+].join("\n");
 
 export default agentPaneEntry({
   id: "agent-pane.incoming-message",
@@ -30,7 +43,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/IncomingMessageCard.tsx"],
   variants: {
     messages: {
-      note: "A chat here sends a message (its name links to that chat); a Claude Code session sends one from outside cmux (its name is plain). Each is one line; › opens it.",
+      note: "A chat here sends a message (its name links to that chat); a Claude Code session sends one from outside cmux (its name is plain). Each is a line over its message's card; › on the envelope's line opens Details.",
       snapshot: chat([
         user("Split the grid fix into its own chat and report back", 9),
         assistant("Started Grid fix; it will message this chat when done.", 8.5),
@@ -104,8 +117,8 @@ export default agentPaneEntry({
         { title: "tests" },
       ),
     },
-    opened: {
-      note: "› opens the message under its line as a glass card; its PR, HQ and commit references are links.",
+    links: {
+      note: "A message's card shows its PR, HQ and commit references as links.",
       snapshot: chat([
         user("Split the grid fix into its own chat and report back", 9),
         assistant("Started Grid fix; it will message this chat when done.", 8.5),
@@ -117,9 +130,28 @@ export default agentPaneEntry({
         assistant("Merged cmux/grid-fix into this branch.", 5.5),
         summary(5.5, { status: "completed" }),
       ]),
+    },
+    long: {
+      note: "A long message's card shows its first six lines, the last fading out; › or a click on the card opens it whole.",
+      snapshot: chat([
+        user("Land the grid lane and report back", 9),
+        assistant("Started grid-lane; it will report here.", 8.5),
+        summary(8.5, { status: "completed" }),
+        user(report, 6, { incoming: message("grid-lane", report, undefined, "child-3"), untyped: true }),
+      ]),
+    },
+    opened: {
+      note: "› opens a long message whole.",
+      snapshot: chat([
+        user("Land the grid lane and report back", 9),
+        assistant("Started grid-lane; it will report here.", 8.5),
+        summary(8.5, { status: "completed" }),
+        user(report, 6, { incoming: message("grid-lane", report, undefined, "child-3"), untyped: true }),
+      ]),
       play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__body[data-cut]"));
         await ctx.click({ selector: ".cv-received__toggle" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__body"));
+        await ctx.waitFor(() => ctx.document.querySelector('.cv-received__toggle[aria-expanded="true"]'));
       },
     },
     details: {

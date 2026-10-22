@@ -31,7 +31,7 @@ final class LinkOpener {
 
     /// The app's services (they own this opener and outlive it).
     private weak var services: AppServices?
-    /// A pane a link's tab gives the focus back to when it closes (``returnPane(closing:in:)``).
+    /// A pane a link's tab gives the focus back to when its close empties its pane (``returnPane(closing:in:emptiesPane:)``).
     private struct Return {
         let pane: LayoutPaneID
         weak var content: WorkspaceContentController?
@@ -128,7 +128,7 @@ final class LinkOpener {
     /// A web link in a cmux browser tab (``LinkRouter/openInCmux``), as Chrome opens a clicked
     /// link (Leo 2026-10-21). In the source's own pane the clicked tab is its opener: the new tab
     /// goes right after it and its close selects it again (``BrowserTabOpeners``). A focused tab
-    /// anywhere else gives the focus back to the source when it closes (``returnPane(closing:in:)``).
+    /// anywhere else gives the focus back to the source when its close empties its pane (``returnPane(closing:in:emptiesPane:)``).
     @discardableResult
     func openWeb(_ url: URL, from source: PaneController?, background: Bool, cmdClick: Bool = false) -> Bool {
         let from = source ?? services?.windows.active?.focusedPane
@@ -156,11 +156,15 @@ final class LinkOpener {
     }
 
     /// The pane tab `id` of `pane` gives the focus back to as it closes: the pane it was clicked
-    /// open from (``returnFocus(of:to:in:)``), when `pane` has the focus and that pane still shows
-    /// in the same workspace. Nil otherwise. The record is spent either way.
-    func returnPane(closing id: StripTabID, in pane: PaneController) -> PaneController? {
+    /// open from (``returnFocus(of:to:in:)``), when the close empties `pane` (`emptiesPane`, so the
+    /// pane goes away with it), `pane` has the focus and that pane still shows in the same
+    /// workspace. Nil otherwise. The record is spent either way.
+    /// While `pane` has other tabs the focus stays in it, on the tab the close selects: Leo
+    /// 2026-10-21, "when i close a tab in the browser then it refocuses immediately back to the
+    /// agent pane", so his next Cmd-W closed the agent chat instead of the next browser tab.
+    func returnPane(closing id: StripTabID, in pane: PaneController, emptiesPane: Bool) -> PaneController? {
         returns = returns.filter { $0.value.content != nil }
-        guard let surface = pane.tab(id)?.surface, let back = returns.removeValue(forKey: surface),
+        guard let surface = pane.tab(id)?.surface, let back = returns.removeValue(forKey: surface), emptiesPane,
               let content = pane.workspace, back.content === content, back.pane != pane.layoutPaneID,
               content.focusedPane === pane else { return nil }
         return content.panes[back.pane]

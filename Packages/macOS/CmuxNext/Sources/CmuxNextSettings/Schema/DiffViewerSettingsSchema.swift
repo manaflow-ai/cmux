@@ -50,6 +50,11 @@ nonisolated enum DiffViewerSettingsSchema {
             toggle("showBackgrounds", SettingsText.keyed("settings.diff.showBackgrounds", "Change Backgrounds"), true, ["background", "color"]),
             toggle("expandUnchanged", SettingsText.keyed("settings.diff.expandUnchanged", "Expand Unchanged Lines"), false,
                    ["unchanged", "context", "expand"]),
+            // Off by default: the familiar order is the order the diff arrived in, and a reorder
+            // nobody can turn off has no business being the default. The toolbar's toggle writes
+            // this row, so turning it on now lasts past the tab (webviews/src/viewer-prefs.ts).
+            toggle("groupByKind", SettingsText.keyed("settings.diff.groupByKind", "Group Files by Kind"), false,
+                   ["group", "kind", "tests", "generated", "order", "sort"]),
         ]
     }
 }

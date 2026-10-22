@@ -859,6 +859,7 @@ impl Brain {
     fn control_cloud(&mut self, peer: Option<&str>) -> Result<String, String> {
         let now = |p: Option<&str>| {
             match p {
+            Some(crate::subagents::PER_AGENT) => "each new subagent runs in its own Freestyle VM (chief-sub-<id>), sized to its task; tasks that need the Mac stay here (spawn place \"local\" keeps one here, \"cloud:small|medium|large\" picks the size)".to_owned(),
             Some(p) => format!("new subagents run on the cloud peer {p} (spawn place \"local\" keeps one here)"),
             None => "new subagents run on this host (spawn place \"cloud\" needs a peer: control cloud PEER)".to_owned(),
         }

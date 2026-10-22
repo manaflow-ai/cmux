@@ -62,6 +62,10 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var keycap: Int?
     /// The session tree: the row's pull requests, a glyph and a count in their status color.
     public var pullRequests: SidebarPullRequestBadge?
+    /// The session tree: a parent's chevron (nil without children).
+    public var treeFold: SidebarTreeFold?
+    /// The session tree: a folded parent's descendants by state, drawn as chips.
+    public var rollUp: SidebarTreeRollUp?
     /// The Priority view's chip (`SidebarWorkspace.agentChip`) when it asks for something
     /// (`rowChip`), for the row's accessibility label. Never drawn: a row shows no status words
     /// (Leo 2026-10-21); needs you is the badge's yellow dot.
@@ -133,9 +137,10 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// since the last change on the title's line, and a third line for the
     /// computer and the pull request. `now` is the start of today, so the
     /// time reads in days; a change today shows its time.
-    public init(expanded ws: SidebarWorkspace, now: Date, machine: String? = nil, showsNotification: Bool = true) {
+    public init(expanded ws: SidebarWorkspace, now: Date, machine: String? = nil, showsNotification: Bool = true,
+                showsPullRequest: Bool = true) {
         let place = [Self.nonEmpty(ws.directory), Self.nonEmpty(ws.branch)].compactMap { $0 }
-        let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), Self.nonEmpty(ws.pullRequest)].compactMap { $0 }
+        let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), showsPullRequest ? Self.nonEmpty(ws.pullRequest) : nil].compactMap { $0 }
         self.init(
             icon: ws.icon ?? ws.taskStatus?.glyph,
             detail: (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.descriptionLine(ws)

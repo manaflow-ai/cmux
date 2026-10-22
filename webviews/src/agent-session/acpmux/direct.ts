@@ -1,6 +1,7 @@
 import type {
   AcpmuxActivity,
   AcpmuxFileDiff,
+  AcpmuxLocation,
   AcpmuxPermission,
   AcpmuxSecretAsk,
   AcpmuxSessionOffer,
@@ -485,8 +486,32 @@ export function toolDiffs(content: any, locations: any): AcpmuxFileDiff[] | unde
       newText: item.newText,
       line: lines.get(item.path),
       ...(item.fragment === true || item._meta?.acpmux?.fragment === true ? { fragment: true as const } : {}),
+      ...canonicalOf(item),
     }));
   return diffs.length ? diffs : undefined;
+}
+
+/// The canonical path acpmux recorded beside an item's path (hub/tool_paths.rs), as `canonical`:
+/// a `diff` item's or location's `_meta.acpmux.canonicalPath`, or a diff this page placed again.
+/// Composed (NFC), as every canonical path the page compares is (turnCheckpoint.ts `checkpointFiles`).
+function canonicalOf(item: any): { canonical?: string } {
+  const canonical = item?._meta?.acpmux?.canonicalPath ?? item?.canonical;
+  return typeof canonical === "string" && canonical ? { canonical: canonical.normalize("NFC") } : {};
+}
+
+/// A call's locations with their canonical paths read (`canonicalOf`).
+function readLocations(locations: any): AcpmuxLocation[] | undefined {
+  if (!Array.isArray(locations)) return undefined;
+  return locations.map((location: any) =>
+    location && typeof location === "object" ? { ...location, ...canonicalOf(location) } : location,
+  );
+}
+
+/// The input's file and the canonical path acpmux recorded for it on the update (`_meta.acpmux`).
+function inputPath(update: any): { path: string; canonical: string } | undefined {
+  const path = update.rawInput?.file_path;
+  const { canonical } = canonicalOf(update);
+  return typeof path === "string" && canonical ? { path, canonical } : undefined;
 }
 
 /// Claude Code's result for a Write that made a new file ("File created successfully at: …"). An
@@ -499,10 +524,10 @@ const CREATED_RESULT = /^\s*File created successfully at\b/;
 /// diff against, so it stays a path without counts. Each is marked `fragment` (the page never saw the
 /// file around it, so Undo, turnChanges/model.ts `fileUndo`, never writes a file back from these)
 /// and `fromInput` (a later input replaces them).
-export function inputDiffs(rawInput: any, result?: string): AcpmuxFileDiff[] | undefined {
+export function inputDiffs(rawInput: any, result?: string, canonical?: string): AcpmuxFileDiff[] | undefined {
   const path = rawInput?.file_path;
   if (typeof path !== "string" || !path) return undefined;
-  const mark = { fragment: true as const, fromInput: true as const };
+  const mark = { fragment: true as const, fromInput: true as const, ...(canonical ? { canonical } : {}) };
   if (typeof rawInput.content === "string")
     return result !== undefined && CREATED_RESULT.test(result)
       ? [{ path, newText: rawInput.content, ...mark }]
@@ -551,10 +576,11 @@ export function mergeToolItem(
   const status = String(update.status ?? before?.status ?? "in_progress");
   const ended = status === "completed" || status === "failed";
   const kind = update.kind ?? before?.kind;
+  const locations = readLocations(update.locations) ?? before?.locations;
+  // The input's file, from the update that carries the input.
+  const input = update.rawInput ? inputPath(update) : before?.inputPath;
   const placed =
-    update.content === undefined
-      ? placeDiffs(before?.diffs, update.locations)
-      : toolDiffs(update.content, Array.isArray(update.locations) ? update.locations : before?.locations);
+    update.content === undefined ? placeDiffs(before?.diffs, update.locations) : toolDiffs(update.content, locations);
   // An edit whose content names no `diff` (Claude Code's Edit, whose result is plain text) still
   // changed its file: its input has the change, read again from the latest input. A failed one
   // changed nothing. A `diff` in the content always wins over the input.
@@ -564,7 +590,7 @@ export function mergeToolItem(
     diffs =
       status === "failed"
         ? undefined
-        : (inputDiffs(update.rawInput ?? storedInput(before?.inputSummary), result) ?? placed);
+        : (inputDiffs(update.rawInput ?? storedInput(before?.inputSummary), result, input?.canonical) ?? placed);
   }
   return {
     kind: "tool",
@@ -584,7 +610,8 @@ export function mergeToolItem(
       endedAt: before?.endedAt ?? (ended ? at : undefined),
       // A shell that went to the background stays there as its call's result comes in.
       ...(before?.background ? { background: before.background } : {}),
-      locations: Array.isArray(update.locations) ? update.locations : before?.locations,
+      locations,
+      ...(input ? { inputPath: input } : {}),
       images: update.content === undefined ? before?.images : imagesFromContent(update.content),
       diffs,
     },
@@ -2581,6 +2608,19 @@ export class AcpmuxDirectClient {
         bookmarksHeard(event.sessionId ?? this.selectedSessionId, event.msg?.bookmarks);
       } else if (event.kind === "forked") {
         this.forkedAtSeq = event.seq;
+        // An agent that could not fork the working chat: the fork's agent reads the chat's
+        // transcript instead, and the fork says so in one line (acpmux `hub/fork.rs`).
+        if (msg.from === "transcript") {
+          const id = `fork-note-${event.seq}`;
+          const harness = typeof msg.harness === "string" ? msg.harness : "";
+          this.rows.set(id, {
+            id,
+            version: 1,
+            at: event.at,
+            kind: "notice",
+            text: translate("notice.forkFromTranscript", { harness }),
+          });
+        }
       } else if (event.kind === "failover") {
         // acpmux moved the chat to its fallback harness (`hub/turns.rs`); the turn goes on there.
         if (typeof msg.from === "string" && typeof msg.to === "string") {
@@ -4431,7 +4471,7 @@ export class AcpmuxDirectClient {
         this.emit();
         return;
       }
-      this.adoptFailed(error instanceof Error && error.message ? error.message : undefined);
+      this.adoptFailed(errorMessage(error) || undefined);
       return;
     }
     const sessionId = result?.sessionId ? String(result.sessionId) : undefined;
@@ -4475,7 +4515,7 @@ export class AcpmuxDirectClient {
         this.emit();
         return false;
       }
-      this.notice(error instanceof Error && error.message ? error.message : String(error));
+      this.notice(errorMessage(error) || String(error));
       return false;
     }
   }
@@ -4517,22 +4557,24 @@ export class AcpmuxDirectClient {
   /// is `throughSeq`, and opens the fork. One fork at a time; a second click while acpmux forks does
   /// nothing. A failure says so in the transcript; a reader who opened another session meanwhile
   /// stays there. `stay` keeps this chat open and only answers the fork, for its own tab.
-  async fork(throughSeq: number, from?: string, stay = false): Promise<string | undefined> {
+  /// `"live"`: the whole chat as it is now, also while its turn runs (Fork Conversation).
+  async fork(throughSeq: number | "live", from?: string, stay = false): Promise<string | undefined> {
     if (!this.canFork || !this.actingSessionId || this.forking) return undefined;
     this.forking = true;
     const generation = this.selectionGeneration;
     try {
-      const result = await this.request(FORK_OP, {
-        sessionId: from ?? this.actingSessionId,
-        throughSeq,
-      });
+      const sessionId = from ?? this.actingSessionId;
+      const result = await this.request(
+        FORK_OP,
+        throughSeq === "live" ? { sessionId, live: true } : { sessionId, throughSeq },
+      );
       if (!result?.sessionId || generation !== this.selectionGeneration) return undefined;
       if (stay) return String(result.sessionId);
       return await this.select(String(result.sessionId));
     } catch (error) {
       if (generation === this.selectionGeneration) {
         const at = Date.now();
-        const reason = error instanceof Error && error.message ? error.message : undefined;
+        const reason = errorMessage(error) || undefined;
         const id = noticeId("notice-fork");
         this.rows.set(id, {
           id,
@@ -4668,9 +4710,19 @@ export class AcpmuxDirectClient {
   /// queue and permission stay as they are. A page that lands after the
   /// selection changed belongs to another session and is dropped.
   loadOlder(): Promise<void> {
-    if (Date.now() < this.olderRetryAt) return Promise.resolve();
     if (this.loadingOlder) return this.loadingOlder;
-    const loading = this.fetchOlder()
+    // An ask inside the back-off after a failed page waits it out, then reads. One that returned
+    // at once read nothing, and the transcript that asked at the very top had no scroll left to
+    // ask again with: a 720-turn chat stopped paging for good (Leo 2026-10-21).
+    const wait = this.olderRetryAt - Date.now();
+    const generation = this.selectionGeneration;
+    const read =
+      wait > 0
+        ? new Promise<void>((resolve) => setTimeout(resolve, wait)).then(() =>
+            !this.closed && generation === this.selectionGeneration ? this.fetchOlder() : undefined,
+          )
+        : this.fetchOlder();
+    const loading = read
       .catch((error: unknown) => {
         this.olderRetryAt = Date.now() + 2_000;
         throw error;
@@ -4709,7 +4761,8 @@ export class AcpmuxDirectClient {
       });
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
       // The held transcript's older end moved while this read was out (a kept tail the attach
-      // page did not continue): these records sit above a transcript the chat no longer holds.
+      // page did not continue): these records sit above a transcript the chat no longer holds. The
+      // ask brings nothing, and the transcript asks again (App.tsx checkOlder).
       if (epoch !== this.historyEpoch) return;
       const page = records(result?.events);
       older = [...page, ...older];

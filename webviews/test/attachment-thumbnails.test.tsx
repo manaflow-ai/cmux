@@ -87,7 +87,6 @@ async function renderDraft(name: string) {
       <ImageViewerContext.Provider value={(src, alt) => opened.push({ src, alt })}>
         <AttachmentStrip
           attachments={[{ id: `draft-${name}`, kind: "image", name, mimeType: "image/png", size: 1, data: "AA==" }]}
-          dropping={false}
           onRemove={() => {}}
         />
       </ImageViewerContext.Provider>,

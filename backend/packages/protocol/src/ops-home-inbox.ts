@@ -314,6 +314,7 @@ export const homeInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("mux.bind", "cloud:MuxDO", "chief", "Internal: binds a MuxDO to its chief and owner when the chief is created."),
   internal("mux.wake", "cloud:MuxDO", "chief", "Internal: a ConversationDO queues a wake for a chief."),
   internal("invite.delivery.report", "cloud:ConversationDO", "invite", "Internal: an AddressDO reports an invite's delivery state (forward only)."),
+  internal("chief.rename", "cloud:ConversationDO", "chief", "Internal: the owner's UserDO renames a Chief's main conversation (its title and the Chief's name) after chief.update."),
   internal("address.ensure", "cloud:AddressDO", "address", "Internal: stores a normalized address; returns its id, linked user and suppression."),
   internal("address.deliver", "cloud:AddressDO", "address", "Internal: sends an invite through the provider after the invite commit (suppression, limits, environment policy)."),
   internal("address.delivery.record", "cloud:AddressDO", "address", "Internal: records a provider delivery callback."),

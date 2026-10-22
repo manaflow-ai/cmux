@@ -5,11 +5,11 @@
 //
 // The card reads: the pull request glyph in its state's colour beside the title (in the link card's
 // head when it has one, cut to two lines) — open green, merged purple, closed red, draft grey, as
-// Claude draws it, with no state word (Leo 2026-10-21) — then `owner/repo#N`, conflicts, the author
-// with a monogram and when GitHub last saw it change, `base ← head`, an open pull request's checks
-// as a compact ✓/✗ count (a merged or closed one's no longer matter), with how many reds are also
-// red on base (when every one is, the ✗ reads muted, not as this pull request's), the review
-// decision and labels, and the files with `+/−`.
+// Claude draws it, with no state word (Leo 2026-10-21) — then `owner/repo#N` (its link, blue like
+// every link), conflicts, the author with a monogram and when GitHub last saw it change,
+// `base ← head`, an open pull request's checks as a compact ✓/✗ count (a merged or closed one's no
+// longer matter), with how many reds are also red on base (when every one is, the ✗ reads muted,
+// not as this pull request's), the review decision and labels, and the files with `+/−`.
 // Hovering (or focusing) the `+/−` breaks those lines down by kind — Code, Tests, Mocks, Docs,
 // Evals, Generated — from the one classifier the diff viewer groups by (src/fileKinds.ts), and
 // says so when code changed with no test.
@@ -83,7 +83,8 @@ export function PullRequestCardBody({
   // (UserBubble): without it Intl falls back to the host's ICU default and a Japanese pane reads
   // "vor 3 Minuten".
   const language = usePaneLanguage();
-  const plain = pullRequestRef(url)?.url ?? url;
+  const link = pullRequestRef(url)?.url;
+  const plain = link ?? url;
   const answer = usePullRequestAnswer(plain, open);
   const read = answer?.pullRequest ?? undefined;
   const title = read?.title || known.title;
@@ -107,7 +108,16 @@ export function PullRequestCardBody({
         {!head && title && <div className="acpmux-pr-card__title">{title}</div>}
         <div className="acpmux-pr-card__facts">
           {!head && glyph}
-          <span className="acpmux-pr-card__ref">{reference}</span>
+          {/* The pull request's link, styled as one (Leo 2026-10-20: "the hovers need to be
+              styled"); a click takes the host's link-click path, as the bar's and chip's anchors
+              do. Only a parsed pull request address becomes a link; anything else stays text. */}
+          {link ? (
+            <a className="acpmux-pr-card__ref" href={link} rel="noreferrer">
+              {reference}
+            </a>
+          ) : (
+            <span className="acpmux-pr-card__ref">{reference}</span>
+          )}
           {read?.mergeable === "conflicting" && state !== "merged" && state !== "closed" && (
             <span className="acpmux-pr-card__conflicts">{t("header.prConflicts")}</span>
           )}

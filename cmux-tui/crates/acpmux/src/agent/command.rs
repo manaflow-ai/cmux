@@ -79,6 +79,8 @@ pub(crate) fn harness_command(
     env.remove(crate::agent_displays::WORKSPACE_KEY);
     // The chat's turned-off servers are for the fold only (agent_tools.rs).
     env.remove(crate::agent_tools::OFF_ENV);
+    // OpenCode asked to ask (`opencode_ask.rs`): its config is set below.
+    let opencode_ask = env.remove(crate::opencode_ask::MARKER).is_some();
     // The caller token and its socket are acpmux's own (`hub/person.rs` (a)):
     // this env is layered after `caller_env`, so a profile, preset or
     // request value would replace them.
@@ -174,6 +176,9 @@ pub(crate) fn harness_command(
     }
     cmd.args(crate::harness_limits::launch_args(program, args, session.map(|_| (cwd, &env))))
         .envs(env.iter());
+    if opencode_ask {
+        ask_opencode(&mut cmd, name, !remote_environment);
+    }
     cmd
         // Claude refuses to nest inside another Claude session.
         .env_remove("CLAUDECODE")
@@ -201,6 +206,12 @@ pub(crate) fn harness_command(
         if let Some(headers) = crate::subrouter_session::custom_headers(get) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
+        // sr2 cost labels (sr2_cost_labels.rs), over the lines set just above.
+        let env = command_env_with(&cmd, !remote_environment);
+        let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        if let Some(headers) = crate::sr2_cost_labels::custom_headers(get) {
+            cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
+        }
     }
     // A Claude agent's sign-in inputs, for a clear message if it has none.
     match (family == Some("claude"), session) {
@@ -211,6 +222,27 @@ pub(crate) fn harness_command(
         _ => {}
     }
     Ok(cmd)
+}
+
+/// OpenCode asked to ask (`opencode_ask.rs`): the `OPENCODE_CONFIG_CONTENT`
+/// `cmd` gives its agent (the profile's, else the inherited one) asks before
+/// every tool. One that is not a JSON object is kept, with a warning; the chat
+/// logs `policy_unenforced` either way (`hub/policy_mode.rs`).
+fn ask_opencode(cmd: &mut Command, name: &str, inherit_ambient: bool) {
+    use crate::opencode_ask::{CONFIG_ENV, asking_config};
+    let existing = command_env_with(cmd, inherit_ambient)
+        .into_iter()
+        .find(|(key, _)| key == CONFIG_ENV)
+        .map(|(_, value)| value);
+    match asking_config(existing.as_deref()) {
+        Some(config) => {
+            cmd.env(CONFIG_ENV, config);
+        }
+        None => tracing::warn!(
+            harness = %name,
+            "{CONFIG_ENV} is not a JSON object: kept as it is, so OpenCode is not asked to ask before each tool"
+        ),
+    }
 }
 
 /// The profile's env with its `${keychain:…}` and `${env:…}` references

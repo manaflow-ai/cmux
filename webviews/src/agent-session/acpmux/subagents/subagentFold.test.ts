@@ -49,3 +49,33 @@ test("a subagent's own updates draw as its view, with the subagents it spawned a
   expect(after).not.toBe(before);
   expect(after[2]!.subagents?.map((agent) => agent.state)).toEqual(["completed", "failed"]);
 });
+
+test("a Claude Agent call's result gives its subagent the agentId a SendMessage to it names", async () => {
+  const { agentNames } = await import("../conversation/agentNames");
+  const fold = new SubagentFold();
+  feed(
+    fold,
+    { sessionUpdate: "subagent_spawned" },
+    { subagents: [{ id: "s/t9", parent: null, name: "Fix grid jump", task: "Fix grid jump", toolCallId: "t9" }] },
+  );
+  fold.takeRows();
+  // The call's result is swallowed with the call; its agentId lands on the subagent.
+  const result = {
+    sessionUpdate: "tool_call_update",
+    toolCallId: "t9",
+    status: "completed",
+    content: [
+      {
+        type: "content",
+        content: {
+          type: "text",
+          text: "Async agent launched successfully.\nagentId: a39e817af38ddf5e7 (internal ID - do not mention to user.)",
+        },
+      },
+    ],
+  };
+  expect(feed(fold, result)).toBe(true);
+  const agents = fold.takeRows().flatMap((row) => row.subagents ?? []);
+  expect(agents.map((agent) => agent.agentId)).toEqual(["a39e817af38ddf5e7"]);
+  expect(agentNames(agents).get("a39e817af38ddf5e7")).toBe("Fix grid jump");
+});

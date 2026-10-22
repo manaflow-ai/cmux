@@ -1639,6 +1639,12 @@
       "title" : "Expand Unchanged Lines",
       "type" : "boolean"
     },
+    "diff.groupByKind" : {
+      "default" : false,
+      "description" : "diff.groupByKind",
+      "title" : "Group Files by Kind",
+      "type" : "boolean"
+    },
     "diff.layout" : {
       "default" : "unified",
       "description" : "diff.layout",

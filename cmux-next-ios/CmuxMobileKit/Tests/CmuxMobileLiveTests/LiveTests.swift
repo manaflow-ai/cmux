@@ -1195,3 +1195,35 @@ final class Seen: @unchecked Sendable {
         #expect(!LinkMachine.terminalOffline(macID: nil, linkedMacID: "b", linkOffline: false))
     }
 }
+
+// MARK: Team prefs
+
+@Suite struct TeamPrefsTests {
+    @Test func prefsFromAnOlderWorkerDrawTheColor() throws {
+        let prefs = try JSONDecoder().decode(LiveAPI.Prefs.self, from: Data(##"{"color":"#30D158","emoji":"🚀"}"##.utf8))
+        #expect(prefs.appearance == TeamAppearance(colorHex: "#30D158", emoji: "🚀"))
+    }
+
+    @Test func transparentPrefsKeepTheColorAsFallback() throws {
+        let json = ##"{"color":"#30D158","emoji":"🚀","transparent":true}"##
+        let prefs = try JSONDecoder().decode(LiveAPI.Prefs.self, from: Data(json.utf8))
+        #expect(prefs.appearance?.isTransparent == true)
+        #expect(prefs.appearance?.colorHex == "#30D158")
+        // Without an icon it is never transparent.
+        let bare = try JSONDecoder().decode(LiveAPI.Prefs.self, from: Data(##"{"color":"#30D158","emoji":null,"transparent":true}"##.utf8))
+        #expect(bare.appearance?.isTransparent == false)
+    }
+
+    @Test func noStoredColorKeepsTheLocalAppearance() {
+        #expect(LiveAPI.Prefs(color: nil, emoji: "🚀", transparent: true).appearance == nil)
+    }
+
+    @Test func putBodyCarriesTransparent() {
+        let body = LiveAPI.prefsBody(TeamAppearance(colorHex: "#30D158", emoji: "🚀", transparent: true))
+        #expect(body["color"] as? String == "#30D158")
+        #expect(body["emoji"] as? String == "🚀")
+        #expect(body["transparent"] as? Bool == true)
+        #expect(LiveAPI.prefsBody(TeamAppearance(colorHex: "#30D158"))["emoji"] is NSNull)
+        #expect(LiveAPI.prefsBody(TeamAppearance(colorHex: "#30D158", emoji: nil, transparent: true))["transparent"] as? Bool == false)
+    }
+}

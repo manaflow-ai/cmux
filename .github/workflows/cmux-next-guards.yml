@@ -332,6 +332,15 @@ jobs:
           if [[ -n "$base_ref" ]] && git show "$base_ref:scripts/localization-debt-baseline.json" > "$base_baseline" 2>/dev/null; then
             args=(--base-baseline "$base_baseline")
           fi
+          # Debt the base has past its own baseline is the base's red, not the pull request's (#23877).
+          if [[ "$EVENT_NAME" == pull_request && ${#args[@]} -gt 0 ]]; then
+            base_root="$RUNNER_TEMP/localization-base"
+            mkdir -p "$base_root"
+            git archive HEAD^1 -- ':(glob)Resources/**/*.xcstrings' ':(glob)Packages/macOS/*/Sources/**/*.xcstrings' \
+              scripts/localization_catalog.py scripts/localization-allowed-omissions.json scripts/localization-plurals.json \
+              | tar -x -C "$base_root"
+            args+=(--base-root "$base_root")
+          fi
           python3 scripts/localization_catalog.py check "${args[@]}"
 
   # A red size cap, crash ratchet or page strings on a pull request into feat-cmux-next gets the same "red: <check>" comment as a
@@ -346,6 +355,8 @@ jobs:
       contents: read
       pull-requests: write
     uses: ./.github/workflows/pr-red-checks-comment.yml
+    with:
+      own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
   # The defaults guard's tests and the settings export stamp, in seconds (the
   # defaults snapshot is bot-only); cmux-next-defaults-guard.yml judges the changes and
@@ -424,6 +435,9 @@ jobs:
       - name: Capture-only control methods are compiled out of release builds
         run: python3 tests/test_cmux_next_debug_only_controls.py
 
+      - name: A quit scheduled on the run loop never exits a test process
+        run: python3 tests/test_cmux_next_deferred_terminate.py
+
       - name: Every check path a merger reads matches a tracked file
         run: python3 tests/test_check_paths.py
 
@@ -440,6 +454,11 @@ jobs:
       # feat-cmux-next unseen (#23430). A fake bun stands in; no web test runs.
       - name: The per-file webviews test runner (scripts/ci/run-webviews-tests.sh)
         run: python3 tests/test_webviews_tests_per_file.py
+
+      # cmux-browser-host-release.yml ran this only on pushes and tags, so fbae5c71f017
+      # (version.workspace = true) broke every release's first step with every pull request green.
+      - name: The cmux-browser-host release helper and smoke (browser-host-release.py)
+        run: python3 tests/test_browser_host_release_smoke.py
 
       # A test no feat-cmux-next pull request runs lands red unseen: a2d6b35 broke
       # tests/test_webviews_tests_per_file.py, which only main pushes and the nightly ran (#23430).

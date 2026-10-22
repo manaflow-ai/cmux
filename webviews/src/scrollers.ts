@@ -12,6 +12,9 @@
 // `scrollbar-color`, `::-webkit-scrollbar`) and never use `overflow: scroll`;
 // scripts/cmux-next/check-scrollbars.sh enforces that.
 //
+// One exception: a minimal scroller (`MINIMAL_SCROLLER_ATTRIBUTE`, the agent chat's composer) keeps
+// its thin thumb the whole time its content overflows (Leo 2026-10-21).
+//
 // Libraries that draw their own scrollers (Monaco; the @pierre/diffs code rows and the
 // @pierre/trees list show theirs on hover) follow the same rule: hidden at rest and while the
 // pointer only hovers, shown while the element scrolls.
@@ -298,12 +301,54 @@ export const CARD_SCROLLER_CSS = `
 }
 `;
 
-/** Installs the root rules, the card scroller, the Monaco rule and the wheel marks once per document. */
+/** The attribute of a scroller that keeps its scrollbar while its content overflows (the agent
+    chat's composer). See `MINIMAL_SCROLLER_CSS`. */
+export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
+
+/**
+ * The minimal scroller (Leo 2026-10-21: "IF THERE ARE THINGS TO SCROLL, JUST KEEP THE SCROLLBAR
+ * IN THE COMPOSER, LIKE CLAUDE DOES."): a thin thumb in `--cmux-scroller-thumb` on no track, drawn
+ * the whole time the content overflows, never faded on input, focus, hover or resize, whatever the
+ * macOS setting. Content that fits draws no thumb. The lane is reserved even then, so the content
+ * never rewraps as it starts or stops overflowing: `overflow-y: scroll`, the one exception to the
+ * `auto` rule, since its track is transparent and a box with nothing to scroll draws no thumb.
+ * (`scrollbar-gutter: stable` does not do it: WebKit ignores it on a custom scrollbar.) Take
+ * `--cmux-scroller-size` out of the scroller's right padding to keep its text width. The track
+ * stops `--cmux-minimal-scroller-inset` short of each end, clear of a rounded corner. The `:root`
+ * prefix outranks the legacy rule's hidden thumb above and the scroller's own `overflow-y`.
+ */
+export const MINIMAL_SCROLLER_CSS = `
+:root [${MINIMAL_SCROLLER_ATTRIBUTE}] {
+  overflow-y: scroll;
+}
+:root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar {
+  width: var(--cmux-scroller-size);
+  height: var(--cmux-scroller-size);
+  background: transparent;
+}
+:root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-track {
+  margin-top: var(--cmux-minimal-scroller-inset, 0px);
+  margin-bottom: var(--cmux-minimal-scroller-inset, 0px);
+  background: transparent;
+}
+:root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-corner {
+  background: transparent;
+}
+:root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb {
+  min-height: 24px;
+  border: 2px solid transparent;
+  border-radius: var(--cmux-scroller-size);
+  background: var(--cmux-scroller-thumb) padding-box;
+}
+`;
+
+/** Installs the root rules, the card and minimal scrollers, the Monaco rule and the wheel marks
+    once per document. */
 export function installScrollers(document: Document, timers: ScrollTimers = defaultTimers): void {
   if (!document.getElementById("cmux-scrollers")) {
     const style = document.createElement("style");
     style.id = "cmux-scrollers";
-    style.textContent = SCROLLER_ROOT_CSS + CARD_SCROLLER_CSS + MONACO_SCROLLER_CSS;
+    style.textContent = SCROLLER_ROOT_CSS + CARD_SCROLLER_CSS + MINIMAL_SCROLLER_CSS + MONACO_SCROLLER_CSS;
     (document.head ?? document.documentElement).appendChild(style);
   }
   installScrollingMarks(document, timers);

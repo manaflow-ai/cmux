@@ -16,6 +16,10 @@ For each it records two numbers, in ms:
          writes one line to a FIFO the bench holds open, then execs
          `sleep`; so this is the daemon + host + PTY + exec chain and no
          shell rc file)
+  first-text  request arrival -> the daemon reads the terminal's first
+         printable output (the marker shell's "up"; debug span follow mark
+         first_printable_output, so it needs --spans): the keypress-to-first-
+         text cost the app waits on, minus the app's own frame
 
 and, per live terminal, the processes and footprint it costs (host count,
 host RSS). Prints one CREATE line per op and metric, and writes JSON with
@@ -29,14 +33,16 @@ import argparse
 import json
 import os
 import platform
-import select
+import queue
 import shutil
 import signal
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+import uuid
 
 
 class Conn:
@@ -101,39 +107,77 @@ def summary(samples):
 
 
 class Marker:
-    """A FIFO the marker shell writes one line to when it starts."""
+    """A FIFO the marker shell writes one line to when it starts; a reader
+    thread stamps each line as it arrives, so the stamp is not delayed by the
+    control request still waiting for its reply."""
 
     def __init__(self, root):
         self.path = os.path.join(root, "marker.fifo")
         os.mkfifo(self.path)
         # O_RDWR: a writer never blocks and the read end never sees EOF.
-        self.fd = os.open(self.path, os.O_RDWR | os.O_NONBLOCK)
-        self.buf = b""
+        self.fd = os.open(self.path, os.O_RDWR)
+        self.stamps = queue.Queue()
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self):
+        buf = b""
+        while True:
+            try:
+                chunk = os.read(self.fd, 65536)
+            except OSError:
+                return
+            now = time.perf_counter()
+            if not chunk:
+                return
+            buf += chunk
+            while b"\n" in buf:
+                _, buf = buf.split(b"\n", 1)
+                self.stamps.put(now)
 
     def drain(self):
         while True:
             try:
-                if not os.read(self.fd, 65536):
-                    break
-            except BlockingIOError:
-                break
-        self.buf = b""
+                self.stamps.get_nowait()
+            except queue.Empty:
+                return
 
     def wait(self, t0, timeout=20.0):
-        deadline = t0 + timeout
-        while b"\n" not in self.buf:
-            left = deadline - time.perf_counter()
-            if left <= 0:
-                raise TimeoutError("marker shell never started")
-            r, _, _ = select.select([self.fd], [], [], left)
-            if r:
-                try:
-                    self.buf += os.read(self.fd, 65536)
-                except BlockingIOError:
-                    pass
-        t = time.perf_counter()
-        _, self.buf = self.buf.split(b"\n", 1)
-        return (t - t0) * 1000.0
+        try:
+            return (self.stamps.get(timeout=timeout) - t0) * 1000.0
+        except queue.Empty:
+            raise TimeoutError("marker shell never started") from None
+
+
+def disk_load(root, writers, stop):
+    """Background disk churn like the agents and daemons on a busy Mac: each
+    writer appends 256 KiB and flushes it (F_FULLFSYNC on macOS) in a loop."""
+    import fcntl
+    full = getattr(fcntl, "F_FULLFSYNC", None)
+    chunk = os.urandom(256 * 1024)
+
+    def run(k):
+        path = os.path.join(root, f"load-{k}.bin")
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        written = 0
+        try:
+            while not stop.is_set():
+                os.write(fd, chunk)
+                written += len(chunk)
+                if full is not None:
+                    fcntl.fcntl(fd, full)
+                else:
+                    os.fsync(fd)
+                if written > 64 * 1024 * 1024:
+                    os.ftruncate(fd, 0)
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    written = 0
+        finally:
+            os.close(fd)
+
+    threads = [threading.Thread(target=run, args=(k,), daemon=True) for k in range(writers)]
+    for t in threads:
+        t.start()
+    return threads
 
 
 def host_pids(daemon_pid):
@@ -147,6 +191,26 @@ def rss_kb(pids):
         return 0
     out = subprocess.run(["ps", "-o", "rss=", "-p", ",".join(map(str, pids))], capture_output=True, text=True).stdout
     return sum(int(x) for x in out.split())
+
+
+def first_text_marks(path):
+    """terminal hex -> ms from its request's arrival to its first printable output."""
+    out = {}
+    try:
+        lines = open(path).read().splitlines()
+    except OSError:
+        return out
+    for line in lines:
+        try:
+            t = json.loads(line)
+        except ValueError:
+            continue
+        if not str(t.get("label", "")).endswith(".follow") or not t.get("terminal"):
+            continue
+        for m in t.get("marks") or []:
+            if m[0] == "first_printable_output":
+                out[t["terminal"]] = m[1] / 1000.0
+    return out
 
 
 def print_marks(label, path):
@@ -177,9 +241,14 @@ def main():
     ap.add_argument("--max-p50-ms", type=float, default=None,
                     help="gate: exit 1 when any exec p50 is above this many ms")
     ap.add_argument("--spans", action="store_true", help="set CMUX_TUI_DEBUG_SPANS and keep the file")
+    ap.add_argument("--gate-metric", default=" first-text",
+                    help="the metric --max-p50-ms gates (suffix of the op name)")
+    ap.add_argument("--disk-load", type=int, default=0,
+                    help="background writers that write and F_FULLFSYNC in a loop (a busy Mac's disk)")
     args = ap.parse_args()
 
     root = tempfile.mkdtemp(prefix="tc-", dir=args.root_dir)
+    stop_load = threading.Event()
     sock = os.path.join(root, "s.sock")
     home = os.path.join(root, "home")
     state = os.path.join(root, "state")
@@ -188,7 +257,8 @@ def main():
     marker = Marker(root)
     shell = os.path.join(root, "marker-shell")
     with open(shell, "w") as f:
-        f.write(f"#!/bin/sh\necho up > '{marker.path}'\nexec sleep 3600\n")
+        # "up" on the terminal is its first text; the FIFO line stamps exec.
+        f.write(f"#!/bin/sh\necho up\necho up > '{marker.path}'\nexec sleep 3600\n")
     os.chmod(shell, 0o755)
     env = dict(os.environ)
     for k in list(env):
@@ -229,11 +299,15 @@ def main():
                 raise RuntimeError("daemon socket never appeared")
             time.sleep(0.1)
 
+        if args.disk_load:
+            disk_load(root, args.disk_load, stop_load)
+            result["disk_load"] = args.disk_load
         base = must(c.call("new-workspace", name="base", cols=120, rows=40), "new-workspace")
         base_pane, _ = pane_of(c, base["surface"])
-        marker.wait(time.perf_counter() - 0.0)
+        marker.wait(time.perf_counter())
         sized = {"cols": 80, "rows": 24}
         samples = {}
+        followed = {}
 
         def rec(name, metric, ms, counted):
             if counted:
@@ -245,24 +319,43 @@ def main():
             data = must(c.call(cmd, **params), cmd)
             rec(label, "reply", (time.perf_counter() - t0) * 1000.0, counted)
             rec(label, "exec", marker.wait(t0), counted)
+            terminal = params.get("terminal_id") or data.get("terminal_id")
+            if counted and terminal:
+                followed.setdefault(label, []).append(terminal)
             return data
 
         for i in range(args.warmup + args.rounds):
             counted = i >= args.warmup
-            data = create("new-tab", "new-tab", counted, pane=base_pane, **sized)
+            data = create("new-tab", "new-tab", counted, pane=base_pane, terminal_id=uuid.uuid4().hex, **sized)
             c.call("close-surface", surface=data["surface"])
-            data = create("split right", "split", counted, pane=base_pane, dir="right", **sized)
+            data = create("split right", "split", counted, pane=base_pane, dir="right",
+                          terminal_id=uuid.uuid4().hex, **sized)
             pane = data.get("pane") or pane_of(c, data["surface"])[0]
             c.call("close-pane", pane=pane, end_terminals=True)
             data = create("new-workspace", "new-workspace", counted, name=f"w{i}", **sized)
             _, ws = pane_of(c, data["surface"])
             c.call("close-workspace", workspace=ws, end_terminals=True)
 
+        # First text: the daemon's first printable output of each terminal
+        # (debug span follow marks), from its request's arrival.
+        if args.spans:
+            deadline = time.time() + 12
+            want = {t for ids in followed.values() for t in ids}
+            first = {}
+            while time.time() < deadline:
+                first = first_text_marks(spans_path)
+                if want <= set(first):
+                    break
+                time.sleep(0.25)
+            for label, ids in followed.items():
+                got = [first[t] for t in ids if t in first]
+                if got:
+                    samples[f"{label} first-text"] = got
         for name, s in samples.items():
             sm = summary(s)
             result["ops"][name] = {"summary": sm, "samples_ms": [round(x, 3) for x in s]}
             print(f"CREATE {args.label} op=\"{name}\" n={sm['n']} p50={sm['p50']} p95={sm['p95']} max={sm['max']}", flush=True)
-            if args.max_p50_ms is not None and name.endswith(" exec") and sm["p50"] > args.max_p50_ms:
+            if args.max_p50_ms is not None and name.endswith(args.gate_metric) and sm["p50"] > args.max_p50_ms:
                 failed = True
 
         # Per-terminal cost: processes and RSS added by --live open terminals.
@@ -287,6 +380,7 @@ def main():
             c.call("close-surface", surface=d["surface"])
         c.close()
     finally:
+        stop_load.set()
         # Hosts outlive a SIGTERM; end them with the daemon, also on errors.
         try:
             ident = result["identify"]
@@ -316,13 +410,14 @@ def main():
         log.close()
         if args.out:
             shutil.copy(os.path.join(root, "daemon.log"), args.out + ".daemon.log")
-        os.close(marker.fd)
+        # No close(marker.fd): on macOS close() of a FIFO waits for the
+        # reader thread's read(), which never returns; the fd ends with us.
         shutil.rmtree(root, ignore_errors=True)
     if args.out:
         with open(args.out, "w") as f:
             json.dump(result, f, indent=1)
     if failed:
-        print(f"CREATE {args.label} FAIL: an exec p50 is above {args.max_p50_ms} ms", flush=True)
+        print(f"CREATE {args.label} FAIL: a {args.gate_metric.strip()} p50 is above {args.max_p50_ms} ms", flush=True)
         return 1
     return 0
 

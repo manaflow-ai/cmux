@@ -108,9 +108,10 @@ impl Translator {
                             // and echoes it; the echo answers this request.
                             self.steers.lock().await.push_back((uuid, id.to_string()));
                             // Sent now (`_meta.steerNow`): the current step stops, so it
-                            // reads the line at once; the turn runs on.
+                            // reads the line at once; the turn runs on. Not while a subagent
+                            // or a background shell runs (`interrupt_ends_work`).
                             let now = p.pointer("/_meta/steerNow").and_then(Value::as_bool);
-                            if now == Some(true) {
+                            if now == Some(true) && !self.interrupt_ends_work().await {
                                 return Outbound::Lines(vec![line, self.step_interrupt(None)]);
                             }
                             return Outbound::Lines(vec![line]);
@@ -294,10 +295,12 @@ impl Translator {
                     }
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
                     // Send now on a steer Claude Code has not read: its step stops, so it
-                    // reads the steer; with none waiting nothing stops.
+                    // reads the steer; with none waiting, or while a subagent or a background
+                    // shell runs (`interrupt_ends_work`), nothing stops.
                     method::MUX_STEP_NOW => {
                         if !self.in_turn.load(Ordering::SeqCst)
                             || self.steers.lock().await.is_empty()
+                            || self.interrupt_ends_work().await
                         {
                             return Outbound::Reply(Message::ok(
                                 id.clone(),
@@ -383,6 +386,15 @@ impl Translator {
                 ])
             }
         }
+    }
+
+    /// Whether Claude Code's `interrupt` would end more than the current step: it kills every
+    /// running subagent (background ones too) and every background shell, so Send now never
+    /// writes it while one runs (cosmic-gray, 2026-10-21: a Send now killed two background
+    /// subagents). The steer is then read at the next tool boundary instead.
+    async fn interrupt_ends_work(&self) -> bool {
+        !self.subagents.lock().await.is_empty()
+            || self.background_shells.lock().await.values().any(|shell| shell.background)
     }
 
     /// The interrupt that stops Claude Code's current step for a steer sent now: unlike a Stop

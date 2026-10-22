@@ -623,7 +623,9 @@ def stamp_entries(stamp: str) -> dict[str, str]:
 def stamp_freshness(tree: Tree, base: Tree | None = None) -> tuple[list[str], list[str]]:
     """(problems, notes) for the settings export stamp of `tree`. With `base`, a stale source whose
     bytes and stamp entry are both the base's is the base's: a warning note, not a problem (the base
-    autofix regenerates the exports after each merge, so the base is often stale for minutes)."""
+    autofix regenerates the exports after each merge, so the base is often stale for minutes). One
+    whose bytes are the base's but whose stamp entry is not is the head's: a problem labeled as this
+    pull request's red, since the source's name makes it look like the base's."""
     stamp = tree.read(SETTINGS_STAMP)
     if stamp is None and SETTINGS_STAMP.rsplit("/", 1)[1] in (tree.read(SETTINGS_EXPORTER_FILES[1]) or ""):
         # The tree's exporter writes the stamp, so a missing stamp is a deleted or never-run export.
@@ -650,6 +652,7 @@ def stamp_freshness(tree: Tree, base: Tree | None = None) -> tuple[list[str], li
         return lines + ([f"  and {len(paths) - 20} more"] if len(paths) > 20 else [])
 
     notes: list[str] = []
+    kept: list[str] = []
     if base is not None:
         base_stored = stamp_entries(base.read(SETTINGS_STAMP) or "")
         base_current = stamp_entries(settings_source_stamp(base))
@@ -660,9 +663,20 @@ def stamp_freshness(tree: Tree, base: Tree | None = None) -> tuple[list[str], li
             notes = [f"::warning title=Settings exports stale on the base::settings exports stale on the base "
                      f"{(base.ref or str(base.root))[:12]} too, for sources not changed here; the base autofix "
                      "regenerates them:", *listed(inherited)]
-    if not moved:
-        return [], notes
-    return [f"DEFAULTS exports: {STALE_EXPORTS}", *listed(moved)], notes
+        # A source the head left as the base has it, whose stamp entry is not the base's: a local base
+        # merge with cmux-generated-v1 kept this branch's stamp (#22762). The files are base sources,
+        # so the red reads as the base's; merged, it puts the old digests back on the base.
+        kept = [path for path in moved if current.get(path) == base_current.get(path)]
+        moved = [path for path in moved if path not in kept]
+    problems = [f"DEFAULTS exports: {STALE_EXPORTS}", *listed(moved)] if moved else []
+    if kept:
+        problems += ["::error title=Settings stamp: this pull request's red::DEFAULTS exports: this pull "
+                     "request's red, not the base's: its stamp keeps older digests than the base's for "
+                     "sources it did not change, as a local base merge with the "
+                     "cmux-generated-v1 driver does (it keeps this branch's stamp). Merged, this puts the old "
+                     "digests back on the base. Apply the pr-autofix-patch artifact of this head's cmux-next PR "
+                     "autofix run, or regenerate the exports, and push:", *listed(kept)]
+    return problems, notes
 
 
 def command_check_fresh(args: argparse.Namespace) -> int:

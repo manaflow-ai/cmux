@@ -164,9 +164,15 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         var chats = SidebarChatHistoryPlacement(filtering ? nil : o.chatHistory, metrics: m)
         let lastMachine = sections.lastIndex { $0.machine != nil }
 
-        var firstSection = true
+        var firstSection = true, statusShown = false
         for (sectionIndex, section) in sections.enumerated() {
             if let lastMachine, sectionIndex > lastMachine { chats.placeEarlier(&y) }
+            // Group by Status lays every computer's rows out once, in place of their sections (`SidebarLayout+Status`).
+            if o.grouping.byStatus && !filtering && section.machine != nil {
+                if !statusShown { rows += statusRows(sections, spaced: !firstSection, chats: &chats, options: o, metrics: m, y: &y) }
+                (statusShown, firstSection, previousWasMachine, previousWasBlock) = (true, false, false, false)
+                continue
+            }
             // Nodes that remain, with their visible children.
             var nodes: [(node: SidebarNode, children: [SidebarWorkspace])] = []
             // Nested groups (remote-groups-DESIGN.md slice 2) list flat, a group before its
@@ -277,13 +283,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             }
 
             // One node at its model index (drops resolve by it, whatever the drawn order).
-            // `depth`: the session tree's (`treeOrder`).
-            func emit(_ index: Int, _ entry: (node: SidebarNode, children: [SidebarWorkspace]), depth: Int = 0) {
+            // `tree`: the session tree's depth, chevron and roll-up (`treeRows`).
+            func emit(_ index: Int, _ entry: (node: SidebarNode, children: [SidebarWorkspace]), tree: TreeRow = TreeRow()) {
                 openGapIfNeeded(section: section.id, group: nil, index: index)
                 switch entry.node {
                 case let .workspace(ws):
                     var content = o.rowContent(ws, machine: machineLabel)
-                    content.treeDepth = depth
+                    (content.treeDepth, content.treeFold, content.rollUp) = (tree.depth, tree.fold, tree.rollUp)
                     let h = m.height(for: content)
                     rows.append(SidebarRow(
                         key: .workspace(ws.id), y: y, height: h, section: section.id,
@@ -412,11 +418,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             let byFolder = o.groupsByFolder && section.machine != nil && machineCount == 1 && !filtering
             guard byFolder else {
                 let fold = SidebarDoneFoldID(section: section.id, group: nil)
-                let drawn = Self.foldingDone(Self.treeOrder(Self.workspaceIDs(nodes.map { $0.node }), parents: o.sessionTree?.parents),
+                let tree = Self.treeRows(nodes.map { $0.node }, tree: o.sessionTree, filtering: filtering)
+                let treeRow = Dictionary(tree.map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
+                let drawn = Self.foldingDone(tree.map { ($0.index, $0.depth) },
                                              workspace: { if case let .workspace(ws) = nodes[$0].node { ws } else { nil } }, fold: fold,
                                              limits: { !isGroup(nodes[$0]) }, options: o)
                 for (index, depth) in drawn {
-                    guard index < 0 else { emit(index, nodes[index], depth: depth); continue }
+                    guard index < 0 else { emit(index, nodes[index], tree: treeRow[index] ?? TreeRow(index: index, depth: depth)); continue }
                     Self.appendFold(index, fold, count: depth, parent: nil, color: nil, last: false, options: o, to: &rows, y: &y, metrics: m)
                 }
                 openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
@@ -425,15 +433,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             // Group by Folder: groups as they were, then a header per folder
             // over its loose rows, folders in first-seen order, "no folder" last.
             for (index, entry) in nodes.enumerated() where isGroup(entry) { emit(index, entry) }
-            var folders: [String] = []
-            var members: [String: [Int]] = [:]
-            for (index, entry) in nodes.enumerated() {
-                guard case let .workspace(ws) = entry.node else { continue }
-                let folder = ws.folder ?? ""
-                if members[folder] == nil { folders.append(folder) }
-                members[folder, default: []].append(index)
-            }
-            if let none = folders.firstIndex(of: ""), none != folders.count - 1 { folders.append(folders.remove(at: none)) }
+            let (folders, members) = Self.folderBuckets(nodes.map(\.node))
             for folder in folders {
                 let indices = members[folder] ?? []
                 rows.append(SidebarRow(

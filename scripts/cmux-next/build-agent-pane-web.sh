@@ -63,6 +63,8 @@ bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.
 cat "$ROOT/webviews/src/pages/shared/desktop.css" > "$WORK/styles.css"
 # The liquid glass surface and tokens, which desktop.ts imports beside desktop.css.
 cat "$ROOT/webviews/src/ui/glass/glass.css" >> "$WORK/styles.css"
+# The shared shimmer wave, which desktop.ts imports too.
+cat "$ROOT/webviews/src/ui/wave.css" >> "$WORK/styles.css"
 # The shared stylesheet opens with a Tailwind @import that only Vite resolves;
 # the pane needs just its variables and rules, so drop @import lines.
 grep -v '^@import ' "$SRC/shared/styles.css" >> "$WORK/styles.css"
@@ -79,7 +81,7 @@ cat "$ROOT/webviews/src/theme/messages.css" "$SRC/acpmux/styles.css" "$SRC/acpmu
 # style file), so inline it where the import stood.
 cat "$SRC/acpmux/changes/git.css" >> "$WORK/styles.css"
 grep -v '^@import ' "$SRC/acpmux/changes/changes.css" >> "$WORK/styles.css"
-cat "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/savedEnvironments.css" "$SRC/acpmux/bottomStack.css" "$SRC/acpmux/composerAttachments.css" "$SRC/acpmux/markdownField.css" \
+cat "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/savedEnvironments.css" "$SRC/acpmux/bottomStack.css" "$SRC/acpmux/composerAttachments.css" "$SRC/acpmux/composer/dropOverlay.css" "$SRC/acpmux/markdownField.css" \
   "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/subagents/subagents.css" "$SRC/acpmux/header/header.css" "$SRC/acpmux/needsYou/needsYou.css" "$SRC/acpmux/newtab/screen.css" "$SRC/acpmux/newtab/history.css" "$SRC/acpmux/threadMinimap/threadMinimap.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/turnChanges/turnChanges.css" "$SRC/acpmux/Inspector.css" "$SRC/acpmux/inspector/inspector.css" "$SRC/acpmux/inspector/ContextSection.css" "$SRC/acpmux/dictation.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/addProject.css" "$SRC/acpmux/harnesses/harnesses.css" "$SRC/acpmux/replay/replay.css" "$SRC/acpmux/offer/suggestedTasks.css" "$SRC/acpmux/started/startedSessions.css" "$SRC/acpmux/started/sessionHover.css" "$SRC/acpmux/conversation/SubsessionCallCard.css" "$SRC/acpmux/conversation/AgentMessageRow.css" "$ROOT/webviews/src/markdown-task-checkbox.css" >> "$WORK/styles.css"

@@ -181,4 +181,94 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
         await short.close();
       }
     });
+
+  // claude-sr2, 2026-10-22 (relaying Leo): over the in-pane diff the Inspector was "again a full-height
+  // column". It was the same card, but a busy chat's sections (Tasks 175, Subagents +94) are taller
+  // than any pane, so the card always reached the pane's foot. However tall its sections, the card
+  // stops at a ceiling (at most 560px, and never more than 80% of the room under the header) and
+  // its body scrolls: it never reads as a column, over the chat or over a diff.
+  for (const name of browsers.keys())
+    test(`${name}: over the chat the Inspector never runs the pane's height, however tall its sections`, async () => {
+      current = browsers.get(name)!;
+      for (const height of [1400, 800, 420]) {
+        const page = await pane!.open({ width: 900, height });
+        try {
+          const { panel } = await openInspector(page, 0);
+          // A busy chat: every section taller than the pane.
+          await page.addStyleTag({ content: "aside.acpmux-chat-inspector [data-section] { min-height: 1600px; }" });
+          const { top, bottom, scrolls } = await panel.evaluate((node) => {
+            const box = node.getBoundingClientRect();
+            const body = node.querySelector(".acpmux-chat-inspector__body")!;
+            return { top: box.top, bottom: box.bottom, scrolls: body.scrollHeight > body.clientHeight + 1 };
+          });
+          const room = height - top;
+          expect({ height, short: bottom - top <= Math.min(560, room * 0.8) + 0.5, scrolls }).toEqual({
+            height,
+            short: true,
+            scrolls: true,
+          });
+        } finally {
+          await page.close();
+        }
+      }
+    });
+
+  // Leo, 2026-10-22: "WHY DOES IT STAY ON IN THESE RANDOM SITUATIONS WITHOUT BEING CLOSABLE!?" Over a
+  // diff in place the chat header (with the toggle) is hidden, so the panel carries its own close
+  // button, and Esc closes it from anywhere but a text field (the composer keeps its own Esc).
+  /// Two painted frames: an Esc that closes the panel has drawn by then.
+  const frames = (page: Page) =>
+    page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+  for (const name of browsers.keys())
+    test(`${name}: the Inspector's own close button and Esc close it; Esc in the composer or on a popover leaves it open`, async () => {
+      current = browsers.get(name)!;
+      const page = await pane!.open({ width: 900, height: 620 });
+      try {
+        const { panel, toggle } = await openInspector(page, 0);
+        // As over a diff in place: the header, and the toggle with it, out of reach.
+        await page.addStyleTag({ content: "header.acpmux-header { visibility: hidden; }" });
+        const close = page.locator("aside.acpmux-chat-inspector button.acpmux-chat-inspector__close");
+        await close.click({ timeout: 5_000 });
+        const byButton = await panel.waitFor({ state: "detached", timeout: 5_000 }).then(
+          () => true,
+          () => false,
+        );
+        // The header is hidden: the toggle opens it again through the DOM.
+        await toggle.evaluate((button: HTMLElement) => button.click());
+        await panel.waitFor({ timeout: 5_000 });
+        await page.locator("textarea, [contenteditable=true]").first().focus();
+        await page.keyboard.press("Escape");
+        await frames(page);
+        // Still open, not leaving (a leaving panel stays drawn while it slides out).
+        const keptInComposer = (await toggle.getAttribute("aria-pressed")) === "true";
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        // An open popover takes Esc first: the Inspector stays.
+        await page.evaluate(() => {
+          const popover = document.createElement("dialog");
+          popover.open = true;
+          popover.className = "ui-popup";
+          popover.innerHTML = "<button>Item</button>";
+          document.body.append(popover);
+          popover.querySelector("button")!.focus();
+        });
+        await page.keyboard.press("Escape");
+        await frames(page);
+        // Still open, not leaving (a leaving panel stays drawn while it slides out).
+        const keptUnderPopover = (await toggle.getAttribute("aria-pressed")) === "true";
+        await page.evaluate(() => document.querySelector("dialog.ui-popup")!.remove());
+        await page.keyboard.press("Escape");
+        const byEscape = await panel.waitFor({ state: "detached", timeout: 5_000 }).then(
+          () => true,
+          () => false,
+        );
+        expect({ byButton, keptInComposer, keptUnderPopover, byEscape }).toEqual({
+          byButton: true,
+          keptInComposer: true,
+          keptUnderPopover: true,
+          byEscape: true,
+        });
+      } finally {
+        await page.close();
+      }
+    });
 });

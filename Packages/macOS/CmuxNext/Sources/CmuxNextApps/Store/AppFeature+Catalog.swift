@@ -68,6 +68,12 @@ extension AppFeature {
                        name: t("store.feature.suggestedTasks.name", "Suggested Tasks"),
                        summary: t("store.feature.suggestedTasks.summary", "Agents suggest next tasks, which you start as chats beside the current one."),
                        keywords: ["agents", "follow-up", "tasks", "suggestions"]),
+            // Leo 2026-10-22: "i kinda like this tho it's not too useful for me rn... app store maybe?"
+            AppFeature(id: "chat.needsYou", setting: "agentPane.needsYou.enabled", on: .toggle,
+                       category: .chief, preview: .window(.pane, .inbox),
+                       name: t("store.feature.needsYou.name", "Needs You"),
+                       summary: t("store.feature.needsYou.summary", "A badge in the chat header lists every ask your agents wait on, with one-click answers."),
+                       keywords: ["agents", "inbox", "asks", "approvals", "badge"]),
             AppFeature(id: "chief.githubFeed", setting: "feed.github.enabled", on: .toggle,
                        category: .chief, preview: .window(.pane, .brandGithub),
                        name: t("store.feature.githubFeed.name", "GitHub Feed"),

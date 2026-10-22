@@ -123,3 +123,11 @@ one.
   machine: tell the user what its text says. Run `cmux setup cloud-machine
   --forget` only after the machine was killed, or once the user says no
   machine is on its way (a `wait` on an empty list ends that way).
+- Notifications: `cmux setup notifications` lets cmux show macOS
+  notifications. The first time, macOS shows its prompt (tell them to click
+  Allow). Kind `grant` means System Settings blocks them: either Allow
+  Notifications is off, or it is on with the alert style None. Run its
+  `command` to open cmux's page there and tell them what its `text` says
+  to turn on. Kind `declined` means they said no: ask before running it
+  again. Which notifications show are settings: `cmux settings set
+  notifications.KEY VALUE`.

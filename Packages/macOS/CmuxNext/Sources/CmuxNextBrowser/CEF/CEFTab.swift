@@ -106,6 +106,17 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored public var pageThemeSurface: SurfaceKind? {
         didSet { if pageThemeSurface != oldValue { applyPageBackground() } }
     }
+    /// The page is see-through (fork API 17): where its document draws no background, the pane and
+    /// the window backdrop show, as under a WebKit page that draws none. A cmux page sets it (the page
+    /// host, `PageChromiumPage.setSeeThrough`); a web page stays opaque like Chrome.
+    @ObservationIgnored public var pageSeeThrough = false {
+        didSet {
+            guard pageSeeThrough != oldValue else { return }
+            // A web page never calls the fork's see-through switch; only a page leaving see-through does.
+            if !pageSeeThrough, let browserID { _ = runtime.shim?.tabSetTransparentBackground(browserID, 0) }
+            applyPageBackground()
+        }
+    }
     /// Answers the page's requests for its dynamic paths (a cmux page whose scheme entry has
     /// ``CEFPageSchemes/Entry/dynamicPrefixes``); nil answers every one with a 404.
     @ObservationIgnored public var pageResources: (@MainActor (URL) async -> CEFPageResponse)?

@@ -45,7 +45,7 @@ public final class SidebarSessionTreeFeed {
         task = Task {
             for await pass in ObservationStream({ () -> Pass? in
                 let sections = DesignSettings.shared.sidebarSections
-                guard Self.readsPullRequests(sections) || SidebarTunables.pullRequestBadges.value else { return nil }
+                guard Self.readsPullRequests(sections) || Self.readsBadges(sections) else { return nil }
                 var pass = Self.pass(Self.chats(workspaces()), lanes: lanes.lanes, remoteParents: remote.parents, localHost: localHost,
                                      pullRequests: pullRequests.answers)
                 pass.showsTree = sections.sessionTree
@@ -88,6 +88,7 @@ public final class SidebarSessionTreeFeed {
             }
         }
         var state = SidebarSessionTreeState()
+        var agentStates: [SidebarWorkspaceID: SidebarAgentState] = [:]
         var asks: Set<String> = []
         for (id, ids) in remote {
             if let parent = ids.lazy.compactMap({ remoteParents[$0].flatMap { owner[$0] } }).first(where: { $0 != id }) {
@@ -99,10 +100,13 @@ public final class SidebarSessionTreeFeed {
             if let parent = shown.lazy.compactMap({ $0.spawnedBy.flatMap { owner[$0] } }).first(where: { $0 != id }) {
                 state.parents[id] = parent
             }
+            // The strongest of its agents' states: one waiting on you outranks one still running.
+            if let state = shown.map({ Self.state($0.state) }).max() { agentStates[id] = state }
             let wanted = Self.asks(shown)
             asks.formUnion(wanted)
             state.pullRequests[id] = Self.badge(wanted, answers: pullRequests)
         }
+        state.states = agentStates
         return Pass(state: state, asks: asks)
     }
 
@@ -122,6 +126,16 @@ public final class SidebarSessionTreeFeed {
         var seen: Set<String> = []
         let items = asks.compactMap { answers[$0] }.filter { seen.insert($0.url).inserted }.map(Self.item)
         return SidebarPullRequestBadge.combining(items: items)
+    }
+
+    /// A lane's state in the tree's terms: acpmux's `input` waits on the person; a lost agent counts as failed.
+    static func state(_ lane: AgentActivityLane.State) -> SidebarAgentState {
+        switch lane {
+        case .input: .blocked
+        case .failed, .lost: .failed
+        case .working: .running
+        case .idle: .idle
+        }
     }
 
     /// The badge color of one pull request; nil for a closed one, which the badge leaves out.

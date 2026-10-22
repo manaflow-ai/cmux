@@ -22,6 +22,7 @@
     "agent-session/acpmux/ComposerPickers.tsx#SlashIcon",
     "agent-session/acpmux/ComposerPickers.tsx#StopIcon",
     "agent-session/acpmux/Keycap.tsx#Keycap",
+    "agent-session/acpmux/NewTabImportCards.tsx#NewTabImportCards",
     "agent-session/acpmux/ProjectBadge.tsx#ProjectBadge",
     "agent-session/acpmux/SwitchNotice.tsx#SwitchNotice",
     "agent-session/acpmux/changeIcons.tsx#AlertCircle",

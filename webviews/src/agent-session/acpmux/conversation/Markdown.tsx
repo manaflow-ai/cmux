@@ -8,7 +8,7 @@
 import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { appHref, safeHref } from "../model";
-import { needsYouTarget, openNeedsYou } from "../needsYou/links";
+import { needsYouListOff, needsYouTarget, openNeedsYou } from "../needsYou/links";
 import { CodeBlock } from "./CodeBlock";
 import { TableBlock } from "./TableBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
@@ -475,9 +475,11 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       const named = linked ? opts.started?.mentions.find((mention) => mention.sessionId === linked) : undefined;
       const app = href ? undefined : appHref(lm[2]);
       // An agent pointing at an open ask (`cmux://needs-you/<permissionId>`, needsYou/links.ts):
-      // a chip that opens the header's Needs you list on it, so the ask is never restated.
+      // a chip that opens the header's Needs you list on it, so the ask is never restated. With the
+      // list off (not installed from the App Store) it draws as its text, like a link the pane will not open.
       const ask = href ? undefined : needsYouTarget(lm[2]);
-      if (ask)
+      if (ask && needsYouListOff()) out.push(<Fragment key={k++}>{renderInline(lm[1], labelOpts)}</Fragment>);
+      else if (ask)
         out.push(
           <button key={k++} type="button" className="cv-link is-needs-you" onClick={() => openNeedsYou(ask)}>
             <span className="acpmux-needs-you-dot" aria-hidden="true" />

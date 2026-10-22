@@ -38,7 +38,7 @@ nonisolated struct AgentPaneProjectRepoReader: Sendable {
     static let maximumLevels = 6
 
     var read: @Sendable (String) -> Data?
-    private let icon: AgentPaneProjectIcon
+    private var icon: AgentPaneProjectIcon
 
     init(home: String = NSHomeDirectory()) {
         icon = AgentPaneProjectIcon(home: home)
@@ -50,12 +50,29 @@ nonisolated struct AgentPaneProjectRepoReader: Sendable {
     }
 
     /// The repositories of `folders`, keyed by folder as given; folders in no repository are absent.
+    /// One batch: a folder the walks share (`/Users`, the home folder, a projects folder) is checked
+    /// once, not once per Git file of every folder.
     func repos(for folders: [String]) -> [String: AgentPaneProjectRepo] {
+        let reader = batched()
         var found: [String: AgentPaneProjectRepo] = [:]
         for folder in folders.prefix(AgentPaneOmnibar.maximumEntries) {
-            if let repo = repo(for: folder) { found[folder] = repo }
+            if let repo = reader.repo(for: folder) { found[folder] = repo }
         }
         return found
+    }
+
+    /// A copy for one answer (``AgentPaneProjectIcon/batched()``).
+    func batched() -> AgentPaneProjectRepoReader {
+        var copy = self
+        copy.icon = icon.batched()
+        return copy
+    }
+
+    /// A copy that checks through `icon`'s batch (``AgentPaneProjectIcon/batched(sharing:)``).
+    func batched(sharing icon: AgentPaneProjectIcon) -> AgentPaneProjectRepoReader {
+        var copy = self
+        copy.icon = self.icon.batched(sharing: icon)
+        return copy
     }
 
     /// The `project.list` reply's `repos`, read off the main actor.

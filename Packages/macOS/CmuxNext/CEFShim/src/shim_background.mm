@@ -1,6 +1,7 @@
 // Page background color (cmux_shim_set_background_color and
 // cmux_shim_browser_set_background_color): the theme color new browsers
 // start with, and the browsers that set a background of their own.
+// cmux_shim_tab_set_transparent_background: see-through pages (fork API 17).
 // UI thread only.
 
 #include <set>
@@ -48,6 +49,11 @@ int cmux_shim_browser_set_background_color(int browser_id, unsigned int argb) {
   own_background_browsers().insert(browser_id);
   fork_api().browser_set_background_color(browser_id, argb);
   return 1;
+}
+
+int cmux_shim_tab_set_transparent_background(int browser_id, int transparent) {
+  if (!fork_api().tab_set_transparent_background) return 0;
+  return fork_api().tab_set_transparent_background(browser_id, transparent ? 1 : 0);
 }
 
 }  // extern "C"

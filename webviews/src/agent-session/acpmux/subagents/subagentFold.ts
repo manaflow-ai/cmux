@@ -30,6 +30,9 @@ export type Subagent = {
   agents?: { done: number; started: number };
   /// The harness runs it in the background: it outlives its turn's stop.
   background?: boolean;
+  /// The id Claude Code's Agent call answered with (`agentId: …`), which a SendMessage to it
+  /// names (conversation/agentNames.ts).
+  agentId?: string;
 };
 
 export type Event = { seq: number; at: number; msg?: any };
@@ -42,6 +45,8 @@ export class SubagentFold {
   private readonly agents = new Map<string, Subagent>();
   private readonly groupOf = new Map<string, Group>();
   private readonly spawnCalls = new Set<string>();
+  /// The subagent each spawning call started, by call id.
+  private readonly spawnedBy = new Map<string, string>();
   /// Codex's `wait` and `closeAgent` calls between its subagents, by call id: a later update of
   /// the same call may come without its `_meta`, and must draw no row either.
   private readonly collabCalls = new Set<string>();
@@ -54,6 +59,9 @@ export class SubagentFold {
   private readonly versions = new Map<string, number>();
   /// The subagents spawned since the current turn started, which its stop ends.
   private turn = new Set<string>();
+  /// The subagents a tool call started (Claude's Agent call, which its turn waits on): only these
+  /// end with a completed turn. Codex's native children have none and outlive their turn.
+  private readonly called = new Set<string>();
 
   /// Folds one session/update record; true when it belongs to subagents and draws no row.
   reduce(event: Event, update: any): boolean {
@@ -67,14 +75,20 @@ export class SubagentFold {
       if ((update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") && update.title)
         owner.action = String(update.title);
       const kind = update?.sessionUpdate;
-      if (kind !== "subagent_spawned" && kind !== "subagent_state_update") this.record(owner.id, { event, update });
+      // The Agent call that spawned it is the parent's, not a step of its own.
+      const spawnCall = typeof update?.toolCallId === "string" && this.spawnCalls.has(update.toolCallId);
+      if (kind !== "subagent_spawned" && kind !== "subagent_state_update" && !spawnCall)
+        this.record(owner.id, { event, update });
       this.touch(owner);
       return true;
     }
     const kind = update?.sessionUpdate;
     if (kind === "subagent_spawned" || kind === "subagent_state_update" || kind === "subagent_progress") return true;
     const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
-    if (call && this.spawnCalls.has(call)) return true;
+    if (call && this.spawnCalls.has(call)) {
+      this.readAgentId(call, update);
+      return true;
+    }
     // Codex's own bookkeeping between its subagents (`wait` for them, `closeAgent`): the group
     // row already shows who is working and who is done, so these draw no row of their own.
     if (call && this.collabCalls.has(call)) return true;
@@ -100,6 +114,7 @@ export class SubagentFold {
     for (const agent of this.agents.values()) {
       if (agent.state !== "running") continue;
       if (left.turn && (!this.turn.has(agent.id) || agent.background)) continue;
+      if (left.state === "completed" && !this.called.has(agent.id)) continue;
       agent.state = left.state;
       agent.endedAt = at;
       this.touch(agent);
@@ -160,7 +175,10 @@ export class SubagentFold {
 
   private apply(change: any, event: Event, spawn = true): void {
     if (typeof change?.id !== "string") return;
-    if (typeof change.toolCallId === "string") this.spawnCalls.add(change.toolCallId);
+    if (typeof change.toolCallId === "string") {
+      this.spawnCalls.add(change.toolCallId);
+      this.spawnedBy.set(change.toolCallId, change.id);
+    }
     let agent = this.agents.get(change.id);
     if (!agent) {
       const parent = typeof change.parent === "string" ? change.parent : null;
@@ -176,6 +194,7 @@ export class SubagentFold {
       };
       this.agents.set(agent.id, agent);
       if (spawn) this.turn.add(agent.id);
+      if (typeof change.toolCallId === "string") this.called.add(agent.id);
       if (parent === null) {
         this.open ??= { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [] };
         this.open.ids.push(agent.id);
@@ -202,6 +221,21 @@ export class SubagentFold {
   }
 
   /// Redraws the group row a subagent is listed in, or its parent's view.
+  /// The agentId in a spawning call's result (Claude Code's Agent call), on the subagent it started.
+  private readAgentId(call: string, update: any): void {
+    const id = this.spawnedBy.get(call);
+    const agent = id ? this.agents.get(id) : undefined;
+    if (!agent || agent.agentId || !Array.isArray(update?.content)) return;
+    for (const part of update.content) {
+      const text = part?.content?.text;
+      const found = typeof text === "string" ? agentIdIn(text) : undefined;
+      if (!found) continue;
+      agent.agentId = found;
+      this.touch(agent);
+      return;
+    }
+  }
+
   private touch(agent: Subagent): void {
     if (agent.parent !== null) this.bump(agent.parent);
     const group = this.groupOf.get(agent.id);
@@ -209,6 +243,11 @@ export class SubagentFold {
     group.version += 1;
     this.changed.add(group);
   }
+}
+
+/// The agentId a Claude Code Agent call's result names (`agentId: a39e817af38ddf5e7 (…)`).
+export function agentIdIn(text: string): string | undefined {
+  return /\bagentId:\s*([A-Za-z0-9_-]+)/.exec(text)?.[1];
 }
 
 /// Which running subagents nothing will end any more, and how they read: `turn` only the

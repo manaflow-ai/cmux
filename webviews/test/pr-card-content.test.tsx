@@ -167,6 +167,46 @@ test("the card shows the state, who, the branches, the checks, the review and th
   expect(text).toContain("−65");
 });
 
+// Leo 2026-10-20: "ones with links ... the hovers need to be styled". The card's owner/repo#N is
+// the pull request's link, blue like every link in the pane (.cv-link), not grey text: a click on
+// it takes the host's link-click path, as the bar's and the chip's own anchors do.
+test("the card's owner/repo#N is a styled link to the pull request", async () => {
+  const { body } = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 5 });
+  const ref = body.querySelector<HTMLAnchorElement>("a.acpmux-pr-card__ref");
+  expect(ref).not.toBeNull();
+  expect(ref!.getAttribute("href")).toBe(PR_URL);
+  expect(ref!.textContent).toBe("manaflow-ai/cmux#22777");
+  // The card is what replaces system tooltips, so its link grows none.
+  expect(ref!.hasAttribute("title")).toBe(false);
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const styles = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
+  const rule = styles.match(/\.acpmux-pr-card__ref\{([^}]*)\}/)?.[1] ?? "";
+  expect(rule).toContain("color:var(--agent-link)");
+  expect(rule).toContain("text-decoration:underline");
+  expect(rule).toContain("tabular-nums");
+});
+
+test("a card whose address is not a pull request link keeps owner/repo#N as text", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { UiProvider } = await import("../src/ui/UiProvider");
+  const { PullRequestCardBody } = await import("../src/agent-session/acpmux/chips/PullRequestCard");
+  const element = dom.window.document.getElementById("root")!;
+  const root = createRoot(element);
+  await act(async () =>
+    root.render(
+      <UiProvider container={element}>
+        <PullRequestCardBody url="https://example.test/not-a-pull" known={KNOWN} open={false} />
+      </UiProvider>,
+    ),
+  );
+  const ref = element.querySelector(".acpmux-pr-card__ref");
+  expect(ref?.tagName).toBe("SPAN");
+  expect(element.querySelector("a")).toBeNull();
+  await act(async () => root.unmount());
+});
+
 test("hovering the +/- breaks the lines down by kind", async () => {
   const { body, act } = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 5 });
   expect(body.querySelector(".acpmux-pr-card__kinds")).toBeNull();

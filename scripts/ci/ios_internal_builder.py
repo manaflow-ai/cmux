@@ -158,15 +158,43 @@ def admit(env: dict, free_bytes: int, min_free: int = MIN_FREE_BYTES) -> tuple[b
 
 # ---- GitHub Actions side: plan ----
 
-def _gh_json(args: list[str]):
-    out = subprocess.run(["gh", "api", *args], capture_output=True, text=True, check=True).stdout
-    return json.loads(out)
+class GitHubUnavailable(RuntimeError):
+    """The GitHub API stayed rate-limited or down through every retry."""
 
 
-def builder_runs() -> list[dict]:
+# A transient answer is worth a retry: rate limits (primary and secondary), 5xx, network drops.
+# A plain 403 ("Resource not accessible by integration") is a real permission error and is not.
+_TRANSIENT = re.compile(r"rate limit|HTTP 429|HTTP 5\d\d|timed out|timeout|connection reset|"
+                        r"unexpected EOF|Bad Gateway|Service Unavailable", re.IGNORECASE)
+
+
+def _gh_json(args: list[str], runner=subprocess.run, sleep=time.sleep, attempts: int = 4):
+    """`gh api ARGS` as JSON; retries transient failures, then raises GitHubUnavailable.
+
+    Other failures raise CalledProcessError with gh's stderr attached and printed.
+    """
+    detail = ""
+    for attempt in range(attempts):
+        r = runner(["gh", "api", *args], capture_output=True, text=True)
+        if r.returncode == 0:
+            return json.loads(r.stdout)
+        detail = (r.stderr or r.stdout or "").strip()
+        if not _TRANSIENT.search(detail):
+            print(f"gh api {' '.join(args)}: {detail}", file=sys.stderr)
+            raise subprocess.CalledProcessError(r.returncode, r.args, r.stdout, r.stderr)
+        if attempt + 1 < attempts:
+            wait = 10 * 2 ** attempt  # 10 s, 20 s, 40 s: inside a secondary limit's usual window
+            print(f"::warning::gh api {args[0]}: {detail}; retry {attempt + 1}/{attempts - 1} in {wait}s",
+                  file=sys.stderr)
+            sleep(wait)
+    raise GitHubUnavailable(detail)
+
+
+def builder_runs(runner=subprocess.run, sleep=time.sleep) -> list[dict]:
     """Recent builds; each run's title is "cmux-next-ios INTERNAL <sha> ..." (the workflow's run-name)."""
     try:
-        data = _gh_json([f"repos/{REPO}/actions/workflows/ios-internal-nightly.yml/runs?per_page=50"])
+        data = _gh_json([f"repos/{REPO}/actions/workflows/ios-internal-nightly.yml/runs?per_page=50"],
+                        runner=runner, sleep=sleep)
     except subprocess.CalledProcessError as error:
         # GitHub answers 404 until the workflow's first run registers it.
         if "404" in (error.stdout or "") + (error.stderr or ""):
@@ -215,14 +243,7 @@ def builder_has_script() -> bool:
     return "Not Found" not in (r.stderr + r.stdout)
 
 
-def cmd_plan(head: str, repo: str) -> int:
-    has_cmux_next_ios = _show(repo, head, PROJECT_YML) is not None
-    runs = builder_runs()
-    ready = builder_has_script()
-    first = plan(head, runs, [], has_cmux_next_ios, dt.datetime.now(dt.timezone.utc), STATIC_PREFIXES, ready)
-    changed = changed_files(repo, first.base, head) if first.base else None
-    decision = plan(head, runs, changed, has_cmux_next_ios, dt.datetime.now(dt.timezone.utc),
-                    relevant_prefixes(_show(repo, head, PACKAGE_SWIFT)), ready)
+def _write_outputs(decision: Decision) -> None:
     print(f"{'BUILD' if decision.build else 'skip'}: {decision.reason}")
     out = os.environ.get("GITHUB_OUTPUT")
     if out:
@@ -230,6 +251,24 @@ def cmd_plan(head: str, repo: str) -> int:
             fh.write(f"build={'true' if decision.build else 'false'}\n")
             fh.write(f"base={decision.base or ''}\n")
             fh.write(f"reason={decision.reason}\n")
+
+
+def cmd_plan(head: str, repo: str, runner=subprocess.run, sleep=time.sleep) -> int:
+    has_cmux_next_ios = _show(repo, head, PROJECT_YML) is not None
+    try:
+        runs = builder_runs(runner=runner, sleep=sleep)
+    except GitHubUnavailable as error:
+        # Without the run list the plan cannot tell a new head from one already uploaded, so it
+        # dispatches nothing; the next feat-cmux-next push plans again.
+        print(f"::warning::GitHub API unavailable after retries: {error}")
+        _write_outputs(Decision(False, "GitHub API rate-limited or down; the next push re-plans", None))
+        return 0
+    ready = builder_has_script()
+    first = plan(head, runs, [], has_cmux_next_ios, dt.datetime.now(dt.timezone.utc), STATIC_PREFIXES, ready)
+    changed = changed_files(repo, first.base, head) if first.base else None
+    decision = plan(head, runs, changed, has_cmux_next_ios, dt.datetime.now(dt.timezone.utc),
+                    relevant_prefixes(_show(repo, head, PACKAGE_SWIFT)), ready)
+    _write_outputs(decision)
     return 0
 
 

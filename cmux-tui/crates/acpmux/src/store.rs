@@ -314,11 +314,14 @@ pub struct SubsessionLimits {
     /// The deepest level a session under this one may be started at.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_depth: Option<u32>,
+    /// Most children running a turn at once (`hub/subsession_runs.rs`); more wait their turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_running: Option<u32>,
 }
 
 impl SubsessionLimits {
     pub fn is_empty(&self) -> bool {
-        self.max_children.is_none() && self.max_depth.is_none()
+        self.max_children.is_none() && self.max_depth.is_none() && self.max_running.is_none()
     }
 }
 

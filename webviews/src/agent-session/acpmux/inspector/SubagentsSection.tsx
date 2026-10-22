@@ -1,6 +1,6 @@
 // The Inspector's Subagents (after ChatGPT's pinned summary): one row of avatars, the harness's own
 // subagents and the chats its agent started (ChildSessionRows.tsx; a Cloud VM's or another
-// machine's included), the running ones first and breathing softly, with the live counts in the
+// machine's included), the running ones first with one shimmer sweeping across them (ui/wave.ts), with the live counts in the
 // section's head ("3 running · 40 done"). A click on the row opens the list below it: Active, then
 // Done, each subagent as the transcript draws it and each chat as its row (SubagentsTab.tsx); a
 // subagent's row shows that subagent, a chat's opens that chat.
@@ -13,6 +13,7 @@ import type { Subagent } from "../subagents/subagentFold";
 import { subagentStatus, type SubagentStatus } from "../summary/SubagentStatusList";
 import { SubagentsTab } from "../summary/SubagentsTab";
 import { sessionStatus } from "./ChildSessionRows";
+import { waveIndices, waveProps } from "../../../ui/wave";
 
 /// Avatars drawn before "+N"; the row is one line at the Inspector's narrowest.
 const SHOWN = 8;
@@ -66,27 +67,31 @@ export function SubagentsSection({
   const t = useT();
   const [listed, setListed] = useState(false);
   const total = agents.length + sessions.length;
-  // Running ones lead the row; then the newest.
-  const avatars = [
-    ...agents.map((agent) => ({
-      live: running(agent),
-      at: agent.startedAt,
-      avatar: <Avatar key={agent.id} agent={agent} dot />,
-    })),
+  // Running ones lead the row; then the newest. One shimmer sweeps across the running ones, left
+  // to right (ui/wave.ts); finished and failed ones stay still.
+  const order = [
+    ...agents.map((agent) => ({ live: running(agent), at: agent.startedAt, agent, child: undefined })),
     ...sessions.map((child) => {
       const status = sessionStatus(child);
-      return {
-        live: status === "running" || status === "waiting",
-        at: child.createdAt ?? 0,
-        avatar: (
-          <span key={child.sessionId} className="cv-subagent-avatar" data-state={SESSION_AVATAR[status]}>
-            <Icon name="agent.chat" size={14} />
-            <span className="cv-subagent-avatar__dot" aria-hidden="true" />
-          </span>
-        ),
-      };
+      return { live: status === "running" || status === "waiting", at: child.createdAt ?? 0, agent: undefined, child };
     }),
   ].sort((a, b) => Number(b.live) - Number(a.live) || b.at - a.at);
+  const wave = waveIndices(order, (item) => item.live);
+  const avatars = order.map(({ agent, child }, index) => {
+    if (agent) return <Avatar key={agent.id} agent={agent} dot wave={wave[index]} />;
+    const { className, style } = waveProps(wave[index]);
+    return (
+      <span
+        key={child.sessionId}
+        className={className ? `cv-subagent-avatar ${className}` : "cv-subagent-avatar"}
+        style={style}
+        data-state={SESSION_AVATAR[sessionStatus(child)]}
+      >
+        <Icon name="agent.chat" size={14} />
+        <span className="cv-subagent-avatar__dot" aria-hidden="true" />
+      </span>
+    );
+  });
   const label = listed ? t("chatInspector.subagents.hide") : t("chatInspector.subagents.show", { n: total });
   return (
     <div className="acpmux-chat-inspector-subagents">
@@ -98,7 +103,7 @@ export function SubagentsSection({
         onClick={() => setListed(!listed)}
       >
         <span className="acpmux-chat-inspector-avatars__stack" aria-hidden="true">
-          {avatars.slice(0, SHOWN).map((item) => item.avatar)}
+          {avatars.slice(0, SHOWN)}
         </span>
         {total > SHOWN && (
           <span className="acpmux-chat-inspector-avatars__more" aria-hidden="true">
