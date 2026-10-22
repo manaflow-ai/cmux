@@ -3,6 +3,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 import { setBookmarkTransport } from "./bookmarks";
 import { threadMinimapLayout } from "./layout.experiment";
+import { reducedMotion } from "./scrollMotion";
 
 // The gallery has no acpmux: the chat's marks live in this page, answered as acpmux answers them.
 const galleryMarks = new Map<string, Set<number>>();
@@ -148,6 +149,23 @@ export default agentPaneEntry({
         if (!ctx.document.querySelector('[data-tick="8"]')) return;
         await ctx.hover({ selector: '[data-tick="8"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
+      },
+    },
+    landing: {
+      note: "Clicking row 8 jumps to prompt 8 and flashes its bubble a step brighter, held here at the flash's start. The flash is the bubble's glass tint over transparent, so the backdrop still shows through it: never the opaque base.",
+      snapshot: chat(rows, { title: "Thread minimap landing" }),
+      play: async (ctx) => {
+        // No flash under Reduce Motion (scrollMotion.ts highlightBubble).
+        if (!ctx.document.querySelector('[data-tick="8"]') || reducedMotion()) return;
+        await ctx.click({ selector: '[data-tick="8"]' });
+        const flash = () =>
+          [...ctx.document.querySelectorAll<HTMLElement>(".cv-user__bubble")]
+            .flatMap((bubble) => bubble.getAnimations())
+            .find((animation) => animation.id === "acpmux-landing");
+        await ctx.waitFor(() => Boolean(flash()));
+        const animation = flash();
+        animation?.pause();
+        if (animation) animation.currentTime = 0;
       },
     },
     bookmarked: {
