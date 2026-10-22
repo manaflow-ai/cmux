@@ -662,6 +662,11 @@ export type SessionSummary = {
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
   queued: number;
+  /**
+   * A restricted chat: no folder settings, hooks or MCP servers, and every tool asks.
+   * Absent for any other chat.
+   */
+  restricted?: (boolean | null);
   /** The session has its own permission rules. */
   rules: boolean;
   sessionId: string;

@@ -11,7 +11,8 @@ once a user message reached it, and `--resume` of one that does not exist
 fails the first prompt with Claude's own "No conversation found" line.
 FAKE_CLAUDE_DIE=1 dies on the first prompt before anything is stored (a
 launcher whose proxy is down); FAKE_CLAUDE_DIE_IF=<path> does so while that
-file exists. With CLAUDE_CONFIG_DIR set (and no FAKE_CLAUDE_STORE), the store
+file exists. FAKE_CLAUDE_LIMIT=1 fails every prompt the way Claude Code reports
+an account out of usage (an error result). With CLAUDE_CONFIG_DIR set (and no FAKE_CLAUDE_STORE), the store
 is Claude Code's own layout: <CLAUDE_CONFIG_DIR>/projects/p/<id>.jsonl, with
 a user and an assistant line per prompt; "history-probe" replies with the
 prompts the conversation holds (a resumed or forked transcript's included).
@@ -460,6 +461,10 @@ while True:
             sys.stderr.write("proxy down\n")
             sys.stderr.flush()
             sys.exit(1)
+        if os.environ.get("FAKE_CLAUDE_LIMIT") == "1":
+            send({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1, "duration_api_ms": 0,
+                  "result": "You've reached your usage limit \u00b7 resets 3pm", "usage": {"input_tokens": 0, "output_tokens": 0}})
+            continue
         if STORE and RESUME and not os.path.exists(stored(RESUME)):
             sys.stderr.write("No conversation found with session ID: %s\n" % RESUME)
             sys.stderr.flush()

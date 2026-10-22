@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   readFolderTrust,
   readTrust,
+  restrictedChat,
   sessionTrust,
   type FolderTrust,
   type TrustLevel,
@@ -14,10 +15,12 @@ import { isTrustRefusal } from "./direct";
 /// The chat's trust question: "ask" while the folder reads as unknown for the chat's agent, then
 /// the user's answer with its Undo, or "failed" when saving it didn't. `repo`: the repository
 /// holding the folder (the question offers to trust it whole); `via`: the folder the answer was
-/// made for when not this one (the repository, or a parent folder).
+/// made for when not this one (the repository, or a parent folder). `restricted`: after Not now
+/// the chat still runs, restricted (acpmux `hub/restricted.rs`): no project settings, hooks or MCP
+/// servers, and every tool asks.
 export type FolderTrustAsk = { cwd: string; repo?: TrustRepo; via?: string } & (
   | { state: "ask" | "failed" | "remote" }
-  | { state: "decided"; level: Exclude<TrustLevel, "unknown"> }
+  | { state: "decided"; level: Exclude<TrustLevel, "unknown">; restricted?: true }
 );
 
 /// Where the folder's answer lives, read or answered last: the trusted grant names it, and Undo
@@ -99,7 +102,12 @@ function shownTrust(trust: FolderTrust, cwd: string, family: string | undefined,
       level === "unknown"
         ? ({ ...scope, state: canAnswer ? "ask" : "remote" } as FolderTrustAsk)
         : level === "untrusted"
-          ? ({ ...scope, state: "decided", level } as FolderTrustAsk)
+          ? ({
+              ...scope,
+              state: "decided",
+              level,
+              ...(restrictedChat(trust, family) ? { restricted: true } : {}),
+            } as FolderTrustAsk)
           : undefined,
     trusted: level === "trusted",
     scope: { ...scope, ...(trust.decided === false || trust.auto ? { recorded: false } : {}) } as TrustScope,
@@ -116,7 +124,8 @@ function sameAsk(left: FolderTrustAsk | undefined, right: FolderTrustAsk | undef
       left.via === right.via &&
       left.repo?.root === right.repo?.root &&
       left.repo?.worktree === right.repo?.worktree &&
-      (left.state === "decided" ? left.level : undefined) === (right.state === "decided" ? right.level : undefined))
+      (left.state === "decided" ? left.level : undefined) === (right.state === "decided" ? right.level : undefined) &&
+      (left.state === "decided" && left.restricted) === (right.state === "decided" && right.restricted))
   );
 }
 
@@ -129,9 +138,13 @@ function sameAsk(left: FolderTrustAsk | undefined, right: FolderTrustAsk | undef
 /// A refusal for a folder the pane did not know (a new chat whose folder the host filled in)
 /// asks about the folder acpmux named (`refused`), and Trust then sends the held prompt again
 /// (one gesture); Don't trust leaves it in the composer with the reason.
+///
+/// Where acpmux opens restricted chats (`restrictedChats` on the folder's read, or the chat's own
+/// `restricted` from acpmux), Not now leaves a chat that sends, restricted: the answer says so and
+/// keeps Trust in reach, and nothing holds the chat's permission asks.
 export function useFolderTrustAsk(
   source: TrustSource,
-  chat: { sessionId?: string; cwd?: string; family?: string; prompts: number },
+  chat: { sessionId?: string; cwd?: string; family?: string; prompts: number; restricted?: boolean },
   canAnswer = true,
   /// The chat's folder is on this computer: only then is its answer kept by path for the next chat.
   local = true,
@@ -146,6 +159,9 @@ export function useFolderTrustAsk(
   const [reads, setReads] = useState(0);
   /// The folder acpmux named in a trust refusal for this chat, and the prompt to send after Trust.
   const [refusal, setRefusal] = useState<{ sessionId?: string; cwd?: string }>();
+  /// The chat acpmux refused for Don't trust although the pane took it for a restricted one (another
+  /// agent's chat): it shows the refusal, not the restricted chat.
+  const [notRestricted, setNotRestricted] = useState<string>();
   const resend = useRef<(() => void) | undefined>(undefined);
   const { sessionId, family, prompts } = chat;
   const cwd = chat.cwd ?? (refusal && refusal.sessionId === sessionId ? refusal.cwd : undefined);
@@ -253,8 +269,11 @@ export function useFolderTrustAsk(
         for (const key of new Set([asked.cwd, recorded])) answers.current.set(key, (answers.current.get(key) ?? 0) + 1);
         // Undo leaves each agent's own level to answer: the next read says which.
         const where = { ...(repo ? { repo } : {}), ...(recorded !== asked.cwd ? { via: recorded } : {}) };
+        // Whether acpmux opens restricted chats, as the folder's last read said.
+        const before = lastRead.current?.cwd === asked.cwd ? lastRead.current.trust : undefined;
+        const restrictedChats = before?.restrictedChats ? { restrictedChats: true } : {};
         const answer: FolderTrust | undefined =
-          level === "unknown" ? undefined : { cwd: asked.cwd, level, decided: true, ...where };
+          level === "unknown" ? undefined : { cwd: asked.cwd, level, decided: true, ...where, ...restrictedChats };
         if (remembers) {
           // Another folder's kept answer may be the one just changed (the repository's): read again.
           if (recorded !== asked.cwd) forgetUnder(recorded);
@@ -271,7 +290,15 @@ export function useFolderTrustAsk(
         setAsk(
           level === "unknown"
             ? { cwd: asked.cwd, ...(repo ? { repo } : {}), state: "ask" }
-            : { cwd: asked.cwd, ...where, state: "decided", level },
+            : {
+                cwd: asked.cwd,
+                ...where,
+                state: "decided",
+                level,
+                ...(level === "untrusted" && answer && restrictedChat(answer, familyNow.current)
+                  ? { restricted: true as const }
+                  : {}),
+              },
         );
         // The prompt acpmux refused goes now that the folder is trusted; another answer keeps it.
         const held = resend.current;
@@ -286,18 +313,41 @@ export function useFolderTrustAsk(
     [ask, cwd, scope, source, sessionId, prompts, remembers],
   );
 
+  // A restricted chat sends: Not now left it without the folder's own config, asking every time.
+  const restricted =
+    ask?.state === "decided" &&
+    ask.level === "untrusted" &&
+    // acpmux's own mark (the chat's summary) wins over an earlier refusal.
+    (chat.restricted === true || (notRestricted !== chatKey && ask.restricted === true));
+  const shownAsk = useMemo(
+    () =>
+      ask?.state === "decided" && Boolean(ask.restricted) !== restricted
+        ? restricted
+          ? { ...ask, restricted: true as const }
+          : {
+              cwd: ask.cwd,
+              ...(ask.repo ? { repo: ask.repo } : {}),
+              ...(ask.via ? { via: ask.via } : {}),
+              state: ask.state,
+              level: ask.level,
+            }
+        : ask,
+    [ask, restricted],
+  );
   const blocked: SendBlock | undefined = reading
     ? {}
     : ask?.state === "ask" || ask?.state === "failed"
       ? { reason: "trust.answerFirst", shownAbove: true }
       : ask?.state === "remote"
         ? { reason: "trust.remote" }
-        : ask?.state === "decided" && ask.level === "untrusted"
+        : ask?.state === "decided" && ask.level === "untrusted" && !restricted
           ? { reason: "trust.notTrustedNoPrompts" }
           : undefined;
 
   return {
-    ask,
+    ask: shownAsk,
+    /// After Not now the chat runs restricted (acpmux `hub/restricted.rs`) and Send stays on.
+    restricted,
     /// The trust question or Don't trust holds the chat's other asks (permission, secret, tool
     /// cards): one question at a time. A read in flight asks nothing, so it holds nothing; the asks
     /// keep their place while it reads (a chat switch), and only Send waits.
@@ -321,6 +371,8 @@ export function useFolderTrustAsk(
     refused: useCallback(
       (error: unknown, again?: () => void): boolean => {
         if (!isTrustRefusal(error)) return false;
+        // Don't trust from acpmux for a chat taken for a restricted one: it is not one.
+        if ((error as { reason?: unknown }).reason === "trust.untrusted") setNotRestricted(chatKey);
         const named = (error as { cwd?: unknown }).cwd;
         if (typeof named === "string" && named) setRefusal({ sessionId, cwd: named });
         // acpmux says the folder is not trusted now: its record is stale, and Send waits for the read.
@@ -333,7 +385,7 @@ export function useFolderTrustAsk(
         setReads((count) => count + 1);
         return true;
       },
-      [sessionId, cwd],
+      [sessionId, cwd, chatKey],
     ),
   };
 }

@@ -635,6 +635,8 @@ impl Hub {
                 depth,
                 offered: false,
             }),
+            // A restricted chat's sub-sessions run restricted too (`hub/restricted.rs`).
+            restricted: pm.restricted,
             ..Default::default()
         };
         let probe = self.new_session(request).await?;

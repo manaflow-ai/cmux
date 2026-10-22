@@ -35,6 +35,8 @@ export function trustedLabel(t: Translate, scope: Pick<FolderTrustAsk, "cwd" | "
 /// is trusted (the repository and every worktree of it, or the folder), what trusting allows, and
 /// offers Trust repo (the common case, first), Only this folder, and Not now; then the answer with
 /// Undo. Nothing waits on it (Leo, 2026-10-21: say what is trusted, what it allows, scoped choices).
+/// After Not now in a restricted chat (acpmux `hub/restricted.rs`) it says what the chat runs
+/// without and keeps Trust repo (or Trust folder) in reach: no dead end (Leo, 2026-10-21).
 export function TrustAsk({
   ask,
   agent,
@@ -64,8 +66,31 @@ export function TrustAsk({
     // An open question reads as one (full text, the accent's edge, the primary answer first), not
     // as the quiet receipt it becomes once answered: a dim line was easy to miss while the agent
     // waited on it (Leo, 2026-10-21).
-    <div className="acpmux-trust-ask" data-asking={asking || undefined} aria-live="polite">
-      {ask.state === "decided" ? (
+    <div
+      className="acpmux-trust-ask"
+      data-asking={asking || undefined}
+      data-restricted={(ask.state === "decided" && ask.restricted) || undefined}
+      aria-live="polite"
+    >
+      {ask.state === "decided" && ask.level === "untrusted" && ask.restricted ? (
+        <>
+          <span className="acpmux-trust-ask-text">{t("trust.restricted")}</span>
+          <span className="acpmux-trust-ask-actions">
+            {offersRepo ? (
+              <button type="button" className="acpmux-trust-ask-action acpmux-trust-ask-primary" onClick={onTrustRepo}>
+                {t("trust.trustRepo")}
+              </button>
+            ) : (
+              <button type="button" className="acpmux-trust-ask-action acpmux-trust-ask-primary" onClick={onTrust}>
+                {owned ? t("trust.trust") : t("trust.trustFolder")}
+              </button>
+            )}
+            <button type="button" className="acpmux-trust-ask-action" onClick={onUndo}>
+              {t("trust.undo")}
+            </button>
+          </span>
+        </>
+      ) : ask.state === "decided" ? (
         <>
           <span className="acpmux-trust-ask-text">
             {ask.level === "trusted"
