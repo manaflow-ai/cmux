@@ -25,10 +25,19 @@ import AppKit
         }
     }
 
-    /// The frame that holds `rows` (list coordinates).
+    /// The frame that holds `rows` (list coordinates), and a lifted group's members' line: the line
+    /// runs just left of the rows (`SidebarStyle.groupLineX`), so the card reaches over it and the
+    /// line and rows stay where they were in the list when the group lifts.
     static func blockFrame(_ list: SidebarListView, _ rows: [SidebarRow]) -> NSRect? {
         guard let first = rows.first, let last = rows.last else { return nil }
-        return list.frame(for: first).union(list.frame(for: last))
+        let block = list.frame(for: first).union(list.frame(for: last))
+        guard rows.count > 1 else { return block }
+        return lines(list, rows).reduce(block) { $0.union($1.frame) }
+    }
+
+    /// The members' lines of the open groups among `rows` (list coordinates).
+    static func lines(_ list: SidebarListView, _ rows: [SidebarRow]) -> [SidebarGroupLine] {
+        SidebarGroupLine.lines(rows, colors: list.groups) { list.frame(for: $0) }
     }
 
     /// The lifted card's content: one live row view, or for several rows (a
@@ -38,9 +47,8 @@ import AppKit
         guard rows.count > 1 else { return rows.first.map { rowView(list, $0) } }
         let container = SidebarLiftBlockView(frame: NSRect(origin: .zero, size: block.size))
         // The group's members' line rides under the rows on the card, as in the list (cx-qno.17).
-        let lines = SidebarGroupLine.lines(rows, colors: list.groups) { list.frame(for: $0).offsetBy(dx: -block.minX, dy: -block.minY) }
-        for line in lines {
-            let view = NSView(frame: line.frame)
+        for line in lines(list, rows) {
+            let view = NSView(frame: line.frame.offsetBy(dx: -block.minX, dy: -block.minY))
             view.wantsLayer = true
             view.layer?.cornerRadius = line.frame.width / 2
             container.performWithTheme { view.layer?.backgroundColor = line.color.lineColor(themed: SidebarGroupPalette.tunable.value == .theme).cgColor }

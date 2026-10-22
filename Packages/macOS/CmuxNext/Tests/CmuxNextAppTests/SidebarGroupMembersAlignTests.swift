@@ -86,6 +86,42 @@ import Testing
         }
     }
 
+    /// Lifting the group keeps the line beside its rows on the card: the card reaches over the line, so neither
+    /// the line nor the rows move sideways and no member's fill covers the line.
+    @Test func aLiftedGroupKeepsItsLineBesideItsRows() throws {
+        let (sidebar, window) = Self.sidebar(selected: Self.leadID)
+        defer { window.close() }
+        let list = sidebar.list
+        let header = try #require(list.displayed.row(for: .group(Self.group)))
+        let line = try #require(SidebarGroupLine.lines(list.displayed.rows, colors: list.groups) { list.frame(for: $0) }.first)
+        list.press = SidebarPress(key: header.key, point: NSPoint(x: 80, y: header.y + header.height / 2))
+        list.beginDrag(try #require(list.press))
+        defer {
+            list.cancelDrag()
+            if let landing = list.landing { list.finishLand(landing, then: nil) }
+        }
+        let lift = try #require(list.subviews.first { $0 is DragLiftView })
+        #expect(lift.frame.minX == line.frame.minX, "the card starts at \(lift.frame.minX), the line at \(line.frame.minX)")
+        let block = try #require(Self.descendant(of: lift) { $0 is SidebarLiftBlockView })
+        let members = block.subviews.compactMap { $0 as? WorkspaceRowView }
+        let lines = block.subviews.filter { !($0 is SidebarRowView) }
+        #expect(members.count == 2 && lines.count == 1, "card holds \(members.count) members and \(lines.count) lines")
+        for drawn in lines {
+            #expect(drawn.frame.minX >= 0, "the card clips the line at \(drawn.frame)")
+            for member in members {
+                #expect(drawn.frame.maxX <= member.frame.minX, "on the card the line \(drawn.frame) runs under \(member.frame)")
+            }
+        }
+    }
+
+    static func descendant(of view: NSView, where match: (NSView) -> Bool) -> NSView? {
+        for child in view.subviews {
+            if match(child) { return child }
+            if let found = descendant(of: child, where: match) { return found }
+        }
+        return nil
+    }
+
     /// Nesting still reads: a nested group's rows step in one gutter per level below the top, and a top-level
     /// group's rows (level 1) not at all.
     @Test func onlyNestedLevelsStepIn() {

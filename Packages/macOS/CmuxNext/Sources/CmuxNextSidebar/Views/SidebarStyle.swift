@@ -112,7 +112,7 @@ enum SidebarStyle {
     /// top-level group, so no hover or selection fill covers it (cx-q5jw) and the rows keep
     /// the ungrouped rows' left edge.
     static func groupLineX(membersMinX: CGFloat) -> CGFloat { max(0, membersMinX - Metrics.space1 - groupBarWidth) }
-    /// The group header's color dot, on the line's x (cx-25az).
+    /// The quiet group headers' color dot, in the header's leading corner (cx-25az).
     static var groupDotSize: CGFloat { max(6, (Metrics.sidebarRowHeight * 0.28).rounded()) }
     static var headerFont: NSFont { Typography.header }
     /// The count: tabular digits in the system face (a monospaced face read
