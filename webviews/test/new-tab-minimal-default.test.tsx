@@ -78,7 +78,7 @@ const noop = () => {};
 // 9:30 local time, when the page once said "Good morning".
 const MORNING = new Date(2026, 9, 20, 9, 30).getTime();
 
-async function render(template: ScreenTemplate, widgets: readonly PageWidget[] | undefined) {
+async function render(template: ScreenTemplate, widgets: readonly PageWidget[] | undefined, startCwd?: string) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const root: Root = createRoot(host);
@@ -91,6 +91,7 @@ async function render(template: ScreenTemplate, widgets: readonly PageWidget[] |
         snapshot={noChat(manySessions(12))}
         lastAgent="claude"
         cwd="/Users/you/src/atlas"
+        {...(startCwd ? { startCwd } : {})}
         projects={[{ cwd: "/Users/you/src/atlas", label: "atlas" }]}
         loadChatsPage={async () => ({ ready: true, chats: [] })}
         onOpenChat={noop}
@@ -145,7 +146,8 @@ test("by default Minimal is the composer alone, with its project strip and no gr
 });
 
 test("the toggle draws a useful headline: what to work on, with the project as an inline picker", async () => {
-  const root = await render("minimal", ["greeting"]);
+  // The host's start folder is the project the composer's strip names, so the headline names it too.
+  let root = await render("minimal", ["greeting"], "/Users/you/src/atlas");
   try {
     expect(parts()).toMatchObject({ minimal: true, headline: "What should we work on in atlas?", strip: 1 });
     // The project's name is the picker, inside the question (ProjectChooser inline).
@@ -153,6 +155,14 @@ test("the toggle draws a useful headline: what to work on, with the project as a
     expect(picker?.textContent).toBe("atlas");
     expect(picker?.getAttribute("aria-haspopup")).toBeTruthy();
     expect(host.textContent).not.toMatch(/Good (morning|afternoon|evening)/);
+  } finally {
+    await act(async () => root.unmount());
+  }
+  // No project yet: the question, and Choose project under it.
+  root = await render("minimal", ["greeting"]);
+  try {
+    expect(parts().headline).toBe("What should we work on?");
+    expect(host.querySelector(".nt-headline-choose .acpmux-project-button")).not.toBeNull();
   } finally {
     await act(async () => root.unmount());
   }

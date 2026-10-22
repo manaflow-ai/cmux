@@ -33,11 +33,11 @@ import Testing
 
     @Test func thePageGetsTheMovableWidgetsInTheSavedOrder() {
         let on: [String: JSONValue] = ["projects": .bool(true), "chats": .bool(true), "styleDots": .bool(true)]
-        #expect(Self.snapshot(on).newTabWidgets.ids == ["greeting", "projects", "chats", "styleDots"])
+        #expect(Self.snapshot(on).newTabWidgets.ids == ["projects", "chats", "styleDots"])
         var reordered = on
         reordered["order"] = .array([.string("chats"), .string("projects")])
         let snapshot = Self.snapshot(reordered)
-        #expect(snapshot.newTabWidgets.ids == ["greeting", "chats", "projects", "styleDots"], "a place does not turn a widget on")
+        #expect(snapshot.newTabWidgets.ids == ["chats", "projects", "styleDots"], "a place does not turn a widget on")
         #expect(snapshot.newTabWidgets.order == ["chats", "projects", "actions"], "left out follows in Settings' order")
         #expect(snapshot.diagnostics.isEmpty, "\(snapshot.diagnostics)")
     }
@@ -77,7 +77,7 @@ import Testing
     }
 
     @Test func aDragAndAnXAreSavedAsSettingsWould() async throws {
-        let (settings, directory) = try await Self.settings(#"{"tabs":{"newTabWidgets":{"projects":true,"chats":true}}}"#)
+        let (settings, directory) = try await Self.settings(#"{"tabs":{"newTabWidgets":{"greeting":true,"projects":true,"chats":true}}}"#)
         defer { try? FileManager.default.removeItem(at: directory) }
 
         // The page shows Projects and Chats; Quick Actions (off) keeps its place in the saved order.
@@ -89,11 +89,11 @@ import Testing
         #expect(NewTabWidgetSettings.reordered(["actions", "chats", "projects"], shown: ["projects", "chats"]) == ["actions", "projects", "chats"])
         #expect(NewTabWidgetSettings.reordered(NewTabWidgetSettings.movable, shown: ["chats", "chats", "projects"]) == ["chats", "actions", "projects"])
 
-        // ✕ on a widget that is off by default takes its key out; on the greeting (on by default) writes false.
+        // ✕ on a widget that is off by default takes its key out, the headline's too (off by default).
         try await settings.removeNewTabWidget("chats")
         #expect(settings.fileRoot.value(at: ["tabs", "newTabWidgets", "chats"]) == nil)
         try await settings.removeNewTabWidget("greeting")
-        #expect(settings.fileRoot.value(at: ["tabs", "newTabWidgets", "greeting"]) == .bool(false))
+        #expect(settings.fileRoot.value(at: ["tabs", "newTabWidgets", "greeting"]) == nil)
         #expect(settings.snapshot.newTabWidgets.ids == ["projects"])
         // Only a widget's switch: never the order, or a key that is not a widget.
         await #expect(throws: SettingNotInSchema.self) { try await settings.removeNewTabWidget("order") }
