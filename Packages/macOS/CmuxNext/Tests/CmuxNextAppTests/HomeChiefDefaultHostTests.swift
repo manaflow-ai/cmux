@@ -1,10 +1,10 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextCompat
 @testable import CmuxNextHomeEngine
 @testable import CmuxNextHostedChief
 import Foundation
 import Observation
-import Synchronization
 import Testing
 
 /// What the default Chief (#64) reads and starts: whether this Mac's optchat-chief runs, kept
