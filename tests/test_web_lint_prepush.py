@@ -385,6 +385,9 @@ TUI_FRONTEND_PACKAGE = """{
 TUI_FRONTEND_CHECK = """#!/bin/sh
 echo "check $(basename "$PWD")" >> "$TOOL_LOG"
 if [ ! -e node_modules/cmux/dist/src/index.d.ts ]; then echo "error TS2307: Cannot find module 'cmux/raw'"; exit 2; fi
+if ! cmp -s node_modules/cmux/dist/src/index.d.ts ../../bindings/typescript/dist/src/index.d.ts; then
+  echo 'checked against stale bindings'; exit 3
+fi
 echo 'types ok'
 """
 BINDINGS_PACKAGE = '{"name": "cmux-sdk", "scripts": {"build": "tsc"}}\n'
@@ -392,7 +395,7 @@ BINDINGS_PACKAGE = '{"name": "cmux-sdk", "scripts": {"build": "tsc"}}\n'
 # copies a file: dependency into node_modules as it is at install time, as bun does.
 FAKE_BUILD = """build() {
   if [ -n "$FAKE_BUILD_FAIL" ]; then echo "src/raw/index.ts(3,1): error TS1005: ';' expected."; exit 2; fi
-  mkdir -p dist/src && echo 'export {};' > dist/src/index.d.ts
+  mkdir -p dist/src && cat src/raw/index.ts > dist/src/index.d.ts
 }
 """
 FAKE_NPM = "#!/bin/sh\n" + FAKE_BUILD + """echo "npm $* @ $(basename "$PWD")" >> "$TOOL_LOG"
@@ -405,6 +408,7 @@ exit 0
 FAKE_BUN = "#!/bin/sh\n" + FAKE_BUILD + """echo "bun $* @ $(basename "$PWD")" >> "$TOOL_LOG"
 case "$1" in
   install)
+    if [ -n "$FAKE_INSTALL_FAIL" ] && [ "$(basename "$PWD")" = web ]; then echo 'error: install failed'; exit 1; fi
     mkdir -p node_modules
     [ -f package-lock.json ] && echo 'lockfileVersion = 1' > bun.lock  # bun writes one on migration
     if grep -q 'file:../../bindings/typescript' package.json; then
@@ -492,6 +496,32 @@ class TuiBindingsTests(unittest.TestCase):
         self.assertIn("error TS1005", result.stderr, "must show the build's own error")
         self.assertIn("cmux-tui/frontends/web", result.stderr, "must name the check it holds back")
         self.assertNotIn("check web", calls)
+
+    def test_a_failed_frontend_install_after_a_rebuild_is_retried_not_checked_against_the_old_copy(self):
+        self.add_tui_packages()
+        self.assertEqual(self.lint_all()[0].returncode, 0)  # warm: built, installed, stamped
+        self.write("cmux-tui/bindings/typescript/src/raw/index.ts", "export const raw = 2;\n")
+
+        failed, _ = self.lint_all(FAKE_INSTALL_FAIL="1")  # rebuilt, but the frontend keeps its old copy
+        self.assertNotEqual(failed.returncode, 0)
+
+        result, calls = self.lint_all()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("stale bindings", result.stderr)
+        self.assertNotIn("npm run build @ typescript", calls, "the build itself is current")
+        self.assertIn("bun install --silent --no-save @ web", calls, "the frontend's old copy must be replaced")
+
+    def test_a_bun_lockfile_in_the_bindings_invalidates_the_build(self):
+        self.add_tui_packages(npm=False)
+        self.assertEqual(self.lint_all()[0].returncode, 0)
+        for name in ("bun.lock", "bun.lockb"):
+            with self.subTest(name=name):
+                self.write(f"cmux-tui/bindings/typescript/{name}", f"{name} selects other versions\n")
+
+                result, calls = self.lint_all()
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("bun run --bun build @ typescript", calls)
 
     def test_without_npm_bun_builds_the_bindings_and_leaves_no_lockfile(self):
         self.add_tui_packages(npm=False)
