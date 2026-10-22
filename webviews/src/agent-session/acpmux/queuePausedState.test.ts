@@ -1,6 +1,6 @@
-// A queue paused after a failed turn is one honest state (Leo's live chat, 2026-10-21: "so many
-// things wrong"): the chat says which error paused it, and nothing claims to run. acpmux may still
-// list the session as running from before the failure; only a turn that starts says it works.
+// A queue paused after a failed turn runs nothing (Leo's live chat, 2026-10-21: "so many things
+// wrong"): acpmux may still list the session as running from before the failure; only a turn that
+// starts says it works. The paused note's error is queuePause.ts's.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 
@@ -27,7 +27,7 @@ type Daemon = {
   touch: (target: string, fields: Record<string, unknown>, moved?: boolean) => void;
 };
 
-type Shown = { isWorking: boolean; summary?: { queuePaused?: boolean; queuePausedError?: string } };
+type Shown = { isWorking: boolean; summary?: { queuePaused?: boolean } };
 
 async function pane() {
   const { AcpmuxDirectClient } = await import("./direct");
@@ -52,7 +52,7 @@ async function pane() {
   return { daemon, view, until, id: mockHost.sessionId!, close: () => client.close?.() };
 }
 
-test("a paused queue names the turn that paused it and shows nothing running", async () => {
+test("a paused queue shows nothing running while acpmux still lists it running", async () => {
   const { daemon, view, until, id, close } = await pane();
   try {
     daemon.touch(id, { status: "running" });
@@ -64,44 +64,13 @@ test("a paused queue names the turn that paused it and shows nothing running", a
     // acpmux still lists the session as running when the queue's pause reaches the pane.
     daemon.touch(id, { status: "running", queuePaused: true });
     await until(() => view.shown.summary?.queuePaused === true);
-    expect(view.shown.summary?.queuePausedError).toBe("stream disconnected");
     expect(view.shown.isWorking).toBe(false);
-    // Its automatic continuation fails too, and holds nothing new: the note still names the cut.
+    // A turn that starts while the queue stays paused does work.
     daemon.emit(id, { mux: "turn_started" });
     await until(() => view.shown.isWorking);
     daemon.emit(id, { mux: "turn_result", msg: { status: "failed", errorText: "usage limit reached", turnId: "t-2" } });
     daemon.touch(id, { status: "ready", queuePaused: true });
     await until(() => !view.shown.isWorking);
-    expect(view.shown.summary?.queuePausedError).toBe("stream disconnected");
-  } finally {
-    close();
-  }
-});
-
-test("a turn that failed before its agent started names its error", async () => {
-  const { daemon, view, until, id, close } = await pane();
-  try {
-    // Such a turn's result has `error` and no `errorText` (`fail_unstarted_turn`).
-    daemon.emit(id, { mux: "queue_paused", msg: { turnId: "t-3", held: ["p-4"] } });
-    daemon.emit(id, { mux: "turn_result", msg: { status: "failed", error: "agent could not start", turnId: "t-3" } });
-    daemon.touch(id, { status: "disconnected", queuePaused: true });
-    await until(() => view.shown.summary?.queuePaused === true);
-    expect(view.shown.summary?.queuePausedError).toBe("agent could not start");
-  } finally {
-    close();
-  }
-});
-
-test("a pause whose turn the pane never saw names the session's last failed turn", async () => {
-  const { daemon, view, until, id, close } = await pane();
-  try {
-    daemon.touch(id, {
-      status: "ready",
-      queuePaused: true,
-      lastTurn: { status: "failed", errorText: "agent process closed", turnId: "t-9", endedAt: 1 },
-    });
-    await until(() => view.shown.summary?.queuePaused === true);
-    expect(view.shown.summary?.queuePausedError).toBe("agent process closed");
   } finally {
     close();
   }

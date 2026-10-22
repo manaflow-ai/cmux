@@ -285,6 +285,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if !memory_store && let Err(e) = hub.open_forum(&home().join("forum")) {
         tracing::warn!("forum log unavailable, keeping posts in memory: {e:#}");
     }
+    // Messages `send --no-wait` handed over (`hub/outbox.rs`): saved beside the sessions, and
+    // what a restart left undelivered goes on.
+    if !memory_store {
+        let pending = hub.outbox.open(&home().join("outbox.json"));
+        crate::server::outbox::resume(&hub, pending);
+    }
     if let Some(key) = person_key {
         // A Team-signed daemon takes the key only from the signed app's
         // `_acpmux/person_enroll`: a same-uid process could restart it with

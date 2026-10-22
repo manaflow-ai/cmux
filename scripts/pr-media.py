@@ -477,12 +477,21 @@ def require_pull_request(pr: int, repo: str, runner=None) -> None:
         raise MediaError(f"no pull request {pr} on {repo}; check --pr and --repo")
 
 
+# ffmpeg parses media a PR made, so it runs without the publish step's environment (the private terms list,
+# GH_TOKEN): only what it needs to find itself, its temp dir and a locale.
+TOOL_ENV_KEYS = ("PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE")
+
+
+def tool_env() -> dict[str, str]:
+    return {key: os.environ[key] for key in TOOL_ENV_KEYS if key in os.environ}
+
+
 def convert(upload: Upload, into: Path, fps: int, width: int, runner=None) -> Path:
     if shutil.which("ffmpeg") is None:
         raise MediaError("ffmpeg is needed to turn an mp4 into a gif; pass --no-gif to skip it")
     destination = into / upload.name
     done = (runner or subprocess.run)(gif_argv(upload.local, destination, fps, width),
-                                      capture_output=True, text=True)
+                                      capture_output=True, text=True, env=tool_env())
     if done.returncode != 0:
         raise MediaError(f"ffmpeg failed on {upload.local.name}: {(done.stderr or done.stdout).strip()}")
     if not destination.exists() or destination.stat().st_size == 0:
