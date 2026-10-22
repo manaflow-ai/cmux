@@ -41,10 +41,12 @@ mod send;
 mod side;
 mod spawns;
 mod steer;
+mod transcript;
 mod turns;
 mod wakes;
 pub use replies::{REACTIONS, reaction, tapback};
 pub use steer::STEER_DEADLINE;
+pub use transcript::{TRANSCRIPT_DEFAULT, TRANSCRIPT_MAX};
 pub use turns::stuck_notice;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -223,6 +225,13 @@ pub enum Input {
     React {
         id: u64,
         reaction: String,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `transcript(n, before)` (transcript.rs): the conversation as the
+    /// daemon stores it; the answer goes to `reply`.
+    Transcript {
+        n: u32,
+        before: Option<u64>,
         reply: Sender<Result<String, String>>,
     },
     /// `reply(id, text)` (replies.rs): the answer goes to `reply`.
@@ -1268,6 +1277,9 @@ impl Brain {
             }
             Input::Reply { id, text, reply } => {
                 let _ = reply.send(self.reply_now(id, &text));
+            }
+            Input::Transcript { n, before, reply } => {
+                let _ = reply.send(self.transcript(n, before));
             }
             Input::TellUnsteered {
                 id,
