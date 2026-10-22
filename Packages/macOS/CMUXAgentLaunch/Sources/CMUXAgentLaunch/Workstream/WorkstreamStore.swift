@@ -388,7 +388,13 @@ public final class WorkstreamStore {
         queuedPersistenceWrites += 1
         persistenceTail = Task { [weak self, persistence, item] in
             await previous?.value
-            try? await persistence.append(item)
+            do {
+                try await persistence.append(item)
+            } catch {
+                workstreamPersistenceLogger.error(
+                    "workstream journal append failed error=\(String(describing: error), privacy: .private(mask: .hash))"
+                )
+            }
             self?.queuedPersistenceWrites -= 1
         }
     }
