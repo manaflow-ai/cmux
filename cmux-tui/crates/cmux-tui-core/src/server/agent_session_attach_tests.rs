@@ -856,6 +856,54 @@ fn a_permission_answer_carries_the_decision_proof_to_acpmux_unchanged() {
     );
 }
 
+/// A question answered in the person's app on another machine: its answers
+/// go to acpmux beside the proof that covers them, unchanged (acpmux
+/// decides). The daemon says it takes them; answers that are not an object
+/// are a bad request and reach nothing.
+#[test]
+fn a_question_answer_carries_its_answers_to_acpmux_unchanged() {
+    let mut fake = FakeAcpmux::start("answers");
+    let mux = mux_with(&fake, "asa-answers");
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    let capabilities = identity["capabilities"].as_array().unwrap();
+    assert!(
+        capabilities.iter().any(|v| v == "agent-session-permission-answers-v1"),
+        "{identity}"
+    );
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "answers");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    let _ = client.event(WAIT).expect("the early record");
+    fake.notify(
+        "_acpmux/permission_pending",
+        json!({"sessionId":SESSION,"permissionId":"perm_live","decisionNonce":"n",
+               "personInstance":"i","options":[{"optionId":"allow"}]}),
+    );
+    let _ = client.event(WAIT).expect("the request is shown to the user");
+    let nonce = "ab".repeat(32);
+    let proof = "cd".repeat(32);
+    let answer = |client: &mut Client, answers: Value| {
+        client.request(json!({"cmd":"agent-session-permission","surface":surface,
+            "permission_id":"perm_live","option_id":"allow","answers":answers,
+            "decision_nonce":nonce,"person_decision":proof}))
+    };
+    for bad in [json!("B"), json!(["B"]), json!(1)] {
+        assert_code(&answer(&mut client, bad), "agent_session.bad_request");
+    }
+    fake.no_frame();
+    let answers = json!({"Which one?":"B","q2":{"answers":["x","y"]}});
+    let reply = answer(&mut client, answers.clone());
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/permission_respond"));
+    assert_eq!(
+        sent["params"],
+        json!({"sessionId":SESSION,"permissionId":"perm_live","optionId":"allow","answers":answers,
+               "_meta":{"acpmux":{"decisionNonce":nonce,"personDecision":proof}}})
+    );
+}
+
 // MARK: Lifecycle and bounds
 
 #[test]

@@ -37,6 +37,9 @@ pub use agent_session_start::{
 pub use agent_session_trust::AGENT_SESSION_TRUST_CAPABILITY;
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
+/// `agent-session-permission` takes a question's `answers` and passes them to
+/// acpmux, whose decision proof covers them (`hub/person.rs`).
+pub const AGENT_SESSION_PERMISSION_ANSWERS_CAPABILITY: &str = "agent-session-permission-answers-v1";
 
 pub(crate) const MAX_ATTACHMENTS_PER_CLIENT: usize = 8;
 pub(crate) const MAX_ATTACHMENTS_TOTAL: usize = 64;
@@ -293,6 +296,10 @@ struct PermissionParams {
     decision_nonce: Option<String>,
     #[serde(default)]
     person_decision: Option<String>,
+    /// A question's answers (an object), passed to acpmux unchanged: it
+    /// checks them against the question and the proof that covers them.
+    #[serde(default)]
+    answers: Option<Value>,
     /// Which device the person answered on: acpmux records it only with a
     /// proof that counts.
     #[serde(default)]
@@ -782,10 +789,15 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             option_id,
             decision_nonce,
             person_decision,
+            answers,
             answered_by,
             ..
         }) => {
             if option_id.is_empty() || option_id.len() > 256 {
+                return Err(Refusal::BadRequest);
+            }
+            let shape = answers.as_ref().map(|a| (a.is_object(), a.to_string().len()));
+            if shape.is_some_and(|(object, bytes)| !object || bytes > MAX_PROMPT_BYTES) {
                 return Err(Refusal::BadRequest);
             }
             if !decision_nonce.as_deref().is_none_or(is_hex64)
@@ -801,6 +813,9 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             }
             let mut params =
                 json!({"sessionId": session, "permissionId": permission_id, "optionId": option_id});
+            if let Some(answers) = answers {
+                params["answers"] = answers;
+            }
             let mut meta = serde_json::Map::new();
             if let Some(nonce) = decision_nonce {
                 meta.insert("decisionNonce".into(), Value::String(nonce));
