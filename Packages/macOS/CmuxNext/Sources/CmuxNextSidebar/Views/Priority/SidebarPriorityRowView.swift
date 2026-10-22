@@ -128,7 +128,7 @@ final class SidebarPriorityRowView: NSView {
         title.font = SidebarStyle.titleFont
         placeLabel.font = SidebarStyle.titleFont
         preview.font = SidebarStyle.subtitleFont
-        chip.font = SidebarStyle.subtitleFont
+        chip.font = SidebarStyle.subtitleDigitsFont // "Working 5m" ticks in place
         let lineHeight = ceil(SidebarStyle.titleFont.boundingRectForFont.height)
         var trailing = b.width - inset
         // The pointer over the row shows its actions in the chip's place.

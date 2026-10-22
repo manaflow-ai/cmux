@@ -680,6 +680,7 @@
 .lg-live-text,
 .lg-live-activity {
   max-width: 100%;
+  font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -802,6 +803,7 @@
 }
 .lg-sheet-meta {
   display: flex;
+  font-variant-numeric: tabular-nums;
   flex-wrap: wrap;
   margin: 0;
   font-size: var(--text-detail);
@@ -1203,6 +1205,8 @@
 }
 .lg-run-label {
   min-width: 0;
+  /* The run's duration ticks: tabular digits keep it from jittering. */
+  font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--page-text);
