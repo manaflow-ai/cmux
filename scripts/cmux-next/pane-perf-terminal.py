@@ -296,7 +296,7 @@ def main_thread_buckets(text):
     lines = graph[1].splitlines()
     import re
     node = re.compile(r"^([ +!:|]*)(\d+) (.*)$")
-    start = next((i for i, l in enumerate(lines) if "com.apple.main-thread" in l or "Thread_" in l and "main" in l), None)
+    start = next((i for i, l in enumerate(lines) if "Thread_" in l and "com.apple.main-thread" in l), None)
     if start is None:
         return ["  (no main thread)"]
     head = node.match(lines[start])
@@ -317,9 +317,38 @@ def main_thread_buckets(text):
         if bucket and all(b != bucket for _, b in path):
             sums[bucket] += int(m.group(2))
         path.append((depth, bucket))
+    # Self time per symbol (leaves of the main thread's tree), the heaviest first.
+    leaves, rows = {}, []
+    for line in lines[start + 1:]:
+        m = node.match(line)
+        if not m:
+            continue
+        if len(m.group(1)) <= base:
+            break
+        rows.append((len(m.group(1)), int(m.group(2)), m.group(3)))
+    for i, (depth, count, symbol) in enumerate(rows):
+        child = sum(c for d, c, _ in rows[i + 1:next((j for j in range(i + 1, len(rows)) if rows[j][0] <= depth), len(rows))] if d == min((r[0] for r in rows[i + 1:i + 2]), default=depth + 1))
+        own = count - child if i + 1 < len(rows) and rows[i + 1][0] > depth else count
+        name = symbol.split("  (in ")[0][:140]
+        leaves[name] = leaves.get(name, 0) + max(own, 0)
     out = [f"  main thread samples {total} (1 ms each)"]
     for name, _ in BUCKETS:
         out.append(f"  {name:<15} {sums[name]:>6}  {100.0 * sums[name] / max(total, 1):5.1f}%")
+    out.append("  main thread self time, heaviest (not idle):")
+    idle = ("mach_msg2_trap", "mach_msg_trap", "__psynch_cvwait", "semaphore_wait_trap", "kevent")
+    for name, count in sorted(leaves.items(), key=lambda kv: -kv[1])[:40]:
+        if not name.startswith(idle) and count > 0:
+            out.append(f"    {count:>6}  {name}")
+    # The busiest non-idle branches of the main thread, to read who calls the heavy leaves.
+    out.append("  main thread heavy branches (>= 1% of non-idle):")
+    busy = max(total - sums.get("idle", 0), 1)
+    shown = 0
+    for depth, count, symbol in rows:
+        if count * 100 >= busy and not any(k in symbol for k in idle) and depth - base <= 120:
+            out.append("    " + " " * ((depth - base) // 2) + f"{count} {symbol.split('  (in ')[0][:150]}")
+            shown += 1
+            if shown >= 140:
+                break
     return out
 
 
