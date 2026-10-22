@@ -23,6 +23,9 @@ struct CloudMachineUpdateAppLinkTests {
                                           localIdentity: { nil })
         defer { session.disconnect() }
         let machines = MachineRegistry(local: DaemonService())
+        // Before the connect: a failed first attempt would ask the app link for its socket again,
+        // which ends the link.
+        try await fixture.waitUntil { FileManager.default.fileExists(atPath: fixture.daemonSocket.path) }
         session.connect()
 
         try await fixture.waitUntil { machines.compatibility(of: session.daemon)?.level == .incompatible }
