@@ -147,11 +147,14 @@ public struct MacDevice: Identifiable, Hashable, Sendable, Codable {
     public var name: String
     public var isOnline: Bool
     public var lastSeenAt: Date?
+    /// Who registered the Mac (nil when not known: mock data, older snapshots).
+    public var ownerUserID: String?
 
-    public init(id: String, name: String, isOnline: Bool, lastSeenAt: Date? = nil) {
+    public init(id: String, name: String, isOnline: Bool, lastSeenAt: Date? = nil, ownerUserID: String? = nil) {
         self.id = id
         self.name = name
         self.isOnline = isOnline
         self.lastSeenAt = lastSeenAt
+        self.ownerUserID = ownerUserID
     }
 }
