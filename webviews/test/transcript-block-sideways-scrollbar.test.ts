@@ -134,48 +134,36 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
       };
     }, block);
 
-  /// Whether the lane draws a thumb at rest: the columns of the lane whose pixels change when every
-  /// scrollbar thumb on the page (and in Pierre's shadow roots) is made transparent.
+  /// Whether the lane draws a thumb at rest, read from the pixels the page drew. Scrolled to the
+  /// start, a thumb sits at the lane's left end and the right end shows the card under the lane (a
+  /// track with no color, the right-edge fade over the lines): a column that differs from the
+  /// lane's right end in some row is drawn on. A thumb is a run of such columns; a track would be
+  /// the whole lane.
   async function thumb(page: Page, box: Awaited<ReturnType<typeof measure>>) {
-    if (box.lane <= 0) return { thumb: false, track: false, columns: 0 };
+    if (box.lane <= 0) return { thumb: false, track: false, columns: 0, width: 0 };
     const clip = {
       x: Math.ceil(box.left),
       y: Math.round(box.bottom - box.lane),
-      width: Math.floor(box.width),
+      width: Math.floor(box.width) - 1,
       height: box.lane,
     };
-    const shot = async () => PNG.sync.read(await page.screenshot({ clip }));
-    const drawn = await shot();
-    await page.evaluate(() => {
-      const rule =
-        "::-webkit-scrollbar-thumb { background: transparent !important; border-color: transparent !important; }";
-      const hide = (root: Document | ShadowRoot) => {
-        const style = document.createElement("style");
-        style.textContent = rule;
-        (root instanceof Document ? root.head : root).append(style);
-      };
-      hide(document);
-      for (const element of document.querySelectorAll("*")) if (element.shadowRoot) hide(element.shadowRoot);
-    });
-    await page.evaluate(async () => {
-      for (let left = 3; left > 0; left--) await window.cmuxPaintFrame();
-    });
-    const bare = await shot();
+    const png = PNG.sync.read(await page.screenshot({ clip }));
+    const reference = png.width - 3;
     let columns = 0;
-    for (let x = 0; x < drawn.width; x++)
-      for (let y = 0; y < drawn.height; y++) {
-        const at = (y * drawn.width + x) * 4;
+    for (let x = 0; x < png.width; x++)
+      for (let y = 0; y < png.height; y++) {
+        const at = (y * png.width + x) * 4;
+        const ref = (y * png.width + reference) * 4;
         const delta =
-          Math.abs(drawn.data[at]! - bare.data[at]!) +
-          Math.abs(drawn.data[at + 1]! - bare.data[at + 1]!) +
-          Math.abs(drawn.data[at + 2]! - bare.data[at + 2]!);
+          Math.abs(png.data[at]! - png.data[ref]!) +
+          Math.abs(png.data[at + 1]! - png.data[ref + 1]!) +
+          Math.abs(png.data[at + 2]! - png.data[ref + 2]!);
         if (delta > 24) {
           columns++;
           break;
         }
       }
-    // A thumb: a run of columns; on no track: not the lane's whole width.
-    return { thumb: columns >= 16, track: columns > drawn.width - 8, columns };
+    return { thumb: columns >= 16, track: columns > png.width - 8, columns, width: png.width };
   }
 
   /// Every point of a grid over `selector`'s visible part whose element (inside shadow roots too)
@@ -221,7 +209,8 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
             // It is in view: a cut preview ends with it.
             expect(box.bottom).toBeLessThanOrEqual(box.shownBottom + 0.5);
             const drawn = await thumb(page, box);
-            expect({ ...drawn, columns: 0 }).toEqual({ thumb: true, track: false, columns: 0 });
+            console.log(`${engine} ${block.variant}: ${JSON.stringify({ ...box, ...drawn })}`);
+            expect({ thumb: drawn.thumb, track: drawn.track }).toEqual({ thumb: true, track: false });
             expect(await resizeCursors(page, `${block.card}, .acpmux-edited-toggle, .cv-tool`)).toEqual([]);
           } finally {
             await page.close();
