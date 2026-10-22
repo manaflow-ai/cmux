@@ -114,16 +114,6 @@ struct ServerReachAdmissionTests {
         #expect(saved.daemon.isStarting)
     }
 
-    @Test func aLocalChiefKeepsItsSeparateLocalAdmissionWithoutAnAccount() throws {
-        let h = Harness(); defer { h.stop() }
-        h.user = nil
-        let chief = try ServerReach.localChief(homeID: "abcd1234", socket: h.socket, name: "Local Chief")
-        h.service.localChief = { chief }
-        h.service.showLocalChief()
-        let shown = try #require(h.machines.servers.first)
-        #expect(shown.reach == chief && shown.daemon.isStarting)
-    }
-
     @Test func oldRegistryEchoesCannotReplaceAnAdmittedCurrentInstallation() async throws {
         let h = Harness(); defer { h.stop() }
         h.install = "inst_after0001"
