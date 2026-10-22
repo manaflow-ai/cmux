@@ -114,6 +114,7 @@ extension AgentPaneModel {
             replyLinks.browsers.open(url, withApplicationAt: app)
             return AgentPaneReply.success()
         case .revealImage, .openImageInPane: return await AgentPaneImageCopies.respond(to: request, in: self)
+        case .previewPath(let path): return await previewReplyPath(path)
         }
     }
 
