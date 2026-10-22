@@ -951,6 +951,7 @@ export default settingsPageEntry({
     "pages/settings/components/BackdropLink.tsx",
     "pages/settings/components/BackdropScope.tsx",
     "pages/settings/components/ChiefPetCard.tsx",
+    "pages/settings/components/ChiefDiagnosticsCard.tsx#ChiefDiagnosticsCard",
     "pages/settings/components/ChannelsCard.tsx",
     "pages/settings/components/ImportSuggestionsCard.tsx",
     "pages/settings/components/VoiceInputCard.tsx",
