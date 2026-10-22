@@ -62,6 +62,14 @@ const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp
 const CONVERTIBLE_TYPES = new Set(["image/heic", "image/heif", "image/tiff", "image/bmp", "image/avif"]);
 const CONVERTIBLE_NAME = /\.(heic|heif|tiff?|bmp|avif)$/i;
 
+/// Whether `file` is a picture the composer attaches as an image (as it is, or converted), by its
+/// type or name alone: what its chip looks like before its bytes are read.
+export function isImageFile(file: File): boolean {
+  return (
+    IMAGE_TYPES.has(file.type) || CONVERTIBLE_TYPES.has(file.type) || (!file.type && CONVERTIBLE_NAME.test(file.name))
+  );
+}
+
 function isPdf(file: File): boolean {
   return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
 }

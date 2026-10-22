@@ -3,10 +3,12 @@
 import { expect, test } from "bun:test";
 import {
   belowCheckout,
+  byRecentUse,
   groupByRepo,
   guessProjectRepo,
   isMainCheckout,
   parseProjectRepos,
+  projectRows,
   shownRepoRows,
   worktreeName,
   type RepoFolder,
@@ -144,4 +146,128 @@ test("a folder inside a checkout is named by its path below it, never as the che
   expect([main, sub, laneSub, laneTop].map(isMainCheckout)).toEqual([true, false, false, false]);
   // The composer strip adds this beside its branch control: "cmux · web", not "cmux".
   expect([main, sub, laneSub, laneTop].map(belowCheckout)).toEqual([undefined, "web", "web/src", undefined]);
+});
+
+// Leo's New Tab picker on nightly 331e2e9 (2026-10-21): "cmux · ~/Projects" twice (the main clone
+// and the lane mirror's worktrees, 19 and 63 branches), each lane's checkout and `.noindex` scratch
+// folder as a project, and the home folder.
+const leo = "/Users/leo/Projects";
+const main = { root: `${leo}/cmux`, top: `${leo}/cmux`, name: "cmux", github: "manaflow-ai/cmux" };
+const mirror = `${leo}/.wt-mirrors/manaflow-ai/cmux.git`;
+const mirrored = (lane: string): RepoFolder => ({
+  id: `${leo}/checkouts/cmux/${lane}`,
+  label: lane,
+  repo: { root: mirror, top: `${leo}/checkouts/cmux/${lane}`, name: "cmux", branch: lane, github: "manaflow-ai/cmux" },
+});
+const picker: RepoFolder[] = [
+  { id: leo, label: "Projects" },
+  mirrored("lane-host-fg"),
+  { id: `${leo}/cmux`, label: "cmux", repo: { ...main, branch: "main" } },
+  {
+    id: `${leo}/leo-workspace`,
+    label: "leo-workspace",
+    repo: { root: `${leo}/leo-workspace`, name: "leo-workspace", github: "teamleaderleo/leo-workspace" },
+  },
+  // A chat's folder the host was not asked about.
+  { id: `${leo}/checkouts/cmux/queued-agent-from`, label: "queued-agent-from" },
+  { id: `${leo}/cmux-live-block.noindex`, label: "cmux-live-block.noindex" },
+  { id: `${leo}/cmux/webviews`, label: "webviews" },
+  mirrored("cg-queue--collapsed-queue"),
+  { id: "/Users/leo/.cmux/worktrees.noindex/cmux/steer-folds", label: "steer-folds" },
+  { id: "/Users/leo", label: "~" },
+  { id: "/Users/leo/Library/Caches/x.noindex/scratch", label: "scratch" },
+];
+
+test("one row per repository: every clone and lane checkout of one GitHub repository folds together", () => {
+  const groups = groupByRepo(picker, leo);
+  expect(groups.map((group) => [group.name, group.members.length])).toEqual([
+    ["Projects", 1],
+    ["cmux", 6],
+    ["leo-workspace", 1],
+  ]);
+  const cmuxRow = groups[1]!;
+  // The main clone leads; the rest are its branches, newest first.
+  expect(cmuxRow.lead.id).toBe(`${leo}/cmux`);
+  expect(cmuxRow.members.filter((member) => member !== cmuxRow.lead).map(worktreeName)).toEqual([
+    "lane-host-fg",
+    "queued-agent-from",
+    "webviews",
+    "cg-queue--collapsed-queue",
+    "steer-folds",
+  ]);
+  // A folder inside the main checkout is named by its path below it, not the checkout's branch.
+  expect(belowCheckout(cmuxRow.members.find((member) => member.label === "webviews")!)).toBe("webviews");
+});
+
+test("scratch folders in no repository and the home folder are left out unless current", () => {
+  const ids = (current?: string) => groupByRepo(picker, current).flatMap((group) => group.members.map((m) => m.id));
+  expect(ids(leo)).not.toContain(`${leo}/cmux-live-block.noindex`);
+  expect(ids(leo)).not.toContain("/Users/leo");
+  expect(ids(leo)).not.toContain("/Users/leo/Library/Caches/x.noindex/scratch");
+  expect(ids("/Users/leo")).toContain("/Users/leo");
+  expect(ids(`${leo}/cmux-live-block.noindex`)).toContain(`${leo}/cmux-live-block.noindex`);
+});
+
+test("a lane checkout's guess joins only an unambiguous repository of that name", () => {
+  const other = { root: "/Users/me/fork/cmux", name: "cmux", github: "someone/cmux" };
+  const ambiguous: RepoFolder[] = [
+    { id: "/Users/me/src/cmux", label: "cmux", repo: { root: "/Users/me/src/cmux", name: "cmux", github: "o/cmux" } },
+    { id: "/Users/me/fork/cmux", label: "cmux", repo: other },
+    { id: "/Users/me/checkouts/cmux/lane", label: "lane" },
+  ];
+  expect(groupByRepo(ambiguous).map((group) => [group.name, group.members.length])).toEqual([
+    ["cmux", 1],
+    ["cmux", 1],
+    ["cmux", 1],
+  ]);
+  expect(guessProjectRepo("/Users/me/Projects/checkouts/cmux/feat--picker")).toMatchObject({
+    name: "cmux",
+    branch: "feat/picker",
+  });
+  expect(guessProjectRepo("/Users/me/Projects/cmux-worktrees/picker-23900")).toMatchObject({
+    name: "cmux",
+    branch: "picker-23900",
+  });
+});
+
+test("a folder the host said nothing about never joins a known repository by its name alone", () => {
+  // The host knows only a lane of acme/web (root in a bare mirror, so no main checkout to hold it).
+  const web = { root: "/Users/me/.mirrors/acme/web.git", name: "web", github: "acme/web" };
+  const unrelated: RepoFolder[] = [
+    {
+      id: "/Users/me/checkouts/web/lane1",
+      label: "lane1",
+      repo: { ...web, top: "/Users/me/checkouts/web/lane1", branch: "lane1" },
+    },
+    { id: "/Users/me/Projects/site/web", label: "web" },
+  ];
+  const groups = groupByRepo(unrelated);
+  expect(groups.map((group) => [group.name, group.lead.id])).toEqual([
+    ["web", "/Users/me/checkouts/web/lane1"],
+    ["web", "/Users/me/Projects/site/web"],
+  ]);
+});
+
+test("the flat pickers list each repository once, by its lead, and no scratch folders", () => {
+  const projects = [
+    {
+      cwd: "/Users/me/Projects/cmux",
+      label: "cmux",
+      repo: { root: "/Users/me/Projects/cmux", name: "cmux", github: "o/cmux", branch: "main" },
+    },
+    { cwd: "/Users/me/Projects/checkouts/cmux/lane-a", label: "lane-a" },
+    { cwd: "/Users/me/Projects/cmux-live-block.noindex", label: "cmux-live-block.noindex" },
+    { cwd: "/Users/me", label: "me" },
+    { cwd: "/Users/me/notes", label: "notes" },
+  ];
+  expect(projectRows(projects).map((project) => project.cwd)).toEqual(["/Users/me/Projects/cmux", "/Users/me/notes"]);
+  expect(projectRows(projects, "/Users/me/Projects/checkouts/cmux/lane-a").map((project) => project.cwd)).toEqual([
+    "/Users/me/Projects/checkouts/cmux/lane-a",
+    "/Users/me/notes",
+  ]);
+});
+
+test("projects a chat used come first, newest chat first; the rest keep their order", () => {
+  const projects = ["/a", "/b", "/c", "/d"].map((cwd) => ({ cwd }));
+  expect(byRecentUse(projects, ["/c/", "/a"]).map((project) => project.cwd)).toEqual(["/c", "/a", "/b", "/d"]);
 });
