@@ -45,6 +45,10 @@ final class CEFRuntime {
     var placements = CEFPlacementQueue()
     /// Window requests: decisions, their log and link clicks.
     private(set) lazy var windowRequests = CEFWindowRequests(runtime: self)
+    /// Page accessibility while an assistive client asks for it (`CEFAccessibility`).
+    private(set) lazy var accessibility = CEFAccessibility(
+        apply: { [weak self] browser, enabled in self?.shim?.setAccessibility(browser, enabled ? 1 : 0) },
+        browsers: { [weak self] in self.map { Array($0.tabsByBrowser.keys) } ?? [] })
     /// Two-finger Back and Forward swipes over pages (`CEFSwipeNavigation`).
     private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
     /// Opens `url` in a new cmux tab when no Chromium window of its profile

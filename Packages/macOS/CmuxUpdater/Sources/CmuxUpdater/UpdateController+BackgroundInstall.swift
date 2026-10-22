@@ -10,6 +10,27 @@ extension UpdateController {
         set { driver.installsInBackground = newValue }
     }
 
+    /// Whether a staged background update should enter the safe idle relaunch gate automatically.
+    /// The gate waits for active agent turns, running commands and recent user input.
+    public var installsUpdatesWhenIdle: Bool {
+        get { driver.installsWhenIdle }
+        set { driver.installsWhenIdle = newValue }
+    }
+
+    /// The longest an automatic idle install waits for agents, commands and input before it
+    /// relaunches anyway (default 15 minutes).
+    public var idleInstallWaitCap: Duration {
+        get { driver.relaunchGate.automaticWaitCap }
+        set { driver.relaunchGate.automaticWaitCap = newValue }
+    }
+
+    /// Whether an install the user asked for (a click, Install Now, Restart Now) waits for busy
+    /// agents and running commands. Automatic idle installs always wait.
+    public var holdsUserInstalls: Bool {
+        get { driver.holdsUserInstalls }
+        set { driver.holdsUserInstalls = newValue }
+    }
+
     /// The downloaded update waiting for ``installStagedUpdate()``, or nil.
     public var stagedUpdate: SUAppcastItem? {
         driver.stagedItem
@@ -45,6 +66,7 @@ extension UpdateController {
             log.append("background install: installing the update Sparkle staged silently")
             driver.quitInstallItem = nil
             model.setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
+            driver.relaunchIsAutomatic = false
             installing.retryTerminatingApplication()
             armStagedInstallWatchdog()
             return

@@ -198,6 +198,47 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.tier(wf, patches={wf: "+    if: github.event_name == 'pull_request_target'"}), "normal")
         self.assertEqual(self.tier(wf, patches={wf: "+  push:  # not pull_request_target"}), "normal")
 
+    def test_agent_pane_host_ops_and_allowlists_are_high(self):
+        # #22646 added the page op chat.asks.pending, whose handler read another chat's permission
+        # asks over the host's own acpmux connection and reached a peer daemon until review caught it.
+        # It graded normal by path. What a pane page may make the host do or read is access policy.
+        pane = NEXT + "CmuxNextAgentPane/"
+        for path in (
+            pane + "AgentPageProvider.swift",
+            pane + "AcpmuxPaneMethods.swift",
+            pane + "AcpmuxPaneMethods+Params.swift",
+            pane + "AcpmuxPaneMethods+Answers.swift",
+            pane + "AgentPaneEnvironmentRequest.swift",
+            pane + "AgentPaneReplyRequest.swift",
+            pane + "AgentPaneTransport+Check.swift",
+            pane + "AcpmuxPathPolicy.swift",
+            pane + "AgentPanePendingAsks.swift",
+            pane + "AgentPaneTransport+Frames.swift",
+            pane + "AgentPaneGestureIntent.swift",
+            pane + "AgentPaneUserGestures.swift",
+            pane + "AgentPaneModel+Actions.swift",
+            pane + "AgentPaneTransport+RelayedAllow.swift",
+            pane + "AgentPaneTransport+PickedFolder.swift",
+            pane + "AgentPaneTransport+FullAccess.swift",
+            "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+            "cmux-tui/crates/cmux-agent-pane-policy/src/params.rs",
+            "cmux-tui/crates/acpmux/src/server/remote_guard.rs",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "high")
+
+    def test_ordinary_agent_pane_ui_and_policy_tests_stay_below_high(self):
+        pane = NEXT + "CmuxNextAgentPane/"
+        for path in (pane + "AgentPaneView.swift", pane + "AgentPageProvider+Scroll.swift",
+                     pane + "AgentPaneModel+Composer.swift", pane + "AgentPaneTransportPacer.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "normal")
+        for path in ("cmux-tui/crates/cmux-agent-pane-policy/tests/cases/params.json",
+                     "cmux-tui/crates/cmux-agent-pane-policy/tests/swift.rs",
+                     "cmux-tui/crates/acpmux/tests/remote_guard.rs"):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "low")
+
     def test_audit_sample_of_real_pull_requests(self):
         # Each case is a merged pull request from the audit (docs/ci/risk-tiers.md), with its files.
         cases = {
@@ -255,6 +296,43 @@ class ClassifyTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertEqual(self.tier(path), expected)
+
+    def test_an_update_channel_setting_is_normal_and_the_update_path_stays_high(self):
+        # Leo, 2026-10-21: a settings-only channel toggle that reuses the signed feeds is normal;
+        # updater install, signing and feed-verification code stays high.
+        setting = ("Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
+                   NEXT + "CmuxNextUpdater/UpdatePreferences.swift",
+                   NEXT + "CmuxNextSettings/UpdatesSettings.swift",
+                   NEXT + "CmuxNextSettings/Schema/SettingsSchema+Updates.generated.swift",
+                   "schemas/settings/source/updates.json", "schemas/settings/settings-schema.json",
+                   NEXT + "CmuxNextSettings/Localizable.xcstrings")
+        self.assertEqual(self.tier(*setting), "normal")
+        # UpdateTrack decides whether Sparkle runs at all, so it is the update path, not a setting.
+        for path in ("UpdateTrack.swift", "AppcastParser.swift", "AppcastSelector.swift", "UpdateProber.swift",
+                     "UpdaterService+Flow.swift",
+                     "UpdateInstallPreflight.swift", "RollbackSwap.swift", "UpdateTransfer.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(*setting, NEXT + "CmuxNextUpdater/" + path), "high")
+
+    def test_the_cmux_updater_package_is_the_update_path(self):
+        # Signature verification, the feed resolver, the Sparkle driver and the install code must never
+        # grade normal; only the ring above is a setting. Its tests stay low.
+        updater = "Packages/macOS/CmuxUpdater/"
+        for path in ("Sources/CmuxUpdater/ChannelSwitch/AppSignatureVerification.swift",
+                     "Sources/CmuxUpdater/ChannelSwitch/SecurityAppSignatureInspector.swift",
+                     "Sources/CmuxUpdater/ChannelSwitch/AppChannelSwitcher.swift",
+                     "Sources/CmuxUpdater/UpdateFeedResolver.swift",
+                     "Sources/CmuxUpdater/UpdateDriver.swift",
+                     "Sources/CmuxUpdater/UpdateDriver+SPUUpdaterDelegate.swift",
+                     "Sources/CmuxUpdater/UpdateDriver+BackgroundInstall.swift",
+                     "Sources/CmuxUpdater/UpdateController+InstallAttempt.swift",
+                     "Sources/CmuxUpdater/UpdateController+BackgroundInstall.swift",
+                     "Sources/CmuxUpdater/InstallWatchdog.swift",
+                     "Package.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(updater + path), "high")
+        self.assertEqual(self.tier(updater + "Sources/CmuxUpdater/UpdateRing.swift"), "normal")
+        self.assertEqual(self.tier(updater + "Tests/CmuxUpdaterTests/UpdateFeedResolverTests.swift"), "low")
 
     def test_highest_path_wins(self):
         self.assertEqual(self.tier("docs/x.md", NEXT + "CmuxNextSidebar/A.swift",
