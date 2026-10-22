@@ -107,8 +107,9 @@ public struct KeyBindingLoader {
         var binding = entry
         binding.command = id
         guard let descriptor = registry.descriptor(for: id) else {
-            // An action registered without a catalog row takes no arguments.
-            return registry.action(for: id) == nil || !entry.arguments.isEmpty ? .failure(.unknownCommand(entry.command.rawValue)) : .success(binding)
+            // An action registered without a catalog row takes no arguments, unless it takes any.
+            guard let action = registry.action(for: id) else { return .failure(.unknownCommand(entry.command.rawValue)) }
+            return entry.arguments.isEmpty || action.takesAnyArguments ? .success(binding) : .failure(.unknownCommand(entry.command.rawValue))
         }
         for (name, value) in entry.arguments {
             guard let argument = descriptor.arguments.first(where: { $0.name == name }) else { return .failure(.unknownArgument(name)) }

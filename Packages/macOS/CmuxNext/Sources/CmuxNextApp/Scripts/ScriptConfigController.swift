@@ -122,6 +122,7 @@ final class ScriptConfigController {
             var entry = Action(id: id, title: action.title, keywords: [action.name, action.description].compactMap { $0 },
                                invoke: { [weak self] in self?.run(action.id, invocation: $0) }, handler: {})
             if !action.palette { entry.paletteExemption = .scriptKeyFunction }
+            entry.takesAnyArguments = true
             registry.register(entry)
             ids.append(id)
         }
@@ -132,6 +133,10 @@ final class ScriptConfigController {
         let (bindings, modeBindings) = Self.bindings(report?.keys ?? [], registry: registry)
         modes.bindings = modeBindings
         services.keybindingsFile.setScriptLayer(bindings: bindings, removals: Self.removals(report?.removals ?? []))
+        for issue in services.keybindingsFile.issues where issue.source == .app && bindings.indices.contains(issue.index) {
+            let binding = bindings[issue.index]
+            logger.error("config scripts: the binding \(KeybindingReports.text(binding.keys), privacy: .public) of \(binding.command.rawValue, privacy: .public) did not load: \(String(describing: issue.kind), privacy: .public)")
+        }
     }
 
     /// The table's bindings and each mode's, parsed. An entry whose keys or
@@ -153,7 +158,17 @@ final class ScriptConfigController {
                 table.append(binding)
                 continue
             }
-            if case .success(let checked) = loader.validatedCommand(binding) { modes[mode, default: []].append(checked) }
+            guard strokes.count == 1 else {
+                Logger(subsystem: "com.cmuxterm.app.next", category: "script-config")
+                    .error("config scripts: key mode \(mode, privacy: .public) binds one key per binding; \(key.key, privacy: .public) did not load")
+                continue
+            }
+            switch loader.validatedCommand(binding) {
+            case .success(let checked): modes[mode, default: []].append(checked)
+            case .failure(let kind):
+                Logger(subsystem: "com.cmuxterm.app.next", category: "script-config")
+                    .error("config scripts: \(key.key, privacy: .public) in key mode \(mode, privacy: .public) did not load: \(String(describing: kind), privacy: .public)")
+            }
         }
         return (table, modes)
     }
@@ -191,19 +206,27 @@ final class ScriptConfigController {
         }
     }
 
-    /// What the action's `ctx` says: who ran it and the focused objects' public ids.
+    /// What the action's `ctx` says: who ran it and the public ids of its
+    /// target tab (else the focused pane's selected tab), its pane and its
+    /// workspace. Only this Mac's objects: the scripts run in its daemon.
     private func context(_ invocation: ActionInvocation) -> [String: JSONValue] {
         var fields: [String: JSONValue] = ["origin": .string(Self.origin(invocation))]
-        guard let services, let pane = services.windows.active?.focusedPane else { return fields }
-        if let id = pane.pane.resourceID { fields["pane"] = .string(id.rawValue) }
-        if let workspace = services.daemon.store.workspace(containing: pane.pane.handle)?.resourceID {
+        guard let services, let (tab, pane) = target(invocation, services: services),
+              services.machines.daemon(forTab: tab).isLocal else { return fields }
+        if let id = pane.resourceID { fields["pane"] = .string(id.rawValue) }
+        if let workspace = services.daemon.store.workspace(containing: pane.handle)?.resourceID {
             fields["workspace"] = .string(workspace.rawValue)
         }
-        if let selected = pane.stripModel.selectedID, let tab = pane.tab(selected) {
-            if let id = tab.resourceID { fields["tab"] = .string(id.rawValue) }
-            if let id = tab.terminalResourceID { fields["terminal"] = .string(id.rawValue) }
-        }
+        if let id = tab.resourceID { fields["tab"] = .string(id.rawValue) }
+        if let id = tab.terminalResourceID { fields["terminal"] = .string(id.rawValue) }
         return fields
+    }
+
+    private func target(_ invocation: ActionInvocation, services: AppServices) -> (TabModel, PaneModel)? {
+        if let target = invocation.target, target.kind == .tab { return services.locateTab(target.id) }
+        guard let pane = services.windows.active?.focusedPane, let selected = pane.stripModel.selectedID,
+              let tab = pane.tab(selected) else { return nil }
+        return (tab, pane.pane)
     }
 
     /// `key` for a key-down, `palette` for the person's other gestures, else the caller's origin.

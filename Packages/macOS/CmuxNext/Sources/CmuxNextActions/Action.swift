@@ -100,6 +100,9 @@ public struct Action: Identifiable {
     public var targetHidden: (@MainActor (ActionInvocation) -> Bool)?
     /// Why the palette leaves this ad hoc action out, or nil to list it.
     public var paletteExemption: SurfaceExemption?
+    /// An ad hoc action that takes any arguments as they come (a config
+    /// script's `user.*` action reads its own): bindings may pass them.
+    public var takesAnyArguments = false
 
     public init(
         id: ActionID,
@@ -149,6 +152,7 @@ public struct Action: Identifiable {
             handler: handler
         )
         copy.paletteExemption = paletteExemption
+        copy.takesAnyArguments = takesAnyArguments
         return copy
     }
 }
