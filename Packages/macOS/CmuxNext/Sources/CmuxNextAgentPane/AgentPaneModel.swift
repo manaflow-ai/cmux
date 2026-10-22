@@ -107,6 +107,9 @@ public final class AgentPaneModel {
     /// Whether the page has asked for a handshake, so its bridge is up and
     /// a turn can be revealed through it directly.
     @ObservationIgnored public internal(set) var hasHandshake = false
+    /// The last handshake was refused with a daemon this app may replace on its socket: only then
+    /// does `acpmux.restart` stop it (``AgentPaneHandshakeReply/restartAcpmux(in:)``).
+    @ObservationIgnored var acpmuxRestartOffered = false
     /// Runs a git read on the session host and returns its JSON result.
     /// Throws an ``AgentPaneGitFailure`` saying who failed; any other error
     /// reaches the page as `native.failed`.
@@ -261,6 +264,7 @@ public final class AgentPaneModel {
         switch request {
         case .ready, .reconnect:
             return await AgentPaneHandshakeReply.reply(to: request, in: self)
+        case .restartAcpmux: return await AgentPaneHandshakeReply.restartAcpmux(in: self)
         case .persistSession(let id): adoptSession(id); return AgentPaneReply.success()
         case .missingChat(let session, let reason):
             missingChatLog.record(session: session, reason: reason, tabSession: sessionId, remote: remoteChat)

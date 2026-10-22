@@ -11,6 +11,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page lost its daemon and wants a fresh handshake (a restarted
     /// daemon has a new port and token), without starting one.
     case reconnect
+    /// `acpmux.restart {}`: the refusal card's Restart acpmux, after a handshake refused a daemon
+    /// another binary runs on this app's socket (``AgentPaneHostError/daemonRefused(holder:socketPath:reason:owner:)``
+    /// with an owner): that daemon stops, keeping its sessions, and the page's next handshake
+    /// starts this app's own. Only with a real gesture; answers `{stopped}`.
+    case restartAcpmux
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)

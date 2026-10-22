@@ -165,6 +165,17 @@ extension AgentPaneView {
 }
 
 extension AgentPaneHostError {
+    /// " It runs <binary>, signed by team <team>." after a refusal that names the socket's owner.
+    private static func ownerSentence(_ owner: AcpmuxSocketOwner?) -> String {
+        guard let owner else { return "" }
+        let sentence = if let team = owner.team {
+            String(format: String(localized: "agentPane.error.daemonOwnerSigned", defaultValue: "It runs %1$@, signed by team %2$@.", bundle: .module), owner.path, team)
+        } else {
+            String(format: String(localized: "agentPane.error.daemonOwnerUnsigned", defaultValue: "It runs %@, which is not signed by any team.", bundle: .module), owner.path)
+        }
+        return " " + sentence
+    }
+
     /// What the page shows for `error`; anything but a host error reads as a
     /// timeout.
     static func userMessage(for error: any Error) -> String {
@@ -188,10 +199,12 @@ extension AgentPaneHostError {
             String(localized: "agentPane.error.daemonStopped", defaultValue: "acpmux is not running. Open a new agent chat to start it.", bundle: .module)
         case .chiefStopped:
             String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Home to start it.", bundle: .module)
-        case .daemonRefused(let holder?, let socketPath, _):
+        case .daemonRefused(let holder?, let socketPath, _, let owner):
             String(format: String(localized: "agentPane.error.daemonHeldByOtherBuild", defaultValue: "acpmux is running, but %1$@ owns it (%2$@) and this build may not use it. Quit %1$@, or use that build.", bundle: .module), holder, socketPath)
-        case .daemonRefused(nil, let socketPath, let reason):
+                + ownerSentence(owner)
+        case .daemonRefused(nil, let socketPath, let reason, let owner):
             String(format: String(localized: "agentPane.error.daemonRefused", defaultValue: "acpmux is running at %1$@, but this build may not use it: %2$@.", bundle: .module), socketPath, reason)
+                + ownerSentence(owner)
         case .timedOut, nil:
             String(localized: "agentPane.error.timedOut", defaultValue: "acpmux did not answer in time.", bundle: .module)
         }

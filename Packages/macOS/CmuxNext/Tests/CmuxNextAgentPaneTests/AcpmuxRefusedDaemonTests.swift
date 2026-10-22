@@ -62,7 +62,7 @@ struct AcpmuxRefusedDaemonTests {
             _ = try await host.reconnectHandshake(sessionId: "s")
             Issue.record("a daemon that is not this app's acpmux was accepted")
         } catch let error as AgentPaneHostError {
-            guard case .daemonRefused(_, let path, let reason) = error else {
+            guard case .daemonRefused(_, let path, let reason, _) = error else {
                 Issue.record("expected daemonRefused, got \(error)")
                 return ("", "")
             }
