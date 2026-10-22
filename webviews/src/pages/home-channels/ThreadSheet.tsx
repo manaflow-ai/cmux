@@ -46,6 +46,8 @@ export interface ThreadSheetProps {
   /** Files upload through this (absent: no attach in the thread composer). */
   attachments?: ComposerProps["attachments"];
   onCopyLink(message: HomeMessage): void;
+  /** The fork a message offers (MessageRow `fork`). */
+  fork?(message: HomeMessage): { label: string; run(): void } | undefined;
   onReact(message: HomeMessage, value: string): void;
   onEditStart?(message: HomeMessage): void;
   onEditEnd?(): void;
@@ -80,6 +82,7 @@ export function ThreadSheet({
   onSend,
   attachments,
   onCopyLink,
+  fork,
   onReact,
   onEditStart,
   onEditEnd,
@@ -252,6 +255,7 @@ export function ThreadSheet({
         onRetract={onRetract}
         onReply={(message) => setReplyTo(message.id === root ? undefined : message)}
         onCopyLink={onCopyLink}
+        fork={fork}
         highlight={highlight}
         pendingState={pendingState}
         onRetry={onRetry}

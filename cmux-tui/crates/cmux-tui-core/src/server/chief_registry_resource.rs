@@ -167,6 +167,7 @@ fn answer_locked(
         Op::ChiefProfileAdopt => Some(adoptee(mux, operation, fields)?),
         _ => None,
     };
+    let prepared = fork_copy(mux, client, request)?;
     with_store(mux, operation, |store| {
         let caller = caller(mux, client, store)?;
         match operation {
@@ -218,11 +219,59 @@ fn answer_locked(
                     client,
                     store,
                     &caller,
-                    RegistryWrite { operation, fields, key, adoptee: adoptee.as_ref() },
+                    RegistryWrite { operation, fields, key, adoptee: adoptee.as_ref(), prepared },
                 )
             }
         }
     })
+}
+
+/// A create with `fork`: the plan under the registry lock (the caller's
+/// rules; nothing when the key is committed already, so a replay copies
+/// nothing), then the copy with the lock released (chief_fork.rs).
+fn fork_copy(
+    mux: &Mux,
+    client: u64,
+    request: &ParsedResourceRequest,
+) -> Result<Option<super::chief_fork::Prepared>, ResourceError> {
+    let operation = request.envelope.operation;
+    let fields = &request.fields;
+    let key = request.envelope.idempotency_key.clone().unwrap_or_default();
+    if operation != Op::ChiefProfileCreate || key.is_empty() {
+        return Ok(None);
+    }
+    let Some(fork) = super::chief_fork::requested(fields)? else { return Ok(None) };
+    let plan = with_store(mux, operation, |store| {
+        let caller = caller(mux, client, store)?;
+        // The page never creates without the person's gesture: the write refuses it.
+        if caller == Caller::Page {
+            return Ok(None);
+        }
+        let actor = match &caller {
+            Caller::Chief(me) => super::chief_manage::actor(me),
+            _ => audit_actor(mux, client, &caller),
+        };
+        if store.committed(&actor, &key).map_err(|e| internal(operation, &e))? {
+            return Ok(None);
+        }
+        // A Chief without the chiefs tool creates nothing (chief_manage.rs):
+        // refused before the copy, not after it.
+        let by = match &caller {
+            Caller::Chief(me) => {
+                let holds = store
+                    .get(me)
+                    .map_err(|e| internal(operation, &e))?
+                    .is_some_and(|record| record.tools.iter().any(|t| t == "chiefs"));
+                if !holds {
+                    return Ok(None);
+                }
+                Some(me.as_str())
+            }
+            _ => None,
+        };
+        super::chief_fork::plan(store, &fork, by).map(Some)
+    })?;
+    plan.map(|plan| super::chief_fork::copy(mux, plan)).transpose()
 }
 
 /// `participant.avatar.set` for a Chief: the `chief.profile.avatar.set`
@@ -238,7 +287,13 @@ pub(super) fn set_chief_avatar(
     let operation = Op::ChiefProfileAvatarSet;
     with_store(mux, operation, |store| {
         let caller = caller(mux, client, store)?;
-        mutate(mux, client, store, &caller, RegistryWrite { operation, fields, key, adoptee: None })
+        mutate(
+            mux,
+            client,
+            store,
+            &caller,
+            RegistryWrite { operation, fields, key, adoptee: None, prepared: None },
+        )
     })
 }
 
@@ -296,6 +351,10 @@ struct RegistryWrite<'a> {
     fields: &'a Map<String, Value>,
     key: String,
     adoptee: Option<&'a Adoptee>,
+    /// A create with `fork` whose memory is copied (`answer_locked`); None
+    /// for any other write, and for a fork whose key is committed already
+    /// (the write answers the replay).
+    prepared: Option<super::chief_fork::Prepared>,
 }
 
 fn mutate(
@@ -305,7 +364,7 @@ fn mutate(
     caller: &Caller,
     write: RegistryWrite<'_>,
 ) -> Result<Value, ResourceError> {
-    let RegistryWrite { operation, fields, key, adoptee } = write;
+    let RegistryWrite { operation, fields, key, adoptee, prepared } = write;
     // Owner only, from a terminal, before anything else is checked: no page
     // (a WebSocket or the host's page relay, with or without a page id), no
     // Chief, no paired or remote device (caller() refuses those).
@@ -334,12 +393,34 @@ fn mutate(
                     | "clear"
                     | "participant_id"
                     | "to_rev"
+                    | "fork"
             )
         })
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     if let Some(refusal) = chief_registry::validate_fields(&profile) {
         return Err(refused(operation, &refusal));
+    }
+    // A fork starts from its source's profile: the fields the request omits
+    // are the source's (the grant fields too, which a Chief's create then
+    // checks against its own grant as for any create).
+    let fork = match operation {
+        Op::ChiefProfileCreate => super::chief_fork::requested(fields)?,
+        _ if fields.contains_key("fork") => {
+            return Err(ResourceError::validation_invalid(
+                Some("fork"),
+                "only chief.profile.create takes fork",
+            ));
+        }
+        _ => None,
+    };
+    // A fork with no copy is a replay of its committed key (answered below
+    // from the ledger, whatever its source is now).
+    if let (Some(fork), Some(prepared)) = (&fork, &prepared) {
+        if store.get(&prepared.source).map_err(|e| internal(operation, &e))?.is_none() {
+            return Err(super::chief_fork::source_gone(&prepared.source));
+        }
+        super::chief_fork::inherit(store, fork, &mut profile)?;
     }
     let chief = chief_field(fields).to_owned();
     let expected_rev = fields.get("expected_rev").and_then(Value::as_u64);
@@ -411,11 +492,28 @@ fn mutate(
         _ => audit_actor(mux, client, caller),
     };
     let body = json!({"operation": operation.wire_name(), "fields": Value::Object(fields.clone())});
+    // A fork's record takes the id its copied memory waits under.
+    let new_id = match &prepared {
+        Some(prepared) => prepared.id.clone(),
+        None if operation == Op::ChiefProfileCreate => {
+            chief_registry::new_id().map_err(|e| internal(operation, &e))?
+        }
+        None => String::new(),
+    };
+    let forked_from = prepared.as_ref().map(|p| &p.forked_from);
     let outcome = store
         .mutate(&actor, &key, operation.wire_name(), &body, |tx| match operation {
             Op::ChiefProfileCreate => match caller {
-                Caller::Chief(me) if manages => chief_registry::create_by_chief(tx, &profile, me),
-                _ => chief_registry::create(tx, &profile),
+                // A fork whose key was not committed when it was planned
+                // but has no copy now never becomes a blank Chief.
+                _ if fork.is_some() && forked_from.is_none() => Ok(Err(Refusal::Invalid(
+                    "fork",
+                    "the memory copy is missing; send the fork again".into(),
+                ))),
+                Caller::Chief(me) if manages => {
+                    chief_registry::create_by_chief(tx, &new_id, &profile, forked_from, me)
+                }
+                _ => chief_registry::create(tx, &new_id, &profile, forked_from),
             },
             Op::ChiefProfileAdopt => match adoptee {
                 Some(Adoptee { id, display_name: Some(name) }) => {
@@ -439,7 +537,15 @@ fn mutate(
             }
             _ => chief_registry::delete(tx, &chief, expected_rev),
         })
-        .map_err(|e| internal(operation, &e))?;
+        .map_err(|e| internal(operation, &e));
+    // The copy stays only under the record written with its id now (a
+    // refusal, a failure or a replay of an earlier create keeps none).
+    if let Some(prepared) = prepared
+        && matches!(&outcome, Ok(Ok((record, false))) if record.id == prepared.id)
+    {
+        prepared.keep();
+    }
+    let outcome = outcome?;
     match outcome {
         Ok((record, replayed)) => {
             if !replayed

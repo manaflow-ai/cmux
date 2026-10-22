@@ -149,6 +149,32 @@ body,
   color: inherit;
   text-decoration: underline;
 }
+/* A forked Chief's chat: where its memory came from (chiefFork.ts), above the timeline. */
+.hc-fork-origin {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px var(--hc-gutter);
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  border-bottom: 1px solid var(--page-separator);
+}
+.hc-fork-origin svg {
+  flex: none;
+}
+.hc-fork-origin .hc-link-button {
+  margin-inline-start: auto;
+  flex: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--hc-accent);
+  font: inherit;
+  cursor: pointer;
+}
+.hc-fork-origin .hc-link-button:hover {
+  text-decoration: underline;
+}
 
 .hc-timeline-frame {
   position: relative;

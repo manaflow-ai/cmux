@@ -296,6 +296,28 @@ export class HomeSheets {
     }
   }
 
+  /** Forks `source` into a new Chief whose memory is the source's up to `message` (`fields` from
+   * chiefFork.ts `forkFields`), through the host (the person's click, as every create), then opens
+   * its direct message. The daemon copies the memory before the new Chief's brain first starts.
+   * Resolves the new Chief, or undefined when refused (the reason shows on the page). */
+  async forkChief(fields: Record<string, unknown>): Promise<HomeChief | undefined> {
+    if (!this.client || !this.chiefHost || !this.snapshot.chiefGrants) return undefined;
+    try {
+      const chief = await this.chiefHost.create(fields);
+      await this.loadChiefs();
+      const { conversation } = await this.client.call<{ conversation: string }>(HomeOps.startConversation, {
+        participants: [chief.id],
+        title: "",
+        idempotencyKey: this.key("fork-dm"),
+      });
+      await this.page.open(conversation);
+      return chief;
+    } catch (error) {
+      this.page.fail(describe(error));
+      return undefined;
+    }
+  }
+
   /** Saves a Chief's profile: what changed of personality, instructions, the grant, the backend
    * and the lock goes first, through the host (the person's click, one request); the name, role
    * and picture from the page. `picture` null clears it: the default shows again. */

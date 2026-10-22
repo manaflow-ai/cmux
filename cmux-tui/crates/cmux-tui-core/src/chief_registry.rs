@@ -203,6 +203,12 @@ pub(crate) struct ChiefRecord {
     /// from a request, and not on the wire ([`wire`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_by: Option<String>,
+    /// Where a forked Chief's memory came from (`chief.profile.create` with
+    /// `fork`, server/chief_fork.rs): the spec's `ChiefForkedFrom`. Set once
+    /// at create from what the daemon itself resolved, never from a request
+    /// field, and never changed after.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from: Option<Value>,
 }
 
 /// A person's avatar write (`participant.avatar.set`), as committed.
@@ -384,6 +390,7 @@ impl ChiefStore {
                 created_at: now.clone(),
                 updated_at: now,
                 created_by: None,
+                forked_from: None,
             };
             transaction.execute(
                 "INSERT INTO chief (id, seq, record) VALUES (?1, 0, ?2)",
@@ -582,6 +589,21 @@ impl ChiefStore {
     /// `request` answers the committed result with `replayed` true; another
     /// request under the key is [`Refusal::KeyConflict`]. The newest
     /// [`LEDGER_KEYS_PER_ACTOR`] keys of each actor are kept.
+    /// Whether `actor` committed a write under `key` already (with the same
+    /// or other params): `mutate` then answers from the ledger, and a caller
+    /// skips work the write does not need (a fork's copy).
+    pub(crate) fn committed(&self, actor: &str, key: &str) -> anyhow::Result<bool> {
+        let found: Option<i64> = self
+            .connection
+            .query_row(
+                "SELECT 1 FROM op_ledger WHERE actor = ?1 AND key = ?2",
+                params![actor, key],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(found.is_some())
+    }
+
     pub(crate) fn mutate(
         &mut self,
         actor: &str,
@@ -633,22 +655,44 @@ impl ChiefStore {
     }
 }
 
-/// `chief.profile.create`'s write: a new record from `fields` (already checked by
-/// [`validate_fields`]).
+/// A fresh Chief id (`agent_` + 26 Crockford base32) for [`create`], taken
+/// before the write: a fork puts the new Chief's memory in its brain
+/// directory before the record (and so its brain) exists.
+pub(crate) fn new_id() -> anyhow::Result<String> {
+    let mut random = [0_u8; 10];
+    getrandom::fill(&mut random).map_err(|_| anyhow::anyhow!("chief id randomness"))?;
+    Ok(cmux_conversation::encode_id("agent_", now_ms(), random))
+}
+
+/// `chief.profile.create`'s write: a new record from `fields` (already checked
+/// by [`validate_fields`]) with the id `id` (from [`new_id`]) and, for a fork,
+/// its provenance. An id that is taken (live or deleted) refuses as
+/// [`Refusal::BrainHomeTaken`]: its brain directory is another Chief's.
 pub(crate) fn create(
     tx: &rusqlite::Transaction<'_>,
+    id: &str,
     fields: &Map<String, Value>,
+    forked_from: Option<&Value>,
 ) -> anyhow::Result<Outcome<ChiefRecord>> {
     let live: i64 =
         tx.query_row("SELECT COUNT(*) FROM chief WHERE record IS NOT NULL", [], |r| r.get(0))?;
     if usize::try_from(live).unwrap_or(usize::MAX) >= MAX_CHIEFS {
         return Ok(Err(Refusal::TooMany));
     }
-    let now_ms = now_ms();
-    let mut random = [0_u8; 10];
-    getrandom::fill(&mut random).map_err(|_| anyhow::anyhow!("chief id randomness"))?;
-    let id = cmux_conversation::encode_id("agent_", now_ms, random);
-    insert_new(tx, &id, now_ms, fields).map(Ok)
+    let taken: Option<String> =
+        tx.query_row("SELECT id FROM chief WHERE id = ?1", [id], |r| r.get(0)).optional()?;
+    if taken.is_some() {
+        return Ok(Err(Refusal::BrainHomeTaken));
+    }
+    let mut record = insert_new(tx, id, now_ms(), fields)?;
+    if let Some(origin) = forked_from {
+        record.forked_from = Some(origin.clone());
+        tx.execute(
+            "UPDATE chief SET record = ?2 WHERE id = ?1",
+            params![record.id, serde_json::to_string(&record)?],
+        )?;
+    }
+    Ok(Ok(record))
 }
 
 /// `chief.profile.adopt`'s write: a record for an existing agent participant
@@ -737,6 +781,7 @@ fn insert_new(
         created_at: now.clone(),
         updated_at: now,
         created_by: None,
+        forked_from: None,
     };
     apply(&mut record, fields);
     tx.execute(
@@ -750,10 +795,12 @@ fn insert_new(
 /// [`create`], with the record naming its creator.
 pub(crate) fn create_by_chief(
     tx: &rusqlite::Transaction<'_>,
+    id: &str,
     fields: &Map<String, Value>,
+    forked_from: Option<&Value>,
     creator: &str,
 ) -> anyhow::Result<Outcome<ChiefRecord>> {
-    let mut record = match create(tx, fields)? {
+    let mut record = match create(tx, id, fields, forked_from)? {
         Ok(record) => record,
         Err(refusal) => return Ok(Err(refusal)),
     };

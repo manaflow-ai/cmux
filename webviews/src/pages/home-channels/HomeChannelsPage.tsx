@@ -36,6 +36,7 @@ import { Palette, type PaletteItem } from "./Palette";
 import { backToList, conversationHash, setHash, useHashPane, useNarrow, type Pane } from "./panes";
 import { RunsContext, type RunsContextValue } from "./RunCard";
 import { useRunEntry } from "./runs";
+import { forkFields, forkOriginText, forkTarget } from "./chiefFork";
 import { ChiefRoutePage, RouteSheets } from "./RouteSheets";
 import { LiveTyping } from "./LiveTyping";
 import { RunSheet } from "./RunSheet";
@@ -337,6 +338,24 @@ export function HomeChannelsPage({
     onRetract: (message: HomeMessage) => void store.retract(message),
   });
 
+  /** "Fork to New Chief" on a message: the Chief it copies (chiefFork.ts), named when the
+   * conversation has more than one. Only with the host's relay (a create is the person's click). */
+  const forkOf =
+    online && sheetState.chiefGrants && caps.chiefs
+      ? (message: HomeMessage) => {
+          const source = forkTarget(open, message, sheetState.chiefs);
+          if (!source) return undefined;
+          const several = (open?.participants.filter((p) => p.chief).length ?? 0) > 1;
+          return {
+            label: several ? format("action.forkChiefNamed", source.name) : t("action.forkToNewChief"),
+            run: () => {
+              say(t("notice.forking"));
+              void store.sheets.forkChief(forkFields(source, message, strings));
+            },
+          };
+        }
+      : undefined;
+
   /** The Chief record of a direct message with a Chief (the page can edit it). */
   const chiefOf = (conversation: HomeConversation) => {
     if (channels.has(conversation.id)) return undefined;
@@ -344,6 +363,10 @@ export function HomeChannelsPage({
     return others.length === 1 && others[0]!.chief ? sheetState.chiefs.get(others[0]!.id) : undefined;
   };
   const openChief = open ? chiefOf(open) : undefined;
+  // A forked Chief's chat says where its memory came from, with a way back to that conversation.
+  const forkOrigin = forkOriginText(openChief, strings);
+  const forkedAt = openChief?.forkedFrom?.conversation;
+  const forkSource = forkedAt && conversations.has(forkedAt) ? forkedAt : undefined;
   const paletteItems = useMemo<PaletteItem[]>(() => {
     const items: PaletteItem[] = [];
     for (const c of chronological(conversations.values())) {
@@ -608,6 +631,17 @@ export function HomeChannelsPage({
                         <HomeIcon name="link" size={16} />
                       </button>
                     </header>
+                    {forkOrigin && (
+                      <aside className="hc-fork-origin" aria-label={forkOrigin}>
+                        <HomeIcon name="fork" size={14} />
+                        <span className="selectable">{forkOrigin}</span>
+                        {forkSource && (
+                          <button type="button" className="hc-link-button" onClick={() => select(forkSource)}>
+                            {t("fork.origin.open")}
+                          </button>
+                        )}
+                      </aside>
+                    )}
                     {snap.error && (
                       <output className="hc-error selectable">
                         <span>{snap.error}</span>
@@ -630,6 +664,7 @@ export function HomeChannelsPage({
                           onOpenThread={(root) => openThread(root)}
                           onReact={(message, value) => void store.react(message, value)}
                           onCopyLink={(message) => copyLink(message)}
+                          fork={forkOf}
                           highlight={snap.highlight}
                           threadFor={threadFor}
                           openThread={snap.thread}
@@ -699,6 +734,7 @@ export function HomeChannelsPage({
                             onSend={(text, parent, files) => store.send(text, snap.thread, parent, files)}
                             attachments={uploads}
                             onCopyLink={(message) => copyLink(message)}
+                            fork={forkOf}
                             onReact={(message, value) => void store.react(message, value)}
                             pendingState={pendingState}
                             onRetry={(key) => store.retry(key)}

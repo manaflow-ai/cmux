@@ -34,6 +34,8 @@ export interface MessageRowProps {
   /** In a thread: reply to this message (threads nest without a limit). */
   onReply?(message: HomeMessage): void;
   onCopyLink?(message: HomeMessage): void;
+  /** The fork this message offers (chiefFork.ts), when it has a Chief to fork. */
+  fork?(message: HomeMessage): { label: string; run(): void } | undefined;
   /** Indent level in the thread panel (0 = none). */
   depth?: number;
   /** The reply this one answers, named above it when the indent is capped. */
@@ -64,6 +66,7 @@ export const MessageRow = memo(function MessageRow({
   onRetract,
   onReply,
   onCopyLink,
+  fork,
   depth = 0,
   parent,
   highlighted = false,
@@ -78,6 +81,7 @@ export const MessageRow = memo(function MessageRow({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const textOnly = message.parts.length > 0 && message.parts.every((part) => part.type === "text");
   const own = !message.retracted && message.author === me && pending === undefined;
+  const forkAction = pending === undefined ? fork?.(message) : undefined;
   const canEdit = own && textOnly && onEdit !== undefined && onEditStart !== undefined;
   const body = (
     <>
@@ -176,6 +180,8 @@ export const MessageRow = memo(function MessageRow({
         onReply={onReply ? () => onReply(message) : onOpenThread ? () => onOpenThread(message.id) : undefined}
         replyLabel={onReply ? t("action.replyTo") : undefined}
         onCopyLink={onCopyLink ? () => onCopyLink(message) : undefined}
+        onFork={forkAction?.run}
+        forkLabel={forkAction?.label}
         onEdit={() => onEditStart?.(message)}
         onDelete={() => setConfirmDelete(true)}
         onCopy={() => void navigator.clipboard?.writeText(messageText(message))}

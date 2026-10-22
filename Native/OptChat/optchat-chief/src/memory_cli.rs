@@ -14,7 +14,10 @@ optchat-chief memory import [--mux-home DIR] DIR          an old JSONL home or a
 optchat-chief memory search [--mux-home DIR] [--limit N] [--json] QUERY  full-text search: messages and summaries holding every word
                                                           (--json: an array of hits, messages with id, kind, date, snippet and full text)
 optchat-chief memory stats [--mux-home DIR]               counts, schema version, migration record, file size
-optchat-chief memory check [--mux-home DIR]               opens the memory as the host does (host stopped): how it loaded and how long it took";
+optchat-chief memory check [--mux-home DIR]               opens the memory as the host does (host stopped): how it loaded and how long it took
+optchat-chief memory fork --mux-home SRC --to-home DST --chief ID --name NAME --by BY [--key CONV#SEQ] [--at RFC3339] [--json]
+                                                          a new Chief's memory at DST: SRC's log up to that message (else now),
+                                                          the summaries wholly before it and the attachments it names (works while SRC's host runs)";
 
 /// Runs `memory <verb>`; returns what to print.
 pub fn run(flags: &Flags, home: &Path, json: bool) -> Result<String, String> {
@@ -104,8 +107,100 @@ pub fn run(flags: &Flags, home: &Path, json: bool) -> Result<String, String> {
                 status.messages, status.built, status.view_lines, status.unbuilt
             ))
         }
+        Some("fork") => fork(flags, &paths, json),
         _ => Err(USAGE.to_owned()),
     }
+}
+
+/// `memory fork`: a new Chief home's memory from this one's, cut at a
+/// message (optchat_host::db::fork). The daemon runs it before the new
+/// Chief's brain first starts (`chief.profile.create` with `fork`).
+fn fork(flags: &Flags, source: &Paths, json: bool) -> Result<String, String> {
+    use optchat_host::db::fork::{ForkPoint, Provenance, fork_memory};
+    let need = |key: &str| {
+        flags
+            .value(key)
+            .filter(|v| !v.trim().is_empty())
+            .map(str::to_owned)
+            .ok_or_else(|| format!("memory fork needs --{key}\n{USAGE}"))
+    };
+    let target = Paths::new(Path::new(&need("to-home")?));
+    if target.home == source.home {
+        return Err("memory fork: --to-home is the source home".to_owned());
+    }
+    let point = ForkPoint {
+        key: flags.value("key").map(str::to_owned),
+        at: flags.value("at").map(str::to_owned),
+    };
+    let provenance = Provenance {
+        chief: need("chief")?,
+        name: need("name")?,
+        message: point.key.clone(),
+        by: need("by")?,
+    };
+    let from_root = format!("{}/", source.root.join("attachments").display());
+    let to_root = format!("{}/", target.root.join("attachments").display());
+    let stats = fork_memory(
+        &source.memory_db,
+        &target.memory_db,
+        &point,
+        &provenance,
+        Some((&from_root, &to_root)),
+    )
+    .map_err(|e| format!("memory fork: {e}"))?;
+    let copied = copy_attachments(
+        &source.root.join("attachments"),
+        &target.root.join("attachments"),
+        &stats.attachments,
+    )?;
+    if json {
+        return Ok(serde_json::json!({
+            "cut": stats.cut,
+            "source_messages": stats.source_messages,
+            "nodes": stats.nodes,
+            "nodes_left_out": stats.nodes_left_out,
+            "attachments": copied,
+            "note": stats.note,
+            "memory": target.memory_db.display().to_string(),
+        })
+        .to_string());
+    }
+    Ok(format!(
+        "forked {} of {} messages and {} summaries ({} left out, rebuilt by the new Chief), {copied} attachment folders, into {}",
+        stats.cut,
+        stats.source_messages,
+        stats.nodes,
+        stats.nodes_left_out,
+        target.memory_db.display()
+    ))
+}
+
+/// Copies the attachment folders `hashes` from `from` into `to` (each a
+/// content hash, so a folder present already is the same files). Files are
+/// copied, not linked: the new Chief shares nothing with the source.
+fn copy_attachments(from: &Path, to: &Path, hashes: &[String]) -> Result<usize, String> {
+    let mut copied = 0;
+    for hash in hashes {
+        let (src, dst) = (from.join(hash), to.join(hash));
+        let Ok(entries) = std::fs::read_dir(&src) else {
+            continue;
+        };
+        std::fs::create_dir_all(&dst).map_err(|e| format!("{}: {e}", dst.display()))?;
+        for entry in entries.flatten() {
+            let file = entry.path();
+            // Regular files only: a link would point back into the source.
+            let regular = std::fs::symlink_metadata(&file).is_ok_and(|m| m.file_type().is_file());
+            if !regular {
+                continue;
+            }
+            let target = dst.join(entry.file_name());
+            if !target.exists() {
+                std::fs::copy(&file, &target).map_err(|e| format!("{}: {e}", file.display()))?;
+            }
+        }
+        copied += 1;
+    }
+    Ok(copied)
 }
 
 /// The hits as a JSON array: a message with its id, kind, date, snippet and

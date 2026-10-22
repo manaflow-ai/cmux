@@ -686,6 +686,118 @@
             "name": "ChiefBrainStart"
           },
           "description": "Only in the answer of chief.profile.create and chief.profile.adopt (not a replay): what happened to the new Chief's brain, from the daemon's brain supervisor."
+        },
+        "forked_from": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ChiefForkedFrom"
+          },
+          "description": "Set once by chief.profile.create with fork, never changed: the Chief whose memory this one started from and the message it was cut at. Absent on a Chief made blank."
+        }
+      },
+      "extra": false
+    },
+    "ChiefForkedFrom": {
+      "kind": "object",
+      "fields": {
+        "chief": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "The source Chief's id."
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 100
+          },
+          "description": "The source Chief's display_name at the fork."
+        },
+        "conversation": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "The conversation of the message the fork was cut at; absent: the source forked itself at that moment."
+        },
+        "seq": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "That message's seq in its conversation."
+        },
+        "cut": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The number of the source's memory entries the new Chief started with (entries 0 to cut-1)."
+        },
+        "by": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "person, or the id of the Chief that forked itself."
+        },
+        "at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "When the fork was made, RFC 3339 UTC with milliseconds."
+        }
+      },
+      "extra": false
+    },
+    "ChiefFork": {
+      "kind": "object",
+      "fields": {
+        "chief": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "The Chief whose memory to start from: any Chief of this home for the owner or the person's page; only itself for a Chief."
+        },
+        "conversation": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "With seq: cut the memory right after this message (a conversation the source Chief takes part in). Without: the memory as it is now."
+        },
+        "seq": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
         }
       },
       "extra": false
@@ -17002,6 +17114,14 @@
               "name": "boolean"
             },
             "description": "The person's lock: while true no Chief (the Chief itself included) changes the record (operation.failed details.reason chief_locked). Owner only; on the page a gesture field."
+          },
+          "fork": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "ChiefFork"
+            },
+            "description": "Start the new Chief from another Chief's memory instead of a blank one: the source's log up to the message (or now), the summaries wholly before that point, the attachments it names, all copied into the new Chief's own home before its brain first starts; the record keeps forked_from. Refused with operation.failed details.reason fork_refused (extra.message says why): a Chief forking another Chief, a source not of this home, a conversation the source is not in, a message not in its memory, or a daemon that runs no Chief brains."
           }
         },
         "extra": false
@@ -17026,6 +17146,7 @@
         "validation.invalid"
       ],
       "constraints": [
+        "fork copies, it never links: the new Chief shares no file, session or state with its source, and nothing written to the source after the fork reaches it. The source's subagent chats stay the source's. The grant rules are the same as for a blank Chief.",
         "The owner, or a Chief whose tools hold chiefs (chief_manage_denied without it): a Chief gives the new Chief only tools, harnesses, engine fields and self_edit it holds itself (grant_exceeds_caller with extra.fields; omitted grant fields come from the caller), never more than MAX_CHIEFS, and the answer's brain says whether the new Chief's brain started. Callers: the owner (a registered Unix client with no link peer record whose conversation principal is user_local) and the Chiefs (a Unix connection bound with conversation-bind to the participant id of a live record). A page, WebSocket, relayed or remote connection, or an agent that is not a Chief, is refused with origin.forbidden.",
         "The daemon owns the registry: chiefs.sqlite3 in the session state directory (memory for an in-memory session). The default Chief agent_mux exists from the first read. A deleted id is never reused.",
         "The new id is agent_ then 26 Crockford base32 characters. At most 64 live Chiefs: operation.failed details.reason too_many_chiefs.",

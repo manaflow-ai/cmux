@@ -546,6 +546,27 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-form .lg-picker-row").length === 1);
       },
     },
+    "fork-menu": {
+      note: "A right-click on any message of a Chief's conversation offers Fork to New Chief (user 9935): a new Chief that starts from this Chief's memory cut right after that message.",
+      props: { select: "c-chief", hostGrants: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.find({ text: "Start all three." }));
+        await ctx.contextMenu({ text: "Start all three." });
+        await ctx.waitFor(() => ctx.find({ role: "menuitem", name: "Fork to New Chief" }));
+      },
+    },
+    "fork-origin": {
+      note: "After Fork to New Chief: the new Chief's direct message opens and says where its memory came from, with a link back.",
+      props: { select: "c-chief", hostGrants: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.find({ text: "Start all three." }));
+        await ctx.contextMenu({ text: "Start all three." });
+        await ctx.click({ role: "menuitem", name: "Fork to New Chief" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-fork-origin"));
+      },
+    },
     "new-chief": {
       note: "#/new/chief in a plain browser: a new Chief needs the person's click in the cmux app, so the sheet is read-only and says so.",
       props: { select: "c-chief", route: { kind: "newChief" } },

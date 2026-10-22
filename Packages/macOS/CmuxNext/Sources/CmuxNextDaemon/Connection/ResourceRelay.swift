@@ -15,11 +15,13 @@ public struct ResourceRelayClient: Sendable {
 
     /// Sends `operation` with `params` and returns its raw `result`. Mutations need
     /// `idempotencyKey`; refusals arrive as `DaemonError.command` with the daemon's code.
+    /// `timeout` replaces the connection's request deadline for an operation the daemon answers
+    /// only after long work (a Chief fork copies a memory first); nil keeps the connection's.
     public func send(operation: String, params: [String: JSONValue], idempotencyKey: String?,
-                     origin: JSONValue? = nil) async throws -> JSONValue {
+                     origin: JSONValue? = nil, timeout: Duration? = nil) async throws -> JSONValue {
         try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: idempotencyKey, origin: origin)
-        }, as: JSONValue.self)
+        }, as: JSONValue.self, timeout: timeout)
     }
 
     /// The daemon capability that accepts the `origin` envelope field and
