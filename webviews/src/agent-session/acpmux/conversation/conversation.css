@@ -3352,6 +3352,13 @@ button.cv-received__name:focus-visible {
 .acpmux-row.acpmux-row--before-step {
   padding-bottom: 0;
 }
+/* A row whose renderer draws nothing (a render update that joined an earlier card, a note whose
+   payload never came) takes no room: the 34px floor and the gap under it were a blank band each,
+   between "Worked for" and the reply. The element selector outranks every row-kind padding. */
+article.acpmux-row:empty {
+  min-height: 0;
+  padding-bottom: 0;
+}
 .acpmux-row--after-step > .cv-tools {
   margin-top: 0;
 }
