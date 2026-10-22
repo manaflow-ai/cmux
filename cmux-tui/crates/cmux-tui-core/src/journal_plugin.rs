@@ -5,7 +5,7 @@
 //! module. A plugin communicates through the local resource socket and writes
 //! normal journal events, so every frontend observes the same reducer state.
 
-use crate::panic_free::RecoverPoison;
+#[cfg(windows)]
 use std::mem::size_of;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
@@ -13,10 +13,11 @@ use std::os::unix::process::CommandExt;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
-#[cfg(windows)]
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+
+use crate::panic_free::RecoverPoison;
 
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};

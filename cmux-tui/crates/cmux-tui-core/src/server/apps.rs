@@ -18,7 +18,6 @@
 //! command; mount events go to the mounting connection only.
 
 use crate::panic_free::JsonFields;
-use crate::panic_free::RecoverPoison;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
@@ -436,7 +435,7 @@ mod tests {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
         let client = mux.control_clients.register(ClientTransport::Unix, writer);
-        mux.control_clients.state.lock().recover_poison().clients.get_mut(&client).unwrap().kind =
+        mux.control_clients.state.lock().unwrap().clients.get_mut(&client).unwrap().kind =
             kind.map(str::to_string);
         if agent {
             mux.bind_conversation_principal(client, "agent:test".to_string()).unwrap();
@@ -452,8 +451,7 @@ mod tests {
         outbound: &BoundedOutbound,
         request: Value,
     ) -> Option<String> {
-        let writer =
-            mux.control_clients.state.lock().recover_poison().clients[&client].writer.clone();
+        let writer = mux.control_clients.state.lock().unwrap().clients[&client].writer.clone();
         assert_eq!(try_handle(mux, client, &request.to_string(), &writer), Some(true));
         let reply: Value = serde_json::from_str(&outbound.try_pop().expect("reply")).unwrap();
         reply["error_code"].as_str().map(str::to_string)
@@ -683,8 +681,7 @@ mod tests {
     fn error_replies_carry_details_and_retryable() {
         let mux = Mux::new_for_test("apps-error-details", SurfaceOptions::default());
         let (client, outbound) = connection(&mux, Some("app"), false);
-        let writer =
-            mux.control_clients.state.lock().recover_poison().clients[&client].writer.clone();
+        let writer = mux.control_clients.state.lock().unwrap().clients[&client].writer.clone();
         let mut error = crate::apps::ApiError::new("cmux.cloud.not_found", "no such machine");
         error.details = Some(json!({ "status": 404, "upstream_code": "vm_not_found" }));
         error.retryable = true;
@@ -713,7 +710,7 @@ mod tests {
     fn a_cancel_request_is_answered_on_the_apps_door() {
         let mux = Mux::new_for_test("apps-cancel-request", SurfaceOptions::default());
         let (cli, out) = connection(&mux, Some("cli"), false);
-        let writer = mux.control_clients.state.lock().recover_poison().clients[&cli].writer.clone();
+        let writer = mux.control_clients.state.lock().unwrap().clients[&cli].writer.clone();
         let cancel =
             json!({ "id": "cancel-request-1", "cmd": "cancel-request", "target": "apps-run-1" });
         assert_eq!(try_handle(&mux, cli, &cancel.to_string(), &writer), Some(true));
