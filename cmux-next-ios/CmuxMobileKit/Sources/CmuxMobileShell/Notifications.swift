@@ -106,7 +106,7 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
         for device in all where device.kind == "mac" {
             out.append(SettingsDevice(ids: [device.deviceId], kind: .mac, name: device.name, online: device.online ?? false,
                                       lastSeenAt: device.lastSeenDate, addedAt: device.createdDate, isThisDevice: false, receivesNotifications: false,
-                                      machineID: device.machineId))
+                                      machineID: device.machineId, teamID: device.teamId))
         }
         let phones = all.filter { $0.kind == "phone" }
         let presence = phones.filter { $0.name.hasSuffix(Self.presenceSuffix) }

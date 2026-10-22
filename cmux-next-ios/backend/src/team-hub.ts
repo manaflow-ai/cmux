@@ -43,7 +43,7 @@ export interface HubDevice {
   projectId: string
   /** The Mac's machine id after the registration (null: none). */
   machineId?: string | null
-  /** Other builds on the same Mac the registration gave its machine id (the database already did). */
+  /** Other builds on the same Mac that have its machine id in the database (claimed now or earlier). */
   claimed?: ReadonlyArray<string>
 }
 
@@ -209,7 +209,7 @@ export class TeamHub extends DurableObject<Env> {
     // Older builds on the same Mac now listed as that computer's: their sockets' phones hear it.
     for (const id of d.claimed ?? []) {
       const sibling = this.macRow(id)
-      if (!sibling || sibling.machine_id) continue
+      if (!sibling || sibling.machine_id === machineId) continue
       this.sql.exec(`UPDATE macs SET machine_id = ? WHERE device_id = ?`, machineId, id)
       this.broadcast(sibling.team_id, JSON.stringify({ type: "presence", mac: this.presenceOf(id) }))
     }

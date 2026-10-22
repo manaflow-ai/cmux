@@ -94,7 +94,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
 
     private var labels: HomeMacLabels {
         HomeMacLabels(macs: macs, scope: macFilter.scope(in: store.activeTeam),
-                             accountMacs: MacRoster(MacNameDisambiguation.scope(store.teams)).visible)
+                             accountMacs: MacRoster.accountMacs(store.teams))
     }
 
     /// The default Chief: compose, New Message and the first pin.

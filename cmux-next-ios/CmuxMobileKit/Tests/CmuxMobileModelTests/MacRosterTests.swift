@@ -95,4 +95,15 @@ import Testing
         let roster = MacRoster([mac, mac])
         #expect(roster.otherBuilds.isEmpty)
     }
+
+    /// Builds of one computer registered in two teams: each team lists its own,
+    /// and the account's Macs (the tags' scope) keep both, as the teams show them.
+    @Test func eachTeamListsItsOwnBuild() {
+        let inTeam = MacDevice(id: "a", name: "Mini", isOnline: true, ownerUserID: "me", machineID: machine)
+        let inPersonal = MacDevice(id: "b", name: "Mini", isOnline: false, lastSeenAt: now, ownerUserID: "me", machineID: machine)
+        let teams = [Team(id: "t", name: "Team", macs: [inTeam]), Team(id: "p", name: "Personal", macs: [inPersonal])]
+        #expect(MacRoster.accountMacs(teams).map(\.id) == ["a", "b"])
+        let both = Team(id: "t", name: "Team", macs: [inTeam, inPersonal])
+        #expect(MacRoster.accountMacs([both]).map(\.id) == ["a"])
+    }
 }

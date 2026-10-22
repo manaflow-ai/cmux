@@ -73,7 +73,9 @@ export interface Store {
   upsertDevice(d: DeviceInput): Promise<{ device: Device; previousTeamId: string | null } | "not_owner">
   /**
    * Gives `machineId` to those of `deviceIds` that are Macs of `ownerUserId` with no machine id yet (other builds
-   * on the registering Mac, PROTOCOL.md "Devices"). A Mac's own report always wins; returns the ids claimed.
+   * on the registering Mac, PROTOCOL.md "Devices"). A Mac's own report always wins. Returns every one of
+   * `deviceIds` that has this machine id now (claimed now or earlier), so a hub that missed an earlier claim
+   * catches up.
    */
   claimSiblings(ownerUserId: string, machineId: string, deviceIds: ReadonlyArray<string>): Promise<Array<string>>
   /** Every Mac one owner registered, in any team or personal space (`ownerUserId` is the owner key). */
@@ -156,11 +158,14 @@ export const pgStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
     },
     async claimSiblings(ownerUserId, machineId, deviceIds) {
       if (!deviceIds.length) return []
-      const rs = await db
+      await db
         .update(devices)
         .set({ machineId })
         .where(and(eq(devices.ownerUserId, ownerUserId), eq(devices.kind, "mac"), isNull(devices.machineId), inArray(devices.deviceId, [...deviceIds])))
-        .returning({ deviceId: devices.deviceId })
+      const rs = await db
+        .select({ deviceId: devices.deviceId })
+        .from(devices)
+        .where(and(eq(devices.ownerUserId, ownerUserId), eq(devices.kind, "mac"), eq(devices.machineId, machineId), inArray(devices.deviceId, [...deviceIds])))
       return rs.map((r) => r.deviceId)
     },
     async listOwnerMacs(ownerUserId) {
@@ -261,8 +266,8 @@ export const memoryStore = (): Store => ({
     const claimed: Array<string> = []
     for (const id of ids) {
       const d = mem.devices.get(id)
-      if (!d || d.ownerUserId !== owner || d.kind !== "mac" || d.machineId !== null) continue
-      mem.devices.set(id, { ...d, machineId })
+      if (!d || d.ownerUserId !== owner || d.kind !== "mac" || (d.machineId !== null && d.machineId !== machineId)) continue
+      if (d.machineId === null) mem.devices.set(id, { ...d, machineId })
       claimed.push(id)
     }
     return claimed

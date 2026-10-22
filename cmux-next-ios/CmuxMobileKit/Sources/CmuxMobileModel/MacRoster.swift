@@ -46,6 +46,16 @@ public struct MacRoster: Equatable, Sendable {
     /// Every Mac that is another build of a listed one.
     public var hiddenIDs: Set<String> { Set(otherBuilds.values.flatMap { $0.map(\.id) }) }
 
+    /// The account's listed Macs (the same-name tags' scope): each team's
+    /// listed Macs, as that team's screens list them.
+    public static func accountMacs(_ teams: [Team]) -> [MacDevice] {
+        MacNameDisambiguation.scope(teams.map { team in
+            var listed = team
+            listed.macs = MacRoster(team.macs).visible
+            return listed
+        })
+    }
+
     /// The computer a Mac record belongs to: its owner and machine id, or the
     /// record alone when it never said which computer it is.
     static func computer(of mac: MacDevice) -> String {

@@ -547,19 +547,27 @@ public final class LiveCoordinator {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let remembered = UserDefaults.standard.string(forKey: "cmuxMobile.live.mac.\(team.id)")
             ?? (snapshot?.teamID == team.id ? snapshot?.linkedMacID : nil)
-        let dialable = dialableMacs(team)
-        let next = LinkMachine.target(in: dialable, remembered: remembered, current: focusedMacID)
+        let next = LinkMachine.target(in: listedMacs(team), remembered: remembered, current: focusedMacID)
         // The focused Mac's session exists before the focus moves to it.
         if let next { _ = session(for: next) }
         setFocus(next?.id)
-        applyLinks(dialable)
+        applyLinks()
     }
 
-    /// The Macs this phone may link: the owner's own, one build per computer
-    /// (``MacRoster``), as the screens list them. Another build on a listed
-    /// Mac is never focused or linked behind the list's back.
-    private func dialableMacs(_ team: Team) -> [MacDevice] {
+    /// The Macs the phone focuses and the screens list: the owner's own, one
+    /// build per computer (``MacRoster``).
+    private func listedMacs(_ team: Team) -> [MacDevice] {
         MacRoster(team.macs.filter { !othersMacs.contains($0.id) }).visible
+    }
+
+    /// The Macs this phone may link: the listed ones, and another build on a
+    /// listed Mac while something names it (a Feed answer or a notification of
+    /// that build, `touch`, or a link it still holds until idle), so an ask
+    /// from that build is still answered on it.
+    private func dialableMacs(_ team: Team) -> [MacDevice] {
+        let own = team.macs.filter { !othersMacs.contains($0.id) }
+        let listed = Set(MacRoster(own).visible.map(\.id))
+        return own.filter { listed.contains($0.id) || lastShown[$0.id] != nil }
     }
 
     /// The focused Mac changed: the last one stays linked while it is recent

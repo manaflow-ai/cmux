@@ -105,7 +105,7 @@ public struct WorkspacesList: View {
 
     /// Every Mac on the account (all teams): the scope of the same-name tags,
     /// as in Settings → Devices.
-    private var accountMacs: [MacDevice] { MacRoster(MacNameDisambiguation.scope(store.teams)).visible }
+    private var accountMacs: [MacDevice] { MacRoster.accountMacs(store.teams) }
 
     /// Tags for the account's Macs that share a name, so every place that
     /// names a Mac says which one ("Aziz's MacBook Pro 3F2A").

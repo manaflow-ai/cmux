@@ -56,6 +56,18 @@ import Testing
         #expect(SettingsDeviceRows.otherBuilds(rows) == ["39c6"])
     }
 
+    /// Builds of one computer in two teams are each listed by their team: neither is marked.
+    @Test func buildsInTwoTeamsAreNotMarked() {
+        let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        var inTeam = mac("a", "Mini", online: true)
+        inTeam.machineID = machine
+        inTeam.teamID = "t"
+        var inPersonal = mac("b", "Mini", online: false)
+        inPersonal.machineID = machine
+        inPersonal.teamID = "personal-me"
+        #expect(SettingsDeviceRows.otherBuilds([inTeam, inPersonal]).isEmpty)
+    }
+
     @Test func withoutAServiceEveryKnownMacOnce() {
         // A Mac in two teams is one row; the count matches the rows.
         let live = [MacDevice(id: "a", name: "A", isOnline: true), MacDevice(id: "b", name: "B", isOnline: false),

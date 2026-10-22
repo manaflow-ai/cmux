@@ -20,10 +20,13 @@ public struct SettingsDevice: Identifiable, Hashable, Sendable {
     public var receivesNotifications: Bool
     /// A Mac's machine id (``MacDevice/machineID``): rows with one are builds of one computer.
     public var machineID: String?
+    /// The team (or personal space) the device is registered in, when known.
+    public var teamID: String?
 
     public init(ids: [String], kind: Kind, name: String, online: Bool?, lastSeenAt: Date?, addedAt: Date? = nil,
-                isThisDevice: Bool, receivesNotifications: Bool, machineID: String? = nil) {
+                isThisDevice: Bool, receivesNotifications: Bool, machineID: String? = nil, teamID: String? = nil) {
         self.machineID = machineID
+        self.teamID = teamID
         self.ids = ids
         self.kind = kind
         self.name = name
@@ -62,13 +65,16 @@ public enum SettingsDeviceRows {
     }
 
     /// The Mac rows that are another cmux build on a computer whose most
-    /// recently active build Workspaces lists (``MacRoster``): Settings
-    /// still lists them, so each can be removed, and says what they are.
+    /// recently active build Workspaces lists (``MacRoster``, per team, as
+    /// each team's Workspaces groups them): Settings still lists them, so each
+    /// can be removed, and says what they are. Every row is the caller's own.
     public static func otherBuilds(_ macs: [SettingsDevice]) -> Set<String> {
-        let devices = macs.map {
-            MacDevice(id: $0.id, name: $0.name, isOnline: $0.online == true, lastSeenAt: $0.lastSeenAt, machineID: $0.machineID)
+        Dictionary(grouping: macs, by: { $0.teamID ?? "" }).values.reduce(into: Set<String>()) { hidden, team in
+            let devices = team.map {
+                MacDevice(id: $0.id, name: $0.name, isOnline: $0.online == true, lastSeenAt: $0.lastSeenAt, machineID: $0.machineID)
+            }
+            hidden.formUnion(MacRoster(devices).hiddenIDs)
         }
-        return MacRoster(devices).hiddenIDs
     }
 
     /// The phone rows (only a device service lists phones).

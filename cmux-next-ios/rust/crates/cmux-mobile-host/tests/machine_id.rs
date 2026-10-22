@@ -1,10 +1,11 @@
 //! A Mac's machine id and its other builds' device ids (PROTOCOL.md "Devices"):
 //! what lets the phone list one computer once, whatever the names.
 
-use cmux_mobile_host::config::{MAX_SIBLINGS, machine_id, sibling_device_ids};
+use cmux_mobile_host::config::{HostUuid, MACHINE_MARKER, MAX_SIBLINGS, machine_id, normalize_machine_id, sibling_device_ids};
 use cmux_mobile_link::api::DeviceRegistration;
 
 const HOST: [u8; 16] = *b"0123456789abcdef";
+const MINE: &str = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
 
 #[test]
 fn the_machine_id_is_per_computer_and_account_and_hides_the_host_uuid() {
@@ -41,9 +42,9 @@ fn siblings_are_the_other_builds_device_ids_on_this_mac() {
     put("cmux-mobile-host/device-id", standalone);
     put("org.other/cmux-mobile-host/device-id", "not a uuid");
     put("org.dupe/cmux-mobile-host/device-id", nightly);
-    let ids = sibling_device_ids(root.path(), &own.to_uppercase());
+    let ids = sibling_device_ids(root.path(), &own.to_uppercase(), MINE);
     assert_eq!(ids, vec![standalone.to_owned(), nightly.to_owned(), deleted.to_owned()]);
-    assert!(sibling_device_ids(&root.path().join("missing"), own).is_empty());
+    assert!(sibling_device_ids(&root.path().join("missing"), own, MINE).is_empty());
 }
 
 #[test]
@@ -54,7 +55,7 @@ fn at_most_sixteen_siblings() {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, uuid::Uuid::new_v4().to_string()).unwrap();
     }
-    assert_eq!(sibling_device_ids(root.path(), "x").len(), MAX_SIBLINGS);
+    assert_eq!(sibling_device_ids(root.path(), "x", MINE).len(), MAX_SIBLINGS);
 }
 #[test]
 fn a_mac_registration_carries_its_machine_id_and_siblings() {
@@ -74,4 +75,38 @@ fn a_mac_registration_carries_its_machine_id_and_siblings() {
     registration.sibling_device_ids.clear();
     let body = serde_json::to_value(&registration).unwrap();
     assert!(body.get("machineId").is_none() && body.get("siblingDeviceIds").is_none());
+}
+
+/// A folder that says it belongs to another machine (it came over with
+/// Migration Assistant or a restore) is not this Mac's build; one that says
+/// this machine, or says nothing (a build from before machine ids), is.
+#[test]
+fn a_folder_from_another_machine_is_not_a_sibling() {
+    let root = tempfile::tempdir().unwrap();
+    let put = |rel: &str, text: &str| {
+        let path = root.path().join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+    let migrated = "55555555-5555-4555-8555-555555555555";
+    let same = "66666666-6666-4666-8666-666666666666";
+    let legacy = "77777777-7777-4777-8777-777777777777";
+    put("a.migrated/cmux-mobile-host/device-id", migrated);
+    put(&format!("a.migrated/cmux-mobile-host/{MACHINE_MARKER}"), "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2");
+    put("b.same/cmux-mobile-host/device-id", same);
+    put(&format!("b.same/cmux-mobile-host/{MACHINE_MARKER}"), &MINE.to_uppercase());
+    put("c.legacy/cmux-mobile-host/device-id", legacy);
+    assert_eq!(sibling_device_ids(root.path(), "own", MINE), vec![same.to_owned(), legacy.to_owned()]);
+}
+
+#[test]
+fn an_override_must_be_a_machine_id() {
+    assert_eq!(normalize_machine_id(" A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1 ").as_deref(), Some(MINE));
+    assert_eq!(normalize_machine_id("a1"), None);
+    assert_eq!(normalize_machine_id(&"z".repeat(32)), None);
+}
+
+#[test]
+fn the_host_uuid_never_prints() {
+    assert_eq!(format!("{:?}", HostUuid(HOST)), "HostUuid(<redacted>)");
 }

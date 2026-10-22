@@ -57,6 +57,25 @@ import Testing
         #expect(MacRoster(store.activeTeam?.macs ?? []).visible.map(\.id) == ["m1"])
     }
 
+    /// A Feed answer or notification of the other build names it: its link opens
+    /// (the ask is answered on that build), and the focus stays on the listed one.
+    @Test func theOtherBuildLinksWhenSomethingNamesIt() async {
+        let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        let macs = [
+            MacDevice(id: "m1", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: machine),
+            MacDevice(id: "m2", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: machine),
+        ]
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer, macs: macs)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        live.touch("m2")
+        await settle { store.macConnection["m2"] == .connected }
+        #expect(store.macConnection["m2"] == .connected)
+        #expect(live.focusedMacID == "m1")
+    }
+
     @Test func sameNamedMacsOnTwoComputersAreBothLinked() async {
         let macs = [
             MacDevice(id: "m1", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"),

@@ -1,5 +1,13 @@
+import { runInDurableObject } from "cloudflare:test"
+import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
+import { userHubName, type TeamHub } from "../src/team-hub.ts"
 import { call, connect, token } from "./helpers.ts"
+
+const hubOf = (owner: string) => {
+  const ns = (env as unknown as { TEAM_HUB: DurableObjectNamespace<TeamHub> }).TEAM_HUB
+  return ns.get(ns.idFromName(userHubName(owner)))
+}
 
 // A Mac's machine id (PROTOCOL.md "Devices"): every cmux build on one computer registers its own device, and
 // says which computer it runs on, so the phone lists that computer once. A name is never an identity.
@@ -115,5 +123,25 @@ describe("Mac machine id", () => {
       expect.objectContaining({ deviceId: old.deviceId, machineId: MACHINE_A })
     ]))
     for (const s of [p, m, late]) s.ws.close()
+  })
+
+  it("a hub that missed a claim catches up at the next registration", async () => {
+    const t = await token("mid-ida")
+    const old = await registerMac(t, "personal-mid-ida", "Ida's Mac")
+    const body = { kind: "mac", name: "Ida's Mac", teamId: "personal-mid-ida", machineId: MACHINE_A, siblingDeviceIds: [old.deviceId] }
+    const mac = await registerMac(t, "personal-mid-ida", "Ida's Mac", { machineId: MACHINE_A, siblingDeviceIds: [old.deviceId] })
+    // The hub call after the database claim failed: the hub still has no machine id for the old build.
+    await runInDurableObject(hubOf("mid-ida"), (_hub, state) => {
+      state.storage.sql.exec("UPDATE macs SET machine_id = NULL WHERE device_id = ?", old.deviceId)
+    })
+    expect((await call("POST", "/v1/devices", t, { ...body, deviceId: mac.deviceId })).status).toBe(200)
+    const phone = crypto.randomUUID()
+    expect((await call("POST", "/v1/devices", t, { deviceId: phone, kind: "phone", name: "iPhone", teamId: "personal-mid-ida" })).status).toBe(200)
+    const p = await connect(t, "personal-mid-ida", phone)
+    await p.until((s) => s.frames.some((f) => f.type === "hello"))
+    expect(p.frames.find((f) => f.type === "hello")!.macs).toEqual(
+      expect.arrayContaining([expect.objectContaining({ deviceId: old.deviceId, machineId: MACHINE_A })])
+    )
+    p.ws.close()
   })
 })
