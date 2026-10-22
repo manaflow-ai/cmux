@@ -167,13 +167,7 @@ export function IncomingMessageLine({
       </div>
       {open && (
         <div id={bodyId} className="cv-received__body selectable">
-          {message.text ? (
-            <Markdown githubRepository={githubRepository} agentReferences>
-              {message.text}
-            </Markdown>
-          ) : (
-            t("message.noText")
-          )}
+          {message.text ? <Markdown githubRepository={githubRepository}>{message.text}</Markdown> : t("message.noText")}
         </div>
       )}
       {open && raw !== undefined && (

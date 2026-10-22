@@ -121,6 +121,79 @@ test("a Claude Code cross-session message: sender, body, and the harness's note 
   expect(incomingPrompt('<cross-session-message from="x">hi', adopted)).toBeUndefined();
 });
 
+// As Claude Code delivers another session's message, or one from an agent of its own: a line
+// about it, the envelope, then its note to the agent.
+const NOTE = "\n\nThis came from another Claude session — not typed by your user.";
+
+test("Claude Code's line before an envelope is no part of the message", () => {
+  for (const preface of [
+    "Another Claude session sent a message:\n",
+    "Another Claude session sent a message while you were working:\n",
+  ]) {
+    const raw = `${preface}<cross-session-message from="uds:/tmp/a.sock" from-name="leoli-fb" from-mode="bypass">\nhi\n</cross-session-message>${NOTE}`;
+    expect(incomingPrompt(raw, adopted)).toEqual({ kind: "message", message: { name: "leoli-fb", text: "hi", raw } });
+  }
+  // The line by itself, or before anything but an envelope, is the person's prompt as it was.
+  expect(incomingPrompt("Another Claude session sent a message:\nhi", adopted)).toBeUndefined();
+  // A live prompt's envelope stays the person's text.
+  expect(
+    incomingPrompt('Another Claude session sent a message:\n<agent-message from="a1">hi</agent-message>', undefined),
+  ).toBeUndefined();
+});
+
+test("an agent of the session's own sends an <agent-message>, named by its id", () => {
+  const raw = `Another Claude session sent a message:\n<agent-message from="a3bf3d79ee22d1739">\n#23740 head moved.\n</agent-message>${NOTE}`;
+  expect(incomingPrompt(raw, adopted)).toEqual({
+    kind: "message",
+    message: { name: "a3bf3d79ee22d1739", text: "#23740 head moved.", raw },
+  });
+  // A subagent's hand-back is not an agent named "Subagent hand-back".
+  const handBack = '<agent-message from="a1">\n[Subagent hand-back] The text below is its report.\n</agent-message>';
+  expect(incomingPrompt(handBack, adopted)).toEqual({
+    kind: "message",
+    message: { name: "a1", text: "[Subagent hand-back] The text below is its report.", raw: handBack },
+  });
+  // Unclosed, it is not read as one.
+  expect(incomingPrompt('<agent-message from="a1">hi', adopted)).toBeUndefined();
+});
+
+test("an envelope's sender is the agent named first in brackets, else its name, else its address", () => {
+  const raw = `<cross-session-message from="uds:/tmp/a.sock" from-name="2026-10-20-gui-push-be">\n[coord-deputy] projects-ee: #23290 fixes a flake.\n</cross-session-message>`;
+  expect(incomingPrompt(raw, adopted)).toEqual({
+    kind: "message",
+    message: { name: "coord-deputy", text: "projects-ee: #23290 fixes a flake.", raw },
+  });
+  // Claude Desktop names the session with `name`; `from-name` comes first when both are there.
+  const desktop = (attributes: string) => {
+    const result = incomingPrompt(`<cross-session-message ${attributes}>hi</cross-session-message>`, adopted);
+    return result?.kind === "message" ? result.message.name : undefined;
+  };
+  expect(desktop('from="uds:/tmp/a.sock" name="Grid fix"')).toBe("Grid fix");
+  expect(desktop('name="Grid fix" from-name="leoli-fb"')).toBe("leoli-fb");
+  // A sentence or a tag in brackets is no agent: the envelope's sender stays, and so does the text.
+  for (const body of ["[see the failing test in the log] then fix it", "[WIP] grid fix pushed", "[1/3] part one"]) {
+    const result = incomingPrompt(
+      `<cross-session-message from-name="leoli-fb">${body}</cross-session-message>`,
+      adopted,
+    );
+    expect(result).toEqual({
+      kind: "message",
+      message: {
+        name: "leoli-fb",
+        text: body,
+        raw: `<cross-session-message from-name="leoli-fb">${body}</cross-session-message>`,
+      },
+    });
+  }
+  // Bookkeeping between Claude Code's line and the envelope is skipped too.
+  const reminded =
+    'Another Claude session sent a message:\n<system-reminder>r</system-reminder>\n<agent-message from="a1">hi</agent-message>';
+  expect(incomingPrompt(reminded, adopted)).toEqual({
+    kind: "message",
+    message: { name: "a1", text: "hi", raw: reminded },
+  });
+});
+
 test("a task notification is its summary; a reminder or caveat draws nothing", () => {
   const notification =
     "<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n<summary>Build finished</summary>\n</task-notification>";

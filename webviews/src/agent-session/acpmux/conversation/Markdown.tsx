@@ -22,11 +22,12 @@ import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
-import { codePath, linkPath } from "../chips/paths";
+import { codePath, linkPath, pathName, textLinks } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
-import { agentReferences, githubReferences } from "../../../githubReferences";
+import { commitReferences, githubReferences } from "../../../githubReferences";
+import { imageOnlyItems, proseImages, type ThumbItem } from "./inlineMedia";
 import { acpmuxPerf } from "../perf";
 import { StartedSessionChip, useStartedMentions, type StartedMentions } from "../started/StartedSessionCard";
 import { splitMentions } from "../started/startedSessions";
@@ -269,8 +270,6 @@ export type InlineOptions = {
   githubRepository?: string;
   /** Link GitHub references in prose; labels of an outer link disable this. */
   linkGithubReferences?: boolean;
-  /** Also link `hq#123` and commit names (agentReferences): another agent's message. */
-  agentReferences?: boolean;
   /** The chats the open chat started, whose names draw as chips (started/startedSessions.ts). */
   started?: StartedMentions;
 };
@@ -369,16 +368,26 @@ export const linkIcon = (href: string) => {
   return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
 };
 
-function linkedGithubText(text: string, key: string, repository?: string, enabled = true, agent = false): ReactNode[] {
+/// `src/app.ts:12` keeps its line in the chip's label (the chip opens the file).
+function lineLabel(path: string, written: string): string | undefined {
+  const line = /:(\d+)(?::\d+)?$/.exec(written)?.[1];
+  return line ? `${pathName(path)}:${line}` : undefined;
+}
+
+function linkedGithubText(text: string, key: string, repository?: string, enabled = true): ReactNode[] {
   if (!enabled) return linkedText(text, key);
-  // A pull request address, so the chip opens the pull request card (an issue redirects there).
-  const refs = githubReferences(text, repository, "pull");
-  if (agent) {
-    // The two never overlap as written; one that would is dropped, so no text draws twice.
-    for (const extra of agentReferences(text, repository))
-      if (!refs.some((ref) => extra.start < ref.end && ref.start < extra.end)) refs.push(extra);
-    refs.sort((a, b) => a.start - b.start);
-  }
+  // A pull request address, so the chip opens the pull request card (an issue redirects there);
+  // a commit (`abc1234`, `owner/repo@abc1234`) opens its GitHub page. In reading order; a commit
+  // inside a reference, a URL or a path (`https://x.test/app.js?v=3a7bd3e2`) is part of it.
+  const issues = githubReferences(text, repository, "pull", true);
+  const commits = commitReferences(text, repository);
+  const spans = commits.length ? textLinks(text) : [];
+  const refs = [
+    ...issues,
+    ...commits.filter((commit) => !spans.some((span) => commit.start < span.end && span.start < commit.end)),
+  ]
+    .sort((a, b) => a.start - b.start)
+    .filter((ref, index, all) => index === 0 || ref.start >= all[index - 1]!.end);
   if (!refs.length) return linkedText(text, key);
   const out: ReactNode[] = [];
   let at = 0;
@@ -404,13 +413,7 @@ function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] 
   const pieces = opts.started?.mentions.length ? splitMentions(text, opts.started.mentions) : [text];
   return pieces.flatMap((piece, index): ReactNode[] =>
     typeof piece === "string"
-      ? linkedGithubText(
-          piece,
-          `${key}-${index}`,
-          opts.githubRepository,
-          opts.linkGithubReferences !== false,
-          opts.agentReferences,
-        )
+      ? linkedGithubText(piece, `${key}-${index}`, opts.githubRepository, opts.linkGithubReferences !== false)
       : [
           <StartedSessionChip
             key={`${key}-${index}`}
@@ -449,7 +452,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       const path = codePath(t.slice(1, -1));
       out.push(
         path ? (
-          <PathChip key={k++} path={path} written={t.slice(1, -1)} />
+          <PathChip key={k++} path={path} written={t.slice(1, -1)} label={lineLabel(path, t.slice(1, -1))} />
         ) : (
           <code key={k++} className="cv-code">
             {t.slice(1, -1)}
@@ -572,7 +575,7 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
   if (opts.overBudget?.has(src)) return <OversizedImage alt={alt} opts={opts} />;
   if (src === OVERSIZED_DATA_URL || (INLINE_IMAGE.test(src) && src.length > MAX_DATA_URL_LENGTH))
     return <OversizedImage alt={alt} opts={opts} />;
-  if (INLINE_IMAGE.test(src)) return <OpenableImage src={src} alt={alt} />;
+  if (INLINE_IMAGE.test(src)) return <OpenableImage src={src} alt={alt} thumb />;
   const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
   const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false, started: undefined };
   const href = safeHref(src);
@@ -588,7 +591,27 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
     </a>
   );
   // A file inside the session's folders, or a web image, loads through the host (D5).
-  return <ReplyImage src={src} alt={alt} fallback={fallback} />;
+  return <ReplyImage src={src} alt={alt} fallback={fallback} thumb />;
+}
+
+/// Thumbnails of `items` (inlineMedia.ts): one alone, or a row where each has the same share of
+/// the width, so a before/after pair sits side by side, captioned by its label or alt text.
+/// A written label (`Before:`) is always its caption; an alt text is one only in a row.
+function Thumbs({ items, opts }: { items: ThumbItem[]; opts: InlineOptions }) {
+  const row = items.length > 1;
+  return (
+    <span className={`cv-thumbs${row ? " is-row" : ""}`} data-count={items.length}>
+      {items.map((item, index) => {
+        const caption = item.label ?? (row ? item.alt : "");
+        return (
+          <span key={index} className="cv-thumbs__item">
+            <InlineImage source={`![${item.alt}](${item.src})`} opts={opts} />
+            {caption && <span className="cv-thumbs__caption">{caption}</span>}
+          </span>
+        );
+      })}
+    </span>
+  );
 }
 
 /// A data URL image over MAX_DATA_URL_LENGTH: its alt text (or "Image too large to show") with the
@@ -646,7 +669,28 @@ function Block({
             <RemoteMedia url={link} alt="" fallback={inline(block.text)} />
           </p>
         );
-      return <p className={`cv-p${motion}`}>{inline(block.text)}</p>;
+      // Only images (a before/after pair, a screenshot alone on its line): a row of thumbnails, once
+      // the paragraph has finished arriving (a half-written line may still turn into prose).
+      const images = tail ? undefined : imageOnlyItems(block.text);
+      if (images)
+        return (
+          <p className={`cv-p cv-p--images${motion}`}>
+            <Thumbs items={images} opts={opts} />
+          </p>
+        );
+      // An image path in a sentence stays its chip there; its thumbnail draws under the paragraph,
+      // once the paragraph has finished arriving.
+      const named = tail ? [] : proseImages(block.text);
+      return (
+        <>
+          <p className={`cv-p${motion}`}>{inline(block.text)}</p>
+          {named.length > 0 && (
+            <p className={`cv-p cv-p--images${motion}`}>
+              <Thumbs items={named} opts={opts} />
+            </p>
+          )}
+        </>
+      );
     }
     case "hr":
       return <hr className={`cv-hr${motion}`} />;
@@ -673,6 +717,7 @@ function Block({
               <span className="cv-li__text">
                 {i === block.items.length - 1 && !it.children.length ? inline(it.text) : renderInline(it.text, opts)}
               </span>
+              <ItemThumbs text={it.text} opts={opts} streaming={Boolean(tail) && i === block.items.length - 1} />
               {it.children.length > 0 && <Blocks blocks={it.children} opts={opts} depth={depth + 1} />}
             </li>
           ))}
@@ -704,6 +749,16 @@ function Block({
       );
     }
   }
+}
+
+/// A list item's image paths, as thumbnails under its text (a last item still arriving has none yet).
+function ItemThumbs({ text, opts, streaming }: { text: string; opts: InlineOptions; streaming: boolean }) {
+  const named = streaming ? [] : proseImages(text);
+  return named.length ? (
+    <span className="cv-li__images">
+      <Thumbs items={named} opts={opts} />
+    </span>
+  ) : null;
 }
 
 function Blocks({ blocks, opts, depth }: { blocks: MdBlock[]; opts: InlineOptions; depth: number }) {
@@ -774,7 +829,6 @@ export function Markdown({
   fresh,
   now = 0,
   githubRepository,
-  agentReferences,
   plainCode = false,
 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
@@ -802,12 +856,11 @@ export function Markdown({
     return {
       linkIcon,
       githubRepository,
-      ...(agentReferences ? { agentReferences } : {}),
       notes: { numbers, anchor: (id) => `${notePrefix}fn-${id}` },
       overBudget,
       ...(started ? { started } : {}),
     };
-  }, [agentReferences, githubRepository, linkIcon, noteIds, notePrefix, overBudget, started]);
+  }, [githubRepository, linkIcon, noteIds, notePrefix, overBudget, started]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
   const freshChars = fresh?.reduce((sum, step) => sum + step.count, 0) ?? 0;

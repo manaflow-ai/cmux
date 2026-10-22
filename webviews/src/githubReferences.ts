@@ -9,24 +9,36 @@ export type GithubReference = {
 // Not after a word, a path or URL (`x.com/#12`) or an HTML entity (`&#123;`). GitHub numbers
 // start at 1 and have at most ten digits (the pull request card's rule), so `#0`, `#012` and
 // `#12345678901` are not references.
+// A short name glued to the `#` (`hq#12`) is a reference only when the caller takes aliases and
+// it is a known one (REPOSITORY_ALIASES); any other word glued to a `#` (`foo#12`) stays text.
 const REFERENCE =
-  /(?<![\w./&-])(?:(?<repository>[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*)(?<qualifiedNumber>#[1-9][0-9]{0,9})|(?<bareNumber>#[1-9][0-9]{0,9}))(?![\w])/g;
+  /(?<![\w./&-])(?:(?<repository>[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*)(?<qualifiedNumber>#[1-9][0-9]{0,9})|(?<alias>[A-Za-z][A-Za-z0-9-]*)(?<aliasNumber>#[1-9][0-9]{0,9})|(?<bareNumber>#[1-9][0-9]{0,9}))(?![\w])/g;
+
+/// Short repository names agents write in place of `owner/repo` (`hq#2713`), in agent replies only.
+export const REPOSITORY_ALIASES: ReadonlyMap<string, string> = new Map([["hq", "manaflow-ai/cmuxterm-hq"]]);
 
 /**
  * Finds explicit `owner/repo#123` and, when known, bare `#123` references. `kind` picks the
  * address: `issues` (the markdown editor) or `pull` (agent replies, whose chips open the pull
  * request card); GitHub redirects either to the other when the number is the other kind.
+ * `aliases`: also `hq#123` and the other REPOSITORY_ALIASES (agent replies).
  */
 export function githubReferences(
   text: string,
   repository?: string,
   kind: "issues" | "pull" = "issues",
+  aliases = false,
 ): GithubReference[] {
   const out: GithubReference[] = [];
   for (const match of text.matchAll(REFERENCE)) {
-    const repo = match.groups?.repository ?? repository;
+    const alias = match.groups?.alias;
+    const repo = alias
+      ? aliases
+        ? REPOSITORY_ALIASES.get(alias.toLowerCase())
+        : undefined
+      : (match.groups?.repository ?? repository);
     if (!repo) continue;
-    const number = match.groups?.qualifiedNumber ?? match.groups?.bareNumber;
+    const number = match.groups?.qualifiedNumber ?? match.groups?.aliasNumber ?? match.groups?.bareNumber;
     if (!number) continue;
     out.push({
       start: match.index!,
@@ -38,40 +50,31 @@ export function githubReferences(
   return out;
 }
 
-// `hq#123`: a pull request or issue of the team's HQ repository, as agents write it to each other.
-const HQ_REFERENCE = /(?<![\w./&-])hq#([1-9][0-9]{0,9})(?![\w])/gi;
-const HQ_REPOSITORY = "manaflow-ai/cmuxterm-hq";
-// A commit's name: 7 to 40 lowercase hex characters with a digit and a letter, so neither a number
-// nor a word reads as one. Not in a path, a URL or its query, a color (`#a1b2c3d4`), a hex literal, an
-// address or a UUID.
-const COMMIT = /(?<![\w./@:#=&?%+~-])(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}(?![\w/@-])/g;
+/** A commit written in prose: `owner/repo@<sha>`, or a bare SHA when the repository is known. */
+export type CommitReference = GithubReference & { sha: string };
 
-/**
- * The references agents write to each other besides `#123`: `hq#123` (HQ's pull request, which
- * GitHub redirects to the issue) and, when the repository is known, a commit's name, whose `text`
- * is its first seven characters.
- */
-export function agentReferences(text: string, repository?: string): GithubReference[] {
-  const out: GithubReference[] = [];
-  for (const match of text.matchAll(HQ_REFERENCE)) {
+// 7 to 40 lowercase hex characters with at least one digit and one letter (git's short and full
+// forms; `deadbeef`, `1234567` and `facade` stay words), not glued to a word, a path, a `#` color,
+// a `0x` number or a `sha256:` digest (64 characters, past the 40 cap anyway).
+const COMMIT =
+  /(?<![\w./#&:@-])(?:(?<repository>[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*)@)?(?<sha>(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40})(?![\w-])/g;
+
+/** Commits in `text`, linked to their GitHub page; a bare SHA needs `repository`. */
+export function commitReferences(text: string, repository?: string): CommitReference[] {
+  const out: CommitReference[] = [];
+  for (const match of text.matchAll(COMMIT)) {
+    const repo = match.groups?.repository ?? repository;
+    const sha = match.groups!.sha!;
+    if (!repo) continue;
     out.push({
       start: match.index!,
       end: match.index! + match[0].length,
       text: match[0],
-      href: `https://github.com/${HQ_REPOSITORY}/pull/${match[1]}`,
+      sha,
+      href: `https://github.com/${repo}/commit/${sha}`,
     });
   }
-  if (repository) {
-    for (const match of text.matchAll(COMMIT)) {
-      out.push({
-        start: match.index!,
-        end: match.index! + match[0].length,
-        text: match[0].slice(0, 7),
-        href: `https://github.com/${repository}/commit/${match[0]}`,
-      });
-    }
-  }
-  return out.sort((a, b) => a.start - b.start);
+  return out;
 }
 
 // A fenced block (to its closing fence, or the end of an unfinished one) and a code span.
