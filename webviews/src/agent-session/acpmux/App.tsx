@@ -6771,7 +6771,7 @@ function AcpmuxPane() {
     holdsAsks: trustAsk.holdsAsks,
     trustBlocks: Boolean(trustAsk.blocked),
     isWorking: snapshot.isWorking,
-    individualPermission: Boolean(individualPermission),
+    individualPermission,
     permissionGroups: snapshot.permissionGroups?.supported ? snapshot.permissionGroups.groups : undefined,
     secret: Boolean(snapshot.secret),
     cards: toolCards,
