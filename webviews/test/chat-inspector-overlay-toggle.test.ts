@@ -181,4 +181,35 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
         await short.close();
       }
     });
+
+  // claude-sr2, 2026-10-22 (relaying Leo): over the in-pane diff the Inspector was "again a full-height
+  // column". It was the same card, but a busy chat's sections (Tasks 175, Subagents +94) are taller
+  // than any pane, so the card always reached the pane's foot. However tall its sections, the card
+  // stops at a ceiling (at most 560px, and never more than 80% of the room under the header) and
+  // its body scrolls: it never reads as a column, over the chat or over a diff.
+  for (const name of browsers.keys())
+    test(`${name}: over the chat the Inspector never runs the pane's height, however tall its sections`, async () => {
+      current = browsers.get(name)!;
+      for (const height of [1400, 800, 420]) {
+        const page = await pane!.open({ width: 900, height });
+        try {
+          const { panel } = await openInspector(page, 0);
+          // A busy chat: every section taller than the pane.
+          await page.addStyleTag({ content: "aside.acpmux-chat-inspector [data-section] { min-height: 1600px; }" });
+          const { top, bottom, scrolls } = await panel.evaluate((node) => {
+            const box = node.getBoundingClientRect();
+            const body = node.querySelector(".acpmux-chat-inspector__body")!;
+            return { top: box.top, bottom: box.bottom, scrolls: body.scrollHeight > body.clientHeight + 1 };
+          });
+          const room = height - top;
+          expect({ height, short: bottom - top <= Math.min(560, room * 0.8) + 0.5, scrolls }).toEqual({
+            height,
+            short: true,
+            scrolls: true,
+          });
+        } finally {
+          await page.close();
+        }
+      }
+    });
 });
