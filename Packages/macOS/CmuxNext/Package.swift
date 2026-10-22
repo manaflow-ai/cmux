@@ -1405,6 +1405,11 @@ let package = Package(
             dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextPages", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
+        // Test-only: every exit() of the test process prints its stack (TestProcessExitTests).
+        .target(
+            name: "CmuxNextTestExitTrace",
+            path: "Tests/Support/CmuxNextTestExitTrace"
+        ),
         .testTarget(
             name: "CmuxNextAppTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -1448,6 +1453,7 @@ let package = Package(
                 "CmuxNextTabs",
                 "CmuxNextTasks",
                 "CmuxNextTerminalGeometry",
+                "CmuxNextTestExitTrace",
                 "CmuxNextVSCodeServer",
                 "CmuxNextWakeups",
                 "CmuxNextWorkspaceNaming",

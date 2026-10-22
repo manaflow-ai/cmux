@@ -440,6 +440,9 @@ export function Composer({
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
   const submitNow = useRef<(force: boolean, steer?: boolean) => boolean>(() => false);
+  /// The newest `onOpenInWindow`, for a ⌘Return held until a screenshot's chip is ready.
+  const openInWindow = useRef(onOpenInWindow);
+  openInWindow.current = onOpenInWindow;
   const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
   // A paste on the prompt or the shell field, and a file drop anywhere (composer/attachmentIntake.tsx).
   const { attachments, setAttachments, pending, attachError, setAttachError, dropping, attach } = useAttachmentIntake({
@@ -453,6 +456,19 @@ export function Composer({
           : undefined,
     ...(upload ? { upload } : {}),
     ...(localPaths ? { localPaths } : {}),
+    // A screenshot still being read when the composer moves to another chat stays the chat's it was
+    // pasted in: its chip joins that chat's kept chips (keptAttachments.ts), unless a switch carries
+    // the prompt to its new session.
+    scope: sessionId,
+    elsewhere: (chat, chips) => {
+      if (!keptAttachments) return;
+      void keptAttachments
+        .read(chat)
+        .catch(() => [])
+        .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips).slice(0, MAX_ATTACHMENTS)))
+        .catch(() => {});
+    },
+    carries: () => carryPrompt.current || Boolean(switching),
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
@@ -1089,11 +1105,17 @@ export function Composer({
       !event.altKey &&
       !event.ctrlKey
     ) {
+      event.preventDefault();
       const typed = unwrapped().trim() !== "";
-      const sent = submit(event);
-      // A prompt the host refused stays in the composer, and the chat stays here.
-      if (typed && !sent) return;
-      onOpenInWindow(sent);
+      const sendAndOpen = () => {
+        const sent = submitNow.current(false, steersAlways);
+        // A prompt the host refused stays in the composer, and the chat stays here.
+        if (typed && !sent) return;
+        openInWindow.current?.(sent);
+      };
+      // A screenshot still being read: the prompt and the window wait for its chip, as Return does.
+      if (holdForAttachments(sendAndOpen)) return;
+      sendAndOpen();
       return;
     }
     if (event.key === "Enter" && plain && returnSends()) {
