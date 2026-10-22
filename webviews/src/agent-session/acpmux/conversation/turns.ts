@@ -70,6 +70,24 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
   return row.status === "cancelled" ? t("turn.stopped", { time }) : t("turn.worked", { time });
 }
 
+/// What a turn's footer says before its buttons, or nothing: a turn whose work folds under "Worked
+/// for" says it there, and a turn under a second says nothing, since "Worked for 0s" is no news
+/// (Leo, 2026-10-21: "IF WE 0 SECONDS THEN IT DOESNT NEED TO TAKE UP SPACE"). A stopped turn still
+/// says it stopped, and a footer without timing (history paged in mid-turn) its count.
+export function footerLabel(t: Translate, row: AcpmuxRow): string | undefined {
+  return footerSays(row) ? workedLabel(t, row) : undefined;
+}
+const footerSays = (row: AcpmuxRow) =>
+  !row.folded &&
+  (row.previous !== undefined || row.durationMs === undefined || row.durationMs >= 1000 || row.status === "cancelled");
+
+/// A footer with nothing to show at rest and only hover controls (Pin, Fork, its age): no label, no
+/// answer to copy or read aloud, and the turn did not fail. It takes no line in the transcript
+/// (conversation.css `.cv-turn-actions--empty`, model.ts fallbackRowHeight); pointed at, its controls
+/// show over the turn gap below, so nothing moves.
+export const isEmptyFooter = (row: AcpmuxRow) =>
+  row.kind === "turnSummary" && row.status !== "failed" && row.status !== "error" && !row.text && !footerSays(row);
+
 const isEditTool = (tool: { kind?: string } | undefined) => tool?.kind === "edit" || tool?.kind === "fileChange";
 const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).some((item) => isEditTool(item.tool));
 
@@ -557,6 +575,8 @@ const staysOut = (row: AcpmuxRow) =>
   // who answers it; folded, nobody would see it happened.
   row.kind === "compaction" ||
   row.kind === "failover" ||
+  // A policy the harness cannot keep: the agent runs without the asks the person chose.
+  row.kind === "policyUnenforced" ||
   // A paused agent pair waits for the person's Resume.
   row.kind === "agentPair" ||
   // Where the session started: what it runs on.

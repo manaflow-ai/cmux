@@ -11,7 +11,7 @@ public nonisolated struct NewTabWidgetSettings: Sendable, Equatable {
     public var projects = NewTabWidgetSettings.projectsDefault
     /// The chats that need the user, New Terminal, New Browser Tab and New Chat.
     public var actions = NewTabWidgetSettings.actionsDefault
-    /// The template's recent chats and Recently Closed.
+    /// The recent chats (Minimal shows no Recently Closed list; the palette reopens a closed tab).
     public var chats = NewTabWidgetSettings.chatsDefault
     /// The template dots under the page.
     public var styleDots = NewTabWidgetSettings.styleDotsDefault
@@ -21,13 +21,19 @@ public nonisolated struct NewTabWidgetSettings: Sendable, Equatable {
     public var weatherCity = NewTabWidgetSettings.weatherCityDefault
     /// The machines a chat can start on, each with its color, icon and online state.
     public var machines = NewTabWidgetSettings.machinesDefault
+    /// The movable widgets in the order the page shows them (`tabs.newTabWidgets.order`,
+    /// NewTabWidgetEdits.swift), every one of ``movable`` once.
+    public var order = NewTabWidgetSettings.movable
 
     public init() {}
 
-    /// The widgets on, by the page's names, in Settings' order.
+    /// The widgets on, by the page's names, in the order the page shows them: the greeting, the
+    /// movable widgets in ``order``, the template dots, then the ambient weather and machines (their
+    /// own row under the composer, not moved by the edit mode).
     public var ids: [String] {
-        [("greeting", greeting), ("projects", projects), ("actions", actions), ("chats", chats),
-         ("styleDots", styleDots), ("weather", weather), ("machines", machines)].compactMap { $0.1 ? $0.0 : nil }
+        let on = ["greeting": greeting, "projects": projects, "actions": actions, "chats": chats, "styleDots": styleDots,
+                  "weather": weather, "machines": machines]
+        return (["greeting"] + order + ["styleDots", "weather", "machines"]).filter { on[$0] == true }
     }
 
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
@@ -44,6 +50,7 @@ public nonisolated struct NewTabWidgetSettings: Sendable, Equatable {
         }
         if let value = reader.bool("machines") { settings.machines = value }
         diagnostics += reader.diagnostics
+        settings.order = parseOrder(root, diagnostics: &diagnostics)
         return settings
     }
 

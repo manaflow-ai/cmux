@@ -10,6 +10,7 @@ import { Effect, Layer, Redacted, Schema } from "effect";
 import { makeUpstreamHttp } from "./live-http.ts";
 import { makeHttpsProxies } from "./live-https-proxies.ts";
 import { makeRetireVm } from "./live-retire.ts";
+import { makeClientSessions } from "./live-client-sessions.ts";
 import { makeStatFile } from "./live-file-stat.ts";
 import { vmInstanceIdentity } from "./live-identity.ts";
 import { makeDurableCreate, makeRecoverCreation, makeInspectCancellation, makeDeleteCancellation } from "./live-create.ts";
@@ -215,6 +216,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
     })),
     ...makeHttpsProxies(makeUpstreamHttp(config)),
     ...makeRetireVm(makeUpstreamHttp(config)),
+    ...makeClientSessions(makeUpstreamHttp(config), base.origin),
     ...makeStatFile(makeUpstreamHttp(config)),
     getVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),
 
