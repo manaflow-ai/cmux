@@ -118,7 +118,7 @@ export function readWebThemeBootstrap(file = WEB_THEME_SWIFT): string {
 }
 
 /** A sheet's `@import "./x.css";` of a sibling, which the page carries ahead of it (not inlined). */
-const SIBLING_IMPORT = /^[ \t]*@import\s+["'](\.\.?\/[^"']+\.css)["'];[ \t]*$/gm;
+const SIBLING_IMPORT = /^[ \t]*@import\s+["'](\.\.?\/[^"']+\.css)["'];[ \t]*$/gim;
 
 /**
  * The pane's stylesheets in shipped order: the sheets acpmux/pageStyles.ts imports, each after the
