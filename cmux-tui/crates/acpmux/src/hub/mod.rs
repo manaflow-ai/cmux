@@ -1118,7 +1118,12 @@ impl Hub {
         }
         // The purge ran between the check and the save: delete it again.
         if session.purged.load(Ordering::SeqCst)
-            && let Err(e) = self.store.purge(&session.id)
+            && let Err(e) = if session.replaced.load(Ordering::SeqCst) {
+                // A chat that comes back under this id (a move back): no write guard.
+                self.store.delete(&session.id)
+            } else {
+                self.store.purge(&session.id)
+            }
         {
             tracing::warn!(session = %session.id, "delete of a purged session failed: {e}");
         }

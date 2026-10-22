@@ -603,7 +603,7 @@ impl Store for MemoryStore {
     }
     fn save(&self, meta: &SessionMeta) -> Result<()> {
         let mut g = self.inner.lock().unwrap();
-        if self.purged.lock().unwrap().contains(&meta.id) {
+        if lock(&self.purged).contains(&meta.id) {
             return Ok(());
         }
         g.entry(meta.id.clone())
@@ -613,7 +613,7 @@ impl Store for MemoryStore {
     }
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut g = self.inner.lock().unwrap();
-        if self.purged.lock().unwrap().contains(id) {
+        if lock(&self.purged).contains(id) {
             return Ok(());
         }
         if let Some((_, events)) = g.get_mut(id) {
@@ -637,13 +637,13 @@ impl Store for MemoryStore {
         Ok(())
     }
     fn purge(&self, id: &str) -> Result<()> {
-        let mut g = self.inner.lock().unwrap();
-        self.purged.lock().unwrap().insert(id.to_owned());
+        let mut g = lock(&self.inner);
+        lock(&self.purged).insert(id.to_owned());
         g.remove(id);
         Ok(())
     }
     fn release_purge(&self, id: &str) {
-        self.purged.lock().unwrap().remove(id);
+        lock(&self.purged).remove(id);
     }
 }
 
@@ -974,13 +974,13 @@ impl Store for LocalStore {
         // Checked before and after the write, never held through it (the write syncs;
         // holding the lock would stall every append). `purge` marks before it deletes,
         // so a purge that ran during the write is seen after it and its files go again.
-        if self.purged.lock().unwrap().contains(&meta.id) {
+        if lock(&self.purged).contains(&meta.id) {
             return Ok(());
         }
         let dir = self.dir(&meta.id);
         crate::config::private_state_dir(&dir)?;
         write_atomic(&dir.join("session.json"), serde_json::to_string_pretty(meta)?.as_bytes())?;
-        if self.purged.lock().unwrap().contains(&meta.id) {
+        if lock(&self.purged).contains(&meta.id) {
             return self.delete(&meta.id);
         }
         Ok(())
@@ -988,7 +988,7 @@ impl Store for LocalStore {
 
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut writers = self.writers.lock().unwrap();
-        if self.purged.lock().unwrap().contains(id) {
+        if lock(&self.purged).contains(id) {
             return Ok(());
         }
         if !writers.contains_key(id) {
@@ -1196,15 +1196,15 @@ impl Store for LocalStore {
     fn purge(&self, id: &str) -> Result<()> {
         {
             // Lock order: writers, then purged (as `append`); `save` takes only purged.
-            let mut writers = self.writers.lock().unwrap();
-            self.purged.lock().unwrap().insert(id.to_owned());
+            let mut writers = lock(&self.writers);
+            lock(&self.purged).insert(id.to_owned());
             writers.remove(id);
         }
         self.delete(id)
     }
 
     fn release_purge(&self, id: &str) {
-        self.purged.lock().unwrap().remove(id);
+        lock(&self.purged).remove(id);
     }
 
     fn sweep_purged_leftovers(&self) -> Result<usize> {
@@ -1249,6 +1249,12 @@ impl Store for LocalStore {
     fn peer_cache_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("peers"))
     }
+}
+
+/// A store lock, recovered when a writer panicked: the guarded maps hold only ids and open
+/// files, which stay valid after a panic elsewhere.
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Open one event segment for append, owner-only from creation and after an
