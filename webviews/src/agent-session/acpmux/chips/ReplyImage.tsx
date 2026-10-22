@@ -30,7 +30,7 @@ type State =
   | { kind: "loading" }
   | ({ kind: "pending" } & Pending)
   | { kind: "shown"; src: string; generation: number }
-  | { kind: "failed" };
+  | { kind: "failed"; generation: number };
 
 /// A local image: an absolute path, a `file://` URL or a relative path (from the session's folder).
 export function localImageSource(src: string): string | undefined {
@@ -96,20 +96,21 @@ function useImageLoad(src: string, auto: boolean) {
         if (byClick) clicked.set(src, data);
         else loaded.set(src, data);
         setState({ kind: "shown", src: data, generation: asked });
-      } else setState({ kind: "failed" });
+      } else setState({ kind: "failed", generation: asked });
     });
   };
   if (auto && state.kind === "idle" && !started.has(src)) {
     started.add(src);
     queueMicrotask(() => load(false));
   }
-  // Under a new locality, a file read on this Mac is the host's to decide again, and a pending
-  // answer is asked again: on its own, or because the reader asked for it with Load image.
+  // Under a new locality, a failure and a file read on this Mac are the host's to decide again, and
+  // a pending answer is asked again: on its own, or because the reader asked with Load image.
   const reread =
-    state.kind === "shown" &&
-    state.generation !== generation &&
-    !clicked.has(src) &&
-    localImageSource(src) !== undefined;
+    (state.kind === "failed" && state.generation !== generation) ||
+    (state.kind === "shown" &&
+      state.generation !== generation &&
+      !clicked.has(src) &&
+      localImageSource(src) !== undefined);
   const retry = state.kind === "pending" && state.generation !== generation && (state.byClick || auto);
   const byClick = state.kind === "pending" && state.byClick;
   useEffect(() => {
@@ -221,7 +222,7 @@ function LocalImage({
   // While the host can't yet say where the chat runs, every image waits in its frame, a tool's
   // image too: its file name alone would read as an image that will not show.
   const waits = pending || state.kind === "pending";
-  if (!outside && place !== "missing" && state.kind !== "failed")
+  if (!outside && place !== "missing" && (state.kind !== "failed" || waits))
     return thumb || waits ? (
       <ThumbFrame state="waiting">
         <ImageIcon size={18} className="cv-chip__icon" />

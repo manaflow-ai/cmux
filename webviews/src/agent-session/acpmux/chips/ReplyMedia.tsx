@@ -68,6 +68,8 @@ function useMediaLoad(source: string, auto: boolean) {
   });
   const [state, setState] = useState<"idle" | "loading" | "failed">("idle");
   const [pending, setPending] = useState(() => waiting.get(source));
+  /// The locality a failure came under: under a new one the file may be asked for again.
+  const [failedAt, setFailedAt] = useState<number>();
   const ask = useCallback(
     (byClick: boolean) => {
       setState("loading");
@@ -90,7 +92,10 @@ function useMediaLoad(source: string, auto: boolean) {
           granted.set(source, url);
           setGrant({ url, generation: asked });
           setState("idle");
-        } else setState("failed");
+        } else {
+          setFailedAt(asked);
+          setState("failed");
+        }
       });
     },
     [source],
@@ -98,9 +103,11 @@ function useMediaLoad(source: string, auto: boolean) {
   // A local file granted under another locality is the host's to decide again.
   const stale = grant !== undefined && !webURL(source) && grant.generation !== generation;
   const src = stale ? undefined : grant?.url;
+  const refail = state === "failed" && failedAt !== generation;
   useEffect(() => {
     if (stale) setGrant(undefined);
-  }, [stale]);
+    if (refail) setState("idle");
+  }, [stale, refail]);
   // A pending answer waits for a new locality, then is asked again: on its own, or because the
   // reader asked with Load.
   const waits = pending !== undefined && pending.generation === generation;
@@ -112,16 +119,17 @@ function useMediaLoad(source: string, auto: boolean) {
   const fail = useCallback(() => {
     granted.delete(source);
     setGrant(undefined);
+    setFailedAt(localityGeneration());
     setState("failed");
   }, [source]);
-  return { src, state, waits, load, fail };
+  return { src, state: refail ? "idle" : state, waits, load, fail };
 }
 
 /// `path` is a local file (absolute or from the session's folder); `fallback` is how it draws when
 /// the pane will not play it.
 export function ReplyMedia({ path, alt, fallback }: { path: string; alt: string; fallback?: ReactNode }) {
   const kind = mediaKind(path) ?? "video";
-  const { info, answered } = usePathInfo(path);
+  const { info, answered, pending } = usePathInfo(path);
   const place = info?.place;
   const loadable = answered && !isDeniedPath(path) && place !== "denied" && place !== "outside" && place !== "missing";
   const [frame, setFrame] = useState<HTMLSpanElement | null>(null);
@@ -129,7 +137,8 @@ export function ReplyMedia({ path, alt, fallback }: { path: string; alt: string;
   const { src, state, fail } = useMediaLoad(path, near && loadable);
   const name = alt || pathName(path);
   if (src) return <MediaPlayer src={src} kind={kind} name={name} path={path} onError={fail} />;
-  if (state === "failed" && fallback) return <>{fallback}</>;
+  // A pending answer wins over an old failure: the file waits as its name.
+  if (state === "failed" && fallback && !pending) return <>{fallback}</>;
   return (
     <span ref={setFrame} className={`cv-media is-${kind}`}>
       <span className="cv-media__name">{name}</span>
