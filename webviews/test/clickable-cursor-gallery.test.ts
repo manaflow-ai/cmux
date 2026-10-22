@@ -6,7 +6,7 @@
 // labels of a choice) and every element React gave an onClick; each one that is drawn and enabled
 // must compute a cursor other than the arrow (`default`) or `auto` (the I-beam over text). The
 // finished-subagent row, the composer's Stop, the pull request bars, the reply chips, a Files tree
-// row and a shortcut row are named.
+// row, a shortcut row and a Markdown toolbar button are named.
 // clickable-cursor.test.ts checks the stylesheets themselves.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -47,6 +47,12 @@ await requireBrowserLane("clickable-cursor-gallery.test.ts", async () => {
     { entry: "agent-pane.path-chip", variant: "file", named: { "path chip": "button.cv-chip.is-path" } },
     // A file tree row selects on press and opens on double-click (ui/Tree's treeitem rows).
     { entry: "pages.files", variant: "expanded", named: { "file tree row": '.files-row[role="treeitem"]' } },
+    // The Markdown page's toolbar: Back, Rich/Source and Aa (ui/Toolbar's .ui-button).
+    {
+      entry: "pages.markdown",
+      variant: "readme",
+      named: { "Markdown toolbar button": "button.ui-toolbar-button:not(:disabled)" },
+    },
     // A shortcut row selects on click.
     { entry: "pages.keybindings", variant: "normal", named: { "shortcut row": "tr.keys-row" } },
   ];

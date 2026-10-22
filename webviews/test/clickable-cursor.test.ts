@@ -184,13 +184,17 @@ const DISABLED = /:disabled|\[disabled|aria-disabled|data-disabled|\[inert/;
 
 type Rule = { file: string; line: number; selectors: string[]; body: string };
 
-/// Every style rule of every webview stylesheet, comments blanked so line numbers hold.
+const blank = (text: string) => text.replace(/[^\n]/g, " ");
+
+/// Every style rule of every webview stylesheet, comments and statement at-rules (`@import …;`,
+/// `@layer a, b;`) blanked so line numbers hold. An unblanked `@import` would join the first rule's
+/// selector and hide it (ui.css's `.ui-button` arrow went unseen so).
 function styleRules(): Rule[] {
   const rules: Rule[] = [];
   for (const file of new Glob("**/*.css").scanSync(src)) {
-    const text = readFileSync(join(src, file), "utf8").replace(/\/\*[\s\S]*?\*\//g, (comment) =>
-      comment.replace(/[^\n]/g, " "),
-    );
+    const text = readFileSync(join(src, file), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, blank)
+      .replace(/@[\w-]+[^{};]*;/g, blank);
     for (const rule of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       const selectorText = rule[1]!.trim();
       if (selectorText.startsWith("@")) continue;
@@ -210,6 +214,10 @@ test("no stylesheet sets the arrow or auto on a clickable element", () => {
   // Sanity: the classes of the bars and buttons Leo pointed at are known clickable.
   const known = ["acpmux-pr-dock__bar", "acpmux-send", "acpmux-mic", "cv-chip", "ui-menu-item", "cv-tool", "files-row"];
   expect(known.filter((name) => !classes.has(name))).toEqual([]);
+  // Sanity: the rule right after ui.css's @import lines is read (it once was not).
+  expect(
+    styleRules().some((rule) => rule.file === "ui/ui.css" && rule.selectors.some((s) => s.includes(".ui-toolbar"))),
+  ).toBe(true);
   const offenders: string[] = [];
   for (const rule of styleRules()) {
     if (!/(^|[;\s{])cursor\s*:\s*(default|auto)\b/.test(rule.body)) continue;
