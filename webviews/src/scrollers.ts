@@ -1,13 +1,15 @@
-// SCROLLBARS-THIN (was SCROLLBARS-FOLLOW-MACOS): every scrollbar in cmux is thin and shows only
-// while its element scrolls, whatever the macOS "Show scroll bars" setting (Leo 2026-10-12: "never a
-// permanent gray track").
+// SCROLLBARS-VISIBLE (supersedes: SCROLLBARS-THIN, which superseded SCROLLBARS-FOLLOW-MACOS).
+// Leo 2026-10-21: "WHY DOES THE SCROLLBAR IN THE CHAT AREA KEEP HIDING ITSELF ... IF WE WANNA HAVE IT
+// FADE THEN GIVE IT A FADE ANIMATION BUT BY DEFAULT ... THERE IS NO AGENT APP THAT DOES THIS".
+// A scrollbar is thin and has no track (2026-10-12 still holds: "never a permanent gray track"), and
+// it is visible at rest whenever its content overflows: in the chat and the composer always, and on
+// every page when macOS "Show scroll bars" is "Always". Hiding at rest is never the default; an
+// opt-in auto-hide may fade it out, as an animation only. SCROLLBARS-THIN ("shown only while
+// scrolling", #19793, #23285) is retired: do not restore it to pass a test.
 //
-// Native page scrolling (`overflow: auto`) draws WebKit's overlay scrollers for "Automatically" and
-// "When scrolling", which already look that way. For "Always" WebKit draws a legacy bar with a gray
-// track; the host tells the page (the shared web theme, WebTheme.swift, sets
-// `data-scrollers="overlay" | "legacy"` on <html>) and `SCROLLER_ROOT_CSS` below draws a thin themed
-// thumb instead, on no track, shown while the element scrolls (`data-cmux-scrolling`, set by
-// `installScrollingMarks` or `markScrolling`) or while it is dragged. That rule is the only
+// For "Always" WebKit draws a legacy bar with a gray track; the host tells the page (WebTheme.swift
+// sets `data-scrollers="overlay" | "legacy"` on <html>) and `SCROLLER_ROOT_CSS` below draws a thin
+// themed thumb instead, on no track, shown at rest. That rule is the only
 // scrollbar styling: pages never style the scrollbar themselves (`scrollbar-width`,
 // `scrollbar-color`, `::-webkit-scrollbar`) and never use `overflow: scroll`;
 // scripts/cmux-next/check-scrollbars.sh enforces that.
@@ -133,7 +135,7 @@ export function monacoScrollerOptions(_style: ScrollerStyle): {
   overviewRulerBorder: boolean;
   hideCursorInOverviewRuler: boolean;
 } {
-  // "Always" too: no bar at rest (SCROLLBARS-THIN).
+  // Code editors keep their library scroller rule (see the header): no bar at rest, "Always" too.
   return {
     scrollbar: { vertical: "auto", horizontal: "auto", useShadows: false },
     overviewRulerBorder: false,
@@ -181,14 +183,16 @@ export const PIERRE_TREES_SCROLLER_CSS = `
 
 /**
  * The one scrollbar style, for "Always" (WebKit draws overlay scrollers otherwise): a thin thumb in
- * the theme's text color (`--cmux-scroller-thumb`), on no track, hidden at rest and shown while the
- * element scrolls, while its thumb is dragged or under the pointer (where AppKit reveals an overlay
- * scroller too).
+ * the theme's text color (`--cmux-scroller-thumb`), on no track, shown at rest whenever the element
+ * overflows (SCROLLBARS-VISIBLE; the user asked macOS to always show scroll bars), and a little
+ * stronger while it scrolls, is dragged or is under the pointer. Content that fits draws no bar.
+ * This also reaches a card scroller's thumb (it outranks `CARD_SCROLLER_CSS`): "Always" shows it too.
  */
 export const SCROLLER_ROOT_CSS = `
 :root {
   --cmux-scroller-size: 8px;
   --cmux-scroller-thumb: color-mix(in srgb, currentColor 38%, transparent);
+  --cmux-scroller-thumb-active: color-mix(in srgb, currentColor 52%, transparent);
 }
 html[data-scrollers="legacy"] ::-webkit-scrollbar {
   width: var(--cmux-scroller-size);
@@ -202,14 +206,14 @@ html[data-scrollers="legacy"] ::-webkit-scrollbar-corner {
 html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: var(--cmux-scroller-size);
-  background: transparent padding-box;
+  background: var(--cmux-scroller-thumb) padding-box;
 }
 html[data-scrollers="legacy"] [${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb,
 html[data-scrollers="legacy"][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb,
 html[data-scrollers="legacy"][${SCROLLING_ATTRIBUTE}] > body::-webkit-scrollbar-thumb,
 html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb:hover,
 html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb:active {
-  background-color: var(--cmux-scroller-thumb);
+  background-color: var(--cmux-scroller-thumb-active);
 }
 `;
 

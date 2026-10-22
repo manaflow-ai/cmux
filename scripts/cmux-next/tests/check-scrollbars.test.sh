@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# check-scrollbars.sh (SCROLLBARS-THIN): forced scroller styles, hidden
-# indicators and custom web scrollbars fail the gate; following the system and
-# CSS comments pass.
+# check-scrollbars.sh (SCROLLBARS-VISIBLE, supersedes SCROLLBARS-THIN): forced
+# scroller styles, hidden indicators and custom web scrollbars fail the gate;
+# following the system, indicators shown at rest and CSS comments pass.
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 CHECK="$ROOT_DIR/scripts/cmux-next/check-scrollbars.sh"
@@ -26,7 +26,8 @@ fail "$SWIFT" "a forced legacy style" '        scroll.scrollerStyle = .legacy'
 fail "$SWIFT" "a forced overlay style" '        scrollerStyle = .overlay'
 fail "$SWIFT" "hidden SwiftUI indicators" '        ScrollView(.horizontal, showsIndicators: false) {'
 fail "$SWIFT" "never-shown indicators" '        .scrollIndicators(.never)'
-fail "$SWIFT" "always-visible indicators" '        .scrollIndicators(.visible)'
+pass "$SWIFT" "indicators shown at rest (SCROLLBARS-VISIBLE)" '        .scrollIndicators(.visible)'
+fail "$SWIFT" "hidden indicators" '        .scrollIndicators(.hidden)'
 fail "$SWIFT" "an empty scroller track" '        scroll.autohidesScrollers = false'
 pass "$SWIFT" "autohiding scrollers" '        scroll.autohidesScrollers = true'
 pass "$SWIFT" "following the system" '        SystemScrollers.follow(scroll)'

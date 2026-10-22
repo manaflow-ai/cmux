@@ -1265,9 +1265,10 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
-      # SCROLLBARS-THIN: no forced scroller style, hidden indicators or
-      # custom web scrollbars outside the one shared style (SystemScrollers.swift,
-      # webviews/src/scrollers.ts): thin, shown only while scrolling.
+      # SCROLLBARS-VISIBLE (supersedes SCROLLBARS-THIN): no forced scroller style,
+      # hidden indicators or custom web scrollbars outside the one shared style
+      # (SystemScrollers.swift, webviews/src/scrollers.ts): thin, no track,
+      # visible at rest while the content overflows.
       - name: Scrollbars thin, one style
         id: scrollbars
         continue-on-error: true

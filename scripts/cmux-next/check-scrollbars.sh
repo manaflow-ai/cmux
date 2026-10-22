@@ -1,14 +1,20 @@
 #!/usr/bin/env bash
-# Fails when cmux-next code styles a scrollbar outside the one shared style (spec
-# SCROLLBARS-THIN): every scroller is thin and stays hidden until the user
-# scrolls, also for the macOS "Show scroll bars" setting "Always". The style
+# Fails when cmux-next code styles a scrollbar outside the one shared style or
+# hides one at rest. Spec SCROLLBARS-VISIBLE (supersedes: SCROLLBARS-THIN,
+# #19793 and #23285; Leo 2026-10-21: "WHY DOES THE SCROLLBAR IN THE CHAT AREA
+# KEEP HIDING ITSELF ... THERE IS NO AGENT APP THAT DOES THIS"): every scroller
+# is thin, has no track, and is visible at rest whenever its content overflows
+# (the chat and the composer always; every page under the macOS "Show scroll
+# bars" setting "Always"). Auto-hide is opt-in and only ever a fade. The style
 # lives in SystemScrollers.swift (native) and webviews/src/scrollers.ts (web).
+# Never bring "shown only while scrolling" back to pass a test.
 #
 # Swift (Packages/macOS/CmuxNext/Sources, Packages/Shared/CmuxMessagesLab/Sources):
 #   - no `scrollerStyle = .legacy` / `.overlay` (call SystemScrollers.follow or
 #     SystemScrollers.observe; only SystemScrollers.swift sets a style);
-#   - no `showsIndicators: false`, `.scrollIndicators(.never)`, `(.hidden)` or
-#     `(.visible)` (visible keeps an overlay scroller on screen at rest);
+#   - no `showsIndicators: false`, `.scrollIndicators(.never)` or `(.hidden)`
+#     (a scroller hidden even while it scrolls); `(.visible)` keeps the overlay
+#     scroller shown at rest, which SCROLLBARS-VISIBLE allows;
 #   - no `autohidesScrollers = false` (an empty track when everything fits);
 #   - a SwiftUI ScrollView takes `.thinScrollers()` on its content, a List on its rows (CmuxNext only).
 # Web (webviews/src, tests excluded; CSS comments ignored):
@@ -42,7 +48,7 @@ ALLOWED = {
     # The one place that sets a native scroller style (SystemScrollers.nativeStyle).
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SystemScrollers.swift": "applies the shared native style",
     # The Home transcript (vendored MessagesLab): rows are drawn under the scroller across the
-    # full width, so a legacy scroller would cover them. Overlay, as SCROLLBARS-THIN asks.
+    # full width, so a legacy scroller would cover them. Overlay, never a track.
     "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift": "Home transcript, vendored",
     # The shared rules for library scrollers (strings, not page CSS).
     "webviews/src/scrollers.ts": "library scroller rules",
@@ -56,7 +62,7 @@ ALLOWED_RULES = {
     # no longer set the option.
     "webviews/src/agent-session/acpmux/conversation/EditDiffHunks.tsx": {"overflow-style": "@pierre/diffs option"},
     "webviews/src/agent-session/acpmux/conversation/HighlightedCode.tsx": {"overflow-style": "@pierre/diffs option"},
-    # The vendored MessagesLab compose box, overlay as SCROLLBARS-THIN asks (as NativeScroll.swift).
+    # The vendored MessagesLab compose box, overlay (as NativeScroll.swift).
     "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift": {"style": "Home compose, vendored"},
     # Gallery only (PathPicker parity, #19533): a fixed gutter keeps the field's width the same
     # across folder sizes so frames compare. The shipped picker keeps the shared style.
@@ -73,7 +79,6 @@ SWIFT_RULES = [
     ("style", re.compile(r"\bscrollerStyle\s*=\s*\.(legacy|overlay)\b"), "forced scroller style; use SystemScrollers.follow/observe"),
     ("indicators", re.compile(r"showsIndicators\s*:\s*false"), "hidden scroll indicators; drop it (the system decides)"),
     ("indicators", re.compile(r"\.scrollIndicators\(\s*\.(never|hidden)"), "hidden scroll indicators; use .automatic"),
-    ("indicators", re.compile(r"\.scrollIndicators\(\s*\.visible"), "always-visible scroll indicators; use .automatic"),
     ("autohide", re.compile(r"\bautohidesScrollers\s*=\s*false\b"), "an empty scroller track; use SystemScrollers.follow"),
 ]
 WEB_RULES = [
@@ -151,7 +156,7 @@ if problems and len(problems) <= warn_max:
 if problems:
     if warn_max:
         print(f"check-scrollbars: {len(problems)} hits are over the hard ceiling of {warn_max}")
-    print("check-scrollbars: scrollbars use the one shared style (SCROLLBARS-THIN)")
+    print("check-scrollbars: scrollbars use the one shared style (SCROLLBARS-VISIBLE)")
     for p in problems:
         print("  " + p)
     sys.exit(1)
