@@ -77,6 +77,58 @@ import Testing
         #expect(try Self.detect("location.protocol = 'http:'; document.body.innerText = 'Check your email';").isEmpty)
     }
 
+    /// A page whose `body.innerText` counts its reads, with the detector's observer and the
+    /// document's `visibilitychange` listener kept so a test can drive them.
+    static let changingPage = """
+    var observed = null, shown = null, reads = 0, bodyText = '';
+    MutationObserver.prototype.observe = function () { observed = this; };
+    document.addEventListener = function (type, f) { if (type === 'visibilitychange') shown = f; };
+    Object.defineProperty(document.body, 'innerText', { get: function () { reads += 1; return bodyText; } });
+    function added(text) { return { type: 'childList', addedNodes: [{ nodeType: 1, isConnected: true, innerText: text }] }; }
+    """
+
+    static func changingContext() throws -> JSContext {
+        let context = try context()
+        context.evaluateScript(changingPage)
+        context.evaluateScript(VerificationPageScripts.detectorScript(post: "posted.push(JSON.stringify(report))"))
+        context.evaluateScript("runTimers()")
+        return context
+    }
+
+    @Test func textAddedAfterLoadReports() throws {
+        let context = try Self.changingContext()
+        context.evaluateScript("observed.cb([added('We sent a verification code to you@example.com')]); runTimers();")
+        #expect(context.evaluateScript("posted.length").toInt32() == 1)
+    }
+
+    @Test func aBusyPageIsNotReadWholeOnEachChange() throws {
+        let context = try Self.changingContext()
+        for index in 0..<5 {
+            context.evaluateScript("observed.cb([added('New message \(index)')]); runTimers();")
+        }
+        #expect(context.evaluateScript("reads").toInt32() == 1)
+        #expect(context.evaluateScript("posted.length").toInt32() == 0)
+    }
+
+    @Test func aLargeChangeReadsThePageAgain() throws {
+        let context = try Self.changingContext()
+        context.evaluateScript("""
+        bodyText = 'Check your inbox';
+        var many = []; for (var i = 0; i < 300; i++) many.push(added('row ' + i));
+        observed.cb(many); runTimers();
+        """)
+        #expect(context.evaluateScript("reads").toInt32() == 2)
+        #expect(context.evaluateScript("posted.length").toInt32() == 1)
+    }
+
+    @Test func aHiddenPageWaitsUntilShown() throws {
+        let context = try Self.changingContext()
+        context.evaluateScript("document.hidden = true; observed.cb([added('Check your email for a code')]); runTimers();")
+        #expect(context.evaluateScript("posted.length").toInt32() == 0)
+        context.evaluateScript("document.hidden = false; shown(); runTimers();")
+        #expect(context.evaluateScript("posted.length").toInt32() == 1)
+    }
+
     @Test func aReportIsOnlyTheWaitingFlag() {
         #expect(VerificationPageScripts.isWaitingReport(["waiting": true]))
         #expect(!VerificationPageScripts.isWaitingReport(["waiting": false]))

@@ -16,23 +16,42 @@ nonisolated struct VerificationPageScripts {
     /// The detector. `post` sends `report` (an object) to Swift; `ready` is true once the
     /// channel exists (CEF adds its binding after the world exists). It checks at load, then
     /// on DOM changes at most once a second, reports once per document, and stops after
-    /// 10 minutes (the offer window).
+    /// 10 minutes (the offer window). A check after load reads only the text the changes
+    /// added (the whole page again only after a large change), waits while the page is
+    /// hidden, and runs when the renderer is idle: a busy page (a feed, a chat) pays for
+    /// its changes, not for its whole text every second.
     static func detectorScript(post: String, ready: String = "true") -> String {
         """
         (() => {
           if (window !== window.top || !/^https:$/.test(location.protocol)) return;
           const phrases = /(we (just )?sent|we('ve| have) (just )?(sent|emailed)|check your (email|inbox)|sent (you )?(a|an) (code|link|email)|enter (the|your) (verification |security |one-time |sign-in |login )?code|verification code|verify your email|confirm your email|magic link|one-time (pass)?code)/i;
-          let reported = false, pending = false, last = 0;
+          // A check reads at most `limit` characters; more than `most` changed nodes read the page again.
+          const limit = 20000, most = 200;
+          let reported = false, pending = false, waitsForShow = false, last = 0, full = true, changed = new Set();
+          const idle = typeof requestIdleCallback === 'function' ? (f) => requestIdleCallback(f, { timeout: 2000 }) : (f) => f();
+          const changedText = () => {
+            let text = '';
+            for (const node of changed) {
+              const el = node.nodeType === 1 ? node : node.parentElement;
+              if (!el || !el.isConnected || (el.checkVisibility && !el.checkVisibility())) continue;
+              text += ' ' + (el.innerText || '');
+              if (text.length >= limit) break;
+            }
+            return text;
+          };
           const waits = () => {
             if (document.querySelector('input[autocomplete~="one-time-code" i]')) return true;
-            const text = (document.body && document.body.innerText || '').slice(0, 20000);
-            return phrases.test(text);
+            const text = full ? (document.body && document.body.innerText || '') : changedText();
+            full = false;
+            changed = new Set();
+            return phrases.test(text.slice(0, limit));
           };
           const send = () => {
             if (reported) return;
             if (!(\(ready))) { setTimeout(send, 250); return; }
             reported = true;
             observer.disconnect();
+            changed = new Set();
             const report = { waiting: true };
             \(post);
           };
@@ -42,15 +61,30 @@ nonisolated struct VerificationPageScripts {
           };
           const schedule = () => {
             if (reported || pending) return;
+            if (document.hidden) {
+              if (!waitsForShow) {
+                waitsForShow = true;
+                document.addEventListener('visibilitychange', () => { waitsForShow = false; schedule(); }, { once: true });
+              }
+              return;
+            }
             pending = true;
-            setTimeout(check, Math.max(0, 1000 - (Date.now() - last)));
+            setTimeout(() => idle(check), Math.max(0, 1000 - (Date.now() - last)));
           };
-          const observer = new MutationObserver(schedule);
+          const observer = new MutationObserver((records) => {
+            if (reported) return;
+            for (const record of full ? [] : records) {
+              if (record.type === 'characterData') changed.add(record.target);
+              else for (const node of record.addedNodes) changed.add(node);
+              if (changed.size > most) { full = true; changed = new Set(); break; }
+            }
+            schedule();
+          });
           const start = () => {
             if (!document.documentElement) return;
             observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
             check();
-            setTimeout(() => observer.disconnect(), 600000);
+            setTimeout(() => { observer.disconnect(); changed = new Set(); }, 600000);
           };
           if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
           else start();
