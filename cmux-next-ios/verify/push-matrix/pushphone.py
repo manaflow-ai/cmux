@@ -123,6 +123,17 @@ def main():
             raise SystemExit("no View button after the swipe")
         sim.tap_el(view[0])
         time.sleep(2.5)
+    elif cmd == "gotab":
+        # A root tab (Home, Workspaces, Feed, Settings); the bar may be collapsed to one button.
+        for _ in range(3):
+            hit = matches(sim, args[0], "RadioButton", exact=True)
+            if hit:
+                sim.tap_el(hit[0])
+                time.sleep(1.0)
+                return
+            sim.tap(52, 860)
+            time.sleep(0.8)
+        raise SystemExit(f"no tab {args[0]}")
     elif cmd == "shot":
         print(sim.shot(args[0]))
     elif cmd == "texts":
