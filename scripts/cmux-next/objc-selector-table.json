@@ -177,6 +177,9 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSButton call:viewWillMove/1": {
+   "27.0": true
+  },
   "NSButton get:acceptsFirstResponder/0": {
    "26.5.2": true,
    "26.7": true,
