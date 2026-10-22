@@ -112,13 +112,13 @@ def scene_window(name, seed=0):
         c.rect((0.68, 0.06, 1, 1), PANEL)  # the chat's Inspector
         c.text((0.69, 0.08, 0.99, 0.2), seed)
         if name == "composer":
-            c.text((0.25, 0.6, 0.6, 0.66), seed)  # the new chat's folder line
-            composer((0.24, 0.68, 0.64, 0.85))
+            c.text((0.3, 0.38, 0.6, 0.46), seed)  # the new chat's heading
+            composer((0.24, 0.78, 0.64, 0.92))
         else:
-            c.rect((0.4, 0.1, 0.65, 0.2), 160)  # the prompt bubble, right-aligned
-            c.text((0.41, 0.11, 0.64, 0.19), seed)
-            c.text((0.23, 0.26, 0.64, 0.5), seed)  # the reply
-            composer((0.24, 0.82, 0.64, 0.95))
+            c.rect((0.47, 0.06, 0.65, 0.14), 160)  # the prompt bubble, right-aligned
+            c.text((0.48, 0.07, 0.64, 0.13), seed)
+            c.text((0.23, 0.18, 0.44, 0.38), seed)  # the reply
+            composer((0.24, 0.82, 0.64, 0.92))
     return c
 
 
@@ -269,8 +269,32 @@ class ShippedScenes(unittest.TestCase):
             empty.save(shots / "transcript.png")
             transcript = vc.run(SMOKE / "scenes.json", shots, None, None)["scenes"][2]
             self.assertFalse(transcript["ok"], transcript)
-            self.assertTrue(any(f.startswith("messages is empty") for f in transcript["failures"]), transcript["failures"])
+            self.assertTrue(any(f.startswith("reply is empty") for f in transcript["failures"]), transcript["failures"])
             self.assertTrue(any(f.startswith("composer is empty") for f in transcript["failures"]), transcript["failures"])
+
+    def shipped_with(self, name, canvas):
+        config = json.loads((SMOKE / "scenes.json").read_text())
+        with tempfile.TemporaryDirectory() as tmp:
+            shots = Path(tmp)
+            for scene in config["scenes"]:
+                scene_window(scene).save(shots / f"{scene}.png")
+            canvas.save(shots / f"{name}.png")
+            report = vc.run(SMOKE / "scenes.json", shots, None, None)
+        return next(r for r in report["scenes"] if r["scene"] == name)
+
+    def test_a_chat_with_the_prompt_but_no_reply_fails(self):
+        c = scene_window("composer")  # sidebar, Inspector and composer, no heading
+        c.rect((0.22, 0.3, 0.66, 0.5), WHITE)
+        c.rect((0.47, 0.06, 0.65, 0.14), 160)
+        c.text((0.48, 0.07, 0.64, 0.13))
+        result = self.shipped_with("transcript", c)
+        self.assertEqual([f.split(":")[0] for f in result["failures"]], ["reply is empty"])
+
+    def test_a_new_chat_without_its_composer_fails(self):
+        c = scene_window("composer")
+        c.rect((0.22, 0.72, 0.66, 0.95), WHITE)  # the heading stays, the composer is gone
+        result = self.shipped_with("composer", c)
+        self.assertEqual([f.split(":")[0] for f in result["failures"]], ["composer is empty"])
 
     def test_every_pair_of_scenes_must_differ(self):
         config = json.loads((SMOKE / "scenes.json").read_text())

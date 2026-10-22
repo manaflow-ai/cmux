@@ -197,8 +197,8 @@ app's window (only the window, with `screencapture -l`) in three scenes:
 | Scene | How it gets there | What must be drawn |
 | --- | --- | --- |
 | `home` | `home.show` | the sidebar, the Chief chat and the Home composer under it, Home's New Tab |
-| `transcript` | a test-agent turn, `agent.openSessionWorkspace`, then `tab.focus` on its tab | the sidebar, the prompt and reply, the composer |
-| `composer` | `palette.newAgentChat` in the transcript's workspace, its pane zoomed (`toggleSplitZoom`) | the sidebar and the new chat's composer |
+| `transcript` | a test-agent turn, `agent.openSessionWorkspace`, then `tab.focus` on its tab | the sidebar, the prompt's bubble, the reply, the composer |
+| `composer` | `palette.newAgentChat` in the transcript's workspace, its pane zoomed (`toggleSplitZoom`) | the sidebar, the new chat's heading and its composer |
 
 The driver captures them in that order. The transcript waits until the window
 shows the session's workspace and that pane's selected tab is the session's,
@@ -233,13 +233,14 @@ scores below 0.75. With no reference, only the structural checks run.
   publishes, and `verify-recovered-nightly-next`, on the app in a recovered
   DMG. `publish-nightly` needs both jobs, so a failure publishes nothing. No
   variable skips it.
-- `nightly-next-canary.yml`, after publication, on every feed build. There it
-  only reports; the canary's verdict decides a pull. A pull request that
-  changes the visual smoke must pass it on the newest feed build.
+- `nightly-next-canary.yml`, after publication, on every feed build once this
+  workflow's copy on main has it (a schedule runs main's copy). There it only
+  reports; the canary's verdict decides a pull. A pull request that changes
+  the visual smoke must pass it on the newest feed build.
 
 Every run uploads the captures, `drive.json` and the judge's `report.md` as a
-`nightly-next-visual-smoke-*` artifact. A failed scene leaves `screen.png`, the
-whole display.
+`nightly-next-visual-smoke-*` artifact. When the driver could not reach a
+scene it also leaves `screen.png`, the whole display.
 
 ### Changing the gate
 

@@ -226,23 +226,22 @@ def main(argv=None):
                 raise Failed(f"agent.openSessionWorkspace ran but no settled tab shows session {session}: "
                              f"{json.dumps(where(args.socket))[:600]}")
             # openSessionWorkspace selects the tab in its pane but switches no workspace: show it.
-            focus = Client(args.socket, timeout=60).call("tab.focus", {"tab": tab["id"], "focus": True})
-            if "error" in focus:
-                raise Failed(f"tab.focus {tab['id']}: {json.dumps(focus['error'])[:400]}")
+            focus = act(args.socket, "tab.focus", target=f"tab:{tab['id']}")
             shown = canary.wait(lambda: shown_tab(args.socket, lambda t: t.get("id") == tab["id"]), 20)
             if not shown or shown["workspace"] == log.get("home_workspace"):
                 raise Failed(f"the window does not show session {session}'s tab {tab['id']} in its own workspace: "
                              f"{json.dumps(where(args.socket))[:600]}")
-            return {"session": session, "run": run, **shown}
+            return {"session": session, "run": run, "focus": focus, **shown}
         scene("transcript", transcript)
 
         def new_chat():
             before = set(canary.tabs(canary.snapshot(args.socket)))
             pane = log["scenes"]["transcript"]["reached"]["pane"]
             run = act(args.socket, "palette.newAgentChat", target=f"pane:{pane}")
-            shown = canary.wait(lambda: shown_tab(args.socket, lambda t: t.get("id") not in before), 20)
+            shown = canary.wait(lambda: shown_tab(args.socket, lambda t: t.get("id") not in before
+                                                  and t.get("kind") == "conversation"), 20)
             if not shown:
-                raise Failed(f"palette.newAgentChat ran but the window shows no new settled tab: "
+                raise Failed(f"palette.newAgentChat ran but the window shows no new settled chat tab: "
                              f"{json.dumps(where(args.socket))[:600]}")
             if shown["workspace"] == log.get("home_workspace"):
                 raise Failed(f"palette.newAgentChat opened its chat in Home ({shown['workspace']}), beside the Chief column")

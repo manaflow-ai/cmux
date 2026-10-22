@@ -34,7 +34,8 @@
       "distinct_from": ["home", "transcript"],
       "regions": {
         "sidebar": {"box": [0.01, 0.08, 0.17, 0.75], "min_edge": 0.006, "what": "the sidebar"},
-        "composer": {"box": [0.22, 0.3, 0.66, 1.0], "what": "the new chat's composer, left of its Inspector"}
+        "heading": {"box": [0.22, 0.3, 0.66, 0.5], "what": "the new chat's empty-state heading"},
+        "composer": {"box": [0.22, 0.76, 0.66, 0.93], "what": "the new chat's composer, left of its Inspector"}
       }
     },
     "transcript": {
@@ -42,8 +43,9 @@
       "distinct_from": ["home"],
       "regions": {
         "sidebar": {"box": [0.01, 0.08, 0.17, 0.75], "min_edge": 0.006, "what": "the sidebar, now listing the chat's workspace"},
-        "messages": {"box": [0.22, 0.08, 0.66, 0.75], "min_edge": 0.006, "what": "the prompt and the agent's reply, left of the chat's Inspector"},
-        "composer": {"box": [0.22, 0.75, 0.66, 1.0], "what": "the chat's composer"}
+        "prompt": {"box": [0.45, 0.05, 0.66, 0.16], "min_edge": 0.006, "what": "the prompt's bubble, at the right of the chat"},
+        "reply": {"box": [0.22, 0.16, 0.45, 0.4], "min_edge": 0.006, "what": "the agent's reply, at the left under the prompt"},
+        "composer": {"box": [0.22, 0.8, 0.66, 0.93], "what": "the chat's composer"}
       }
     }
   }
