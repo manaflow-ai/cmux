@@ -359,6 +359,7 @@ import { FolderChoice, showsFolderChoice } from "./FolderChoice";
 import { type FolderAsk, StartFolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
+import { MissingChat } from "./MissingChat";
 import { WatchBanner } from "./WatchBanner";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
@@ -821,12 +822,23 @@ const MessageRow = memo(
             <>
               <ChiefPromptBubble text={envelope ? envelope.task : (row.text ?? "")} />
               <PromptActions row={row} text={envelope ? envelope.task : (row.text ?? "")} />
+              {/* A Chief's bubble can clip its text, so its Send now keeps a line under it. */}
+              <PendingSteer row={row} send={editQueued} />
             </>
           ) : (
-            <UserBubble row={row} text={row.text ?? ""} />
+            // A waiting steer's Send now sits at the bubble's left, on its row (Claude's queued
+            // prompts; Leo, 2026-10-21): it never takes a line of its own. A prompt of images
+            // alone draws no bubble, so its Send now keeps the line under the images.
+            <>
+              <UserBubble
+                row={row}
+                text={row.text ?? ""}
+                pending={row.text?.trim() ? <PendingSteer row={row} send={editQueued} beside /> : undefined}
+              />
+              {!row.text?.trim() && <PendingSteer row={row} send={editQueued} />}
+            </>
           )}
           <DeliveryFailure row={row} />
-          <PendingSteer row={row} send={editQueued} />
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>
@@ -3761,6 +3773,15 @@ function AcpmuxPane() {
   const [continuing, setContinuing] = useState(false);
   const [reviewReload, setReviewReload] = useState(0);
   useEffect(() => setContinuing(false), [snapshot.sessionId]);
+  // Each time the pane says a tab's chat isn't available, the app's log records the chat and why
+  // (`chat.missing`, os_log category agentPane), so the views can be counted (Lawrence 2026-10-21).
+  useEffect(() => {
+    if (!snapshot.missingSession) return;
+    void callNative("chat.missing", {
+      session: snapshot.missingSession,
+      reason: snapshot.missingReason ?? "unknown",
+    }).catch(() => undefined);
+  }, [snapshot.missingSession, snapshot.missingReason]);
   const stopContinuing = useCallback(() => setContinuing(false), []);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   /// The subagent whose own view the transcript shows (its line in a group opens it), or none.
@@ -8077,9 +8098,12 @@ function AcpmuxPane() {
                 {!diffView && checkpoints.review}
                 {/* The lines under the header drop in from the top (ui/popupSurface.css `data-enter`). */}
                 {snapshot.missingSession && (
-                  <p className="acpmux-link-missing" role="alert" data-enter="top">
-                    {t("link.sessionMissing")}
-                  </p>
+                  <MissingChat
+                    session={snapshot.missingSession}
+                    {...(machineName ? { machine: machineName } : {})}
+                    onResume={showAllChats}
+                    onClose={() => void callNative("pane.action", { id: "closeTab" }).catch(() => undefined)}
+                  />
                 )}
                 {snapshot.liveChat && (
                   <LiveChatChoice

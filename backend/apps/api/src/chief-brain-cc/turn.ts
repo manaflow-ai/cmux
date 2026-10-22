@@ -9,6 +9,7 @@ import { isClaude, OPUS } from "../model-gateway/routes.ts"
 import { netScript, patchNet, readNet } from "./net.ts"
 import { ccSandbox } from "./sandbox.ts"
 import { stageAttachments } from "./attachments.ts"
+import { mergeTurnFiles, toolsOf } from "./tools.ts"
 import { BOOT_MS, CcError, createVm, execRoot, mintTailnetKey, removeVm, vmName, vmNetwork } from "./vm.ts"
 
 /**
@@ -65,7 +66,11 @@ outlive this turn (12 h, paused when idle), for long work and a disk that stays.
 Network: by default you reach the public Internet over IPv4 and IPv6 with DNS, and the tailnet; private
 addresses and other local ports are closed. \`chief-net show\`, \`chief-net set internet=on|off dns=on|off
 tailnet=on|off local=on|off\`, \`chief-net allow|deny|unallow|undeny HOST-OR-RANGE...\`, \`chief-net reset\`
-change it for this machine at once and for your next turns.`
+change it for this machine at once and for your next turns.
+Your own tools: \`chief-tools put PATH FILE\` keeps a file for all your next turns and writes it here now;
+\`chief-tools ls\`, \`chief-tools rm PATH\`. PATH is .local/bin/NAME (a command on your PATH),
+.claude/skills/NAME/SKILL.md (a skill), .claude/agents/NAME.md or .chief/tools/...; at most 64 KB a file,
+256 KB in all. Add or fix a tool this way instead of waiting for a new machine image.`
 
 /** The Chief's tool files (CHIEF_CC_TURN_FILES): relative paths under /home/chief to text, or {} when unset or not well formed. */
 export const turnFiles = (raw: string | undefined): Record<string, string> => {
@@ -197,8 +202,9 @@ export async function ccTurn(b: ChiefBrainDO, id: string, blocks: ReadonlyArray<
         max_ms: RUN_MS,
         net,
         provider: await vmNetwork(env, vm),
-        // The agent user's tools: written as its files by run.mjs (root) before Claude Code starts.
-        files: turnFiles(env.CHIEF_CC_TURN_FILES),
+        // The agent user's tools: written as its files by run.mjs (root) before Claude Code starts. The Chief's own
+        // tools (chief-tools, tools.ts) come after the set ones and never on a token path.
+        files: mergeTurnFiles(turnFiles(env.CHIEF_CC_TURN_FILES), await toolsOf(env, agent).ccToolFiles()),
         github_token: env.CHIEF_CC_GITHUB_TOKEN ?? null
       }
       input.prompt = tail(blocks.join("\n\n") + missingNote, STDIN_BYTES - enc.encode(JSON.stringify(input)).length)
@@ -277,6 +283,9 @@ export async function ccNotes(b: ChiefBrainDO, token: string, body: { run?: unkn
     writeConfig(b.sql, { cc_net: JSON.stringify(r.net) })
     return { status: 200, json: { net: r.net, script: netScript(r.net) } }
   }
+  // The Chief's `chief-tools` (tools.ts): its own tools, kept per Chief for its next turns.
+  const action = (body.vm as { action?: unknown } | null | undefined)?.action
+  if (typeof action === "string" && action.startsWith("tools_")) return toolsOf(b.doEnv, b.config().agent!).ccTools(body.vm)
   // The Chief's `chief-vm` (run.mjs): its own sandbox VMs (sandbox.ts).
   if (body.vm !== undefined) return ccSandbox(b, b.config().agent!, body.vm)
   const live = liveOf(b.doCtx)
